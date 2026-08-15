@@ -1,0 +1,28 @@
+# Swift
+.build/
+DerivedData/
+*.xcworkspace
+*.xcodeproj
+Package.resolved
+
+# OS
+.DS_Store
+*.swp
+*.swo
+*~
+
+# IDE
+.idea/
+.vscode/
+*.sw[mnc]
+!*.swift
+
+# Environment
+.env
+*.env.local
+
+# Runtime data
+~/.arc/
+
+# Logs
+*.log
