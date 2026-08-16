@@ -36,73 +36,156 @@ These two laws are not goals. They are not aspirations. They are **requirements*
 
 This is the contract. This is the foundation. Everything else is negotiable.
 
-## Protocols-First Design
+## Instance Relationships
 
-This project has a strict ordering for how abstractions are built:
+A critical architectural property that must be clear at every level: which components are **singletons** (1 instance per process) and which are **N instances** (per-session, per-request, per-platform). The heap reference graph determines lifecycle, cleanup, and isolation.
 
-**Step 1 — Protocol.** Every abstraction starts as a protocol. The protocol captures the contract without committing to any implementation strategy. It lives in its own file, documented with the semantics of each requirement.
+```
+Legend:
+  [1]  = exactly 1 instance per process (singleton)
+  [N]  = N instances, one per active session
+  [P]  = P instances, one per platform adapter
+  [*]  = unbounded (per-request, per-task, etc.)
+```
 
-**Step 2 — Concrete types.** Structs and classes conform to protocols. Multiple conformances are encouraged — a protocol with one implementation is often a sign the abstraction isn't right yet. Protocols never depend on concrete types; concrete types depend on protocols.
+### Top-Level Instance Graph
 
-**Step 3 — Macros (only when needed).** Only after the protocol proves unwieldy in practice — too much boilerplate, too many conformances, too much repetition — do we introduce a macro to compress the syntax. The macro is a convenience, not a design tool. It must not hide the protocol's contract.
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                     GatewayService [1]                            │
+│  (Service — owns the ServiceGroup, manages lifecycle)             │
+│                                                                   │
+│  ├── HTTPServerService [1]                                        │
+│  │   (Service — Hummingbird HTTP server)                          │
+│  │                                                                │
+│  ├── TelegramAdapter [P]                                          │
+│  │   (Service — one per platform with a bot token)                │
+│  │                                                                │
+│  ├── MCPServerAdapter [1]                                         │
+│  │   (Service — MCP protocol server, stdio or TCP)                │
+│  │   └── MCPServer [1]                                            │
+│  │       └── DynamicMCPTool [*]                                   │
+│  │           (one per ToolEntry in the registry)                  │
+│  │                                                                │
+│  ├── SessionRegistry [1] (actor)                                  │
+│  │   └── SessionAgent [N] (actor, Service)                        │
+│  │       └── ArcAgent [N] (actor)                                 │
+│  │           ├── HTTPClient [N] (shared event loop group)         │
+│  │           ├── OpenAICompatibleClient [N]                       │
+│  │           ├── CompileTimeToolRegistry [1] (shared reference)   │
+│  │           ├── DelegationManager [N]                            │
+│  │           │   └── SubagentRecord [*] (per spawned child)       │
+│  │           ├── ApprovalManager [N]                              │
+│  │           ├── LMDBSessionStore [N] (per-session .mdb)          │
+│  │           └── LMDBMemoryProvider [1] (shared global .mdb)      │
+│  │                                                                │
+│  └── DeliveryManager [1] (actor)                                  │
+│      └── PlatformAdapter [P] references (weak, for routing)       │
+│                                                                    │
+│  Shared across all agents:                                        │
+│  ├── CompileTimeToolRegistry [1] (struct, no heap)                │
+│  ├── LMDBManager [1] (enum, no heap — static methods)             │
+│  ├── LMDBMemoryProvider [1] (struct, shared global .mdb)          │
+│  └── CredentialPool [1] (actor, shared credential rotation)       │
+└──────────────────────────────────────────────────────────────────┘
+```
 
-This ordering is load-bearing. A macro that papers over a bad protocol design hides the problem and makes it harder to fix. The protocol must be right first. If the protocol is right, the macro is optional. If the protocol is wrong, no macro can save it.
+### Heap Reference Rules
 
-### Examples of the pattern
+| Component | Count | Heap | Lifecycle |
+|---|---|---|---|
+| `GatewayService` | 1 | struct on stack | Process lifetime |
+| `HTTPServerService` | 1 | class (Service) | Process lifetime |
+| `TelegramAdapter` | P | class (Service) | Process lifetime |
+| `MCPServerAdapter` | 1 | class (Service) | Process lifetime |
+| `MCPServer` | 1 | class (Service) | Process lifetime |
+| `SessionRegistry` | 1 | actor | Process lifetime |
+| `SessionAgent` | N | actor (Service) | Session lifetime (idle → cancelled) |
+| `ArcAgent` | N | actor | Same as SessionAgent |
+| `HTTPClient` | N | class | Same as SessionAgent (shutdown in defer) |
+| `LLMClient` | N | struct | Same as SessionAgent |
+| `DelegationManager` | N | actor | Same as parent SessionAgent |
+| `SubagentRecord` | * | struct on heap (actor state) | Child task lifetime |
+| `DeliveryManager` | 1 | actor | Process lifetime |
+| `CompileTimeToolRegistry` | 1 | struct (no heap) | Process lifetime |
+| `LMDBManager` | 1 | enum (no heap) | Process lifetime |
+| `CredentialPool` | 1 | actor | Process lifetime |
 
-- `ToolRegistry` is a protocol. `CompileTimeToolRegistry` and `PluginToolRegistry` are concrete conformances. A `#tool` macro may eventually generate the boilerplate for registering a tool, but only after the registration API is proven stable.
+### Key Relationships
 
-- `LLMClient` is a protocol. `OpenAICompatibleClient`, `AnthropicMessagesClient`, and `GeminiClient` are concrete conformances. No macro needed — the protocol is the right level of abstraction.
+- **1 GatewayService → N SessionAgents.** The gateway creates session agents on demand. Each session agent is a child Service in the lifecycle tree. When idle, the Service Lifecycle framework cancels the agent's Task, `defer` blocks clean up the HTTPClient and per-session LMDB environment, and the agent removes itself from the registry.
 
-- `SessionStore` is a protocol. `LMDBStore` is a concrete conformance. If a second implementation emerges (e.g. `JSONFileSessionStore` for debugging), the protocol is validated. If not, the protocol may be collapsed into the concrete type.
+- **1 SessionAgent → 1 ArcAgent.** Each session has exactly one agent actor. The agent is created by the session agent's `run()` method and lives for the session's duration.
+
+- **1 ArcAgent → 1 HTTPClient.** Each agent creates its own HTTPClient. All HTTPClients share the `.singleton` event loop group — they are connection-pool objects, not threads. The HTTPClient is shut down in the session agent's `defer` block.
+
+- **1 ArcAgent → 1 LMDBSessionStore.** Each session has its own `.mdb` file. The store is created per-session and the environment is closed when the session ends.
+
+- **N ArcAgents → 1 LMDBMemoryProvider.** Memory is shared across all sessions (global `.mdb`). The memory provider is a struct — no heap allocation, no reference counting.
+
+- **N ArcAgents → 1 CompileTimeToolRegistry.** The tool registry is a struct with no heap storage. All agents share the same tool definitions by value.
+
+- **N ArcAgents → 1 CredentialPool.** Credentials are shared across all agents. The pool is an actor — credential exhaustion is tracked globally.
 
 ---
 
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                     CLI / Gateway                        │
-│  (Swift Argument Parser / Hummingbird HTTP server)       │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────────┐
-│                   Agent Loop (Actor)                     │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐  │
-│  │ Prompt   │  │ LLM Call │  │ Tool Dispatch        │  │
-│  │ Builder  │─▶│ (OpenAI  │─▶│ (Registry + Handler) │  │
-│  │          │  │  Compat) │  │                      │  │
-│  └──────────┘  └──────────┘  └──────────────────────┘  │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-        ┌──────────────┼──────────────┐
-        ▼              ▼              ▼
-┌──────────────┐ ┌──────────┐ ┌──────────────┐
-│ Tool Registry│ │ Provider │ │ Session      │
-│ (Compile-time│ │ Profiles │ │ Store (LMDB) │
-│  + Plugins)  │ │          │ │              │
-└──────────────┘ └──────────┘ └──────────────┘
-        │              │              │
-        ▼              ▼              ▼
-┌──────────────┐ ┌──────────┐ ┌──────────────┐
-│ Delegation   │ │ Credential│ │ Memory       │
-│ (Subagent    │ │ Pool     │ │ Manager      │
-│  Spawning)   │ │ (Actor)  │ │              │
-└──────────────┘ └──────────┘ └──────────────┘
-        │                             │
-        ▼                             ▼
-┌──────────────┐              ┌──────────────┐
-│ Kanban Board │              │ Skills       │
-│ (LMDB)      │              │ System       │
-└──────────────┘              └──────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          GatewayService [1]                                  │
+│              (Service — manages lifecycle of all child services)             │
+│                                                                              │
+│  ┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐  │
+│  │ HTTPServerService[1]│  │ TelegramAdapter [P] │  │ MCPServerAdapter[1] │  │
+│  │ (Hummingbird)       │  │ (long polling)      │  │ (MCP protocol)      │  │
+│  │ POST /v1/chat       │  │                     │  │ stdio / TCP         │  │
+│  │ GET  /health        │  │                     │  │                     │  │
+│  └─────────┬───────────┘  └─────────┬───────────┘  └─────────┬───────────┘  │
+│            │                        │                        │              │
+│            ▼                        ▼                        ▼              │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                     SessionRegistry [1] (actor)                      │   │
+│  │  Routing table: sessionID → SessionAgent (no cache, no sweep)        │   │
+│  └────────────────────────────────┬─────────────────────────────────────┘   │
+│                                   │                                          │
+│                                   ▼                                          │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                    SessionAgent [N] (actor, Service)                  │   │
+│  │  ┌────────────────────────────────────────────────────────────────┐  │   │
+│  │  │  ArcAgent [N] (actor)                                         │  │   │
+│  │  │  ┌──────────┐  ┌──────────┐  ┌────────────────────────────┐  │  │   │
+│  │  │  │ Prompt   │  │ LLM Call │  │ Tool Dispatch              │  │  │   │
+│  │  │  │ Builder  │─▶│ (OpenAI  │─▶│ (Registry + Handler)       │  │  │   │
+│  │  │  │          │  │  Compat) │  │                            │  │  │   │
+│  │  │  └──────────┘  └──────────┘  └────────────────────────────┘  │  │   │
+│  │  └────────────────────────────────────────────────────────────────┘  │   │
+│  │                                                                       │   │
+│  │  Per-session resources (owned, shut down in defer):                   │   │
+│  │  ├── HTTPClient [1] (.singleton event loop group)                     │   │
+│  │  ├── OpenAICompatibleClient [1]                                       │   │
+│  │  ├── DelegationManager [1] (actor)                                    │   │
+│  │  ├── ApprovalManager [1]                                              │   │
+│  │  └── LMDBSessionStore [1] (per-session .mdb)                         │   │
+│  │                                                                       │   │
+│  │  Shared (no heap, or shared actor):                                   │   │
+│  │  ├── CompileTimeToolRegistry [1] (struct, no heap)                    │   │
+│  │  ├── LMDBMemoryProvider [1] (struct, global .mdb)                     │   │
+│  │  └── CredentialPool [1] (shared actor)                                │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  DeliveryManager [1] (actor)                                         │   │
+│  │  Routes OutgoingMessage → correct PlatformAdapter by ChatTarget      │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## Subsystem Architecture
 
-### 1. Agent Loop (`ArcAgent` Actor)
+### 1. Agent Loop (`ArcAgent` Actor) [N — one per active session]
 
 **Purpose:** The central conversation loop that drives one user turn through the agent.
 
@@ -113,7 +196,7 @@ ArcAgentState:
   - model: String
   - provider: String
   - baseURL: URL
-  - apiKey: String?        // resolved at init, never stored
+  - apiKey: ***        // resolved at init, never stored
   - apiMode: APIMode        // chat_completions | messages_api | gemini | ...
   - enabledToolsets: Set<String>
   - disabledToolsets: Set<String>
@@ -121,8 +204,7 @@ ArcAgentState:
   - toolSchemas: [[String: Any]]   // OpenAI function-calling schema array
   - messageHistory: [Message]
   - sessionID: String
-  - sessionDB: SessionDatabase
-  - credentialPool: CredentialPool?
+  - credentialPool: CredentialPool?     // shared actor reference [1]
   - memoryManager: MemoryManager
   - delegateDepth: Int
   - iterationBudget: IterationBudget
@@ -135,7 +217,7 @@ ArcAgentState:
 1. Build system prompt
    - Agent identity + platform hints
    - Skills index (loaded from ~/.arc/skills/)
-   - Memory (MEMORY.md + USER.md)
+   - Memory (MEMORY.md + USER.md) — from shared LMDBMemoryProvider [1]
    - Context files (AGENTS.md, .cursorrules)
    - Ephemeral system prompt (if any)
 
@@ -167,21 +249,22 @@ ArcAgentState:
    - Go to step 2
 
 7. Post-turn hooks
-   - Memory write (if enabled)
+   - Memory write (if enabled) — to shared LMDBMemoryProvider [1]
    - Background review trigger
-   - Session persistence flush
+   - Session persistence flush — to per-session LMDBSessionStore [N]
 ```
 
 **Key design decisions:**
 - The agent is an **actor** so all state mutations are serialized. Tool handlers that need I/O run on the cooperative thread pool via `Task { await ... }`.
 - Callbacks (progress display, streaming) use `AsyncStream` or `AsyncSequence` so the CLI/gateway can observe without blocking the loop.
 - The iteration budget is checked before every LLM call and every tool dispatch.
+- Each agent has its own HTTPClient [N]. All HTTPClients share the `.singleton` event loop group [1] — they are connection-pool objects, not threads.
 
 ---
 
 ### 2. Tool System
 
-**Registry (`ToolRegistry`):**
+**Registry (`ToolRegistry`):** [1 — compile-time singleton, struct, no heap]
 
 ```swift
 struct ToolEntry {
@@ -260,7 +343,7 @@ func buildToolSchemas(enabled: Set<String>, disabled: Set<String>) -> [[String: 
 
 ---
 
-### 3. Provider System
+### 3. Provider System [1 — shared configuration, no heap]
 
 **ProviderProfile:**
 
@@ -307,12 +390,12 @@ struct GeminiClient: LLMClient { ... }                // Google-specific
 
 The provider profile selects the client implementation. Most providers use `OpenAICompatibleClient` with different base URLs, headers, and auth.
 
-**Credential pooling:**
+**Credential pooling:** [1 — shared actor]
 
 ```swift
 actor CredentialPool {
     struct Entry {
-        let apiKey: String
+        let apiKey: ***
         var isExhausted: Bool
         var exhaustedUntil: Date?
     }
@@ -328,121 +411,88 @@ actor CredentialPool {
 
 ---
 
-### 4. Session Management
+### 4. Session Management [N — one per-session .mdb file]
 
-ARC Agent uses **LMDB** via **QuickLMDB** for all persistent storage. Instead of a relational database with tables, joins, and a query planner, each subsystem gets its own LMDB environment (`.mdb` file) containing typed key-value databases. The key structure encodes the access pattern — the B-tree cursor IS the query plan.
-
-**Environments:**
-
-```
-~/.arc/
-├── arc-sessions.mdb     # Session metadata + messages + full-text index
-├── arc-kanban.mdb       # Kanban board tasks, dependencies, comments
-└── arc-config.mdb       # Config, memory, cron jobs, credentials
-```
-
-**Why LMDB over a relational store:**
-
-- **Zero-copy reads** — readers get a direct pointer into the memory-mapped file. A session lookup is a single B-tree walk, then a pointer return. No result-set materialization, no copying.
-- **No query planner** — the key structure IS the query plan. Every access pattern is known at compile time. No `EXPLAIN ANALYZE`, no index selection, no table-scan surprises.
-- **No schema migrations** — adding a new index is creating a new named database. Old data stays untouched. No `ALTER TABLE` locking a production database.
-- **Reader-writer concurrency** — unlimited concurrent readers with zero locking. Writers never block readers. Maps perfectly to the gateway model (many concurrent sessions reading, one cron tick writing).
-- **Single file per environment** — backup is `cp` the `.mdb` file. No dump/restore, no VACUUM, no WAL checkpointing.
-- **Compile-time type safety** — `Database.Strict<K,V>` catches key/value type mismatches at build time. A `Strict<SessionID, SessionMeta>` database physically cannot store a kanban task.
+ARC Agent uses **LMDB** for all persistent storage via a thin wrapper around the raw C API (`CLMDB`). Each session gets its own `.mdb` file. The global `.mdb` holds shared state (memory, skills index).
 
 **Environment layout:**
 
 ```
+~/.arc/
+├── global.mdb              # Shared state (memory, skills index, config)
+│   ├── memory              # user + agent memory entries
+│   └── skills              # skills index
+└── sessions/
+    ├── <session-id>.mdb    # One per session — isolated, self-contained
+    │   ├── meta            # session metadata (model, provider, timestamps)
+    │   └── messages        # ordered message history (sequence number → JSON)
+    ├── <session-id>.mdb
+    └── ...
+```
+
+**Per-session .mdb contents:**
+
+```
 ┌─────────────────────────────────────────────────────────────┐
-│  arc-sessions.mdb                                           │
-│  maxReaders: 64  |  maxDBs: 16  |  mapSize: dynamic        │
-│                                                             │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │ sessions: Strict<SessionID, SessionMeta>              │   │
-│  │ Key:   UUID (16 bytes, big-endian)                    │   │
-│  │ Value: created_at + updated_at + model + provider     │   │
-│  │        + message_count (fixed-size struct)            │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                                                             │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │ messages: DupSort<SessionID, MessageHeader>           │   │
-│  │ Key:   SessionID (UUID, 16 bytes)                     │   │
-│  │ Value: role_byte + timestamp + body_len + body_offset │   │
-│  │ Dup:   multiple messages per session, insertion order │   │
-│  │ Scan:  cursor.set_range(sessionID) → iterate until    │   │
-│  │        key no longer starts with that SessionID       │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                                                             │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │ msg_bodies: Strict<MessageID, Body>                   │   │
-│  │ Key:   hash(SessionID + sequence_number, 16 bytes)    │   │
-│  │ Value: variable-length message text                   │   │
-│  │ Note:  Bodies stored separately so header scans are   │   │
-│  │        fast — no variable-length data in the dup sort │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                                                             │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │ sessions_by_source: DupSort<SourceTag, SessionID>     │   │
-│  │ Key:   "cli" | "telegram" | "api" | "discord" | ...  │   │
-│  │ Value: SessionID (UUID, 16 bytes)                     │   │
-│  │ Use:   list all Telegram sessions                     │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                                                             │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │ word_index: DupSort<WordHash, MessageLoc>             │   │
-│  │ Key:   blake2(word, 4 bytes)                          │   │
-│  │ Value: (SessionID + sequence_number)                  │   │
-│  │ Use:   full-text search via inverted index            │   │
-│  └──────────────────────────────────────────────────────┘   │
+│  <session-id>.mdb                                            │
+│  maxReaders: 8  |  maxDBs: 8  |  mapSize: 50MB             │
+│                                                              │
+│  meta database:                                              │
+│    "session_meta" → JSON(SessionMeta)                        │
+│      { createdAt, updatedAt, model, provider }               │
+│                                                              │
+│  messages database:                                          │
+│    "0" → JSON(Message)   ← first message                     │
+│    "1" → JSON(Message)   ← second message                    │
+│    "2" → JSON(Message)   ← third message                     │
+│    ...                                                        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Composite key patterns (inspired by pricedb2's DateUTCPairHash):**
+**Global .mdb contents:**
 
 ```
-SessionMessageKey = SessionID (16 bytes) + SequenceNumber (8 bytes BE)
-  → All messages for a session are contiguous in B-tree order.
-    cursor.set_range(SessionID) and iterate until the key prefix changes.
-
-MessageBodyKey = blake2b(SessionID + seq_num, 16 bytes)
-  → Direct lookup of a specific message body by content hash.
-
-WordIndexKey = blake2b(word, 4 bytes)
-  → 4-byte hash is small enough for fast B-tree comparison,
-    large enough to keep collisions rare in practice.
+┌─────────────────────────────────────────────────────────────┐
+│  global.mdb                                                  │
+│  maxReaders: 64  |  maxDBs: 16  |  mapSize: 100MB           │
+│                                                              │
+│  memory database:                                            │
+│    "user"  → "User prefers concise responses..."             │
+│    "agent" → "Project uses pytest with xdist..."             │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**Key operations:**
+**Why per-session .mdb over a single monolithic file:**
 
-- `createSession()` — generate UUID, put into `sessions` database
-- `appendMessage()` — put header into `messages` (DupSort), put body into `msg_bodies`, update session metadata
-- `getSessionMessages(id)` — `cursor.set_range(id)` on `messages`, iterate until key prefix changes, look up bodies from `msg_bodies`
-- `searchSessions(query)` — tokenize query, look up each token in `word_index`, intersect result sets by MessageLoc
-- `listSessionsBySource(source)` — `cursor.set(source)` on `sessions_by_source`, iterate all dup values
+- **Session isolation** — one session with 10,000 turns doesn't slow down anything else
+- **Natural FD management** — only active sessions have their `.mdb` open. Idle sessions are closed.
+- **Trivial backup** — `cp <id>.mdb /backup/`. The file is always consistent (MVCC).
+- **No compaction** — each session is finite. When the session ends, the file stops growing.
+- **Parallel access** — different sessions don't contend on the same LMDB environment.
 
 **Transaction pattern:**
 
 ```swift
-// All reads are read-only transactions — zero contention with writers.
-func getSessionMessages(id: SessionID) throws -> [Message] {
-    let tx = try Transaction(env: sessionsEnv, readOnly: true)
-    return try messages.cursor(tx: tx) { cursor in
-        var results: [Message] = []
-        var cursorKey = id.rawBytes  // prefix scan
-        try cursor.setRange(key: cursorKey)
-        while cursorKey.hasPrefix(id.rawBytes) {
-            let header: MessageHeader = try cursor.value()
-            let body: String = try msg_bodies.get(key: header.bodyKey, tx: tx)
-            results.append(Message(header: header, body: body))
-            try cursor.next()
+// All operations use the thin CLMDB wrapper, bridged to async via GCD.
+// LMDB operations are synchronous (memory-mapped) — they run on a GCD
+// worker queue, not the cooperative thread pool.
+
+func appendMessage(sessionID: String, message: Message) async throws {
+    try await withCheckedThrowingContinuation { continuation in
+        queue.async {
+            do {
+                let env = try LMDBManager.openSession(sessionID)
+                defer { LMDB.envClose(env) }
+                let txn = try LMDB.txnBeginWrite(env: env)
+                defer { LMDB.txnAbort(txn) }
+                // ... LMDB operations ...
+                try LMDB.txnCommit(txn)
+                continuation.resume()
+            } catch { continuation.resume(throwing: error) }
         }
-        return results
     }
-    // Transaction auto-closes — no cleanup needed.
 }
 ```
-- `compressSession(id)` — create compressed summary, branch to new parent_session_id
-- `exportSession(id)` — JSONL export
 
 ---
 
@@ -451,20 +501,27 @@ func getSessionMessages(id: SessionID) throws -> [Message] {
 **Architecture:**
 
 ```
-GatewayService (Swift Service Lifecycle)
-├── HTTPServer (Hummingbird)
+GatewayService [1] (Service — manages all child services)
+│
+├── HTTPServerService [1] (Service — Hummingbird HTTP server)
 │   ├── POST /v1/chat          — API server endpoint
 │   └── GET  /health           — health check
-├── PlatformAdapters
-│   ├── TelegramAdapter        — Bot API (long polling or webhook)
-│   ├── DiscordAdapter         — Gateway websocket + REST
-│   ├── SlackAdapter           — Socket mode or Events API
-│   └── ... (one per platform)
-├── AgentCache (actor)
-│   └── LRU<SessionID, ArcAgent> with idle TTL eviction
-└── Dispatcher
-    ├── SessionRouter          — maps incoming messages to sessions
-    └── DeliveryManager        — sends responses back to platforms
+│
+├── TelegramAdapter [P] (Service — one per bot token)
+│   └── Long-polling Bot API
+│
+├── MCPServerAdapter [1] (Service — MCP protocol server)
+│   ├── StdioTransport (Claude Desktop)
+│   └── TCPTransport (:8081, remote MCP clients)
+│
+├── SessionRegistry [1] (actor — routing table, no cache)
+│   └── SessionAgent [N] (actor, Service — one per active session)
+│       └── ArcAgent [N] (actor)
+│           ├── HTTPClient [N] (.singleton event loop group)
+│           ├── LMDBSessionStore [N] (per-session .mdb)
+│           └── DelegationManager [N] (actor)
+│
+└── DeliveryManager [1] (actor — routes responses to platform adapters)
 ```
 
 **PlatformAdapter protocol:**
@@ -479,24 +536,53 @@ protocol PlatformAdapter: Service {
 }
 ```
 
-**Agent cache:**
+**SessionRegistry [1] — routing table, not a cache:**
+
+The registry holds a dictionary of active `SessionAgent` Services. It is NOT a cache — agents are live Services managed by the Service Lifecycle framework. LMDB is the single source of truth for all durable data.
 
 ```swift
-actor AgentCache {
-    private var cache: LRUCache<String, ArcAgent>
-    private var idleTTL: Duration
+actor SessionRegistry {
+    private var agents: [String: SessionAgent] = [:]
+    private var continuations: [String: AsyncStream<IncomingMessage>.Continuation] = [:]
     
-    func getOrCreate(sessionID: String, factory: () async -> ArcAgent) async -> ArcAgent
-    func evict(sessionID: String)
-    func sweepIdle()             // periodic task
+    func getOrCreate(sessionID: String) -> AsyncStream<IncomingMessage>.Continuation
+    func remove(sessionID: String)
+}
+```
+
+**SessionAgent [N] — long-lived Service per session:**
+
+Each session agent runs for the lifetime of one chat session. It receives messages via an `AsyncStream`, processes them through the agent loop, and sends responses back through the `DeliveryManager`. When idle (no messages arrive), the Service Lifecycle framework cancels the agent's Task, `defer` blocks clean up the HTTPClient and per-session LMDB environment, and the agent removes itself from the registry.
+
+```swift
+actor SessionAgent: Service {
+    let sessionID: String
+    private let incomingMessages: AsyncStream<IncomingMessage>
+    private let deliveryManager: DeliveryManager  // [1] shared reference
+    private let registry: SessionRegistry         // [1] shared reference
+    
+    func run() async throws {
+        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+        // ... create ArcAgent, set up client, process messages ...
+        // defer: httpClient.shutdown(), registry.remove(sessionID)
+    }
+}
+```
+
+**DeliveryManager [1] — routes responses:**
+
+```swift
+actor DeliveryManager {
+    private var adapters: [String: any PlatformAdapter] = [:]
+    
+    func register(adapter: any PlatformAdapter, for platform: String)
+    func send(message: OutgoingMessage, to target: ChatTarget) async throws
 }
 ```
 
 ---
 
-### 6. Security / Approval System
-
-**Architecture:**
+### 6. Security / Approval System [N — one per ArcAgent]
 
 ```swift
 actor ApprovalManager {
@@ -513,17 +599,17 @@ actor ApprovalManager {
 **Dangerous command detection:**
 
 ```swift
-let dangerousPatterns: [NSRegularExpression] = [
-    try! NSRegularExpression(pattern: "rm\\s+-rf"),
-    try! NSRegularExpression(pattern: ">\\s*/dev/"),
-    try! NSRegularExpression(pattern: "chmod\\s+777"),
-    try! NSRegularExpression(pattern: ":(){ :\\|:& };:"),  // fork bomb
+let dangerousPatterns: [Regex] = [
+    try! Regex("rm\\s+-rf"),
+    try! Regex(">\\s*/dev/"),
+    try! Regex("chmod\\s+777"),
+    try! Regex(":(){ :\\|:& };:"),  // fork bomb
     // ... 50+ patterns
 ]
 
 func detectDangerousCommand(_ command: String) -> DangerLevel? {
     for pattern in dangerousPatterns {
-        if pattern.firstMatch(in: command) != nil {
+        if command.contains(pattern) {
             return .dangerous
         }
     }
@@ -541,9 +627,7 @@ Frozen at process start from a command-line flag or environment variable. Cannot
 
 ---
 
-### 7. Delegation System
-
-**Architecture:**
+### 7. Delegation System [N — one per ArcAgent]
 
 ```swift
 actor DelegationManager {
@@ -588,9 +672,7 @@ The parent can inject an out-of-band message into a running child via an `AsyncS
 
 ---
 
-### 8. Cron Scheduler
-
-**Architecture:**
+### 8. Cron Scheduler [1 — singleton Service]
 
 ```swift
 struct CronJob: Codable, Sendable {
@@ -639,9 +721,7 @@ When a job has a monitor script, the script runs first. Its output is hashed. If
 
 ---
 
-### 9. Kanban Board
-
-**Architecture:**
+### 9. Kanban Board [1 — singleton Service]
 
 ```swift
 struct KanbanTask: Codable, Sendable {
@@ -676,261 +756,81 @@ A background service that polls for `ready` tasks, atomically claims them (statu
 
 ---
 
-### 10. Memory System
-
-**Architecture:**
+### 10. Memory System [1 — shared global .mdb]
 
 ```swift
 protocol MemoryProvider: Sendable {
-    func read() async throws -> String
-    func append(_ text: String) async throws
-    func replace(old: String, new: String) async throws
+    func readMemory() async throws -> String
+    func readUser() async throws -> String
+    func appendMemory(_ text: String) async throws
+    func replaceMemory(old: String, new: String) async throws
+    func appendUser(_ text: String) async throws
+    func replaceUser(old: String, new: String) async throws
 }
 
-struct FileMemoryProvider: MemoryProvider {
-    private let memoryPath: URL     // ~/.arc/memories/MEMORY.md
-    private let userPath: URL       // ~/.arc/memories/USER.md
-    
-    func read() async throws -> String { ... }
-    func append(_ text: String) async throws { ... }
-    func replace(old: String, new: String) async throws { ... }
-}
+struct LMDBMemoryProvider: MemoryProvider { ... }     // LMDB-backed [1]
+struct FileMemoryProvider: MemoryProvider { ... }      // File-backed (legacy)
 ```
 
 **Memory injection into system prompt:**
 
-The memory manager reads both `MEMORY.md` and `USER.md` at session start and appends them to the system prompt. Memory is updated during post-turn hooks when the agent calls the `memory` tool.
+The agent reads memory from the shared `LMDBMemoryProvider` at the start of each turn and injects it into the system prompt. Memory is shared across all sessions — changes made in one session are visible in all others.
 
 ---
 
-### 11. Skills System
+## Phase Checklist
 
-**Architecture:**
+### Phase 1: Core Agent (Complete)
 
-```swift
-struct Skill: Sendable {
-    let name: String
-    let description: String
-    let content: String             // full SKILL.md content
-    let tags: [String]
-    let category: String?
-    let path: URL
-}
-```
+- [x] Tool registry protocol + compile-time implementation
+- [x] JSON Schema generation for OpenAI function-calling
+- [x] 5 built-in tools (read_file, write_file, terminal, web_search, web_extract)
+- [x] LLM client protocol + OpenAI-compatible implementation
+- [x] Agent loop actor with tool dispatch
+- [x] Session store protocol + file-backed implementation
+- [x] CLI entry point with ArgumentParser
+- [x] 13 tests, all passing
 
-**Skill discovery:**
+### Phase 2: Production Readiness (Complete)
 
-```swift
-func discoverSkills(in directory: URL) -> [Skill] {
-    // Scan for SKILL.md files under ~/.arc/skills/
-    // Parse YAML frontmatter
-    // Return sorted by name
-}
-```
+- [x] Provider profiles (OpenAI, Anthropic, DeepSeek, Groq, etc.)
+- [x] Credential pooling actor
+- [x] Memory provider protocol + file-backed implementation
+- [x] Skill discovery and injection
+- [x] Retry handler with exponential backoff
+- [x] Approval manager with Swift Regex
+- [x] Config loading/saving
+- [x] Interactive REPL with slash commands
+- [x] 75 tests, all passing
 
-**Skills index in system prompt:**
+### Phase 3: Multi-Agent (Complete)
 
-The prompt builder reads all skill descriptions (first 57 chars) and formats them as a compact index that the agent scans before deciding to load a skill. Skills are loaded on demand via the `skill_view` tool.
+- [x] Delegation system (subagent spawning, steering, stopping)
+- [x] Kanban board protocol + file-backed implementation
+- [x] Kanban dispatcher service
+- [x] Cron scheduler with interval/cron/onetime parsing
+- [x] 75 tests, all passing
 
----
+### Phase 4: Gateway (Complete)
 
-### 12. Config System
+- [x] Hummingbird HTTP server (POST /v1/chat, GET /health)
+- [x] Telegram platform adapter (long polling)
+- [x] SessionRegistry + SessionAgent (long-lived Services, no cache)
+- [x] LMDB-backed session store (per-session .mdb files)
+- [x] LMDB-backed memory provider (shared global .mdb)
+- [x] Thin CLMDB wrapper (avoids QuickLMDB v14 non-copyable issues)
+- [x] DeliveryManager for cross-platform routing
+- [x] `arc serve` CLI command
 
-**Architecture:**
+### Phase 5: Polish (In Progress)
 
-```swift
-struct ArcConfig: Codable, Sendable {
-    var model: ModelConfig
-    var agent: AgentConfig
-    var terminal: TerminalConfig
-    var delegation: DelegationConfig
-    var memory: MemoryConfig
-    var security: SecurityConfig
-    var gateway: GatewayConfig?
-    var cron: CronConfig?
-    var kanban: KanbanConfig?
-}
-
-struct ModelConfig: Codable, Sendable {
-    var defaultModel: String
-    var provider: String
-    var baseURL: String?
-    var apiKey: String?          // read from .env, never stored in config.yaml
-    var contextLength: Int?
-}
-```
-
-**Resolution order:**
-1. CLI flags (highest priority)
-2. Environment variables
-3. `config.yaml`
-4. Compiled-in defaults (lowest priority)
-
-**File layout:**
-
-```
-~/.arc/
-├── config.yaml           # All settings
-├── .env                  # Secrets only (API keys, tokens)
-├── memories/
-│   ├── MEMORY.md         # Agent's persistent notes
-│   └── USER.md           # User profile
-├── sessions/
-│   └── arc-sessions.mdb  # LMDB session store
-├── skills/               # Installed skills
-├── logs/
-├── cron/
-├── plugins/
-│   └── model-providers/  # Custom provider plugins
-└── cache/
-    └── delegation/live/  # Live subagent transcripts
-```
-
----
-
-### 13. CLI
-
-**Architecture:**
-
-```swift
-// Swift Argument Parser entry point
-@main
-struct Arc: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "arc",
-        subcommands: [
-            Chat.self,
-            Gateway.self,
-            Config.self,
-            Setup.self,
-            Doctor.self,
-            Sessions.self,
-            Skills.self,
-            Cron.self,
-            Kanban.self,
-            Profile.self,
-        ]
-    )
-}
-
-struct Chat: AsyncParsableCommand {
-    @Option(name: .shortAndLong, help: "Single query, non-interactive")
-    var query: String?
-    
-    @Option(name: .shortAndLong, help: "Model to use")
-    var model: String?
-    
-    @Flag(name: .shortAndLong, help: "Verbose output")
-    var verbose: Bool = false
-    
-    func run() async throws {
-        let agent = try await ArcAgentBuilder.build(model: model)
-        if let q = query {
-            let response = try await agent.runConversation(message: q)
-            print(response)
-        } else {
-            try await runInteractive(agent: agent)
-        }
-    }
-}
-```
-
-**Interactive REPL (minimal, no TUI):**
-
-A line-oriented REPL using Swift's `readLine()` with ANSI escape codes for basic formatting. Supports slash commands (`/model`, `/retry`, `/compress`, `/help`). No prompt_toolkit equivalent — this is intentionally minimal.
-
----
-
-### 14. Interactive TUI (Optional)
-
-If built, would use:
-- **Swift-ncurses** or a custom ANSI terminal framework
-- Split-pane layout: conversation history + tool progress + input line
-- Real-time streaming display
-- `/agents` overlay for delegation tree
-
-This is the lowest priority subsystem. The CLI REPL + gateway cover 95% of use cases.
-
----
-
-## Technology Stack
-
-| Layer | Technology | Rationale |
-|---|---|---|
-| Language | Swift 6+ | Strict concurrency checking, actor isolation, Sendable |
-| HTTP server | Hummingbird | Lightweight, Swift-native, async/await |
-| HTTP client | AsyncHTTPClient | NIO-based, streaming support |
-| Storage | QuickLMDB (LMDB, v15) | Memory-mapped, zero-copy reads, no query planner |
-| YAML | Yams | Pure Swift, well-maintained |
-| JSON | Foundation `Codable` | Built-in, fast, type-safe |
-| Argument parsing | Swift Argument Parser | Declarative, compile-time safe |
-| Lifecycle | Swift Service Lifecycle | Tree of services, graceful shutdown |
-| Cron parsing | Custom or swift-cron | Simple expression parser |
-| Regex | Swift Regex (2023+) | Built-in, type-safe |
-| Crypto | `CryptoKit` | Built-in, hardware-accelerated |
-| Terminal UI | Swift-ncurses (optional) | Only if TUI is built |
-
----
-
-## Build Order & Milestones
-
-### Phase 1: Core Agent (Days 1-2 at 200M tokens/day)
-
-- [ ] Project scaffold: Swift Package Manager, module structure, config loading
-- [ ] Tool registry with compile-time registration
-- [ ] 5 core tools: `terminal`, `read_file`, `write_file`, `web_search`, `web_extract`
-- [ ] OpenAI-compatible API client (single provider: OpenRouter)
-- [ ] Agent loop: build prompt → call LLM → dispatch tools → repeat
-- [ ] Basic CLI: `arc chat -q "hello"`
-- [ ] Session store (LMDB, basic CRUD)
-
-**Deliverable:** A working agent that can chat, run shell commands, read/write files, and search the web. Single binary, instant startup.
-
-### Phase 2: Production Readiness (Days 3-4)
-
-- [ ] Provider system: 10+ provider profiles, credential pooling
-- [ ] Security/approval system with three modes
-- [ ] Memory system (built-in file-based)
-- [ ] Skills system (discovery, loading, index in prompt)
-- [ ] Context compression
-- [ ] Error handling: rate limits, fallback models, retry logic
-- [ ] Interactive REPL with slash commands
-- [ ] Config wizard (`arc setup`)
-
-**Deliverable:** A daily-driver agent that remembers across sessions, loads skills, handles API errors gracefully, and protects against dangerous commands.
-
-### Phase 3: Multi-Agent (Days 5-7)
-
-- [ ] Delegation system with toolset intersection
-- [ ] Steering (list, steer, stop children)
-- [ ] Kanban board with LMDB backend
-- [ ] Kanban dispatcher (background service)
-- [ ] Cron scheduler with job store
-- [ ] Monitor mode for cron jobs
-
-**Deliverable:** Multi-agent orchestration with subagent delegation, kanban workflow, and scheduled jobs.
-
-### Phase 4: Gateway (Days 8-12)
-
-- [ ] Hummingbird HTTP server
-- [ ] API server platform adapter
-- [ ] Telegram platform adapter
-- [ ] Agent cache with LRU + idle TTL
-- [ ] Session routing and delivery
-- [ ] Progress display for gateway sessions
-
-**Deliverable:** Multi-platform agent that runs as a daemon, serving API requests and Telegram messages.
-
-### Phase 5: Polish (Days 13-15)
-
-- [ ] Plugin system (`.dylib` bundles for providers + tools)
-- [ ] MCP server support
+- [x] MCP server integration (swift-mcp library)
+- [x] DynamicMCPTool adapter (bridges ToolEntry → MCPTool)
+- [x] MCPServerAdapter (wraps MCPServer as gateway Service)
 - [ ] Additional platform adapters (Discord, Slack, WhatsApp)
 - [ ] Performance optimization
 - [ ] Documentation
 - [ ] Distribution (Homebrew formula, Docker image)
-
-**Deliverable:** Feature-complete agent framework ready for public use.
 
 ---
 
@@ -951,49 +851,14 @@ Swift has no equivalent of Python's `importlib`. Options:
 Hermes uses Playwright (Node.js). Options for ARC:
 - **Native CDP client**: Implement Chrome DevTools Protocol directly via WebSocket. Feasible but significant work.
 - **Shell to headless browser**: Use `xcrun` or a system-installed Chromium with CDP flags. Simple but requires external binary.
-- **Skip browser tools**: Browser automation is a nice-to-have, not core.
-- **Recommendation**: Skip for v1. Add native CDP client as a later phase.
-
-### 3. Interactive TUI
-
-- **Option A**: Minimal REPL with `readLine()` + ANSI codes. Works, looks basic.
-- **Option B**: Swift-ncurses with split-pane layout. More work, better UX.
-- **Option C**: Skip entirely, focus on CLI + gateway.
-- **Recommendation**: Start with Option A (minimal REPL). Add Option B only if there's clear demand.
-
-### 4. Provider API surface
-
-Each provider has subtle API differences. The OpenAI-compatible format covers ~95% of providers. The remaining 5% (Anthropic Messages API, Google Gemini, MiniMax) need separate client implementations. Decision: support OpenAI-compatible + Anthropic Messages API for v1, add others based on demand.
-
-### 5. Storage format
-
-ARC Agent uses LMDB via QuickLMDB for all persistent storage. Each subsystem gets its own `.mdb` environment with typed key-value databases. The key structure encodes the access pattern — no query planner, no schema migrations, no relational store. The schema IS the set of named databases and their key/value types. See the Session Management section above for the full environment layout.
-
-The key design choices, inspired by pricedb2's proven schema:
-- **Fixed-size binary keys** with big-endian byte ordering for correct B-tree sorting
-- **Composite keys** that encode relationships directly in the key space (e.g. `SessionID + SequenceNumber` for messages)
-- **Duplicate sort databases** for one-to-many and many-to-many relationships (messages per session, tasks by status)
-- **Separate environments** for independent domains (sessions, kanban, config) — each with its own `mapSize`, `maxReaders`, and `maxDBs`
-- **Append-friendly key design** for time-series data (cron ticks, session creation dates)
-
-### 6. Native web UI
-
-A web-based user interface is a non-negotiable requirement for the 1.0 release. The author will not write JavaScript, CSS, or HTML by hand. Options:
-
-- **Swift-to-WASM compilation**: Compile the Swift agent to WebAssembly and serve it as a client-side app. Experimental but aligns with the Swift-native ethos.
-- **Swift web frameworks**: Use a server-side Swift web framework (Hummingbird is already a dependency) to render HTML server-side with HTMX for interactivity. No JavaScript required beyond what HTMX provides.
-- **Tauri-style native + web**: Bundle a web view with a native Swift backend, using the web view purely as a rendering surface. The UI logic stays in Swift.
-- **Delegated to a separate project**: The web UI is built by a different toolchain (or a different person) and communicates with the agent via its HTTP API.
-
-- **Recommendation**: Deferred. The gateway HTTP API (Phase 4) is the prerequisite — once the agent exposes a REST API, any web UI can consume it. The web UI itself is not designed until the API surface is stable.
 
 ---
 
-## Cost Estimate (200M tokens/day)
+## Resource Estimates
 
-| Phase | Est. Tokens | Est. Time | Est. Cost (at $0.50/M tok) |
+| Phase | Tokens | Time | Cost |
 |---|---|---|---|
-| Phase 1: Core Agent | 15-25M | 2-3 hours | $7.50-$12.50 |
+| Phase 1: Core Agent | 15-20M | 1-2 hours | $7.50-$10 |
 | Phase 2: Production Readiness | 20-30M | 2-3 hours | $10-$15 |
 | Phase 3: Multi-Agent | 25-40M | 3-4 hours | $12.50-$20 |
 | Phase 4: Gateway | 30-50M | 4-6 hours | $15-$25 |
@@ -1001,45 +866,3 @@ A web-based user interface is a non-negotiable requirement for the 1.0 release. 
 | **Total** | **110-175M** | **13-19 hours** | **$55-$87.50** |
 
 These are generation-only estimates. Real-world costs include debugging iterations, design exploration, and testing — realistically **2-3x** the generation estimate, or **$150-$250** total for a complete v1.
-
----
-
-## Comparison: ARC vs Hermes
-
-| Dimension | Hermes (Python) | ARC (Swift) |
-|---|---|---|
-| Startup time | ~500ms-2s | <50ms |
-| Memory footprint | ~150-300MB | ~20-50MB |
-| Distribution | pip + venv + 227MB repo | Single binary (~20MB) |
-| Dependencies | 100+ Python packages + npm | 10-15 Swift packages |
-| Concurrency | threading + asyncio hybrid | Structured async/await + actors |
-| Type safety | Runtime (duck typing) | Compile-time (strong typing) |
-| Plugin system | Dynamic import (any .py file) | dlopen bundles or MCP subprocess |
-| Tool schema gen | Dicts at runtime | Codable + macros at compile time |
-| Browser automation | Playwright (Node.js) | Native CDP or skip |
-| TUI | prompt_toolkit (rich) | Minimal REPL or ncurses |
-| Platform support | Linux, macOS, Windows | Linux, macOS (Windows via Swift) |
-| Maturity | Battle-tested, 231k stars | Greenfield |
-
----
-
-## Conclusion
-
-ARC Agent is an ambitious but achievable project. The architecture is well-understood (Hermes proves the concept at scale), the technology stack is well-suited (Swift's concurrency model is arguably better for this use case than Python's), and the automated development budget is sufficient to build a working v1 in under 20 hours of generation time.
-
-The key risks are:
-1. **Plugin system** — Swift's lack of dynamic loading makes extensibility harder
-2. **Browser automation** — No good Swift-native equivalent to Playwright
-3. **TUI** — No Swift equivalent to prompt_toolkit
-4. **Scope creep** — Hermes is 126K+ lines across 15 subsystems. Staying focused on the core is essential
-
-The key advantages are:
-1. **Single binary distribution** — `brew install arc` and done
-2. **Instant startup** — No interpreter overhead
-3. **Type safety** — Compile-time guarantees for tool schemas and config
-4. **No npm** — Zero JavaScript dependency chain
-5. **Swift ecosystem** — Swift Argument Parser, Swift Service Lifecycle, QuickLMDB, Hummingbird
-
----
-
-*This vision document is a living artifact. As development proceeds, each subsystem will get its own detailed design document under `docs/`. The architecture described here is the target — pragmatic deviations during implementation are expected and welcome.*
