@@ -94,6 +94,7 @@ public actor ArcAgent: Service {
     private let sessionID: String
     private let retryHandler = RetryHandler(maxRetries: 3, baseDelay: 1.0)
     private let approvalManager: ApprovalManager
+    private let delegationManager: DelegationManager
     /// Cached system prompt — rebuilt only when memory or skills change.
     private var cachedSystemPrompt: String?
 
@@ -104,6 +105,7 @@ public actor ArcAgent: Service {
         self.messageHistory = []
         self.sessionID = UUID().uuidString
         self.approvalManager = ApprovalManager(mode: config.approvalMode)
+        self.delegationManager = DelegationManager(maxChildren: 10)
     }
 
     // MARK: - Service
@@ -123,6 +125,12 @@ public actor ArcAgent: Service {
             httpClient: httpClient
         )
         self.llmClient = client
+
+        // Wire delegation tools to the manager
+        DelegateTaskTool.manager = delegationManager
+        ListChildrenTool.manager = delegationManager
+        SteerChildTool.manager = delegationManager
+        StopChildTool.manager = delegationManager
 
         if let q = config.query {
             let response = try await runConversation(message: q)

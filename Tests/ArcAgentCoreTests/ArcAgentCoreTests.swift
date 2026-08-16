@@ -15,10 +15,10 @@ func coreVersion() {
 // MARK: - Tool Registry
 // =========================================================================
 
-@Test("default registry contains all 7 built-in tools")
+@Test("default registry contains all 11 built-in tools")
 func defaultRegistryTools() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
-    #expect(registry.allTools.count == 7)
+    #expect(registry.allTools.count == 11)
 
     #expect(registry.lookup(name: "read_file")?.toolset == "file")
     #expect(registry.lookup(name: "read_file")?.emoji == "📄")
@@ -52,7 +52,7 @@ func emptyRegistry() {
 @Test("registry toolset filtering with all toolsets disabled")
 func allToolsetsDisabled() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
-    let schemas = registry.buildToolSchemas(enabled: [], disabled: ["file", "terminal", "web", "core"])
+    let schemas = registry.buildToolSchemas(enabled: [], disabled: ["file", "terminal", "web", "core", "delegation"])
     #expect(schemas.isEmpty)
 }
 
@@ -168,7 +168,7 @@ func schemaFiltering() throws {
     #expect(webSchemas.count == 2)
 
     let disabled = registry.buildToolSchemas(enabled: [], disabled: ["file"])
-    #expect(disabled.count == 5)
+    #expect(disabled.count == 9)
 }
 
 // =========================================================================
@@ -804,11 +804,11 @@ func configSaveLoad() throws {
 // MARK: - CLI Tools Command
 // =========================================================================
 
-@Test("tools command output includes all 7 tools")
+@Test("tools command output includes all 11 tools")
 func toolsCommand() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
     let names = registry.allTools.map(\.name).sorted()
-    #expect(names == ["memory", "read_file", "skill_view", "terminal", "web_extract", "web_search", "write_file"])
+    #expect(names == ["delegate_task", "list_children", "memory", "read_file", "skill_view", "steer_child", "stop_child", "terminal", "web_extract", "web_search", "write_file"])
 }
 
 // =========================================================================
