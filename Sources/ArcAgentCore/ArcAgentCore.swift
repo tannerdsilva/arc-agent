@@ -32,6 +32,11 @@ public enum ArcAgentCore {
         try registry.register(ListChildrenTool.entry)
         try registry.register(SteerChildTool.entry)
         try registry.register(StopChildTool.entry)
+        try registry.register(KanbanTools.create)
+        try registry.register(KanbanTools.list)
+        try registry.register(KanbanTools.show)
+        try registry.register(KanbanTools.complete)
+        try registry.register(KanbanTools.block)
         return registry
     }
 }

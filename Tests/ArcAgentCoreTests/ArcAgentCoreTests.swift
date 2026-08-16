@@ -18,7 +18,7 @@ func coreVersion() {
 @Test("default registry contains all 11 built-in tools")
 func defaultRegistryTools() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
-    #expect(registry.allTools.count == 11)
+    #expect(registry.allTools.count == 16)
 
     #expect(registry.lookup(name: "read_file")?.toolset == "file")
     #expect(registry.lookup(name: "read_file")?.emoji == "📄")
@@ -52,7 +52,7 @@ func emptyRegistry() {
 @Test("registry toolset filtering with all toolsets disabled")
 func allToolsetsDisabled() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
-    let schemas = registry.buildToolSchemas(enabled: [], disabled: ["file", "terminal", "web", "core", "delegation"])
+    let schemas = registry.buildToolSchemas(enabled: [], disabled: ["file", "terminal", "web", "core", "delegation", "kanban"])
     #expect(schemas.isEmpty)
 }
 
@@ -168,7 +168,7 @@ func schemaFiltering() throws {
     #expect(webSchemas.count == 2)
 
     let disabled = registry.buildToolSchemas(enabled: [], disabled: ["file"])
-    #expect(disabled.count == 9)
+    #expect(disabled.count == 14)
 }
 
 // =========================================================================
@@ -808,7 +808,7 @@ func configSaveLoad() throws {
 func toolsCommand() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
     let names = registry.allTools.map(\.name).sorted()
-    #expect(names == ["delegate_task", "list_children", "memory", "read_file", "skill_view", "steer_child", "stop_child", "terminal", "web_extract", "web_search", "write_file"])
+    #expect(names == ["delegate_task", "kanban_block", "kanban_complete", "kanban_create", "kanban_list", "kanban_show", "list_children", "memory", "read_file", "skill_view", "steer_child", "stop_child", "terminal", "web_extract", "web_search", "write_file"])
 }
 
 // =========================================================================
