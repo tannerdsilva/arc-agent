@@ -38,6 +38,9 @@ let package = Package(
             url: "https://github.com/hummingbird-project/hummingbird.git",
             from: "2.0.0"
         ),
+        .package(
+            path: "../swift-mcp"
+        ),
     ],
 
     targets: [
@@ -62,6 +65,7 @@ let package = Package(
                 .product(name: "CLMDB", package: "CLMDB"),
                 .product(name: "Hummingbird", package: "hummingbird"),
                 .product(name: "HummingbirdRouter", package: "hummingbird"),
+                .product(name: "MCP", package: "swift-mcp"),
             ]
         ),
 
