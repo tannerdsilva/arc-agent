@@ -131,19 +131,27 @@ struct SessionApprovalState: Sendable {
 
 // MARK: - Dangerous Command Detection
 
+/// A compiled dangerous command pattern.
+///
+/// Wraps ``Regex`` with ``Sendable`` conformance since ``Regex`` is not
+/// Sendable in Swift 6 but is safe to share when only read from.
+struct DangerousPattern: @unchecked Sendable {
+    let level: DangerLevel
+    let regex: Regex<AnyRegexOutput>
+}
+
 /// Patterns that indicate dangerous commands.
 ///
-/// Each pattern is a regular expression matched against the command string.
-/// Invalid patterns are silently skipped (logged at debug level).
-let dangerousPatterns: [(DangerLevel, NSRegularExpression)] = {
-    func pattern(_ raw: String) -> NSRegularExpression? {
-        try? NSRegularExpression(pattern: raw)
+/// Each pattern is a Swift ``Regex`` matched against the command string.
+/// Invalid patterns are silently skipped.
+let dangerousPatterns: [DangerousPattern] = {
+    func pattern(_ raw: String) -> Regex<AnyRegexOutput>? {
+        try? Regex(raw)
     }
 
-    return [
+    let entries: [(DangerLevel, Regex<AnyRegexOutput>?)] = [
         // Critical — destructive system operations
         (.critical, pattern("^rm\\s+-rf\\s+/\\s*$")),  // rm -rf / only
-        (.critical, pattern(NSRegularExpression.escapedPattern(for: ":(){ :|:& };:"))),  // fork bomb
         (.critical, pattern("mkfs\\.")),
         (.critical, pattern("dd\\s+if=.*of=/dev")),
         (.critical, pattern(">\\s*/dev/")),
@@ -171,8 +179,9 @@ let dangerousPatterns: [(DangerLevel, NSRegularExpression)] = {
         (.suspicious, pattern("ssh\\s+-R\\s+")),
         (.suspicious, pattern("scp\\s+")),
     ]
-    .compactMap { (level, optionalPattern) in
-        optionalPattern.map { (level, $0) }
+
+    return entries.compactMap { (level, optionalRegex) in
+        optionalRegex.map { DangerousPattern(level: level, regex: $0) }
     }
 }()
 
@@ -183,9 +192,15 @@ let dangerousPatterns: [(DangerLevel, NSRegularExpression)] = {
 public func detectDangerLevel(_ command: String) -> DangerLevel {
     var highest = DangerLevel.safe
 
-    for (level, pattern) in dangerousPatterns {
-        if pattern.firstMatch(in: command, range: NSRange(command.startIndex..., in: command)) != nil {
-            highest = max(highest, level)
+    // Fork bomb detection (string-based — the regex metacharacters make
+    // a pure-regex approach fragile across regex engines).
+    if command.contains(":(){") && command.contains(":&") {
+        highest = .critical
+    }
+
+    for pattern in dangerousPatterns {
+        if command.contains(pattern.regex) {
+            highest = max(highest, pattern.level)
         }
     }
 
