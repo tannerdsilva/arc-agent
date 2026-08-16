@@ -18,6 +18,14 @@ ARC Agent is a conceptual exploration of what a **precompiled, Swift-native AI a
 | Dependencies | 100+ Python + npm | 10-15 Swift packages |
 | Tool schemas | Dicts at runtime | Codable + macros at compile time |
 
+## Technical Requirements
+
+All code in this project must satisfy two non-negotiable constraints:
+
+1. **Swift Structured Concurrency.** Every concurrent operation uses `async`/`await`, actors, and task groups. No manually-created threads, no locks, no dispatch queues, no `@unchecked Sendable` annotations that bypass compiler enforcement.
+
+2. **Swift Service Lifecycle.** Every long-lived component (agent loop, gateway, cron scheduler, kanban dispatcher) is a `Service` managed by `swift-service-lifecycle`. No ad-hoc daemon threads, no `atexit` handlers, no standalone `DispatchMain()` calls.
+
 ## Architecture
 
 The full architecture is documented in [VISION.md](VISION.md). At a high level:
