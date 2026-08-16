@@ -26,6 +26,20 @@ All code in this project must satisfy two non-negotiable constraints:
 
 2. **Swift Service Lifecycle.** Every long-lived component (agent loop, gateway, cron scheduler, kanban dispatcher) is a `Service` managed by `swift-service-lifecycle`. No ad-hoc daemon threads, no `atexit` handlers, no standalone `DispatchMain()` calls.
 
+## Design Approach
+
+The project follows a strict **protocols-first** design discipline:
+
+1. **Protocol** — every abstraction starts as a protocol capturing the contract
+2. **Concrete types** — structs and classes implement protocols; protocols never depend on concrete types
+3. **Macros** — only after the protocol proves unwieldy in practice do we introduce macros to compress syntax
+
+This ordering is load-bearing. Macros that paper over a bad protocol design hide the problem, not fix it.
+
+## 1.0 Requirements
+
+- **Native web UI** — a web-based user interface ships before 1.0. The approach is undecided and deferred (see VISION.md for options). The author will not write JavaScript, CSS, or HTML by hand.
+
 ## Architecture
 
 The full architecture is documented in [VISION.md](VISION.md). At a high level:

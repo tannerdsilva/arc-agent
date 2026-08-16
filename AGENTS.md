@@ -28,10 +28,15 @@ When asked to produce code, assume it is:
 
 ## How We Work
 
-1. **Explore a subsystem** from the vision document. Discuss the design, trade-offs, and Swift idioms before writing code.
-2. **Prototype the core** of that subsystem — enough to validate the approach. A working `ToolRegistry` with 3 tools is worth more than a full spec for all 30.
-3. **Iterate** based on what the prototype reveals. The architecture document is a living artifact; update it when reality contradicts the plan.
-4. **Commit early, commit often.** Each prototype lives on its own branch or behind a feature flag. The `main` branch stays conceptual (docs only) until we have enough working pieces to call it an alpha.
+1. **Design protocols first.** Before any concrete type, define the protocol that captures the abstraction. Structs and classes implement protocols; protocols do not depend on concrete types. Only after evaluating what becomes unwieldy as a result of this discipline do we introduce macros to make syntax perfectly efficient.
+
+2. **Explore a subsystem** from the vision document. Discuss the design, trade-offs, and Swift idioms before writing code.
+
+3. **Prototype the core** of that subsystem — enough to validate the approach. A working `ToolRegistry` with 3 tools is worth more than a full spec for all 30.
+
+4. **Iterate** based on what the prototype reveals. The architecture document is a living artifact; update it when reality contradicts the plan.
+
+5. **Commit early, commit often.** Each prototype lives on its own branch or behind a feature flag. The `main` branch stays conceptual (docs only) until we have enough working pieces to call it an alpha.
 
 ## The Law of the Land
 
@@ -47,9 +52,14 @@ This is the contract. This is the foundation. Everything else is negotiable.
 
 ## Design Temperament
 
+- **Protocols first, macros last.** Every abstraction starts as a protocol. Concrete types conform to protocols; protocols never depend on concrete types. Only after the protocol proves unwieldy in practice do we introduce a macro to compress the syntax. This order is not optional — macros that paper over a bad protocol design hide the problem, not fix it.
+
 - **Swift-idiomatic first.** If a pattern from Hermes Agent fights Swift's type system or concurrency model, find the Swift-native alternative — don't force the Python shape into Swift code.
+
 - **Compile-time over runtime.** Prefer generics, protocols, and macros over dictionaries and dynamic dispatch. A compile-time error is better than a runtime crash.
+
 - **Minimal dependencies.** Every Swift package we add is a maintenance commitment. Before adding a dependency, ask: "Can we do this with Foundation + Swift Standard Library in 200 lines?"
+
 - **Single binary target.** The goal is a precompiled binary you can `brew install` and run. No interpreter, no virtual machine, no npm install.
 
 ## What Success Looks Like
@@ -62,7 +72,3 @@ Success is not "shipping ARC Agent v1.0." Success is:
 - Reaching a point where the human can run `arc chat -q "hello world"` and get a response from an LLM through their own Swift code
 
 If we achieve that, the project may become something real. If we don't, we'll have learned exactly where the limits are — and that knowledge is valuable too.
-
----
-
-*This file is read by AI agents working on this project. Keep it honest about what phase we're in. Pretending the project is further along than it is wastes everyone's time.*

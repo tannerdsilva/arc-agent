@@ -20,6 +20,10 @@ A precompiled, Swift-native AI agent harness — architecturally inspired by Her
 
 6. **Hermes-compatible at the concept level, not the code level.** Same architectural patterns (tool registry, toolset intersection, credential pooling, delegation, kanban), but implemented in idiomatic Swift. No line-for-line translation.
 
+7. **Protocols first, macros last.** Every abstraction starts as a protocol. Concrete types conform to protocols; protocols never depend on concrete types. Only after the protocol proves unwieldy in practice do we introduce a macro to compress the syntax. This ordering is not optional — macros that paper over a bad protocol design hide the problem, not fix it.
+
+8. **Native web UI is a 1.0 requirement.** The project ships with a web-based user interface before version 1.0. How that UI is built is an open question — the author dislikes web technology and will not write JavaScript, CSS, or HTML by hand. The web UI must be generated, compiled from Swift, or delegated to a separate toolchain. This is a non-negotiable requirement; the approach is undecided and deferred.
+
 ## The Law of the Land
 
 HEAR YE, HEAR YE. In this beautiful project, of which we are so proud, there shall be a law of the land, of which all agents and humans alike shall abide unconditionally at all times. THE LAW OF THE LAND IS SIMPLE, AND AS FOLLOWS:
@@ -31,6 +35,26 @@ HEAR YE, HEAR YE. In this beautiful project, of which we are so proud, there sha
 These two laws are not goals. They are not aspirations. They are **requirements**. Code that violates them shall not be merged. Agents that generate code violating them shall be corrected. Humans that accept code violating them shall be reminded.
 
 This is the contract. This is the foundation. Everything else is negotiable.
+
+## Protocols-First Design
+
+This project has a strict ordering for how abstractions are built:
+
+**Step 1 — Protocol.** Every abstraction starts as a protocol. The protocol captures the contract without committing to any implementation strategy. It lives in its own file, documented with the semantics of each requirement.
+
+**Step 2 — Concrete types.** Structs and classes conform to protocols. Multiple conformances are encouraged — a protocol with one implementation is often a sign the abstraction isn't right yet. Protocols never depend on concrete types; concrete types depend on protocols.
+
+**Step 3 — Macros (only when needed).** Only after the protocol proves unwieldy in practice — too much boilerplate, too many conformances, too much repetition — do we introduce a macro to compress the syntax. The macro is a convenience, not a design tool. It must not hide the protocol's contract.
+
+This ordering is load-bearing. A macro that papers over a bad protocol design hides the problem and makes it harder to fix. The protocol must be right first. If the protocol is right, the macro is optional. If the protocol is wrong, no macro can save it.
+
+### Examples of the pattern
+
+- `ToolRegistry` is a protocol. `CompileTimeToolRegistry` and `PluginToolRegistry` are concrete conformances. A `#tool` macro may eventually generate the boilerplate for registering a tool, but only after the registration API is proven stable.
+
+- `LLMClient` is a protocol. `OpenAICompatibleClient`, `AnthropicMessagesClient`, and `GeminiClient` are concrete conformances. No macro needed — the protocol is the right level of abstraction.
+
+- `SessionStore` is a protocol. `GRDBSessionStore` is a concrete conformance. If a second implementation emerges (e.g. `JSONFileSessionStore` for debugging), the protocol is validated. If not, the protocol may be collapsed into the concrete type.
 
 ---
 
@@ -870,6 +894,17 @@ Each provider has subtle API differences. The OpenAI-compatible format covers ~9
 ### 5. Message persistence format
 
 Hermes uses a custom SQLite schema with FTS5. ARC should use the same approach (GRDB + FTS5). The schema can be simpler since we don't need backward compatibility with Hermes's existing session store.
+
+### 6. Native web UI
+
+A web-based user interface is a non-negotiable requirement for the 1.0 release. The author will not write JavaScript, CSS, or HTML by hand. Options:
+
+- **Swift-to-WASM compilation**: Compile the Swift agent to WebAssembly and serve it as a client-side app. Experimental but aligns with the Swift-native ethos.
+- **Swift web frameworks**: Use a server-side Swift web framework (Hummingbird is already a dependency) to render HTML server-side with HTMX for interactivity. No JavaScript required beyond what HTMX provides.
+- **Tauri-style native + web**: Bundle a web view with a native Swift backend, using the web view purely as a rendering surface. The UI logic stays in Swift.
+- **Delegated to a separate project**: The web UI is built by a different toolchain (or a different person) and communicates with the agent via its HTTP API.
+
+- **Recommendation**: Deferred. The gateway HTTP API (Phase 4) is the prerequisite — once the agent exposes a REST API, any web UI can consume it. The web UI itself is not designed until the API surface is stable.
 
 ---
 
