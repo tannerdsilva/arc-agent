@@ -3,19 +3,29 @@
 /// This module contains the agent loop, tool registry, provider profiles,
 /// session management, and all other subsystems described in VISION.md.
 ///
-/// For now it is a stub. Each subsystem will be fleshed out incrementally
-/// as we validate the architecture through prototypes.
-
-public struct ArcAgentCore {
+/// For now, it exposes the tool registry and built-in tools. Each subsystem
+/// will be fleshed out incrementally as we validate the architecture through
+/// prototypes.
+public enum ArcAgentCore {
 
     /// The current library version.
-    public static let version = "0.0.0"
+    public static let version = "0.1.0"
 
-    /// Create a new core instance.
-    public init() {}
-
-    /// A placeholder that will eventually become ``run_conversation()``.
-    public func greet() -> String {
-        "ARC Agent Core v\(Self.version) — ready for exploration."
+    /// Build a ``CompileTimeToolRegistry`` pre-loaded with the built-in tools.
+    ///
+    /// This is the primary entry point for creating a tool registry with all
+    /// compiled-in tools. Additional tools can be registered after creation.
+    ///
+    /// - Returns: A configured ``CompileTimeToolRegistry``.
+    /// - Throws: If a built-in tool fails to register (should not happen in
+    ///   normal operation since built-in tool names are unique by construction).
+    public static func buildDefaultRegistry() throws -> CompileTimeToolRegistry {
+        var registry = CompileTimeToolRegistry()
+        try registry.register(ReadFileTool.entry)
+        try registry.register(WriteFileTool.entry)
+        try registry.register(TerminalTool.entry)
+        try registry.register(WebSearchTool.entry)
+        try registry.register(WebExtractTool.entry)
+        return registry
     }
 }

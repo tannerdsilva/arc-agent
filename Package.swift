@@ -22,6 +22,14 @@ let package = Package(
             url: "https://github.com/apple/swift-argument-parser.git",
             from: "1.5.0"
         ),
+        .package(
+            url: "https://github.com/apple/swift-system.git",
+            from: "1.4.0"
+        ),
+        .package(
+            url: "https://github.com/swift-server/swift-service-lifecycle.git",
+            from: "2.6.0"
+        ),
     ],
 
     targets: [
@@ -41,6 +49,8 @@ let package = Package(
                 .product(name: "AsyncHTTPClient", package: "async-http-client"),
                 .product(name: "Hummingbird", package: "hummingbird"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "SystemPackage", package: "swift-system"),
+                .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
             ]
         ),
 
