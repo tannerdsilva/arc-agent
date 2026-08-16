@@ -1,42 +1,73 @@
 # ARC Agent — AGENTS.md
 
-## Project Phase: Blue Sky
+## Project Phase: Vascular Hardening
 
-This project is in its **blue sky phase**. We are working with concepts, not code. The `VISION.md` describes what ARC Agent *could* become — a precompiled, Swift-native AI agent harness — but nothing here is built yet. Every line in this repository is an idea, a sketch, a hypothesis.
+This project has completed five feature-build phases and is now in **vascular hardening** — strengthening the internal data flow, session integrity, error recovery, and observability before adding new capabilities.
 
-The approach is **incremental proof-building**: each subsystem described in the vision will be explored, prototyped, and validated one piece at a time. Some ideas will survive contact with reality. Some will be discarded. The architecture will shift as we learn what Swift's concurrency model, type system, and ecosystem make easy versus hard.
+The core architecture is built and proven:
+- **63 Swift source files** across 12 subsystems
+- **75 tests**, all passing
+- **8 dependencies** (AsyncHTTPClient, ArgumentParser, System, ServiceLifecycle, QuickLMDB, CLMDB, Hummingbird, swift-mcp)
+- **16 registered tools** across 6 toolsets
+- **Full gateway stack** — HTTP server, Telegram adapter, MCP server, session management
+- **LMDB-backed persistence** — per-session `.mdb` files with header/body split
+- **Swift-native web UI** — declarative Swift DSL generating HTML/CSS/JS, served from the Hummingbird HTTP server at `GET /ui`. Zero npm, zero hand-written web code.
 
 ## What This Means for an AI Agent Reading This
 
-You are working in an **empty repository with a vision document**. There is no code to read, no tests to run, no build to fix. Your job is to help the human explore, design, and prototype — not to maintain or debug an existing system.
+You are working in a **functional codebase with a clear hardening roadmap**. The architecture is documented in VISION.md. The two Laws are enforced. Your job is to help harden the existing system — not to add features, but to make the existing pipes reliable, observable, and resilient.
 
 When asked to produce code, assume it is:
-- **Exploratory** — meant to validate an approach, not ship to production
-- **Subject to change** — the architecture is fluid; don't over-invest in one design
-- **Conceptually focused** — prove the idea works; edge cases come later
+- **Hardening-focused** — strengthening existing paths, not building new ones
+- **Test-driven** — every change should be verified by tests
+- **Observable** — add logging, metrics, or error classification alongside functional changes
 
 ## Current State
 
 | What | Status |
 |---|---|
-| VISION.md | Written, committed |
+| VISION.md | Updated with hardening roadmap + web UI architecture |
 | AGENTS.md | This file |
-| README.md | Written |
-| Code | None |
-| Tests | None |
-| Build | None |
+| README.md | Updated |
+| Source files | 63 Swift files (51 core + 12 web UI) |
+| Tests | 75, all passing |
+| Build | Clean |
+| Branch | `dev/all-phases` |
+
+## Subsystem Inventory
+
+| Subsystem | Files | Status |
+|---|---|---|
+| **Core Agent** — ArcAgent actor, prompt builder, turn loop | `Agent/ArcAgent.swift` | Built |
+| **Tool Registry** — ToolEntry, JSONSchema, CompileTimeToolRegistry | `ToolRegistry/` (4 files) | Built |
+| **Tools** — read_file, write_file, terminal, web_search, web_extract, delegation, kanban, memory, skill_view | `Tools/` (14 tools) | Built |
+| **LLM Client** — LLMClient protocol, OpenAICompatibleClient, Message models | `LLM/` (3 files) | Built |
+| **Provider System** — ProviderProfile, BundledProviders, CredentialPool | `Provider/` (3 files) | Built |
+| **Session Management** — SessionStore protocol, LMDBSessionStore (header/body split) | `Session/` + `LMDB/` | Built |
+| **Memory System** — MemoryProvider protocol, LMDBMemoryProvider, FileMemoryProvider | `Memory/` + `LMDB/` | Built |
+| **Skills System** — Skill model, YAML frontmatter parsing, discovery | `Skills/Skill.swift` | Built |
+| **Security** — ApprovalManager, dangerous command detection (Swift Regex) | `Security/ApprovalManager.swift` | Built |
+| **Error Handling** — RetryHandler with exponential backoff + jitter | `ErrorHandling/RetryHandler.swift` | Built |
+| **Config** — ArcConfig, JSON loading/saving, env var overrides | `Config/ArcConfig.swift` | Built |
+| **Delegation** — DelegationManager, subagent spawning/steering/stopping | `Delegation/` (2 files) | Built |
+| **Kanban** — KanbanBoard protocol, FileKanbanBoard, KanbanDispatcher, KanbanTask | `Kanban/` (4 files) | Built |
+| **Cron** — CronScheduler, CronJob, schedule parsing | `Cron/` (2 files) | Built |
+| **Gateway** — GatewayService, HTTPServerService, SessionRegistry, SessionAgent, TelegramAdapter, DeliveryManager, SessionRouter, PlatformAdapter | `Gateway/` (8 files) | Built |
+| **MCP** — MCPServerAdapter, DynamicMCPTool | `Gateway/MCP/` (2 files) | Built |
+| **LMDB** — LMDBWrapper (raw C API), LMDBManager, LMDBSessionStore, LMDBMemoryProvider | `LMDB/` (4 files) | Built |
+| **Web UI** — View protocol, ViewBuilder, Primitives, Layouts, CSSRule, AppStyles, Scripts, HTMLDocument, ChatViews, Modifiers, ModifiedView, Utilities | `WebUI/` (12 files) | Built (uncommitted) |
 
 ## How We Work
 
-1. **Design protocols first.** Before any concrete type, define the protocol that captures the abstraction. Structs and classes implement protocols; protocols do not depend on concrete types. Only after evaluating what becomes unwieldy as a result of this discipline do we introduce macros to make syntax perfectly efficient.
+1. **Vascular first.** Every change should improve the flow of information through the system — making it more reliable, observable, or resilient. If a change doesn't improve the vascular system, question whether it belongs in this phase.
 
-2. **Explore a subsystem** from the vision document. Discuss the design, trade-offs, and Swift idioms before writing code.
+2. **Test before hardening.** Write the test that proves the current behavior is wrong, then fix the code. Tests are the diagnostic monitors on the vascular system.
 
-3. **Prototype the core** of that subsystem — enough to validate the approach. A working `ToolRegistry` with 3 tools is worth more than a full spec for all 30.
+3. **One phase at a time.** Phase A (Session & Data Integrity) must be complete before Phase B begins. Each phase builds on the foundation of the previous one.
 
-4. **Iterate** based on what the prototype reveals. The architecture document is a living artifact; update it when reality contradicts the plan.
+4. **Commit early, commit often.** Each hardening step is a separate commit with a clear before/after. The `dev/all-phases` branch is the active development branch.
 
-5. **Commit early, commit often.** Each prototype lives on its own branch or behind a feature flag. The `main` branch stays conceptual (docs only) until we have enough working pieces to call it an alpha.
+5. **The Laws are not negotiable.** First Law (Structured Concurrency) and Second Law (Service Lifecycle) are enforced at every level. Code that violates them shall not be merged.
 
 ## The Law of the Land
 
@@ -50,9 +81,15 @@ These two laws are not goals. They are not aspirations. They are **requirements*
 
 This is the contract. This is the foundation. Everything else is negotiable.
 
+## Web UI Law (Subsystem-Specific)
+
+The web UI subsystem has an additional law:
+
+**Second Law (Web UI) — No npm, No Exceptions.** There shall be no `npm install`, no `package.json`, no `node_modules`, no webpack, no vite, no tailwind, no react, no vue, no svelte, no solid, no alpine, no stimulus, no htmx, no turbolinks, no hotwire, no stimulus_reflex. There shall be no JavaScript written by hand in a separate file. There shall be no CSS written by hand. There shall be no HTML written by hand. Every byte the browser receives is compiled into the ARC Agent binary. This is not negotiable.
+
 ## Design Temperament
 
-- **Protocols first, macros last.** Every abstraction starts as a protocol. Concrete types conform to protocols; protocols never depend on concrete types. Only after the protocol proves unwieldy in practice do we introduce a macro to compress the syntax. This order is not optional — macros that paper over a bad protocol design hide the problem, not fix it.
+- **Protocols first, macros last.** Every abstraction starts as a protocol. Concrete types conform to protocols; protocols do not depend on concrete types. Only after evaluating what becomes unwieldy as a result of this discipline do we introduce macros to make syntax perfectly efficient.
 
 - **Swift-idiomatic first.** If a pattern from Hermes Agent fights Swift's type system or concurrency model, find the Swift-native alternative — don't force the Python shape into Swift code.
 
@@ -62,13 +99,18 @@ This is the contract. This is the foundation. Everything else is negotiable.
 
 - **Single binary target.** The goal is a precompiled binary you can `brew install` and run. No interpreter, no virtual machine, no npm install.
 
+- **Web UI is compiled, not served.** The web interface is a Swift DSL that generates HTML, CSS, and JS at compile time. The browser receives the output of Swift code — it never hosts a separate application.
+
 ## What Success Looks Like
 
-Success is not "shipping ARC Agent v1.0." Success is:
+Success for the hardening phase is:
 
-- Proving that a Swift-native agent harness can match Hermes Agent's capabilities with a fraction of the startup time and memory footprint
-- Building a tool registry that catches schema errors at compile time
-- Demonstrating that Swift's structured concurrency produces cleaner delegation and kanban dispatch than Python's threading + asyncio hybrid
-- Reaching a point where the human can run `arc chat -q "hello world"` and get a response from an LLM through their own Swift code
+- A gateway that survives concurrent sessions without resource leaks
+- Session data that survives process crashes without corruption
+- Token budgets that are accurate enough to prevent context overflows
+- Error recovery that makes transient failures invisible to the user
+- Test coverage on every critical path
+- Streaming responses from the gateway and web UI
+- Structured logging and metrics that make the system observable
 
-If we achieve that, the project may become something real. If we don't, we'll have learned exactly where the limits are — and that knowledge is valuable too.
+If we achieve that, the project is ready for additional platform adapters, distribution tooling, and eventual public release.

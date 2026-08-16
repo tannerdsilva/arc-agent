@@ -49,6 +49,11 @@ public struct GatewayService: Service {
                 )
                 continuation.yield(incoming)
                 return "Message received"
+            },
+            onUI: {
+                let page = ChatPage(welcomeMessage: "How can I help you today?")
+                let doc = HTMLDocument(body: page.render())
+                return doc.render()
             }
         )
 

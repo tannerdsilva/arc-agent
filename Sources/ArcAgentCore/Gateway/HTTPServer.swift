@@ -3,13 +3,13 @@ import Hummingbird
 import HummingbirdRouter
 import ServiceLifecycle
 
-/// An HTTP server that exposes the agent's API endpoints.
+/// An HTTP server that exposes the agent's API endpoints and web UI.
 ///
-/// Serves as the REST API layer of the gateway, handling incoming chat
-/// requests and health checks. The server is a ``Service`` managed by
-/// the gateway's ``ServiceGroup``.
+/// Serves as the REST API and web interface layer of the gateway.
+/// The server is a ``Service`` managed by the gateway's ``ServiceGroup``.
 ///
 /// **Endpoints:**
+/// - `GET /ui` — Web UI (chat interface)
 /// - `POST /v1/chat` — Send a message to an agent session
 /// - `GET /health` — Health check
 public final class HTTPServerService: Service {
@@ -26,18 +26,21 @@ public final class HTTPServerService: Service {
 
     private let config: Configuration
     private let onChat: @Sendable (String, String) async throws -> String
+    private let onUI: (@Sendable () -> String)?
 
     /// Create an HTTP server service.
     /// - Parameters:
     ///   - config: Server configuration (host, port).
-    ///   - onChat: Closure called when a chat request arrives. Receives the
-    ///     session ID and message text, returns a response string.
+    ///   - onChat: Closure called when a chat request arrives.
+    ///   - onUI: Optional closure that returns the web UI HTML.
     public init(
         config: Configuration = .init(),
-        onChat: @escaping @Sendable (String, String) async throws -> String
+        onChat: @escaping @Sendable (String, String) async throws -> String,
+        onUI: (@Sendable () -> String)? = nil
     ) {
         self.config = config
         self.onChat = onChat
+        self.onUI = onUI
     }
 
     public func run() async throws {
@@ -51,6 +54,16 @@ public final class HTTPServerService: Service {
                     let response = try await onChat(body.sessionID, body.message)
                     return ChatResponse(response: response)
                 }
+            }
+            // Web UI route — serves the complete chat interface
+            Get("/ui") { [onUI] _, _ in
+                let html = onUI?() ?? "<h1>Web UI not configured</h1>"
+                let buffer = ByteBuffer(string: html)
+                return Response(
+                    status: .ok,
+                    headers: [.contentType: "text/html; charset=utf-8"],
+                    body: .init(byteBuffer: buffer)
+                )
             }
         }
 
