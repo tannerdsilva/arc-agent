@@ -27,6 +27,19 @@ public enum LMDBManager: Sendable {
         "\(sessionsDir)/\(id).mdb"
     }
 
+    /// Encode a UInt64 as big-endian bytes for use as an LMDB key.
+    /// Big-endian encoding ensures numeric order = lexicographic order.
+    public static func seqKey(_ seq: UInt64) -> [UInt8] {
+        var be = seq.bigEndian
+        return withUnsafeBytes(of: &be) { [UInt8]($0) }
+    }
+
+    /// Decode a UInt64 from big-endian bytes.
+    public static func seqFromKey(_ key: [UInt8]) -> UInt64 {
+        assert(key.count == 8, "seq key must be exactly 8 bytes")
+        return key.withUnsafeBytes { $0.load(as: UInt64.self) }.bigEndian
+    }
+
     /// Open the global environment.
     public static func openGlobal() throws -> OpaquePointer {
         try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)

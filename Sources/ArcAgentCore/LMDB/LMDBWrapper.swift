@@ -119,6 +119,81 @@ public enum LMDB: Sendable {
         guard rc == 0 else { throw LMDBError(rc: rc) }
         return true
     }
+
+    // MARK: - Cursor
+
+    /// Open a cursor for iterating over a database.
+    public static func cursorOpen(txn: OpaquePointer, dbi: UInt32) throws -> OpaquePointer {
+        var cursor: OpaquePointer?
+        let rc = mdb_cursor_open(txn, dbi, &cursor)
+        guard rc == 0 else { throw LMDBError(rc: rc) }
+        return cursor!
+    }
+
+    /// Close a cursor.
+    public static func cursorClose(_ cursor: OpaquePointer?) {
+        mdb_cursor_close(cursor)
+    }
+
+    /// Position the cursor at the first key >= the given key.
+    /// Returns (key, value) or nil if no such key exists.
+    public static func cursorSetRange(cursor: OpaquePointer, key: [UInt8]) throws -> ([UInt8], [UInt8])? {
+        var keyVal = MDB_val(mv_size: key.count, mv_data: UnsafeMutableRawPointer(mutating: key))
+        var valVal = MDB_val(mv_size: 0, mv_data: nil)
+        let rc = mdb_cursor_get(cursor, &keyVal, &valVal, MDB_SET_RANGE)
+        if rc == MDB_NOTFOUND { return nil }
+        guard rc == 0 else { throw LMDBError(rc: rc) }
+        let k = Data(bytes: keyVal.mv_data, count: keyVal.mv_size)
+        let v = Data(bytes: valVal.mv_data, count: valVal.mv_size)
+        return ([UInt8](k), [UInt8](v))
+    }
+
+    /// Move to the next entry. Returns (key, value) or nil at end.
+    public static func cursorNext(cursor: OpaquePointer) throws -> ([UInt8], [UInt8])? {
+        var keyVal = MDB_val(mv_size: 0, mv_data: nil)
+        var valVal = MDB_val(mv_size: 0, mv_data: nil)
+        let rc = mdb_cursor_get(cursor, &keyVal, &valVal, MDB_NEXT)
+        if rc == MDB_NOTFOUND { return nil }
+        guard rc == 0 else { throw LMDBError(rc: rc) }
+        let k = Data(bytes: keyVal.mv_data, count: keyVal.mv_size)
+        let v = Data(bytes: valVal.mv_data, count: valVal.mv_size)
+        return ([UInt8](k), [UInt8](v))
+    }
+
+    /// Move to the last entry. Returns (key, value) or nil if empty.
+    public static func cursorLast(cursor: OpaquePointer) throws -> ([UInt8], [UInt8])? {
+        var keyVal = MDB_val(mv_size: 0, mv_data: nil)
+        var valVal = MDB_val(mv_size: 0, mv_data: nil)
+        let rc = mdb_cursor_get(cursor, &keyVal, &valVal, MDB_LAST)
+        if rc == MDB_NOTFOUND { return nil }
+        guard rc == 0 else { throw LMDBError(rc: rc) }
+        let k = Data(bytes: keyVal.mv_data, count: keyVal.mv_size)
+        let v = Data(bytes: valVal.mv_data, count: valVal.mv_size)
+        return ([UInt8](k), [UInt8](v))
+    }
+
+    /// Move to the previous entry. Returns (key, value) or nil at start.
+    public static func cursorPrev(cursor: OpaquePointer) throws -> ([UInt8], [UInt8])? {
+        var keyVal = MDB_val(mv_size: 0, mv_data: nil)
+        var valVal = MDB_val(mv_size: 0, mv_data: nil)
+        let rc = mdb_cursor_get(cursor, &keyVal, &valVal, MDB_PREV)
+        if rc == MDB_NOTFOUND { return nil }
+        guard rc == 0 else { throw LMDBError(rc: rc) }
+        let k = Data(bytes: keyVal.mv_data, count: keyVal.mv_size)
+        let v = Data(bytes: valVal.mv_data, count: valVal.mv_size)
+        return ([UInt8](k), [UInt8](v))
+    }
+
+    /// Read the current cursor position without moving. Returns (key, value).
+    public static func cursorCurrent(cursor: OpaquePointer) throws -> ([UInt8], [UInt8]) {
+        var keyVal = MDB_val(mv_size: 0, mv_data: nil)
+        var valVal = MDB_val(mv_size: 0, mv_data: nil)
+        let rc = mdb_cursor_get(cursor, &keyVal, &valVal, MDB_GET_CURRENT)
+        guard rc == 0 else { throw LMDBError(rc: rc) }
+        let k = Data(bytes: keyVal.mv_data, count: keyVal.mv_size)
+        let v = Data(bytes: valVal.mv_data, count: valVal.mv_size)
+        return ([UInt8](k), [UInt8](v))
+    }
 }
 
 // MARK: - Error
