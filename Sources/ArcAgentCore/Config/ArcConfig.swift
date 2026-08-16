@@ -179,20 +179,21 @@ public enum ConfigError: Error, Sendable, CustomStringConvertible {
 ///
 /// Resolution order:
 /// 1. Start with compiled-in defaults
-/// 2. Overlay values from `~/.arc/config.json` (if it exists)
+/// 2. Overlay values from `configURL` (if it exists)
 /// 3. Overlay values from environment variables
 ///
+/// - Parameter configURL: The config file URL. Defaults to `~/.arc/config.json`.
 /// - Returns: The resolved configuration.
-public func loadConfig() -> ArcConfig {
+public func loadConfig(from configURL: URL? = nil) -> ArcConfig {
     var config = ArcConfig()
 
-    // Try loading from disk
-    let configURL = FileManager.default.homeDirectoryForCurrentUser
+    // Determine the config file URL
+    let resolvedURL = configURL ?? FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".arc/config.json")
 
-    if FileManager.default.fileExists(atPath: configURL.path) {
+    if FileManager.default.fileExists(atPath: resolvedURL.path) {
         do {
-            let data = try Data(contentsOf: configURL)
+            let data = try Data(contentsOf: resolvedURL)
             let decoded = try JSONDecoder().decode(ArcConfig.self, from: data)
             config = decoded
         } catch {
@@ -222,14 +223,16 @@ public func loadConfig() -> ArcConfig {
 
 /// Save configuration to disk.
 ///
-/// - Parameter config: The configuration to save.
+/// - Parameters:
+///   - config: The configuration to save.
+///   - configURL: The config file URL. Defaults to `~/.arc/config.json`.
 /// - Throws: If the file cannot be written.
-public func saveConfig(_ config: ArcConfig) throws {
-    let configDir = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".arc")
-    let configURL = configDir.appendingPathComponent("config.json")
+public func saveConfig(_ config: ArcConfig, to configURL: URL? = nil) throws {
+    let resolvedURL = configURL ?? FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".arc/config.json")
+    let configDir = resolvedURL.deletingLastPathComponent()
 
     try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
     let data = try JSONEncoder().encode(config)
-    try data.write(to: configURL, options: .atomic)
+    try data.write(to: resolvedURL, options: .atomic)
 }

@@ -134,37 +134,47 @@ struct SessionApprovalState: Sendable {
 /// Patterns that indicate dangerous commands.
 ///
 /// Each pattern is a regular expression matched against the command string.
-let dangerousPatterns: [(DangerLevel, NSRegularExpression)] = [
-    // Critical — destructive system operations
-    (.critical, try! NSRegularExpression(pattern: "rm\\s+-rf\\s+/")),
-    (.critical, try! NSRegularExpression(pattern: ":(){ \\:|:& };:")),  // fork bomb
-    (.critical, try! NSRegularExpression(pattern: "mkfs\\.")),
-    (.critical, try! NSRegularExpression(pattern: "dd\\s+if=.*of=/dev")),
-    (.critical, try! NSRegularExpression(pattern: ">\\s*/dev/")),
+/// Invalid patterns are silently skipped (logged at debug level).
+let dangerousPatterns: [(DangerLevel, NSRegularExpression)] = {
+    func pattern(_ raw: String) -> NSRegularExpression? {
+        try? NSRegularExpression(pattern: raw)
+    }
 
-    // Dangerous — potentially destructive
-    (.dangerous, try! NSRegularExpression(pattern: "rm\\s+-rf")),
-    (.dangerous, try! NSRegularExpression(pattern: "chmod\\s+777")),
-    (.dangerous, try! NSRegularExpression(pattern: "chown\\s+")),
-    (.dangerous, try! NSRegularExpression(pattern: "wget\\s+.*\\|\\s*bash")),
-    (.dangerous, try! NSRegularExpression(pattern: "curl\\s+.*\\|\\s*bash")),
-    (.dangerous, try! NSRegularExpression(pattern: "sudo\\s+")),
-    (.dangerous, try! NSRegularExpression(pattern: "passwd\\s+")),
-    (.dangerous, try! NSRegularExpression(pattern: "dd\\s+")),
-    (.dangerous, try! NSRegularExpression(pattern: "shutdown\\s+")),
-    (.dangerous, try! NSRegularExpression(pattern: "reboot\\s+")),
-    (.dangerous, try! NSRegularExpression(pattern: "halt\\s+")),
-    (.dangerous, try! NSRegularExpression(pattern: "poweroff\\s+")),
-    (.dangerous, try! NSRegularExpression(pattern: "iptables\\s+")),
-    (.dangerous, try! NSRegularExpression(pattern: "ufw\\s+")),
+    return [
+        // Critical — destructive system operations
+        (.critical, pattern("^rm\\s+-rf\\s+/\\s*$")),  // rm -rf / only
+        (.critical, pattern(NSRegularExpression.escapedPattern(for: ":(){ :|:& };:"))),  // fork bomb
+        (.critical, pattern("mkfs\\.")),
+        (.critical, pattern("dd\\s+if=.*of=/dev")),
+        (.critical, pattern(">\\s*/dev/")),
 
-    // Suspicious — network exfiltration
-    (.suspicious, try! NSRegularExpression(pattern: "nc\\s+")),
-    (.suspicious, try! NSRegularExpression(pattern: "ncat\\s+")),
-    (.suspicious, try! NSRegularExpression(pattern: "telnet\\s+")),
-    (.suspicious, try! NSRegularExpression(pattern: "ssh\\s+-R\\s+")),
-    (.suspicious, try! NSRegularExpression(pattern: "scp\\s+")),
-]
+        // Dangerous — potentially destructive
+        (.dangerous, pattern("rm\\s+-rf")),
+        (.dangerous, pattern("chmod\\s+777")),
+        (.dangerous, pattern("chown\\s+")),
+        (.dangerous, pattern("wget\\s+.*\\|\\s*bash")),
+        (.dangerous, pattern("curl\\s+.*\\|\\s*bash")),
+        (.dangerous, pattern("sudo\\s+")),
+        (.dangerous, pattern("passwd\\s+")),
+        (.dangerous, pattern("dd\\s+")),
+        (.dangerous, pattern("shutdown\\s+")),
+        (.dangerous, pattern("reboot\\s+")),
+        (.dangerous, pattern("halt\\s+")),
+        (.dangerous, pattern("poweroff\\s+")),
+        (.dangerous, pattern("iptables\\s+")),
+        (.dangerous, pattern("ufw\\s+")),
+
+        // Suspicious — network exfiltration
+        (.suspicious, pattern("nc\\s+")),
+        (.suspicious, pattern("ncat\\s+")),
+        (.suspicious, pattern("telnet\\s+")),
+        (.suspicious, pattern("ssh\\s+-R\\s+")),
+        (.suspicious, pattern("scp\\s+")),
+    ]
+    .compactMap { (level, optionalPattern) in
+        optionalPattern.map { (level, $0) }
+    }
+}()
 
 /// Detect the danger level of a command.
 ///
