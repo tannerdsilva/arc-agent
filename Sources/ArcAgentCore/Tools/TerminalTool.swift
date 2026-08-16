@@ -92,9 +92,13 @@ public enum TerminalTool {
                 throw TerminalError.timeout(timeout)
             }
 
-            let result = try await group.next()!
+            let result = try await group.next()
             group.cancelAll()
-            return result
+
+            guard let exitCode = result else {
+                throw TerminalError.noResult
+            }
+            return exitCode
         }
 
         let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
@@ -125,11 +129,14 @@ public enum TerminalTool {
 
 enum TerminalError: Error, Sendable, CustomStringConvertible {
     case timeout(Int)
+    case noResult
 
     var description: String {
         switch self {
         case .timeout(let seconds):
-            return "Command timed out after \(seconds) seconds."
+            return "Command timed out after \(seconds) seconds"
+        case .noResult:
+            return "Command produced no result"
         }
     }
 }

@@ -41,12 +41,16 @@ public actor ArcAgent: Service {
         public var skills: [Skill]
         /// Maximum iterations per conversation.
         public var maxIterations: Int
+        /// Maximum duration per turn in seconds.
+        public var maxTurnDuration: Int
         /// Whether to persist sessions.
         public var persistSessions: Bool
         /// The approval mode for dangerous commands.
         public var approvalMode: ApprovalMode
         /// Single query mode. If set, the agent processes one query and exits.
         public var query: String?
+        /// Approximate max context tokens before auto-compression.
+        public var maxContextTokens: Int
 
         public init(
             model: String,
@@ -58,9 +62,11 @@ public actor ArcAgent: Service {
             memoryProvider: MemoryProvider? = FileMemoryProvider(),
             skills: [Skill] = [],
             maxIterations: Int = 25,
+            maxTurnDuration: Int = 120,
             persistSessions: Bool = true,
             approvalMode: ApprovalMode = .manual,
-            query: String? = nil
+            query: String? = nil,
+            maxContextTokens: Int = 64_000
         ) {
             self.model = model
             self.provider = provider
@@ -71,9 +77,11 @@ public actor ArcAgent: Service {
             self.memoryProvider = memoryProvider
             self.skills = skills
             self.maxIterations = maxIterations
+            self.maxTurnDuration = maxTurnDuration
             self.persistSessions = persistSessions
             self.approvalMode = approvalMode
             self.query = query
+            self.maxContextTokens = maxContextTokens
         }
     }
 
@@ -86,6 +94,8 @@ public actor ArcAgent: Service {
     private let sessionID: String
     private let retryHandler = RetryHandler(maxRetries: 3, baseDelay: 1.0)
     private let approvalManager: ApprovalManager
+    /// Cached system prompt — rebuilt only when memory or skills change.
+    private var cachedSystemPrompt: String?
 
     // MARK: - Init
 
@@ -102,9 +112,13 @@ public actor ArcAgent: Service {
         let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
         self.httpClient = httpClient
 
+        // Wire the credential pool (no longer dead code)
+        let pool = CredentialPool(credentials: [config.apiKey])
+        let resolvedKey = await pool.acquireLease() ?? config.apiKey
+
         let client = OpenAICompatibleClient(
             baseURL: config.baseURL,
-            apiKey: config.apiKey,
+            apiKey: resolvedKey,
             model: config.model,
             httpClient: httpClient
         )
@@ -122,24 +136,31 @@ public actor ArcAgent: Service {
 
     // MARK: - Interactive REPL
 
+    /// Readline handle for async stdin access.
+    private let stdinHandle = FileHandle.standardInput
+
     /// Run the interactive readline REPL with slash commands.
     private func runInteractive() async throws {
         print("⚡ ARC Agent — interactive mode")
         print("   Type your message, or /quit to exit.")
         print("   Commands: /model, /retry, /help, /compress, /quit\n")
+        print("> ", terminator: "")
 
-        while true {
-            print("> ", terminator: "")
-            guard let input = readLine() else { break }
-
+        for try await input in stdinHandle.bytes.lines {
             if input.hasPrefix("/") {
                 let handled = try await handleSlashCommand(input)
-                if handled { continue } else { break }
+                if handled {
+                    print("> ", terminator: "")
+                    continue
+                } else {
+                    break
+                }
             }
 
             let response = try await runConversation(message: input)
             print(response)
             print("")
+            print("> ", terminator: "")
         }
     }
 
@@ -171,7 +192,6 @@ public actor ArcAgent: Service {
                 print("")
                 return true
             }
-            // Update the model on the LLM client
             if var client = self.llmClient, let hc = self.httpClient {
                 client = OpenAICompatibleClient(
                     baseURL: config.baseURL,
@@ -186,11 +206,9 @@ public actor ArcAgent: Service {
             return true
 
         case "/retry":
-            // Remove the last assistant message and re-run
             if let lastMsg = messageHistory.last, lastMsg.role == .assistant {
                 messageHistory.removeLast()
             }
-            // Find the last user message
             if let lastUserIndex = messageHistory.lastIndex(where: { $0.role == .user }) {
                 let lastUserMessage = messageHistory[lastUserIndex].content ?? ""
                 let response = try await runConversation(message: lastUserMessage)
@@ -203,10 +221,8 @@ public actor ArcAgent: Service {
             return true
 
         case "/compress":
-            // Simple compression: keep system prompt + last N messages
             let maxMessages = 20
             if messageHistory.count > maxMessages {
-                // Keep the first (system) and last N-1 messages
                 let systemMessages = messageHistory.filter { $0.role == .system }
                 let recentMessages = messageHistory.suffix(maxMessages - systemMessages.count)
                 messageHistory = Array(systemMessages) + Array(recentMessages)
@@ -259,9 +275,41 @@ public actor ArcAgent: Service {
         return response
     }
 
+    // MARK: - Token Counting
+
+    /// Rough estimate of token count from text (chars / 4).
+    /// This is a fast approximation — real tokenizers vary by model.
+    private func estimateTokenCount(_ text: String) -> Int {
+        max(1, text.utf8.count / 4)
+    }
+
+    /// Estimate the total token count of the current message history.
+    private func estimateHistoryTokens() -> Int {
+        messageHistory.reduce(0) { total, msg in
+            total + estimateTokenCount(msg.content ?? "")
+        }
+    }
+
+    /// Auto-compress history if estimated tokens exceed the configured limit.
+    private func autoCompressIfNeeded() {
+        let estimated = estimateHistoryTokens()
+        guard estimated > config.maxContextTokens else { return }
+
+        // Keep system messages + last N user/assistant exchanges
+        let systemMessages = messageHistory.filter { $0.role == .system }
+        let nonSystem = messageHistory.filter { $0.role != .system }
+
+        // Keep at most the last 10 non-system messages
+        let recent = nonSystem.suffix(10)
+        messageHistory = systemMessages + Array(recent)
+
+        // Invalidate cached system prompt since history changed
+        cachedSystemPrompt = nil
+    }
+
     // MARK: - Turn Loop
 
-    /// The core turn loop with retry logic and fallback models.
+    /// The core turn loop with retry logic, fallback models, and timeout.
     private func runTurnLoop(client: OpenAICompatibleClient) async throws -> String {
         guard let hc = self.httpClient else {
             return "Error: Agent HTTP client not initialized."
@@ -271,7 +319,10 @@ public actor ArcAgent: Service {
         let fallbacks = BundledProviders.resolve(config.provider)?.fallbackModels ?? []
 
         for iteration in 0..<config.maxIterations {
-            // 1. Build system prompt with memory and skills
+            // Auto-compress if context is too large
+            autoCompressIfNeeded()
+
+            // 1. Build system prompt with memory and skills (cached)
             let systemPrompt = try await buildSystemPrompt()
 
             // 2. Build messages array
@@ -284,14 +335,19 @@ public actor ArcAgent: Service {
                 disabled: []
             )
 
-            // 4. Call LLM with retry logic
+            // 4. Call LLM with retry logic and per-turn timeout
             let response: LLMResponse
             do {
-                response = try await callWithRetry(client: currentClient, messages: messages, tools: toolSchemas)
+                response = try await callWithRetry(
+                    client: currentClient,
+                    messages: messages,
+                    tools: toolSchemas,
+                    timeout: config.maxTurnDuration
+                )
             } catch {
                 let errorClass = classifyError(error)
 
-                // Try fallback models on permanent errors
+                // Try fallback models on permanent or retryable errors
                 if errorClass == .permanent || errorClass == .retryable {
                     if fallbackIndex < fallbacks.count {
                         let fallbackModel = fallbacks[fallbackIndex]
@@ -307,7 +363,6 @@ public actor ArcAgent: Service {
                     }
                 }
 
-                // If we exhausted retries and fallbacks, return the error
                 return "Error: \(error.localizedDescription)"
             }
 
@@ -326,7 +381,6 @@ public actor ArcAgent: Service {
                 ))
 
                 for toolCall in toolCalls {
-                    // Check approval for terminal commands
                     if toolCall.function.name == "terminal" {
                         let args = toolCall.function.arguments
                         let needsApproval = await approvalManager.needsApproval(
@@ -384,13 +438,21 @@ public actor ArcAgent: Service {
     }
 
     /// Call the LLM with retry logic and exponential backoff.
+    ///
+    /// - Parameters:
+    ///   - client: The LLM client to use.
+    ///   - messages: The message history to send.
+    ///   - tools: The tool schemas to include.
+    ///   - timeout: Per-call timeout in seconds (default: 120).
+    /// - Returns: The LLM response.
+    /// - Throws: ``LLMError`` if all retries are exhausted or the error is permanent.
     private func callWithRetry(
         client: OpenAICompatibleClient,
         messages: [Message],
-        tools: [[String: Any]]?
+        tools: [[String: Any]]?,
+        timeout: Int = 120
     ) async throws -> LLMResponse {
         var lastError: Error? = nil
-        // Serialize tools to Data (Sendable) to avoid actor isolation issues
         let toolsData: Data?
         if let tools, !tools.isEmpty {
             toolsData = try JSONSerialization.data(withJSONObject: tools)
@@ -406,17 +468,53 @@ public actor ArcAgent: Service {
                 } else {
                     toolsArg = nil
                 }
-                return try await client.complete(
-                    messages: messages,
-                    tools: toolsArg
-                )
+
+                // Serialize tools to Data (Sendable) for the timeout task group
+                let toolsPayload: Data
+                if let toolsArg {
+                    toolsPayload = try JSONSerialization.data(withJSONObject: toolsArg)
+                } else {
+                    toolsPayload = Data()
+                }
+
+                return try await withThrowingTaskGroup(of: LLMResponse.self) { group in
+                    group.addTask {
+                        let deserialized: [[String: Any]]?
+                        if toolsPayload.isEmpty {
+                            deserialized = nil
+                        } else {
+                            deserialized = try JSONSerialization.jsonObject(
+                                with: toolsPayload
+                            ) as? [[String: Any]]
+                        }
+                        return try await client.complete(
+                            messages: messages,
+                            tools: deserialized
+                        )
+                    }
+
+                    group.addTask {
+                        try await Task.sleep(
+                            nanoseconds: UInt64(timeout) * 1_000_000_000
+                        )
+                        throw LLMError.timeout(TimeInterval(timeout))
+                    }
+
+                    let result = try await group.next()
+                    group.cancelAll()
+
+                    guard let response = result else {
+                        throw LLMError.timeout(TimeInterval(timeout))
+                    }
+                    return response
+                }
             } catch {
                 lastError = error
                 let errorClass = classifyError(error)
 
                 switch errorClass {
                 case .permanent:
-                    throw error  // Don't retry permanent errors
+                    throw error
                 case .retryable:
                     if retryHandler.shouldRetry(attempt) {
                         try await retryHandler.wait(for: attempt)
@@ -454,7 +552,12 @@ public actor ArcAgent: Service {
     // MARK: - Prompt Building
 
     /// Build the system prompt with memory and skills injection.
+    /// Results are cached and only rebuilt when the cache is invalidated.
     private func buildSystemPrompt() async throws -> String {
+        if let cached = cachedSystemPrompt {
+            return cached
+        }
+
         var prompt = """
             You are ARC Agent, an intelligent AI assistant created by Nous Research.
             You are helpful, knowledgeable, and direct. You assist users with a wide
@@ -498,6 +601,7 @@ public actor ArcAgent: Service {
                 + "Load a skill with `skill_view(name)` to follow its instructions."
         }
 
+        cachedSystemPrompt = prompt
         return prompt
     }
 

@@ -15,10 +15,6 @@ let package = Package(
             from: "1.21.0"
         ),
         .package(
-            url: "https://github.com/hummingbird-project/hummingbird.git",
-            from: "2.0.0"
-        ),
-        .package(
             url: "https://github.com/apple/swift-argument-parser.git",
             from: "1.5.0"
         ),
@@ -29,6 +25,10 @@ let package = Package(
         .package(
             url: "https://github.com/swift-server/swift-service-lifecycle.git",
             from: "2.6.0"
+        ),
+        .package(
+            url: "https://github.com/hummingbird-project/hummingbird.git",
+            from: "2.0.0"
         ),
     ],
 
@@ -47,10 +47,10 @@ let package = Package(
             name: "ArcAgentCore",
             dependencies: [
                 .product(name: "AsyncHTTPClient", package: "async-http-client"),
-                .product(name: "Hummingbird", package: "hummingbird"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "SystemPackage", package: "swift-system"),
                 .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
+                .product(name: "Hummingbird", package: "hummingbird"),
             ]
         ),
 
