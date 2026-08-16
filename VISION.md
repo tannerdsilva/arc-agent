@@ -54,7 +54,7 @@ This ordering is load-bearing. A macro that papers over a bad protocol design hi
 
 - `LLMClient` is a protocol. `OpenAICompatibleClient`, `AnthropicMessagesClient`, and `GeminiClient` are concrete conformances. No macro needed — the protocol is the right level of abstraction.
 
-- `SessionStore` is a protocol. `GRDBSessionStore` is a concrete conformance. If a second implementation emerges (e.g. `JSONFileSessionStore` for debugging), the protocol is validated. If not, the protocol may be collapsed into the concrete type.
+- `SessionStore` is a protocol. `LMDBStore` is a concrete conformance. If a second implementation emerges (e.g. `JSONFileSessionStore` for debugging), the protocol is validated. If not, the protocol may be collapsed into the concrete type.
 
 ---
 
@@ -80,7 +80,7 @@ This ordering is load-bearing. A macro that papers over a bad protocol design hi
         ▼              ▼              ▼
 ┌──────────────┐ ┌──────────┐ ┌──────────────┐
 │ Tool Registry│ │ Provider │ │ Session      │
-│ (Compile-time│ │ Profiles │ │ Store (GRDB) │
+│ (Compile-time│ │ Profiles │ │ Store (LMDB) │
 │  + Plugins)  │ │          │ │              │
 └──────────────┘ └──────────┘ └──────────────┘
         │              │              │
@@ -94,7 +94,7 @@ This ordering is load-bearing. A macro that papers over a bad protocol design hi
         ▼                             ▼
 ┌──────────────┐              ┌──────────────┐
 │ Kanban Board │              │ Skills       │
-│ (SQLite)     │              │ System       │
+│ (LMDB)      │              │ System       │
 └──────────────┘              └──────────────┘
 ```
 
@@ -330,43 +330,117 @@ actor CredentialPool {
 
 ### 4. Session Management
 
-**Database:** SQLite via GRDB.swift with WAL mode.
+ARC Agent uses **LMDB** via **QuickLMDB** for all persistent storage. Instead of a relational database with tables, joins, and a query planner, each subsystem gets its own LMDB environment (`.mdb` file) containing typed key-value databases. The key structure encodes the access pattern — the B-tree cursor IS the query plan.
 
-**Schema:**
+**Environments:**
 
-```sql
-CREATE TABLE sessions (
-    id TEXT PRIMARY KEY,
-    title TEXT,
-    source TEXT,                    -- "cli", "telegram", "discord", etc.
-    created_at REAL,
-    updated_at REAL,
-    model TEXT,
-    provider TEXT,
-    parent_session_id TEXT,         -- compression branching
-    metadata TEXT                   -- JSON blob
-);
+```
+~/.arc/
+├── arc-sessions.mdb     # Session metadata + messages + full-text index
+├── arc-kanban.mdb       # Kanban board tasks, dependencies, comments
+└── arc-config.mdb       # Config, memory, cron jobs, credentials
+```
 
-CREATE TABLE messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT REFERENCES sessions(id),
-    role TEXT,                      -- "user", "assistant", "tool"
-    content TEXT,
-    tool_calls TEXT,                -- JSON array
-    tool_call_id TEXT,
-    created_at REAL,
-    tokens INTEGER
-);
+**Why LMDB over a relational store:**
 
-CREATE VIRTUAL TABLE messages_fts USING fts5(
-    content, content=messages, content_rowid=id
-);
+- **Zero-copy reads** — readers get a direct pointer into the memory-mapped file. A session lookup is a single B-tree walk, then a pointer return. No result-set materialization, no copying.
+- **No query planner** — the key structure IS the query plan. Every access pattern is known at compile time. No `EXPLAIN ANALYZE`, no index selection, no table-scan surprises.
+- **No schema migrations** — adding a new index is creating a new named database. Old data stays untouched. No `ALTER TABLE` locking a production database.
+- **Reader-writer concurrency** — unlimited concurrent readers with zero locking. Writers never block readers. Maps perfectly to the gateway model (many concurrent sessions reading, one cron tick writing).
+- **Single file per environment** — backup is `cp` the `.mdb` file. No dump/restore, no VACUUM, no WAL checkpointing.
+- **Compile-time type safety** — `Database.Strict<K,V>` catches key/value type mismatches at build time. A `Strict<SessionID, SessionMeta>` database physically cannot store a kanban task.
+
+**Environment layout:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  arc-sessions.mdb                                           │
+│  maxReaders: 64  |  maxDBs: 16  |  mapSize: dynamic        │
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │ sessions: Strict<SessionID, SessionMeta>              │   │
+│  │ Key:   UUID (16 bytes, big-endian)                    │   │
+│  │ Value: created_at + updated_at + model + provider     │   │
+│  │        + message_count (fixed-size struct)            │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │ messages: DupSort<SessionID, MessageHeader>           │   │
+│  │ Key:   SessionID (UUID, 16 bytes)                     │   │
+│  │ Value: role_byte + timestamp + body_len + body_offset │   │
+│  │ Dup:   multiple messages per session, insertion order │   │
+│  │ Scan:  cursor.set_range(sessionID) → iterate until    │   │
+│  │        key no longer starts with that SessionID       │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │ msg_bodies: Strict<MessageID, Body>                   │   │
+│  │ Key:   hash(SessionID + sequence_number, 16 bytes)    │   │
+│  │ Value: variable-length message text                   │   │
+│  │ Note:  Bodies stored separately so header scans are   │   │
+│  │        fast — no variable-length data in the dup sort │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │ sessions_by_source: DupSort<SourceTag, SessionID>     │   │
+│  │ Key:   "cli" | "telegram" | "api" | "discord" | ...  │   │
+│  │ Value: SessionID (UUID, 16 bytes)                     │   │
+│  │ Use:   list all Telegram sessions                     │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │ word_index: DupSort<WordHash, MessageLoc>             │   │
+│  │ Key:   blake2(word, 4 bytes)                          │   │
+│  │ Value: (SessionID + sequence_number)                  │   │
+│  │ Use:   full-text search via inverted index            │   │
+│  └──────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Composite key patterns (inspired by pricedb2's DateUTCPairHash):**
+
+```
+SessionMessageKey = SessionID (16 bytes) + SequenceNumber (8 bytes BE)
+  → All messages for a session are contiguous in B-tree order.
+    cursor.set_range(SessionID) and iterate until the key prefix changes.
+
+MessageBodyKey = blake2b(SessionID + seq_num, 16 bytes)
+  → Direct lookup of a specific message body by content hash.
+
+WordIndexKey = blake2b(word, 4 bytes)
+  → 4-byte hash is small enough for fast B-tree comparison,
+    large enough to keep collisions rare in practice.
 ```
 
 **Key operations:**
-- `createSession()` — insert new session row
-- `appendMessage()` — insert message + update FTS index
-- `searchSessions(query)` — FTS5 full-text search across all messages
+
+- `createSession()` — generate UUID, put into `sessions` database
+- `appendMessage()` — put header into `messages` (DupSort), put body into `msg_bodies`, update session metadata
+- `getSessionMessages(id)` — `cursor.set_range(id)` on `messages`, iterate until key prefix changes, look up bodies from `msg_bodies`
+- `searchSessions(query)` — tokenize query, look up each token in `word_index`, intersect result sets by MessageLoc
+- `listSessionsBySource(source)` — `cursor.set(source)` on `sessions_by_source`, iterate all dup values
+
+**Transaction pattern:**
+
+```swift
+// All reads are read-only transactions — zero contention with writers.
+func getSessionMessages(id: SessionID) throws -> [Message] {
+    let tx = try Transaction(env: sessionsEnv, readOnly: true)
+    return try messages.cursor(tx: tx) { cursor in
+        var results: [Message] = []
+        var cursorKey = id.rawBytes  // prefix scan
+        try cursor.setRange(key: cursorKey)
+        while cursorKey.hasPrefix(id.rawBytes) {
+            let header: MessageHeader = try cursor.value()
+            let body: String = try msg_bodies.get(key: header.bodyKey, tx: tx)
+            results.append(Message(header: header, body: body))
+            try cursor.next()
+        }
+        return results
+    }
+    // Transaction auto-closes — no cleanup needed.
+}
+```
 - `compressSession(id)` — create compressed summary, branch to new parent_session_id
 - `exportSession(id)` — JSONL export
 
@@ -535,7 +609,7 @@ struct CronJob: Codable, Sendable {
 actor CronScheduler: Service {
     private var jobs: [String: CronJob]
     private var timers: [String: TimerHandle]
-    private let jobStore: CronJobStore  // SQLite-backed
+    private let jobStore: CronJobStore  // LMDB-backed
     
     func start() async throws
     func stop() async throws
@@ -584,7 +658,7 @@ struct KanbanTask: Codable, Sendable {
 }
 
 actor KanbanBoard: Service {
-    private let db: GRDBDatabase
+    private let env: Environment
     
     func create(task: KanbanTask) async throws -> String
     func show(id: String) async throws -> KanbanTask
@@ -702,7 +776,7 @@ struct ModelConfig: Codable, Sendable {
 │   ├── MEMORY.md         # Agent's persistent notes
 │   └── USER.md           # User profile
 ├── sessions/
-│   └── state.db          # SQLite session store
+│   └── arc-sessions.mdb  # LMDB session store
 ├── skills/               # Installed skills
 ├── logs/
 ├── cron/
@@ -786,7 +860,7 @@ This is the lowest priority subsystem. The CLI REPL + gateway cover 95% of use c
 | Language | Swift 6+ | Strict concurrency checking, actor isolation, Sendable |
 | HTTP server | Hummingbird | Lightweight, Swift-native, async/await |
 | HTTP client | AsyncHTTPClient | NIO-based, streaming support |
-| SQLite | GRDB.swift | Swift-native, actor-safe, FTS5 support |
+| Storage | QuickLMDB (LMDB) | Memory-mapped, zero-copy reads, no query planner |
 | YAML | Yams | Pure Swift, well-maintained |
 | JSON | Foundation `Codable` | Built-in, fast, type-safe |
 | Argument parsing | Swift Argument Parser | Declarative, compile-time safe |
@@ -808,7 +882,7 @@ This is the lowest priority subsystem. The CLI REPL + gateway cover 95% of use c
 - [ ] OpenAI-compatible API client (single provider: OpenRouter)
 - [ ] Agent loop: build prompt → call LLM → dispatch tools → repeat
 - [ ] Basic CLI: `arc chat -q "hello"`
-- [ ] Session store (SQLite, basic CRUD)
+- [ ] Session store (LMDB, basic CRUD)
 
 **Deliverable:** A working agent that can chat, run shell commands, read/write files, and search the web. Single binary, instant startup.
 
@@ -829,7 +903,7 @@ This is the lowest priority subsystem. The CLI REPL + gateway cover 95% of use c
 
 - [ ] Delegation system with toolset intersection
 - [ ] Steering (list, steer, stop children)
-- [ ] Kanban board with SQLite backend
+- [ ] Kanban board with LMDB backend
 - [ ] Kanban dispatcher (background service)
 - [ ] Cron scheduler with job store
 - [ ] Monitor mode for cron jobs
@@ -891,9 +965,16 @@ Hermes uses Playwright (Node.js). Options for ARC:
 
 Each provider has subtle API differences. The OpenAI-compatible format covers ~95% of providers. The remaining 5% (Anthropic Messages API, Google Gemini, MiniMax) need separate client implementations. Decision: support OpenAI-compatible + Anthropic Messages API for v1, add others based on demand.
 
-### 5. Message persistence format
+### 5. Storage format
 
-Hermes uses a custom SQLite schema with FTS5. ARC should use the same approach (GRDB + FTS5). The schema can be simpler since we don't need backward compatibility with Hermes's existing session store.
+ARC Agent uses LMDB via QuickLMDB for all persistent storage. Each subsystem gets its own `.mdb` environment with typed key-value databases. The key structure encodes the access pattern — no query planner, no schema migrations, no relational store. The schema IS the set of named databases and their key/value types. See the Session Management section above for the full environment layout.
+
+The key design choices, inspired by pricedb2's proven schema:
+- **Fixed-size binary keys** with big-endian byte ordering for correct B-tree sorting
+- **Composite keys** that encode relationships directly in the key space (e.g. `SessionID + SequenceNumber` for messages)
+- **Duplicate sort databases** for one-to-many and many-to-many relationships (messages per session, tasks by status)
+- **Separate environments** for independent domains (sessions, kanban, config) — each with its own `mapSize`, `maxReaders`, and `maxDBs`
+- **Append-friendly key design** for time-series data (cron ticks, session creation dates)
 
 ### 6. Native web UI
 
@@ -957,7 +1038,7 @@ The key advantages are:
 2. **Instant startup** — No interpreter overhead
 3. **Type safety** — Compile-time guarantees for tool schemas and config
 4. **No npm** — Zero JavaScript dependency chain
-5. **Swift ecosystem** — Swift Argument Parser, Swift Service Lifecycle, GRDB, Hummingbird
+5. **Swift ecosystem** — Swift Argument Parser, Swift Service Lifecycle, QuickLMDB, Hummingbird
 
 ---
 

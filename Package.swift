@@ -22,6 +22,10 @@ let package = Package(
             url: "https://github.com/apple/swift-argument-parser.git",
             from: "1.5.0"
         ),
+        .package(
+            url: "https://github.com/tannerdsilva/QuickLMDB.git",
+            from: "14.0.0"
+        ),
     ],
 
     targets: [
@@ -41,6 +45,7 @@ let package = Package(
                 .product(name: "AsyncHTTPClient", package: "async-http-client"),
                 .product(name: "Hummingbird", package: "hummingbird"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "QuickLMDB", package: "QuickLMDB"),
             ]
         ),
 

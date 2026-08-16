@@ -52,7 +52,7 @@ Agent Loop (Actor)
   │
   ├── Tool Registry (compile-time + plugins)
   ├── Provider Profiles (20+ providers)
-  ├── Session Store (GRDB + SQLite + FTS5)
+  ├── Session Store (LMDB + QuickLMDB)
   ├── Delegation System (subagent spawning)
   ├── Kanban Board (multi-agent work queue)
   ├── Cron Scheduler (durable job store)
@@ -84,7 +84,7 @@ Agent Loop (Actor)
 | Language | Swift 6+ |
 | HTTP server | Hummingbird |
 | HTTP client | AsyncHTTPClient |
-| SQLite | GRDB.swift |
+| Storage | QuickLMDB (LMDB) |
 | YAML | Yams |
 | Argument parsing | Swift Argument Parser |
 | Lifecycle | Swift Service Lifecycle |
