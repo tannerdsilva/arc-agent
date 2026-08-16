@@ -3,7 +3,6 @@
 DerivedData/
 *.xcworkspace
 *.xcodeproj
-Package.resolved
 
 # OS
 .DS_Store
