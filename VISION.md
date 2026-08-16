@@ -860,7 +860,7 @@ This is the lowest priority subsystem. The CLI REPL + gateway cover 95% of use c
 | Language | Swift 6+ | Strict concurrency checking, actor isolation, Sendable |
 | HTTP server | Hummingbird | Lightweight, Swift-native, async/await |
 | HTTP client | AsyncHTTPClient | NIO-based, streaming support |
-| Storage | QuickLMDB (LMDB) | Memory-mapped, zero-copy reads, no query planner |
+| Storage | QuickLMDB (LMDB, v15) | Memory-mapped, zero-copy reads, no query planner |
 | YAML | Yams | Pure Swift, well-maintained |
 | JSON | Foundation `Codable` | Built-in, fast, type-safe |
 | Argument parsing | Swift Argument Parser | Declarative, compile-time safe |

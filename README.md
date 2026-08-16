@@ -84,7 +84,7 @@ Agent Loop (Actor)
 | Language | Swift 6+ |
 | HTTP server | Hummingbird |
 | HTTP client | AsyncHTTPClient |
-| Storage | QuickLMDB (LMDB) |
+| Storage | QuickLMDB (LMDB, v15) |
 | YAML | Yams |
 | Argument parsing | Swift Argument Parser |
 | Lifecycle | Swift Service Lifecycle |
