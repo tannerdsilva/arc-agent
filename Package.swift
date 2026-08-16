@@ -51,6 +51,7 @@ let package = Package(
                 .product(name: "SystemPackage", package: "swift-system"),
                 .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
                 .product(name: "Hummingbird", package: "hummingbird"),
+                .product(name: "HummingbirdRouter", package: "hummingbird"),
             ]
         ),
 

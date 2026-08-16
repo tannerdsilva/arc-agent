@@ -251,7 +251,7 @@ public actor ArcAgent: Service {
     // MARK: - Conversation
 
     /// Run a single conversation turn with the given user message.
-    private func runConversation(message: String) async throws -> String {
+    func runConversation(message: String) async throws -> String {
         guard let llmClient else {
             return "Error: Agent not started. Call run() first."
         }
