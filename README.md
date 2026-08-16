@@ -2,9 +2,9 @@
 
 > **A**utomatic **R**eference **C**ounting — a nod to Swift's memory management model. Deterministic, predictable, efficient. The same philosophy applied to agent architecture.
 
-ARC Agent is a conceptual exploration of what a **precompiled, Swift-native AI agent harness** could look like. Inspired by the architecture of [Hermes Agent](https://hermes-agent.nousresearch.com), but built from the ground up for Swift's concurrency model, type system, and distribution story.
+ARC Agent is a **precompiled, Swift-native AI agent harness** — architecturally inspired by [Hermes Agent](https://hermes-agent.nousresearch.com), but built from the ground up for Swift's concurrency model, type system, and distribution story. Single binary, zero interpreter overhead, no npm dependency chain, instant startup.
 
-**This project is in its early stages.** We are working with concepts and prototypes, not production code. See [AGENTS.md](AGENTS.md) for the full context on where this project is and where it's going.
+**Status:** Vascular hardening. The core architecture is built across 51 source files with 75 passing tests. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities.
 
 ## Why Swift?
 
@@ -15,10 +15,10 @@ ARC Agent is a conceptual exploration of what a **precompiled, Swift-native AI a
 | Distribution | pip + venv + 227MB repo | Single binary (~20MB) |
 | Concurrency | threading + asyncio hybrid | Structured async/await + actors |
 | Type safety | Runtime (duck typing) | Compile-time (strong typing) |
-| Dependencies | 100+ Python + npm | 10-15 Swift packages |
-| Tool schemas | Dicts at runtime | Codable + macros at compile time |
+| Dependencies | 100+ Python + npm | 8 Swift packages |
+| Tool schemas | Dicts at runtime | Codable at compile time |
 
-## Technical Requirements
+## The Law of the Land
 
 All code in this project must satisfy two non-negotiable constraints:
 
@@ -26,66 +26,65 @@ All code in this project must satisfy two non-negotiable constraints:
 
 2. **Swift Service Lifecycle.** Every long-lived component (agent loop, gateway, cron scheduler, kanban dispatcher) is a `Service` managed by `swift-service-lifecycle`. No ad-hoc daemon threads, no `atexit` handlers, no standalone `DispatchMain()` calls.
 
-## Design Approach
-
-The project follows a strict **protocols-first** design discipline:
-
-1. **Protocol** — every abstraction starts as a protocol capturing the contract
-2. **Concrete types** — structs and classes implement protocols; protocols never depend on concrete types
-3. **Macros** — only after the protocol proves unwieldy in practice do we introduce macros to compress syntax
-
-This ordering is load-bearing. Macros that paper over a bad protocol design hide the problem, not fix it.
-
-## 1.0 Requirements
-
-- **Native web UI** — a web-based user interface ships before 1.0. The approach is undecided and deferred (see VISION.md for options). The author will not write JavaScript, CSS, or HTML by hand.
-
 ## Architecture
 
 The full architecture is documented in [VISION.md](VISION.md). At a high level:
 
 ```
-Agent Loop (Actor)
-  ├── Prompt Builder
-  ├── LLM Call (OpenAI-compatible)
-  ├── Tool Dispatch (Registry + Handler)
-  │
-  ├── Tool Registry (compile-time + plugins)
-  ├── Provider Profiles (20+ providers)
-  ├── Session Store (LMDB + QuickLMDB)
-  ├── Delegation System (subagent spawning)
-  ├── Kanban Board (multi-agent work queue)
-  ├── Cron Scheduler (durable job store)
-  ├── Security / Approval System
-  ├── Memory Manager
-  ├── Skills System
-  └── Gateway (Hummingbird HTTP + platform adapters)
+GatewayService (Service Lifecycle tree)
+├── HTTPServerService (Hummingbird)
+├── TelegramAdapter (long polling)
+├── MCPServerAdapter (MCP protocol)
+├── SessionRegistry (actor)
+│   └── SessionAgent [N] (Service per session)
+│       └── ArcAgent (actor — prompt → LLM → tools → response)
+└── DeliveryManager (actor — response routing)
 ```
 
-## Status
+**16 registered tools** across 6 toolsets: `file`, `terminal`, `web`, `core`, `delegation`, `kanban`.
 
-- **Phase:** Blue sky / conceptual exploration
-- **Code:** None yet
-- **Build:** None yet
-- **Vision:** Documented in [VISION.md](VISION.md)
+## Quick Start
 
-## Build Order (Planned)
+```bash
+# Build
+swift build
 
-1. **Core Agent** — tool registry, OpenAI-compatible client, agent loop, basic CLI
-2. **Production Readiness** — providers, security, memory, skills, context compression
-3. **Multi-Agent** — delegation, kanban, cron
-4. **Gateway** — HTTP server, Telegram adapter, agent cache
-5. **Polish** — plugins, MCP, distribution
+# Run tests
+swift test
 
-## Technology Stack (Planned)
+# List tools
+swift run arc-agent tools
+
+# Chat (requires API key)
+export ARC_API_KEY=sk-...
+swift run arc-agent chat -q "hello world"
+
+# Start gateway server
+swift run arc-agent serve --port 8080
+```
+
+## Roadmap
+
+The project has completed five feature-build phases and is now in **vascular hardening**:
+
+| Phase | Focus | Status |
+|---|---|---|
+| Phase A | Session & Data Integrity | 🔲 Not started |
+| Phase B | Context & Memory | 🔲 Not started |
+| Phase C | Error Handling & Recovery | 🔲 Not started |
+| Phase D | Testing & Verification | 🔲 Not started |
+| Phase E | Performance & Observability | 🔲 Not started |
+
+See [VISION.md](VISION.md) for the full roadmap and subsystem documentation.
+
+## Technology Stack
 
 | Layer | Choice |
 |---|---|
-| Language | Swift 6+ |
-| HTTP server | Hummingbird |
+| Language | Swift 6.0 |
+| HTTP server | Hummingbird 2.x |
 | HTTP client | AsyncHTTPClient |
-| Storage | QuickLMDB (LMDB, v15) |
-| YAML | Yams |
+| Storage | LMDB via CLMDB (raw C API) |
 | Argument parsing | Swift Argument Parser |
 | Lifecycle | Swift Service Lifecycle |
 | Regex | Swift Regex (built-in) |
@@ -93,7 +92,7 @@ Agent Loop (Actor)
 ## Related
 
 - [Hermes Agent](https://hermes-agent.nousresearch.com) — the Python agent framework that inspired this project's architecture
-- [VISION.md](VISION.md) — full architecture document
+- [VISION.md](VISION.md) — full architecture document and hardening roadmap
 - [AGENTS.md](AGENTS.md) — project phase and working conventions
 
 ## License

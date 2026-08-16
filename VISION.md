@@ -12,7 +12,7 @@ A precompiled, Swift-native AI agent harness — architecturally inspired by Her
 
 2. **Structured concurrency everywhere.** No thread pool executors, no `threading.Lock`, no `contextvars` workarounds. Swift actors and task groups are the concurrency primitives. The agent loop, tool dispatch, delegation, and gateway all run on Swift's cooperative async/await model.
 
-3. **The core is a narrow waist.** Every tool schema is sent on every API call. New capabilities arrive as plugins or CLI commands, not core tool additions. The tool registry is closed at compile time for the built-in set, extensible at runtime via plugin bundles.
+3. **The core is a narrow waist.** Every tool schema is sent on every API call. New capabilities arrive as CLI commands, not core tool additions. The tool registry is closed at compile time for the built-in set. Plugins are deferred — the internal architecture must be proven before we add third-party variables to the engine.
 
 4. **Deterministic startup and shutdown.** Swift Service Lifecycle manages the agent, gateway, cron scheduler, and kanban dispatcher as a tree of services. No ad-hoc daemon threads, no `atexit` handlers, no cleanup races.
 
@@ -35,6 +35,23 @@ HEAR YE, HEAR YE. In this beautiful project, of which we are so proud, there sha
 These two laws are not goals. They are not aspirations. They are **requirements**. Code that violates them shall not be merged. Agents that generate code violating them shall be corrected. Humans that accept code violating them shall be reminded.
 
 This is the contract. This is the foundation. Everything else is negotiable.
+
+---
+
+## The Information Vascular System
+
+An agent framework is not a collection of features — it is a **vascular system** through which information flows. Messages arrive from platforms, flow through routing and session management, enter the agent loop, are enriched with memory and skills, pass through the LLM, dispatch to tools, and return as responses. Every junction in this flow is a vessel. Every vessel must be:
+
+- **Patent** — no blockages, no dead ends, no dropped messages
+- **Elastic** — handles pressure spikes (bursts of concurrent sessions) without rupture
+- **Self-healing** — transient failures are retried, permanent failures are isolated
+- **Observable** — you can see what's flowing, where it's backed up, and where it's leaking
+
+The first five phases of this project built the vascular network — every pipe is connected end-to-end. The next phase hardens the vessels themselves. No new features. No new platforms. No third-party plugins that introduce unknown failure modes before the core plumbing is proven.
+
+The roadmap below reflects this shift: from **feature expansion** to **vascular hardening**.
+
+---
 
 ## Instance Relationships
 
@@ -300,16 +317,6 @@ extension ToolRegistry {
 }
 ```
 
-Or via a result-builder macro:
-
-```swift
-#tool("web_search", toolset: "web", requiresEnv: "SEARCH_API_KEY") { args in
-    let query: String = args["query"]
-    let limit: Int = args["limit"] ?? 5
-    return try await WebSearch.search(query, limit: limit)
-}
-```
-
 **Toolset definitions:**
 
 ```swift
@@ -335,11 +342,6 @@ func buildToolSchemas(enabled: Set<String>, disabled: Set<String>) -> [[String: 
     // 4. Map to OpenAI schema format
 }
 ```
-
-**Key differences from Hermes:**
-- No runtime discovery (no AST scanning, no importlib). Tools are registered at compile time.
-- Plugin tools register via a different mechanism (`.dylib` bundles or a plugin directory scanned at startup).
-- The check_fn TTL cache is replaced by Swift's actor-based caching with the same transient-failure grace window.
 
 ---
 
@@ -370,10 +372,9 @@ struct ProviderProfile: Sendable {
 
 **Provider discovery:**
 
-Providers are registered in three tiers:
+Providers are registered in two tiers (plugins deferred):
 1. **Bundled** — compiled into the binary (OpenAI, Anthropic, OpenRouter, DeepSeek, Google, xAI, MiniMax, etc.)
-2. **User plugins** — `.dylib` bundles in `~/.arc/plugins/model-providers/`
-3. **Config-defined** — custom endpoints defined in `config.yaml` with base URL + provider template
+2. **Config-defined** — custom endpoints defined in `config.yaml` with base URL + provider template
 
 **API client architecture:**
 
@@ -425,12 +426,13 @@ ARC Agent uses **LMDB** for all persistent storage via a thin wrapper around the
 └── sessions/
     ├── <session-id>.mdb    # One per session — isolated, self-contained
     │   ├── meta            # session metadata (model, provider, timestamps)
-    │   └── messages        # ordered message history (sequence number → JSON)
+    │   ├── headers         # fixed-size message headers (13 bytes each)
+    │   └── bodies          # variable-length message bodies (JSON)
     ├── <session-id>.mdb
     └── ...
 ```
 
-**Per-session .mdb contents:**
+**Per-session .mdb contents (header/body split):**
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -439,15 +441,20 @@ ARC Agent uses **LMDB** for all persistent storage via a thin wrapper around the
 │                                                              │
 │  meta database:                                              │
 │    "session_meta" → JSON(SessionMeta)                        │
-│      { createdAt, updatedAt, model, provider }               │
+│      { createdAt, updatedAt, model, provider,                │
+│        messageCount, totalTokens }                           │
 │                                                              │
-│  messages database:                                          │
-│    "0" → JSON(Message)   ← first message                     │
-│    "1" → JSON(Message)   ← second message                    │
-│    "2" → JSON(Message)   ← third message                     │
-│    ...                                                        │
+│  headers database (fixed-size, fast scan):                   │
+│    key: UInt64 BE (8 bytes, sequence number)                 │
+│    val: 13 bytes [role:UInt8][timestamp:UInt64][len:UInt32]  │
+│                                                              │
+│  bodies database (variable-length, loaded on demand):        │
+│    key: UInt64 BE (8 bytes, sequence number)                 │
+│    val: JSON(Message)                                        │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+The header/body split means scanning N message headers reads exactly N × 13 bytes from the B-tree, regardless of message content size. Bodies are only decoded when the caller asks for a specific message or range of messages.
 
 **Global .mdb contents:**
 
@@ -603,7 +610,7 @@ let dangerousPatterns: [Regex] = [
     try! Regex("rm\\s+-rf"),
     try! Regex(">\\s*/dev/"),
     try! Regex("chmod\\s+777"),
-    try! Regex(":(){ :\\|:& };:"),  // fork bomb
+    try! Regex(":(){ :|:& };:"),  // fork bomb
     // ... 50+ patterns
 ]
 
@@ -778,91 +785,126 @@ The agent reads memory from the shared `LMDBMemoryProvider` at the start of each
 
 ---
 
-## Phase Checklist
+## Build Order & Milestones
 
-### Phase 1: Core Agent (Complete)
+The project has completed five feature-build phases and is now entering a **hardening phase**. The roadmap below reflects this shift: the vascular system is built; now we make it reliable, observable, and resilient.
 
-- [x] Tool registry protocol + compile-time implementation
-- [x] JSON Schema generation for OpenAI function-calling
-- [x] 5 built-in tools (read_file, write_file, terminal, web_search, web_extract)
-- [x] LLM client protocol + OpenAI-compatible implementation
-- [x] Agent loop actor with tool dispatch
-- [x] Session store protocol + file-backed implementation
-- [x] CLI entry point with ArgumentParser
-- [x] 13 tests, all passing
+### Phase A: Session & Data Integrity (the aorta)
 
-### Phase 2: Production Readiness (Complete)
+*The foundation of a reliable agent framework is data that doesn't corrupt, leak, or disappear.*
 
-- [x] Provider profiles (OpenAI, Anthropic, DeepSeek, Groq, etc.)
-- [x] Credential pooling actor
-- [x] Memory provider protocol + file-backed implementation
-- [x] Skill discovery and injection
-- [x] Retry handler with exponential backoff
-- [x] Approval manager with Swift Regex
-- [x] Config loading/saving
-- [x] Interactive REPL with slash commands
-- [x] 75 tests, all passing
+- [ ] **Persistent LMDB environment** — `LMDBSessionStore` opens/closes an environment per call. If the process crashes mid-write, the `.mdb` file is corrupted. A persistent environment held by a Service prevents this.
+- [ ] **Session lifecycle audit** — verify every `SessionAgent` cleanup path: HTTPClient shutdown, LMDB env close, registry removal on both happy path and error path.
+- [ ] **Gateway response plumbing** — `POST /v1/chat` returns `"Message received"` immediately instead of the actual agent response. The HTTP client never gets the answer. Fix: wire the response back through the session agent's stream.
+- [ ] **Concurrent session isolation** — verify that N concurrent sessions don't interfere. LMDB per-session files provide isolation at the storage layer; verify the actor boundaries hold at the application layer.
 
-### Phase 3: Multi-Agent (Complete)
+**Deliverable:** Sessions survive process restarts. Gateway returns real responses. No resource leaks under load.
 
-- [x] Delegation system (subagent spawning, steering, stopping)
-- [x] Kanban board protocol + file-backed implementation
-- [x] Kanban dispatcher service
-- [x] Cron scheduler with interval/cron/onetime parsing
-- [x] 75 tests, all passing
+### Phase B: Context & Memory (the capillaries)
 
-### Phase 4: Gateway (Complete)
+*The quality of an agent's output is bounded by the quality of its context. Crude heuristics waste tokens and lose signal.*
 
-- [x] Hummingbird HTTP server (POST /v1/chat, GET /health)
-- [x] Telegram platform adapter (long polling)
-- [x] SessionRegistry + SessionAgent (long-lived Services, no cache)
-- [x] LMDB-backed session store (per-session .mdb files)
-- [x] LMDB-backed memory provider (shared global .mdb)
-- [x] Thin CLMDB wrapper (avoids QuickLMDB v14 non-copyable issues)
-- [x] DeliveryManager for cross-platform routing
-- [x] `arc serve` CLI command
+- [ ] **Token counting** — current estimate is `text.utf8.count / 4`. For code-heavy conversations this is wildly inaccurate. Replace with a real tokenizer (or at minimum a calibrated heuristic that accounts for code, whitespace, and non-ASCII).
+- [ ] **Context compression** — auto-compress keeps the last 10 non-system messages. No semantic compression — just truncation. Add LLM-based summarization for middle turns when the budget is exceeded.
+- [ ] **Structured memory** — flat string append/replace. No distinction between facts, procedures, and user profile. No deduplication. No TTL on stale entries. Design a memory schema that survives across sessions without accumulating noise.
+- [ ] **System prompt caching** — `cachedSystemPrompt` is invalidated on any history change. Could be smarter about partial rebuilds when only the message history changes but memory and skills are stable.
 
-### Phase 5: Polish (In Progress)
+**Deliverable:** Accurate token budgets. Smarter compression that preserves signal. Memory that doesn't grow unbounded.
 
-- [x] MCP server integration (swift-mcp library)
-- [x] DynamicMCPTool adapter (bridges ToolEntry → MCPTool)
-- [x] MCPServerAdapter (wraps MCPServer as gateway Service)
-- [ ] Additional platform adapters (Discord, Slack, WhatsApp)
-- [ ] Performance optimization
-- [ ] Documentation
-- [ ] Distribution (Homebrew formula, Docker image)
+### Phase C: Error Handling & Recovery (the immune system)
+
+*Every component will fail. The system must degrade gracefully, not crash or silently corrupt.*
+
+- [ ] **LLM error classification audit** — verify `classifyError` handles all OpenAI error shapes: context length exceeded, rate limits, server errors, auth failures, content policy violations. Each should have a distinct recovery strategy.
+- [ ] **Gateway-level session recovery** — if a `SessionAgent` crashes, the session is removed from the registry but the LMDB data is intact. Add retry mechanism to restart the agent with the existing session data.
+- [ ] **Structured tool errors** — tool handlers throw raw errors into the agent loop. Add structured error recovery: retry tool, skip tool, fall back to LLM, or surface to user.
+- [ ] **Circuit breaker** — if the primary model fails and all fallbacks are exhausted, the agent returns an error string. Add a circuit breaker that prevents repeated calls to a failing endpoint and notifies the user.
+
+**Deliverable:** Transient failures are invisible to the user. Permanent failures are isolated and reported. No silent data corruption.
+
+### Phase D: Testing & Verification (the diagnostic system)
+
+*Untested code is broken code. The vascular system must have monitors at every junction.*
+
+- [ ] **Gateway tests** — zero tests for `GatewayService`, `HTTPServerService`, `TelegramAdapter`, `SessionAgent`, `SessionRegistry`. These are the primary entry points — every message flows through them.
+- [ ] **LMDB tests** — zero tests for `LMDBSessionStore`, `LMDBMemoryProvider`, `LMDBWrapper`. These are persistence-critical — corruption is silent data loss.
+- [ ] **Integration tests** — no end-to-end test that exercises the full pipeline: CLI → agent → LLM → tool → response. Even a mock-LLM integration test would catch regressions the unit tests miss.
+- [ ] **Concurrency tests** — no tests for actor isolation, task cancellation, or concurrent session access. The actor model guarantees safety by construction, but we need to verify the boundaries are correct.
+- [ ] **Fault injection tests** — simulate LMDB corruption, network timeouts, and process crashes. Verify recovery paths.
+
+**Deliverable:** Test coverage on all critical paths. Confidence that the system survives real-world failure modes.
+
+### Phase E: Performance & Observability (the vital signs)
+
+*You can't fix what you can't see. You can't scale what you haven't measured.*
+
+- [ ] **Streaming responses** — the LLM client supports streaming deltas (`LLMDelta`) but the agent loop doesn't use them. Gateway sessions block until the full response is ready. Wire streaming through the agent loop to the gateway.
+- [ ] **Structured logging** — ad-hoc `print()` statements throughout. Replace with structured logging with levels, trace IDs for request correlation, and machine-parseable output.
+- [ ] **Metrics** — no counters for: tokens used, tools called, errors by type, session duration, cache hit rate. Add metrics collection at key junctions.
+- [ ] **LMDB performance** — measure read/write latency under load. The per-session `.mdb` pattern is designed for isolation, but the open/close per-call pattern adds overhead. Benchmark and optimize.
+- [ ] **Startup time** — measure and optimize cold-start latency for new session agents.
+
+**Deliverable:** Observable, measurable system. Streaming responses. Performance baselines for all critical paths.
 
 ---
 
-## Key Architectural Decisions (Unresolved)
+## Deferred Work
 
-These need design work before implementation begins:
+The following items are explicitly deferred until the vascular system is hardened:
 
-### 1. Plugin system design
+| Item | Rationale |
+|---|---|
+| **Plugin system (`.dylib` bundles)** | Third-party code introduces unknown failure modes before the core plumbing is proven. MCP already provides a plugin-like mechanism for tool exposure. |
+| **Additional platform adapters (Discord, Slack, WhatsApp)** | Each platform adds maintenance burden and API-specific failure modes. Telegram proves the adapter pattern; others can follow once the delivery pipeline is hardened. |
+| **Browser automation** | Requires a native CDP client or shelled-out browser. Neither is trivial. Not needed for the core agent use case. |
+| **Distribution (Homebrew, Docker)** | Premature before the binary is stable. Distribution is a Phase E (Polish) concern. |
 
-Swift has no equivalent of Python's `importlib`. Options:
-- **Compile-time registration**: All plugins are bundled in the binary. Simple but not extensible.
-- **dlopen bundles**: `.dylib` files implementing a known protocol. Flexible but complex.
-- **Subprocess plugins**: Plugins run as separate processes communicating via JSON-RPC over stdin/stdout (like MCP). Simple, isolated, but higher latency.
-- **Recommendation**: Start with compile-time registration for built-in tools/providers, add MCP-style subprocess plugins for extensibility.
+---
 
-### 2. Browser automation
+## Key Architectural Decisions (Resolved)
 
-Hermes uses Playwright (Node.js). Options for ARC:
-- **Native CDP client**: Implement Chrome DevTools Protocol directly via WebSocket. Feasible but significant work.
-- **Shell to headless browser**: Use `xcrun` or a system-installed Chromium with CDP flags. Simple but requires external binary.
+These decisions have been made through implementation experience:
+
+### 1. LMDB over file-based storage
+
+The thin `CLMDB` wrapper replaced both the file-based session store and the QuickLMDB dependency. QuickLMDB v14's non-copyable types were incompatible with async Swift. The raw C API wrapper gives full control over transaction semantics and avoids dependency churn.
+
+### 2. Per-session .mdb files over monolithic
+
+Each session gets its own `.mdb` file. This provides natural isolation, parallel access, trivial backup, and no compaction requirement. The trade-off is more file descriptors under heavy load — acceptable given the target deployment scale.
+
+### 3. Header/body split for message storage
+
+Fixed-size 13-byte headers enable fast scanning of message metadata without loading full message bodies. Bodies are loaded on demand. This is a well-known pattern from database internals (Oracle, PostgreSQL TOAST).
+
+### 4. Session agents as Services, not cached objects
+
+Rather than caching agents in an LRU map with idle TTL, each session gets a live `SessionAgent` Service. The Service Lifecycle framework handles idle timeouts and cleanup natively. No sweep tasks, no eviction logic, no cache invalidation.
+
+### 5. MCP over custom plugin system
+
+The `swift-mcp` library provides a standardized protocol for tool exposure. Rather than building a custom `.dylib` plugin system, ARC Agent exposes its tools via MCP. Any MCP client (Claude Desktop, etc.) can use them. This defers the plugin problem without blocking tool extensibility.
+
+### 6. Swift Regex over NSRegularExpression
+
+Swift's built-in `Regex` type replaced `NSRegularExpression` to avoid Foundation's Objective-C bridging. The regex literals (`/pattern/`) are type-safe and checked at compile time.
 
 ---
 
 ## Resource Estimates
 
-| Phase | Tokens | Time | Cost |
+| Phase | Est. Tokens | Est. Time | Est. Cost (at $0.50/M tok) |
 |---|---|---|---|
 | Phase 1: Core Agent | 15-20M | 1-2 hours | $7.50-$10 |
 | Phase 2: Production Readiness | 20-30M | 2-3 hours | $10-$15 |
 | Phase 3: Multi-Agent | 25-40M | 3-4 hours | $12.50-$20 |
 | Phase 4: Gateway | 30-50M | 4-6 hours | $15-$25 |
-| Phase 5: Polish | 20-30M | 2-3 hours | $10-$15 |
-| **Total** | **110-175M** | **13-19 hours** | **$55-$87.50** |
+| Phase 5: MCP + Polish | 15-20M | 1-2 hours | $7.50-$10 |
+| **Phase A: Session & Data Integrity** | 10-15M | 1-2 hours | $5-$7.50 |
+| **Phase B: Context & Memory** | 15-20M | 2-3 hours | $7.50-$10 |
+| **Phase C: Error Handling & Recovery** | 10-15M | 1-2 hours | $5-$7.50 |
+| **Phase D: Testing & Verification** | 15-20M | 2-3 hours | $7.50-$10 |
+| **Phase E: Performance & Observability** | 15-20M | 2-3 hours | $7.50-$10 |
+| **Total (all phases)** | **170-250M** | **19-30 hours** | **$85-$125** |
 
-These are generation-only estimates. Real-world costs include debugging iterations, design exploration, and testing — realistically **2-3x** the generation estimate, or **$150-$250** total for a complete v1.
+These are generation-only estimates. Real-world costs include debugging iterations, design exploration, and testing — realistically **2-3x** the generation estimate, or **$250-$375** total for a complete v1.
