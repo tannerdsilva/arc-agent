@@ -19,13 +19,14 @@ struct Arc: AsyncParsableCommand {
             """,
         subcommands: [
             Chat.self,
+            Setup.self,
             Tools.self,
             Version.self,
         ]
     )
 }
 
-// MARK: - Subcommands
+// MARK: - Chat
 
 struct Chat: AsyncParsableCommand {
 
@@ -46,10 +47,17 @@ struct Chat: AsyncParsableCommand {
     @Option(name: .shortAndLong, help: "API key.")
     var apiKey: String?
 
+    @Flag(name: .shortAndLong, help: "Enable YOLO mode (no approval prompts).")
+    var yolo: Bool = false
+
     func run() async throws {
-        let resolvedModel = model ?? ProcessInfo.processInfo.environment["ARC_MODEL"] ?? "gpt-4o"
+        let arcConfig = loadConfig()
+
+        let resolvedModel = model ?? ProcessInfo.processInfo.environment["ARC_MODEL"]
+            ?? arcConfig.model.defaultModel
         let resolvedBaseURL = baseURL
             ?? ProcessInfo.processInfo.environment["ARC_BASE_URL"]
+            ?? arcConfig.model.baseURL
             ?? "https://api.openai.com/v1"
         let resolvedApiKey = apiKey
             ?? ProcessInfo.processInfo.environment["ARC_API_KEY"]
@@ -58,6 +66,7 @@ struct Chat: AsyncParsableCommand {
 
         guard !resolvedApiKey.isEmpty else {
             print("Error: No API key found. Set ARC_API_KEY or OPENAI_API_KEY, or pass --api-key.")
+            print("       Run `arc setup` to configure your API key.")
             return
         }
 
@@ -68,23 +77,33 @@ struct Chat: AsyncParsableCommand {
 
         let registry = try ArcAgentCore.buildDefaultRegistry()
 
-        let config = ArcAgent.Configuration(
+        // Discover skills if enabled
+        let skills: [Skill] = arcConfig.agent.loadSkills ? discoverSkills() : []
+
+        // Resolve approval mode
+        let approvalMode: ApprovalMode = yolo ? .off
+            : ApprovalMode(rawValue: arcConfig.security.approvalMode) ?? .manual
+
+        let agentConfig = ArcAgent.Configuration(
             model: resolvedModel,
+            provider: arcConfig.model.provider,
             baseURL: url,
             apiKey: resolvedApiKey,
             registry: registry,
+            skills: skills,
+            maxIterations: arcConfig.agent.maxIterations,
+            persistSessions: arcConfig.agent.persistSessions,
+            approvalMode: approvalMode,
             query: query
         )
 
-        let agent = ArcAgent(config: config)
+        let agent = ArcAgent(config: agentConfig)
 
         if query != nil {
             print("⚡ ARC Agent — \(resolvedModel)")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         }
 
-        // The ServiceGroup manages the agent's lifecycle — the HTTP client
-        // is created in ArcAgent.run() and shut down when the group exits.
         let serviceGroup = ServiceGroup(
             configuration: .init(
                 services: [agent],
@@ -94,6 +113,70 @@ struct Chat: AsyncParsableCommand {
         try await serviceGroup.run()
     }
 }
+
+// MARK: - Setup
+
+struct Setup: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "setup",
+        abstract: "Configure ARC Agent for first use."
+    )
+
+    func run() async throws {
+        print("⚡ ARC Agent Setup")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("")
+
+        var config = ArcConfig()
+
+        // Provider
+        print("Available providers:")
+        for provider in BundledProviders.unique {
+            print("  \(provider.name) — \(provider.description)")
+        }
+        print("")
+        print("Enter provider name [\(config.model.provider)]: ", terminator: "")
+        if let input = readLine(), !input.isEmpty {
+            config.model.provider = input
+        }
+
+        // Model
+        print("Enter default model [\(config.model.defaultModel)]: ", terminator: "")
+        if let input = readLine(), !input.isEmpty {
+            config.model.defaultModel = input
+        }
+
+        // Base URL
+        if let profile = BundledProviders.resolve(config.model.provider) {
+            print("Base URL: \(profile.baseURL.absoluteString)")
+        } else {
+            print("Enter base URL [\(config.model.baseURL ?? "https://api.openai.com/v1")]: ", terminator: "")
+            if let input = readLine(), !input.isEmpty {
+                config.model.baseURL = input
+            }
+        }
+
+        // Approval mode
+        print("")
+        print("Approval mode (manual / smart / off) [\(config.security.approvalMode)]: ", terminator: "")
+        if let input = readLine(), !input.isEmpty {
+            config.security.approvalMode = input
+        }
+
+        // Save config
+        try saveConfig(config)
+        print("")
+        print("✅ Configuration saved to ~/.arc/config.json")
+        print("")
+        print("Next steps:")
+        print("  1. Set your API key: export ARC_API_KEY=sk-...")
+        print("     Or add it to ~/.arc/.env")
+        print("  2. Run: arc chat -q \"hello world\"")
+    }
+}
+
+// MARK: - Tools
 
 struct Tools: AsyncParsableCommand {
 
@@ -118,6 +201,8 @@ struct Tools: AsyncParsableCommand {
     }
 }
 
+// MARK: - Version
+
 struct Version: AsyncParsableCommand {
 
     static let configuration = CommandConfiguration(
@@ -127,6 +212,6 @@ struct Version: AsyncParsableCommand {
 
     func run() async throws {
         print("arc-agent \(ArcAgentCore.version)")
-        print("Phase: phase 1 — core agent")
+        print("Phase: phase 2 — production readiness")
     }
 }
