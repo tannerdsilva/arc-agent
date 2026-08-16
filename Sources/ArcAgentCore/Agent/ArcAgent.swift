@@ -108,6 +108,20 @@ public actor ArcAgent: Service {
         self.delegationManager = DelegationManager(maxChildren: 10)
     }
 
+    /// Set up the LLM client for gateway use (without calling `run()`).
+    /// The caller owns the HTTPClient lifecycle.
+    func setupClient(httpClient: HTTPClient) async {
+        self.httpClient = httpClient
+        let pool = CredentialPool(credentials: [config.apiKey])
+        let resolvedKey = await pool.acquireLease() ?? config.apiKey
+        self.llmClient = OpenAICompatibleClient(
+            baseURL: config.baseURL,
+            apiKey: resolvedKey,
+            model: config.model,
+            httpClient: httpClient
+        )
+    }
+
     // MARK: - Service
 
     public func run() async throws {

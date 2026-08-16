@@ -137,54 +137,35 @@ struct Serve: AsyncParsableCommand {
         let arcConfig = loadConfig()
         let logger = Logger(label: "arc-agent.gateway")
 
-        let gatewayConfig = GatewayService.Configuration(
-            http: .init(host: host, port: port),
-            telegramBotToken: telegramToken ?? ProcessInfo.processInfo.environment["TELEGRAM_BOT_TOKEN"],
-            maxCachedAgents: 100,
-            agentIdleTTL: .seconds(1800)
+        let agentConfig = SessionRegistry.AgentConfig(
+            model: arcConfig.model.defaultModel,
+            provider: arcConfig.model.provider,
+            baseURL: arcConfig.model.baseURL ?? "https://api.openai.com/v1",
+            apiKey: ProcessInfo.processInfo.environment["ARC_API_KEY"] ?? ""
         )
 
         let gateway = GatewayService(
-            config: gatewayConfig,
-            agentFactory: { sessionID in
-                do {
-                    let registry = try ArcAgentCore.buildDefaultRegistry()
-                    let skills: [Skill] = arcConfig.agent.loadSkills ? discoverSkills() : []
-
-                    let agentConfig = ArcAgent.Configuration(
-                        model: arcConfig.model.defaultModel,
-                        provider: arcConfig.model.provider,
-                        baseURL: URL(string: arcConfig.model.baseURL ?? "https://api.openai.com/v1")!,
-                        apiKey: ProcessInfo.processInfo.environment["ARC_API_KEY"] ?? "",
-                        registry: registry,
-                        skills: skills,
-                        maxIterations: arcConfig.agent.maxIterations,
-                        persistSessions: arcConfig.agent.persistSessions,
-                        approvalMode: ApprovalMode(rawValue: arcConfig.security.approvalMode) ?? .manual
-                    )
-                    return ArcAgent(config: agentConfig)
-                } catch {
-                    fatalError("Failed to build default registry: \(error)")
-                }
-            },
-            logger: logger
+            host: host,
+            port: port,
+            telegramToken: telegramToken ?? ProcessInfo.processInfo.environment["TELEGRAM_BOT_TOKEN"],
+            agentConfig: agentConfig
         )
 
         print("⚡ ARC Agent Gateway")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("HTTP server: http://\(host):\(port)")
-        if gatewayConfig.telegramBotToken != nil {
+        if telegramToken != nil || ProcessInfo.processInfo.environment["TELEGRAM_BOT_TOKEN"] != nil {
             print("Telegram: enabled")
         }
         print("")
-        print("Starting gateway...")
 
         let serviceGroup = ServiceGroup(
-            configuration: .init(
+            configuration: ServiceGroupConfiguration(
                 services: [gateway],
                 logger: logger
             )
         )
+
         try await serviceGroup.run()
     }
 }

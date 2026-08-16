@@ -27,6 +27,14 @@ let package = Package(
             from: "2.6.0"
         ),
         .package(
+            url: "https://github.com/tannerdsilva/QuickLMDB.git",
+            from: "14.0.0"
+        ),
+        .package(
+            url: "https://github.com/tannerdsilva/CLMDB.git",
+            from: "0.9.26"
+        ),
+        .package(
             url: "https://github.com/hummingbird-project/hummingbird.git",
             from: "2.0.0"
         ),
@@ -50,6 +58,8 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "SystemPackage", package: "swift-system"),
                 .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
+                .product(name: "QuickLMDB", package: "QuickLMDB"),
+                .product(name: "CLMDB", package: "CLMDB"),
                 .product(name: "Hummingbird", package: "hummingbird"),
                 .product(name: "HummingbirdRouter", package: "hummingbird"),
             ]
