@@ -95,8 +95,12 @@ public actor ArcAgent: Service {
     private let retryHandler = RetryHandler(maxRetries: 3, baseDelay: 1.0)
     private let approvalManager: ApprovalManager
     private let delegationManager: DelegationManager
-    /// Cached system prompt — rebuilt only when memory or skills change.
+    /// Cached system prompt, rebuilt only when memory or skills change.
     private var cachedSystemPrompt: String?
+    /// Version counter for cache invalidation. Incremented when memory or
+    /// skills change; the cache is only rebuilt when this version changes.
+    private var systemPromptVersion: Int = 0
+    private var lastBuiltVersion: Int = -1
 
     // MARK: - Init
 
@@ -130,7 +134,7 @@ public actor ArcAgent: Service {
             msg.role == .system && (msg.content?.hasPrefix("[Profile:") ?? false)
         }
         messageHistory.insert(Message(role: .system, content: "[Profile: \(config.model)]\n\(content)"), at: 0)
-        cachedSystemPrompt = nil
+        systemPromptVersion += 1
     }
 
     // MARK: - Service
@@ -336,7 +340,6 @@ public actor ArcAgent: Service {
             // Even the recent messages alone exceed budget — keep last 4
             let veryRecent = nonSystem.suffix(min(8, nonSystem.count))
             messageHistory = systemMessages + Array(veryRecent)
-            cachedSystemPrompt = nil
             return
         }
 
@@ -365,7 +368,6 @@ public actor ArcAgent: Service {
         )
 
         messageHistory = systemMessages + [summaryMessage] + Array(recent)
-        cachedSystemPrompt = nil
     }
 
     // MARK: - Turn Loop
@@ -613,9 +615,9 @@ public actor ArcAgent: Service {
     // MARK: - Prompt Building
 
     /// Build the system prompt with memory and skills injection.
-    /// Results are cached and only rebuilt when the cache is invalidated.
+    /// Results are cached and only rebuilt when the cache version changes.
     private func buildSystemPrompt() async throws -> String {
-        if let cached = cachedSystemPrompt {
+        if lastBuiltVersion == systemPromptVersion, let cached = cachedSystemPrompt {
             return cached
         }
 
@@ -663,6 +665,7 @@ public actor ArcAgent: Service {
         }
 
         cachedSystemPrompt = prompt
+        lastBuiltVersion = systemPromptVersion
         return prompt
     }
 
