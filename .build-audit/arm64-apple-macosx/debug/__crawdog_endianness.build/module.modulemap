@@ -1,4 +1,0 @@
-module __crawdog_endianness {
-    umbrella "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/__crawdog_endianness"
-    export *
-}

@@ -1,3 +1,0 @@
-module NIOCertificateReloading {
-    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOCertificateReloading.build/include/NIOCertificateReloading-Swift.h"
-}

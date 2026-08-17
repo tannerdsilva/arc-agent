@@ -1,4 +1,0 @@
-module CAsyncHTTPClient {
-    umbrella header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/async-http-client/Sources/CAsyncHTTPClient/include/CAsyncHTTPClient.h"
-    export *
-}

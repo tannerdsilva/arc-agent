@@ -1,3 +1,0 @@
-module RAW_blake2 {
-    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_blake2.build/include/RAW_blake2-Swift.h"
-}

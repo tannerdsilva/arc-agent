@@ -1,3 +1,0 @@
-module NIOFoundationEssentialsCompat {
-    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOFoundationEssentialsCompat.build/include/NIOFoundationEssentialsCompat-Swift.h"
-}

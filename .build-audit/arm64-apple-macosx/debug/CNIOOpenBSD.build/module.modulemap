@@ -1,4 +1,0 @@
-module CNIOOpenBSD {
-    umbrella header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/CNIOOpenBSD/include/CNIOOpenBSD.h"
-    export *
-}

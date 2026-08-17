@@ -1,3 +1,0 @@
-module AsyncHTTPClient {
-    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncHTTPClient.build/include/AsyncHTTPClient-Swift.h"
-}

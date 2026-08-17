@@ -1,3 +1,0 @@
-module RAW_hmac {
-    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_hmac.build/include/RAW_hmac-Swift.h"
-}

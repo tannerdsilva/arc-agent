@@ -1,3 +1,0 @@
-module RAW_sha1 {
-    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_sha1.build/include/RAW_sha1-Swift.h"
-}

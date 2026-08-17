@@ -1,4 +1,0 @@
-module _CWASI {
-    umbrella header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-distributed-tracing/Sources/_CWASI/include/_CWASI.h"
-    export *
-}

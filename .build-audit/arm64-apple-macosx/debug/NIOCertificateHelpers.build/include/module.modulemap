@@ -1,3 +1,0 @@
-module NIOCertificateHelpers {
-    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOCertificateHelpers.build/include/NIOCertificateHelpers-Swift.h"
-}

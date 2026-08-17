@@ -1,3 +1,0 @@
-module InstrumentationBaggage {
-    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/InstrumentationBaggage.build/include/InstrumentationBaggage-Swift.h"
-}

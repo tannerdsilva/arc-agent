@@ -1,3 +1,0 @@
-module AsyncStreaming {
-    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/include/AsyncStreaming-Swift.h"
-}

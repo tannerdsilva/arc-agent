@@ -1,3 +1,0 @@
-module ServiceLifecycle {
-    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ServiceLifecycle.build/include/ServiceLifecycle-Swift.h"
-}

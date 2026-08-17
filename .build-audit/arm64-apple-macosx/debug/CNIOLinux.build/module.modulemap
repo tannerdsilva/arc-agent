@@ -1,4 +1,0 @@
-module CNIOLinux {
-    umbrella header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/CNIOLinux/include/CNIOLinux.h"
-    export *
-}

@@ -1,4 +1,0 @@
-module CRAW {
-    umbrella "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/CRAW"
-    export *
-}

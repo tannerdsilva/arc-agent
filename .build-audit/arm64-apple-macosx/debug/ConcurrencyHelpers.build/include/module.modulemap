@@ -1,3 +1,0 @@
-module ConcurrencyHelpers {
-    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ConcurrencyHelpers.build/include/ConcurrencyHelpers-Swift.h"
-}

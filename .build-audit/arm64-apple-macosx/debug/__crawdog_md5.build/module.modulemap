@@ -1,4 +1,0 @@
-module __crawdog_md5 {
-    umbrella "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/__crawdog_md5"
-    export *
-}

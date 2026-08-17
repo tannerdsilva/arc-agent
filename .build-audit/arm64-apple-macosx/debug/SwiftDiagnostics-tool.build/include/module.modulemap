@@ -1,3 +1,0 @@
-module SwiftDiagnostics {
-    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftDiagnostics-tool.build/include/SwiftDiagnostics-Swift.h"
-}
