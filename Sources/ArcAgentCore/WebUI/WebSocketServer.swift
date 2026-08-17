@@ -107,9 +107,6 @@ final class WebSocketFrameHandler: ChannelInboundHandler {
             }
 
         case .connectionClose:
-            Task { [handler] in
-                try? await handler.updateStatus(connected: false)
-            }
             _ = context.close()
 
         case .ping:
@@ -126,9 +123,6 @@ final class WebSocketFrameHandler: ChannelInboundHandler {
     }
 
     func channelInactive(context: ChannelHandlerContext) {
-        Task { [handler] in
-            try? await handler.updateStatus(connected: false)
-        }
         context.fireChannelInactive()
     }
 

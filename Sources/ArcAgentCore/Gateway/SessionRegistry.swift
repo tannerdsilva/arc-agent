@@ -1,6 +1,7 @@
 import Foundation
 import AsyncHTTPClient
 import ServiceLifecycle
+import Logging
 
 /// A handle for communicating with a session agent.
 ///
@@ -65,6 +66,7 @@ public actor SessionRegistry {
     private let deliveryManager: DeliveryManager
     private let profileManager: ProfileManager
     private(set) var messagingService: BotMessagingService?
+    private let logger = Logger(label: "com.arc-agent.session-registry")
 
     public init(
         agentConfig: AgentConfig,
@@ -109,6 +111,16 @@ public actor SessionRegistry {
         )
         agents[sessionID] = agent
         handles[sessionID] = handle
+
+        // Start the agent loop in a detached task
+        Task {
+            do {
+                try await agent.run()
+            } catch {
+                logger.error("SessionAgent for \(sessionID) crashed: \(error)")
+            }
+        }
+
         return handle
     }
 

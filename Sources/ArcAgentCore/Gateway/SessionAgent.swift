@@ -1,30 +1,9 @@
 import Foundation
 import AsyncHTTPClient
 import ServiceLifecycle
+import Logging
 
 /// A long-lived session agent Service managed by the gateway.
-///
-/// Each ``SessionAgent`` runs for the lifetime of a single chat session.
-/// It receives incoming messages via an ``AsyncStream``, processes them
-/// through the agent loop, and sends responses back through the
-/// response continuation and ``DeliveryManager``.
-///
-/// ## Profile-Aware
-///
-/// Each session agent is associated with a **profile** (bot). The profile
-/// determines the agent's model, provider, toolsets, SOUL.md personality,
-/// and memory store. This is how Bot Mode works — each bot gets its own
-/// isolated agent configuration.
-///
-/// ## Response Plumbing
-///
-/// The agent sends responses through TWO channels:
-/// 1. The ``responseContinuation`` — for the HTTP API caller to await
-/// 2. The ``DeliveryManager`` — for platform adapter delivery (Telegram, etc.)
-///
-/// When idle (no messages arrive), the Service Lifecycle framework
-/// cancels the agent's Task, the cleanup blocks run, and the agent
-/// removes itself from the ``SessionRegistry``.
 public actor SessionAgent: Service {
 
     public let sessionID: String
@@ -36,6 +15,7 @@ public actor SessionAgent: Service {
     private let deliveryManager: DeliveryManager
     private let registry: SessionRegistry
     private let responseContinuation: AsyncStream<String>.Continuation
+    private let logger = Logger(label: "com.arc-agent.session-agent")
 
     public init(
         sessionID: String,
@@ -74,15 +54,25 @@ public actor SessionAgent: Service {
             if let profileConfig = try await profileManager.get(name: profile) {
                 resolvedModel = profileConfig.model ?? agentConfig.model
                 resolvedProvider = profileConfig.provider ?? agentConfig.provider
-                resolvedBaseURL = profileConfig.baseURL.flatMap { URL(string: $0) }
-                    ?? URL(string: agentConfig.baseURL)!
+                // Safe URL resolution — no force-unwrap
+                if let profileURL = profileConfig.baseURL.flatMap({ URL(string: $0) }) {
+                    resolvedBaseURL = profileURL
+                } else if let configURL = URL(string: agentConfig.baseURL) {
+                    resolvedBaseURL = configURL
+                } else {
+                    resolvedBaseURL = URL(string: "https://api.openai.com/v1")!
+                }
                 resolvedKey = agentConfig.apiKey
                 resolvedSOUL = profileConfig.soulMD
                 resolvedToolsets = (profileConfig.enabledToolsets, profileConfig.disabledToolsets)
             } else {
                 resolvedModel = agentConfig.model
                 resolvedProvider = agentConfig.provider
-                resolvedBaseURL = URL(string: agentConfig.baseURL)!
+                if let url = URL(string: agentConfig.baseURL) {
+                    resolvedBaseURL = url
+                } else {
+                    resolvedBaseURL = URL(string: "https://api.openai.com/v1")!
+                }
                 resolvedKey = agentConfig.apiKey
                 resolvedSOUL = nil
                 resolvedToolsets = (nil, nil)
@@ -92,12 +82,14 @@ public actor SessionAgent: Service {
             let sessionEnv = try LMDBManager.openSession(sessionID)
             defer { LMDB.envClose(sessionEnv) }
 
+            let toolRegistry = try ArcAgentCore.buildDefaultRegistry()
+
             let agent = ArcAgent(config: ArcAgent.Configuration(
                 model: resolvedModel,
                 provider: resolvedProvider,
                 baseURL: resolvedBaseURL,
                 apiKey: resolvedKey,
-                registry: try ArcAgentCore.buildDefaultRegistry(),
+                registry: toolRegistry,
                 sessionStore: LMDBSessionStore(env: sessionEnv),
                 memoryProvider: LMDBMemoryProvider(),
                 skills: [],
@@ -126,7 +118,7 @@ public actor SessionAgent: Service {
                 // 2. Delivery manager (for platform adapters like Telegram)
                 try await deliveryManager.send(message: outgoing, to: message.chat)
 
-                // Report activity for the "active now" strip
+                // Report activity for the \"active now\" strip
                 if let messaging = await registry.messagingService {
                     await messaging.reportActivity(profile: profile, kind: .turnCompleted)
                 }
