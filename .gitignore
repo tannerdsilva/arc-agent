@@ -25,3 +25,4 @@ DerivedData/
 
 # Logs
 *.log
+.build-audit/
