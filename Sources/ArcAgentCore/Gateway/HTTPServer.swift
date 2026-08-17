@@ -27,17 +27,17 @@ public final class HTTPServerService: Service {
 
     private let config: Configuration
     private let onChat: @Sendable (String, String) async throws -> String
-    private let onUI: (@Sendable () async -> String)?
+    private let onUI: (@Sendable (String) async -> String)?
 
     /// Create an HTTP server service.
     /// - Parameters:
     ///   - config: Server configuration (host, port).
     ///   - onChat: Closure called when a chat request arrives.
-    ///   - onUI: Optional async closure that returns the web UI HTML.
+    ///   - onUI: Optional async closure that returns the web UI HTML. Takes a mode string ("chat" or "bots").
     public init(
         config: Configuration = .init(),
         onChat: @escaping @Sendable (String, String) async throws -> String,
-        onUI: (@Sendable () async -> String)? = nil
+        onUI: (@Sendable (String) async -> String)? = nil
     ) {
         self.config = config
         self.onChat = onChat
@@ -56,9 +56,18 @@ public final class HTTPServerService: Service {
                     return ChatResponse(response: response)
                 }
             }
-            // Web UI route — serves the complete chat interface
+            // Web UI routes — serves the chat interface
             Get("/ui") { [onUI] _, _ in
-                let html = await onUI?() ?? "<h1>Web UI not configured</h1>"
+                let html = await onUI?("chat") ?? "<h1>Web UI not configured</h1>"
+                let buffer = ByteBuffer(string: html)
+                return Response(
+                    status: .ok,
+                    headers: [.contentType: "text/html; charset=utf-8"],
+                    body: .init(byteBuffer: buffer)
+                )
+            }
+            Get("/ui/bots") { [onUI] _, _ in
+                let html = await onUI?("bots") ?? "<h1>Web UI not configured</h1>"
                 let buffer = ByteBuffer(string: html)
                 return Response(
                     status: .ok,

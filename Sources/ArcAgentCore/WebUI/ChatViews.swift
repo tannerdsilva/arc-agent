@@ -20,23 +20,26 @@ public struct ChatPage: View {
     public let welcomeMessage: String
     public let modelName: String
     public let models: [String]
+    public let activeMode: String
 
     public init(
         welcomeMessage: String = "How can I help you today?",
         modelName: String = "default",
-        models: [String] = []
+        models: [String] = [],
+        activeMode: String = "chat"
     ) {
         self.welcomeMessage = welcomeMessage
         self.modelName = modelName
         self.models = models
+        self.activeMode = activeMode
     }
 
     public func render() -> String {
         """
         <div class="app-layout">
-          \\(HeaderView(modelName: modelName, models: models).render())
-          \\(MessageContainer(welcomeMessage: welcomeMessage).render())
-          \\(InputBar().render())
+          \(HeaderView(modelName: modelName, models: models, activeMode: activeMode).render())
+          \(MessageContainer(welcomeMessage: welcomeMessage).render())
+          \(InputBar().render())
         </div>
         """
     }
@@ -48,10 +51,12 @@ public struct ChatPage: View {
 public struct HeaderView: View {
     public let modelName: String
     public let models: [String]
+    public let activeMode: String
 
-    public init(modelName: String = "default", models: [String] = []) {
+    public init(modelName: String = "default", models: [String] = [], activeMode: String = "chat") {
         self.modelName = modelName
         self.models = models
+        self.activeMode = activeMode
     }
 
     public func render() -> String {
@@ -60,17 +65,19 @@ public struct HeaderView: View {
             return "<option value=\"\(htmlEscape(m))\"\(sel)>\(htmlEscape(m))</option>"
         }.joined()
 
+        let chatActive = activeMode == "chat" ? " active" : ""
+        let botsActive = activeMode == "bots" ? " active" : ""
+
         return """
         <header class="chat-header">
           <div class="header-left">
             <span class="header-logo">⚡</span>
             <span class="header-title">ARC Agent</span>
           </div>
-          <div class="header-center">
-            <select class="model-select" id="model-select" onchange="switchModel(this.value)">
-              \(modelOptions.isEmpty ? "<option value=\"default\">default</option>" : modelOptions)
-            </select>
-          </div>
+          <nav class="header-nav">
+            <a href="/ui" class="nav-tab\(chatActive)" data-mode="chat">Chat</a>
+            <a href="/ui/bots" class="nav-tab\(botsActive)" data-mode="bots">Bots</a>
+          </nav>
           <div class="header-right">
             <span id="conn" class="status-badge off">Disconnected</span>
             <button class="header-btn" id="settings-btn" onclick="toggleSettings()" title="Settings">

@@ -88,36 +88,59 @@ public struct GatewayService: Service {
                 }
                 return responseText.isEmpty ? "Message received" : responseText
             },
-            onUI: { [pm, wsPort, host] in
-                // Build the bot-mode web UI
-                let profiles = (try? await pm.list()) ?? []
-                let profileData = profiles.map { p in
-                    ProfileData(
-                        name: p.name,
-                        title: p.title,
-                        description: p.description,
-                        avatarShape: p.avatar?.shape ?? "circle",
-                        avatarColor: p.avatar?.color ?? "#8b5cf6",
-                        avatarImage: p.avatar?.imageDataURL,
-                        isActive: false,
-                        isPinned: p.isPinned,
-                        group: p.group
+            onUI: { [pm, wsPort, host] mode in
+                // Build the web UI based on mode
+                let wsURL = "ws://\(host):\(wsPort)"
+                let allStyles: CSSStylesheet
+                let allScripts: String
+                let body: String
+                let title: String
+
+                if mode == "bots" {
+                    // Bot mode: show the full bots page
+                    let profiles = (try? await pm.list()) ?? []
+                    let profileData = profiles.map { p in
+                        ProfileData(
+                            name: p.name,
+                            title: p.title,
+                            description: p.description,
+                            avatarShape: p.avatar?.shape ?? "circle",
+                            avatarColor: p.avatar?.color ?? "#8b5cf6",
+                            avatarImage: p.avatar?.imageDataURL,
+                            isActive: false,
+                            isPinned: p.isPinned,
+                            group: p.group
+                        )
+                    }
+
+                    let botsPage = BotsPage(
+                        profiles: profileData,
+                        selectedBot: "default",
+                        welcomeMessage: "Select a bot to start chatting, or create a new one."
                     )
+
+                    allStyles = CSSStylesheet(AppStyles.all + AppStyles.botStyles)
+                    allScripts = Scripts.runtime + "\n" + Scripts.botMode
+                    body = botsPage.render()
+                    title = "ARC Agent — Bots"
+                } else {
+                    // Chat mode: show the clean chat interface
+                    let chatPage = ChatPage(
+                        welcomeMessage: "How can I help you today?",
+                        modelName: "default",
+                        models: [],
+                        activeMode: "chat"
+                    )
+
+                    allStyles = CSSStylesheet(AppStyles.all)
+                    allScripts = Scripts.runtime
+                    body = chatPage.render()
+                    title = "ARC Agent"
                 }
 
-                let botsPage = BotsPage(
-                    profiles: profileData,
-                    selectedBot: "default",
-                    welcomeMessage: "Select a bot to start chatting, or create a new one."
-                )
-
-                let wsURL = "ws://\(host):\(wsPort)"
-                let allStyles = CSSStylesheet(AppStyles.all + AppStyles.botStyles)
-                let allScripts = Scripts.runtime + "\n" + Scripts.botMode
-
                 let doc = HTMLDocument(
-                    title: "ARC Agent — Bots",
-                    body: botsPage.render(),
+                    title: title,
+                    body: body,
                     styles: allStyles,
                     scripts: allScripts,
                     wsURL: wsURL

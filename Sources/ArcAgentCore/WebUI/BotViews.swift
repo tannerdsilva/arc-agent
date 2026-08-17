@@ -29,7 +29,7 @@ public struct BotsPage: View {
           \(BotsPane(profiles: profiles, selectedBot: selectedBot).render())
           <div class="vstack" style="flex: 1; min-width: 0;">
             \(selectedProfile.map { BotChatHeader(profile: $0).render() } ?? "")
-            \(ChatPage(welcomeMessage: welcomeMessage).render())
+            \(ChatPage(welcomeMessage: welcomeMessage, activeMode: "bots").render())
           </div>
           \(RoutinesPane(profiles: profiles, selectedBot: selectedBot).render())
         </div>

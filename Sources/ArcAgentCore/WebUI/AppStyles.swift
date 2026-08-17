@@ -196,6 +196,36 @@ public enum AppStyles {
         ("color", "var(--danger)"),
     ])
 
+    // ── Navigation Tabs ────────────────────────────────────────
+
+    public static let headerNav = CSSRule(".header-nav", [
+        ("display", "flex"),
+        ("align-items", "center"),
+        ("gap", "2px"),
+        ("-webkit-app-region", "no-drag"),
+    ])
+
+    public static let navTab = CSSRule(".nav-tab", [
+        ("padding", "4px 12px"),
+        ("border-radius", "var(--radius-sm)"),
+        ("font-size", "12px"),
+        ("font-weight", "500"),
+        ("color", "var(--text-muted)"),
+        ("text-decoration", "none"),
+        ("transition", "all var(--transition-fast)"),
+        ("cursor", "pointer"),
+    ])
+
+    public static let navTabHover = CSSRule(".nav-tab:hover", [
+        ("color", "var(--text-secondary)"),
+        ("background-color", "var(--bg-hover)"),
+    ])
+
+    public static let navTabActive = CSSRule(".nav-tab.active", [
+        ("color", "var(--text-primary)"),
+        ("background-color", "var(--bg-tertiary)"),
+    ])
+
     // ── Header Button ──────────────────────────────────────────
 
     public static let headerBtn = CSSRule(".header-btn", [
@@ -828,6 +858,9 @@ public enum AppStyles {
         // Header
         chatHeader, headerLeft, headerLogo, headerTitle,
         headerCenter, headerRight,
+
+        // Navigation Tabs
+        headerNav, navTab, navTabHover, navTabActive,
 
         // Model Select
         modelSelect, modelSelectFocus,
