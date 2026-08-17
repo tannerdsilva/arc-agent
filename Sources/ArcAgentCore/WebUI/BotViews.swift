@@ -23,10 +23,10 @@ public struct BotsPage: View {
 
         return """
         <div class="hstack" style="height: 100vh;">
-          \\(SessionSidebar(profiles: profiles, selectedBot: selectedBot).render())
+          \(SessionSidebar(profiles: profiles, selectedBot: selectedBot).render())
           <div class="vstack" style="flex: 1; min-width: 0;">
-            \\(selectedProfile.map { BotChatHeader(profile: $0).render() } ?? "")
-            \\(ChatPage(welcomeMessage: welcomeMessage, activeMode: "bots", includeHeader: false).render())
+            \(selectedProfile.map { BotChatHeader(profile: $0).render() } ?? "")
+            \(ChatPage(welcomeMessage: welcomeMessage, activeMode: "bots", includeHeader: false).render())
           </div>
         </div>
         """
@@ -120,10 +120,10 @@ public struct SessionSidebar: View {
               <h3>Bots</h3>
               <button class="btn-icon" onclick="openNewAgentDialog()" title="New Agent">+</button>
             </div>
-            \\(activeBots.isEmpty ? "" : ActiveNowStrip(bots: activeBots).render())
+            \(activeBots.isEmpty ? "" : ActiveNowStrip(bots: activeBots).render())
             <input class="bot-search" id="bot-search" type="text" placeholder="Search bots..." oninput="filterBots(this.value)">
             <div class="bot-roster" id="bot-roster">
-              \\(renderGroups(grouped))
+              \(renderGroups(grouped))
             </div>
           </div>
         </div>
@@ -138,9 +138,9 @@ public struct SessionSidebar: View {
             if !isUngrouped {
                 html += """
                 <div class="group-header">
-                  <span>\\(htmlEscape(groupName))</span>
+                  <span>\(htmlEscape(groupName))</span>
                   <div class="group-separator"></div>
-                  \\(bots.count >= 2 && bots.count <= 6 ? "<button class=\"btn-icon\" onclick=\"openGroupChat('\\(htmlEscape(groupName))')\" title=\"Open group chat\">💬</button>" : "")
+                  \(bots.count >= 2 && bots.count <= 6 ? "<button class=\"btn-icon\" onclick=\"openGroupChat('\(htmlEscape(groupName))')\" title=\"Open group chat\">💬</button>" : "")
                 </div>
                 """
             }
@@ -199,13 +199,13 @@ public struct BotRow: View {
         let activeDot = profile.isActive ? "<span class=\"active-dot\"></span>" : ""
 
         return """
-        <div class="bot-row\\(activeClass)" onclick="selectBot('\\(htmlEscape(profile.name))')" data-bot="\\(htmlEscape(profile.name))">
-          \\(BotAvatar(profile: profile).render())
+        <div class="bot-row\(activeClass)" onclick="selectBot('\(htmlEscape(profile.name))')" data-bot="\(htmlEscape(profile.name))">
+          \(BotAvatar(profile: profile).render())
           <div class="bot-info">
-            <div class="bot-name">\\(htmlEscape(profile.displayName)) \\(activeDot)</div>
-            <div class="bot-preview">\\(htmlEscape(String(profile.lastPreview.prefix(60))))</div>
+            <div class="bot-name">\(htmlEscape(profile.displayName)) \(activeDot)</div>
+            <div class="bot-preview">\(htmlEscape(String(profile.lastPreview.prefix(60))))</div>
           </div>
-          \\(unreadHtml)
+          \(unreadHtml)
         </div>
         """
     }
@@ -226,8 +226,8 @@ public struct BotAvatar: View {
     public func render() -> String {
         if let image = profile.avatarImage, !image.isEmpty {
             return """
-            <div class="bot-avatar" style="width: \\(size)px; height: \\(size)px;">
-              <img src="\\(htmlEscape(image))" alt="">
+            <div class="bot-avatar" style="width: \(size)px; height: \(size)px;">
+              <img src="\(htmlEscape(image))" alt="">
             </div>
             """
         }
@@ -237,10 +237,10 @@ public struct BotAvatar: View {
         let s = size
 
         return """
-        <div class="bot-avatar" style="width: \\(s)px; height: \\(s)px;">
-          <svg class="avatar-svg" viewBox="0 0 40 40" width="\\(s)" height="\\(s)">
-            \\(shapePath(shape: shape, color: color))
-            \\(eyeShape(cx: 15.4, cy: 17.2, rx: 2.2, ry: 2.3, fill: eyeFill(color: color))
+        <div class="bot-avatar" style="width: \(s)px; height: \(s)px;">
+          <svg class="avatar-svg" viewBox="0 0 40 40" width="\(s)" height="\(s)">
+            \(shapePath(shape: shape, color: color))
+            \(eyeShape(cx: 15.4, cy: 17.2, rx: 2.2, ry: 2.3, fill: eyeFill(color: color))
             + eyeShape(cx: 24.6, cy: 17.2, rx: 2.2, ry: 2.3, fill: eyeFill(color: color)))
           </svg>
         </div>
@@ -250,27 +250,27 @@ public struct BotAvatar: View {
     private func shapePath(shape: String, color: String) -> String {
         switch shape {
         case "squircle":
-            return "<rect x=\"3\" y=\"3\" width=\"34\" height=\"34\" rx=\"11\" fill=\"\\(color)\"/>"
+            return "<rect x=\"3\" y=\"3\" width=\"34\" height=\"34\" rx=\"11\" fill=\"\(color)\"/>"
         case "pill":
-            return "<rect x=\"2\" y=\"7\" width=\"36\" height=\"26\" rx=\"13\" fill=\"\\(color)\"/>"
+            return "<rect x=\"2\" y=\"7\" width=\"36\" height=\"26\" rx=\"13\" fill=\"\(color)\"/>"
         case "triangle":
-            return "<path d=\"M20 5.5 L36 33.5 L4 33.5 Z\" fill=\"\\(color)\" stroke=\"\\(color)\" stroke-width=\"7\" stroke-linejoin=\"round\"/>"
+            return "<path d=\"M20 5.5 L36 33.5 L4 33.5 Z\" fill=\"\(color)\" stroke=\"\(color)\" stroke-width=\"7\" stroke-linejoin=\"round\"/>"
         case "hexagon":
-            return "<path d=\"M20 3.5 L34.5 11.75 L34.5 28.25 L20 36.5 L5.5 28.25 L5.5 11.75 Z\" fill=\"\\(color)\" stroke=\"\\(color)\" stroke-width=\"7\" stroke-linejoin=\"round\"/>"
+            return "<path d=\"M20 3.5 L34.5 11.75 L34.5 28.25 L20 36.5 L5.5 28.25 L5.5 11.75 Z\" fill=\"\(color)\" stroke=\"\(color)\" stroke-width=\"7\" stroke-linejoin=\"round\"/>"
         case "cloud":
-            return "<path d=\"M11 32 a7.5 7.5 0 0 1 -1 -14.9 A9.5 9.5 0 0 1 29 12.5 A7 7 0 0 1 30 32 Z\" fill=\"\\(color)\"/>"
+            return "<path d=\"M11 32 a7.5 7.5 0 0 1 -1 -14.9 A9.5 9.5 0 0 1 29 12.5 A7 7 0 0 1 30 32 Z\" fill=\"\(color)\"/>"
         case "drop":
-            return "<path d=\"M20 3 C20 3 6 20 6 27 a14 13.5 0 0 0 28 0 C34 20 20 3 20 3 Z\" fill=\"\\(color)\"/>"
+            return "<path d=\"M20 3 C20 3 6 20 6 27 a14 13.5 0 0 0 28 0 C34 20 20 3 20 3 Z\" fill=\"\(color)\"/>"
         case "blob":
-            return "<path d=\"\\(blobPath())\" fill=\"\\(color)\"/>"
+            return "<path d=\"\(blobPath())\" fill=\"\(color)\"/>"
         default: // circle
-            return "<circle cx=\"20\" cy=\"20\" r=\"17.5\" fill=\"\\(color)\"/>"
+            return "<circle cx=\"20\" cy=\"20\" r=\"17.5\" fill=\"\(color)\"/>"
         }
     }
 
     private func eyeShape(cx: Double, cy: Double, rx: Double, ry: Double, fill: String) -> String {
-        "<ellipse cx=\"\\(cx)\" cy=\"\\(cy)\" rx=\"\\(rx)\" ry=\"\\(ry)\" fill=\"\\(fill)\"/>" +
-        "<circle cx=\"\\(cx - 0.6)\" cy=\"\\(cy - 0.7)\" r=\"0.65\" fill=\"rgba(255,255,255,0.85)\"/>"
+        "<ellipse cx=\"\(cx)\" cy=\"\(cy)\" rx=\"\(rx)\" ry=\"\(ry)\" fill=\"\(fill)\"/>" +
+        "<circle cx=\"\(cx - 0.6)\" cy=\"\(cy - 0.7)\" r=\"0.65\" fill=\"rgba(255,255,255,0.85)\"/>"
     }
 
     private func eyeFill(color: String) -> String {
@@ -291,7 +291,7 @@ public struct BotAvatar: View {
             (26, 36), (14, 36), (8, 30), (4, 22), (5, 14)
         ]
         let d = pts.enumerated().map { i, pt in
-            i == 0 ? "M\\(pt.0) \\(pt.1)" : "L\\(pt.0) \\(pt.1)"
+            i == 0 ? "M\(pt.0) \(pt.1)" : "L\(pt.0) \(pt.1)"
         }.joined(separator: " ")
         return d + " Z"
     }
@@ -312,16 +312,16 @@ public struct ActiveNowStrip: View {
 
         let chips = bots.map { bot in
             """
-            <span class="active-now-chip" onclick="selectBot('\\(htmlEscape(bot.name))')">
+            <span class="active-now-chip" onclick="selectBot('\(htmlEscape(bot.name))')">
               <span class="active-dot"></span>
-              \\(htmlEscape(bot.displayName))
+              \(htmlEscape(bot.displayName))
             </span>
             """
         }.joined()
 
         return """
         <div class="active-now-strip">
-          \\(chips)
+          \(chips)
         </div>
         """
     }
@@ -340,13 +340,13 @@ public struct BotChatHeader: View {
     public func render() -> String {
         """
         <div class="bot-chat-header">
-          \\(BotAvatar(profile: profile, size: 28).render())
+          \(BotAvatar(profile: profile, size: 28).render())
           <div>
-            <div class="bot-name">\\(htmlEscape(profile.displayName))</div>
-            <div class="bot-handle">@\\(htmlEscape(profile.handle))</div>
+            <div class="bot-name">\(htmlEscape(profile.displayName))</div>
+            <div class="bot-handle">@\(htmlEscape(profile.handle))</div>
           </div>
           <div class="spacer"></div>
-          <span style="font-size: 11px; color: var(--text-muted);">\\(htmlEscape(profile.description))</span>
+          <span style="font-size: 11px; color: var(--text-muted);">\(htmlEscape(profile.description))</span>
           <a href="/ui/settings" class="header-btn settings-btn" title="Settings">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M8 10a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" stroke-width="1.2"/>
