@@ -150,17 +150,15 @@ extension Scripts {
       });
 
       // ── Handle Bot-Specific Messages ───────────────────────
-      var origOnMessage = window.__ws.onmessage;
-      window.__ws.onmessage = function(e) {
+      var origOnMessage = window.__ws ? window.__ws.onmessage : null;
+      var botHandler = function(e) {
         try {
           var msg = JSON.parse(e.data);
           switch (msg.type) {
             case 'roster_update':
-              // Roster was updated (agent created/deleted) — reload
               if (msg.reload) { location.reload(); }
               break;
             case 'bot_activity':
-              // Update the active now strip
               var strip = document.querySelector('.active-now-strip');
               if (strip && msg.bots) {
                 // In a full implementation, this would update the strip dynamically
@@ -173,6 +171,16 @@ extension Scripts {
           if (origOnMessage) origOnMessage(e);
         }
       };
+      // Hook into onmessage — set after connection is established
+      function hookBotHandler() {
+        if (window.__ws && window.__ws.readyState !== undefined) {
+          origOnMessage = window.__ws.onmessage;
+          window.__ws.onmessage = botHandler;
+        } else {
+          setTimeout(hookBotHandler, 100);
+        }
+      }
+      hookBotHandler();
     })();
     """
 

@@ -410,6 +410,7 @@ public enum Scripts {
       window.regenerateMessage = regenerateMessage;
       window.switchModel = switchModel;
       window.toggleSettings = toggleSettings;
+      window.__ws = ws;
 
     })();
     """

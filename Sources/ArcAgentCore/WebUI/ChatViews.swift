@@ -21,23 +21,27 @@ public struct ChatPage: View {
     public let modelName: String
     public let models: [String]
     public let activeMode: String
+    public let includeHeader: Bool
 
     public init(
         welcomeMessage: String = "How can I help you today?",
         modelName: String = "default",
         models: [String] = [],
-        activeMode: String = "chat"
+        activeMode: String = "chat",
+        includeHeader: Bool = true
     ) {
         self.welcomeMessage = welcomeMessage
         self.modelName = modelName
         self.models = models
         self.activeMode = activeMode
+        self.includeHeader = includeHeader
     }
 
     public func render() -> String {
-        """
+        let headerHTML = includeHeader ? HeaderView(modelName: modelName, models: models, activeMode: activeMode).render() : ""
+        return """
         <div class="app-layout">
-          \(HeaderView(modelName: modelName, models: models, activeMode: activeMode).render())
+          \(headerHTML)
           \(MessageContainer(welcomeMessage: welcomeMessage).render())
           \(InputBar().render())
         </div>

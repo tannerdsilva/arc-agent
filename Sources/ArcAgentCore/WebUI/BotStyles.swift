@@ -468,6 +468,25 @@ extension AppStyles {
         ("50%", "opacity: 1; transform: translateY(-3px)"),
     ])
 
+    // ── Layout Helpers ─────────────────────────────────────────
+
+    /// Horizontal stack layout.
+    public static let hstack = CSSRule(".hstack", [
+        ("display", "flex"),
+        ("flex-direction", "row"),
+    ])
+
+    /// Vertical stack layout.
+    public static let vstack = CSSRule(".vstack", [
+        ("display", "flex"),
+        ("flex-direction", "column"),
+    ])
+
+    /// Spacer that fills remaining space.
+    public static let spacer = CSSRule(".spacer", [
+        ("flex", "1"),
+    ])
+
     // ── Bot Chat Header ────────────────────────────────────────
 
     /// Bot chat header in the main chat area.
@@ -509,6 +528,9 @@ extension AppStyles {
         unreadBadge, needsYouBadge,
         botSearch, botSearchFocus,
         groupHeader, groupSeparator,
+
+        // Layout helpers
+        hstack, vstack, spacer,
 
         // Active now
         activeNowStrip, activeNowChip, activeNowChipHover,

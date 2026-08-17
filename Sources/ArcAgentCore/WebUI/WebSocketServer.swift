@@ -96,20 +96,12 @@ final class WebSocketFrameHandler: ChannelInboundHandler {
 
         switch frame.opcode {
         case .text:
-            // Use unmaskedData to get the client's original text
             var data = frame.unmaskedData
             guard let text = data.readString(length: data.readableBytes) else { return }
-            // Echo back with proper JSON encoding
-            let escaped = text
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "\"", with: "\\\"")
-                .replacingOccurrences(of: "\n", with: "\\n")
-                .replacingOccurrences(of: "\r", with: "\\r")
-                .replacingOccurrences(of: "\t", with: "\\t")
-            let echo = "{\"type\":\"message\",\"html\":\"<p>\(escaped)</p>\"}"
-            var out = context.channel.allocator.buffer(string: echo)
-            let outFrame = WebSocketFrame(fin: true, opcode: .text, data: out)
-            context.writeAndFlush(wrapOutboundOut(outFrame), promise: nil)
+            // Forward to the handler actor for processing
+            Task { [handler] in
+                await handler.handleInbound(text)
+            }
 
         case .connectionClose:
             Task { [handler] in
