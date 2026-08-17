@@ -83,6 +83,13 @@ let package = Package(
                 .product(name: "NIOHTTP1", package: "swift-nio"),
                 .product(name: "NIOHTTPTypes", package: "swift-nio-extras"),
                 .product(name: "HTTPTypes", package: "swift-http-types"),
+            ],
+            exclude: [
+                "WebUI/Assets/styles.css",
+                "WebUI/Assets/scripts.js",
+            ],
+            swiftSettings: [
+                .define("DEBUG", .when(configuration: .debug)),
             ]
         ),
 

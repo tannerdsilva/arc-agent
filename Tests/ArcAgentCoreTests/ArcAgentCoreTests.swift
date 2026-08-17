@@ -1102,3 +1102,265 @@ func retryHandlerShouldRetry() {
     #expect(handler.shouldRetry(2) == true)
     #expect(handler.shouldRetry(3) == false)
 }
+
+// =========================================================================
+// MARK: - Web UI: CSSRule & CSSStylesheet
+// =========================================================================
+
+@Test("CSSRule renders selector and declarations")
+func cssRuleRender() {
+    let rule = CSSRule(".my-class", [
+        ("color", "red"),
+        ("font-size", "14px"),
+    ])
+    let output = CSSStylesheet([rule]).render()
+    #expect(output.contains(".my-class {"))
+    #expect(output.contains("  color: red;"))
+    #expect(output.contains("  font-size: 14px;"))
+    #expect(output.contains("}"))
+}
+
+@Test("CSSStylesheet separates rules with blank line")
+func cssStylesheetSeparator() {
+    let rule1 = CSSRule(".a", [("color", "red")])
+    let rule2 = CSSRule(".b", [("color", "blue")])
+    let output = CSSStylesheet([rule1, rule2]).render()
+    #expect(output.contains(".a {\n  color: red;\n}\n\n.b {"))
+}
+
+@Test("CSSStylesheet handles empty rules")
+func cssStylesheetEmpty() {
+    let output = CSSStylesheet([]).render()
+    #expect(output.isEmpty)
+}
+
+@Test("CSSRule with empty declarations")
+func cssRuleEmptyDeclarations() {
+    let rule = CSSRule(".empty", [])
+    let output = CSSStylesheet([rule]).render()
+    #expect(output == ".empty {\n\n}")  // blank line between braces for empty declarations
+}
+
+// =========================================================================
+// MARK: - Web UI: HTMLDocument
+// =========================================================================
+
+@Test("HTMLDocument production mode inlines CSS and JS")
+func htmlDocumentProductionMode() {
+    let doc = HTMLDocument(
+        title: "Test",
+        body: "<p>Hello</p>",
+        styles: CSSStylesheet([CSSRule("body", [("color", "red")])]),
+        scripts: "console.log('hi');",
+        wsURL: "ws://localhost:8081",
+        devMode: false
+    )
+    let html = doc.render()
+    #expect(html.contains("<style>"))
+    #expect(html.contains("body {\n  color: red;\n}"))
+    #expect(html.contains("<script>"))
+    #expect(html.contains("console.log('hi');"))
+    #expect(!html.contains("<link rel=\"stylesheet\""))
+    #expect(!html.contains("<script src="))
+}
+
+@Test("HTMLDocument dev mode links external CSS and JS")
+func htmlDocumentDevMode() {
+    let doc = HTMLDocument(
+        title: "Test",
+        body: "<p>Hello</p>",
+        wsURL: "ws://localhost:8081",
+        devMode: true
+    )
+    let html = doc.render()
+    #expect(html.contains("<link rel=\"stylesheet\" href=\"/ui/styles.css\">"))
+    #expect(html.contains("<script src=\"/ui/scripts.js\"></script>"))
+    #expect(!html.contains("<style>"))
+    #expect(!html.contains("<script>console"))
+}
+
+@Test("HTMLDocument includes WebSocket URL as data attribute")
+func htmlDocumentWebSocketURL() {
+    let doc = HTMLDocument(
+        body: "<p>Chat</p>",
+        wsURL: "ws://127.0.0.1:9090",
+        devMode: false
+    )
+    let html = doc.render()
+    #expect(html.contains("data-ws-url=\"ws://127.0.0.1:9090\""))
+}
+
+@Test("HTMLDocument sets correct title")
+func htmlDocumentTitle() {
+    let doc = HTMLDocument(
+        title: "ARC Agent — Bots",
+        body: "<p>Content</p>",
+        devMode: false
+    )
+    let html = doc.render()
+    #expect(html.contains("<title>ARC Agent — Bots</title>"))
+}
+
+@Test("HTMLDocument includes viewport meta tag")
+func htmlDocumentViewport() {
+    let doc = HTMLDocument(body: "<p>Content</p>", devMode: false)
+    let html = doc.render()
+    #expect(html.contains("name=\"viewport\""))
+    #expect(html.contains("initial-scale=1.0"))
+}
+
+@Test("HTMLDocument includes settings HTML when provided")
+func htmlDocumentSettings() {
+    let doc = HTMLDocument(
+        body: "<p>Main</p>",
+        settingsHTML: "<div id=\"settings\">Settings panel</div>",
+        devMode: false
+    )
+    let html = doc.render()
+    #expect(html.contains("<div id=\"settings\">Settings panel</div>"))
+}
+
+@Test("HTMLDocument defaults to production mode")
+func htmlDocumentDefaultMode() {
+    let doc = HTMLDocument(body: "<p>Hello</p>")
+    let html = doc.render()
+    #expect(html.contains("<style>"))
+    #expect(html.contains("<script>"))
+    #expect(!html.contains("href=\"/ui/styles.css\""))
+}
+
+@Test("HTMLDocument escapes title")
+func htmlDocumentTitleEscaped() {
+    let doc = HTMLDocument(
+        title: "Test <script>alert('xss')</script>",
+        body: "<p>Safe</p>",
+        devMode: false
+    )
+    let html = doc.render()
+    #expect(html.contains("&lt;script&gt;"))
+    #expect(!html.contains("<script>alert"))
+}
+
+// =========================================================================
+// MARK: - Web UI: AppStyles Design System
+// =========================================================================
+
+@Test("AppStyles.all contains theme variables")
+func appStylesContainsTheme() {
+    let rules = AppStyles.all
+    let themeRule = rules.first { $0.selector == ":root" }
+    #expect(themeRule != nil)
+    let declarations = themeRule!.declarations
+    #expect(declarations.contains(where: { $0.0 == "--bg-primary" }))
+    #expect(declarations.contains(where: { $0.0 == "--accent" }))
+    #expect(declarations.contains(where: { $0.0 == "--font-sans" }))
+}
+
+@Test("AppStyles.all contains base reset")
+func appStylesContainsReset() {
+    let rules = AppStyles.all
+    #expect(rules.contains(where: { $0.selector == "*, *::before, *::after" }))
+    #expect(rules.contains(where: { $0.selector == "html" }))
+    #expect(rules.contains(where: { $0.selector == "body" }))
+}
+
+@Test("AppStyles.all contains all major sections")
+func appStylesContainsSections() {
+    let selectors = Set(AppStyles.all.map(\.selector))
+    // Header
+    #expect(selectors.contains(".chat-header"))
+    // Messages
+    #expect(selectors.contains(".messages-container"))
+    #expect(selectors.contains(".message-row"))
+    #expect(selectors.contains(".message-bubble"))
+    // Input
+    #expect(selectors.contains(".input-bar"))
+    #expect(selectors.contains(".input-field"))
+    #expect(selectors.contains(".send-btn"))
+    // Settings
+    #expect(selectors.contains(".settings-overlay"))
+    #expect(selectors.contains(".settings-panel"))
+    // Markdown
+    #expect(selectors.contains(".markdown"))
+    // Animations
+    #expect(selectors.contains("@keyframes fadeIn"))
+    #expect(selectors.contains("@keyframes fadeInUp"))
+    // Scrollbar
+    #expect(selectors.contains("::-webkit-scrollbar"))
+    // Selection
+    #expect(selectors.contains("::selection"))
+}
+
+@Test("AppStyles.all renders valid CSS output")
+func appStylesRenders() {
+    let css = CSSStylesheet(AppStyles.all).render()
+    #expect(!css.isEmpty)
+    #expect(css.contains(":root {"))
+    #expect(css.contains("--bg-primary: #0c0c0e;"))
+    #expect(css.contains("--accent: #6c8cff;"))
+    #expect(css.contains("--font-sans:"))
+    #expect(css.contains("::-webkit-scrollbar {"))
+    #expect(css.contains("@keyframes fadeIn {"))
+}
+
+// =========================================================================
+// MARK: - Web UI: Generated Assets
+// =========================================================================
+
+@Test("Assets.css is non-empty after make assets")
+func assetsCSSNotEmpty() {
+    #expect(!Assets.css.isEmpty)
+    #expect(Assets.css.contains(":root"))
+    #expect(Assets.css.contains("--bg-primary"))
+    #expect(Assets.css.contains("@keyframes fadeIn"))
+}
+
+@Test("Assets.js is non-empty after make assets")
+func assetsJSNotEmpty() {
+    #expect(!Assets.js.isEmpty)
+    #expect(Assets.js.contains("WebSocket"))
+    #expect(Assets.js.contains("sendMessage"))
+    #expect(Assets.js.contains("connect()"))
+}
+
+// =========================================================================
+// MARK: - Web UI: HTML Escaping
+// =========================================================================
+
+@Test("htmlEscape escapes special characters")
+func htmlEscapeSpecial() {
+    #expect(htmlEscape("<script>") == "&lt;script&gt;")
+    #expect(htmlEscape("a & b") == "a &amp; b")
+    #expect(htmlEscape("\"quote\"") == "&quot;quote&quot;")
+    #expect(htmlEscape("'single'") == "&#39;single&#39;")
+}
+
+@Test("htmlEscape passes through safe strings")
+func htmlEscapeSafe() {
+    #expect(htmlEscape("Hello, world!") == "Hello, world!")
+    #expect(htmlEscape("") == "")
+    #expect(htmlEscape("42") == "42")
+}
+
+// =========================================================================
+// MARK: - Web UI: Bot Styles
+// =========================================================================
+
+@Test("AppStyles.botStyles contains bot-specific rules")
+func botStylesContainRules() {
+    let selectors = Set(AppStyles.botStyles.map(\.selector))
+    #expect(selectors.contains(".bots-pane"))
+    #expect(selectors.contains(".bot-roster"))
+    #expect(selectors.contains(".bot-row"))
+    #expect(selectors.contains(".routines-pane"))
+}
+
+@Test("AppStyles.all + botStyles renders without error")
+func combinedStylesRender() {
+    let combined = CSSStylesheet(AppStyles.all + AppStyles.botStyles)
+    let css = combined.render()
+    #expect(!css.isEmpty)
+    #expect(css.contains(":root"))
+    #expect(css.contains(".bots-pane"))
+    #expect(css.contains(".bot-row"))
+}

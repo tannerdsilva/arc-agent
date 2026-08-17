@@ -11,6 +11,9 @@ import ServiceLifecycle
 ///
 /// **Endpoints:**
 /// - `GET /ui` — Web UI (chat interface)
+/// - `GET /ui/bots` — Web UI (bot mode)
+/// - `GET /ui/styles.css` — CSS stylesheet (dev mode only)
+/// - `GET /ui/scripts.js` — JavaScript runtime (dev mode only)
 /// - `POST /v1/chat` — Send a message to an agent session
 /// - `GET /health` — Health check
 public final class HTTPServerService: Service {
@@ -18,11 +21,22 @@ public final class HTTPServerService: Service {
     public struct Configuration: Sendable {
         public let host: String
         public let port: Int
+#if DEBUG
+        /// In debug builds, CSS/JS are served from disk for live iteration.
+        /// Set by the GatewayService based on build configuration.
+        public let devMode: Bool
 
+        public init(host: String = "127.0.0.1", port: Int = 8080, devMode: Bool = true) {
+            self.host = host
+            self.port = port
+            self.devMode = devMode
+        }
+#else
         public init(host: String = "127.0.0.1", port: Int = 8080) {
             self.host = host
             self.port = port
         }
+#endif
     }
 
     private let config: Configuration
@@ -75,6 +89,41 @@ public final class HTTPServerService: Service {
                     body: .init(byteBuffer: buffer)
                 )
             }
+#if DEBUG
+            // Dev mode: serve CSS/JS from disk for live iteration.
+            // These routes are only compiled in debug builds.
+            // Edit Assets/styles.css or Assets/scripts.js and refresh.
+            Get("/ui/styles.css") { _, _ in
+                let cssPath = "Sources/ArcAgentCore/WebUI/Assets/styles.css"
+                let cwd = FileManager.default.currentDirectoryPath
+                let fullPath = (cwd as NSString).appendingPathComponent(cssPath)
+                guard let cssData = FileManager.default.contents(atPath: fullPath),
+                      let css = String(data: cssData, encoding: .utf8)
+                else {
+                    return Response(status: .notFound)
+                }
+                return Response(
+                    status: .ok,
+                    headers: [.contentType: "text/css; charset=utf-8"],
+                    body: .init(byteBuffer: ByteBuffer(string: css))
+                )
+            }
+            Get("/ui/scripts.js") { _, _ in
+                let jsPath = "Sources/ArcAgentCore/WebUI/Assets/scripts.js"
+                let cwd = FileManager.default.currentDirectoryPath
+                let fullPath = (cwd as NSString).appendingPathComponent(jsPath)
+                guard let jsData = FileManager.default.contents(atPath: fullPath),
+                      let js = String(data: jsData, encoding: .utf8)
+                else {
+                    return Response(status: .notFound)
+                }
+                return Response(
+                    status: .ok,
+                    headers: [.contentType: "application/javascript; charset=utf-8"],
+                    body: .init(byteBuffer: ByteBuffer(string: js))
+                )
+            }
+#endif
         }
 
         let app = Application(

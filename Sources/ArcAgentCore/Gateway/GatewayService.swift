@@ -95,6 +95,11 @@ public struct GatewayService: Service {
                 let allScripts: String
                 let body: String
                 let title: String
+#if DEBUG
+                let devMode = true
+#else
+                let devMode = false
+#endif
 
                 if mode == "bots" {
                     // Bot mode: show the full bots page
@@ -143,7 +148,8 @@ public struct GatewayService: Service {
                     body: body,
                     styles: allStyles,
                     scripts: allScripts,
-                    wsURL: wsURL
+                    wsURL: wsURL,
+                    devMode: devMode
                 )
                 return doc.render()
             }
