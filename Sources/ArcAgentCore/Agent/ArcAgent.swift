@@ -310,17 +310,12 @@ public actor ArcAgent: Service {
 
     // MARK: - Token Counting
 
-    /// Rough estimate of token count from text (chars / 4).
-    /// This is a fast approximation — real tokenizers vary by model.
-    private func estimateTokenCount(_ text: String) -> Int {
-        max(1, text.utf8.count / 4)
-    }
+    /// Calibrated token counter for estimating context usage.
+    private let tokenCounter = TokenCounter()
 
     /// Estimate the total token count of the current message history.
     private func estimateHistoryTokens() -> Int {
-        messageHistory.reduce(0) { total, msg in
-            total + estimateTokenCount(msg.content ?? "")
-        }
+        tokenCounter.count(messages: messageHistory, model: config.model)
     }
 
     /// Auto-compress history if estimated tokens exceed the configured limit.
@@ -328,15 +323,48 @@ public actor ArcAgent: Service {
         let estimated = estimateHistoryTokens()
         guard estimated > config.maxContextTokens else { return }
 
-        // Keep system messages + last N user/assistant exchanges
+        // Keep system messages intact
         let systemMessages = messageHistory.filter { $0.role == .system }
         let nonSystem = messageHistory.filter { $0.role != .system }
 
-        // Keep at most the last 10 non-system messages
-        let recent = nonSystem.suffix(10)
-        messageHistory = systemMessages + Array(recent)
+        // Keep the most recent 5 exchanges (10 messages) for active context
+        let minRecent = min(10, nonSystem.count)
+        let recent = nonSystem.suffix(minRecent)
+        let compressible = nonSystem.prefix(nonSystem.count - minRecent)
 
-        // Invalidate cached system prompt since history changed
+        guard !compressible.isEmpty else {
+            // Even the recent messages alone exceed budget — keep last 4
+            let veryRecent = nonSystem.suffix(min(8, nonSystem.count))
+            messageHistory = systemMessages + Array(veryRecent)
+            cachedSystemPrompt = nil
+            return
+        }
+
+        // Extractive compression: concatenate older messages with context markers
+        let compressedContent = compressible.compactMap { msg -> String? in
+            guard let content = msg.content, !content.isEmpty else { return nil }
+            let roleLabel: String
+            switch msg.role {
+            case .user: roleLabel = "User"
+            case .assistant: roleLabel = "Assistant"
+            case .system: roleLabel = "System"
+            case .tool: roleLabel = "Tool"
+            default: roleLabel = "Unknown"
+            }
+            return "[\(roleLabel)]: \(content)"
+        }.joined(separator: "\n\n---\n\n")
+
+        let summaryMessage = Message(
+            role: .system,
+            content: """
+            The following is a compressed record of earlier conversation context. \
+            Key information, decisions, and facts from these exchanges are preserved below:
+
+            \(compressedContent)
+            """
+        )
+
+        messageHistory = systemMessages + [summaryMessage] + Array(recent)
         cachedSystemPrompt = nil
     }
 
