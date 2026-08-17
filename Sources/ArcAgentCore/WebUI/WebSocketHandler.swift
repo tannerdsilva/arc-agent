@@ -14,14 +14,18 @@ import NIOWebSocket
 /// **Incoming** (browser → server):
 /// ```json
 /// {"type": "message", "text": "Hello"}
+/// {"type": "regenerate"}
+/// {"type": "set_model", "model": "gpt-4o"}
 /// {"type": "ping"}
 /// ```
 ///
 /// **Outgoing** (server → browser):
 /// ```json
 /// {"type": "token", "text": "Hello"}
-/// {"type": "message", "html": "<p>Hello</p>"}
-/// {"type": "status", "text": "Thinking..."}
+/// {"type": "message", "html": "<p>Hello</p>", "role": "assistant"}
+/// {"type": "done"}
+/// {"type": "error", "text": "Something went wrong"}
+/// {"type": "status", "text": "streaming"}
 /// {"type": "pong"}
 /// ```
 public actor WebSocketHandler {
@@ -29,6 +33,8 @@ public actor WebSocketHandler {
     public let sessionID: String
     /// The NIO WebSocket channel for sending messages.
     private var channel: Channel?
+    /// The current model name.
+    private var currentModel: String = "default"
 
     /// Create a WebSocket handler.
     /// - Parameter sessionID: The session identifier.
@@ -50,12 +56,45 @@ public actor WebSocketHandler {
 
         switch command.type {
         case "message":
-            // Phase W3: Echo the message back for now.
-            // Phase W4+: Forward to SessionAgent and stream the response.
-            let echo = """
-            {"type":"message","html":"<p>\(htmlEscape(command.text ?? ""))</p>"}
-            """
-            try? await send(text: echo)
+            guard let msgText = command.text, !msgText.isEmpty else { return }
+            // Echo the user message back for now
+            let escaped = htmlEscape(msgText)
+            let userMsg = "{\"type\":\"message\",\"html\":\"<p>\(escaped)</p>\",\"role\":\"user\"}"
+            try? await send(text: userMsg)
+
+            // Simulate a streaming response
+            try? await send(text: "{\"type\":\"status\",\"text\":\"streaming\"}")
+            let response = "I received your message: \(escaped)"
+            for char in response {
+                let token = String(char)
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "\"", with: "\\\"")
+                    .replacingOccurrences(of: "\n", with: "\\n")
+                    .replacingOccurrences(of: "\r", with: "\\r")
+                    .replacingOccurrences(of: "\t", with: "\\t")
+                try? await send(text: "{\"type\":\"token\",\"text\":\"\(token)\"}")
+                try? await Task.sleep(nanoseconds: 10_000_000) // 10ms per char
+            }
+            try? await send(text: "{\"type\":\"done\"}")
+
+        case "regenerate":
+            // Regenerate the last response
+            try? await send(text: "{\"type\":\"status\",\"text\":\"streaming\"}")
+            let response = "Here is a regenerated response."
+            for char in response {
+                let token = String(char)
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "\"", with: "\\\"")
+                try? await send(text: "{\"type\":\"token\",\"text\":\"\(token)\"}")
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+            try? await send(text: "{\"type\":\"done\"}")
+
+        case "set_model":
+            if let model = command.text {
+                currentModel = model
+                try? await send(text: "{\"type\":\"status\",\"text\":\"Model set to \(model)\"}")
+            }
 
         case "ping":
             try? await send(text: "{\"type\":\"pong\"}")
@@ -81,7 +120,13 @@ public actor WebSocketHandler {
     /// Stream a response token to the browser.
     /// - Parameter text: The token text.
     func streamToken(_ text: String) async throws {
-        let payload = "{\"type\":\"token\",\"text\":\"\(text)\"}"
+        let escaped = text
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\t", with: "\\t")
+        let payload = "{\"type\":\"token\",\"text\":\"\(escaped)\"}"
         try await send(text: payload)
     }
 
@@ -90,8 +135,24 @@ public actor WebSocketHandler {
     ///   - html: The pre-rendered HTML content.
     ///   - role: The message role ("user" or "assistant").
     func sendMessage(html: String, role: String) async throws {
-        let payload = "{\"type\":\"message\",\"html\":\"\(html)\",\"role\":\"\(role)\"}"
-        try await send(text: payload)
+        let escaped = html
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let payload = "{\"type\":\"message\",\"html\":\"\(escaped)\",\"role\":\"\(role)\"}"
+        try? await send(text: payload)
+    }
+
+    /// Signal that streaming is complete.
+    func sendDone() async throws {
+        try? await send(text: "{\"type\":\"done\"}")
+    }
+
+    /// Send an error message.
+    func sendError(_ text: String) async throws {
+        let escaped = text
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        try? await send(text: "{\"type\":\"error\",\"text\":\"\(escaped)\"}")
     }
 
     /// Update the connection status in the browser.
@@ -99,7 +160,7 @@ public actor WebSocketHandler {
     func updateStatus(connected: Bool) async throws {
         let status = connected ? "Connected" : "Disconnected"
         let payload = "{\"type\":\"status\",\"text\":\"\(status)\"}"
-        try await send(text: payload)
+        try? await send(text: payload)
     }
 }
 
