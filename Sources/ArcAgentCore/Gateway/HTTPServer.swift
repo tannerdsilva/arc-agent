@@ -89,6 +89,15 @@ public final class HTTPServerService: Service {
                     body: .init(byteBuffer: buffer)
                 )
             }
+            Get("/ui/settings") { [onUI] _, _ in
+                let html = await onUI?("settings") ?? "<h1>Web UI not configured</h1>"
+                let buffer = ByteBuffer(string: html)
+                return Response(
+                    status: .ok,
+                    headers: [.contentType: "text/html; charset=utf-8"],
+                    body: .init(byteBuffer: buffer)
+                )
+            }
 #if DEBUG
             // Dev mode: serve CSS/JS from disk for live iteration.
             // These routes are only compiled in debug builds.

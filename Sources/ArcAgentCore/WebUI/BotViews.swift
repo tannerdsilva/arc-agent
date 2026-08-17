@@ -339,6 +339,12 @@ public struct BotChatHeader: View {
           </div>
           <div class="spacer"></div>
           <span style="font-size: 11px; color: var(--text-muted);">\(htmlEscape(profile.description))</span>
+          <a href="/ui/settings" class="header-btn settings-btn" title="Settings">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M8 10a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" stroke-width="1.2"/>
+              <path d="M13.5 8a5.5 5.5 0 01-.3 1.8l1.2 1-.8 1.4-1.4-.2a5.5 5.5 0 01-1.6.9l-.4 1.4h-1.6l-.4-1.4a5.5 5.5 0 01-1.6-.9l-1.4.2-.8-1.4 1.2-1A5.5 5.5 0 016 8a5.5 5.5 0 01.3-1.8l-1.2-1 .8-1.4 1.4.2a5.5 5.5 0 011.6-.9L9.2 1.5h1.6l.4 1.4a5.5 5.5 0 011.6.9l1.4-.2.8 1.4-1.2 1A5.5 5.5 0 0113.5 8z" stroke="currentColor" stroke-width="1.2"/>
+            </svg>
+          </a>
         </div>
         """
     }
@@ -364,15 +370,14 @@ public struct RoutinesPane: View {
           <div class="routines-header">
             <div class="hstack" style="gap: 6px; align-items: center;">
               \(selected.map { BotAvatar(profile: $0, size: 18).render() } ?? "")
-              <h3>Cronjobs</h3>
+              <h3>Sessions</h3>
             </div>
-            <button class="btn-icon" onclick="openNewRoutineDialog()" title="New Cronjob">+</button>
+            <button class="btn-icon" onclick="openNewSession()" title="New Session">+</button>
           </div>
           <div class="routines-list">
             <div class="empty-state">
-              <div class="icon">📅</div>
-              <div>Cronjobs are recurring tasks this agent runs on a schedule.</div>
-              <button class="btn-secondary" onclick="openNewRoutineDialog()">Create Cronjob</button>
+              <div class="icon">💬</div>
+              <div>No active sessions. Select a bot and start a conversation.</div>
             </div>
           </div>
         </div>

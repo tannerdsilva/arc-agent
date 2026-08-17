@@ -129,6 +129,32 @@ public struct GatewayService: Service {
                     allScripts = Scripts.runtime + "\n" + Scripts.botMode
                     body = botsPage.render()
                     title = "ARC Agent — Bots"
+                } else if mode == "settings" {
+                    // Settings page
+                    let profiles = (try? await pm.list()) ?? []
+                    let profileData = profiles.map { p in
+                        ProfileData(
+                            name: p.name,
+                            title: p.title,
+                            description: p.description,
+                            avatarShape: p.avatar?.shape ?? "circle",
+                            avatarColor: p.avatar?.color ?? "#8b5cf6",
+                            avatarImage: p.avatar?.imageDataURL,
+                            isActive: false,
+                            isPinned: p.isPinned,
+                            group: p.group
+                        )
+                    }
+
+                    let settingsPage = SettingsPage(
+                        profiles: profileData,
+                        selectedBot: "default"
+                    )
+
+                    allStyles = CSSStylesheet(AppStyles.all + AppStyles.botStyles)
+                    allScripts = Scripts.runtime + "\n" + Scripts.botMode
+                    body = settingsPage.render()
+                    title = "ARC Agent — Settings"
                 } else {
                     // Chat mode: show the clean chat interface
                     let chatPage = ChatPage(
