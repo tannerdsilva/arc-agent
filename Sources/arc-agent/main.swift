@@ -102,17 +102,19 @@ struct Chat: AsyncParsableCommand {
         let agent = ArcAgent(config: agentConfig)
 
         if query != nil {
-            print("⚡ ARC Agent — \(resolvedModel)")
-            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        }
-
-        let serviceGroup = ServiceGroup(
-            configuration: .init(
-                services: [agent],
-                logger: Logger(label: "arc-agent")
+            // Single-query mode: run directly, no ServiceGroup needed
+            // (ServiceGroup expects services that run forever)
+            try await agent.run()
+        } else {
+            // Interactive mode: wrap in ServiceGroup for lifecycle management
+            let serviceGroup = ServiceGroup(
+                configuration: .init(
+                    services: [agent],
+                    logger: Logger(label: "arc-agent")
+                )
             )
-        )
-        try await serviceGroup.run()
+            try await serviceGroup.run()
+        }
     }
 }
 
