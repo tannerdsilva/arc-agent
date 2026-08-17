@@ -115,7 +115,8 @@ public struct LMDBSessionStore: SessionStore {
 
     public func get(id: String) async throws -> Session? {
         let path = LMDBManager.sessionPath(id)
-        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else { return nil }
         return try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 do {

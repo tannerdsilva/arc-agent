@@ -292,19 +292,22 @@ public actor ArcAgent: Service {
 
         messageHistory.append(Message(role: .user, content: message))
 
-        if config.persistSessions {
+        logger.info("step: persistSessions is true, creating session")
+            if config.persistSessions {
             let session = Session(
                 id: sessionID,
                 model: config.model,
                 provider: config.provider,
                 messages: messageHistory
             )
-            try await config.sessionStore.create(session)
+            logger.info("step: calling sessionStore.create")
+                try await config.sessionStore.create(session)
         }
 
         let response = try await runTurnLoop(client: llmClient)
 
-        if config.persistSessions {
+        logger.info("step: persistSessions is true, creating session")
+            if config.persistSessions {
             let session = Session(
                 id: sessionID,
                 model: config.model,

@@ -86,8 +86,13 @@ public actor SessionRegistry {
     /// Get or create a session agent for the given session ID.
     /// Returns a ``SessionHandle`` for bidirectional communication.
     func getOrCreate(sessionID: String, profile: String = "default") -> SessionHandle {
+        // Always create a fresh handle and agent for now.
+        // Session reuse will be implemented when we have proper lifecycle management.
         if let existing = handles[sessionID] {
-            return existing
+            existing.inputContinuation.finish()
+            existing.responseContinuation.finish()
+            handles.removeValue(forKey: sessionID)
+            agents.removeValue(forKey: sessionID)
         }
 
         let (inputStream, inputContinuation) = AsyncStream<IncomingMessage>.makeStream()
@@ -118,6 +123,8 @@ public actor SessionRegistry {
                 try await agent.run()
             } catch {
                 logger.error("SessionAgent for \(sessionID) crashed: \(error)")
+                // Clean up on crash
+                await self.remove(sessionID: sessionID)
             }
         }
 

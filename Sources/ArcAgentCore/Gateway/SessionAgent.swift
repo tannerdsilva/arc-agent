@@ -79,11 +79,14 @@ public actor SessionAgent: Service {
             }
 
             // Build the agent with profile-specific configuration
+            logger.info("step: opening LMDB session")
             let sessionEnv = try LMDBManager.openSession(sessionID)
             defer { LMDB.envClose(sessionEnv) }
 
+            logger.info("step: building tool registry")
             let toolRegistry = try ArcAgentCore.buildDefaultRegistry()
 
+            logger.info("step: creating ArcAgent")
             let agent = ArcAgent(config: ArcAgent.Configuration(
                 model: resolvedModel,
                 provider: resolvedProvider,
@@ -100,15 +103,19 @@ public actor SessionAgent: Service {
                 query: nil,
                 maxContextTokens: 64_000
             ))
+            logger.info("step: setting up client")
             await agent.setupClient(httpClient: httpClient)
 
             // Inject the SOUL.md as a system message if present
+            logger.info("step: checking soul")
             if let soul = resolvedSOUL {
                 await agent.injectSystemMessage(soul)
             }
 
             // Process incoming messages
+            logger.info("step: entering message loop")
             for try await message in incomingMessages {
+                logger.info("step: running conversation")
                 let response = try await agent.runConversation(message: message.text)
                 let outgoing = OutgoingMessage(text: response)
 

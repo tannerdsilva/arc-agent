@@ -41,7 +41,7 @@ public enum LMDBManager: Sendable {
     }
 
     public static func sessionPath(_ id: String) -> String {
-        "\(sessionsDir)/\(id).mdb"
+        "\(sessionsDir)/\(id)"
     }
 
     /// Encode a UInt64 as big-endian bytes for use as an LMDB key.
@@ -70,6 +70,8 @@ public enum LMDBManager: Sendable {
     /// Open a per-session environment.
     public static func openSession(_ id: String) throws -> OpaquePointer {
         try FileManager.default.createDirectory(at: URL(fileURLWithPath: sessionsDir), withIntermediateDirectories: true)
-        return try LMDB.envOpen(path: sessionPath(id), mapSize: 50 * 1024 * 1024, maxReaders: 8, maxDBs: 8)
+        let dir = sessionPath(id)
+        try FileManager.default.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: false)
+        return try LMDB.envOpen(path: dir, mapSize: 50 * 1024 * 1024, maxReaders: 8, maxDBs: 8, flags: 0)
     }
 }
