@@ -69,6 +69,12 @@ public enum LLMError: Error, Sendable, CustomStringConvertible {
     /// The response could not be parsed.
     case decodingError(String)
 
+    /// The context length was exceeded — messages need compression.
+    case contextLengthExceeded(limit: Int)
+
+    /// The request was rejected due to content policy.
+    case contentPolicyViolation(String)
+
     public var description: String {
         switch self {
         case .apiError(let code, let message):
@@ -85,6 +91,10 @@ public enum LLMError: Error, Sendable, CustomStringConvertible {
             return "Network error: \(message)"
         case .decodingError(let message):
             return "Failed to decode response: \(message)"
+        case .contextLengthExceeded(let limit):
+            return "Context length exceeded (limit: \(limit) tokens). Compress history."
+        case .contentPolicyViolation(let message):
+            return "Content policy violation: \(message)"
         }
     }
 }

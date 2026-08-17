@@ -93,6 +93,8 @@ public actor ArcAgent: Service {
     private var messageHistory: [Message]
     private let sessionID: String
     private let retryHandler = RetryHandler(maxRetries: 3, baseDelay: 1.0)
+    /// Circuit breaker for the primary LLM endpoint.
+    private let circuitBreaker = CircuitBreaker(label: "primary-llm", threshold: 3, resetTimeout: 30)
     private let approvalManager: ApprovalManager
     private let delegationManager: DelegationManager
     /// Cached system prompt, rebuilt only when memory or skills change.
@@ -500,7 +502,7 @@ public actor ArcAgent: Service {
         return "The conversation reached the maximum iteration limit. Please start a new session."
     }
 
-    /// Call the LLM with retry logic and exponential backoff.
+    /// Call the LLM with retry logic, circuit breaker, and exponential backoff.
     ///
     /// - Parameters:
     ///   - client: The LLM client to use.
@@ -509,12 +511,23 @@ public actor ArcAgent: Service {
     ///   - timeout: Per-call timeout in seconds (default: 120).
     /// - Returns: The LLM response.
     /// - Throws: ``LLMError`` if all retries are exhausted or the error is permanent.
+    ///   Throws ``CircuitBreakerError.open`` if the circuit is open.
     private func callWithRetry(
         client: OpenAICompatibleClient,
         messages: [Message],
         tools: [[String: Any]]?,
         timeout: Int = 120
     ) async throws -> LLMResponse {
+        // Check circuit breaker — if open, reject immediately
+        let cbState = await circuitBreaker.currentState()
+        if case .open(let resetAt) = cbState {
+            throw CircuitBreakerError.open(
+                label: circuitBreaker.label,
+                resetAt: resetAt,
+                lastFailureReason: "Circuit breaker is open"
+            )
+        }
+
         var lastError: Error? = nil
         let toolsData: Data?
         if let tools, !tools.isEmpty {
@@ -532,7 +545,6 @@ public actor ArcAgent: Service {
                     toolsArg = nil
                 }
 
-                // Serialize tools to Data (Sendable) for the timeout task group
                 let toolsPayload: Data
                 if let toolsArg {
                     toolsPayload = try JSONSerialization.data(withJSONObject: toolsArg)
@@ -540,7 +552,7 @@ public actor ArcAgent: Service {
                     toolsPayload = Data()
                 }
 
-                return try await withThrowingTaskGroup(of: LLMResponse.self) { group in
+                let result = try await withThrowingTaskGroup(of: LLMResponse.self) { group in
                     group.addTask {
                         let deserialized: [[String: Any]]?
                         if toolsPayload.isEmpty {
@@ -571,6 +583,10 @@ public actor ArcAgent: Service {
                     }
                     return response
                 }
+
+                // Success — reset circuit breaker
+                await circuitBreaker.reset()
+                return result
             } catch {
                 lastError = error
                 let errorClass = classifyError(error)
@@ -584,9 +600,18 @@ public actor ArcAgent: Service {
                         continue
                     }
                 case .contextOverflow:
-                    throw error
+                    autoCompressIfNeeded()
+                    if retryHandler.shouldRetry(attempt) {
+                        try await retryHandler.wait(for: attempt)
+                        continue
+                    }
                 }
             }
+        }
+
+        // All retries exhausted — record failure with circuit breaker
+        if let last = lastError {
+            await circuitBreaker.recordFailure(last)
         }
 
         throw lastError ?? LLMError.networkError("Request failed after \(retryHandler.maxRetries) retries")

@@ -211,6 +211,19 @@ public struct OpenAICompatibleClient: LLMClient {
             if response.status.code == 401 {
                 throw LLMError.authenticationFailed
             }
+
+            // Detect context length exceeded from error body
+            if response.status.code == 400, bodyString.contains("context_length") || bodyString.contains("maximum context") || bodyString.contains("token limit") {
+                // Try to extract the limit from the error message
+                let limit = extractContextLimit(from: bodyString)
+                throw LLMError.contextLengthExceeded(limit: limit)
+            }
+
+            // Detect content policy violations
+            if response.status.code == 400, bodyString.contains("content_filter") || bodyString.contains("content_policy") || bodyString.contains("safety") {
+                throw LLMError.contentPolicyViolation(bodyString)
+            }
+
             throw LLMError.apiError(statusCode: Int(response.status.code), message: bodyString)
         }
 
@@ -383,4 +396,25 @@ public struct RequestParameters: Sendable {
         self.presencePenalty = presencePenalty
         self.frequencyPenalty = frequencyPenalty
     }
+}
+
+/// Extract the context token limit from an error message.
+/// Looks for patterns like "maximum context length is 128000" or "limit of 64000".
+private func extractContextLimit(from message: String) -> Int {
+    // Scan for number patterns after known keywords
+    let keywords = ["maximum context length is ", "limit of ", "maximum of "]
+    for keyword in keywords {
+        if let range = message.range(of: keyword) {
+            let after = message[range.upperBound...]
+            var digits = ""
+            for ch in after {
+                if ch.isNumber { digits.append(ch) }
+                else { break }
+            }
+            if let limit = Int(digits) {
+                return limit
+            }
+        }
+    }
+    return 128_000  // Default fallback
 }

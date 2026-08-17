@@ -91,6 +91,10 @@ public func classifyError(_ error: Error) -> ErrorClass {
             return .retryable
         case .decodingError:
             return .permanent
+        case .contextLengthExceeded:
+            return .contextOverflow
+        case .contentPolicyViolation:
+            return .permanent
         }
     default:
         // Unknown errors — safe to retry once
