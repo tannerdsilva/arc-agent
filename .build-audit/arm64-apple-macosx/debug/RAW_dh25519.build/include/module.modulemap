@@ -1,0 +1,3 @@
+module RAW_dh25519 {
+    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_dh25519.build/include/RAW_dh25519-Swift.h"
+}

@@ -1,0 +1,54 @@
+{
+  "": {
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/primary.swiftdeps"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/QuickLMDB/Sources/QuickLMDBMacros/MDB_comparable.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/MDB_comparable.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/MDB_comparable.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/MDB_comparable~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/MDB_comparable.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/MDB_comparable.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/QuickLMDB/Sources/QuickLMDBMacros/Plugin.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/Plugin.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/Plugin.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/Plugin~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/Plugin.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/Plugin.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/QuickLMDB/Sources/QuickLMDBMacros/_QUICKLMDB_INTERNAL_cursor_dupfixed_impl.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_dupfixed_impl.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_dupfixed_impl.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_dupfixed_impl~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_dupfixed_impl.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_dupfixed_impl.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/QuickLMDB/Sources/QuickLMDBMacros/_QUICKLMDB_INTERNAL_cursor_dupsort_impl.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_dupsort_impl.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_dupsort_impl.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_dupsort_impl~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_dupsort_impl.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_dupsort_impl.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/QuickLMDB/Sources/QuickLMDBMacros/_QUICKLMDB_INTERNAL_cursor_encodable_impl.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_encodable_impl.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_encodable_impl.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_encodable_impl~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_encodable_impl.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_encodable_impl.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/QuickLMDB/Sources/QuickLMDBMacros/_QUICKLMDB_INTERNAL_cursor_init_basics.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_init_basics.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_init_basics.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_init_basics~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_init_basics.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_cursor_init_basics.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/QuickLMDB/Sources/QuickLMDBMacros/_QUICKLMDB_INTERNAL_database_strict_impl.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_database_strict_impl.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_database_strict_impl.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_database_strict_impl~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_database_strict_impl.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDBMacros-tool.build/_QUICKLMDB_INTERNAL_database_strict_impl.dia"
+  }
+}

@@ -1,0 +1,3 @@
+module CryptoExtras {
+    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/CryptoExtras.build/include/CryptoExtras-Swift.h"
+}

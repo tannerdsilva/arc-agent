@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/MCPDemo.build/primary.swiftdeps"
+  },
+  "/Users/tannerdsilva/workspace/swift-mcp/Sources/MCPDemo/main.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/MCPDemo.build/main.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/MCPDemo.build/main.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/MCPDemo.build/main~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/MCPDemo.build/main.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/MCPDemo.build/main.dia"
+  }
+}

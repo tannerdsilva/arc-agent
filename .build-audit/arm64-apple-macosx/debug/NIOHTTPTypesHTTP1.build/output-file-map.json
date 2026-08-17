@@ -1,0 +1,26 @@
+{
+  "": {
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOHTTPTypesHTTP1.build/primary.swiftdeps"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio-extras/Sources/NIOHTTPTypesHTTP1/HTTP1ToHTTPCodec.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOHTTPTypesHTTP1.build/HTTP1ToHTTPCodec.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOHTTPTypesHTTP1.build/HTTP1ToHTTPCodec.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOHTTPTypesHTTP1.build/HTTP1ToHTTPCodec~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOHTTPTypesHTTP1.build/HTTP1ToHTTPCodec.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOHTTPTypesHTTP1.build/HTTP1ToHTTPCodec.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio-extras/Sources/NIOHTTPTypesHTTP1/HTTPToHTTP1Codec.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOHTTPTypesHTTP1.build/HTTPToHTTP1Codec.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOHTTPTypesHTTP1.build/HTTPToHTTP1Codec.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOHTTPTypesHTTP1.build/HTTPToHTTP1Codec~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOHTTPTypesHTTP1.build/HTTPToHTTP1Codec.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOHTTPTypesHTTP1.build/HTTPToHTTP1Codec.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio-extras/Sources/NIOHTTPTypesHTTP1/HTTPTypeConversion.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOHTTPTypesHTTP1.build/HTTPTypeConversion.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOHTTPTypesHTTP1.build/HTTPTypeConversion.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOHTTPTypesHTTP1.build/HTTPTypeConversion~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOHTTPTypesHTTP1.build/HTTPTypeConversion.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOHTTPTypesHTTP1.build/HTTPTypeConversion.dia"
+  }
+}

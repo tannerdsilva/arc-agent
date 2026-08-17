@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCoreTests.build/primary.swiftdeps"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Tests/ArcAgentCoreTests/ArcAgentCoreTests.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCoreTests.build/ArcAgentCoreTests.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCoreTests.build/ArcAgentCoreTests.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCoreTests.build/ArcAgentCoreTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCoreTests.build/ArcAgentCoreTests.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCoreTests.build/ArcAgentCoreTests.dia"
+  }
+}

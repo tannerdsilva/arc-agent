@@ -1,0 +1,40 @@
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/Array+FileSystem.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/ArraySlice+FileSystem.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/BufferedReader.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/BufferedWriter.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/ByteBuffer+FileSystem.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/ByteCount.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/Convenience.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/DirectoryEntries.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/DirectoryEntry.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/Exports.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/FileChunks.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/FileHandle.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/FileHandleProtocol.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/FileInfo.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/FileSystem.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/FileSystemError+Syscall.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/FileSystemError.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/FileSystemProtocol.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/FileType.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/IOStrategy.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/Internal/BufferedOrAnyStream.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/Internal/BufferedStream.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/Internal/Cancellation.swift
+'/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/Internal/Concurrency Primitives/TokenBucket.swift'
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/Internal/ParallelDirCopy.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/Internal/ParallelRemoval.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/Internal/String+UnsafeUnititializedCapacity.swift
+'/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/Internal/System Calls/CInterop.swift'
+'/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/Internal/System Calls/Errno.swift'
+'/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/Internal/System Calls/FileDescriptor+Syscalls.swift'
+'/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/Internal/System Calls/Mocking.swift'
+'/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/Internal/System Calls/Syscall.swift'
+'/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/Internal/System Calls/Syscalls.swift'
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/Internal/SystemFileHandle.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/Internal/Utilities.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/NIOFilePath.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/NIOFileSystemSendableMetatype.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/OpenOptions.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio/Sources/_NIOFileSystem/String+FileSystem.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/_NIOFileSystem.build/DerivedSources/resource_bundle_accessor.swift

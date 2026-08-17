@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 import NIOCore
 import NIOPosix
 import NIOWebSocket
@@ -19,6 +20,7 @@ import ServiceLifecycle
 public struct WebSocketServerService: Service {
     private let host: String
     private let port: Int
+        private let logger = Logger(label: "com.arc-agent.websocket-server")
     private let handlerFactory: @Sendable (String) -> WebSocketHandler
 
     /// Create a WebSocket server service.
@@ -69,7 +71,7 @@ public struct WebSocketServerService: Service {
             }
 
         let channel = try await bootstrap.bind(host: self.host, port: self.port).get()
-        print("[WebSocketServer] Listening on ws://\(self.host):\(self.port)")
+        logger.info("Listening on ws://\(self.host):\(self.port)")
 
         // Wait for the channel to close (service lifecycle handles cancellation)
         try await channel.closeFuture.get()

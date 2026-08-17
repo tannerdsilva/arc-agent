@@ -1,0 +1,3 @@
+module NIOTestUtils {
+    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/NIOTestUtils.build/include/NIOTestUtils-Swift.h"
+}

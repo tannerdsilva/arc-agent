@@ -1,0 +1,3 @@
+module arc_agentPackageTests {
+    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/arc_agentPackageTests.build/include/arc-agentPackageTests-Swift.h"
+}

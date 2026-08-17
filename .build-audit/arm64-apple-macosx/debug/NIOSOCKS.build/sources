@@ -1,0 +1,12 @@
+'/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio-extras/Sources/NIOSOCKS/Channel Handlers/SOCKSClientHandler.swift'
+'/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio-extras/Sources/NIOSOCKS/Channel Handlers/SOCKSServerHandshakeHandler.swift'
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio-extras/Sources/NIOSOCKS/Messages/AuthenticationMethod.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio-extras/Sources/NIOSOCKS/Messages/ClientGreeting.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio-extras/Sources/NIOSOCKS/Messages/Errors.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio-extras/Sources/NIOSOCKS/Messages/Helpers.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio-extras/Sources/NIOSOCKS/Messages/Messages.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio-extras/Sources/NIOSOCKS/Messages/SOCKSRequest.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio-extras/Sources/NIOSOCKS/Messages/SOCKSResponse.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio-extras/Sources/NIOSOCKS/Messages/SelectedAuthenticationMethod.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio-extras/Sources/NIOSOCKS/State/ClientStateMachine.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-nio-extras/Sources/NIOSOCKS/State/ServerStateMachine.swift

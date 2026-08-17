@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_xchachapoly.build/primary.swiftdeps"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/RAW_xchachapoly/XChaChaPoly.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_xchachapoly.build/XChaChaPoly.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_xchachapoly.build/XChaChaPoly.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_xchachapoly.build/XChaChaPoly~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_xchachapoly.build/XChaChaPoly.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_xchachapoly.build/XChaChaPoly.dia"
+  }
+}

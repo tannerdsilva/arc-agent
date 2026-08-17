@@ -1,0 +1,40 @@
+{
+  "": {
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/primary.swiftdeps"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/RAW_base64/Baes64_dec_impl.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Baes64_dec_impl.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Baes64_dec_impl.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Baes64_dec_impl~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Baes64_dec_impl.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Baes64_dec_impl.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/RAW_base64/Base64.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Base64.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Base64.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Base64~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Base64.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Base64.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/RAW_base64/Base64Value.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Base64Value.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Base64Value.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Base64Value~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Base64Value.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Base64Value.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/RAW_base64/Base64_enc_impl.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Base64_enc_impl.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Base64_enc_impl.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Base64_enc_impl~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Base64_enc_impl.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/Base64_enc_impl.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/RAW_base64/RAW_base64_encoded.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/RAW_base64_encoded.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/RAW_base64_encoded.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/RAW_base64_encoded~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/RAW_base64_encoded.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_base64.build/RAW_base64_encoded.dia"
+  }
+}

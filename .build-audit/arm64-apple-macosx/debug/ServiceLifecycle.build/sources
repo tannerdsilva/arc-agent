@@ -1,0 +1,9 @@
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-service-lifecycle/Sources/ServiceLifecycle/AsyncCancelOnGracefulShutdownSequence.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-service-lifecycle/Sources/ServiceLifecycle/AsyncGracefulShutdownSequence.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-service-lifecycle/Sources/ServiceLifecycle/CancellationWaiter.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-service-lifecycle/Sources/ServiceLifecycle/ClosureService.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-service-lifecycle/Sources/ServiceLifecycle/GracefulShutdown.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-service-lifecycle/Sources/ServiceLifecycle/Service.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-service-lifecycle/Sources/ServiceLifecycle/ServiceGroup.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-service-lifecycle/Sources/ServiceLifecycle/ServiceGroupConfiguration.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-service-lifecycle/Sources/ServiceLifecycle/ServiceRunnerError.swift

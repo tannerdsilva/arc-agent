@@ -1,0 +1,75 @@
+{
+  "": {
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/primary.swiftdeps"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftOperators/Operator.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/Operator.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/Operator.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/Operator~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/Operator.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/Operator.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftOperators/OperatorError+Diagnostics.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorError+Diagnostics.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorError+Diagnostics.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorError+Diagnostics~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorError+Diagnostics.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorError+Diagnostics.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftOperators/OperatorError.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorError.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorError.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorError~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorError.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorError.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftOperators/OperatorTable+Defaults.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable+Defaults.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable+Defaults.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable+Defaults~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable+Defaults.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable+Defaults.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftOperators/OperatorTable+Folding.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable+Folding.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable+Folding.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable+Folding~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable+Folding.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable+Folding.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftOperators/OperatorTable+Semantics.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable+Semantics.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable+Semantics.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable+Semantics~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable+Semantics.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable+Semantics.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftOperators/OperatorTable.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/OperatorTable.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftOperators/PrecedenceGraph.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/PrecedenceGraph.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/PrecedenceGraph.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/PrecedenceGraph~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/PrecedenceGraph.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/PrecedenceGraph.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftOperators/PrecedenceGroup.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/PrecedenceGroup.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/PrecedenceGroup.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/PrecedenceGroup~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/PrecedenceGroup.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/PrecedenceGroup.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftOperators/SyntaxSynthesis.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/SyntaxSynthesis.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/SyntaxSynthesis.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/SyntaxSynthesis~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/SyntaxSynthesis.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftOperators-tool.build/SyntaxSynthesis.dia"
+  }
+}

@@ -1,0 +1,3 @@
+module ArcAgentCore {
+    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/include/ArcAgentCore-Swift.h"
+}

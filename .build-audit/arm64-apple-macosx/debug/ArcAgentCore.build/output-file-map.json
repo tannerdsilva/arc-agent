@@ -1,0 +1,544 @@
+{
+  "": {
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/primary.swiftdeps"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Agent/ArcAgent.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ArcAgent.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ArcAgent.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ArcAgent~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ArcAgent.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ArcAgent.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/ArcAgentCore.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ArcAgentCore.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ArcAgentCore.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ArcAgentCore~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ArcAgentCore.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ArcAgentCore.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Config/ArcConfig.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ArcConfig.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ArcConfig.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ArcConfig~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ArcConfig.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ArcConfig.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Cron/CronJob.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CronJob.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CronJob.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CronJob~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CronJob.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CronJob.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Cron/CronScheduler.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CronScheduler.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CronScheduler.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CronScheduler~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CronScheduler.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CronScheduler.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Delegation/DelegationManager.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/DelegationManager.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/DelegationManager.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/DelegationManager~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/DelegationManager.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/DelegationManager.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Delegation/Subagent.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Subagent.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Subagent.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Subagent~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Subagent.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Subagent.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/ErrorHandling/CircuitBreaker.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CircuitBreaker.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CircuitBreaker.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CircuitBreaker~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CircuitBreaker.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CircuitBreaker.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/ErrorHandling/RetryHandler.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/RetryHandler.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/RetryHandler.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/RetryHandler~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/RetryHandler.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/RetryHandler.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Gateway/DeliveryManager.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/DeliveryManager.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/DeliveryManager.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/DeliveryManager~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/DeliveryManager.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/DeliveryManager.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Gateway/GatewayService.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/GatewayService.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/GatewayService.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/GatewayService~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/GatewayService.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/GatewayService.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Gateway/HTTPServer.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/HTTPServer.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/HTTPServer.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/HTTPServer~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/HTTPServer.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/HTTPServer.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Gateway/MCP/MCPServerAdapter.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MCPServerAdapter.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MCPServerAdapter.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MCPServerAdapter~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MCPServerAdapter.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MCPServerAdapter.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Gateway/MCP/MCPToolAdapter.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MCPToolAdapter.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MCPToolAdapter.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MCPToolAdapter~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MCPToolAdapter.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MCPToolAdapter.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Gateway/MessageModels.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MessageModels.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MessageModels.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MessageModels~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MessageModels.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MessageModels.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Gateway/PlatformAdapter.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/PlatformAdapter.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/PlatformAdapter.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/PlatformAdapter~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/PlatformAdapter.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/PlatformAdapter.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Gateway/SessionAgent.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionAgent.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionAgent.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionAgent~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionAgent.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionAgent.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Gateway/SessionRegistry.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionRegistry.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionRegistry.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionRegistry~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionRegistry.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionRegistry.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Gateway/SessionRouter.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionRouter.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionRouter.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionRouter~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionRouter.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionRouter.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Gateway/TelegramAdapter.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/TelegramAdapter.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/TelegramAdapter.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/TelegramAdapter~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/TelegramAdapter.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/TelegramAdapter.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Kanban/FileKanbanBoard.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/FileKanbanBoard.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/FileKanbanBoard.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/FileKanbanBoard~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/FileKanbanBoard.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/FileKanbanBoard.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Kanban/KanbanBoard.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanBoard.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanBoard.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanBoard~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanBoard.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanBoard.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Kanban/KanbanDispatcher.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanDispatcher.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanDispatcher.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanDispatcher~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanDispatcher.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanDispatcher.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Kanban/KanbanTask.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanTask.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanTask.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanTask~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanTask.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanTask.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/LLM/LLMClient.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LLMClient.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LLMClient.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LLMClient~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LLMClient.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LLMClient.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/LLM/Message.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Message.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Message.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Message~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Message.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Message.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/LLM/OpenAICompatibleClient.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/OpenAICompatibleClient.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/OpenAICompatibleClient.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/OpenAICompatibleClient~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/OpenAICompatibleClient.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/OpenAICompatibleClient.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/LLM/TokenCounter.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/TokenCounter.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/TokenCounter.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/TokenCounter~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/TokenCounter.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/TokenCounter.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/LMDB/LMDBManager.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBManager.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBManager.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBManager~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBManager.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBManager.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/LMDB/LMDBMemoryProvider.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBMemoryProvider.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBMemoryProvider.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBMemoryProvider~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBMemoryProvider.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBMemoryProvider.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/LMDB/LMDBSessionStore.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBSessionStore.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBSessionStore.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBSessionStore~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBSessionStore.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBSessionStore.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/LMDB/LMDBWrapper.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBWrapper.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBWrapper.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBWrapper~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBWrapper.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/LMDBWrapper.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Memory/MemoryProvider.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MemoryProvider.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MemoryProvider.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MemoryProvider~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MemoryProvider.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MemoryProvider.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Memory/StructuredMemoryProvider.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/StructuredMemoryProvider.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/StructuredMemoryProvider.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/StructuredMemoryProvider~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/StructuredMemoryProvider.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/StructuredMemoryProvider.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Metrics/Metrics.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Metrics.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Metrics.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Metrics~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Metrics.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Metrics.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Profile/BotMessagingService.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotMessagingService.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotMessagingService.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotMessagingService~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotMessagingService.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotMessagingService.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Profile/GroupChatRoom.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/GroupChatRoom.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/GroupChatRoom.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/GroupChatRoom~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/GroupChatRoom.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/GroupChatRoom.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Profile/Profile.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Profile.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Profile.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Profile~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Profile.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Profile.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Profile/ProfileManager.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ProfileManager.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ProfileManager.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ProfileManager~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ProfileManager.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ProfileManager.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Provider/BundledProviders.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BundledProviders.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BundledProviders.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BundledProviders~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BundledProviders.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BundledProviders.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Provider/CredentialPool.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CredentialPool.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CredentialPool.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CredentialPool~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CredentialPool.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CredentialPool.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Provider/ProviderProfile.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ProviderProfile.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ProviderProfile.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ProviderProfile~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ProviderProfile.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ProviderProfile.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Security/ApprovalManager.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ApprovalManager.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ApprovalManager.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ApprovalManager~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ApprovalManager.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ApprovalManager.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Session/SessionStore.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionStore.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionStore.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionStore~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionStore.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SessionStore.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Skills/Skill.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Skill.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Skill.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Skill~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Skill.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Skill.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/ToolRegistry/CompileTimeToolRegistry.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CompileTimeToolRegistry.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CompileTimeToolRegistry.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CompileTimeToolRegistry~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CompileTimeToolRegistry.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CompileTimeToolRegistry.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/ToolRegistry/JSONSchema.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/JSONSchema.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/JSONSchema.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/JSONSchema~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/JSONSchema.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/JSONSchema.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/ToolRegistry/ToolEntry.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ToolEntry.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ToolEntry.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ToolEntry~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ToolEntry.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ToolEntry.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/ToolRegistry/ToolRegistry.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ToolRegistry.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ToolRegistry.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ToolRegistry~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ToolRegistry.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ToolRegistry.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Tools/DelegateTaskTool.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/DelegateTaskTool.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/DelegateTaskTool.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/DelegateTaskTool~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/DelegateTaskTool.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/DelegateTaskTool.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Tools/KanbanTools.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanTools.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanTools.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanTools~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanTools.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/KanbanTools.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Tools/MemoryTool.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MemoryTool.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MemoryTool.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MemoryTool~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MemoryTool.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/MemoryTool.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Tools/ProfileTools.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ProfileTools.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ProfileTools.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ProfileTools~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ProfileTools.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ProfileTools.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Tools/ReadFileTool.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ReadFileTool.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ReadFileTool.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ReadFileTool~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ReadFileTool.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ReadFileTool.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Tools/SkillViewTool.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SkillViewTool.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SkillViewTool.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SkillViewTool~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SkillViewTool.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SkillViewTool.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Tools/SteeringTools.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SteeringTools.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SteeringTools.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SteeringTools~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SteeringTools.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/SteeringTools.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Tools/TerminalTool.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/TerminalTool.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/TerminalTool.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/TerminalTool~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/TerminalTool.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/TerminalTool.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Tools/WebExtractTool.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebExtractTool.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebExtractTool.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebExtractTool~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebExtractTool.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebExtractTool.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Tools/WebSearchTool.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebSearchTool.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebSearchTool.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebSearchTool~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebSearchTool.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebSearchTool.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/Tools/WriteFileTool.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WriteFileTool.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WriteFileTool.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WriteFileTool~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WriteFileTool.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WriteFileTool.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/WebUI/AppStyles.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/AppStyles.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/AppStyles.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/AppStyles~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/AppStyles.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/AppStyles.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/WebUI/BotScripts.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotScripts.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotScripts.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotScripts~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotScripts.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotScripts.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/WebUI/BotStyles.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotStyles.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotStyles.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotStyles~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotStyles.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotStyles.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/WebUI/BotViews.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotViews.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotViews.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotViews~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotViews.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/BotViews.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/WebUI/CSSRule.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CSSRule.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CSSRule.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CSSRule~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CSSRule.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/CSSRule.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/WebUI/ChatViews.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ChatViews.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ChatViews.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ChatViews~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ChatViews.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ChatViews.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/WebUI/HTMLDocument.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/HTMLDocument.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/HTMLDocument.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/HTMLDocument~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/HTMLDocument.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/HTMLDocument.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/WebUI/Layouts.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Layouts.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Layouts.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Layouts~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Layouts.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Layouts.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/WebUI/ModifiedView.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ModifiedView.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ModifiedView.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ModifiedView~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ModifiedView.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ModifiedView.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/WebUI/Modifiers.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Modifiers.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Modifiers.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Modifiers~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Modifiers.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Modifiers.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/WebUI/Primitives.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Primitives.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Primitives.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Primitives~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Primitives.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Primitives.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/WebUI/Scripts.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Scripts.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Scripts.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Scripts~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Scripts.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Scripts.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/WebUI/Utilities.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Utilities.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Utilities.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Utilities~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Utilities.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/Utilities.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/WebUI/View.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/View.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/View.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/View~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/View.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/View.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/WebUI/ViewBuilder.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ViewBuilder.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ViewBuilder.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ViewBuilder~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ViewBuilder.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/ViewBuilder.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/WebUI/WebSocketHandler.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebSocketHandler.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebSocketHandler.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebSocketHandler~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebSocketHandler.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebSocketHandler.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/Sources/ArcAgentCore/WebUI/WebSocketServer.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebSocketServer.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebSocketServer.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebSocketServer~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebSocketServer.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/ArcAgentCore.build/WebSocketServer.dia"
+  }
+}

@@ -1,5 +1,6 @@
 import Foundation
 import AsyncHTTPClient
+import Logging
 import ServiceLifecycle
 
 /// The central agent loop that drives one user turn through the agent.
@@ -95,6 +96,8 @@ public actor ArcAgent: Service {
     private let retryHandler = RetryHandler(maxRetries: 3, baseDelay: 1.0)
     /// Circuit breaker for the primary LLM endpoint.
     private let circuitBreaker = CircuitBreaker(label: "primary-llm", threshold: 3, resetTimeout: 30)
+    /// Structured logger for diagnostic output.
+    private let logger = Logger(label: "com.arc-agent.agent")
     private let approvalManager: ApprovalManager
     private let delegationManager: DelegationManager
     /// Cached system prompt, rebuilt only when memory or skills change.
@@ -417,7 +420,7 @@ public actor ArcAgent: Service {
                     if fallbackIndex < fallbacks.count {
                         let fallbackModel = fallbacks[fallbackIndex]
                         fallbackIndex += 1
-                        print("⚠️ Falling back to \(fallbackModel)...")
+                        logger.warning("Falling back to \(fallbackModel)")
                         currentClient = OpenAICompatibleClient(
                             baseURL: config.baseURL,
                             apiKey: config.apiKey,

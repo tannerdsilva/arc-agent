@@ -1,0 +1,4 @@
+module __crawdog_blake2 {
+    umbrella "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/__crawdog_blake2/include"
+    export *
+}

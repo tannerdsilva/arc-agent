@@ -1,0 +1,3 @@
+module RAW_chachapoly {
+    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_chachapoly.build/include/RAW_chachapoly-Swift.h"
+}

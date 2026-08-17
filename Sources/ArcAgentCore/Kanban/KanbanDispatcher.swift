@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 import ServiceLifecycle
 
 /// A background service that dispatches ready kanban tasks.
@@ -16,6 +17,7 @@ public actor KanbanDispatcher: Service {
 
     private let board: any KanbanBoard
     private let pollInterval: UInt64
+        private let logger = Logger(label: "com.arc-agent.kanban-dispatcher")
 
     /// Create a kanban dispatcher.
     ///
@@ -28,7 +30,7 @@ public actor KanbanDispatcher: Service {
     }
 
     public func run() async throws {
-        print("Kanban dispatcher started (poll interval: \(pollInterval / 1_000_000_000)s)")
+        logger.info("Kanban dispatcher started (poll interval: \(pollInterval / 1_000_000_000)s)")
 
         while !Task.isCancelled {
             do {
@@ -36,7 +38,7 @@ public actor KanbanDispatcher: Service {
                 let readyTasks = try await board.list(status: .ready, assignee: nil, limit: 10)
 
                 for task in readyTasks {
-                    print("  Dispatching task: \(task.title.prefix(60))")
+                    logger.info("Dispatching task: \(task.title.prefix(60))")
                     try await board.transition(id: task.id, to: .running)
 
                     // In a full implementation, this would spawn a subagent.
@@ -51,6 +53,6 @@ public actor KanbanDispatcher: Service {
             try await Task.sleep(nanoseconds: pollInterval)
         }
 
-        print("Kanban dispatcher stopped.")
+        logger.info("Kanban dispatcher stopped.")
     }
 }

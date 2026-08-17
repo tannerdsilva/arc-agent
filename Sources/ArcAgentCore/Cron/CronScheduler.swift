@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 import ServiceLifecycle
 
 /// A background service that runs scheduled cron jobs.
@@ -20,6 +21,7 @@ public actor CronScheduler: Service {
 
     private let store: any CronStore
     private let pollInterval: UInt64
+        private let logger = Logger(label: "com.arc-agent.cron-scheduler")
 
     public init(store: any CronStore, pollIntervalSeconds: UInt64 = 30) {
         self.store = store
@@ -27,7 +29,7 @@ public actor CronScheduler: Service {
     }
 
     public func run() async throws {
-        print("Cron scheduler started (poll interval: \(pollInterval / 1_000_000_000)s)")
+        logger.info("Cron scheduler started (poll interval: \(pollInterval / 1_000_000_000)s)")
 
         while !Task.isCancelled {
             do {
@@ -43,7 +45,7 @@ public actor CronScheduler: Service {
                     }
 
                     if now >= nextRun {
-                        print("  Running job: \(job.name)")
+                        logger.info("Running job: \(job.name)")
                         job.lastRunAt = now
                         job.runCount += 1
                         job.lastOutput = "Executed at \(now)"
@@ -58,7 +60,7 @@ public actor CronScheduler: Service {
             try await Task.sleep(nanoseconds: pollInterval)
         }
 
-        print("Cron scheduler stopped.")
+        logger.info("Cron scheduler stopped.")
     }
 }
 

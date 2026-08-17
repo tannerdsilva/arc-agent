@@ -1,0 +1,54 @@
+{
+  "": {
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/primary.swiftdeps"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/RAW_macros/Plugin.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/Plugin.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/Plugin.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/Plugin~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/Plugin.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/Plugin.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/RAW_macros/RAW_convertible_string_type/RAW_convertible_string_type_macro_depricated.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_convertible_string_type_macro_depricated.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_convertible_string_type_macro_depricated.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_convertible_string_type_macro_depricated~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_convertible_string_type_macro_depricated.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_convertible_string_type_macro_depricated.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/RAW_macros/RAW_convertible_string_type/RAW_convertible_string_type_macro_v2.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_convertible_string_type_macro_v2.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_convertible_string_type_macro_v2.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_convertible_string_type_macro_v2~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_convertible_string_type_macro_v2.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_convertible_string_type_macro_v2.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/RAW_macros/RAW_staticbuff_binaryfloatingpoint_type_macro.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_binaryfloatingpoint_type_macro.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_binaryfloatingpoint_type_macro.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_binaryfloatingpoint_type_macro~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_binaryfloatingpoint_type_macro.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_binaryfloatingpoint_type_macro.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/RAW_macros/RAW_staticbuff_bytes_macro.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_bytes_macro.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_bytes_macro.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_bytes_macro~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_bytes_macro.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_bytes_macro.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/RAW_macros/RAW_staticbuff_fixedwidthinteger_type_macro.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_fixedwidthinteger_type_macro.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_fixedwidthinteger_type_macro.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_fixedwidthinteger_type_macro~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_fixedwidthinteger_type_macro.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_fixedwidthinteger_type_macro.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/RAW_macros/RAW_staticbuff_macro.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_macro.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_macro.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_macro~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_macro.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/RAW_macros-tool.build/RAW_staticbuff_macro.dia"
+  }
+}

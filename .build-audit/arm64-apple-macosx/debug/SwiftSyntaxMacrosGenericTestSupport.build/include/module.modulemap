@@ -1,0 +1,3 @@
+module SwiftSyntaxMacrosGenericTestSupport {
+    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/SwiftSyntaxMacrosGenericTestSupport.build/include/SwiftSyntaxMacrosGenericTestSupport-Swift.h"
+}

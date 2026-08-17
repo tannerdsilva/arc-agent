@@ -1,0 +1,14 @@
+/Users/tannerdsilva/workspace/swift-mcp/Sources/MCP/Core/MCPContent.swift
+/Users/tannerdsilva/workspace/swift-mcp/Sources/MCP/Core/MCPError.swift
+/Users/tannerdsilva/workspace/swift-mcp/Sources/MCP/Core/MCPParam.swift
+/Users/tannerdsilva/workspace/swift-mcp/Sources/MCP/Core/MCPTool.swift
+/Users/tannerdsilva/workspace/swift-mcp/Sources/MCP/Core/MCPToolConfiguration.swift
+/Users/tannerdsilva/workspace/swift-mcp/Sources/MCP/Macros.swift
+/Users/tannerdsilva/workspace/swift-mcp/Sources/MCP/PropertyWrappers/PropertyWrappers.swift
+/Users/tannerdsilva/workspace/swift-mcp/Sources/MCP/PropertyWrappers/Tool.swift
+/Users/tannerdsilva/workspace/swift-mcp/Sources/MCP/Protocol/MCPProtocol.swift
+/Users/tannerdsilva/workspace/swift-mcp/Sources/MCP/Schema/JSONSchemaBuilder.swift
+/Users/tannerdsilva/workspace/swift-mcp/Sources/MCP/Server/MCPServer.swift
+/Users/tannerdsilva/workspace/swift-mcp/Sources/MCP/Server/ServerAddress.swift
+/Users/tannerdsilva/workspace/swift-mcp/Sources/MCP/Server/TCPTransport.swift
+/Users/tannerdsilva/workspace/swift-mcp/Sources/MCP/Server/Transport.swift

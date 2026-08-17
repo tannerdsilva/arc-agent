@@ -1,0 +1,103 @@
+{
+  "": {
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/primary.swiftdeps"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-async-algorithms/Sources/AsyncStreaming/AsyncReader/AsyncReader+collect.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader+collect.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader+collect.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader+collect~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader+collect.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader+collect.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-async-algorithms/Sources/AsyncStreaming/AsyncReader/AsyncReader+forEach.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader+forEach.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader+forEach.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader+forEach~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader+forEach.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader+forEach.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-async-algorithms/Sources/AsyncStreaming/AsyncReader/AsyncReader+pipe.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader+pipe.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader+pipe.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader+pipe~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader+pipe.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader+pipe.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-async-algorithms/Sources/AsyncStreaming/AsyncReader/AsyncReader.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncReader.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-async-algorithms/Sources/AsyncStreaming/AsyncWriter/AsyncWriter.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncWriter.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncWriter.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncWriter~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncWriter.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncWriter.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-async-algorithms/Sources/AsyncStreaming/AsyncWriter/AsyncWriterCallerAsyncWriterAdapter.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncWriterCallerAsyncWriterAdapter.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncWriterCallerAsyncWriterAdapter.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncWriterCallerAsyncWriterAdapter~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncWriterCallerAsyncWriterAdapter.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/AsyncWriterCallerAsyncWriterAdapter.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-async-algorithms/Sources/AsyncStreaming/CallerAsyncReader/CallerAsyncReader+pipe.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncReader+pipe.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncReader+pipe.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncReader+pipe~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncReader+pipe.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncReader+pipe.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-async-algorithms/Sources/AsyncStreaming/CallerAsyncReader/CallerAsyncReader.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncReader.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncReader.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncReader~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncReader.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncReader.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-async-algorithms/Sources/AsyncStreaming/CallerAsyncWriter/CallerAsyncWriter.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncWriter.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncWriter.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncWriter~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncWriter.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncWriter.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-async-algorithms/Sources/AsyncStreaming/CallerAsyncWriter/CallerAsyncWriterAsyncWriterAdapter.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncWriterAsyncWriterAdapter.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncWriterAsyncWriterAdapter.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncWriterAsyncWriterAdapter~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncWriterAsyncWriterAdapter.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/CallerAsyncWriterAsyncWriterAdapter.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-async-algorithms/Sources/AsyncStreaming/DuplexChannel/DuplexAsyncChannel.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/DuplexAsyncChannel.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/DuplexAsyncChannel.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/DuplexAsyncChannel~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/DuplexAsyncChannel.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/DuplexAsyncChannel.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-async-algorithms/Sources/AsyncStreaming/EitherError.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/EitherError.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/EitherError.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/EitherError~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/EitherError.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/EitherError.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-async-algorithms/Sources/AsyncStreaming/MultiProducerSingleConsumerChannel/MultiProducerSingleConsumerAsyncChannel+Internal.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/MultiProducerSingleConsumerAsyncChannel+Internal.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/MultiProducerSingleConsumerAsyncChannel+Internal.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/MultiProducerSingleConsumerAsyncChannel+Internal~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/MultiProducerSingleConsumerAsyncChannel+Internal.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/MultiProducerSingleConsumerAsyncChannel+Internal.dia"
+  },
+  "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-async-algorithms/Sources/AsyncStreaming/MultiProducerSingleConsumerChannel/MultiProducerSingleConsumerAsyncChannel.swift": {
+    "dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/MultiProducerSingleConsumerAsyncChannel.d",
+    "object": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/MultiProducerSingleConsumerAsyncChannel.swift.o",
+    "swiftmodule": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/MultiProducerSingleConsumerAsyncChannel~partial.swiftmodule",
+    "swift-dependencies": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/MultiProducerSingleConsumerAsyncChannel.swiftdeps",
+    "diagnostics": "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/AsyncStreaming.build/MultiProducerSingleConsumerAsyncChannel.dia"
+  }
+}

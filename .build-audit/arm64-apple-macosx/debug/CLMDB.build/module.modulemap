@@ -1,0 +1,4 @@
+module CLMDB {
+    umbrella header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/CLMDB/Sources/CLMDB/include/CLMDB.h"
+    export *
+}

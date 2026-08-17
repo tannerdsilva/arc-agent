@@ -1,0 +1,4 @@
+module __crawdog_chachapoly {
+    umbrella "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/__crawdog_chachapoly"
+    export *
+}

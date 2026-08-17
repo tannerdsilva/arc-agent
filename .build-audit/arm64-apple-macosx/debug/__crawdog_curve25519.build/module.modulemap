@@ -1,0 +1,4 @@
+module __crawdog_curve25519 {
+    umbrella "/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/rawdog/Sources/__crawdog_curve25519/include"
+    export *
+}

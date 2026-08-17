@@ -1,0 +1,3 @@
+module QuickLMDB {
+    header "/Users/tannerdsilva/workspace/arc-agent/.build-audit/arm64-apple-macosx/debug/QuickLMDB.build/include/QuickLMDB-Swift.h"
+}

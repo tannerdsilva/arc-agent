@@ -1,0 +1,15 @@
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftSyntaxBuilder/ConvenienceInitializers.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftSyntaxBuilder/DeclSyntaxParseable.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftSyntaxBuilder/Indenter.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftSyntaxBuilder/ListBuilder.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftSyntaxBuilder/ResultBuilderExtensions.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftSyntaxBuilder/SwiftSyntaxBuilderCompatibility.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftSyntaxBuilder/Syntax+StringInterpolation.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftSyntaxBuilder/SyntaxNodeWithBody.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftSyntaxBuilder/SyntaxParsable+ExpressibleByStringInterpolation.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftSyntaxBuilder/ValidatingSyntaxNodes.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftSyntaxBuilder/WithTrailingCommaSyntax+EnsuringTrailingComma.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftSyntaxBuilder/generated/BuildableNodes.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftSyntaxBuilder/generated/RenamedChildrenBuilderCompatibility.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftSyntaxBuilder/generated/ResultBuilders.swift
+/Users/tannerdsilva/workspace/arc-agent/.build-audit/checkouts/swift-syntax/Sources/SwiftSyntaxBuilder/generated/SyntaxExpressibleByStringInterpolationConformances.swift
