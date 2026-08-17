@@ -89,13 +89,16 @@ public actor SessionAgent: Service {
             }
 
             // Build the agent with profile-specific configuration
+            let sessionEnv = try LMDBManager.openSession(sessionID)
+            defer { LMDB.envClose(sessionEnv) }
+
             let agent = ArcAgent(config: ArcAgent.Configuration(
                 model: resolvedModel,
                 provider: resolvedProvider,
                 baseURL: resolvedBaseURL,
                 apiKey: resolvedKey,
                 registry: try ArcAgentCore.buildDefaultRegistry(),
-                sessionStore: LMDBSessionStore(),
+                sessionStore: LMDBSessionStore(env: sessionEnv),
                 memoryProvider: LMDBMemoryProvider(),
                 skills: [],
                 maxIterations: 25,
