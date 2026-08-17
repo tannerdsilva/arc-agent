@@ -106,19 +106,19 @@ public struct MessageContainer: View {
         """
         <div class="messages-container" id="messages-container">
           <div class="messages-scroll" id="messages">
-            \(welcomeMessage.isEmpty ? renderWelcome() : renderWelcomeMessage(welcomeMessage))
+            \(renderWelcome(welcomeMessage: welcomeMessage))
           </div>
           <div id="scroll-anchor"></div>
         </div>
         """
     }
 
-    private func renderWelcome() -> String {
+    private func renderWelcome(welcomeMessage: String) -> String {
         """
         <div class="welcome-screen">
           <div class="welcome-icon">⚡</div>
           <h2 class="welcome-title">ARC Agent</h2>
-          <p class="welcome-subtitle">How can I help you today?</p>
+          <p class="welcome-subtitle">\(htmlEscape(welcomeMessage.isEmpty ? "How can I help you today?" : welcomeMessage))</p>
           <div class="welcome-suggestions">
             <div class="suggestion-chip" onclick="sendSuggestion('Write a Swift function')">
               <span class="suggestion-icon">⌨️</span>
@@ -139,10 +139,6 @@ public struct MessageContainer: View {
           </div>
         </div>
         """
-    }
-
-    private func renderWelcomeMessage(_ msg: String) -> String {
-        MessageBubble(role: "assistant", contentHTML: "<p>\(htmlEscape(msg))</p>", timestamp: nowISO8601()).render()
     }
 }
 

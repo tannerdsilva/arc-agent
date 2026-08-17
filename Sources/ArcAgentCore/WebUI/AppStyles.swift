@@ -93,15 +93,24 @@ public enum AppStyles {
         ("height", "100%"),
     ])
 
-    // ── App Layout ─────────────────────────────────────────────
+    // ── App Container ───────────────────────────────────────────
+
+    public static let appContainer = CSSRule("#app", [
+        ("height", "100%"),
+        ("display", "flex"),
+        ("flex-direction", "column"),
+    ])
+
+    // ── Layout ──────────────────────────────────────────────────
 
     public static let appLayout = CSSRule(".app-layout", [
         ("display", "flex"),
         ("flex-direction", "column"),
-        ("height", "100vh"),
+        ("height", "100%"),
         ("max-width", "var(--max-chat-width)"),
         ("margin", "0 auto"),
         ("position", "relative"),
+        ("width", "100%"),
     ])
 
     // ── Header ─────────────────────────────────────────────────
@@ -262,17 +271,20 @@ public enum AppStyles {
         ("overflow-y", "auto"),
         ("padding", "16px 16px 0"),
         ("scroll-behavior", "smooth"),
+        ("position", "relative"),
+        ("min-height", "0"),
     ])
 
     // ── Welcome Screen ─────────────────────────────────────────
 
     public static let welcomeScreen = CSSRule(".welcome-screen", [
-        ("display", "flex"),
-        ("flex-direction", "column"),
-        ("align-items", "center"),
-        ("justify-content", "center"),
-        ("height", "100%"),
+        ("position", "absolute"),
+        ("top", "50%"),
+        ("left", "50%"),
+        ("transform", "translate(-50%, -50%)"),
         ("text-align", "center"),
+        ("width", "100%"),
+        ("max-width", "500px"),
         ("padding", "40px 20px"),
         ("animation", "fadeInUp var(--transition-slow)"),
     ])
@@ -853,7 +865,7 @@ public enum AppStyles {
         reset, html, body,
 
         // Layout
-        appLayout,
+        appLayout, appContainer,
 
         // Header
         chatHeader, headerLeft, headerLogo, headerTitle,

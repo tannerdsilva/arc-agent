@@ -157,12 +157,14 @@ public actor ProfileManager {
                 defer { LMDB.envClose(env) }
 
                 let txn = try LMDB.txnBeginWrite(env: env)
-                defer { LMDB.txnAbort(txn) }
+                var txnActive = true
+                defer { if txnActive { LMDB.txnAbort(txn) } }
 
                 let dbi = try LMDB.dbiOpen(env: env, txn: txn, name: "profiles", create: false)
                 let keyBytes = [UInt8](name.utf8)
                 _ = try LMDB.del(env: env, txn: txn, dbi: dbi, key: keyBytes)
                 try LMDB.txnCommit(txn)
+                txnActive = false
 
                 continuation.resume()
             } catch {
@@ -236,7 +238,6 @@ public actor ProfileManager {
 
                 // Read all profiles from the database
                 let cursor = try LMDB.cursorOpen(txn: txn, dbi: dbi)
-                defer { LMDB.cursorClose(cursor) }
 
                 // Position cursor at the first entry
                 // Use a single zero byte as the minimum key instead of empty array
@@ -255,6 +256,9 @@ public actor ProfileManager {
                         }
                     }
                 }
+
+                // Close cursor before commit — LMDB cursors are invalid after txnCommit
+                LMDB.cursorClose(cursor)
 
                 // Ensure the "default" profile always exists
                 if self.cache["default"] == nil {
@@ -283,12 +287,14 @@ public actor ProfileManager {
                 defer { LMDB.envClose(env) }
 
                 let txn = try LMDB.txnBeginWrite(env: env)
-                defer { LMDB.txnAbort(txn) }
+                var txnActive = true
+                defer { if txnActive { LMDB.txnAbort(txn) } }
 
                 let dbi = try LMDB.dbiOpen(env: env, txn: txn, name: "profiles", create: true)
                 let data = try JSONEncoder().encode(profile)
                 try LMDB.set(env: env, txn: txn, dbi: dbi, key: [UInt8](profile.name.utf8), value: [UInt8](data))
                 try LMDB.txnCommit(txn)
+                txnActive = false
 
                 continuation.resume()
             } catch {
