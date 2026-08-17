@@ -16,7 +16,7 @@ public enum LMDBManager: Sendable {
     }()
 
     public static let globalPath: String = {
-        baseURL.appendingPathComponent("global.mdb").path
+        baseURL.appendingPathComponent("global", isDirectory: true).path
     }()
 
     public static let sessionsDir: String = {
@@ -60,7 +60,11 @@ public enum LMDBManager: Sendable {
     /// Open the global environment.
     public static func openGlobal() throws -> OpaquePointer {
         try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
-        return try LMDB.envOpen(path: globalPath, mapSize: 100 * 1024 * 1024, maxReaders: 64, maxDBs: 16)
+        // Create the global environment directory
+        let globalDir = baseURL.appendingPathComponent("global", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDir, withIntermediateDirectories: true)
+        // Use flags: 0 (directory-based environment) to support named databases
+        return try LMDB.envOpen(path: globalPath, mapSize: 100 * 1024 * 1024, maxReaders: 64, maxDBs: 16, flags: 0)
     }
 
     /// Open a per-session environment.
