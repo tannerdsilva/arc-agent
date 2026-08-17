@@ -483,6 +483,7 @@ public actor ArcAgent: Service {
                     }
 
                     let result = try await dispatchToolCall(toolCall)
+                    await Metrics.shared.recordToolCall()
                     messageHistory.append(Message(
                         role: .tool,
                         content: result,
@@ -500,6 +501,158 @@ public actor ArcAgent: Service {
         }
 
         return "The conversation reached the maximum iteration limit. Please start a new session."
+    }
+
+    // MARK: - Streaming Turn Loop
+
+    /// Run the agent loop with streaming responses.
+    /// Yields tokens as they arrive from the LLM, then yields the final
+    /// response text. Tool calls are executed synchronously and their
+    /// results are yielded as single chunks.
+    public func streamConversation(message: String) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    messageHistory.append(Message(role: .user, content: message))
+                    try await runStreamingTurnLoop(continuation: continuation)
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// The core streaming turn loop.
+    private func runStreamingTurnLoop(
+        continuation: AsyncThrowingStream<String, Error>.Continuation
+    ) async throws {
+        guard let hc = self.httpClient else {
+            continuation.yield("Error: Agent HTTP client not initialized.")
+            continuation.finish()
+            return
+        }
+        var currentClient = self.llmClient ?? OpenAICompatibleClient(
+            baseURL: config.baseURL,
+            apiKey: config.apiKey,
+            model: config.model,
+            httpClient: hc
+        )
+        var fallbackIndex = 0
+        let fallbacks = BundledProviders.resolve(config.provider)?.fallbackModels ?? []
+
+        for iteration in 0..<config.maxIterations {
+            autoCompressIfNeeded()
+
+            let systemPrompt = try await buildSystemPrompt()
+            var messages: [Message] = [Message(role: .system, content: systemPrompt)]
+            messages.append(contentsOf: messageHistory)
+
+            let toolSchemas = config.registry.buildToolSchemas(
+                enabled: [],
+                disabled: []
+            )
+
+            var accumulatedContent = ""
+            var accumulatedToolCalls: [ToolCall] = []
+
+            do {
+                let stream = try await callStreamWithRetry(
+                    client: currentClient,
+                    messages: messages,
+                    tools: toolSchemas,
+                    timeout: config.maxTurnDuration
+                )
+
+                for try await delta in stream {
+                    if let content = delta.content {
+                        accumulatedContent += content
+                        continuation.yield(content)
+                    }
+                    if let toolCallDeltas = delta.toolCalls {
+                        for tcd in toolCallDeltas {
+                            if tcd.index < accumulatedToolCalls.count {
+                                let existing = accumulatedToolCalls[tcd.index]
+                                let newArgs = (existing.function.arguments) + (tcd.arguments ?? "")
+                                accumulatedToolCalls[tcd.index] = ToolCall(
+                                    id: tcd.id ?? existing.id,
+                                    type: "function",
+                                    function: ToolCallFunction(
+                                        name: tcd.name ?? existing.function.name,
+                                        arguments: newArgs
+                                    )
+                                )
+                            } else if let id = tcd.id, let name = tcd.name {
+                                let tc = ToolCall(
+                                    id: id,
+                                    type: "function",
+                                    function: ToolCallFunction(
+                                        name: name,
+                                        arguments: tcd.arguments ?? ""
+                                    )
+                                )
+                                accumulatedToolCalls.append(tc)
+                            }
+                        }
+                    }
+                    if delta.finishReason != nil {
+                        break
+                    }
+                }
+            } catch {
+                let errorClass = classifyError(error)
+                if errorClass == .permanent || errorClass == .retryable {
+                    if fallbackIndex < fallbacks.count {
+                        let fallbackModel = fallbacks[fallbackIndex]
+                        fallbackIndex += 1
+                        currentClient = OpenAICompatibleClient(
+                            baseURL: config.baseURL,
+                            apiKey: config.apiKey,
+                            model: fallbackModel,
+                            httpClient: hc
+                        )
+                        continue
+                    }
+                }
+                continuation.yield("Error: \(error.localizedDescription)")
+                continuation.finish()
+                return
+            }
+
+            if !accumulatedContent.isEmpty {
+                messageHistory.append(Message(role: .assistant, content: accumulatedContent))
+                continuation.finish()
+                return
+            }
+
+            if !accumulatedToolCalls.isEmpty {
+                messageHistory.append(Message(
+                    role: .assistant,
+                    content: nil,
+                    toolCalls: accumulatedToolCalls
+                ))
+
+                for toolCall in accumulatedToolCalls {
+                    let result = try await dispatchToolCall(toolCall)
+                    messageHistory.append(Message(
+                        role: .tool,
+                        content: result,
+                        name: toolCall.function.name,
+                        toolCallID: toolCall.id
+                    ))
+                    continuation.yield("[Tool: \(toolCall.function.name)] \(result)\n")
+                }
+                continue
+            }
+
+            if iteration == config.maxIterations - 1 {
+                continuation.yield("I encountered an issue processing your request. Please try again.")
+                continuation.finish()
+                return
+            }
+        }
+
+        continuation.yield("The conversation reached the maximum iteration limit. Please start a new session.")
+        continuation.finish()
     }
 
     /// Call the LLM with retry logic, circuit breaker, and exponential backoff.
@@ -581,6 +734,9 @@ public actor ArcAgent: Service {
                     guard let response = result else {
                         throw LLMError.timeout(TimeInterval(timeout))
                     }
+
+                    // Record metrics
+                    await Metrics.shared.recordTokens(response.content?.utf8.count ?? 0 / 4)
                     return response
                 }
 
@@ -590,6 +746,7 @@ public actor ArcAgent: Service {
             } catch {
                 lastError = error
                 let errorClass = classifyError(error)
+                await Metrics.shared.recordError("\(errorClass)")
 
                 switch errorClass {
                 case .permanent:
@@ -614,6 +771,74 @@ public actor ArcAgent: Service {
             await circuitBreaker.recordFailure(last)
         }
 
+        throw lastError ?? LLMError.networkError("Request failed after \(retryHandler.maxRetries) retries")
+    }
+
+    /// Call the LLM with streaming response, retry logic, and circuit breaker.
+    private func callStreamWithRetry(
+        client: OpenAICompatibleClient,
+        messages: [Message],
+        tools: [[String: Any]]?,
+        timeout: Int = 120
+    ) async throws -> AsyncThrowingStream<LLMDelta, Error> {
+        let cbState = await circuitBreaker.currentState()
+        if case .open(let resetAt) = cbState {
+            throw CircuitBreakerError.open(
+                label: circuitBreaker.label,
+                resetAt: resetAt,
+                lastFailureReason: "Circuit breaker is open"
+            )
+        }
+
+        var lastError: Error? = nil
+        let toolsData: Data?
+        if let tools, !tools.isEmpty {
+            toolsData = try JSONSerialization.data(withJSONObject: tools)
+        } else {
+            toolsData = nil
+        }
+
+        for attempt in 0..<retryHandler.maxRetries {
+            do {
+                let toolsArg: [[String: Any]]?
+                if let toolsData {
+                    toolsArg = try JSONSerialization.jsonObject(with: toolsData) as? [[String: Any]]
+                } else {
+                    toolsArg = nil
+                }
+
+                let stream = try await client.stream(
+                    messages: messages,
+                    tools: toolsArg
+                )
+
+                await circuitBreaker.reset()
+                return stream
+            } catch {
+                lastError = error
+                let errorClass = classifyError(error)
+
+                switch errorClass {
+                case .permanent:
+                    throw error
+                case .retryable:
+                    if retryHandler.shouldRetry(attempt) {
+                        try await retryHandler.wait(for: attempt)
+                        continue
+                    }
+                case .contextOverflow:
+                    autoCompressIfNeeded()
+                    if retryHandler.shouldRetry(attempt) {
+                        try await retryHandler.wait(for: attempt)
+                        continue
+                    }
+                }
+            }
+        }
+
+        if let last = lastError {
+            await circuitBreaker.recordFailure(last)
+        }
         throw lastError ?? LLMError.networkError("Request failed after \(retryHandler.maxRetries) retries")
     }
 
