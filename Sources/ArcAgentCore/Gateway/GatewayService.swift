@@ -63,8 +63,9 @@ public struct GatewayService: Service {
         self.wsServer = WebSocketServerService(
             host: host,
             port: wsPort,
-            handlerFactory: { sessionID in
-                WebSocketHandler(sessionID: sessionID)
+            registry: reg,
+            handlerFactory: { sessionID, registry in
+                WebSocketHandler(sessionID: sessionID, registry: registry)
             }
         )
 

@@ -72,7 +72,11 @@
         appendToken(msg.text);
         break;
       case 'message':
-        appendMessage(msg.html, msg.role || 'assistant');
+        // Ignore user messages echoed by the server — JS already
+        // shows them locally in sendMessage()
+        if (msg.role !== 'user') {
+          appendMessage(msg.html, msg.role || 'assistant');
+        }
         break;
       case 'done':
         finalizeStreaming();

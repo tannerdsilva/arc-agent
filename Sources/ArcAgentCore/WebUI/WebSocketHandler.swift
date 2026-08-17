@@ -35,11 +35,16 @@ public actor WebSocketHandler {
     private var channel: Channel?
     /// The current model name.
     private var currentModel: String = "default"
+    /// Reference to the session registry for routing messages.
+    private let registry: SessionRegistry
 
     /// Create a WebSocket handler.
-    /// - Parameter sessionID: The session identifier.
-    public init(sessionID: String) {
+    /// - Parameters:
+    ///   - sessionID: The session identifier.
+    ///   - registry: The session registry for routing messages.
+    public init(sessionID: String, registry: SessionRegistry) {
         self.sessionID = sessionID
+        self.registry = registry
     }
 
     /// Set the channel for this handler (called after upgrade).
@@ -57,37 +62,42 @@ public actor WebSocketHandler {
         switch command.type {
         case "message":
             guard let msgText = command.text, !msgText.isEmpty else { return }
-            // Echo the user message back for now
-            let escaped = htmlEscape(msgText)
-            let userMsg = "{\"type\":\"message\",\"html\":\"<p>\(escaped)</p>\",\"role\":\"user\"}"
-            try? await send(text: userMsg)
 
-            // Simulate a streaming response
+            // Route through the session registry
+            let handle = await registry.getOrCreate(sessionID: sessionID, profile: currentModel)
+
+            let incoming = IncomingMessage(
+                id: UUID().uuidString,
+                chat: ChatTarget(platform: "webui", chatID: sessionID),
+                text: msgText,
+                senderID: "webui"
+            )
+
+            // Send streaming status
             try? await send(text: "{\"type\":\"status\",\"text\":\"streaming\"}")
-            let response = "I received your message: \(escaped)"
-            for char in response {
-                let token = String(char)
+
+            // Yield the message to the agent
+            handle.inputContinuation.yield(incoming)
+
+            // Stream responses back to the browser
+            for await response in handle.responses {
+                let escaped = response
                     .replacingOccurrences(of: "\\", with: "\\\\")
                     .replacingOccurrences(of: "\"", with: "\\\"")
                     .replacingOccurrences(of: "\n", with: "\\n")
                     .replacingOccurrences(of: "\r", with: "\\r")
                     .replacingOccurrences(of: "\t", with: "\\t")
-                try? await send(text: "{\"type\":\"token\",\"text\":\"\(token)\"}")
-                try? await Task.sleep(nanoseconds: 10_000_000) // 10ms per char
+                try? await send(text: "{\"type\":\"token\",\"text\":\"\(escaped)\"}")
             }
+
             try? await send(text: "{\"type\":\"done\"}")
 
         case "regenerate":
             // Regenerate the last response
             try? await send(text: "{\"type\":\"status\",\"text\":\"streaming\"}")
-            let response = "Here is a regenerated response."
-            for char in response {
-                let token = String(char)
-                    .replacingOccurrences(of: "\\", with: "\\\\")
-                    .replacingOccurrences(of: "\"", with: "\\\"")
-                try? await send(text: "{\"type\":\"token\",\"text\":\"\(token)\"}")
-                try? await Task.sleep(nanoseconds: 10_000_000)
-            }
+            let handle = await registry.getOrCreate(sessionID: sessionID, profile: currentModel)
+            // Re-send the last message — for now just send a placeholder
+            try? await send(text: "{\"type\":\"token\",\"text\":\"Regenerating...\"}")
             try? await send(text: "{\"type\":\"done\"}")
 
         case "set_model":

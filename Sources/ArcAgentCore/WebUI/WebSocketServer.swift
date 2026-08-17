@@ -21,7 +21,8 @@ public struct WebSocketServerService: Service {
     private let host: String
     private let port: Int
         private let logger = Logger(label: "com.arc-agent.websocket-server")
-    private let handlerFactory: @Sendable (String) -> WebSocketHandler
+    private let handlerFactory: @Sendable (String, SessionRegistry) -> WebSocketHandler
+    private let registry: SessionRegistry
 
     /// Create a WebSocket server service.
     /// - Parameters:
@@ -31,10 +32,12 @@ public struct WebSocketServerService: Service {
     public init(
         host: String = "127.0.0.1",
         port: Int,
-        handlerFactory: @escaping @Sendable (String) -> WebSocketHandler
+        registry: SessionRegistry,
+        handlerFactory: @escaping @Sendable (String, SessionRegistry) -> WebSocketHandler
     ) {
         self.host = host
         self.port = port
+        self.registry = registry
         self.handlerFactory = handlerFactory
     }
 
@@ -48,7 +51,7 @@ public struct WebSocketServerService: Service {
             },
             upgradePipelineHandler: { channel, head in
                 let sessionID = UUID().uuidString
-                let handler = self.handlerFactory(sessionID)
+                let handler = self.handlerFactory(sessionID, self.registry)
 
                 return channel.pipeline.addHandler(WebSocketFrameHandler(handler: handler)).flatMap {
                     Task { await handler.setChannel(channel) }
