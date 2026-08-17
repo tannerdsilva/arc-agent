@@ -56,6 +56,7 @@ When asked to produce code, assume it is:
 | **MCP** — MCPServerAdapter, DynamicMCPTool | `Gateway/MCP/` (2 files) | Built |
 | **LMDB** — LMDBWrapper (raw C API), LMDBManager, LMDBSessionStore, LMDBMemoryProvider | `LMDB/` (4 files) | Built |
 | **Web UI** — View protocol, ViewBuilder, Primitives, Layouts, CSSRule, AppStyles, Scripts, HTMLDocument, ChatViews, Modifiers, ModifiedView, Utilities | `WebUI/` (12 files) | Built (uncommitted) |
+| **Bot Mode** — Profile struct, ProfileManager, BotMessagingService, GroupChatRoom, BotViews, BotStyles, BotScripts, ProfileTools | `Profile/` (4 files) + `WebUI/` (3 files) + `Tools/` (1 file) | Built (uncommitted) |
 
 ## How We Work
 

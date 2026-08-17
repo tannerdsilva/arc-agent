@@ -908,3 +908,101 @@ Swift's built-in `Regex` type replaced `NSRegularExpression` to avoid Foundation
 | **Total (all phases)** | **170-250M** | **19-30 hours** | **$85-$125** |
 
 These are generation-only estimates. Real-world costs include debugging iterations, design exploration, and testing — realistically **2-3x** the generation estimate, or **$250-$375** total for a complete v1.
+
+---
+
+## Phase F: Bot Mode (Multi-Profile Agent Roster)
+
+*The vascular system is built and hardened. Now we populate it with multiple agents — each with its own identity, memory, and communication channels.*
+
+### Architecture Overview
+
+```
+ProfileManager [1] (actor — LMDB-backed profile index)
+│
+├── Profile "default" [1] — The primary agent (backward-compatible)
+├── Profile "researcher" [N] — Named bot with isolated config
+├── Profile "builder" [N] — Named bot with isolated config
+└── Profile "ops" [N] — Named bot with isolated config
+
+BotMessagingService [1] (actor, Service — inter-agent message routing)
+│
+├── Canonical Chat per profile (persistent "Bot Chat" session)
+├── Direct actor-to-actor delivery (no CLI invocation)
+└── Activity tracking for "active now" presence strip
+
+GroupChatManager [1] (actor — multi-agent coordination rooms)
+│
+└── GroupChatRoom [N] (actor — per-room state machine)
+    ├── Round-robin turn execution
+    ├── @mention routing
+    ├── Epoch-based superseding
+    └── Per-member watermark tracking
+
+Web UI (compiled Swift DSL — no npm, no JS framework)
+├── BotsPane (left sidebar — roster with avatars, search, groups)
+├── RoutinesPane (right tile — per-bot cron jobs)
+├── ActiveNowStrip (presence strip above roster)
+├── NewAgentDialog (profile creation form)
+└── BotChatHeader (profile-aware chat header)
+```
+
+### Key Design Decisions
+
+#### 1. A bot IS a profile
+
+The foundational insight from Hermes Bot Mode, adapted for ARC Agent. Each bot is a `Profile` struct with isolated config, memory, sessions, and SOUL.md. The `ProfileManager` actor manages the profile index in `global.mdb` (database: `profiles`).
+
+#### 2. Per-profile LMDB isolation
+
+```
+~/.arc/
+├── global.mdb
+│   ├── memory       # default profile memory (backward compat)
+│   └── profiles     # profile index: name → JSON(Profile)
+└── profiles/
+    └── <name>/
+        ├── memory.mdb   # Per-profile memory
+        └── sessions/    # Per-session .mdb files
+```
+
+This follows the existing per-session `.mdb` pattern exactly — same LMDB wrapper, same MVCC guarantees, same isolation properties.
+
+#### 3. Direct actor-to-actor messaging (improvement over Hermes)
+
+Where Hermes Bot Mode shells out to `hermes -p <target> chat ...` for bot-to-bot delivery, ARC Agent uses **direct actor method calls** through `BotMessagingService`. The message is routed into the recipient's canonical session via `SessionRegistry.getOrCreate()`. No CLI composition, no polling, no background process coordination.
+
+#### 4. Push-based group chat (improvement over Hermes)
+
+Where Hermes Bot Mode uses a 2-second poll loop with epoch-based superseding, ARC Agent's `GroupChatRoom` uses push-based delivery through `AsyncThrowingStream`. Each member turn is a direct `SessionRegistry.route()` call with an async stream for the response. Swift's cooperative timeout handles stuck members.
+
+#### 5. Compiled web UI (improvement over Hermes)
+
+Where Hermes Bot Mode is a 6,461-line JS/React plugin, ARC Agent's bot UI is compiled Swift using the existing `View` protocol DSL. No React, no JSX, no npm, no `package.json`. The avatar system generates SVG inline from Swift structs.
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `Profile/Profile.swift` | `Profile` struct, `AvatarConfig`, validation |
+| `Profile/ProfileManager.swift` | `ProfileManager` actor, CRUD, LMDB persistence, SOUL generation |
+| `Profile/BotMessagingService.swift` | `BotMessagingService` actor, inter-agent message routing |
+| `Profile/GroupChatRoom.swift` | `GroupChatRoom` actor, `GroupChatManager`, turn protocol |
+| `Tools/ProfileTools.swift` | Agent-facing tools: list, get, create, delete profiles, send messages |
+| `WebUI/BotViews.swift` | `BotsPage`, `BotsPane`, `BotRow`, `BotAvatar`, `RoutinesPane`, dialogs |
+| `WebUI/BotStyles.swift` | CSS rules for the bot mode UI |
+| `WebUI/BotScripts.swift` | Extended JS runtime for bot interactions |
+
+### Improvements Over Hermes Bot Mode
+
+| Dimension | Hermes Bot Mode | ARC Agent |
+|-----------|----------------|-----------|
+| **Bot-to-bot delivery** | CLI invocation (`hermes -p ...`) | Direct actor method call |
+| **Reply waiting** | Async via `notify_on_complete` | `AsyncThrowingStream` — inline await |
+| **Group chat polling** | 2-second poll loop | Push-based via `SessionRegistry.route()` |
+| **Avatar rendering** | JS `requestAnimationFrame` | Compiled Swift SVG DSL |
+| **Storage** | Plugin storage + `ui_meta` RPC | LMDB (single source of truth) |
+| **Profile isolation** | Filesystem directories | LMDB environments + Service Lifecycle |
+| **Type safety** | None (JS) | Compile-time (Swift) |
+| **Dependencies** | Hermes Desktop + plugin SDK | Single binary, zero new deps |
+| **Web UI** | React plugin (6,461 lines JS) | Compiled Swift View DSL |

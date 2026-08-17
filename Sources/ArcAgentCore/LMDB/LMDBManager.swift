@@ -23,6 +23,23 @@ public enum LMDBManager: Sendable {
         baseURL.appendingPathComponent("sessions", isDirectory: true).path
     }()
 
+    /// Profile storage paths.
+    public static let profilesDir: String = {
+        baseURL.appendingPathComponent("profiles", isDirectory: true).path
+    }()
+
+    public static func profileMemoryPath(_ name: String) -> String {
+        "\(profilesDir)/\(name)/memory.mdb"
+    }
+
+    public static func profileSessionsDir(_ name: String) -> String {
+        "\(profilesDir)/\(name)/sessions"
+    }
+
+    public static func profileSessionPath(_ name: String, id: String) -> String {
+        "\(profileSessionsDir(name))/\(id).mdb"
+    }
+
     public static func sessionPath(_ id: String) -> String {
         "\(sessionsDir)/\(id).mdb"
     }

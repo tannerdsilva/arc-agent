@@ -2,6 +2,29 @@ import Foundation
 import AsyncHTTPClient
 import ServiceLifecycle
 
+/// A handle for communicating with a session agent.
+///
+/// Bundles the input continuation (for sending messages to the agent)
+/// and the output stream (for receiving responses from the agent).
+public struct SessionHandle: Sendable {
+    /// Continuation for sending incoming messages to the agent.
+    public let inputContinuation: AsyncStream<IncomingMessage>.Continuation
+    /// Stream of response texts from the agent.
+    public let responses: AsyncStream<String>
+    /// Continuation for producing responses.
+    public let responseContinuation: AsyncStream<String>.Continuation
+
+    public init(
+        inputContinuation: AsyncStream<IncomingMessage>.Continuation,
+        responses: AsyncStream<String>,
+        responseContinuation: AsyncStream<String>.Continuation
+    ) {
+        self.inputContinuation = inputContinuation
+        self.responses = responses
+        self.responseContinuation = responseContinuation
+    }
+}
+
 /// A registry of active session agents managed by the gateway.
 ///
 /// The registry is a routing table that maps session IDs to running
@@ -9,10 +32,16 @@ import ServiceLifecycle
 /// Services managed by the Service Lifecycle framework. LMDB is the
 /// single source of truth for all durable data.
 ///
-/// When a message arrives for a session that has no active agent, the
-/// registry creates a new ``SessionAgent``, starts it as a Service, and
-/// registers it. When the agent's `run()` completes (idle timeout or
-/// cancellation), it removes itself from the registry.
+/// ## Profile-Aware Sessions
+///
+/// Each session is associated with a profile (bot). When a message arrives
+/// for a session, the registry looks up the profile and creates an agent
+/// with the profile's configuration (model, provider, toolsets, SOUL.md).
+///
+/// ## Law of the Land
+///
+/// - **First Law**: ``SessionRegistry`` is an actor — all mutable state is
+///   guarded by the actor's serial executor.
 public actor SessionRegistry {
 
     /// A factory that creates a new agent for a session.
@@ -31,41 +60,64 @@ public actor SessionRegistry {
     }
 
     private var agents: [String: SessionAgent] = [:]
-    /// Continuations for sending messages to active session agents.
-    private var continuations: [String: AsyncStream<IncomingMessage>.Continuation] = [:]
+    private var handles: [String: SessionHandle] = [:]
     private let agentConfig: AgentConfig
     private let deliveryManager: DeliveryManager
+    private let profileManager: ProfileManager
+    private(set) var messagingService: BotMessagingService?
 
-    public init(agentConfig: AgentConfig, deliveryManager: DeliveryManager) {
+    public init(
+        agentConfig: AgentConfig,
+        deliveryManager: DeliveryManager,
+        profileManager: ProfileManager
+    ) {
         self.agentConfig = agentConfig
         self.deliveryManager = deliveryManager
+        self.profileManager = profileManager
+    }
+
+    /// Set the messaging service reference.
+    func setMessagingService(_ service: BotMessagingService) {
+        self.messagingService = service
     }
 
     /// Get or create a session agent for the given session ID.
-    /// Returns the continuation for sending messages to the agent.
-    func getOrCreate(sessionID: String) -> AsyncStream<IncomingMessage>.Continuation {
-        if let existing = continuations[sessionID] {
+    /// Returns a ``SessionHandle`` for bidirectional communication.
+    func getOrCreate(sessionID: String, profile: String = "default") -> SessionHandle {
+        if let existing = handles[sessionID] {
             return existing
         }
 
-        let (stream, continuation) = AsyncStream<IncomingMessage>.makeStream()
+        let (inputStream, inputContinuation) = AsyncStream<IncomingMessage>.makeStream()
+        let (responseStream, responseContinuation) = AsyncStream<String>.makeStream()
+
+        let handle = SessionHandle(
+            inputContinuation: inputContinuation,
+            responses: responseStream,
+            responseContinuation: responseContinuation
+        )
+
         let agent = SessionAgent(
             sessionID: sessionID,
+            profile: profile,
             agentConfig: agentConfig,
-            incomingMessages: stream,
+            profileManager: profileManager,
+            incomingMessages: inputStream,
             deliveryManager: deliveryManager,
-            registry: self
+            registry: self,
+            responseContinuation: responseContinuation
         )
         agents[sessionID] = agent
-        continuations[sessionID] = continuation
-        return continuation
+        handles[sessionID] = handle
+        return handle
     }
 
     /// Remove a session agent from the registry (called by the agent on shutdown).
     func remove(sessionID: String) {
         agents.removeValue(forKey: sessionID)
-        continuations[sessionID]?.finish()
-        continuations.removeValue(forKey: sessionID)
+        handles[sessionID]?.inputContinuation.finish()
+        handles[sessionID]?.responseContinuation.finish()
+        handles.removeValue(forKey: sessionID)
     }
 
     /// The number of active session agents.

@@ -22,6 +22,7 @@ struct Arc: AsyncParsableCommand {
             Serve.self,
             Setup.self,
             Tools.self,
+            Profile.self,
             Version.self,
         ]
     )
@@ -269,5 +270,143 @@ struct Version: AsyncParsableCommand {
     func run() async throws {
         print("arc-agent \(ArcAgentCore.version)")
         print("Phase: phase 2 — production readiness")
+    }
+}
+
+// MARK: - Profile
+
+struct Profile: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "profile",
+        abstract: "Manage agent profiles (bots).",
+        subcommands: [
+            ProfileList.self,
+            ProfileCreate.self,
+            ProfileDelete.self,
+            ProfileShow.self,
+        ]
+    )
+}
+
+struct ProfileList: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "list",
+        abstract: "List all profiles."
+    )
+
+    func run() async throws {
+        let manager = ProfileManager()
+        let profiles = try await manager.list()
+
+        print("⚡ ARC Agent — Profiles")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        for p in profiles {
+            let avatar = p.avatar.map { "\($0.shape) \($0.color)" } ?? "default"
+            let group = p.group.map { " [\($0)]" } ?? ""
+            print("  \(p.name)\(group)")
+            print("     Title: \(p.title.isEmpty ? "(none)" : p.title)")
+            print("     Model: \(p.model ?? "(default)")")
+            print("     Avatar: \(avatar)")
+            print("")
+        }
+        print("Total: \(profiles.count) profile(s)")
+    }
+}
+
+struct ProfileCreate: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "create",
+        abstract: "Create a new profile."
+    )
+
+    @Argument(help: "Profile name (lowercase, alphanumeric, hyphens).")
+    var name: String
+
+    @Option(name: .long, help: "Display title.")
+    var title: String = ""
+
+    @Option(name: .long, help: "Description.")
+    var description: String = ""
+
+    @Option(name: .long, help: "Clone from an existing profile.")
+    var cloneFrom: String?
+
+    @Option(name: .long, help: "Model override.")
+    var model: String?
+
+    @Option(name: .long, help: "Provider override.")
+    var provider: String?
+
+    @Option(name: .long, help: "Group name.")
+    var group: String?
+
+    func run() async throws {
+        let manager = ProfileManager()
+        var profile = try await manager.create(name: name, cloneFrom: cloneFrom)
+        profile.title = title
+        profile.description = description
+        profile.model = model
+        profile.provider = provider
+        profile.group = group
+        try await manager.update(profile)
+        print("✅ Profile '\(name)' created.")
+    }
+}
+
+struct ProfileDelete: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "delete",
+        abstract: "Delete a profile."
+    )
+
+    @Argument(help: "Profile name to delete.")
+    var name: String
+
+    func run() async throws {
+        let manager = ProfileManager()
+        try await manager.delete(name: name)
+        print("✅ Profile '\(name)' deleted.")
+    }
+}
+
+struct ProfileShow: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "show",
+        abstract: "Show profile details."
+    )
+
+    @Argument(help: "Profile name.")
+    var name: String
+
+    func run() async throws {
+        let manager = ProfileManager()
+        guard let profile = try await manager.get(name: name) else {
+            print("Error: Profile '\(name)' not found.")
+            return
+        }
+
+        print("⚡ Profile: \(profile.name)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print("  Title:       \(profile.title.isEmpty ? "(none)" : profile.title)")
+        print("  Description: \(profile.description.isEmpty ? "(none)" : profile.description)")
+        print("  Model:       \(profile.model ?? "(default)")")
+        print("  Provider:    \(profile.provider ?? "(default)")")
+        print("  Base URL:    \(profile.baseURL ?? "(default)")")
+        print("  Group:       \(profile.group ?? "(none)")")
+        print("  Pinned:      \(profile.isPinned)")
+        print("  Created:     \(profile.createdAt)")
+        print("  Updated:     \(profile.updatedAt)")
+        if let avatar = profile.avatar {
+            print("  Avatar:      \(avatar.shape) \(avatar.color)")
+        }
+        if let soul = profile.soulMD {
+            let preview = soul.prefix(200).trimmingCharacters(in: .whitespacesAndNewlines)
+            print("  SOUL.md:     \(preview)...")
+        }
     }
 }

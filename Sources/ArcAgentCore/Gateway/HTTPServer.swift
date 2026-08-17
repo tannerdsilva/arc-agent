@@ -1,6 +1,7 @@
 import Foundation
 import Hummingbird
 import HummingbirdRouter
+import NIOCore
 import ServiceLifecycle
 
 /// An HTTP server that exposes the agent's API endpoints and web UI.
@@ -26,17 +27,17 @@ public final class HTTPServerService: Service {
 
     private let config: Configuration
     private let onChat: @Sendable (String, String) async throws -> String
-    private let onUI: (@Sendable () -> String)?
+    private let onUI: (@Sendable () async -> String)?
 
     /// Create an HTTP server service.
     /// - Parameters:
     ///   - config: Server configuration (host, port).
     ///   - onChat: Closure called when a chat request arrives.
-    ///   - onUI: Optional closure that returns the web UI HTML.
+    ///   - onUI: Optional async closure that returns the web UI HTML.
     public init(
         config: Configuration = .init(),
         onChat: @escaping @Sendable (String, String) async throws -> String,
-        onUI: (@Sendable () -> String)? = nil
+        onUI: (@Sendable () async -> String)? = nil
     ) {
         self.config = config
         self.onChat = onChat
@@ -57,7 +58,7 @@ public final class HTTPServerService: Service {
             }
             // Web UI route — serves the complete chat interface
             Get("/ui") { [onUI] _, _ in
-                let html = onUI?() ?? "<h1>Web UI not configured</h1>"
+                let html = await onUI?() ?? "<h1>Web UI not configured</h1>"
                 let buffer = ByteBuffer(string: html)
                 return Response(
                     status: .ok,
@@ -69,6 +70,7 @@ public final class HTTPServerService: Service {
 
         let app = Application(
             responder: router,
+            server: .http1(),
             configuration: .init(
                 address: .hostname(config.host, port: config.port)
             )

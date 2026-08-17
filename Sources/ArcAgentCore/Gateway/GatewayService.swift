@@ -7,20 +7,25 @@ import Logging
 /// adapters, session registry, and message routing.
 ///
 /// ``GatewayService`` is a ``Service`` that composes:
-/// - ``HTTPServerService`` — REST API endpoints
+/// - ``HTTPServerService`` — REST API endpoints + web UI
+/// - ``WebSocketServerService`` — real-time WebSocket for the web UI
 /// - ``TelegramAdapter`` — Telegram Bot API long polling
 /// - ``SessionRegistry`` — active session agents (no cache, LMDB is source of truth)
 /// - ``DeliveryManager`` — routes responses to the correct platform
+/// - ``BotMessagingService`` — inter-agent messaging
+/// - ``GroupChatManager`` — multi-agent coordination rooms
 ///
-/// All components are managed by a ``ServiceGroup``. The gateway creates
-/// session agents on demand and lets the Service Lifecycle framework
-/// handle idle timeouts and cleanup.
+/// All components are managed by a ``ServiceGroup``.
 public struct GatewayService: Service {
 
     private let httpServer: HTTPServerService
+    private let wsServer: WebSocketServerService
     private let telegramAdapter: TelegramAdapter?
     private let registry: SessionRegistry
     private let deliveryManager: DeliveryManager
+    private let botMessaging: BotMessagingService
+    private let groupChatManager: GroupChatManager
+    private let profileManager: ProfileManager
     private let logger: Logger
 
     public init(
@@ -29,30 +34,94 @@ public struct GatewayService: Service {
         telegramToken: String? = nil,
         agentConfig: SessionRegistry.AgentConfig
     ) {
-        self.deliveryManager = DeliveryManager()
-        self.registry = SessionRegistry(
+        let pm = ProfileManager()
+        let dm = DeliveryManager()
+        let bm = BotMessagingService(profileManager: pm)
+        let gcm = GroupChatManager(profileManager: pm)
+        let reg = SessionRegistry(
             agentConfig: agentConfig,
-            deliveryManager: deliveryManager
+            deliveryManager: dm,
+            profileManager: pm
         )
-        self.logger = Logger(label: "com.arc-agent.gateway")
+        let log = Logger(label: "com.arc-agent.gateway")
 
-        // Build the HTTP server with a reference to the registry
+        self.profileManager = pm
+        self.deliveryManager = dm
+        self.botMessaging = bm
+        self.groupChatManager = gcm
+        self.registry = reg
+        self.logger = log
+
+        // Wire up the messaging service
+        Task {
+            await reg.setMessagingService(bm)
+            await gcm.setMessagingService(bm)
+        }
+
+        // Create the WebSocket server on the next port
+        let wsPort = port + 1
+        self.wsServer = WebSocketServerService(
+            host: host,
+            port: wsPort,
+            handlerFactory: { sessionID in
+                WebSocketHandler(sessionID: sessionID)
+            }
+        )
+
+        // Build the HTTP server with bot-mode web UI
         self.httpServer = HTTPServerService(
             config: .init(host: host, port: port),
-            onChat: { [registry] sessionID, message in
-                let continuation = await registry.getOrCreate(sessionID: sessionID)
+            onChat: { [reg] sessionID, message in
+                let handle = await reg.getOrCreate(sessionID: sessionID)
                 let incoming = IncomingMessage(
                     id: UUID().uuidString,
                     chat: ChatTarget(platform: "api", chatID: sessionID),
                     text: message,
                     senderID: "api"
                 )
-                continuation.yield(incoming)
-                return "Message received"
+                handle.inputContinuation.yield(incoming)
+                // Await the agent's response from the response stream
+                var responseText = ""
+                for await response in handle.responses {
+                    responseText = response
+                    break  // Take the first response
+                }
+                return responseText.isEmpty ? "Message received" : responseText
             },
-            onUI: {
-                let page = ChatPage(welcomeMessage: "How can I help you today?")
-                let doc = HTMLDocument(body: page.render())
+            onUI: { [pm, wsPort, host] in
+                // Build the bot-mode web UI
+                let profiles = (try? await pm.list()) ?? []
+                let profileData = profiles.map { p in
+                    ProfileData(
+                        name: p.name,
+                        title: p.title,
+                        description: p.description,
+                        avatarShape: p.avatar?.shape ?? "circle",
+                        avatarColor: p.avatar?.color ?? "#8b5cf6",
+                        avatarImage: p.avatar?.imageDataURL,
+                        isActive: false,
+                        isPinned: p.isPinned,
+                        group: p.group
+                    )
+                }
+
+                let botsPage = BotsPage(
+                    profiles: profileData,
+                    selectedBot: "default",
+                    welcomeMessage: "Select a bot to start chatting, or create a new one."
+                )
+
+                let wsURL = "ws://\(host):\(wsPort)"
+                let allStyles = CSSStylesheet(AppStyles.all + AppStyles.botStyles)
+                let allScripts = Scripts.runtime + "\n" + Scripts.botMode
+
+                let doc = HTMLDocument(
+                    title: "ARC Agent — Bots",
+                    body: botsPage.render(),
+                    styles: allStyles,
+                    scripts: allScripts,
+                    wsURL: wsURL
+                )
                 return doc.render()
             }
         )
@@ -71,9 +140,9 @@ public struct GatewayService: Service {
     // MARK: - Service
 
     public func run() async throws {
-        logger.info("Starting ARC Agent Gateway...")
+        logger.info("Starting ARC Agent Gateway (Bot Mode)...")
 
-        var services: [any Service] = [httpServer]
+        var services: [any Service] = [httpServer, wsServer, botMessaging]
         if let telegram = telegramAdapter {
             services.append(telegram)
         }

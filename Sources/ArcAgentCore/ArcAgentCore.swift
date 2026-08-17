@@ -37,6 +37,15 @@ public enum ArcAgentCore {
         try registry.register(KanbanTools.show)
         try registry.register(KanbanTools.complete)
         try registry.register(KanbanTools.block)
+
+        // Profile/bot mode tools
+        try registry.register(ListProfilesTool.entry)
+        try registry.register(GetProfileTool.entry)
+        try registry.register(SendBotMessageTool.entry)
+        try registry.register(CreateProfileTool.entry)
+        try registry.register(DeleteProfileTool.entry)
+        try registry.register(SendGroupChatTool.entry)
+
         return registry
     }
 }

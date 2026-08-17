@@ -41,6 +41,18 @@ let package = Package(
         .package(
             path: "../swift-mcp"
         ),
+        .package(
+            url: "https://github.com/apple/swift-nio.git",
+            from: "2.100.0"
+        ),
+        .package(
+            url: "https://github.com/apple/swift-nio-extras.git",
+            from: "1.26.0"
+        ),
+        .package(
+            url: "https://github.com/apple/swift-http-types.git",
+            from: "1.3.0"
+        ),
     ],
 
     targets: [
@@ -66,6 +78,11 @@ let package = Package(
                 .product(name: "Hummingbird", package: "hummingbird"),
                 .product(name: "HummingbirdRouter", package: "hummingbird"),
                 .product(name: "MCP", package: "swift-mcp"),
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOWebSocket", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "NIOHTTPTypes", package: "swift-nio-extras"),
+                .product(name: "HTTPTypes", package: "swift-http-types"),
             ]
         ),
 

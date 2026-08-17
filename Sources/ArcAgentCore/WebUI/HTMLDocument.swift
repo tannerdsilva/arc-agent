@@ -28,6 +28,8 @@ public struct HTMLDocument: Sendable {
     public let styles: CSSStylesheet
     /// The JavaScript to inline.
     public let scripts: String
+    /// WebSocket URL for real-time communication.
+    public let wsURL: String
 
     /// Create a complete HTML document.
     /// - Parameters:
@@ -35,16 +37,19 @@ public struct HTMLDocument: Sendable {
     ///   - body: The rendered HTML body.
     ///   - styles: The CSS stylesheet (defaults to ``AppStyles/all``).
     ///   - scripts: The JavaScript (defaults to ``Scripts/runtime``).
+    ///   - wsURL: WebSocket URL (defaults to `ws://127.0.0.1:8081`).
     public init(
         title: String = "ARC Agent",
         body: String,
         styles: CSSStylesheet = CSSStylesheet(AppStyles.all),
-        scripts: String = Scripts.runtime
+        scripts: String = Scripts.runtime,
+        wsURL: String = "ws://127.0.0.1:8081"
     ) {
         self.title = title
         self.body = body
         self.styles = styles
         self.scripts = scripts
+        self.wsURL = wsURL
     }
 
     /// Render the complete HTML document.
@@ -69,7 +74,7 @@ public struct HTMLDocument: Sendable {
           </style>
         </head>
         <body>
-        \(body)
+          <div id="app" data-ws-url="\(wsURL)">\(body)</div>
           <script>
         \(scripts)
           </script>

@@ -122,6 +122,17 @@ public actor ArcAgent: Service {
         )
     }
 
+    /// Inject a system message at the beginning of the conversation.
+    /// Used by the gateway to inject profile-specific SOUL.md content.
+    func injectSystemMessage(_ content: String) async {
+        // Remove any existing system messages with the same prefix
+        messageHistory.removeAll { msg in
+            msg.role == .system && (msg.content?.hasPrefix("[Profile:") ?? false)
+        }
+        messageHistory.insert(Message(role: .system, content: "[Profile: \(config.model)]\n\(content)"), at: 0)
+        cachedSystemPrompt = nil
+    }
+
     // MARK: - Service
 
     public func run() async throws {

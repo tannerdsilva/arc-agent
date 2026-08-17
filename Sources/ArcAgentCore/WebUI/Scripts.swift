@@ -36,7 +36,8 @@ public enum Scripts {
     /// supports everything used here.
     public static let runtime = """
     (function(){
-      var ws=new WebSocket('/ui/ws');
+      var u=document.getElementById('app').dataset.wsUrl||'ws://'+location.host+'/ui/ws';
+      var ws=new WebSocket(u);
       ws.onmessage=function(e){
         var m=JSON.parse(e.data);
         switch(m.type){
