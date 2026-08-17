@@ -1006,3 +1006,43 @@ Where Hermes Bot Mode is a 6,461-line JS/React plugin, ARC Agent's bot UI is com
 | **Type safety** | None (JS) | Compile-time (Swift) |
 | **Dependencies** | Hermes Desktop + plugin SDK | Single binary, zero new deps |
 | **Web UI** | React plugin (6,461 lines JS) | Compiled Swift View DSL |
+
+---
+
+### Phase G: swift-log (the nervous system)
+
+*You can't diagnose what you can't see. Print statements are not logging.*
+
+The codebase has 40+ `print()` calls scattered across library code — in the agent loop, kanban dispatcher, cron scheduler, and WebSocket server. These are not user-facing output; they are diagnostic messages with no structure, no severity levels, no trace IDs, and no machine-parseability. When the system runs as a daemon (via `arc serve`), these `print()` calls go to stdout with no way to filter, route, or search them.
+
+The `swift-log` package is already a dependency. `Logger(label:)` is already used in `GatewayService`. The work is to extend this pattern to every Service in the codebase.
+
+- [ ] **Audit all `print()` calls** — distinguish user-facing CLI output (keep as `print()`) from diagnostic logging (replace with `Logger`)
+- [ ] **Add `Logger` to every Service** — `ArcAgent`, `KanbanDispatcher`, `CronScheduler`, `WebSocketServer`, `TelegramAdapter`, `SessionAgent`
+- [ ] **Replace diagnostic `print()`** with appropriate severity levels: `.debug`, `.info`, `.warning`, `.error`
+- [ ] **Add trace IDs** — a `traceID: String` metadata field passed through the gateway pipeline for request correlation
+- [ ] **Structured metadata** — attach session ID, profile name, model name, and error details to log statements
+
+**Deliverable:** Every diagnostic message is a structured log statement with severity, trace ID, and context. `print()` is reserved for user-facing CLI output only.
+
+---
+
+## Resource Estimates
+
+| Phase | Est. Tokens | Est. Time | Est. Cost (at $0.50/M tok) |
+|---|---|---|---|
+| Phase 1: Core Agent | 15-20M | 1-2 hours | $7.50-$10 |
+| Phase 2: Production Readiness | 20-30M | 2-3 hours | $10-$15 |
+| Phase 3: Multi-Agent | 25-40M | 3-4 hours | $12.50-$20 |
+| Phase 4: Gateway | 30-50M | 4-6 hours | $15-$25 |
+| Phase 5: MCP + Polish | 15-20M | 1-2 hours | $7.50-$10 |
+| **Phase A: Session & Data Integrity** | 10-15M | 1-2 hours | $5-$7.50 |
+| **Phase B: Context & Memory** | 15-20M | 2-3 hours | $7.50-$10 |
+| **Phase C: Error Handling & Recovery** | 10-15M | 1-2 hours | $5-$7.50 |
+| **Phase D: Testing & Verification** | 15-20M | 2-3 hours | $7.50-$10 |
+| **Phase E: Performance & Observability** | 15-20M | 2-3 hours | $7.50-$10 |
+| **Phase F: Bot Mode** | 20-30M | 2-3 hours | $10-$15 |
+| **Phase G: swift-log** | 10-15M | 1-2 hours | $5-$7.50 |
+| **Total (all phases)** | **200-295M** | **22-35 hours** | **$100-$147.50** |
+
+These are generation-only estimates. Real-world costs include debugging iterations, design exploration, and testing — realistically **2-3x** the generation estimate, or **$300-$450** total for a complete v1.
