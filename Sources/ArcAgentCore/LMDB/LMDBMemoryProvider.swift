@@ -27,6 +27,10 @@ public struct LMDBMemoryProvider: MemoryProvider {
         try await replace(key: "agent", old: old, new: new)
     }
 
+    public func writeMemory(_ text: String) async throws {
+        try await set(key: "agent", value: text)
+    }
+
     public func appendUser(_ text: String) async throws {
         try await append(key: "user", text: text)
     }
@@ -86,6 +90,29 @@ public struct LMDBMemoryProvider: MemoryProvider {
 
                     let newContent = existing.isEmpty ? text : existing + "\n" + text
                     try LMDB.set(env: env, txn: txn, dbi: dbi, key: keyBytes, value: [UInt8](newContent.utf8))
+                    try LMDB.txnCommit(txn)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Overwrite a key with the given value.
+    private func set(key: String, value: String) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                do {
+                    let env = try LMDBManager.openGlobal()
+                    defer { LMDB.envClose(env) }
+
+                    let txn = try LMDB.txnBeginWrite(env: env)
+                    defer { LMDB.txnAbort(txn) }
+
+                    let dbi = try LMDB.dbiOpen(env: env, txn: txn, name: "memory", create: true)
+                    let keyBytes = [UInt8](key.utf8)
+                    try LMDB.set(env: env, txn: txn, dbi: dbi, key: keyBytes, value: [UInt8](value.utf8))
                     try LMDB.txnCommit(txn)
                     continuation.resume()
                 } catch {

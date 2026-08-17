@@ -156,10 +156,7 @@ public struct StructuredMemoryProvider: Sendable {
             return String(decoding: data, as: UTF8.self)
         }
         let raw = lines.joined(separator: "\n")
-
-        // Replace the entire memory content
-        // We use replaceMemory with empty old string since we're overwriting
-        try await underlying.replaceMemory(old: try await underlying.readMemory(), new: raw)
+        try await underlying.writeMemory(raw)
     }
 
     /// Format entries into a markdown string with sections.

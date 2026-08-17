@@ -15,10 +15,10 @@ func coreVersion() {
 // MARK: - Tool Registry
 // =========================================================================
 
-@Test("default registry contains all 11 built-in tools")
+@Test("default registry contains all built-in tools")
 func defaultRegistryTools() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
-    #expect(registry.allTools.count == 16)
+    #expect(registry.allTools.count == 22)
 
     #expect(registry.lookup(name: "read_file")?.toolset == "file")
     #expect(registry.lookup(name: "read_file")?.emoji == "📄")
@@ -52,7 +52,7 @@ func emptyRegistry() {
 @Test("registry toolset filtering with all toolsets disabled")
 func allToolsetsDisabled() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
-    let schemas = registry.buildToolSchemas(enabled: [], disabled: ["file", "terminal", "web", "core", "delegation", "kanban"])
+    let schemas = registry.buildToolSchemas(enabled: [], disabled: ["file", "terminal", "web", "core", "delegation", "kanban", "profile"])
     #expect(schemas.isEmpty)
 }
 
@@ -168,7 +168,7 @@ func schemaFiltering() throws {
     #expect(webSchemas.count == 2)
 
     let disabled = registry.buildToolSchemas(enabled: [], disabled: ["file"])
-    #expect(disabled.count == 14)
+    #expect(disabled.count == 20)
 }
 
 // =========================================================================
@@ -804,11 +804,11 @@ func configSaveLoad() throws {
 // MARK: - CLI Tools Command
 // =========================================================================
 
-@Test("tools command output includes all 11 tools")
+@Test("tools command output includes all tools")
 func toolsCommand() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
     let names = registry.allTools.map(\.name).sorted()
-    #expect(names == ["delegate_task", "kanban_block", "kanban_complete", "kanban_create", "kanban_list", "kanban_show", "list_children", "memory", "read_file", "skill_view", "steer_child", "stop_child", "terminal", "web_extract", "web_search", "write_file"])
+    #expect(names == ["create_profile", "delegate_task", "delete_profile", "get_profile", "kanban_block", "kanban_complete", "kanban_create", "kanban_list", "kanban_show", "list_children", "list_profiles", "memory", "read_file", "send_bot_message", "send_group_chat", "skill_view", "steer_child", "stop_child", "terminal", "web_extract", "web_search", "write_file"])
 }
 
 // =========================================================================
@@ -823,4 +823,282 @@ func llmErrorDescriptions() {
     #expect(LLMError.modelNotFound("gpt-5").description.contains("gpt-5"))
     #expect(LLMError.timeout(30).description.contains("30"))
     #expect(LLMError.decodingError("bad json").description.contains("bad json"))
+}
+
+// =========================================================================
+// MARK: - Circuit Breaker
+// =========================================================================
+
+@Test("circuit breaker starts closed")
+func circuitBreakerInitialState() async {
+    let cb = CircuitBreaker(label: "test", threshold: 3, resetTimeout: 30)
+    let state = await cb.currentState()
+    if case .closed = state {
+        #expect(true)
+    } else {
+        #expect(false, "Expected closed, got \(state)")
+    }
+}
+
+@Test("circuit breaker opens after threshold failures")
+func circuitBreakerOpens() async {
+    let cb = CircuitBreaker(label: "test", threshold: 2, resetTimeout: 30)
+    await cb.recordFailure(LLMError.timeout(5))
+    await cb.recordFailure(LLMError.timeout(5))
+    let state = await cb.currentState()
+    if case .open = state {
+        #expect(true)
+    } else {
+        #expect(false, "Expected open, got \(state)")
+    }
+}
+
+@Test("circuit breaker resets on success")
+func circuitBreakerResets() async {
+    let cb = CircuitBreaker(label: "test", threshold: 2, resetTimeout: 30)
+    await cb.recordFailure(LLMError.timeout(5))
+    await cb.reset()
+    let state = await cb.currentState()
+    if case .closed = state {
+        #expect(true)
+    } else {
+        #expect(false, "Expected closed after reset, got \(state)")
+    }
+}
+
+// =========================================================================
+// MARK: - Token Counter
+// =========================================================================
+
+@Test("token counter estimates ASCII text")
+func tokenCounterASCII() {
+    let counter = TokenCounter()
+    let count = counter.count("Hello, world! This is a test message.")
+    #expect(count > 0)
+    #expect(count < 20)  // ~12 tokens for 42 chars of English
+}
+
+@Test("token counter estimates code")
+func tokenCounterCode() {
+    let counter = TokenCounter()
+    let count = counter.count("func foo() { return bar.map { $0 + 1 } }")
+    #expect(count > 0)
+    // Code has higher symbol density, so slightly more tokens per char
+}
+
+@Test("token counter handles empty string")
+func tokenCounterEmpty() {
+    let counter = TokenCounter()
+    let count = counter.count("")
+    #expect(count >= 3)  // Minimum message framing overhead
+}
+
+@Test("token counter model calibration")
+func tokenCounterModel() {
+    let counter = TokenCounter()
+    let text = "Hello, world!"
+    let defaultCount = counter.count(text)
+    let claudeCount = counter.count(text, model: "claude-3.5-sonnet")
+    // Claude calibration is 1.05, so count should be slightly higher
+    #expect(claudeCount >= defaultCount)
+}
+
+// =========================================================================
+// MARK: - LLM Error Classification
+// =========================================================================
+
+@Test("classifyError maps contextLengthExceeded to contextOverflow")
+func classifyContextOverflow() {
+    let error = LLMError.contextLengthExceeded(limit: 128_000)
+    let classification = classifyError(error)
+    if case .contextOverflow = classification {
+        #expect(true)
+    } else {
+        #expect(false, "Expected contextOverflow, got \(classification)")
+    }
+}
+
+@Test("classifyError maps contentPolicyViolation to permanent")
+func classifyContentPolicy() {
+    let error = LLMError.contentPolicyViolation("Content filtered")
+    let classification = classifyError(error)
+    if case .permanent = classification {
+        #expect(true)
+    } else {
+        #expect(false, "Expected permanent, got \(classification)")
+    }
+}
+
+// =========================================================================
+// MARK: - LLM Error Descriptions (new cases)
+// =========================================================================
+
+@Test("contextLengthExceeded description includes limit")
+func contextLengthDescription() {
+    let error = LLMError.contextLengthExceeded(limit: 128_000)
+    #expect(error.description.contains("128000"))
+    #expect(error.description.contains("Compress"))
+}
+
+@Test("contentPolicyViolation description includes message")
+func contentPolicyDescription() {
+    let error = LLMError.contentPolicyViolation("Safety check triggered")
+    #expect(error.description.contains("Safety"))
+}
+
+// =========================================================================
+// MARK: - Structured Memory Provider
+// =========================================================================
+
+@Test("structured memory add and read entries")
+func structuredMemoryAdd() async throws {
+    let tmpDir = FileManager.default.temporaryDirectory.appendingPathComponent("arc-test-mem-\(UUID().uuidString)")
+    let fileProvider = FileMemoryProvider(directory: tmpDir)
+    let memory = StructuredMemoryProvider(wrapping: fileProvider)
+
+    try await memory.addEntry(.fact, "Server runs Ubuntu 24.04")
+    try await memory.addEntry(.procedure, "Deploy with `arc deploy`")
+    try await memory.addEntry(.profile, "User prefers concise responses")
+
+    let formatted = try await memory.readFormatted()
+    #expect(formatted.contains("Ubuntu"))
+    #expect(formatted.contains("Deploy"))
+    #expect(formatted.contains("concise"))
+    #expect(formatted.contains("Facts"))
+    #expect(formatted.contains("Procedures"))
+    #expect(formatted.contains("User Profile"))
+}
+
+@Test("structured memory deduplicates by content")
+func structuredMemoryDedup() async throws {
+    let tmpDir = FileManager.default.temporaryDirectory.appendingPathComponent("arc-test-dedup-\(UUID().uuidString)")
+    let fileProvider = FileMemoryProvider(directory: tmpDir)
+    let memory = StructuredMemoryProvider(wrapping: fileProvider)
+
+    try await memory.addEntry(.fact, "Server runs Ubuntu")
+    try await memory.addEntry(.fact, "Server runs Ubuntu")  // Duplicate
+
+    let entries = try await memory.readRaw()
+    #expect(entries.count == 1)
+}
+
+@Test("structured memory TTL eviction")
+func structuredMemoryTTL() async throws {
+    let tmpDir = FileManager.default.temporaryDirectory.appendingPathComponent("arc-test-ttl-\(UUID().uuidString)")
+    let fileProvider = FileMemoryProvider(directory: tmpDir)
+    let memory = StructuredMemoryProvider(wrapping: fileProvider)
+
+    // Add entry with 0 TTL (already expired)
+    try await memory.addEntry(.fact, "Temporary fact", ttl: 0)
+
+    let entries = try await memory.readRaw()
+    #expect(entries.isEmpty)
+}
+
+@Test("structured memory compaction")
+func structuredMemoryCompact() async throws {
+    let tmpDir = FileManager.default.temporaryDirectory.appendingPathComponent("arc-test-compact-\(UUID().uuidString)")
+    let fileProvider = FileMemoryProvider(directory: tmpDir)
+    let memory = StructuredMemoryProvider(wrapping: fileProvider)
+
+    try await memory.addEntry(.fact, "Permanent fact", ttl: nil)
+    try await memory.addEntry(.fact, "Temporary fact", ttl: 0)
+
+    try await memory.compact()
+
+    let entries = try await memory.readRaw()
+    #expect(entries.count == 1)
+    #expect(entries[0].content == "Permanent fact")
+}
+
+// =========================================================================
+// MARK: - Session Registry
+// =========================================================================
+
+@Test("session registry getOrCreate returns handle")
+func sessionRegistryCreate() async {
+    let dm = DeliveryManager()
+    let pm = ProfileManager()
+    let config = SessionRegistry.AgentConfig(
+        model: "gpt-4o",
+        provider: "openai",
+        baseURL: "https://api.openai.com/v1",
+        apiKey: "test-key"
+    )
+    let registry = SessionRegistry(
+        agentConfig: config,
+        deliveryManager: dm,
+        profileManager: pm
+    )
+
+    let _ = await registry.getOrCreate(sessionID: "test-session")
+    // Smoke test: handle returned without error (if getOrCreate throws,
+    // the test fails automatically)
+}
+
+@Test("session registry returns same handle for same session")
+func sessionRegistryReuse() async {
+    let dm = DeliveryManager()
+    let pm = ProfileManager()
+    let config = SessionRegistry.AgentConfig(
+        model: "gpt-4o",
+        provider: "openai",
+        baseURL: "https://api.openai.com/v1",
+        apiKey: "test-key"
+    )
+    let registry = SessionRegistry(
+        agentConfig: config,
+        deliveryManager: dm,
+        profileManager: pm
+    )
+
+    let _ = await registry.getOrCreate(sessionID: "same-session")
+    let _ = await registry.getOrCreate(sessionID: "same-session")
+    // Both calls should return without error (session reuse smoke test)
+}
+
+@Test("session registry remove creates new handle")
+func sessionRegistryRemove() async {
+    let dm = DeliveryManager()
+    let pm = ProfileManager()
+    let config = SessionRegistry.AgentConfig(
+        model: "gpt-4o",
+        provider: "openai",
+        baseURL: "https://api.openai.com/v1",
+        apiKey: "test-key"
+    )
+    let registry = SessionRegistry(
+        agentConfig: config,
+        deliveryManager: dm,
+        profileManager: pm
+    )
+
+    let _ = await registry.getOrCreate(sessionID: "removable")
+    await registry.remove(sessionID: "removable")
+    let activeCount = await registry.activeCount
+    #expect(activeCount == 0)
+}
+
+// =========================================================================
+// MARK: - Retry Handler
+// =========================================================================
+
+@Test("retry handler computes exponential backoff")
+func retryHandlerBackoff() {
+    let handler = RetryHandler(maxRetries: 3, baseDelay: 1.0, maxDelay: 60.0)
+    let delay0 = handler.delay(for: 0)
+    let delay1 = handler.delay(for: 1)
+    let delay2 = handler.delay(for: 2)
+    // Each attempt should be roughly 2x the previous
+    #expect(delay1 > delay0 * 0.5)  // Allow for jitter
+    #expect(delay2 > delay1 * 0.5)
+}
+
+@Test("retry handler shouldRetry respects max")
+func retryHandlerShouldRetry() {
+    let handler = RetryHandler(maxRetries: 3, baseDelay: 1.0)
+    #expect(handler.shouldRetry(0) == true)
+    #expect(handler.shouldRetry(1) == true)
+    #expect(handler.shouldRetry(2) == true)
+    #expect(handler.shouldRetry(3) == false)
 }

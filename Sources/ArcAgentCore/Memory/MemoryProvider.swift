@@ -32,6 +32,9 @@ public protocol MemoryProvider: Sendable {
     /// Replace text in MEMORY.md (find-and-replace).
     func replaceMemory(old: String, new: String) async throws
 
+    /// Overwrite MEMORY.md with the given content.
+    func writeMemory(_ text: String) async throws
+
     /// Append text to USER.md.
     func appendUser(_ text: String) async throws
 
@@ -85,6 +88,10 @@ public struct FileMemoryProvider: MemoryProvider {
 
     public func replaceMemory(old: String, new: String) async throws {
         try await replaceInFile(at: memoryPath, old: old, new: new)
+    }
+
+    public func writeMemory(_ text: String) async throws {
+        try text.write(to: memoryPath, atomically: true, encoding: .utf8)
     }
 
     public func appendUser(_ text: String) async throws {
