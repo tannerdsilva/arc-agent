@@ -39,9 +39,20 @@ public actor WebSocketHandler {
 
             handle.inputContinuation.yield(incoming)
 
-            for await response in handle.responses {
-                let escaped = escapeJSON(response)
-                try? await send(text: "{\"type\":\"token\",\"text\":\"\(escaped)\"}")
+            // Consume exactly ONE response for this message. The shared
+            // `responses` stream only terminates when the *whole* agent ends
+            // (its input stream closes or it errors) — never after a single
+            // response — so draining it with a bare `for await` would hang
+            // forever and the `done` frame would never be sent. That left the
+            // web UI stuck "streaming" with the input disabled after every
+            // turn. Mirrors the HTTP path (GatewayService.onChat), which takes
+            // the first response and breaks. If the agent finished without
+            // yielding anything (it threw), surface an error instead of
+            // silently hanging.
+            if let response = await Self.nextResponse(handle.responses) {
+                try? await send(text: "{\"type\":\"token\",\"text\":\"\(escapeJSON(response))\"}")
+            } else {
+                try? await send(text: "{\"type\":\"error\",\"text\":\"No response from agent\"}")
             }
 
             try? await send(text: "{\"type\":\"done\"}")
@@ -69,6 +80,22 @@ public actor WebSocketHandler {
         let buffer = channel.allocator.buffer(string: text)
         let frame = WebSocketFrame(fin: true, opcode: .text, data: buffer)
         try await channel.writeAndFlush(frame, promise: nil)
+    }
+
+    /// Take exactly the **next** element from `stream`, or `nil` if the
+    /// stream finished without yielding anything.
+    ///
+    /// This is the testable seam for the one-response-per-message contract.
+    /// `SessionHandle.responses` is a stream that only terminates when the
+    /// whole agent ends (its input stream closes or it throws) — it is NOT
+    /// terminated after each single response. A chat handler that *drains*
+    /// the stream (a bare `for await ...` with no `break`) would therefore
+    /// block forever and never emit the trailing `done` frame, leaving the
+    /// web UI stuck "streaming" with the input disabled. Taking the first
+    /// element and stopping is correct and is what the HTTP path does.
+    nonisolated static func nextResponse(_ stream: AsyncStream<String>) async -> String? {
+        var iterator = stream.makeAsyncIterator()
+        return await iterator.next()
     }
 
     private func escapeJSON(_ s: String) -> String {
