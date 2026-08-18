@@ -1,6 +1,7 @@
 import Foundation
 import AsyncHTTPClient
 import NIO
+import Logging
 
 /// An LLM client for OpenAI-compatible chat completion APIs.
 ///
@@ -203,6 +204,9 @@ public struct OpenAICompatibleClient: LLMClient {
         guard (200...299).contains(response.status.code) else {
             let bodyData = try? await response.body.collect(upTo: 10_000)
             let bodyString = bodyData.flatMap { String(data: Data($0.readableBytesView), encoding: .utf8) } ?? "Unknown error"
+            // Observability: log the offending status + body so misclassified
+            // errors are diagnosable without a server round-trip.
+            Logger(label: "com.arc-agent.llm").error("LLM HTTP \(response.status.code) from \(baseURL): \(bodyString.prefix(500))")
 
             if response.status.code == 429 {
                 let retryAfter = response.headers.first(name: "retry-after").flatMap(Int.init) ?? 30
