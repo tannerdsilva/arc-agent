@@ -96,6 +96,7 @@ public struct GatewayService: Service {
                 let allScripts: String
                 let body: String
                 let title: String
+                let settingsHTML: String
 #if DEBUG
                 let devMode = true
 #else
@@ -129,6 +130,8 @@ public struct GatewayService: Service {
                     allScripts = Scripts.runtime + "\n" + Scripts.botMode
                     body = botsPage.render()
                     title = "ARC Agent — Bots"
+                    // Bot mode has its own settings entry point (/ui/settings).
+                    settingsHTML = ""
                 } else if mode == "settings" {
                     // Settings page
                     let profiles = (try? await pm.list()) ?? []
@@ -155,6 +158,8 @@ public struct GatewayService: Service {
                     allScripts = Scripts.runtime + "\n" + Scripts.botMode
                     body = settingsPage.render()
                     title = "ARC Agent — Settings"
+                    // The settings page IS the settings surface.
+                    settingsHTML = ""
                 } else {
                     // Chat mode: show the clean chat interface
                     let chatPage = ChatPage(
@@ -168,6 +173,8 @@ public struct GatewayService: Service {
                     allScripts = Scripts.runtime
                     body = chatPage.render()
                     title = "ARC Agent"
+                    // The chat header's gear button toggles this overlay.
+                    settingsHTML = SettingsPanel(isOpen: false).render()
                 }
 
                 let doc = HTMLDocument(
@@ -176,6 +183,7 @@ public struct GatewayService: Service {
                     styles: allStyles,
                     scripts: allScripts,
                     wsURL: wsURL,
+                    settingsHTML: settingsHTML,
                     devMode: devMode
                 )
                 return doc.render()
