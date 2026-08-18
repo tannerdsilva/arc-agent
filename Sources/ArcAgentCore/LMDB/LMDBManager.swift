@@ -76,7 +76,11 @@ public enum LMDBManager: Sendable {
         try FileManager.default.createDirectory(at: URL(fileURLWithPath: sessionsDir), withIntermediateDirectories: true)
         let dir = sessionPath(id)
         // Directory may already exist from a previous session — that's fine
-        try? FileManager.default.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: false)
+        do {
+            try FileManager.default.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: false)
+        } catch CocoaError.fileWriteFileExists {
+            // Directory already exists — that's fine
+        }
         return try LMDB.envOpen(path: dir, mapSize: 50 * 1024 * 1024, maxReaders: 8, maxDBs: 8, flags: 0)
     }
 }

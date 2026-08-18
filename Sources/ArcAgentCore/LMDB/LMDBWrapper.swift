@@ -14,7 +14,7 @@ public enum LMDB: Sendable {
     // MARK: - Environment
 
     /// Open or create an LMDB environment.
-    public static func envOpen(path: String, mapSize: Int, maxReaders: UInt32, maxDBs: UInt32, flags: UInt32 = UInt32(MDB_NOSUBDIR)) throws -> OpaquePointer {
+    public static func envOpen(path: String, mapSize: Int, maxReaders: UInt32, maxDBs: UInt32, flags: UInt32) throws -> OpaquePointer {
         var env: OpaquePointer?
         var rc = mdb_env_create(&env)
         guard rc == 0 else { throw LMDBError(rc: rc) }

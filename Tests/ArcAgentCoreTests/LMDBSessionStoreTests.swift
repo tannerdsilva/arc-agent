@@ -14,7 +14,7 @@ func openTestEnv(_ path: String) throws -> OpaquePointer {
     )
     let filePath = path + "/session.mdb"
     print("Opening LMDB env at: \(filePath)")
-    return try LMDB.envOpen(path: filePath, mapSize: 10 * 1024 * 1024, maxReaders: 4, maxDBs: 8)
+    return try LMDB.envOpen(path: filePath, mapSize: 10 * 1024 * 1024, maxReaders: 4, maxDBs: 8, flags: 0)
 }
 
 @Test("LMDBSessionStore create and read back")

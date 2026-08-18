@@ -98,7 +98,7 @@ public actor SessionAgent: Service {
                 skills: [],
                 maxIterations: 25,
                 maxTurnDuration: 120,
-                persistSessions: true,
+                persistSessions: false,
                 approvalMode: .manual,
                 query: nil,
                 maxContextTokens: 64_000
