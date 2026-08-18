@@ -83,7 +83,8 @@ public enum LMDB: Sendable {
 
     /// Get a value by key. Returns nil if the key doesn't exist.
     public static func get(env: OpaquePointer, txn: OpaquePointer, dbi: UInt32, key: [UInt8]) throws -> [UInt8]? {
-        var keyVal = MDB_val(mv_size: key.count, mv_data: UnsafeMutableRawPointer(mutating: key))
+        var keyCopy = key
+        var keyVal = MDB_val(mv_size: keyCopy.count, mv_data: &keyCopy)
         var valVal = MDB_val(mv_size: 0, mv_data: nil)
 
         let rc = mdb_get(txn, dbi, &keyVal, &valVal)
@@ -96,8 +97,10 @@ public enum LMDB: Sendable {
 
     /// Set a key-value pair.
     public static func set(env: OpaquePointer, txn: OpaquePointer, dbi: UInt32, key: [UInt8], value: [UInt8]) throws {
-        var keyVal = MDB_val(mv_size: key.count, mv_data: UnsafeMutableRawPointer(mutating: key))
-        var valVal = MDB_val(mv_size: value.count, mv_data: UnsafeMutableRawPointer(mutating: value))
+        var keyCopy = key
+        var valCopy = value
+        var keyVal = MDB_val(mv_size: keyCopy.count, mv_data: &keyCopy)
+        var valVal = MDB_val(mv_size: valCopy.count, mv_data: &valCopy)
 
         let rc = mdb_put(txn, dbi, &keyVal, &valVal, 0)
         guard rc == 0 else { throw LMDBError(rc: rc) }
@@ -105,14 +108,16 @@ public enum LMDB: Sendable {
 
     /// Delete a key-value pair.
     public static func del(env: OpaquePointer, txn: OpaquePointer, dbi: UInt32, key: [UInt8]) throws {
-        var keyVal = MDB_val(mv_size: key.count, mv_data: UnsafeMutableRawPointer(mutating: key))
+        var keyCopy = key
+        var keyVal = MDB_val(mv_size: keyCopy.count, mv_data: &keyCopy)
         let rc = mdb_del(txn, dbi, &keyVal, nil)
         guard rc == 0 || rc == MDB_NOTFOUND else { throw LMDBError(rc: rc) }
     }
 
     /// Check if a key exists.
     public static func exists(env: OpaquePointer, txn: OpaquePointer, dbi: UInt32, key: [UInt8]) throws -> Bool {
-        var keyVal = MDB_val(mv_size: key.count, mv_data: UnsafeMutableRawPointer(mutating: key))
+        var keyCopy = key
+        var keyVal = MDB_val(mv_size: keyCopy.count, mv_data: &keyCopy)
         var valVal = MDB_val(mv_size: 0, mv_data: nil)
         let rc = mdb_get(txn, dbi, &keyVal, &valVal)
         if rc == MDB_NOTFOUND { return false }
@@ -138,7 +143,8 @@ public enum LMDB: Sendable {
     /// Position the cursor at the first key >= the given key.
     /// Returns (key, value) or nil if no such key exists.
     public static func cursorSetRange(cursor: OpaquePointer, key: [UInt8]) throws -> ([UInt8], [UInt8])? {
-        var keyVal = MDB_val(mv_size: key.count, mv_data: UnsafeMutableRawPointer(mutating: key))
+        var keyCopy = key
+        var keyVal = MDB_val(mv_size: keyCopy.count, mv_data: &keyCopy)
         var valVal = MDB_val(mv_size: 0, mv_data: nil)
         let rc = mdb_cursor_get(cursor, &keyVal, &valVal, MDB_SET_RANGE)
         if rc == MDB_NOTFOUND { return nil }

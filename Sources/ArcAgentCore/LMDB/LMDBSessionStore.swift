@@ -35,7 +35,7 @@ final class LMDBEnvRef: @unchecked Sendable {
 ///   open/close overhead. The caller is responsible for closing the environment.
 /// - **Transient** (default): The environment is opened and closed per call.
 ///   Suitable for one-off operations where no session agent is running.
-public struct LMDBSessionStore: SessionStore {
+public final class LMDBSessionStore: SessionStore {
 
     private let queue: DispatchQueue
     private let envRef: LMDBEnvRef?
@@ -85,44 +85,51 @@ public struct LMDBSessionStore: SessionStore {
     // MARK: - SessionStore
 
     public func create(_ session: Session) async throws {
-        try await withCheckedThrowingContinuation { continuation in
-            queue.async {
-                do {
-                    try self.withEnv(sessionID: session.id) { env in
-                        try self.withWriteTransaction(env: env) { txn in
-                            let meta = try LMDB.dbiOpen(env: env, txn: txn, name: "meta", create: true)
-                            let sm = SessionMeta(
-                                createdAt: session.createdAt,
-                                updatedAt: session.updatedAt,
-                                model: session.model,
-                                provider: session.provider,
-                                messageCount: UInt32(session.messages.count),
-                                totalTokens: 0
-                            )
-                            try LMDB.set(env: env, txn: txn, dbi: meta,
-                                key: [UInt8]("session_meta".utf8),
-                                value: [UInt8](try JSONEncoder().encode(sm)))
-
-                            // Write messages as header + body pairs
-                            let headers = try LMDB.dbiOpen(env: env, txn: txn, name: "headers", create: true)
-                            let bodies = try LMDB.dbiOpen(env: env, txn: txn, name: "bodies", create: true)
-                            for (i, msg) in session.messages.enumerated() {
-                                let seq = LMDBManager.seqKey(UInt64(i))
-                                let bodyData = try JSONEncoder().encode(msg)
-                                let hdr = MessageHeader(
-                                    role: msg.role.headerByte,
-                                    timestamp: 0,
-                                    bodyLength: UInt32(bodyData.count)
-                                )
-                                try LMDB.set(env: env, txn: txn, dbi: headers, key: seq, value: hdr.bytes)
-                                try LMDB.set(env: env, txn: txn, dbi: bodies, key: seq, value: [UInt8](bodyData))
-                            }
-                        }
-                    }
-                    continuation.resume()
-                } catch { continuation.resume(throwing: error) }
-            }
+        try self.withEnv(sessionID: session.id) { env in
+            try self.writeSession(env: env, session: session)
         }
+    }
+
+    /// Synchronous create for testing.
+    func createSync(_ session: Session) throws {
+        try self.withEnv(sessionID: session.id) { env in
+            try self.writeSession(env: env, session: session)
+        }
+    }
+
+    /// Synchronous helper to write a session to an open environment.
+    private func writeSession(env: OpaquePointer, session: Session) throws {
+        let txn = try LMDB.txnBeginWrite(env: env)
+        var committed = false
+        defer { if !committed { LMDB.txnAbort(txn) } }
+        let meta = try LMDB.dbiOpen(env: env, txn: txn, name: "meta", create: true)
+        let sm = SessionMeta(
+            createdAt: session.createdAt,
+            updatedAt: session.updatedAt,
+            model: session.model,
+            provider: session.provider,
+            messageCount: UInt32(session.messages.count),
+            totalTokens: 0
+        )
+        try LMDB.set(env: env, txn: txn, dbi: meta,
+            key: [UInt8]("session_meta".utf8),
+            value: [UInt8](try JSONEncoder().encode(sm)))
+
+        let headers = try LMDB.dbiOpen(env: env, txn: txn, name: "headers", create: true)
+        let bodies = try LMDB.dbiOpen(env: env, txn: txn, name: "bodies", create: true)
+        for (i, msg) in session.messages.enumerated() {
+            let seq = LMDBManager.seqKey(UInt64(i))
+            let bodyData = try JSONEncoder().encode(msg)
+            let hdr = MessageHeader(
+                role: msg.role.headerByte,
+                timestamp: 0,
+                bodyLength: UInt32(bodyData.count)
+            )
+            try LMDB.set(env: env, txn: txn, dbi: headers, key: seq, value: hdr.bytes)
+            try LMDB.set(env: env, txn: txn, dbi: bodies, key: seq, value: [UInt8](bodyData))
+        }
+        try LMDB.txnCommit(txn)
+        committed = true
     }
 
     public func get(id: String) async throws -> Session? {
@@ -161,9 +168,9 @@ public struct LMDBSessionStore: SessionStore {
                         defer { LMDB.cursorClose(cursor) }
 
                         if let (_, _) = try LMDB.cursorSetRange(cursor: cursor, key: LMDBManager.seqKey(0)) {
-                            messages.append(try decodeMessage(cursor: cursor, bodies: bodies, env: env, txn: txn))
+                            messages.append(try self.decodeMessage(cursor: cursor, bodies: bodies, env: env, txn: txn))
                             while let (_, _) = try LMDB.cursorNext(cursor: cursor) {
-                                messages.append(try decodeMessage(cursor: cursor, bodies: bodies, env: env, txn: txn))
+                                messages.append(try self.decodeMessage(cursor: cursor, bodies: bodies, env: env, txn: txn))
                             }
                         }
 

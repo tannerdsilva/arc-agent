@@ -48,13 +48,17 @@ public enum LMDBManager: Sendable {
     /// Big-endian encoding ensures numeric order = lexicographic order.
     public static func seqKey(_ seq: UInt64) -> [UInt8] {
         var be = seq.bigEndian
-        return withUnsafeBytes(of: &be) { [UInt8]($0) }
+        return Swift.withUnsafeBytes(of: &be) { [UInt8]($0) }
     }
 
     /// Decode a UInt64 from big-endian bytes.
     public static func seqFromKey(_ key: [UInt8]) -> UInt64 {
         assert(key.count == 8, "seq key must be exactly 8 bytes")
-        return key.withUnsafeBytes { $0.load(as: UInt64.self) }.bigEndian
+        var val: UInt64 = 0
+        withUnsafeMutableBytes(of: &val) { dest in
+            dest.copyBytes(from: key)
+        }
+        return UInt64(bigEndian: val)
     }
 
     /// Open the global environment.

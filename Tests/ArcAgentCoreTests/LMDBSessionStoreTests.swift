@@ -12,7 +12,9 @@ func openTestEnv(_ path: String) throws -> OpaquePointer {
         at: URL(fileURLWithPath: path),
         withIntermediateDirectories: true
     )
-    return try LMDB.envOpen(path: path, mapSize: 10 * 1024 * 1024, maxReaders: 4, maxDBs: 8, flags: 0)
+    let filePath = path + "/session.mdb"
+    print("Opening LMDB env at: \(filePath)")
+    return try LMDB.envOpen(path: filePath, mapSize: 10 * 1024 * 1024, maxReaders: 4, maxDBs: 8)
 }
 
 @Test("LMDBSessionStore create and read back")
@@ -35,7 +37,7 @@ func sessionStoreCreateAndRead() async throws {
         ]
     )
 
-    try await store.create(session)
+    try store.createSync(session)
 
     let loaded = try await store.get(id: sessionID)
     #expect(loaded != nil)
