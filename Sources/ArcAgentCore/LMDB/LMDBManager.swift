@@ -71,7 +71,8 @@ public enum LMDBManager: Sendable {
     public static func openSession(_ id: String) throws -> OpaquePointer {
         try FileManager.default.createDirectory(at: URL(fileURLWithPath: sessionsDir), withIntermediateDirectories: true)
         let dir = sessionPath(id)
-        try FileManager.default.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: false)
+        // Directory may already exist from a previous session — that's fine
+        try? FileManager.default.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: false)
         return try LMDB.envOpen(path: dir, mapSize: 50 * 1024 * 1024, maxReaders: 8, maxDBs: 8, flags: 0)
     }
 }

@@ -301,7 +301,12 @@ public actor ArcAgent: Service {
                 messages: messageHistory
             )
             logger.info("step: calling sessionStore.create")
+            do {
                 try await config.sessionStore.create(session)
+            } catch {
+                logger.error("step: sessionStore.create failed: \(error)")
+                // Continue without persisting — non-fatal
+            }
         }
 
         let response = try await runTurnLoop(client: llmClient)

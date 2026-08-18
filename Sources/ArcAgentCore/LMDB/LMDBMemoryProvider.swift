@@ -54,7 +54,7 @@ public struct LMDBMemoryProvider: MemoryProvider {
                     let txn = try LMDB.txnBeginRead(env: env)
                     defer { LMDB.txnAbort(txn) }
 
-                    let dbi = try LMDB.dbiOpen(env: env, txn: txn, name: "memory", create: false)
+                    let dbi = try LMDB.dbiOpen(env: env, txn: txn, name: "memory", create: true)
                     let keyBytes = [UInt8](key.utf8)
 
                     guard let value = try LMDB.get(env: env, txn: txn, dbi: dbi, key: keyBytes) else {
