@@ -114,6 +114,7 @@ func sessionStoreDelete() async throws {
         .appendingPathComponent("lmdb-test-\(UUID().uuidString)")
     let sessionID = UUID().uuidString
     let env = try openTestEnv(tmp.path + "/" + sessionID)
+    defer { LMDB.envClose(env) }
 
     let store = LMDBSessionStore(env: env)
 
@@ -125,8 +126,6 @@ func sessionStoreDelete() async throws {
     )
 
     try await store.create(session)
-    // Close env before delete so the directory can be removed
-    LMDB.envClose(env)
     try await store.delete(id: sessionID)
 
     let loaded = try await store.get(id: sessionID)

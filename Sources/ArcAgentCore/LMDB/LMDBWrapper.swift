@@ -114,6 +114,12 @@ public enum LMDB: Sendable {
         guard rc == 0 || rc == MDB_NOTFOUND else { throw LMDBError(rc: rc) }
     }
 
+    /// Clear all entries from a database.
+    public static func clear(env: OpaquePointer, txn: OpaquePointer, dbi: UInt32) throws {
+        let rc = mdb_drop(txn, dbi, 1)
+        guard rc == 0 else { throw LMDBError(rc: rc) }
+    }
+
     /// Check if a key exists.
     public static func exists(env: OpaquePointer, txn: OpaquePointer, dbi: UInt32, key: [UInt8]) throws -> Bool {
         var keyCopy = key

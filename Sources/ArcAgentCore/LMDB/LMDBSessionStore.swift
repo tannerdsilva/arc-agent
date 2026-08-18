@@ -243,6 +243,26 @@ public final class LMDBSessionStore: SessionStore {
     }
 
     public func delete(id: String) async throws {
+        // If we have a persistent env, delete from there
+        if envRef != nil {
+            try self.withEnv(sessionID: id) { env in
+                let txn = try LMDB.txnBeginWrite(env: env)
+                var committed = false
+                defer { if !committed { LMDB.txnAbort(txn) } }
+                // Try to open and clear each database
+                for name in ["meta", "headers", "bodies"] {
+                    do {
+                        let dbi = try LMDB.dbiOpen(env: env, txn: txn, name: name, create: false)
+                        try LMDB.clear(env: env, txn: txn, dbi: dbi)
+                    } catch let e as LMDBError where e.rc == MDB_NOTFOUND {
+                        continue // Database doesn't exist, skip
+                    }
+                }
+                try LMDB.txnCommit(txn)
+                committed = true
+            }
+        }
+        // Also remove from filesystem if it exists there
         let path = LMDBManager.sessionPath(id)
         var isDir: ObjCBool = false
         if FileManager.default.fileExists(atPath: path, isDirectory: &isDir) {
