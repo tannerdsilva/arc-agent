@@ -782,12 +782,16 @@ html, body {
 .sessions-section {
   flex: 1;
   min-height: 0;
+  max-height: 65%;
+  overflow-y: auto;
 }
 
 .bots-section {
   flex-shrink: 0;
   border-top: 1px solid var(--border);
-  max-height: 50%;
+  min-height: 120px;
+  max-height: 40%;
+  overflow-y: auto;
 }
 
 .sidebar-header {
