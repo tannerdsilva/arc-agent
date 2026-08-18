@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 
 /// The top-level configuration for ARC Agent.
 ///
@@ -19,6 +20,15 @@ import Foundation
 ///
 /// This is a concrete `Codable` struct — no protocol needed. The config
 /// format is stable and has no polymorphic behavior to abstract.
+///
+/// ## Partial Configs
+///
+/// Every section and field decodes **optionally against its default**, so a
+/// config file that omits sections (e.g. only `model`/`agent`/`security`)
+/// merges over the compiled-in defaults instead of failing to decode. This
+/// matters because `saveConfig` writes the full shape, but hand-edited or
+/// older config files often contain only a subset — and a decode failure
+/// here would silently discard the *entire* file.
 public struct ArcConfig: Codable, Sendable, Equatable {
 
     // MARK: - Model
@@ -58,6 +68,17 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.memory = memory
         self.security = security
     }
+
+    /// Decode each section independently, defaulting any that are absent.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.model = try container.decodeIfPresent(ModelConfig.self, forKey: .model) ?? ModelConfig()
+        self.agent = try container.decodeIfPresent(AgentConfig.self, forKey: .agent) ?? AgentConfig()
+        self.terminal = try container.decodeIfPresent(TerminalConfig.self, forKey: .terminal) ?? TerminalConfig()
+        self.delegation = try container.decodeIfPresent(DelegationConfig.self, forKey: .delegation) ?? DelegationConfig()
+        self.memory = try container.decodeIfPresent(MemoryConfig.self, forKey: .memory) ?? MemoryConfig()
+        self.security = try container.decodeIfPresent(SecurityConfig.self, forKey: .security) ?? SecurityConfig()
+    }
 }
 
 // MARK: - Sub-Configs
@@ -84,6 +105,15 @@ public struct ModelConfig: Codable, Sendable, Equatable {
         self.baseURL = baseURL
         self.contextLength = contextLength
     }
+
+    /// Decode each field independently, defaulting any that are absent.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.defaultModel = try container.decodeIfPresent(String.self, forKey: .defaultModel) ?? ModelConfig().defaultModel
+        self.provider = try container.decodeIfPresent(String.self, forKey: .provider) ?? ModelConfig().provider
+        self.baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL)
+        self.contextLength = try container.decodeIfPresent(Int.self, forKey: .contextLength)
+    }
 }
 
 /// Agent behavior configuration.
@@ -104,6 +134,14 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         self.persistSessions = persistSessions
         self.loadSkills = loadSkills
     }
+
+    /// Decode each field independently, defaulting any that are absent.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.maxIterations = try container.decodeIfPresent(Int.self, forKey: .maxIterations) ?? AgentConfig().maxIterations
+        self.persistSessions = try container.decodeIfPresent(Bool.self, forKey: .persistSessions) ?? AgentConfig().persistSessions
+        self.loadSkills = try container.decodeIfPresent(Bool.self, forKey: .loadSkills) ?? AgentConfig().loadSkills
+    }
 }
 
 /// Terminal tool configuration.
@@ -116,6 +154,13 @@ public struct TerminalConfig: Codable, Sendable, Equatable {
     public init(defaultTimeout: Int = 180, allowBackground: Bool = true) {
         self.defaultTimeout = defaultTimeout
         self.allowBackground = allowBackground
+    }
+
+    /// Decode each field independently, defaulting any that are absent.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.defaultTimeout = try container.decodeIfPresent(Int.self, forKey: .defaultTimeout) ?? TerminalConfig().defaultTimeout
+        self.allowBackground = try container.decodeIfPresent(Bool.self, forKey: .allowBackground) ?? TerminalConfig().allowBackground
     }
 }
 
@@ -130,6 +175,13 @@ public struct DelegationConfig: Codable, Sendable, Equatable {
         self.maxConcurrentChildren = maxConcurrentChildren
         self.maxSpawnDepth = maxSpawnDepth
     }
+
+    /// Decode each field independently, defaulting any that are absent.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.maxConcurrentChildren = try container.decodeIfPresent(Int.self, forKey: .maxConcurrentChildren) ?? DelegationConfig().maxConcurrentChildren
+        self.maxSpawnDepth = try container.decodeIfPresent(Int.self, forKey: .maxSpawnDepth) ?? DelegationConfig().maxSpawnDepth
+    }
 }
 
 /// Memory system configuration.
@@ -143,6 +195,13 @@ public struct MemoryConfig: Codable, Sendable, Equatable {
         self.enabled = enabled
         self.maxSize = maxSize
     }
+
+    /// Decode each field independently, defaulting any that are absent.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? MemoryConfig().enabled
+        self.maxSize = try container.decodeIfPresent(Int.self, forKey: .maxSize) ?? MemoryConfig().maxSize
+    }
 }
 
 /// Security/approval configuration.
@@ -155,6 +214,13 @@ public struct SecurityConfig: Codable, Sendable, Equatable {
     public init(approvalMode: String = "manual", yoloMode: Bool = false) {
         self.approvalMode = approvalMode
         self.yoloMode = yoloMode
+    }
+
+    /// Decode each field independently, defaulting any that are absent.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.approvalMode = try container.decodeIfPresent(String.self, forKey: .approvalMode) ?? SecurityConfig().approvalMode
+        self.yoloMode = try container.decodeIfPresent(Bool.self, forKey: .yoloMode) ?? SecurityConfig().yoloMode
     }
 }
 
@@ -197,7 +263,13 @@ public func loadConfig(from configURL: URL? = nil) -> ArcConfig {
             let decoded = try JSONDecoder().decode(ArcConfig.self, from: data)
             config = decoded
         } catch {
-            // Fall back to defaults on parse error
+            // Fall back to defaults on parse error. This must be visible:
+            // a silent discard here means the user's model/provider/baseURL
+            // choices are ignored and the agent dials a default endpoint
+            // with no key — a 401 on every turn with no clue why.
+            Logger(label: "com.arc-agent.config").error(
+                "Failed to parse \(resolvedURL.path); using default configuration: \(error)"
+            )
         }
     }
 
