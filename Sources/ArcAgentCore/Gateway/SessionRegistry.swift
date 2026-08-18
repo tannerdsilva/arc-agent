@@ -123,8 +123,10 @@ public actor SessionRegistry {
                 try await agent.run()
             } catch {
                 logger.error("SessionAgent for \(sessionID) crashed: \(error)")
-                // Clean up on crash
-                await self.remove(sessionID: sessionID)
+                // Clean up on crash. Identity-aware: if this agent was already
+                // superseded by a newer getOrCreate, its teardown must not
+                // tear down the successor's handle.
+                await self.removeIfCurrent(sessionID: sessionID, agent: agent)
             }
         }
 
@@ -137,6 +139,29 @@ public actor SessionRegistry {
         handles[sessionID]?.inputContinuation.finish()
         handles[sessionID]?.responseContinuation.finish()
         handles.removeValue(forKey: sessionID)
+    }
+
+    /// Remove the session agent **only if it is still the registered one**.
+    ///
+    /// ``getOrCreate(sessionID:profile:)`` replaces the handle+agent for a
+    /// session on every message and finishes the previous agent's input
+    /// stream. A superseded agent then exits its message loop and calls
+    /// back into the registry to clean up — but the registry now points at
+    /// the *new* agent's handle. An identity-blind removal would tear down
+    /// the successor (finish its response stream, delete its handle), so
+    /// the successor's response is lost and the caller sees "no response".
+    /// This guard makes self-removal safe: a stale agent is a no-op, the
+    /// current agent cleans itself up as before.
+    @discardableResult
+    func removeIfCurrent(sessionID: String, agent: SessionAgent) -> Bool {
+        guard let registered = agents[sessionID], registered === agent else {
+            return false
+        }
+        agents.removeValue(forKey: sessionID)
+        handles[sessionID]?.inputContinuation.finish()
+        handles[sessionID]?.responseContinuation.finish()
+        handles.removeValue(forKey: sessionID)
+        return true
     }
 
     /// The number of active session agents.

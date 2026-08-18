@@ -133,12 +133,12 @@ public actor SessionAgent: Service {
         } catch {
             try? await httpClient.shutdown()
             responseContinuation.finish()
-            await registry.remove(sessionID: sessionID)
+            await registry.removeIfCurrent(sessionID: sessionID, agent: self)
             throw error
         }
 
         try? await httpClient.shutdown()
         responseContinuation.finish()
-        await registry.remove(sessionID: sessionID)
+        await registry.removeIfCurrent(sessionID: sessionID, agent: self)
     }
 }
