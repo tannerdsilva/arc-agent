@@ -35,7 +35,10 @@ public enum WriteFileTool {
     // MARK: - Handler
 
     private static func writeFile(path: String, content: String) async throws -> String {
-        let filePath = FilePath(path)
+        // Expand leading "~" (e.g. "~/Desktop/hello.txt") so models can use
+        // home-relative paths without knowing the absolute home directory.
+        let expanded = (path as NSString).expandingTildeInPath
+        let filePath = FilePath(expanded)
 
         // Ensure the parent directory exists.
         try createParentDirectory(for: filePath)
@@ -68,7 +71,7 @@ public enum WriteFileTool {
         }
 
         let byteCount = data.count
-        return "Successfully wrote \(byteCount) byte(s) to '\(path)'."
+        return "Successfully wrote \(byteCount) byte(s) to '\(expanded)'."
     }
 
     // MARK: - Helpers

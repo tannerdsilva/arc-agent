@@ -418,17 +418,16 @@ public actor ArcAgent: Service {
                 return "Error: \(error.localizedDescription)"
             }
 
-            // 5. Parse response
-            if let content = response.content, !content.isEmpty {
+            // 5. Parse response — tool calls take precedence over content.
+            switch Self.classifyTurn(content: response.content, toolCalls: response.toolCalls) {
+            case .text(let content):
                 messageHistory.append(Message(role: .assistant, content: content))
                 return content
-            }
 
-            // 6. Handle tool calls
-            if let toolCalls = response.toolCalls, !toolCalls.isEmpty {
+            case .toolCalls(let toolCalls):
                 messageHistory.append(Message(
                     role: .assistant,
-                    content: nil,
+                    content: response.content,
                     toolCalls: toolCalls
                 ))
 
@@ -479,6 +478,12 @@ public actor ArcAgent: Service {
                     ))
                 }
 
+                continue
+
+            case .empty:
+                // Neither real content nor tool calls — reasoning models can
+                // emit a whitespace-only prefix. Loop back for the next turn
+                // (the model will produce real content or a tool call).
                 continue
             }
 
@@ -605,20 +610,25 @@ public actor ArcAgent: Service {
                 return
             }
 
-            if !accumulatedContent.isEmpty {
-                messageHistory.append(Message(role: .assistant, content: accumulatedContent))
+            // Tool calls take precedence over content — classify with the
+            // same rules as runTurnLoop (see classifyTurn).
+            switch Self.classifyTurn(
+                content: accumulatedContent,
+                toolCalls: accumulatedToolCalls.isEmpty ? nil : accumulatedToolCalls
+            ) {
+            case .text(let content):
+                messageHistory.append(Message(role: .assistant, content: content))
                 continuation.finish()
                 return
-            }
 
-            if !accumulatedToolCalls.isEmpty {
+            case .toolCalls(let toolCalls):
                 messageHistory.append(Message(
                     role: .assistant,
-                    content: nil,
-                    toolCalls: accumulatedToolCalls
+                    content: accumulatedContent.isEmpty ? nil : accumulatedContent,
+                    toolCalls: toolCalls
                 ))
 
-                for toolCall in accumulatedToolCalls {
+                for toolCall in toolCalls {
                     let result = try await dispatchToolCall(toolCall)
                     messageHistory.append(Message(
                         role: .tool,
@@ -628,6 +638,10 @@ public actor ArcAgent: Service {
                     ))
                     continuation.yield("[Tool: \(toolCall.function.name)] \(result)\n")
                 }
+                continue
+
+            case .empty:
+                // Whitespace-only prefix — keep the loop going.
                 continue
             }
 
@@ -831,6 +845,34 @@ public actor ArcAgent: Service {
 
     // MARK: - Tool Dispatch
 
+    /// The outcome of parsing a single LLM turn.
+    ///
+    /// Tool calls always take precedence over content: some providers
+    /// (notably Qwen3-family reasoning models) emit a small content prefix
+    /// (e.g. `"\n\n"`) alongside `tool_calls`. Returning that prefix as the
+    /// final answer would silently discard the tool calls.
+    enum TurnOutcome {
+        case toolCalls([ToolCall])
+        case text(String)
+        case empty
+    }
+
+    /// Classify a parsed LLM response into a ``TurnOutcome``.
+    ///
+    /// - Tool calls win over content, even when both are present.
+    /// - Content that is empty or whitespace-only is treated as `.empty`
+    ///   (reasoning models emit `"\n\n"` prefixes that are not answers).
+    static func classifyTurn(content: String?, toolCalls: [ToolCall]?) -> TurnOutcome {
+        if let toolCalls, !toolCalls.isEmpty {
+            return .toolCalls(toolCalls)
+        }
+        if let content,
+           !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .text(content)
+        }
+        return .empty
+    }
+
     private func dispatchToolCall(_ toolCall: ToolCall) async throws -> String {
         guard let entry = config.registry.lookup(name: toolCall.function.name) else {
             return "Error: Unknown tool '\(toolCall.function.name)'."
@@ -880,6 +922,27 @@ public actor ArcAgent: Service {
               actually doing it.
             - When you say you will perform an action, do it immediately.
             - Keep working until the task is actually complete.
+            """
+
+        // Environment context — so the model can use paths like ~/Desktop
+        // without a probe turn, and so relative tool paths resolve where
+        // the user expects.
+        let osDescription: String
+        #if os(macOS)
+        osDescription = "macOS (\(ProcessInfo.processInfo.operatingSystemVersionString))"
+        #else
+        osDescription = "\(ProcessInfo.processInfo.operatingSystemName) \(ProcessInfo.processInfo.operatingSystemVersionString)"
+        #endif
+        prompt += """
+
+
+            ## Environment
+
+            - OS: \(osDescription)
+            - Home directory: \(NSHomeDirectory())
+            - Desktop: \(NSHomeDirectory())/Desktop
+            - Working directory for tools (relative paths resolve here): \(FileManager.default.currentDirectoryPath)
+            - Use ~/... paths (or absolute paths) for user-visible locations; the `terminal` tool's shell expands `~`, and `write_file` accepts paths relative to the working directory.
             """
 
         // Inject memory
