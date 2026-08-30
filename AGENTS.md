@@ -6,7 +6,7 @@ This project has completed five feature-build phases and is now in **vascular ha
 
 The core architecture is built and proven:
 - **80 Swift source files** across 12 subsystems
-- **154 tests**, all passing
+- **160 tests**, all passing
 - **11 dependencies** (AsyncHTTPClient, ArgumentParser, System, ServiceLifecycle, QuickLMDB, CLMDB, Hummingbird, swift-mcp, swift-nio, swift-nio-extras, swift-http-types)
 - **22 registered tools** across 7 toolsets
 - **Full gateway stack** — HTTP server, Telegram adapter, MCP server, session management
@@ -30,7 +30,7 @@ When asked to produce code, assume it is:
 | AGENTS.md | This file |
 | README.md | Updated |
 | Source files | 80 Swift files (79 in ArcAgentCore + CLI main) |
-| Tests | 154, all passing |
+| Tests | 160, all passing |
 | Build | Clean |
 | Branch | `dev/all-phases` |
 

@@ -89,7 +89,7 @@ public actor ArcAgent: Service {
     // MARK: - State
 
     private let config: Configuration
-    private var llmClient: OpenAICompatibleClient?
+    private var llmClient: (any LLMClient)?
     private var httpClient: HTTPClient?
     private var messageHistory: [Message]
     private let sessionID: String
@@ -129,6 +129,15 @@ public actor ArcAgent: Service {
             model: config.model,
             httpClient: httpClient
         )
+    }
+
+    /// Replace the LLM client for this agent.
+    ///
+    /// Lets callers substitute a client built for a specific conversation
+    /// (profile model, provider, or a mock in tests) instead of the
+    /// configuration-derived default.
+    func setClient(_ client: any LLMClient) {
+        self.llmClient = client
     }
 
     /// Inject a system message at the beginning of the conversation.
@@ -362,7 +371,7 @@ public actor ArcAgent: Service {
     // MARK: - Turn Loop
 
     /// The core turn loop with retry logic, fallback models, and timeout.
-    private func runTurnLoop(client: OpenAICompatibleClient) async throws -> String {
+    private func runTurnLoop(client: any LLMClient) async throws -> String {
         guard let hc = self.httpClient else {
             return "Error: Agent HTTP client not initialized."
         }
@@ -667,7 +676,7 @@ public actor ArcAgent: Service {
     /// - Throws: ``LLMError`` if all retries are exhausted or the error is permanent.
     ///   Throws ``CircuitBreakerError.open`` if the circuit is open.
     private func callWithRetry(
-        client: OpenAICompatibleClient,
+        client: any LLMClient,
         messages: [Message],
         tools: [[String: Any]]?,
         timeout: Int = 120
@@ -736,8 +745,8 @@ public actor ArcAgent: Service {
                         throw LLMError.timeout(TimeInterval(timeout))
                     }
 
-                    // Record metrics
-                    await Metrics.shared.recordTokens(response.content?.utf8.count ?? 0 / 4)
+                    // Record metrics using the calibrated counter, not /4
+                    await Metrics.shared.recordTokens(self.tokenCounter.count(response.content ?? ""))
                     return response
                 }
 
@@ -777,7 +786,7 @@ public actor ArcAgent: Service {
 
     /// Call the LLM with streaming response, retry logic, and circuit breaker.
     private func callStreamWithRetry(
-        client: OpenAICompatibleClient,
+        client: any LLMClient,
         messages: [Message],
         tools: [[String: Any]]?,
         timeout: Int = 120

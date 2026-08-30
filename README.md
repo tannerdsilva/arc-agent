@@ -4,7 +4,7 @@
 
 ARC Agent is a **precompiled, Swift-native AI agent harness** — architecturally inspired by [Hermes Agent](https://hermes-agent.nousresearch.com), but built from the ground up for Swift's concurrency model, type system, and distribution story. Single binary, zero interpreter overhead, no npm dependency chain, instant startup.
 
-**Status:** Vascular hardening. The core architecture is built across 80 source files with 154 passing tests and a clean release build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. The web UI has a dual-mode asset pipeline — debug mode serves CSS/JS from disk for instant iteration, release mode compiles everything into the binary.
+**Status:** Vascular hardening. The core architecture is built across 80 source files with 160 passing tests and a clean release build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. The web UI has a dual-mode asset pipeline — debug mode serves CSS/JS from disk for instant iteration, release mode compiles everything into the binary.
 
 ## Why Swift?
 

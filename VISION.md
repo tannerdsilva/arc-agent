@@ -807,7 +807,7 @@ The project has completed five feature-build phases and is now entering a **hard
 
 *The quality of an agent's output is bounded by the quality of its context. Crude heuristics waste tokens and lose signal.*
 
-- [ ] **Token counting** — current estimate is `text.utf8.count / 4`. (Still the active implementation in `ArcAgent`; a real tokenizer is not yet wired in.)
+- [x] **Token counting** — `text.utf8.count / 4` is gone. The calibrated ``TokenCounter`` heuristic (content-classified per-character rates for code, whitespace, non-ASCII, plus model-specific calibration factors) drives auto-compression, prompt budgeting, and metrics.
 - [ ] **Context compression** — auto-compress keeps the last N messages. (Truncation via `maxContextTokens` + `/compress` is implemented; no LLM-based summarization of middle turns yet.)
 - [x] **Structured memory** — flat string append/replace. (Implemented as `StructuredMemoryProvider`: fact/procedure/profile distinction, content deduplication, and TTL eviction with compaction; covered by tests.)
 - [x] **System prompt caching** — `cachedSystemPrompt` is invalidated on any history change. (Implemented via a version counter; the cache is rebuilt only when the version increments.)
@@ -829,9 +829,9 @@ The project has completed five feature-build phases and is now entering a **hard
 
 *Untested code is broken code. The vascular system must have monitors at every junction.*
 
-- [ ] **Gateway tests** — tests exist for `DeliveryManager`, `WebSocketHandler`, and `SessionRegistry`, but `GatewayService`, `HTTPServerService`, `TelegramAdapter`, and `SessionAgent` are not directly covered. These are the primary entry points — every message flows through them.
+- [ ] **Gateway tests** — `HTTPServerService` (health/UI/chat over a real socket), `DeliveryManager`, `WebSocketHandler`, and `SessionRegistry` are covered; `GatewayService`, `TelegramAdapter`, and `SessionAgent` are not directly.
 - [x] **LMDB tests** — now covered by `LMDBRawTests`, `LMDBSessionStoreTests`, and `LMDBMemoryProviderTests` (session store: create/read/append/update/delete; memory: EACCES regression, roundtrip, replace; raw ops: named DBs, RO-txn semantics). All green.
-- [ ] **Integration tests** — no end-to-end test that exercises the full pipeline: CLI → agent → LLM → tool → response. Even a mock-LLM integration test would catch regressions the unit tests miss.
+- [x] **Integration tests** — mock-LLM tests now exercise the full agent pipeline (LLM → tool call → real registry handler → final response) on both completion and streaming paths (`AgentIntegrationTests`), and the gateway HTTP chokepoint is covered end-to-end over a real socket (`GatewayHTTPTests`).
 - [ ] **Concurrency tests** — no tests for actor isolation, task cancellation, or concurrent session access. The actor model guarantees safety by construction, but we need to verify the boundaries are correct.
 - [ ] **Fault injection tests** — simulate LMDB corruption, network timeouts, and process crashes. Verify recovery paths.
 
