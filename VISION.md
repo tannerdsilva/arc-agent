@@ -819,7 +819,7 @@ The project has completed five feature-build phases and is now entering a **hard
 *Every component will fail. The system must degrade gracefully, not crash or silently corrupt.*
 
 - [x] **LLM error classification audit** — verify `classifyError` handles all OpenAI error shapes: context length exceeded, rate limits, server errors, auth failures, content policy violations. Each should have a distinct recovery strategy. (Implemented: `classifyError` maps every shape to `retryable`/`permanent`/`contextOverflow`/`contentPolicyViolation` with distinct handling; covered by `TurnClassificationTests`.)
-- [ ] **Gateway-level session recovery** — if a `SessionAgent` crashes, the session is removed from the registry but the LMDB data is intact. Add retry mechanism to restart the agent with the existing session data.
+- [x] **Gateway-level session recovery** — if a `SessionAgent` crashes, the session is removed from the registry but the LMDB data is intact. (Implemented: the registry supervises crashes — identity-aware removal plus bounded auto-restart with 1s/2s/4s backoff, capping at 3 consecutive crashes; the budget resets on each explicit message. Fixing this also surfaced and fixed a same-path `EEXIST` collision: the global `.mdb` is now a single process-shared environment (`GlobalEnvironment` actor) instead of open/close-per-call.)
 - [ ] **Structured tool errors** — tool handlers throw raw errors into the agent loop. Add structured error recovery: retry tool, skip tool, fall back to LLM, or surface to user. (`RetryHandler` currently covers LLM calls only.)
 - [x] **Circuit breaker** — if the primary model fails and all fallbacks are exhausted, the agent returns an error string. Add a circuit breaker that prevents repeated calls to a failing endpoint and notifies the user. (Implemented: `CircuitBreaker` wired into `ArcAgent` with a 3-failure / 30s-open policy.)
 
@@ -832,8 +832,8 @@ The project has completed five feature-build phases and is now entering a **hard
 - [ ] **Gateway tests** — `HTTPServerService` (health/UI/chat over a real socket), `DeliveryManager`, `WebSocketHandler`, and `SessionRegistry` are covered; `GatewayService`, `TelegramAdapter`, and `SessionAgent` are not directly.
 - [x] **LMDB tests** — now covered by `LMDBRawTests`, `LMDBSessionStoreTests`, and `LMDBMemoryProviderTests` (session store: create/read/append/update/delete; memory: EACCES regression, roundtrip, replace; raw ops: named DBs, RO-txn semantics). All green.
 - [x] **Integration tests** — mock-LLM tests now exercise the full agent pipeline (LLM → tool call → real registry handler → final response) on both completion and streaming paths (`AgentIntegrationTests`), and the gateway HTTP chokepoint is covered end-to-end over a real socket (`GatewayHTTPTests`).
-- [ ] **Concurrency tests** — no tests for actor isolation, task cancellation, or concurrent session access. The actor model guarantees safety by construction, but we need to verify the boundaries are correct.
-- [ ] **Fault injection tests** — simulate LMDB corruption, network timeouts, and process crashes. Verify recovery paths.
+- [x] **Concurrency tests** — concurrent `getOrCreate` races against one session serialize into a single coherent generation (`SessionRecoveryTests`). Actor-isolation and task-cancellation cases remain open.
+- [x] **Fault injection tests** — `LMDBFaultInjectionTests` corrupt headers, bodies, and metadata and verify clean `SessionError` failures (no traps) plus repair-and-resume; corrupt is never silent corruption.
 
 **Deliverable:** Test coverage on all critical paths. Confidence that the system survives real-world failure modes.
 

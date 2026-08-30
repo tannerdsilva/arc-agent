@@ -151,25 +151,15 @@ public actor ProfileManager {
         }
 
         // Remove from LMDB index
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            do {
-                let env = try LMDBManager.openGlobal()
-                defer { LMDB.envClose(env) }
+        try await GlobalEnvironment.shared.withOpenEnv { env in
+            let txn = try LMDB.txnBeginWrite(env: env)
+            var txnActive = true
+            defer { if txnActive { LMDB.txnAbort(txn) } }
 
-                let txn = try LMDB.txnBeginWrite(env: env)
-                var txnActive = true
-                defer { if txnActive { LMDB.txnAbort(txn) } }
-
-                let dbi = try LMDB.dbiOpen(env: env, txn: txn, name: "profiles", create: false)
-                let keyBytes = [UInt8](name.utf8)
-                _ = try LMDB.del(env: env, txn: txn, dbi: dbi, key: keyBytes)
-                try LMDB.txnCommit(txn)
-                txnActive = false
-
-                continuation.resume()
-            } catch {
-                continuation.resume(throwing: ProfileError.storageError(error.localizedDescription))
-            }
+            let dbi = try LMDB.dbiOpen(env: env, txn: txn, name: "profiles", create: false)
+            _ = try LMDB.del(env: env, txn: txn, dbi: dbi, key: [UInt8](name.utf8))
+            try LMDB.txnCommit(txn)
+            txnActive = false
         }
 
         // Remove filesystem data
@@ -224,11 +214,8 @@ public actor ProfileManager {
     private func seedCache() async throws {
         guard !cacheSeeded else { return }
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            do {
-                let env = try LMDBManager.openGlobal()
-                defer { LMDB.envClose(env) }
-
+        do {
+            let loaded = try await GlobalEnvironment.shared.withOpenEnv { env in
                 // Use a write transaction so dbiOpen(create: true) works
                 let txn = try LMDB.txnBeginWrite(env: env)
                 var txnActive = true
@@ -239,20 +226,22 @@ public actor ProfileManager {
                 // Read all profiles from the database
                 let cursor = try LMDB.cursorOpen(txn: txn, dbi: dbi)
 
+                var result: [String: Profile] = [:]
+
                 // Position cursor at the first entry
                 // Use a single zero byte as the minimum key instead of empty array
                 // (LMDB rejects empty keys with MDB_BAD_VALSIZE)
                 if let (k, v) = try LMDB.cursorSetRange(cursor: cursor, key: [0]) {
                     let name = String(decoding: k, as: UTF8.self)
                     if let profile = try? JSONDecoder().decode(Profile.self, from: Data(v)) {
-                        self.cache[name] = profile
+                        result[name] = profile
                     }
 
                     // Iterate remaining entries
                     while let (nextKey, nextValue) = try LMDB.cursorNext(cursor: cursor) {
                         let n = String(decoding: nextKey, as: UTF8.self)
                         if let p = try? JSONDecoder().decode(Profile.self, from: Data(nextValue)) {
-                            self.cache[n] = p
+                            result[n] = p
                         }
                     }
                 }
@@ -261,45 +250,38 @@ public actor ProfileManager {
                 LMDB.cursorClose(cursor)
 
                 // Ensure the "default" profile always exists
-                if self.cache["default"] == nil {
+                if result["default"] == nil {
                     let defaultProfile = Profile(name: "default", title: "ARC Agent", description: "The primary agent.")
                     let data = try JSONEncoder().encode(defaultProfile)
                     try LMDB.set(env: env, txn: txn, dbi: dbi, key: [UInt8]("default".utf8), value: [UInt8](data))
-                    self.cache["default"] = defaultProfile
+                    result["default"] = defaultProfile
                 }
 
                 try LMDB.txnCommit(txn)
                 txnActive = false
-                self.cacheSeeded = true
-                continuation.resume()
-            } catch {
-                let desc = (error as? LMDBError)?.description ?? error.localizedDescription
-                continuation.resume(throwing: ProfileError.storageError(desc))
+                return result
             }
+
+            self.cache = loaded
+            self.cacheSeeded = true
+        } catch {
+            let desc = (error as? LMDBError)?.description ?? error.localizedDescription
+            throw ProfileError.storageError(desc)
         }
     }
 
     /// Persist a profile to LMDB.
     private func persistProfile(_ profile: Profile) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            do {
-                let env = try LMDBManager.openGlobal()
-                defer { LMDB.envClose(env) }
+        try await GlobalEnvironment.shared.withOpenEnv { env in
+            let txn = try LMDB.txnBeginWrite(env: env)
+            var txnActive = true
+            defer { if txnActive { LMDB.txnAbort(txn) } }
 
-                let txn = try LMDB.txnBeginWrite(env: env)
-                var txnActive = true
-                defer { if txnActive { LMDB.txnAbort(txn) } }
-
-                let dbi = try LMDB.dbiOpen(env: env, txn: txn, name: "profiles", create: true)
-                let data = try JSONEncoder().encode(profile)
-                try LMDB.set(env: env, txn: txn, dbi: dbi, key: [UInt8](profile.name.utf8), value: [UInt8](data))
-                try LMDB.txnCommit(txn)
-                txnActive = false
-
-                continuation.resume()
-            } catch {
-                continuation.resume(throwing: ProfileError.storageError(error.localizedDescription))
-            }
+            let dbi = try LMDB.dbiOpen(env: env, txn: txn, name: "profiles", create: true)
+            let data = try JSONEncoder().encode(profile)
+            try LMDB.set(env: env, txn: txn, dbi: dbi, key: [UInt8](profile.name.utf8), value: [UInt8](data))
+            try LMDB.txnCommit(txn)
+            txnActive = false
         }
     }
 }

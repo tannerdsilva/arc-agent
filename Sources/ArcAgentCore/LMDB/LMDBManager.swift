@@ -61,16 +61,6 @@ public enum LMDBManager: Sendable {
         return UInt64(bigEndian: val)
     }
 
-    /// Open the global environment.
-    public static func openGlobal() throws -> OpaquePointer {
-        try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
-        // Create the global environment directory
-        let globalDir = baseURL.appendingPathComponent("global", isDirectory: true)
-        try FileManager.default.createDirectory(at: globalDir, withIntermediateDirectories: true)
-        // Use flags: 0 (directory-based environment) to support named databases
-        return try LMDB.envOpen(path: globalPath, mapSize: 100 * 1024 * 1024, maxReaders: 64, maxDBs: 16, flags: 0)
-    }
-
     /// Open a per-session environment.
     public static func openSession(_ id: String) throws -> OpaquePointer {
         try FileManager.default.createDirectory(at: URL(fileURLWithPath: sessionsDir), withIntermediateDirectories: true)
@@ -82,5 +72,55 @@ public enum LMDBManager: Sendable {
             // Directory already exists — that's fine
         }
         return try LMDB.envOpen(path: dir, mapSize: 50 * 1024 * 1024, maxReaders: 8, maxDBs: 8, flags: 0)
+    }
+}
+
+// MARK: - Global Environment (process singleton)
+
+/// The process-wide shared environment for the global `.mdb`
+/// (`~/.arc/global`), owned by a single actor so every component (profile
+/// store, memory provider) uses exactly one environment handle.
+///
+/// The global DB is a process singleton by design (VISION: "Memory System
+/// [1 — shared global .mdb]"). Opening and closing the same path per call
+/// from concurrent tasks races on LMDB's exclusive semaphore and fails with
+/// `EEXIST` (17) — two session agents reading memory at once collided. The
+/// handle is opened lazily once, reused for the process lifetime, and closed
+/// via ``close()`` at gateway teardown.
+actor GlobalEnvironment {
+
+    /// The shared instance.
+    static let shared = GlobalEnvironment()
+
+    private var env: OpaquePointer?
+
+    /// Run an operation against the shared global environment.
+    ///
+    /// Executes on this actor's executor, so the raw handle never crosses an
+    /// isolation boundary. The closure is `sending`: it must capture only
+    /// Sendable values.
+    func withOpenEnv<T: Sendable>(_ op: sending (OpaquePointer) throws -> T) async throws -> T {
+        if env == nil {
+            try FileManager.default.createDirectory(at: LMDBManager.baseURL, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(
+                at: URL(fileURLWithPath: LMDBManager.globalPath),
+                withIntermediateDirectories: true
+            )
+            env = try LMDB.envOpen(
+                path: LMDBManager.globalPath, mapSize: 100 * 1024 * 1024,
+                maxReaders: 64, maxDBs: 16, flags: 0
+            )
+        }
+        guard let env else {
+            throw LMDBError(rc: -1)
+        }
+        return try op(env)
+    }
+
+    /// Close the shared environment. Called at gateway teardown; the handle
+    /// is reopened lazily if anything touches it afterwards.
+    func close() {
+        if let env { LMDB.envClose(env) }
+        env = nil
     }
 }

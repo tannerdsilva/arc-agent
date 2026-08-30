@@ -57,41 +57,52 @@ public actor LMDBMemoryProvider: MemoryProvider {
     // MARK: - MemoryProvider
 
     public func readMemory() async throws -> String {
-        try read(key: "agent")
+        try await read(key: "agent")
     }
 
     public func readUser() async throws -> String {
-        try read(key: "user")
+        try await read(key: "user")
     }
 
     public func appendMemory(_ text: String) async throws {
-        try append(key: "agent", text: text)
+        try await append(key: "agent", text: text)
     }
 
     public func replaceMemory(old: String, new: String) async throws {
-        try replace(key: "agent", old: old, new: new)
+        try await replace(key: "agent", old: old, new: new)
     }
 
     public func writeMemory(_ text: String) async throws {
-        try set(key: "agent", value: text)
+        try await set(key: "agent", value: text)
     }
 
     public func appendUser(_ text: String) async throws {
-        try append(key: "user", text: text)
+        try await append(key: "user", text: text)
     }
 
     public func replaceUser(old: String, new: String) async throws {
-        try replace(key: "user", old: old, new: new)
+        try await replace(key: "user", old: old, new: new)
     }
 
     // MARK: - Private
 
-    /// Run an operation against the global env. Uses the pre-opened env if
-    /// available; otherwise opens a fresh one for the duration and closes it.
-    /// Runs directly on the actor's executor (never on a dispatch queue).
-    private func withGlobalEnv<T>(_ operation: (OpaquePointer) throws -> T) throws -> T {
+    /// Run an operation against the memory environment.
+    ///
+    /// - Caller-provided env (`init(globalEnvBits:)`): runs directly on this
+    ///   actor; the handle stays in actor-isolated state.
+    /// - Default global path (`~/.arc/global`): runs inside the process-wide
+    ///   ``GlobalEnvironment`` actor so every session agent shares ONE handle
+    ///   — per-call open/close on the same path from concurrent tasks races
+    ///   on LMDB's exclusive semaphore and fails with `EEXIST` (17).
+    /// - Custom transient path: opened/closed per call on this actor.
+    private func withMemoryEnv<T: Sendable>(_ operation: sending (OpaquePointer) throws -> T) async throws -> T {
         if let ref = globalEnv {
             return try operation(ref)
+        }
+        if globalPath == LMDBManager.globalPath {
+            return try await GlobalEnvironment.shared.withOpenEnv { env in
+                try operation(env)
+            }
         }
         try FileManager.default.createDirectory(
             at: URL(fileURLWithPath: globalPath),
@@ -105,13 +116,13 @@ public actor LMDBMemoryProvider: MemoryProvider {
         return try operation(env)
     }
 
-    private func read(key: String) throws -> String {
-        // Transient mode: a missing global dir means no memory yet.
+    private func read(key: String) async throws -> String {
+        // A missing env directory means no memory yet.
         if globalEnv == nil,
            !FileManager.default.fileExists(atPath: globalPath) {
             return ""
         }
-        return try withGlobalEnv { env in
+        return try await withMemoryEnv { env in
             let txn = try LMDB.txnBeginRead(env: env)
             defer { LMDB.txnAbort(txn) }
 
@@ -132,8 +143,8 @@ public actor LMDBMemoryProvider: MemoryProvider {
         }
     }
 
-    private func append(key: String, text: String) throws {
-        try withGlobalEnv { env in
+    private func append(key: String, text: String) async throws {
+        try await withMemoryEnv { env in
             let txn = try LMDB.txnBeginWrite(env: env)
             var committed = false
             defer { if !committed { LMDB.txnAbort(txn) } }
@@ -156,8 +167,8 @@ public actor LMDBMemoryProvider: MemoryProvider {
     }
 
     /// Overwrite a key with the given value.
-    private func set(key: String, value: String) throws {
-        try withGlobalEnv { env in
+    private func set(key: String, value: String) async throws {
+        try await withMemoryEnv { env in
             let txn = try LMDB.txnBeginWrite(env: env)
             var committed = false
             defer { if !committed { LMDB.txnAbort(txn) } }
@@ -169,8 +180,8 @@ public actor LMDBMemoryProvider: MemoryProvider {
         }
     }
 
-    private func replace(key: String, old: String, new: String) throws {
-        try withGlobalEnv { env in
+    private func replace(key: String, old: String, new: String) async throws {
+        try await withMemoryEnv { env in
             let txn = try LMDB.txnBeginWrite(env: env)
             var committed = false
             defer { if !committed { LMDB.txnAbort(txn) } }

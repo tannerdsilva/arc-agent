@@ -317,9 +317,15 @@ public actor LMDBSessionStore: SessionStore {
     /// and loading the body from the bodies database.
     private func decodeMessage(cursor: OpaquePointer, bodies: UInt32, env: OpaquePointer, txn: OpaquePointer) throws -> Message {
         let (keyBytes, valBytes) = try LMDB.cursorCurrent(cursor: cursor)
+        // Corrupt or foreign data must surface a clean storage error, not an
+        // out-of-bounds trap on the fixed-size header slice.
+        guard valBytes.count == 13 else {
+            throw SessionError.storageError(
+                "corrupt message header (\(valBytes.count) bytes, expected 13)")
+        }
         let hdr = MessageHeader(bytes: valBytes)
         guard let bodyBytes = try LMDB.get(env: env, txn: txn, dbi: bodies, key: keyBytes) else {
-            throw LMDBError(rc: -1)
+            throw SessionError.storageError("missing message body")
         }
         return try JSONDecoder().decode(Message.self, from: Data(bodyBytes))
     }

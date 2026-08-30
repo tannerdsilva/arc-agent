@@ -218,6 +218,14 @@ public struct GatewayService: Service {
             )
         )
 
-        try await serviceGroup.run()
+        do {
+            try await serviceGroup.run()
+        } catch {
+            // Release the process-shared global .mdb handle at teardown.
+            await GlobalEnvironment.shared.close()
+            throw error
+        }
+        // Release the process-shared global .mdb handle at teardown.
+        await GlobalEnvironment.shared.close()
     }
 }

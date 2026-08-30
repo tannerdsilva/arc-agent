@@ -133,7 +133,10 @@ public actor SessionAgent: Service {
         } catch {
             try? await httpClient.shutdown()
             responseContinuation.finish()
-            await registry.removeIfCurrent(sessionID: sessionID, agent: self)
+            // Supervise the crash: identity-aware removal plus a bounded
+            // auto-restart by the registry (keeps the session live through
+            // transient failures). A superseded generation's crash is a no-op.
+            await registry.handleAgentCrash(sessionID: sessionID, agent: self)
             throw error
         }
 

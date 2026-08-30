@@ -63,20 +63,42 @@ public actor SessionRegistry {
     private var agents: [String: SessionAgent] = [:]
     private var handles: [String: SessionHandle] = [:]
     private var tasks: [String: Task<Void, Never>] = [:]
+    /// Consecutive crash count per session (used by auto-restart supervision).
+    private var crashCounts: [String: Int] = [:]
+    /// The profile each session's agents run under (needed to respawn).
+    private var sessionProfiles: [String: String] = [:]
+    /// Pending auto-restart tasks per session.
+    private var respawnTasks: [String: Task<Void, Never>] = [:]
     private let agentConfig: AgentConfig
     private let deliveryManager: DeliveryManager
     private let profileManager: ProfileManager
     private(set) var messagingService: BotMessagingService?
     private let logger = Logger(label: "com.arc-agent.session-registry")
 
+    /// Delay before the first auto-restart of a crashed session agent, in
+    /// nanoseconds. Each further crash doubles it (exponential backoff).
+    public var restartDelay: UInt64
+
     public init(
         agentConfig: AgentConfig,
         deliveryManager: DeliveryManager,
-        profileManager: ProfileManager
+        profileManager: ProfileManager,
+        restartDelay: UInt64 = 1_000_000_000
     ) {
         self.agentConfig = agentConfig
         self.deliveryManager = deliveryManager
         self.profileManager = profileManager
+        self.restartDelay = restartDelay
+    }
+
+    /// Max consecutive crashes before the registry stops auto-restarting a
+    /// session and leaves it dead until the next explicit ``getOrCreate``.
+    static let maxSessionRestarts = 3
+
+    /// Backoff for the Nth consecutive crash: delay * 2^(N-1), capped at
+    /// delay * 8 so a crash loop never grows unbounded.
+    static func respawnDelay(for attempt: Int, base: UInt64 = 1_000_000_000) -> UInt64 {
+        base * UInt64(1 << min(max(attempt - 1, 0), 3))
     }
 
     /// Set the messaging service reference.
@@ -104,7 +126,18 @@ public actor SessionRegistry {
                 await oldTask.value
             }
             tasks.removeValue(forKey: sessionID)
+        } else {
+            // The session is vacant (new or left dead after a crash loop):
+            // drop any pending auto-restart; this explicit request is the
+            // recovery.
+            respawnTasks[sessionID]?.cancel()
+            respawnTasks.removeValue(forKey: sessionID)
         }
+
+        // Every explicit message resets the crash budget: each turn is a
+        // fresh chance for the session agent.
+        crashCounts[sessionID] = 0
+        sessionProfiles[sessionID] = profile
 
         let (inputStream, inputContinuation) = AsyncStream<IncomingMessage>.makeStream()
         let (responseStream, responseContinuation) = AsyncStream<String>.makeStream()
@@ -129,16 +162,17 @@ public actor SessionRegistry {
         handles[sessionID] = handle
 
         // Start the agent loop in a detached task. The task is retained so a
-        // superseding getOrCreate can await this generation's completion.
+        // superseding getOrCreate can await this generation's completion, and
+        // so a crash can be supervised via `handleAgentCrash`.
         let task: Task<Void, Never> = Task {
             do {
                 try await agent.run()
             } catch {
                 logger.error("SessionAgent for \(sessionID) crashed: \(error)")
-                // Clean up on crash. Identity-aware: if this agent was already
-                // superseded by a newer getOrCreate, its teardown must not
-                // tear down the successor's handle.
-                await self.removeIfCurrent(sessionID: sessionID, agent: agent)
+                // Supervise: identity-aware removal + bounded auto-restart.
+                // If this agent was already superseded by a newer
+                // getOrCreate, its crash must not disturb the successor.
+                await self.handleAgentCrash(sessionID: sessionID, agent: agent)
             }
         }
         tasks[sessionID] = task
@@ -153,6 +187,8 @@ public actor SessionRegistry {
         handles[sessionID]?.responseContinuation.finish()
         handles.removeValue(forKey: sessionID)
         tasks.removeValue(forKey: sessionID)
+        cancelPendingRestart(sessionID)
+        crashCounts.removeValue(forKey: sessionID)
     }
 
     /// Remove the session agent **only if it is still the registered one**.
@@ -176,7 +212,77 @@ public actor SessionRegistry {
         handles[sessionID]?.responseContinuation.finish()
         handles.removeValue(forKey: sessionID)
         tasks.removeValue(forKey: sessionID)
+        cancelPendingRestart(sessionID)
         return true
+    }
+
+    // MARK: - Crash Supervision
+
+    /// Handle a session agent crash: remove it from the registry (identity
+    /// aware), and schedule a bounded, backoff-restrained auto-restart so the
+    /// session stays live through transient failures.
+    ///
+    /// A crash from a **superseded** generation is a no-op — the successor is
+    /// left untouched. Consecutive crashes beyond ``maxSessionRestarts`` give
+    /// up and leave the session dead until a new ``getOrCreate``. Each
+    /// explicit message resets the budget, so a user turn is always a fresh
+    /// chance.
+    func handleAgentCrash(sessionID: String, agent: SessionAgent) async {
+        guard agents[sessionID] === agent else {
+            // Superseded (newer getOrCreate) or already handled — nothing to
+            // do; the successor owns the session.
+            return
+        }
+        let attempt = (crashCounts[sessionID] ?? 0) + 1
+        crashCounts[sessionID] = attempt
+
+        _ = removeIfCurrent(sessionID: sessionID, agent: agent)
+
+        guard attempt <= Self.maxSessionRestarts else {
+            logger.error(
+                "SessionAgent for \(sessionID) crashed \(attempt) time(s); giving up on auto-restart until an explicit message")
+            return
+        }
+
+        let profile = sessionProfiles[sessionID] ?? "default"
+        let delay = Self.respawnDelay(for: attempt, base: restartDelay)
+        logger.warning(
+            "SessionAgent for \(sessionID) crashed (attempt \(attempt)); restarting in \(Double(delay) / 1_000_000_000)s")
+
+        let task: Task<Void, Never> = Task {
+            try? await Task.sleep(nanoseconds: delay)
+            await self.respawnIfVacant(sessionID: sessionID, profile: profile)
+        }
+        respawnTasks[sessionID] = task
+    }
+
+    /// Restart a crashed session agent **only if the session is still
+    /// vacant**. If a user message or a newer generation arrived while the
+    /// backoff was sleeping, the explicit request is the recovery and this
+    /// auto-restart is a no-op.
+    func respawnIfVacant(sessionID: String, profile: String) async {
+        defer { respawnTasks.removeValue(forKey: sessionID) }
+        guard !Task.isCancelled, agents[sessionID] == nil else { return }
+        logger.info("Restarting session agent for \(sessionID)")
+        _ = await getOrCreate(sessionID: sessionID, profile: profile)
+    }
+
+    /// Cancel and drop any pending auto-restart for a session.
+    private func cancelPendingRestart(_ sessionID: String) {
+        respawnTasks[sessionID]?.cancel()
+        respawnTasks.removeValue(forKey: sessionID)
+    }
+
+    // MARK: - Introspection (tests + gateway)
+
+    /// The agent currently registered for a session, if any.
+    func agent(for sessionID: String) -> SessionAgent? {
+        agents[sessionID]
+    }
+
+    /// The consecutive-crash count for a session (used by supervision).
+    func crashCount(for sessionID: String) -> Int? {
+        crashCounts[sessionID]
     }
 
     /// The number of active session agents.
