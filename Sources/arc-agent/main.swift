@@ -14,8 +14,10 @@ struct Arc: AsyncParsableCommand {
             ARC Agent is a precompiled, Swift-native AI agent harness —
             deterministic, predictable, and efficient.
 
-            This is an early-stage project. Most commands are not yet
-            implemented. See VISION.md for the full architecture.
+            Current phase: vascular hardening — the core plumbing is built and
+            the test suite is green; work is focused on making the internal
+            data flow reliable, observable, and resilient. See VISION.md for
+            the full architecture.
             """,
         subcommands: [
             Chat.self,
@@ -271,7 +273,7 @@ struct Version: AsyncParsableCommand {
 
     func run() async throws {
         print("arc-agent \(ArcAgentCore.version)")
-        print("Phase: phase 2 — production readiness")
+        print("Phase: vascular hardening")
     }
 }
 

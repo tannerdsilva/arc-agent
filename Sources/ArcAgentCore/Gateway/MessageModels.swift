@@ -101,17 +101,11 @@ public struct OutgoingMessage: Sendable {
 }
 
 /// A type-erased sendable value for platform-specific metadata.
-public struct AnySendable: @unchecked Sendable {
-    public let value: Any
-    public init(_ value: Any) { self.value = value }
-}
+///
+/// Holds any ``Sendable`` value. Built-in value types (strings, numbers,
+/// `Data`) cover every current producer; there is no unchecked cast.
+public struct AnySendable: Sendable {
+    public let value: any Sendable
 
-extension AnySendable: Hashable {
-    public static func == (lhs: AnySendable, rhs: AnySendable) -> Bool {
-        // Identity comparison for metadata — not semantically meaningful
-        ObjectIdentifier(lhs.value as AnyObject) == ObjectIdentifier(rhs.value as AnyObject)
-    }
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(ObjectIdentifier(value as AnyObject))
-    }
+    public init(_ value: some Sendable) { self.value = value }
 }

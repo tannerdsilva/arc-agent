@@ -93,7 +93,7 @@ public actor SessionAgent: Service {
                 baseURL: resolvedBaseURL,
                 apiKey: resolvedKey,
                 registry: toolRegistry,
-                sessionStore: LMDBSessionStore(env: sessionEnv),
+                sessionStore: LMDBSessionStore(envBits: envHandleBits(sessionEnv)),
                 memoryProvider: LMDBMemoryProvider(),
                 skills: [],
                 maxIterations: 25,

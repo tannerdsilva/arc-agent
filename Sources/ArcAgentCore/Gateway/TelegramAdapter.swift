@@ -110,13 +110,18 @@ public final class TelegramAdapter: PlatformAdapter {
             let senderID = "\(from?["id"] as? Int ?? 0)"
             let senderName = from?["first_name"] as? String
 
+            // The raw update is an arbitrary JSON dictionary (not Sendable).
+            // Store a JSON snapshot so the metadata stays Sendable.
+            let rawUpdate: AnySendable? = (try? JSONSerialization.data(withJSONObject: update))
+                .map(AnySendable.init)
+
             let incoming = IncomingMessage(
                 id: messageID,
                 chat: ChatTarget(platform: "telegram", chatID: "\(chatID)"),
                 text: text,
                 senderID: senderID,
                 senderName: senderName,
-                raw: ["update": AnySendable(update)]
+                raw: rawUpdate.map { ["update": $0] }
             )
             continuation.yield(incoming)
         }

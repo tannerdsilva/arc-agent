@@ -317,18 +317,21 @@ extension ToolRegistry {
 }
 ```
 
-**Toolset definitions:**
+**Toolset definitions (as registered in the codebase):**
 
 ```swift
 let toolsetDefinitions: [String: ToolsetDef] = [
+    "core": .init(description: "Core agent utilities", tools: ["memory", "skill_view"]),
+    "file": .init(description: "File manipulation", tools: ["read_file", "write_file"]),
+    "terminal": .init(description: "Shell commands", tools: ["terminal"]),
     "web": .init(description: "Web research tools", tools: ["web_search", "web_extract"]),
-    "terminal": .init(description: "Shell commands", tools: ["terminal", "process"]),
-    "file": .init(description: "File manipulation", tools: ["read_file", "write_file", "patch"]),
-    "delegation": .init(description: "Subagent spawning", tools: ["delegate_task"]),
-    "kanban": .init(description: "Multi-agent board", tools: ["kanban_show", "kanban_complete", ...]),
-    // ... 20+ more
+    "delegation": .init(description: "Subagent spawning and steering", tools: ["delegate_task", "list_children", "steer_child", "stop_child"]),
+    "kanban": .init(description: "Multi-agent board", tools: ["kanban_create", "kanban_list", "kanban_show", "kanban_complete", "kanban_block"]),
+    "profile": .init(description: "Bot profile management", tools: ["list_profiles", "get_profile", "create_profile", "delete_profile", "send_bot_message", "send_group_chat"]),
 ]
 ```
+
+**22 tools across 7 toolsets.**
 
 **Schema generation for LLM:**
 
@@ -793,10 +796,10 @@ The project has completed five feature-build phases and is now entering a **hard
 
 *The foundation of a reliable agent framework is data that doesn't corrupt, leak, or disappear.*
 
-- [ ] **Persistent LMDB environment** — `LMDBSessionStore` opens/closes an environment per call. If the process crashes mid-write, the `.mdb` file is corrupted. A persistent environment held by a Service prevents this.
-- [ ] **Session lifecycle audit** — verify every `SessionAgent` cleanup path: HTTPClient shutdown, LMDB env close, registry removal on both happy path and error path.
-- [ ] **Gateway response plumbing** — `POST /v1/chat` returns `"Message received"` immediately instead of the actual agent response. The HTTP client never gets the answer. Fix: wire the response back through the session agent's stream.
-- [ ] **Concurrent session isolation** — verify that N concurrent sessions don't interfere. LMDB per-session files provide isolation at the storage layer; verify the actor boundaries hold at the application layer.
+- [x] **Persistent LMDB environment** — `LMDBSessionStore` is an actor holding a caller-owned environment for the session's lifetime (opened by `SessionAgent` and closed in its `Service.run()` teardown); the transient open/close-per-call path remains only for one-off operations and for `LMDBMemoryProvider`'s default global-env mode.
+- [x] **Session lifecycle audit** — verify every `SessionAgent` cleanup path: HTTPClient shutdown, LMDB env close, registry removal on both happy path and error path. (Verified: `httpClient.shutdown()` in `run()` catch and tail, `defer { envClose }` on the session env, `registry.removeIfCurrent` on both paths.)
+- [x] **Gateway response plumbing** — `POST /v1/chat` returns `"Message received"` immediately instead of the actual agent response. (Fixed: the handler now awaits the session agent's response stream and returns the real response text; the `"Message received"` fallback remains only for empty replies.)
+- [ ] **Concurrent session isolation** — verify that N concurrent sessions don't interfere. LMDB per-session files provide isolation at the storage layer; verify the actor boundaries hold at the application layer. (`SessionRegistry`/`SessionAgent` are actors; no load test yet.)
 
 **Deliverable:** Sessions survive process restarts. Gateway returns real responses. No resource leaks under load.
 
@@ -804,10 +807,10 @@ The project has completed five feature-build phases and is now entering a **hard
 
 *The quality of an agent's output is bounded by the quality of its context. Crude heuristics waste tokens and lose signal.*
 
-- [ ] **Token counting** — current estimate is `text.utf8.count / 4`. For code-heavy conversations this is wildly inaccurate. Replace with a real tokenizer (or at minimum a calibrated heuristic that accounts for code, whitespace, and non-ASCII).
-- [ ] **Context compression** — auto-compress keeps the last 10 non-system messages. No semantic compression — just truncation. Add LLM-based summarization for middle turns when the budget is exceeded.
-- [ ] **Structured memory** — flat string append/replace. No distinction between facts, procedures, and user profile. No deduplication. No TTL on stale entries. Design a memory schema that survives across sessions without accumulating noise.
-- [ ] **System prompt caching** — `cachedSystemPrompt` is invalidated on any history change. Could be smarter about partial rebuilds when only the message history changes but memory and skills are stable.
+- [ ] **Token counting** — current estimate is `text.utf8.count / 4`. (Still the active implementation in `ArcAgent`; a real tokenizer is not yet wired in.)
+- [ ] **Context compression** — auto-compress keeps the last N messages. (Truncation via `maxContextTokens` + `/compress` is implemented; no LLM-based summarization of middle turns yet.)
+- [x] **Structured memory** — flat string append/replace. (Implemented as `StructuredMemoryProvider`: fact/procedure/profile distinction, content deduplication, and TTL eviction with compaction; covered by tests.)
+- [x] **System prompt caching** — `cachedSystemPrompt` is invalidated on any history change. (Implemented via a version counter; the cache is rebuilt only when the version increments.)
 
 **Deliverable:** Accurate token budgets. Smarter compression that preserves signal. Memory that doesn't grow unbounded.
 
@@ -815,10 +818,10 @@ The project has completed five feature-build phases and is now entering a **hard
 
 *Every component will fail. The system must degrade gracefully, not crash or silently corrupt.*
 
-- [ ] **LLM error classification audit** — verify `classifyError` handles all OpenAI error shapes: context length exceeded, rate limits, server errors, auth failures, content policy violations. Each should have a distinct recovery strategy.
+- [x] **LLM error classification audit** — verify `classifyError` handles all OpenAI error shapes: context length exceeded, rate limits, server errors, auth failures, content policy violations. Each should have a distinct recovery strategy. (Implemented: `classifyError` maps every shape to `retryable`/`permanent`/`contextOverflow`/`contentPolicyViolation` with distinct handling; covered by `TurnClassificationTests`.)
 - [ ] **Gateway-level session recovery** — if a `SessionAgent` crashes, the session is removed from the registry but the LMDB data is intact. Add retry mechanism to restart the agent with the existing session data.
-- [ ] **Structured tool errors** — tool handlers throw raw errors into the agent loop. Add structured error recovery: retry tool, skip tool, fall back to LLM, or surface to user.
-- [ ] **Circuit breaker** — if the primary model fails and all fallbacks are exhausted, the agent returns an error string. Add a circuit breaker that prevents repeated calls to a failing endpoint and notifies the user.
+- [ ] **Structured tool errors** — tool handlers throw raw errors into the agent loop. Add structured error recovery: retry tool, skip tool, fall back to LLM, or surface to user. (`RetryHandler` currently covers LLM calls only.)
+- [x] **Circuit breaker** — if the primary model fails and all fallbacks are exhausted, the agent returns an error string. Add a circuit breaker that prevents repeated calls to a failing endpoint and notifies the user. (Implemented: `CircuitBreaker` wired into `ArcAgent` with a 3-failure / 30s-open policy.)
 
 **Deliverable:** Transient failures are invisible to the user. Permanent failures are isolated and reported. No silent data corruption.
 
@@ -826,8 +829,8 @@ The project has completed five feature-build phases and is now entering a **hard
 
 *Untested code is broken code. The vascular system must have monitors at every junction.*
 
-- [ ] **Gateway tests** — zero tests for `GatewayService`, `HTTPServerService`, `TelegramAdapter`, `SessionAgent`, `SessionRegistry`. These are the primary entry points — every message flows through them.
-- [ ] **LMDB tests** — zero tests for `LMDBSessionStore`, `LMDBMemoryProvider`, `LMDBWrapper`. These are persistence-critical — corruption is silent data loss.
+- [ ] **Gateway tests** — tests exist for `DeliveryManager`, `WebSocketHandler`, and `SessionRegistry`, but `GatewayService`, `HTTPServerService`, `TelegramAdapter`, and `SessionAgent` are not directly covered. These are the primary entry points — every message flows through them.
+- [x] **LMDB tests** — now covered by `LMDBRawTests`, `LMDBSessionStoreTests`, and `LMDBMemoryProviderTests` (session store: create/read/append/update/delete; memory: EACCES regression, roundtrip, replace; raw ops: named DBs, RO-txn semantics). All green.
 - [ ] **Integration tests** — no end-to-end test that exercises the full pipeline: CLI → agent → LLM → tool → response. Even a mock-LLM integration test would catch regressions the unit tests miss.
 - [ ] **Concurrency tests** — no tests for actor isolation, task cancellation, or concurrent session access. The actor model guarantees safety by construction, but we need to verify the boundaries are correct.
 - [ ] **Fault injection tests** — simulate LMDB corruption, network timeouts, and process crashes. Verify recovery paths.
@@ -838,10 +841,10 @@ The project has completed five feature-build phases and is now entering a **hard
 
 *You can't fix what you can't see. You can't scale what you haven't measured.*
 
-- [ ] **Streaming responses** — the LLM client supports streaming deltas (`LLMDelta`) but the agent loop doesn't use them. Gateway sessions block until the full response is ready. Wire streaming through the agent loop to the gateway.
-- [ ] **Structured logging** — ad-hoc `print()` statements throughout. Replace with structured logging with levels, trace IDs for request correlation, and machine-parseable output.
-- [ ] **Metrics** — no counters for: tokens used, tools called, errors by type, session duration, cache hit rate. Add metrics collection at key junctions.
-- [ ] **LMDB performance** — measure read/write latency under load. The per-session `.mdb` pattern is designed for isolation, but the open/close per-call pattern adds overhead. Benchmark and optimize.
+- [ ] **Streaming responses** — the LLM client streams deltas and the WebSocket path streams responses to the UI (including the one-response-per-message fix); the gateway HTTP path still returns the whole buffered reply.
+- [ ] **Structured logging** — ad-hoc `print()` statements remain in the CLI; gateway and session-agent paths use `Logger` with per-step tracing (visible as `info` lines in server logs).
+- [x] **Metrics** — counters exist and are wired into `ArcAgent` for tool calls, tokens, and errors by type (`Metrics.shared`); trace IDs and request correlation are not yet implemented.
+- [ ] **LMDB performance** — measure read/write latency under load. The session path now holds a persistent environment for the agent's lifetime (no per-call open/close); the memory provider's global-env open/close-per-call path is unchanged. Benchmark and optimize.
 - [ ] **Startup time** — measure and optimize cold-start latency for new session agents.
 
 **Deliverable:** Observable, measurable system. Streaming responses. Performance baselines for all critical paths.

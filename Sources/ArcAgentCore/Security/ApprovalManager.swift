@@ -79,9 +79,9 @@ public actor ApprovalManager {
         case .off:
             return false
         case .manual:
-            return detectDangerLevel(command) >= .dangerous
+            return await detectDangerLevel(command) >= .dangerous
         case .smart:
-            return detectDangerLevel(command) >= .dangerous
+            return await detectDangerLevel(command) >= .dangerous
         }
     }
 
@@ -107,7 +107,7 @@ public actor ApprovalManager {
         case .smart:
             // Smart mode uses an auxiliary LLM call to classify risk.
             // For now, fall back to requiresReview for dangerous commands.
-            let level = detectDangerLevel(command)
+            let level = await detectDangerLevel(command)
             if level >= .critical {
                 return .denied
             }
@@ -133,76 +133,100 @@ struct SessionApprovalState: Sendable {
 
 /// A compiled dangerous command pattern.
 ///
-/// Wraps ``Regex`` with ``Sendable`` conformance since ``Regex`` is not
-/// Sendable in Swift 6 but is safe to share when only read from.
-struct DangerousPattern: @unchecked Sendable {
+/// ``Regex`` is not `Sendable` on this toolchain, so compiled patterns live
+/// in the isolated state of ``DangerousPatternStore`` and never cross a
+/// concurrency domain. This struct is intentionally not `Sendable`.
+struct DangerousPattern {
     let level: DangerLevel
     let regex: Regex<AnyRegexOutput>
 }
 
-/// Patterns that indicate dangerous commands.
+/// Owns the compiled dangerous-command patterns.
 ///
-/// Each pattern is a Swift ``Regex`` matched against the command string.
-/// Invalid patterns are silently skipped.
-let dangerousPatterns: [DangerousPattern] = {
-    func pattern(_ raw: String) -> Regex<AnyRegexOutput>? {
-        try? Regex(raw)
+/// ``Regex`` is not `Sendable`, so the precompiled patterns are stored as
+/// actor-isolated state and matched from inside the actor. The singleton is
+/// initialized once at first use; every detection request hops to this actor
+/// and runs there — no pattern is ever shared across a concurrency boundary.
+actor DangerousPatternStore {
+
+    /// The shared detector.
+    static let shared = DangerousPatternStore()
+
+    /// Precompiled patterns, compiled once at first use.
+    private let patterns: [DangerousPattern]
+
+    init() {
+        func pattern(_ raw: String) -> Regex<AnyRegexOutput>? {
+            try? Regex(raw)
+        }
+
+        let entries: [(DangerLevel, Regex<AnyRegexOutput>?)] = [
+            // Critical — destructive system operations
+            (.critical, pattern("^rm\\s+-rf\\s+/\\s*$")),  // rm -rf / only
+            (.critical, pattern("mkfs\\.")),
+            (.critical, pattern("dd\\s+if=.*of=/dev")),
+            (.critical, pattern(">\\s*/dev/")),
+
+            // Dangerous — potentially destructive
+            (.dangerous, pattern("rm\\s+-rf")),
+            (.dangerous, pattern("chmod\\s+777")),
+            (.dangerous, pattern("chown\\s+")),
+            (.dangerous, pattern("wget\\s+.*\\|\\s*bash")),
+            (.dangerous, pattern("curl\\s+.*\\|\\s*bash")),
+            (.dangerous, pattern("sudo\\s+")),
+            (.dangerous, pattern("passwd\\s+")),
+            (.dangerous, pattern("dd\\s+")),
+            (.dangerous, pattern("shutdown\\s+")),
+            (.dangerous, pattern("reboot\\s+")),
+            (.dangerous, pattern("halt\\s+")),
+            (.dangerous, pattern("poweroff\\s+")),
+            (.dangerous, pattern("iptables\\s+")),
+            (.dangerous, pattern("ufw\\s+")),
+
+            // Suspicious — network exfiltration
+            (.suspicious, pattern("nc\\s+")),
+            (.suspicious, pattern("ncat\\s+")),
+            (.suspicious, pattern("telnet\\s+")),
+            (.suspicious, pattern("ssh\\s+-R\\s+")),
+            (.suspicious, pattern("scp\\s+")),
+        ]
+
+        // Invalid patterns are silently skipped.
+        self.patterns = entries.compactMap { (level, optionalRegex) in
+            optionalRegex.map { DangerousPattern(level: level, regex: $0) }
+        }
     }
 
-    let entries: [(DangerLevel, Regex<AnyRegexOutput>?)] = [
-        // Critical — destructive system operations
-        (.critical, pattern("^rm\\s+-rf\\s+/\\s*$")),  // rm -rf / only
-        (.critical, pattern("mkfs\\.")),
-        (.critical, pattern("dd\\s+if=.*of=/dev")),
-        (.critical, pattern(">\\s*/dev/")),
+    /// Detect the danger level of a command.
+    ///
+    /// - Parameter command: The command string to check.
+    /// - Returns: The highest danger level found, or `.safe` if none match.
+    func detect(_ command: String) -> DangerLevel {
+        var highest = DangerLevel.safe
 
-        // Dangerous — potentially destructive
-        (.dangerous, pattern("rm\\s+-rf")),
-        (.dangerous, pattern("chmod\\s+777")),
-        (.dangerous, pattern("chown\\s+")),
-        (.dangerous, pattern("wget\\s+.*\\|\\s*bash")),
-        (.dangerous, pattern("curl\\s+.*\\|\\s*bash")),
-        (.dangerous, pattern("sudo\\s+")),
-        (.dangerous, pattern("passwd\\s+")),
-        (.dangerous, pattern("dd\\s+")),
-        (.dangerous, pattern("shutdown\\s+")),
-        (.dangerous, pattern("reboot\\s+")),
-        (.dangerous, pattern("halt\\s+")),
-        (.dangerous, pattern("poweroff\\s+")),
-        (.dangerous, pattern("iptables\\s+")),
-        (.dangerous, pattern("ufw\\s+")),
+        // Fork bomb detection (string-based — the regex metacharacters make
+        // a pure-regex approach fragile across regex engines).
+        if command.contains(":(){") && command.contains(":&") {
+            highest = .critical
+        }
 
-        // Suspicious — network exfiltration
-        (.suspicious, pattern("nc\\s+")),
-        (.suspicious, pattern("ncat\\s+")),
-        (.suspicious, pattern("telnet\\s+")),
-        (.suspicious, pattern("ssh\\s+-R\\s+")),
-        (.suspicious, pattern("scp\\s+")),
-    ]
+        for pattern in patterns {
+            if command.contains(pattern.regex) {
+                highest = max(highest, pattern.level)
+            }
+        }
 
-    return entries.compactMap { (level, optionalRegex) in
-        optionalRegex.map { DangerousPattern(level: level, regex: $0) }
+        return highest
     }
-}()
+}
 
 /// Detect the danger level of a command.
 ///
 /// - Parameter command: The command string to check.
 /// - Returns: The highest danger level found, or `.safe` if none match.
-public func detectDangerLevel(_ command: String) -> DangerLevel {
-    var highest = DangerLevel.safe
-
-    // Fork bomb detection (string-based — the regex metacharacters make
-    // a pure-regex approach fragile across regex engines).
-    if command.contains(":(){") && command.contains(":&") {
-        highest = .critical
-    }
-
-    for pattern in dangerousPatterns {
-        if command.contains(pattern.regex) {
-            highest = max(highest, pattern.level)
-        }
-    }
-
-    return highest
+///
+/// `async` because the precompiled patterns live in an actor — pattern
+/// matching always runs on the ``DangerousPatternStore`` actor.
+public func detectDangerLevel(_ command: String) async -> DangerLevel {
+    await DangerousPatternStore.shared.detect(command)
 }

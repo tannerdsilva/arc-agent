@@ -62,6 +62,7 @@ public actor SessionRegistry {
 
     private var agents: [String: SessionAgent] = [:]
     private var handles: [String: SessionHandle] = [:]
+    private var tasks: [String: Task<Void, Never>] = [:]
     private let agentConfig: AgentConfig
     private let deliveryManager: DeliveryManager
     private let profileManager: ProfileManager
@@ -85,14 +86,24 @@ public actor SessionRegistry {
 
     /// Get or create a session agent for the given session ID.
     /// Returns a ``SessionHandle`` for bidirectional communication.
-    func getOrCreate(sessionID: String, profile: String = "default") -> SessionHandle {
-        // Always create a fresh handle and agent for now.
-        // Session reuse will be implemented when we have proper lifecycle management.
-        if let existing = handles[sessionID] {
-            existing.inputContinuation.finish()
-            existing.responseContinuation.finish()
-            handles.removeValue(forKey: sessionID)
-            agents.removeValue(forKey: sessionID)
+    ///
+    /// Session generations are **sequential**: when a session already has a
+    /// running agent, its input stream is finished and the caller waits for
+    /// that generation to fully tear down (releasing its LMDB environment and
+    /// HTTP client) before the successor starts. A successor therefore never
+    /// contends with its predecessor for the session's LMDB environment, and
+    /// there is no window in which ``removeIfCurrent(sessionID:agent:)`` can
+    /// resolve against the wrong generation.
+    func getOrCreate(sessionID: String, profile: String = "default") async -> SessionHandle {
+        if let existing = agents[sessionID] {
+            handles[sessionID]?.inputContinuation.finish()
+            handles[sessionID]?.responseContinuation.finish()
+            // Wait for the previous generation to exit and release the
+            // session's resources before starting the successor.
+            if let oldTask = tasks[sessionID] {
+                await oldTask.value
+            }
+            tasks.removeValue(forKey: sessionID)
         }
 
         let (inputStream, inputContinuation) = AsyncStream<IncomingMessage>.makeStream()
@@ -117,8 +128,9 @@ public actor SessionRegistry {
         agents[sessionID] = agent
         handles[sessionID] = handle
 
-        // Start the agent loop in a detached task
-        Task {
+        // Start the agent loop in a detached task. The task is retained so a
+        // superseding getOrCreate can await this generation's completion.
+        let task: Task<Void, Never> = Task {
             do {
                 try await agent.run()
             } catch {
@@ -129,6 +141,7 @@ public actor SessionRegistry {
                 await self.removeIfCurrent(sessionID: sessionID, agent: agent)
             }
         }
+        tasks[sessionID] = task
 
         return handle
     }
@@ -139,6 +152,7 @@ public actor SessionRegistry {
         handles[sessionID]?.inputContinuation.finish()
         handles[sessionID]?.responseContinuation.finish()
         handles.removeValue(forKey: sessionID)
+        tasks.removeValue(forKey: sessionID)
     }
 
     /// Remove the session agent **only if it is still the registered one**.
@@ -161,6 +175,7 @@ public actor SessionRegistry {
         handles[sessionID]?.inputContinuation.finish()
         handles[sessionID]?.responseContinuation.finish()
         handles.removeValue(forKey: sessionID)
+        tasks.removeValue(forKey: sessionID)
         return true
     }
 

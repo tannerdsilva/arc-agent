@@ -25,7 +25,7 @@ func sessionStoreCreateAndRead() async throws {
     let env = try openTestEnv(tmp.path + "/" + sessionID)
     defer { LMDB.envClose(env) }
 
-    let store = LMDBSessionStore(env: env)
+    let store = LMDBSessionStore(envBits: envHandleBits(env))
 
     let session = Session(
         id: sessionID,
@@ -37,7 +37,7 @@ func sessionStoreCreateAndRead() async throws {
         ]
     )
 
-    try store.createSync(session)
+    try await store.create(session)
 
     let loaded = try await store.get(id: sessionID)
     #expect(loaded != nil)
@@ -57,7 +57,7 @@ func sessionStoreAppend() async throws {
     let env = try openTestEnv(tmp.path + "/" + sessionID)
     defer { LMDB.envClose(env) }
 
-    let store = LMDBSessionStore(env: env)
+    let store = LMDBSessionStore(envBits: envHandleBits(env))
 
     let session = Session(
         id: sessionID,
@@ -86,7 +86,7 @@ func sessionStoreUpdate() async throws {
     let env = try openTestEnv(tmp.path + "/" + sessionID)
     defer { LMDB.envClose(env) }
 
-    let store = LMDBSessionStore(env: env)
+    let store = LMDBSessionStore(envBits: envHandleBits(env))
 
     var session = Session(
         id: sessionID,
@@ -116,7 +116,7 @@ func sessionStoreDelete() async throws {
     let env = try openTestEnv(tmp.path + "/" + sessionID)
     defer { LMDB.envClose(env) }
 
-    let store = LMDBSessionStore(env: env)
+    let store = LMDBSessionStore(envBits: envHandleBits(env))
 
     let session = Session(
         id: sessionID,

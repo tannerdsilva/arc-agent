@@ -7,14 +7,26 @@ import CLMDB
 /// with async Swift. The wrapper exposes only what ARC Agent needs:
 /// environment management, key-value get/put/delete, and transactions.
 ///
-/// All operations are synchronous and designed to be called from
-/// `withCheckedThrowingContinuation` on a GCD queue.
+/// All operations are synchronous. Callers run them on an actor's executor
+/// (``LMDBSessionStore`` and ``LMDBMemoryProvider`` are actors) — never
+/// bridge them through continuations or dispatch queues.
 public enum LMDB: Sendable {
 
     // MARK: - Environment
 
     /// Open or create an LMDB environment.
+    ///
+    /// Creates the environment directory if it does not exist, matching the
+    /// behavior of stock LMDB. Upstream CLMDB's `mdb_env_open` drops the
+    /// `mkdir` and fails with `ENOENT` when the env directory is missing, so
+    /// the directory is created here before opening.
     public static func envOpen(path: String, mapSize: Int, maxReaders: UInt32, maxDBs: UInt32, flags: UInt32) throws -> OpaquePointer {
+        // Parent components must already exist (i.e. the caller's data dir).
+        // Only the final component is created, like stock LMDB's mkdir(path).
+        if !FileManager.default.fileExists(atPath: path) {
+            try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: false)
+        }
+
         var env: OpaquePointer?
         var rc = mdb_env_create(&env)
         guard rc == 0 else { throw LMDBError(rc: rc) }

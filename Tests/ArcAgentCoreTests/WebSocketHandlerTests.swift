@@ -128,6 +128,10 @@ func supersededAgentDoesNotTearDownSuccessor() async {
     // to 0 and A2's response was lost ("no response from agent"). AFTER the
     // fix its removeIfCurrent(agent:) is a no-op (A2 !== A1), so A2 survives.
     //
+    // With sequential supersede (getOrCreate awaits the predecessor's exit),
+    // A2 only starts after A1 has fully torn down, so it also never contends
+    // with A1's LMDB environment.
+    //
     // Poll until the count is no longer 1 (teardown deleted the successor) or
     // the window closes (teardown was a safe no-op).
     var count = 1

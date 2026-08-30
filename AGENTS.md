@@ -5,10 +5,10 @@
 This project has completed five feature-build phases and is now in **vascular hardening** — strengthening the internal data flow, session integrity, error recovery, and observability before adding new capabilities.
 
 The core architecture is built and proven:
-- **63 Swift source files** across 12 subsystems
-- **75 tests**, all passing
-- **8 dependencies** (AsyncHTTPClient, ArgumentParser, System, ServiceLifecycle, QuickLMDB, CLMDB, Hummingbird, swift-mcp)
-- **16 registered tools** across 6 toolsets
+- **80 Swift source files** across 12 subsystems
+- **154 tests**, all passing
+- **11 dependencies** (AsyncHTTPClient, ArgumentParser, System, ServiceLifecycle, QuickLMDB, CLMDB, Hummingbird, swift-mcp, swift-nio, swift-nio-extras, swift-http-types)
+- **22 registered tools** across 7 toolsets
 - **Full gateway stack** — HTTP server, Telegram adapter, MCP server, session management
 - **LMDB-backed persistence** — per-session `.mdb` files with header/body split
 - **Swift-native web UI** — declarative Swift DSL generating HTML/CSS/JS, served from the Hummingbird HTTP server at `GET /ui`. Zero npm, zero hand-written web code.
@@ -29,8 +29,8 @@ When asked to produce code, assume it is:
 | VISION.md | Updated with hardening roadmap + web UI architecture |
 | AGENTS.md | This file |
 | README.md | Updated |
-| Source files | 63 Swift files (51 core + 12 web UI) |
-| Tests | 75, all passing |
+| Source files | 80 Swift files (79 in ArcAgentCore + CLI main) |
+| Tests | 154, all passing |
 | Build | Clean |
 | Branch | `dev/all-phases` |
 
@@ -55,8 +55,8 @@ When asked to produce code, assume it is:
 | **Gateway** — GatewayService, HTTPServerService, SessionRegistry, SessionAgent, TelegramAdapter, DeliveryManager, SessionRouter, PlatformAdapter | `Gateway/` (8 files) | Built |
 | **MCP** — MCPServerAdapter, DynamicMCPTool | `Gateway/MCP/` (2 files) | Built |
 | **LMDB** — LMDBWrapper (raw C API), LMDBManager, LMDBSessionStore, LMDBMemoryProvider | `LMDB/` (4 files) | Built |
-| **Web UI** — View protocol, ViewBuilder, Primitives, Layouts, CSSRule, AppStyles, Scripts, HTMLDocument, ChatViews, Modifiers, ModifiedView, Utilities | `WebUI/` (12 files) | Built (uncommitted) |
-| **Bot Mode** — Profile struct, ProfileManager, BotMessagingService, GroupChatRoom, BotViews, BotStyles, BotScripts, ProfileTools | `Profile/` (4 files) + `WebUI/` (3 files) + `Tools/` (1 file) | Built (uncommitted) |
+| **Web UI** — View protocol, ViewBuilder, Primitives, Layouts, CSSRule, AppStyles, Scripts, HTMLDocument, ChatViews, Modifiers, ModifiedView, Utilities | `WebUI/` (12 files) | Built |
+| **Bot Mode** — Profile struct, ProfileManager, BotMessagingService, GroupChatRoom, BotViews, BotStyles, BotScripts, ProfileTools | `Profile/` (4 files) + `WebUI/` (3 files) + `Tools/` (1 file) | Built |
 
 ## How We Work
 

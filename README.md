@@ -4,7 +4,7 @@
 
 ARC Agent is a **precompiled, Swift-native AI agent harness** — architecturally inspired by [Hermes Agent](https://hermes-agent.nousresearch.com), but built from the ground up for Swift's concurrency model, type system, and distribution story. Single binary, zero interpreter overhead, no npm dependency chain, instant startup.
 
-**Status:** Vascular hardening. The core architecture is built across 63 source files with 117 passing tests. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. The web UI has a dual-mode asset pipeline — debug mode serves CSS/JS from disk for instant iteration, release mode compiles everything into the binary.
+**Status:** Vascular hardening. The core architecture is built across 80 source files with 154 passing tests and a clean release build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. The web UI has a dual-mode asset pipeline — debug mode serves CSS/JS from disk for instant iteration, release mode compiles everything into the binary.
 
 ## Why Swift?
 
@@ -12,10 +12,10 @@ ARC Agent is a **precompiled, Swift-native AI agent harness** — architecturall
 |---|---|---|
 | Startup time | ~500ms-2s | <50ms |
 | Memory | ~150-300MB | ~20-50MB |
-| Distribution | pip + venv + 227MB repo | Single binary (~20MB) |
+| Distribution | pip + venv + 227MB repo | Single binary (~33MB) |
 | Concurrency | threading + asyncio hybrid | Structured async/await + actors |
 | Type safety | Runtime (duck typing) | Compile-time (strong typing) |
-| Dependencies | 100+ Python + npm | 8 Swift packages |
+| Dependencies | 100+ Python + npm | 11 Swift packages |
 | Tool schemas | Dicts at runtime | Codable at compile time |
 
 ## The Law of the Land
@@ -46,7 +46,7 @@ GatewayService (Service Lifecycle tree)
 └── DeliveryManager (actor — response routing)
 ```
 
-**16 registered tools** across 6 toolsets: `file`, `terminal`, `web`, `core`, `delegation`, `kanban`.
+**22 registered tools** across 7 toolsets: `core`, `file`, `terminal`, `web`, `delegation`, `kanban`, `profile`.
 
 ## Quick Start
 

@@ -35,7 +35,7 @@ func readMemoryFreshEnvNoDB() async throws {
     // The global env exists on disk but the "memory" DB has never been
     // created. This is exactly the state of ~/.arc/global on a first
     // chat message. readMemory() must NOT throw EACCES.
-    let provider = LMDBMemoryProvider(globalEnv: env)
+    let provider = LMDBMemoryProvider(globalEnvBits: envHandleBits(env))
     let content = try await provider.readMemory()
     #expect(content.isEmpty)
 }
@@ -48,7 +48,7 @@ func readUserFreshEnvNoDB() async throws {
         try? FileManager.default.removeItem(atPath: tmp)
     }
 
-    let provider = LMDBMemoryProvider(globalEnv: env)
+    let provider = LMDBMemoryProvider(globalEnvBits: envHandleBits(env))
     let content = try await provider.readUser()
     #expect(content.isEmpty)
 }
@@ -61,7 +61,7 @@ func lmdbMemoryAppendAndRead() async throws {
         try? FileManager.default.removeItem(atPath: tmp)
     }
 
-    let provider = LMDBMemoryProvider(globalEnv: env)
+    let provider = LMDBMemoryProvider(globalEnvBits: envHandleBits(env))
     try await provider.appendMemory("line 1")
     try await provider.appendMemory("line 2")
 
@@ -78,7 +78,7 @@ func lmdbMemoryReplace() async throws {
         try? FileManager.default.removeItem(atPath: tmp)
     }
 
-    let provider = LMDBMemoryProvider(globalEnv: env)
+    let provider = LMDBMemoryProvider(globalEnvBits: envHandleBits(env))
     try await provider.writeMemory("alpha beta gamma")
     try await provider.replaceMemory(old: "beta", new: "BETA")
 

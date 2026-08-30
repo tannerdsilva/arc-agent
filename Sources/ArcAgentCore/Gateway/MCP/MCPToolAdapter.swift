@@ -12,14 +12,21 @@ public struct DynamicMCPTool: MCPTool {
         MCPToolConfiguration(description: "")
     }
 
-    private let entry: ToolEntry
+    private let entry: ToolEntry?
 
     public init(entry: ToolEntry) {
         self.entry = entry
     }
 
+    /// Satisfies the `MCPTool` protocol's `init()` requirement.
+    ///
+    /// A tool constructed this way has no ``ToolEntry`` and throws
+    /// ``DynamicMCPToolError.missingToolEntry`` when invoked. This path is
+    /// never taken by the gateway, which registers instances via
+    /// ``MCPServerAdapter`` — the inert fallback exists only so the type
+    /// remains total instead of crashing.
     public init() {
-        fatalError("DynamicMCPTool requires a ToolEntry — use init(entry:)")
+        self.entry = nil
     }
 
     // MARK: - MCPTool
@@ -30,7 +37,20 @@ public struct DynamicMCPTool: MCPTool {
 
     public mutating func invoke(context: MCPContext) async throws -> MCPToolResult {
         // Reconstruct arguments from context
+        guard let entry else {
+            throw DynamicMCPToolError.missingToolEntry
+        }
         let result = try await entry.handler(context.arguments)
         return .text(result)
+    }
+}
+
+/// Errors surfaced by ``DynamicMCPTool``.
+enum DynamicMCPToolError: Error, CustomStringConvertible {
+    /// The tool was constructed via the bare `init()` and has no ``ToolEntry``.
+    case missingToolEntry
+
+    var description: String {
+        "DynamicMCPTool invoked without a ToolEntry — register it via init(entry:)"
     }
 }
