@@ -93,16 +93,16 @@ Legend:
 │  │           ├── DelegationManager [N]                            │
 │  │           │   └── SubagentRecord [*] (per spawned child)       │
 │  │           ├── ApprovalManager [N]                              │
-│  │           ├── LMDBSessionStore [N] (per-session .mdb)          │
-│  │           └── LMDBMemoryProvider [1] (shared global .mdb)      │
+│  │           ├── TesseraSessionStore [N] (signed NOSTR events)          │
+│  │           └── TesseraMemoryProvider [1] (shared Tessera events)      │
 │  │                                                                │
 │  └── DeliveryManager [1] (actor)                                  │
 │      └── PlatformAdapter [P] references (weak, for routing)       │
 │                                                                    │
 │  Shared across all agents:                                        │
 │  ├── CompileTimeToolRegistry [1] (struct, no heap)                │
-│  ├── LMDBManager [1] (enum, no heap — static methods)             │
-│  ├── LMDBMemoryProvider [1] (struct, shared global .mdb)          │
+│  ├── TesseraConnection [1] (actor — shared tunnel)                    │
+│  ├── TesseraMemoryProvider [1] (struct, shared TesseraConnection)          │
 │  └── CredentialPool [1] (actor, shared credential rotation)       │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -125,20 +125,20 @@ Legend:
 | `SubagentRecord` | * | struct on heap (actor state) | Child task lifetime |
 | `DeliveryManager` | 1 | actor | Process lifetime |
 | `CompileTimeToolRegistry` | 1 | struct (no heap) | Process lifetime |
-| `LMDBManager` | 1 | enum (no heap) | Process lifetime |
+| `TesseraConnection` | 1 | actor (shared tunnel) | Process lifetime |
 | `CredentialPool` | 1 | actor | Process lifetime |
 
 ### Key Relationships
 
-- **1 GatewayService → N SessionAgents.** The gateway creates session agents on demand. Each session agent is a child Service in the lifecycle tree. When idle, the Service Lifecycle framework cancels the agent's Task, `defer` blocks clean up the HTTPClient and per-session LMDB environment, and the agent removes itself from the registry.
+- **1 GatewayService → N SessionAgents.** The gateway creates session agents on demand. Each session agent is a child Service in the lifecycle tree. When idle, the Service Lifecycle framework cancels the agent's Task, `defer` blocks clean up the HTTPClient and Tessera connection teardown, and the agent removes itself from the registry.
 
 - **1 SessionAgent → 1 ArcAgent.** Each session has exactly one agent actor. The agent is created by the session agent's `run()` method and lives for the session's duration.
 
 - **1 ArcAgent → 1 HTTPClient.** Each agent creates its own HTTPClient. All HTTPClients share the `.singleton` event loop group — they are connection-pool objects, not threads. The HTTPClient is shut down in the session agent's `defer` block.
 
-- **1 ArcAgent → 1 LMDBSessionStore.** Each session has its own `.mdb` file. The store is created per-session and the environment is closed when the session ends.
+- **1 ArcAgent → 1 TesseraSessionStore.** All sessions share one store over the process-wide `TesseraConnection` (single tunnel, single model); events are keyed by session id in their `d` tags.
 
-- **N ArcAgents → 1 LMDBMemoryProvider.** Memory is shared across all sessions (global `.mdb`). The memory provider is a struct — no heap allocation, no reference counting.
+- **N ArcAgents → 1 TesseraMemoryProvider.** Memory is shared across all sessions through the same shared connection (kind-3002 records, latest-by-seq wins).
 
 - **N ArcAgents → 1 CompileTimeToolRegistry.** The tool registry is a struct with no heap storage. All agents share the same tool definitions by value.
 
@@ -183,11 +183,11 @@ Legend:
 │  │  ├── OpenAICompatibleClient [1]                                       │   │
 │  │  ├── DelegationManager [1] (actor)                                    │   │
 │  │  ├── ApprovalManager [1]                                              │   │
-│  │  └── LMDBSessionStore [1] (per-session .mdb)                         │   │
+│  │  └── TesseraSessionStore [1] (signed NOSTR events)                         │   │
 │  │                                                                       │   │
 │  │  Shared (no heap, or shared actor):                                   │   │
 │  │  ├── CompileTimeToolRegistry [1] (struct, no heap)                    │   │
-│  │  ├── LMDBMemoryProvider [1] (struct, global .mdb)                     │   │
+│  │  ├── TesseraMemoryProvider [1] (struct, Tessera events)                     │   │
 │  │  └── CredentialPool [1] (shared actor)                                │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
@@ -234,7 +234,7 @@ ArcAgentState:
 1. Build system prompt
    - Agent identity + platform hints
    - Skills index (loaded from ~/.arc/skills/)
-   - Memory (MEMORY.md + USER.md) — from shared LMDBMemoryProvider [1]
+   - Memory (MEMORY.md + USER.md) — from shared TesseraMemoryProvider [1]
    - Context files (AGENTS.md, .cursorrules)
    - Ephemeral system prompt (if any)
 
@@ -266,9 +266,9 @@ ArcAgentState:
    - Go to step 2
 
 7. Post-turn hooks
-   - Memory write (if enabled) — to shared LMDBMemoryProvider [1]
+   - Memory write (if enabled) — to shared TesseraMemoryProvider [1]
    - Background review trigger
-   - Session persistence flush — to per-session LMDBSessionStore [N]
+   - Session persistence flush — to per-session TesseraSessionStore [N]
 ```
 
 **Key design decisions:**
@@ -415,94 +415,49 @@ actor CredentialPool {
 
 ---
 
-### 4. Session Management [N — one per-session .mdb file]
+### 4. Session Management [N — one Tessera client per process]
 
-ARC Agent uses **LMDB** for all persistent storage via a thin wrapper around the raw C API (`CLMDB`). Each session gets its own `.mdb` file. The global `.mdb` holds shared state (memory, skills index).
+ARC Agent persists all durable state as **signed NOSTR events** through the **Tessera** server, reached with the `tessera-client` library over a WireGuard tunnel. Sessions, memory, and the profile index are event streams — there are no local `.mdb` files anymore.
 
-**Environment layout:**
-
-```
-~/.arc/
-├── global.mdb              # Shared state (memory, skills index, config)
-│   ├── memory              # user + agent memory entries
-│   └── skills              # skills index
-└── sessions/
-    ├── <session-id>.mdb    # One per session — isolated, self-contained
-    │   ├── meta            # session metadata (model, provider, timestamps)
-    │   ├── headers         # fixed-size message headers (13 bytes each)
-    │   └── bodies          # variable-length message bodies (JSON)
-    ├── <session-id>.mdb
-    └── ...
-```
-
-**Per-session .mdb contents (header/body split):**
+**Event schema (all kinds in the non-replaceable `0...9,999` band — no access level required):**
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  <session-id>.mdb                                            │
-│  maxReaders: 8  |  maxDBs: 8  |  mapSize: 50MB             │
-│                                                              │
-│  meta database:                                              │
-│    "session_meta" → JSON(SessionMeta)                        │
-│      { createdAt, updatedAt, model, provider,                │
-│        messageCount, totalTokens }                           │
-│                                                              │
-│  headers database (fixed-size, fast scan):                   │
-│    key: UInt64 BE (8 bytes, sequence number)                 │
-│    val: 13 bytes [role:UInt8][timestamp:UInt64][len:UInt32]  │
-│                                                              │
-│  bodies database (variable-length, loaded on demand):        │
-│    key: UInt64 BE (8 bytes, sequence number)                 │
-│    val: JSON(Message)                                        │
-└─────────────────────────────────────────────────────────────┘
+kind 3001  arc/s/<sessionID>/<seq>      session messages      JSON {seq, sessionID, message}
+kind 3002  arc/m/<key>/<seq>            memory records        full memory text, latest-by-seq wins
+kind 3003  arc/meta/<sessionID>/<seq>   session metadata      JSON {seq, sessionID, createdAt,
+                                                                      updatedAt, model, provider,
+                                                                      messageCount, totalTokens}
+kind 3004  arc/p/<name>/<seq>           profile records       JSON(Profile)
 ```
 
-The header/body split means scanning N message headers reads exactly N × 13 bytes from the B-tree, regardless of message content size. Bodies are only decoded when the caller asks for a specific message or range of messages.
+Sequence numbers come from a **global** counter (unique across kinds and sessions), seeded from the stored maximum at connect. Events are signed with the client's NOSTR identity, derived from its WireGuard key.
 
-**Global .mdb contents:**
+**Connection architecture (`TesseraConnection`, process-wide actor):**
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  global.mdb                                                  │
-│  maxReaders: 64  |  maxDBs: 16  |  mapSize: 100MB           │
-│                                                              │
-│  memory database:                                            │
-│    "user"  → "User prefers concise responses..."             │
-│    "agent" → "Project uses pytest with xdist..."             │
-└─────────────────────────────────────────────────────────────┘
+TesseraConnection (actor, one per process)
+├── TesseraSession + TesseraModel<StringContent>
+│     one model subscribed to all four kinds → single cached modelStorage
+├── EOSE tracking (per-subscription) + global sequence counter
+├── Write-through pending queue  ← deterministic read-after-write
+└── kind-5 deletion of locally-signed ids
 ```
 
-**Why per-session .mdb over a single monolithic file:**
+- **Lazy start** — connect, subscribe each kind, wait for every EOSE, then seed the sequence counter.
+- **Write-through pending queue** — the server echoes a client's own events back asynchronously, so a read issued right after a write would otherwise miss them. Each publish is recorded locally `(eventID, kind, dTag, content)` and merged into snapshots until its echo lands in the model.
+- **Deletion** — kind-5 deletion events reference the locally-signed event ids, so records can be deleted even before their echo has arrived.
+- **No per-session file management** — no env open/close, no FD churn, no compaction, no per-session backups to babysit.
 
-- **Session isolation** — one session with 10,000 turns doesn't slow down anything else
-- **Natural FD management** — only active sessions have their `.mdb` open. Idle sessions are closed.
-- **Trivial backup** — `cp <id>.mdb /backup/`. The file is always consistent (MVCC).
-- **No compaction** — each session is finite. When the session ends, the file stops growing.
-- **Parallel access** — different sessions don't contend on the same LMDB environment.
+**Failure modes:**
 
-**Transaction pattern:**
+- Server unreachable at startup → the stores fall back to the file-based backends (`FileSessionStore` / `FileMemoryProvider` / JSON profile index); the gateway keeps serving.
+- Server unavailable mid-session → reads/writes surface an error; after a reconnect, history is replayed through a fresh subscription + EOSE.
 
-```swift
-// All operations use the thin CLMDB wrapper, bridged to async via GCD.
-// LMDB operations are synchronous (memory-mapped) — they run on a GCD
-// worker queue, not the cooperative thread pool.
+**Why Tessera over local files:**
 
-func appendMessage(sessionID: String, message: Message) async throws {
-    try await withCheckedThrowingContinuation { continuation in
-        queue.async {
-            do {
-                let env = try LMDBManager.openSession(sessionID)
-                defer { LMDB.envClose(env) }
-                let txn = try LMDB.txnBeginWrite(env: env)
-                defer { LMDB.txnAbort(txn) }
-                // ... LMDB operations ...
-                try LMDB.txnCommit(txn)
-                continuation.resume()
-            } catch { continuation.resume(throwing: error) }
-        }
-    }
-}
-```
+- **Durability & backup** — data lives on the server; backup is a server-side snapshot.
+- **Multi-host reach** — sessions, memory, and profiles reload from any client identity over the tunnel.
+- **Observable by construction** — every record is a signed, kind-tagged event; history is an append-only audit log.
 
 ---
 
@@ -528,7 +483,7 @@ GatewayService [1] (Service — manages all child services)
 │   └── SessionAgent [N] (actor, Service — one per active session)
 │       └── ArcAgent [N] (actor)
 │           ├── HTTPClient [N] (.singleton event loop group)
-│           ├── LMDBSessionStore [N] (per-session .mdb)
+│           ├── TesseraSessionStore [N] (signed NOSTR events)
 │           └── DelegationManager [N] (actor)
 │
 └── DeliveryManager [1] (actor — routes responses to platform adapters)
@@ -548,7 +503,7 @@ protocol PlatformAdapter: Service {
 
 **SessionRegistry [1] — routing table, not a cache:**
 
-The registry holds a dictionary of active `SessionAgent` Services. It is NOT a cache — agents are live Services managed by the Service Lifecycle framework. LMDB is the single source of truth for all durable data.
+The registry holds a dictionary of active `SessionAgent` Services. It is NOT a cache — agents are live Services managed by the Service Lifecycle framework. The Tessera server is the single source of truth for all durable data.
 
 ```swift
 actor SessionRegistry {
@@ -562,7 +517,7 @@ actor SessionRegistry {
 
 **SessionAgent [N] — long-lived Service per session:**
 
-Each session agent runs for the lifetime of one chat session. It receives messages via an `AsyncStream`, processes them through the agent loop, and sends responses back through the `DeliveryManager`. When idle (no messages arrive), the Service Lifecycle framework cancels the agent's Task, `defer` blocks clean up the HTTPClient and per-session LMDB environment, and the agent removes itself from the registry.
+Each session agent runs for the lifetime of one chat session. It receives messages via an `AsyncStream`, processes them through the agent loop, and sends responses back through the `DeliveryManager`. When idle (no messages arrive), the Service Lifecycle framework cancels the agent's Task, `defer` blocks clean up the HTTPClient and Tessera connection teardown, and the agent removes itself from the registry.
 
 ```swift
 actor SessionAgent: Service {
@@ -701,7 +656,7 @@ struct CronJob: Codable, Sendable {
 actor CronScheduler: Service {
     private var jobs: [String: CronJob]
     private var timers: [String: TimerHandle]
-    private let jobStore: CronJobStore  // LMDB-backed
+    private let jobStore: CronJobStore  // Tessera-backed
     
     func start() async throws
     func stop() async throws
@@ -766,7 +721,7 @@ A background service that polls for `ready` tasks, atomically claims them (statu
 
 ---
 
-### 10. Memory System [1 — shared global .mdb]
+### 10. Memory System [1 — Tessera kind-3002 records]
 
 ```swift
 protocol MemoryProvider: Sendable {
@@ -778,13 +733,13 @@ protocol MemoryProvider: Sendable {
     func replaceUser(old: String, new: String) async throws
 }
 
-struct LMDBMemoryProvider: MemoryProvider { ... }     // LMDB-backed [1]
+struct TesseraMemoryProvider: MemoryProvider { ... }     // signed NOSTR events (kind 3002)
 struct FileMemoryProvider: MemoryProvider { ... }      // File-backed (legacy)
 ```
 
 **Memory injection into system prompt:**
 
-The agent reads memory from the shared `LMDBMemoryProvider` at the start of each turn and injects it into the system prompt. Memory is shared across all sessions — changes made in one session are visible in all others.
+The agent reads memory from the shared `TesseraMemoryProvider` at the start of each turn and injects it into the system prompt. Memory is shared across all sessions — changes made in one session are visible in all others.
 
 ---
 
@@ -796,7 +751,7 @@ The project has completed five feature-build phases and is now entering a **hard
 
 *The foundation of a reliable agent framework is data that doesn't corrupt, leak, or disappear.*
 
-- [x] **Persistent LMDB environment** — `LMDBSessionStore` is an actor holding a caller-owned environment for the session's lifetime (opened by `SessionAgent` and closed in its `Service.run()` teardown); the transient open/close-per-call path remains only for one-off operations and for `LMDBMemoryProvider`'s default global-env mode.
+- [x] **Tessera-backed persistence** — `TesseraSessionStore` and `TesseraMemoryProvider` funnel through the shared `TesseraConnection` actor (one WireGuard tunnel, one model, lazy connect + per-subscription EOSE). Every write is signed locally, tracked in a write-through pending queue for deterministic read-after-write, and echoed back by the server; deletions are kind-5 events referencing the locally-signed ids. E2E-verified against a live locally-spawned daemon (create/read/append/list/update/delete + memory round-trips + persistence across reconnect).
 - [x] **Session lifecycle audit** — verify every `SessionAgent` cleanup path: HTTPClient shutdown, LMDB env close, registry removal on both happy path and error path. (Verified: `httpClient.shutdown()` in `run()` catch and tail, `defer { envClose }` on the session env, `registry.removeIfCurrent` on both paths.)
 - [x] **Gateway response plumbing** — `POST /v1/chat` returns `"Message received"` immediately instead of the actual agent response. (Fixed: the handler now awaits the session agent's response stream and returns the real response text; the `"Message received"` fallback remains only for empty replies.)
 - [ ] **Concurrent session isolation** — verify that N concurrent sessions don't interfere. LMDB per-session files provide isolation at the storage layer; verify the actor boundaries hold at the application layer. (`SessionRegistry`/`SessionAgent` are actors; no load test yet.)
@@ -830,7 +785,7 @@ The project has completed five feature-build phases and is now entering a **hard
 *Untested code is broken code. The vascular system must have monitors at every junction.*
 
 - [ ] **Gateway tests** — `HTTPServerService` (health/UI/chat over a real socket), `DeliveryManager`, `WebSocketHandler`, and `SessionRegistry` are covered; `GatewayService`, `TelegramAdapter`, and `SessionAgent` are not directly.
-- [x] **LMDB tests** — now covered by `LMDBRawTests`, `LMDBSessionStoreTests`, and `LMDBMemoryProviderTests` (session store: create/read/append/update/delete; memory: EACCES regression, roundtrip, replace; raw ops: named DBs, RO-txn semantics). All green.
+- [x] **Tessera storage tests** — unit coverage for d-tag/sequence parsing and store shape (`TesseraTagTests`); opt-in E2E suite (`TesseraStorageE2ETests`, `ARC_TESSERA_E2E=1`) spawns a real daemon and exercises session + memory round-trips, deletion, and reconnect persistence. All green.
 - [x] **Integration tests** — mock-LLM tests now exercise the full agent pipeline (LLM → tool call → real registry handler → final response) on both completion and streaming paths (`AgentIntegrationTests`), and the gateway HTTP chokepoint is covered end-to-end over a real socket (`GatewayHTTPTests`).
 - [x] **Concurrency tests** — concurrent `getOrCreate` races against one session serialize into a single coherent generation (`SessionRecoveryTests`). Actor-isolation and task-cancellation cases remain open.
 - [x] **Fault injection tests** — `LMDBFaultInjectionTests` corrupt headers, bodies, and metadata and verify clean `SessionError` failures (no traps) plus repair-and-resume; corrupt is never silent corruption.
@@ -867,6 +822,10 @@ The following items are explicitly deferred until the vascular system is hardene
 ## Key Architectural Decisions (Resolved)
 
 These decisions have been made through implementation experience:
+
+> **Superseded.** The sections below describe the retired LMDB era of ARC Agent. Storage now
+> runs on **Tessera** (signed NOSTR events over a WireGuard tunnel) — see §4 Session Management.
+> They are preserved as history of the decisions and trade-offs.
 
 ### 1. LMDB over file-based storage
 

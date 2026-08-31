@@ -78,10 +78,21 @@ public actor SessionAgent: Service {
                 resolvedToolsets = (nil, nil)
             }
 
-            // Build the agent with profile-specific configuration
-            logger.info("step: opening LMDB session")
-            let sessionEnv = try LMDBManager.openSession(sessionID)
-            defer { LMDB.envClose(sessionEnv) }
+            // Storage backend. When Tessera is configured, sessions and
+            // memory flow through the shared Tessera connection (signed
+            // NOSTR events). Without it we fall back to local files so the
+            // gateway can still run without a server.
+            logger.info("step: opening session storage")
+            let sessionStore: any SessionStore
+            let memoryProvider: any MemoryProvider
+            if let tessera = agentConfig.tessera {
+                await TesseraConnection.shared.configure(tessera)
+                sessionStore = TesseraSessionStore()
+                memoryProvider = TesseraMemoryProvider()
+            } else {
+                sessionStore = FileSessionStore()
+                memoryProvider = FileMemoryProvider()
+            }
 
             logger.info("step: building tool registry")
             let toolRegistry = try ArcAgentCore.buildDefaultRegistry()
@@ -91,14 +102,14 @@ public actor SessionAgent: Service {
                 model: resolvedModel,
                 provider: resolvedProvider,
                 baseURL: resolvedBaseURL,
-                apiKey: resolvedKey,
+                apiKey: agentConfig.apiKey,
                 registry: toolRegistry,
-                sessionStore: LMDBSessionStore(envBits: envHandleBits(sessionEnv)),
-                memoryProvider: LMDBMemoryProvider(),
+                sessionStore: sessionStore,
+                memoryProvider: memoryProvider,
                 skills: [],
                 maxIterations: 25,
                 maxTurnDuration: 120,
-                persistSessions: false,
+                persistSessions: agentConfig.tessera != nil ? agentConfig.persistSessions : false,
                 approvalMode: .manual,
                 query: nil,
                 maxContextTokens: 64_000

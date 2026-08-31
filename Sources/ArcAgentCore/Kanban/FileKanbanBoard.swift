@@ -3,8 +3,8 @@ import Foundation
 /// A file-based kanban board backed by JSON files.
 ///
 /// Each task is stored as a separate JSON file under the board directory.
-/// This is a temporary implementation — the LMDB-backed store from VISION.md
-/// will replace it once QuickLMDB is added as a dependency.
+/// This is the fallback JSON implementation — the no-dependency backend that
+/// works without a Tessera server.
 ///
 /// ## Concurrency
 ///

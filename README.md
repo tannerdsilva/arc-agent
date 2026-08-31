@@ -151,7 +151,7 @@ See [VISION.md](VISION.md) for the full roadmap and subsystem documentation.
 | Language | Swift 6.0 |
 | HTTP server | Hummingbird 2.x |
 | HTTP client | AsyncHTTPClient |
-| Storage | LMDB via CLMDB (raw C API) |
+| Storage | Tessera via tessera-client (signed NOSTR events over WireGuard) |
 | Argument parsing | Swift Argument Parser |
 | Lifecycle | Swift Service Lifecycle |
 | Regex | Swift Regex (built-in) |

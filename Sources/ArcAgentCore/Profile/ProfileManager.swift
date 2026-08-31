@@ -5,8 +5,10 @@ import Foundation
 /// Manages the lifecycle of agent profiles.
 ///
 /// ``ProfileManager`` is an **actor** — all state mutations are serialized.
-/// It uses LMDB for durable storage:
-/// - Profile index in `global.mdb` (database: `profiles`)
+/// The profile index is persisted as signed NOSTR events (kind 3004) to a
+/// Tessera server when Tessera storage is configured, and to a JSON index
+/// file under `~/.arc/profiles/index.json` otherwise:
+/// - Profile index in Tessera (`arc/p/<name>/<seq>`) or `index.json`
 /// - Per-profile memory in `profiles/<name>/memory.mdb`
 /// - Per-profile sessions in `profiles/<name>/sessions/<id>.mdb`
 ///
@@ -22,7 +24,13 @@ public actor ProfileManager {
 
     /// Base URL for profile storage (~/.arc/profiles/).
     public static var profilesDir: String {
-        LMDBManager.baseURL.appendingPathComponent("profiles", isDirectory: true).path
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".arc/profiles", isDirectory: true).path
+    }
+
+    /// Path to the index file used when Tessera storage is not configured.
+    public static var indexFilePath: String {
+        "\(profilesDir)/index.json"
     }
 
     /// Path to a profile's memory.mdb file.
@@ -52,9 +60,9 @@ public actor ProfileManager {
 
     // MARK: - State
 
-    /// In-memory cache of loaded profiles (avoids LMDB reads on every list).
+    /// In-memory cache of loaded profiles (avoids index reads on every list).
     private var cache: [String: Profile] = [:]
-    /// Whether the cache has been seeded from LMDB.
+    /// Whether the cache has been seeded from the profile index.
     private var cacheSeeded = false
 
     public init() {}
@@ -104,7 +112,7 @@ public actor ProfileManager {
             withIntermediateDirectories: true
         )
 
-        // Persist to LMDB
+        // Persist the profile record (Tessera or JSON index)
         try await persistProfile(profile)
 
         // Update cache
@@ -150,16 +158,16 @@ public actor ProfileManager {
             throw ProfileError.notFound(name)
         }
 
-        // Remove from LMDB index
-        try await GlobalEnvironment.shared.withOpenEnv { env in
-            let txn = try LMDB.txnBeginWrite(env: env)
-            var txnActive = true
-            defer { if txnActive { LMDB.txnAbort(txn) } }
-
-            let dbi = try LMDB.dbiOpen(env: env, txn: txn, name: "profiles", create: false)
-            _ = try LMDB.del(env: env, txn: txn, dbi: dbi, key: [UInt8](name.utf8))
-            try LMDB.txnCommit(txn)
-            txnActive = false
+        // Remove from the profile index (Tessera or JSON file)
+        if await TesseraConnection.shared.isConfigured {
+            try await TesseraConnection.shared.deleteAll(
+                dTagPrefix: "arc/p/\(name)/",
+                kind: TesseraConnection.profileKind
+            )
+        } else {
+            var index = loadProfilesFromIndexFile()
+            index.removeValue(forKey: name)
+            try writeIndexFile(index)
         }
 
         // Remove filesystem data
@@ -210,78 +218,86 @@ public actor ProfileManager {
 
     // MARK: - Private
 
-    /// Seed the in-memory cache from LMDB.
+    /// Seed the in-memory cache from the profile index (Tessera events or
+    /// the JSON index file).
     private func seedCache() async throws {
         guard !cacheSeeded else { return }
 
         do {
-            let loaded = try await GlobalEnvironment.shared.withOpenEnv { env in
-                // Use a write transaction so dbiOpen(create: true) works
-                let txn = try LMDB.txnBeginWrite(env: env)
-                var txnActive = true
-                defer { if txnActive { LMDB.txnAbort(txn) } }
+            var loaded: [String: Profile] = [:]
+            if await TesseraConnection.shared.isConfigured {
+                loaded = try await loadProfilesFromTessera()
+            } else {
+                loaded = loadProfilesFromIndexFile()
+            }
 
-                let dbi = try LMDB.dbiOpen(env: env, txn: txn, name: "profiles", create: true)
-
-                // Read all profiles from the database
-                let cursor = try LMDB.cursorOpen(txn: txn, dbi: dbi)
-
-                var result: [String: Profile] = [:]
-
-                // Position cursor at the first entry
-                // Use a single zero byte as the minimum key instead of empty array
-                // (LMDB rejects empty keys with MDB_BAD_VALSIZE)
-                if let (k, v) = try LMDB.cursorSetRange(cursor: cursor, key: [0]) {
-                    let name = String(decoding: k, as: UTF8.self)
-                    if let profile = try? JSONDecoder().decode(Profile.self, from: Data(v)) {
-                        result[name] = profile
-                    }
-
-                    // Iterate remaining entries
-                    while let (nextKey, nextValue) = try LMDB.cursorNext(cursor: cursor) {
-                        let n = String(decoding: nextKey, as: UTF8.self)
-                        if let p = try? JSONDecoder().decode(Profile.self, from: Data(nextValue)) {
-                            result[n] = p
-                        }
-                    }
-                }
-
-                // Close cursor before commit — LMDB cursors are invalid after txnCommit
-                LMDB.cursorClose(cursor)
-
-                // Ensure the "default" profile always exists
-                if result["default"] == nil {
-                    let defaultProfile = Profile(name: "default", title: "ARC Agent", description: "The primary agent.")
-                    let data = try JSONEncoder().encode(defaultProfile)
-                    try LMDB.set(env: env, txn: txn, dbi: dbi, key: [UInt8]("default".utf8), value: [UInt8](data))
-                    result["default"] = defaultProfile
-                }
-
-                try LMDB.txnCommit(txn)
-                txnActive = false
-                return result
+            // Ensure the "default" profile always exists
+            if loaded["default"] == nil {
+                let defaultProfile = Profile(name: "default", title: "ARC Agent", description: "The primary agent.")
+                loaded["default"] = defaultProfile
+                _ = try? await persistProfile(defaultProfile)
             }
 
             self.cache = loaded
             self.cacheSeeded = true
         } catch {
-            let desc = (error as? LMDBError)?.description ?? error.localizedDescription
-            throw ProfileError.storageError(desc)
+            throw ProfileError.storageError(error.localizedDescription)
         }
     }
 
-    /// Persist a profile to LMDB.
-    private func persistProfile(_ profile: Profile) async throws {
-        try await GlobalEnvironment.shared.withOpenEnv { env in
-            let txn = try LMDB.txnBeginWrite(env: env)
-            var txnActive = true
-            defer { if txnActive { LMDB.txnAbort(txn) } }
+    /// Load the newest profile record per name from Tessera.
+    private func loadProfilesFromTessera() async throws -> [String: Profile] {
+        let conn = TesseraConnection.shared
+        try await conn.ensureStarted()
+        var latest: [String: (seq: Int, profile: Profile)] = [:]
+        for record in await conn.snapshot(kind: TesseraConnection.profileKind) {
+            guard let dTag = record.dTag,
+                  dTag.hasPrefix("arc/p/"),
+                  let seq = TesseraConnection.sequenceNumber(fromTagKey: dTag),
+                  let profile = try? JSONDecoder().decode(Profile.self, from: Data(record.content.utf8)) else {
+                continue
+            }
+            if let existing = latest[profile.name], existing.seq > seq { continue }
+            latest[profile.name] = (seq, profile)
+        }
+        return latest.mapValues(\.profile)
+    }
 
-            let dbi = try LMDB.dbiOpen(env: env, txn: txn, name: "profiles", create: true)
-            let data = try JSONEncoder().encode(profile)
-            try LMDB.set(env: env, txn: txn, dbi: dbi, key: [UInt8](profile.name.utf8), value: [UInt8](data))
-            try LMDB.txnCommit(txn)
-            txnActive = false
+    /// Load the profile index from `~/.arc/profiles/index.json`.
+    private func loadProfilesFromIndexFile() -> [String: Profile] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: Self.indexFilePath)),
+              let index = try? JSONDecoder().decode([String: Profile].self, from: data) else {
+            return [:]
+        }
+        return index
+    }
+
+    /// Write the profile index to `~/.arc/profiles/index.json`.
+    private func writeIndexFile(_ index: [String: Profile]) throws {
+        try FileManager.default.createDirectory(
+            at: URL(fileURLWithPath: Self.profilesDir),
+            withIntermediateDirectories: true
+        )
+        let data = try JSONEncoder().encode(index)
+        try data.write(to: URL(fileURLWithPath: Self.indexFilePath), options: .atomic)
+    }
+
+    /// Persist a profile to Tessera (when configured) or the JSON index.
+    private func persistProfile(_ profile: Profile) async throws {
+        if await TesseraConnection.shared.isConfigured {
+            let conn = TesseraConnection.shared
+            try await conn.ensureStarted()
+            let seq = await conn.takeSequence()
+            let content = String(decoding: try JSONEncoder().encode(profile), as: UTF8.self)
+            try await conn.publish(
+                kind: TesseraConnection.profileKind,
+                dTagValue: "arc/p/\(profile.name)/\(seq)",
+                content: content
+            )
+        } else {
+            var index = loadProfilesFromIndexFile()
+            index[profile.name] = profile
+            try writeIndexFile(index)
         }
     }
 }

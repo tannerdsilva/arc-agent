@@ -8,7 +8,7 @@ import Logging
 ///
 /// ``GroupChatRoom`` is an **actor** that manages a single group conversation.
 /// Each group has:
-/// - A persistent room log stored in LMDB
+/// - A persistent room log stored via the profile store
 /// - Per-member watermark tracking (each bot sees only new messages)
 /// - Round-robin turn execution with @mention routing
 /// - Epoch-based superseding (a new user message bumps the epoch)
@@ -357,7 +357,7 @@ public actor GroupChatRoom {
 ///
 /// ``GroupChatManager`` is an actor that owns the lifecycle of all
 /// ``GroupChatRoom`` instances. Rooms are created on demand and persist
-/// in LMDB.
+/// via the profile store.
 public actor GroupChatManager {
 
     /// All active rooms.

@@ -221,11 +221,13 @@ public struct GatewayService: Service {
         do {
             try await serviceGroup.run()
         } catch {
-            // Release the process-shared global .mdb handle at teardown.
-            await GlobalEnvironment.shared.close()
+            // Release the shared Tessera connection (WireGuard tunnel) at
+            // teardown.
+            await TesseraConnection.shared.shutdown()
             throw error
         }
-        // Release the process-shared global .mdb handle at teardown.
-        await GlobalEnvironment.shared.close()
+        // Release the shared Tessera connection (WireGuard tunnel) at
+        // teardown.
+        await TesseraConnection.shared.shutdown()
     }
 }

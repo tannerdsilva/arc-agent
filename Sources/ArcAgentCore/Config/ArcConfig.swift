@@ -51,6 +51,11 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// Security/approval configuration.
     public var security: SecurityConfig
 
+    /// Tessera storage configuration. When set, sessions, memory, and the
+    /// profile index are persisted as signed NOSTR events to a Tessera
+    /// server instead of local files.
+    public var tessera: TesseraConfig?
+
     // MARK: - Init
 
     public init(
@@ -59,7 +64,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         terminal: TerminalConfig = TerminalConfig(),
         delegation: DelegationConfig = DelegationConfig(),
         memory: MemoryConfig = MemoryConfig(),
-        security: SecurityConfig = SecurityConfig()
+        security: SecurityConfig = SecurityConfig(),
+        tessera: TesseraConfig? = nil
     ) {
         self.model = model
         self.agent = agent
@@ -67,6 +73,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.delegation = delegation
         self.memory = memory
         self.security = security
+        self.tessera = tessera
     }
 
     /// Decode each section independently, defaulting any that are absent.
@@ -78,6 +85,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.delegation = try container.decodeIfPresent(DelegationConfig.self, forKey: .delegation) ?? DelegationConfig()
         self.memory = try container.decodeIfPresent(MemoryConfig.self, forKey: .memory) ?? MemoryConfig()
         self.security = try container.decodeIfPresent(SecurityConfig.self, forKey: .security) ?? SecurityConfig()
+        self.tessera = try container.decodeIfPresent(TesseraConfig.self, forKey: .tessera)
     }
 }
 
@@ -288,6 +296,27 @@ public func loadConfig(from configURL: URL? = nil) -> ArcConfig {
     }
     if ProcessInfo.processInfo.environment["ARC_YOLO"] != nil {
         config.security.yoloMode = true
+    }
+
+    // Tessera storage overrides. Any ARC_TESSERA_* variable activates the
+    // tessera backend; unset fields keep whatever config.json declared.
+    let tesseraIP = ProcessInfo.processInfo.environment["ARC_TESSERA_SERVER_IP"]
+    let tesseraPort = ProcessInfo.processInfo.environment["ARC_TESSERA_SERVER_PORT"]
+    let tesseraServerPub = ProcessInfo.processInfo.environment["ARC_TESSERA_SERVER_PUBLIC_KEY"]
+    let tesseraClientPriv = ProcessInfo.processInfo.environment["ARC_TESSERA_PRIVATE_KEY"]
+    if tesseraIP != nil || tesseraPort != nil || tesseraServerPub != nil || tesseraClientPriv != nil {
+        var t = config.tessera ?? TesseraConfig(
+            serverIP: "127.0.0.1", serverPort: 51820,
+            serverPublicKey: "", myPrivateKey: "", application: 1
+        )
+        if let tesseraIP { t.serverIP = tesseraIP }
+        if let tesseraPort, let p = Int(tesseraPort) { t.serverPort = p }
+        if let tesseraServerPub { t.serverPublicKey = tesseraServerPub }
+        if let tesseraClientPriv { t.myPrivateKey = tesseraClientPriv }
+        if let app = ProcessInfo.processInfo.environment["ARC_TESSERA_APPLICATION"], let a = UInt16(app) {
+            t.application = a
+        }
+        config.tessera = t
     }
 
     return config

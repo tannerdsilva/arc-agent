@@ -16,7 +16,8 @@ import Foundation
 /// 3. **Macros** — None needed
 ///
 /// The protocol is intentionally minimal. If a second implementation emerges
-/// (e.g. an LMDB-backed store), the protocol is validated. If not, it may be
+/// If a second backend emerges (e.g. a Tessera-backed store), the protocol is
+/// validated. If not, it may be
 /// collapsed into the concrete type once the design is stable.
 public protocol MemoryProvider: Sendable {
 

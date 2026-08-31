@@ -1,5 +1,5 @@
 {
-  "originHash" : "5cecd210c4cf10479e9bce68c67732fae30c0b39264a64562df689eb50d42125",
+  "originHash" : "5c0ab1f5cbe741e3d8e1783961e1fa8f99f1f4899d695dd19f20e19a33e52a5f",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -29,21 +29,12 @@
       }
     },
     {
-      "identity" : "quicklmdb",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/tannerdsilva/QuickLMDB.git",
-      "state" : {
-        "revision" : "980d58655a9535ef8f88e1215f998cf96239b848",
-        "version" : "14.0.0"
-      }
-    },
-    {
       "identity" : "rawdog",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/rawdog.git",
       "state" : {
-        "revision" : "35d9692c8954b96dea288ecd35aa5d0451e0bd5e",
-        "version" : "20.1.0"
+        "revision" : "378e87e49d2cf95c92882b1bcbe21252c5c1d0a6",
+        "version" : "21.0.0"
       }
     },
     {
@@ -103,7 +94,7 @@
     {
       "identity" : "swift-collections",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-collections",
+      "location" : "https://github.com/apple/swift-collections.git",
       "state" : {
         "revision" : "a0cb0954ecb21e4e31b0070e6ed5674e8556685a",
         "version" : "1.6.0"
@@ -161,6 +152,15 @@
       "state" : {
         "revision" : "3ffafb9722d5d918c614feb496c8789a3b59d222",
         "version" : "1.15.0"
+      }
+    },
+    {
+      "identity" : "swift-mcp",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tannerdsilva/swift-mcp",
+      "state" : {
+        "revision" : "859aae2adeb3e30fe15cc3f587cf798413d8ff61",
+        "version" : "1.0.0"
       }
     },
     {
@@ -256,7 +256,7 @@
     {
       "identity" : "swift-system",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-system",
+      "location" : "https://github.com/apple/swift-system.git",
       "state" : {
         "revision" : "869129b7bf4ecc57b97d0193ad29690ca2134750",
         "version" : "1.8.1"

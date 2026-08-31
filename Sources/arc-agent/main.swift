@@ -81,6 +81,19 @@ struct Chat: AsyncParsableCommand {
 
         let registry = try ArcAgentCore.buildDefaultRegistry()
 
+        // Storage: with a `tessera` configuration, sessions and memory are
+        // persisted to the Tessera server as signed NOSTR events.
+        let sessionStore: any SessionStore
+        let memoryProvider: (any MemoryProvider)?
+        if let tessera = arcConfig.tessera {
+            await TesseraConnection.shared.configure(tessera)
+            sessionStore = TesseraSessionStore()
+            memoryProvider = TesseraMemoryProvider()
+        } else {
+            sessionStore = FileSessionStore()
+            memoryProvider = FileMemoryProvider()
+        }
+
         // Discover skills if enabled
         let skills: [Skill] = arcConfig.agent.loadSkills ? discoverSkills() : []
 
@@ -94,6 +107,8 @@ struct Chat: AsyncParsableCommand {
             baseURL: url,
             apiKey: resolvedApiKey,
             registry: registry,
+            sessionStore: sessionStore,
+            memoryProvider: memoryProvider,
             skills: skills,
             maxIterations: arcConfig.agent.maxIterations,
             persistSessions: arcConfig.agent.persistSessions,
@@ -142,11 +157,19 @@ struct Serve: AsyncParsableCommand {
         let arcConfig = loadConfig()
         let logger = Logger(label: "arc-agent.gateway")
 
+        // Tessera storage for the gateway: sessions, memory, and the profile
+        // index all flow through the shared connection.
+        if let tessera = arcConfig.tessera {
+            await TesseraConnection.shared.configure(tessera)
+        }
+
         let agentConfig = SessionRegistry.AgentConfig(
             model: arcConfig.model.defaultModel,
             provider: arcConfig.model.provider,
             baseURL: arcConfig.model.baseURL ?? "https://api.openai.com/v1",
-            apiKey: ProcessInfo.processInfo.environment["ARC_API_KEY"] ?? ""
+            apiKey: ProcessInfo.processInfo.environment["ARC_API_KEY"] ?? "",
+            tessera: arcConfig.tessera,
+            persistSessions: arcConfig.agent.persistSessions
         )
 
         let gateway = GatewayService(

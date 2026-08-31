@@ -2,12 +2,22 @@ import Foundation
 
 /// The `memory` tool: read and write persistent memory.
 ///
-/// Uses the same `FileMemoryProvider` that the agent uses for its system
-/// prompt injection. This tool allows the LLM to save durable facts that
-/// persist across sessions.
+/// Uses the agent's injected memory provider so reads and writes land in the
+/// same backend as the system-prompt injection (Tessera, or files as a
+/// fallback). The agent sets ``provider`` when it starts; direct tool
+/// invocations (tests) fall back to the file provider.
 struct MemoryTool {
 
-    static let entry = ToolEntry(
+    /// The memory provider wired by the agent at startup.
+    static var provider: (any MemoryProvider)?
+
+    /// The file provider used when no provider has been injected.
+    static var fallbackProvider: (any MemoryProvider) = FileMemoryProvider(
+        directory: FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".arc/memories")
+    )
+
+    static var entry = ToolEntry(
         name: "memory",
         toolset: "core",
         description: "Read from or write to persistent memory. "
@@ -31,9 +41,7 @@ struct MemoryTool {
             let action = args["action"] as? String ?? "read"
             let content = args["content"] as? String
 
-            let memoryDir = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".arc/memories")
-            let provider = FileMemoryProvider(directory: memoryDir)
+            let provider = MemoryTool.provider ?? MemoryTool.fallbackProvider
 
             switch action {
             case "add":

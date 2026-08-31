@@ -30,7 +30,7 @@ public struct SessionHandle: Sendable {
 ///
 /// The registry is a routing table that maps session IDs to running
 /// ``SessionAgent`` Services. It is NOT a cache — the agents are live
-/// Services managed by the Service Lifecycle framework. LMDB is the
+/// Services managed by the Service Lifecycle framework. Tessera is the
 /// single source of truth for all durable data.
 ///
 /// ## Profile-Aware Sessions
@@ -51,12 +51,27 @@ public actor SessionRegistry {
         public let provider: String
         public let baseURL: String
         public let apiKey: String
+        /// Tessera storage configuration. When set, sessions and memory are
+        /// persisted to the Tessera server instead of local files.
+        public let tessera: TesseraConfig?
+        /// Whether session transcripts should be persisted each turn (only
+        /// applies when `tessera` is set).
+        public let persistSessions: Bool
 
-        public init(model: String, provider: String, baseURL: String, apiKey: String) {
+        public init(
+            model: String,
+            provider: String,
+            baseURL: String,
+            apiKey: String,
+            tessera: TesseraConfig? = nil,
+            persistSessions: Bool = true
+        ) {
             self.model = model
             self.provider = provider
             self.baseURL = baseURL
             self.apiKey = apiKey
+            self.tessera = tessera
+            self.persistSessions = persistSessions
         }
     }
 

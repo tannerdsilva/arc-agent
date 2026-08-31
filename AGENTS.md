@@ -7,10 +7,10 @@ This project has completed five feature-build phases and is now in **vascular ha
 The core architecture is built and proven:
 - **80 Swift source files** across 12 subsystems
 - **160 tests**, all passing
-- **11 dependencies** (AsyncHTTPClient, ArgumentParser, System, ServiceLifecycle, QuickLMDB, CLMDB, Hummingbird, swift-mcp, swift-nio, swift-nio-extras, swift-http-types)
+- **11 dependencies** (AsyncHTTPClient, ArgumentParser, System, ServiceLifecycle, tessera, Hummingbird, swift-mcp, swift-nio, swift-nio-extras, swift-http-types)
 - **22 registered tools** across 7 toolsets
 - **Full gateway stack** — HTTP server, Telegram adapter, MCP server, session management
-- **LMDB-backed persistence** — per-session `.mdb` files with header/body split
+- **Tessera-backed persistence** — sessions and memory stored as signed NOSTR events through the tessera-client library
 - **Swift-native web UI** — declarative Swift DSL generating HTML/CSS/JS, served from the Hummingbird HTTP server at `GET /ui`. Zero npm, zero hand-written web code.
 
 ## What This Means for an AI Agent Reading This
@@ -43,8 +43,8 @@ When asked to produce code, assume it is:
 | **Tools** — read_file, write_file, terminal, web_search, web_extract, delegation, kanban, memory, skill_view | `Tools/` (14 tools) | Built |
 | **LLM Client** — LLMClient protocol, OpenAICompatibleClient, Message models | `LLM/` (3 files) | Built |
 | **Provider System** — ProviderProfile, BundledProviders, CredentialPool | `Provider/` (3 files) | Built |
-| **Session Management** — SessionStore protocol, LMDBSessionStore (header/body split) | `Session/` + `LMDB/` | Built |
-| **Memory System** — MemoryProvider protocol, LMDBMemoryProvider, FileMemoryProvider | `Memory/` + `LMDB/` | Built |
+| **Session Management** — SessionStore protocol, TesseraSessionStore | `Session/` + `Storage/` | Built |
+| **Memory System** — MemoryProvider protocol, TesseraMemoryProvider, FileMemoryProvider | `Memory/` + `Storage/` | Built |
 | **Skills System** — Skill model, YAML frontmatter parsing, discovery | `Skills/Skill.swift` | Built |
 | **Security** — ApprovalManager, dangerous command detection (Swift Regex) | `Security/ApprovalManager.swift` | Built |
 | **Error Handling** — RetryHandler with exponential backoff + jitter | `ErrorHandling/RetryHandler.swift` | Built |
@@ -54,7 +54,7 @@ When asked to produce code, assume it is:
 | **Cron** — CronScheduler, CronJob, schedule parsing | `Cron/` (2 files) | Built |
 | **Gateway** — GatewayService, HTTPServerService, SessionRegistry, SessionAgent, TelegramAdapter, DeliveryManager, SessionRouter, PlatformAdapter | `Gateway/` (8 files) | Built |
 | **MCP** — MCPServerAdapter, DynamicMCPTool | `Gateway/MCP/` (2 files) | Built |
-| **LMDB** — LMDBWrapper (raw C API), LMDBManager, LMDBSessionStore, LMDBMemoryProvider | `LMDB/` (4 files) | Built |
+| **Tessera** — TesseraConnection (shared tunnel), TesseraSessionStore, TesseraMemoryProvider, TesseraConfig | `Storage/` (4 files) | Built |
 | **Web UI** — View protocol, ViewBuilder, Primitives, Layouts, CSSRule, AppStyles, Scripts, HTMLDocument, ChatViews, Modifiers, ModifiedView, Utilities | `WebUI/` (12 files) | Built |
 | **Bot Mode** — Profile struct, ProfileManager, BotMessagingService, GroupChatRoom, BotViews, BotStyles, BotScripts, ProfileTools | `Profile/` (4 files) + `WebUI/` (3 files) + `Tools/` (1 file) | Built |
 

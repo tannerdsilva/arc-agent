@@ -116,7 +116,7 @@ struct AgentIntegrationTests {
     @Test("completion path: tool call executes against the real registry and answer returns")
     func completionPathExecutesTool() async throws {
         let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-        defer { try? httpClient.shutdown() }
+        defer { httpClient.shutdown() }
 
         let target = FileManager.default.temporaryDirectory
             .appendingPathComponent("arc-agent-test-\(UUID().uuidString).txt")
@@ -139,7 +139,7 @@ struct AgentIntegrationTests {
     @Test("streaming path: deltas stream and tool result reach the final answer")
     func streamingPathExecutesTool() async throws {
         let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-        defer { try? httpClient.shutdown() }
+        defer { httpClient.shutdown() }
 
         let target = FileManager.default.temporaryDirectory
             .appendingPathComponent("arc-agent-stream-\(UUID().uuidString).txt")
@@ -164,7 +164,7 @@ struct AgentIntegrationTests {
     @Test("registry without the requested tool reports an error instead of crashing")
     func missingToolReturnsError() async throws {
         let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-        defer { try? httpClient.shutdown() }
+        defer { httpClient.shutdown() }
 
         // A registry that has NOTHING — the mock will still request read_file.
         let registry = CompileTimeToolRegistry()

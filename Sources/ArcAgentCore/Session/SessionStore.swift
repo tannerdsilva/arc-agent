@@ -37,12 +37,12 @@ public struct Session: Sendable, Codable {
 /// ## Design (Protocols First)
 ///
 /// 1. **Protocol** — ``SessionStore`` (this protocol)
-/// 2. **Concrete types** — ``FileSessionStore``, future ``LMDBSessionStore``
+/// 2. **Concrete types** — ``FileSessionStore``, ``TesseraSessionStore``
 /// 3. **Macros** — None needed
 ///
-/// The protocol is intentionally minimal. The LMDB-backed implementation from
-/// VISION.md will add composite key scans and full-text search, but those are
-/// optimizations, not API changes.
+/// The protocol is intentionally minimal. The Tessera-backed implementation
+/// stores sessions as signed NOSTR events; file storage and Tessera storage
+/// expose the same API.
 public protocol SessionStore: Sendable {
 
     /// Create a new session.
@@ -67,8 +67,8 @@ public protocol SessionStore: Sendable {
 /// A file-based session store that persists sessions as JSON files.
 ///
 /// Each session is stored as a separate JSON file under the sessions directory.
-/// This is a temporary implementation — the LMDB-backed store from VISION.md
-/// will replace it once QuickLMDB is added as a dependency.
+/// This is the no-dependency fallback backend; production deployments use
+/// ``TesseraSessionStore``.
 ///
 /// ## File Layout
 /// ```

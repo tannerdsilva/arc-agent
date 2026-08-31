@@ -93,6 +93,11 @@ public actor ArcAgent: Service {
     private var httpClient: HTTPClient?
     private var messageHistory: [Message]
     private let sessionID: String
+    /// How many messages of `messageHistory` have been persisted to the
+    /// session store. Grows monotonically across turns.
+    private var persistedMessageCount = 0
+    /// Whether the session metadata event has been created in the store.
+    private var sessionCreatedInStore = false
     private let retryHandler = RetryHandler(maxRetries: 3, baseDelay: 1.0)
     /// Circuit breaker for the primary LLM endpoint.
     private let circuitBreaker = CircuitBreaker(label: "primary-llm", threshold: 3, resetTimeout: 30)
@@ -129,6 +134,9 @@ public actor ArcAgent: Service {
             model: config.model,
             httpClient: httpClient
         )
+        // The memory tool writes through the agent's configured provider so
+        // the model reads and writes use the same backend as this agent.
+        MemoryTool.provider = config.memoryProvider
     }
 
     /// Replace the LLM client for this agent.
@@ -174,6 +182,9 @@ public actor ArcAgent: Service {
         ListChildrenTool.manager = delegationManager
         SteerChildTool.manager = delegationManager
         StopChildTool.manager = delegationManager
+
+        // The memory tool writes through the agent's configured provider.
+        MemoryTool.provider = config.memoryProvider
 
         if let q = config.query {
             let response = try await runConversation(message: q)
@@ -301,13 +312,54 @@ public actor ArcAgent: Service {
 
         messageHistory.append(Message(role: .user, content: message))
 
-        logger.info("step: persistSessions is \(config.persistSessions), creating session")
-
         let response = try await runTurnLoop(client: llmClient)
 
-        logger.info("step: persistSessions is \(config.persistSessions), creating session")
+        await persistConversationIfNeeded()
 
         return response
+    }
+
+    /// Persist any messages not yet stored for this session.
+    ///
+    /// The first persist creates the session (metadata + messages in one
+    /// event batch); later turns append new messages and bump the metadata.
+    /// Storage failures are logged but never fail the turn — the agent and
+    /// the conversation must stay alive even if a server is briefly down.
+    private func persistConversationIfNeeded() async {
+        let store = config.sessionStore
+        guard config.persistSessions, messageHistory.count > persistedMessageCount else { return }
+        let history = messageHistory
+        // Guard against the history shrinking (extractive compression
+        // replaces older messages): never index out of range.
+        let newMessages: [Message]
+        if persistedMessageCount < history.count {
+            newMessages = Array(history[persistedMessageCount...])
+        } else {
+            newMessages = []
+        }
+        persistedMessageCount = history.count
+        guard !newMessages.isEmpty else { return }
+
+        do {
+            if !sessionCreatedInStore {
+                try await store.create(Session(
+                    id: sessionID,
+                    createdAt: Date(),
+                    updatedAt: Date(),
+                    model: config.model,
+                    provider: config.provider,
+                    messages: newMessages
+                ))
+                sessionCreatedInStore = true
+            } else {
+                for message in newMessages {
+                    try await store.appendMessage(sessionID: sessionID, message: message)
+                }
+            }
+            logger.info("persisted \(newMessages.count) message(s) to session store")
+        } catch {
+            logger.error("failed to persist conversation to session store: \(error)")
+        }
     }
 
     // MARK: - Token Counting

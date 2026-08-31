@@ -49,8 +49,8 @@ public struct CronJob: Sendable, Codable, Identifiable {
 /// A store for cron jobs.
 ///
 /// ``CronStore`` is a **protocol**. The default implementation is
-/// ``FileCronStore`` (JSON files). An LMDB-backed implementation will
-/// replace it once QuickLMDB is added.
+/// ``FileCronStore`` (JSON files). A Tessera-backed implementation will
+/// follow once the session/memory stores prove out.
 public protocol CronStore: Sendable {
     func save(_ job: CronJob) async throws
     func get(id: String) async throws -> CronJob?
