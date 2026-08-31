@@ -1,5 +1,5 @@
 {
-  "originHash" : "c6a79b339b3fb93b089b7eaeb05972e99fb219bd83981d1827e09edbf9862060",
+  "originHash" : "5cecd210c4cf10479e9bce68c67732fae30c0b39264a64562df689eb50d42125",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -11,12 +11,39 @@
       }
     },
     {
+      "identity" : "clmdb",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tannerdsilva/CLMDB.git",
+      "state" : {
+        "revision" : "4ce5826424f8e65f395efc5b4c611479384722b1",
+        "version" : "0.9.30"
+      }
+    },
+    {
       "identity" : "hummingbird",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/hummingbird-project/hummingbird.git",
       "state" : {
         "revision" : "55bc9025a4825ee2a234b1f82b51b87be6ef74e4",
         "version" : "2.26.0"
+      }
+    },
+    {
+      "identity" : "quicklmdb",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tannerdsilva/QuickLMDB.git",
+      "state" : {
+        "revision" : "980d58655a9535ef8f88e1215f998cf96239b848",
+        "version" : "14.0.0"
+      }
+    },
+    {
+      "identity" : "rawdog",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tannerdsilva/rawdog.git",
+      "state" : {
+        "revision" : "35d9692c8954b96dea288ecd35aa5d0451e0bd5e",
+        "version" : "20.1.0"
       }
     },
     {
@@ -215,6 +242,15 @@
       "state" : {
         "revision" : "9829955b385e5bb88128b73f1b8389e9b9c3191a",
         "version" : "2.11.0"
+      }
+    },
+    {
+      "identity" : "swift-syntax",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-syntax.git",
+      "state" : {
+        "revision" : "4799286537280063c85a32f09884cfbca301b1a1",
+        "version" : "602.0.0"
       }
     },
     {

@@ -1,0 +1,132 @@
+import Foundation
+import Logging
+import NIOCore
+import NIOPosix
+import NIOWebSocket
+import NIOHTTP1
+import ServiceLifecycle
+
+/// A standalone WebSocket server for the ARC Agent web UI.
+///
+/// Runs on a separate port from the HTTP server. The JavaScript runtime
+/// connects to this server for real-time communication.
+///
+/// Uses NIOWebSocket directly — no Hummingbird pipeline integration needed.
+///
+/// ## Concurrency
+///
+/// This is a ``Service`` managed by the gateway's ``ServiceGroup``.
+/// It runs on a single event loop group and accepts WebSocket connections.
+public struct WebSocketServerService: Service {
+    private let host: String
+    private let port: Int
+        private let logger = Logger(label: "com.arc-agent.websocket-server")
+    private let handlerFactory: @Sendable (String, SessionRegistry) -> WebSocketHandler
+    private let registry: SessionRegistry
+
+    /// Create a WebSocket server service.
+    /// - Parameters:
+    ///   - host: Host to bind to.
+    ///   - port: Port to listen on.
+    ///   - handlerFactory: Factory that creates a ``WebSocketHandler`` for each connection.
+    public init(
+        host: String = "127.0.0.1",
+        port: Int,
+        registry: SessionRegistry,
+        handlerFactory: @escaping @Sendable (String, SessionRegistry) -> WebSocketHandler
+    ) {
+        self.host = host
+        self.port = port
+        self.registry = registry
+        self.handlerFactory = handlerFactory
+    }
+
+    public func run() async throws {
+        let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { eventLoopGroup.shutdownGracefully { _ in } }
+
+        let upgrader = NIOWebSocketServerUpgrader(
+            shouldUpgrade: { channel, head in
+                channel.eventLoop.makeSucceededFuture([:])
+            },
+            upgradePipelineHandler: { channel, head in
+                let sessionID = UUID().uuidString
+                let handler = self.handlerFactory(sessionID, self.registry)
+
+                return channel.pipeline.addHandler(WebSocketFrameHandler(handler: handler)).flatMap {
+                    Task { await handler.setChannel(channel) }
+                    return channel.eventLoop.makeSucceededFuture(Void())
+                }
+            }
+        )
+
+        let bootstrap = ServerBootstrap(group: eventLoopGroup)
+            .serverChannelOption(ChannelOptions.backlog, value: 256)
+            .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
+            .childChannelInitializer { channel in
+                let upgrade: NIOHTTPServerUpgradeSendableConfiguration = (
+                    upgraders: [upgrader],
+                    completionHandler: { _ in }
+                )
+                return channel.pipeline.configureHTTPServerPipeline(
+                    withServerUpgrade: upgrade
+                )
+            }
+
+        let channel = try await bootstrap.bind(host: self.host, port: self.port).get()
+        logger.info("Listening on ws://\(self.host):\(self.port)")
+
+        // Wait for the channel to close (service lifecycle handles cancellation)
+        try await channel.closeFuture.get()
+    }
+}
+
+// MARK: - WebSocket Frame Handler
+
+/// Handles WebSocket frames after the upgrade is complete.
+final class WebSocketFrameHandler: ChannelInboundHandler {
+    typealias InboundIn = WebSocketFrame
+    typealias OutboundOut = WebSocketFrame
+
+    private let handler: WebSocketHandler
+
+    init(handler: WebSocketHandler) {
+        self.handler = handler
+    }
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        let frame = unwrapInboundIn(data)
+
+        switch frame.opcode {
+        case .text:
+            var data = frame.unmaskedData
+            guard let text = data.readString(length: data.readableBytes) else { return }
+            // Forward to the handler actor for processing
+            Task { [handler] in
+                await handler.handleInbound(text)
+            }
+
+        case .connectionClose:
+            _ = context.close()
+
+        case .ping:
+            var buffer = context.channel.allocator.buffer(capacity: 0)
+            let pongFrame = WebSocketFrame(fin: true, opcode: .pong, data: buffer)
+            context.writeAndFlush(wrapOutboundOut(pongFrame), promise: nil)
+
+        case .pong:
+            break
+
+        default:
+            break
+        }
+    }
+
+    func channelInactive(context: ChannelHandlerContext) {
+        context.fireChannelInactive()
+    }
+
+    func errorCaught(context: ChannelHandlerContext, error: Error) {
+        context.close(promise: nil)
+    }
+}
