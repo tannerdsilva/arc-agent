@@ -9,8 +9,7 @@ import Foundation
 /// Tessera server when Tessera storage is configured, and to a JSON index
 /// file under `~/.arc/profiles/index.json` otherwise:
 /// - Profile index in Tessera (`arc/p/<name>/<seq>`) or `index.json`
-/// - Per-profile memory in `profiles/<name>/memory.mdb`
-/// - Per-profile sessions in `profiles/<name>/sessions/<id>.mdb`
+/// - Per-profile canonical bot-chat id in `profiles/<name>/canonical_chat.txt`
 ///
 /// ## Law of the Land
 ///
@@ -33,19 +32,9 @@ public actor ProfileManager {
         "\(profilesDir)/index.json"
     }
 
-    /// Path to a profile's memory.mdb file.
-    public static func memoryPath(for profile: String) -> String {
-        "\(profilesDir)/\(profile)/memory.mdb"
-    }
-
     /// Path to a profile's sessions directory.
     public static func sessionsDir(for profile: String) -> String {
         "\(profilesDir)/\(profile)/sessions"
-    }
-
-    /// Path to a profile's session .mdb file.
-    public static func sessionPath(for profile: String, sessionID: String) -> String {
-        "\(sessionsDir(for: profile))/\(sessionID).mdb"
     }
 
     /// Path to a profile's config overrides file.

@@ -36,9 +36,11 @@ public struct AvatarConfig: Codable, Sendable, Equatable {
 /// ## Design
 ///
 /// - `Profile` is a value type (`Codable` + `Sendable`).
-/// - The profile index lives in `global.mdb` (database: `profiles`).
-/// - Per-profile memory lives in `profiles/<name>/memory.mdb`.
-/// - Per-profile sessions live in `profiles/<name>/sessions/<id>.mdb`.
+/// - The profile index lives in Tessera as kind-3004 events
+///   (`arc/p/<name>/<seq>`) when tessera is configured, or in
+///   `~/.arc/profiles/index.json` otherwise.
+/// - Each profile has a filesystem directory under `~/.arc/profiles/<name>/`
+///   (e.g. its canonical bot-chat id in `canonical_chat.txt`).
 /// - The `"default"` profile is the backward-compatible primary agent.
 public struct Profile: Codable, Sendable, Identifiable, Equatable {
     /// Unique profile name (lowercase, alphanumeric + hyphens).
