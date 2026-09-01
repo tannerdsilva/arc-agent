@@ -362,6 +362,60 @@ private final class ArcModel: TesseraModel<StringContent> {
         super.init()
         subscriptionIDs = TesseraConnection.subscriptionIDs
     }
+
+    /// Serializes access to the decoded-event storage.
+    ///
+    /// The receiver writes into the model from its NIO pipeline thread while
+    /// connection methods (``snapshot``/``globalMaxSequence``/``deleteAll``)
+    /// read from the actor. Iterating a dictionary that another thread is
+    /// mutating is a data race — the ObjC-bridged `NSDictionary` raises
+    /// `NSInvalidArgumentException` mid-enumeration (observed as a hard
+    /// crash of the whole process on a live turn). The backing stores are
+    /// only touched under this lock, and every read hands out an independent
+    /// CoW copy, so readers always iterate a private snapshot.
+    private let storageLock = NSLock()
+    private var storage: [NOSTR_id: UnsignedEvent<StringContent>] = [:]
+    private var latestByKey: [ReplaceableKey: NOSTR_id] = [:]
+    private var historyByKey: [ReplaceableKey: [NOSTR_id]] = [:]
+
+    override var modelStorage: [NOSTR_id: UnsignedEvent<StringContent>] {
+        get {
+            storageLock.lock()
+            defer { storageLock.unlock() }
+            return storage
+        }
+        set {
+            storageLock.lock()
+            defer { storageLock.unlock() }
+            storage = newValue
+        }
+    }
+
+    override var latestByReplaceableKey: [ReplaceableKey: NOSTR_id] {
+        get {
+            storageLock.lock()
+            defer { storageLock.unlock() }
+            return latestByKey
+        }
+        set {
+            storageLock.lock()
+            defer { storageLock.unlock() }
+            latestByKey = newValue
+        }
+    }
+
+    override var historyByReplaceableKey: [ReplaceableKey: [NOSTR_id]] {
+        get {
+            storageLock.lock()
+            defer { storageLock.unlock() }
+            return historyByKey
+        }
+        set {
+            storageLock.lock()
+            defer { storageLock.unlock() }
+            historyByKey = newValue
+        }
+    }
 }
 
 // MARK: - EOSE tracking
