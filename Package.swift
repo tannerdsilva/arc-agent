@@ -102,3 +102,9 @@ let package = Package(
         ),
     ]
 )
+
+// Library product so external packages (e.g. the no-webui-based webui) can
+// embed ArcAgentCore in-process.
+package.products = [
+    .library(name: "ArcAgentCore", targets: ["ArcAgentCore"]),
+]
