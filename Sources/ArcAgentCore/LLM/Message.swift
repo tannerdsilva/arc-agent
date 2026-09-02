@@ -39,6 +39,14 @@ public struct Message: Sendable, Codable, Equatable {
     /// legacy messages and models that do not expose reasoning.
     public let reasoning: String?
 
+    /// Real token usage reported by the API for this message (assistant role
+    /// only). nil for legacy messages and messages without a usage report.
+    public let usage: Usage?
+
+    /// Tokens per second for this reply (assistant role only), computed as
+    /// output tokens / wall-clock duration. nil when unknown.
+    public let tps: Double?
+
     public init(
         role: Role,
         content: String? = nil,
@@ -46,7 +54,9 @@ public struct Message: Sendable, Codable, Equatable {
         toolCalls: [ToolCall]? = nil,
         toolCallID: String? = nil,
         createdAt: Date? = nil,
-        reasoning: String? = nil
+        reasoning: String? = nil,
+        usage: Usage? = nil,
+        tps: Double? = nil
     ) {
         self.role = role
         self.content = content
@@ -55,6 +65,8 @@ public struct Message: Sendable, Codable, Equatable {
         self.toolCallID = toolCallID
         self.createdAt = createdAt
         self.reasoning = reasoning
+        self.usage = usage
+        self.tps = tps
     }
 }
 

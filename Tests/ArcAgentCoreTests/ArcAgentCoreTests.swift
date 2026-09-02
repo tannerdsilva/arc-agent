@@ -283,6 +283,24 @@ func llmDeltaCreation() {
     #expect(delta.usage == nil)
 }
 
+@Test("Message persists usage and tps, legacy JSON decodes nil")
+func messageUsageAndTpsCoding() throws {
+    let usage = Usage(promptTokens: 101, completionTokens: 20, totalTokens: 121)
+    let m = Message(role: .assistant, content: "Hi", createdAt: Date(),
+                    reasoning: "think", usage: usage, tps: 12.5)
+    let data = try JSONEncoder().encode(m)
+    let back = try JSONDecoder().decode(Message.self, from: data)
+    #expect(back.usage == usage)
+    #expect(back.tps == 12.5)
+
+    // A message without the new keys (legacy stored conversations) still
+    // decodes: synthesized decode uses decodeIfPresent for optionals.
+    let legacy = #"{"role":"assistant","content":"old","toolCalls":null,"toolCallID":null,"createdAt":null,"name":null,"reasoning":null}"#
+    let old = try JSONDecoder().decode(Message.self, from: Data(legacy.utf8))
+    #expect(old.usage == nil)
+    #expect(old.tps == nil)
+}
+
 // =========================================================================
 // MARK: - Provider System
 // =========================================================================
