@@ -170,6 +170,11 @@ public struct OpenAICompatibleClient: LLMClient {
         if let effort = reasoningEffort, !effort.isEmpty {
             body["reasoning_effort"] = effort
         }
+        // Ask for usage in stream chunks: OpenAI-compatible servers only emit
+        // a final `usage` block when `stream_options.include_usage` is set.
+        if stream {
+            body["stream_options"] = ["include_usage": true]
+        }
 
         // Attach tools if provided
         if let tools, !tools.isEmpty {
@@ -355,11 +360,6 @@ public struct OpenAICompatibleClient: LLMClient {
                     usage: usage
                 )
                 continuation.yield(delta)
-
-                if finishReason != nil {
-                    continuation.finish()
-                    return
-                }
             }
         }
         continuation.finish()

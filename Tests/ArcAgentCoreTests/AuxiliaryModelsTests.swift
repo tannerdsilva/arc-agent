@@ -129,6 +129,35 @@ struct AuxiliaryModelsTests {
         #expect(cfg.auxiliary.override(for: .vision) == nil)
         #expect(cfg.auxiliary.resolved(for: .triageSpecifier, over: cfg.model).model == "x")
     }
+
+    @Test("the live ~/.arc/config.json maps aux tasks to the Hermes oMLX layout")
+    func liveConfigMirrorsHermes() throws {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".arc/config.json")
+        guard FileManager.default.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              let cfg = try? JSONDecoder().decode(ArcConfig.self, from: data)
+        else { return }  // no local config: nothing to assert
+
+        let main = cfg.model
+
+        // compression -> the Qwen model
+        let comp = cfg.auxiliary.resolved(for: .compression, over: main)
+        #expect(comp.model == "Qwen3.6-35B-A3B-OptiQ-4bit")
+
+        // everything else Hermes routes to LFM2
+        for task in [AuxiliaryTask.webExtract, .approval, .mcp, .titleGeneration,
+                     .ttsAudioTags, .triageSpecifier, .kanbanDecomposer,
+                     .profileDescriber, .curator, .skillsHub] {
+            let r = cfg.auxiliary.resolved(for: task, over: main)
+            #expect(r.model == "LFM2.5-8B-A1B-MLX-bf16", "\(task.key) should route to LFM2")
+            #expect(r.baseURL == "http://127.0.0.1:8000/v1", "\(task.key) should hit local oMLX")
+        }
+
+        // main model stays the remote deepseek box; vision is unset (nothing)
+        #expect(main.defaultModel == "deepseek-v4-flash")
+        #expect(cfg.auxiliary.override(for: .vision) == nil)
+    }
 }
 
 @Suite("Approval smart mode")
