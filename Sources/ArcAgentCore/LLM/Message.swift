@@ -3,6 +3,8 @@
 /// Mirrors the OpenAI Chat Completions message format. Each message has a
 /// ``Role`` and optional content. Assistant messages may also carry tool call
 /// requests, and tool messages carry the result of a tool execution.
+import Foundation
+
 public struct Message: Sendable, Codable, Equatable {
 
     /// The role of the message author.
@@ -28,18 +30,24 @@ public struct Message: Sendable, Codable, Equatable {
     /// The ID of the tool call this message is responding to (tool role only).
     public let toolCallID: String?
 
+    /// The moment this message was created. Used by UIs for send-time
+    /// timestamps; nil for legacy stored conversations.
+    public let createdAt: Date?
+
     public init(
         role: Role,
         content: String? = nil,
         name: String? = nil,
         toolCalls: [ToolCall]? = nil,
-        toolCallID: String? = nil
+        toolCallID: String? = nil,
+        createdAt: Date? = nil
     ) {
         self.role = role
         self.content = content
         self.name = name
         self.toolCalls = toolCalls
         self.toolCallID = toolCallID
+        self.createdAt = createdAt
     }
 }
 
