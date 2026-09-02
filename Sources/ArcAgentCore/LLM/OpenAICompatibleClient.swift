@@ -308,9 +308,24 @@ public struct OpenAICompatibleClient: LLMClient {
                 }
 
                 guard let jsonData = data.data(using: .utf8),
-                      let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                      let choice = (json["choices"] as? [[String: Any]])?.first
+                      let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any]
                 else { continue }
+
+                // Some servers send a trailing chunk carrying only `usage`
+                // (no choices) — surface it so consumers can account tokens.
+                let usage = (json["usage"] as? [String: Any]).map { raw in
+                    Usage(
+                        promptTokens: raw["prompt_tokens"] as? Int ?? 0,
+                        completionTokens: raw["completion_tokens"] as? Int ?? 0,
+                        totalTokens: raw["total_tokens"] as? Int ?? 0
+                    )
+                }
+                guard let choice = (json["choices"] as? [[String: Any]])?.first else {
+                    if let usage {
+                        continuation.yield(LLMDelta(content: nil, usage: usage))
+                    }
+                    continue
+                }
 
                 let rawDelta = choice["delta"] as? [String: Any] ?? [:]
                 let finishReason = choice["finish_reason"] as? String
@@ -336,7 +351,8 @@ public struct OpenAICompatibleClient: LLMClient {
                     content: content,
                     toolCalls: toolCallDeltas,
                     finishReason: finishReason,
-                    reasoning: reasoning
+                    reasoning: reasoning,
+                    usage: usage
                 )
                 continuation.yield(delta)
 

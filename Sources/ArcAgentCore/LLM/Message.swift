@@ -143,12 +143,16 @@ public struct LLMDelta: Sendable {
     public let finishReason: String?
     /// Thinking/reasoning text delta (assistant only; DeepSeek `reasoning_content`).
     public let reasoning: String?
+    /// Real usage from the API, when the server includes it (OpenAI-compatible
+    /// servers typically attach `usage` to the final stream chunk).
+    public let usage: Usage?
 
-    public init(content: String?, toolCalls: [ToolCallDelta]? = nil, finishReason: String? = nil, reasoning: String? = nil) {
+    public init(content: String?, toolCalls: [ToolCallDelta]? = nil, finishReason: String? = nil, reasoning: String? = nil, usage: Usage? = nil) {
         self.content = content
         self.toolCalls = toolCalls
         self.finishReason = finishReason
         self.reasoning = reasoning
+        self.usage = usage
     }
 }
 

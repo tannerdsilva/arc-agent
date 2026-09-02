@@ -271,6 +271,16 @@ func llmDeltaCreation() {
     let delta = LLMDelta(content: "Hello", finishReason: nil)
     #expect(delta.content == "Hello")
     #expect(delta.finishReason == nil)
+    let withUsage = LLMDelta(
+        content: "Hi",
+        finishReason: "stop",
+        usage: Usage(promptTokens: 10, completionTokens: 5, totalTokens: 15)
+    )
+    #expect(withUsage.usage?.promptTokens == 10)
+    #expect(withUsage.usage?.completionTokens == 5)
+    #expect(withUsage.usage?.totalTokens == 15)
+    // default nil keeps old call sites compiling and old behavior
+    #expect(delta.usage == nil)
 }
 
 // =========================================================================
