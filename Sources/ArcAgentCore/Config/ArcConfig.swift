@@ -56,6 +56,12 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// server instead of local files.
     public var tessera: TesseraConfig?
 
+    /// Hermes-parity auxiliary-model overrides (`auxiliary.<task>`), routing
+    /// secondary tasks (vision, web extract, compression, approval, titles, …)
+    /// to dedicated model configurations. Tasks without an override use the
+    /// main model.
+    public var auxiliary: AuxiliaryModelSet
+
     // MARK: - Init
 
     public init(
@@ -65,7 +71,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         delegation: DelegationConfig = DelegationConfig(),
         memory: MemoryConfig = MemoryConfig(),
         security: SecurityConfig = SecurityConfig(),
-        tessera: TesseraConfig? = nil
+        tessera: TesseraConfig? = nil,
+        auxiliary: AuxiliaryModelSet = AuxiliaryModelSet()
     ) {
         self.model = model
         self.agent = agent
@@ -74,6 +81,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.memory = memory
         self.security = security
         self.tessera = tessera
+        self.auxiliary = auxiliary
     }
 
     /// Decode each section independently, defaulting any that are absent.
@@ -86,6 +94,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.memory = try container.decodeIfPresent(MemoryConfig.self, forKey: .memory) ?? MemoryConfig()
         self.security = try container.decodeIfPresent(SecurityConfig.self, forKey: .security) ?? SecurityConfig()
         self.tessera = try container.decodeIfPresent(TesseraConfig.self, forKey: .tessera)
+        self.auxiliary = try container.decodeIfPresent(AuxiliaryModelSet.self, forKey: .auxiliary) ?? AuxiliaryModelSet()
     }
 }
 
