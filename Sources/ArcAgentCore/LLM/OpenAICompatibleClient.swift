@@ -290,6 +290,10 @@ public struct OpenAICompatibleClient: LLMClient {
                 let finishReason = choice["finish_reason"] as? String
 
                 let content = rawDelta["content"] as? String
+                // DeepSeek streams chain-of-thought as `reasoning_content`;
+                // some OpenAI-compatible servers use `reasoning`.
+                let reasoning = rawDelta["reasoning_content"] as? String
+                    ?? rawDelta["reasoning"] as? String
                 let toolCallDeltas = (rawDelta["tool_calls"] as? [[String: Any]])?.map { tcDelta -> ToolCallDelta in
                     let index = tcDelta["index"] as? Int ?? 0
                     let id = tcDelta["id"] as? String
@@ -305,7 +309,8 @@ public struct OpenAICompatibleClient: LLMClient {
                 let delta = LLMDelta(
                     content: content,
                     toolCalls: toolCallDeltas,
-                    finishReason: finishReason
+                    finishReason: finishReason,
+                    reasoning: reasoning
                 )
                 continuation.yield(delta)
 

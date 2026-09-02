@@ -34,13 +34,19 @@ public struct Message: Sendable, Codable, Equatable {
     /// timestamps; nil for legacy stored conversations.
     public let createdAt: Date?
 
+    /// Hidden chain-of-thought / reasoning text (assistant role only), set when
+    /// the model streams it (e.g. DeepSeek's `reasoning_content`). nil for
+    /// legacy messages and models that do not expose reasoning.
+    public let reasoning: String?
+
     public init(
         role: Role,
         content: String? = nil,
         name: String? = nil,
         toolCalls: [ToolCall]? = nil,
         toolCallID: String? = nil,
-        createdAt: Date? = nil
+        createdAt: Date? = nil,
+        reasoning: String? = nil
     ) {
         self.role = role
         self.content = content
@@ -48,6 +54,7 @@ public struct Message: Sendable, Codable, Equatable {
         self.toolCalls = toolCalls
         self.toolCallID = toolCallID
         self.createdAt = createdAt
+        self.reasoning = reasoning
     }
 }
 
@@ -134,11 +141,14 @@ public struct LLMDelta: Sendable {
     public let toolCalls: [ToolCallDelta]?
     /// The finish reason, if this is the final chunk.
     public let finishReason: String?
+    /// Thinking/reasoning text delta (assistant only; DeepSeek `reasoning_content`).
+    public let reasoning: String?
 
-    public init(content: String?, toolCalls: [ToolCallDelta]? = nil, finishReason: String? = nil) {
+    public init(content: String?, toolCalls: [ToolCallDelta]? = nil, finishReason: String? = nil, reasoning: String? = nil) {
         self.content = content
         self.toolCalls = toolCalls
         self.finishReason = finishReason
+        self.reasoning = reasoning
     }
 }
 
