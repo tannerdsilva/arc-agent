@@ -77,11 +77,21 @@ public struct OpenAICompatibleClient: LLMClient {
 
     // MARK: - LLMClient
 
+    /// Plain two-argument form (protocol witness): delegates to the
+    /// reasoning-effort variant with no effort.
     public func complete(
         messages: [Message],
         tools: [[String: Any]]?
     ) async throws -> LLMResponse {
-        let body = try buildRequestBody(messages: messages, tools: tools, stream: false)
+        try await complete(messages: messages, tools: tools, reasoningEffort: nil)
+    }
+
+    public func complete(
+        messages: [Message],
+        tools: [[String: Any]]?,
+        reasoningEffort: String? = nil
+    ) async throws -> LLMResponse {
+        let body = try buildRequestBody(messages: messages, tools: tools, stream: false, reasoningEffort: reasoningEffort)
         let response = try await sendRequest(body: body)
 
         guard let json = try JSONSerialization.jsonObject(with: response) as? [String: Any] else {
@@ -91,9 +101,19 @@ public struct OpenAICompatibleClient: LLMClient {
         return try parseResponse(json: json)
     }
 
+    /// Plain two-argument form (protocol witness): delegates to the
+    /// reasoning-effort variant with no effort.
     public func stream(
         messages: [Message],
         tools: [[String: Any]]?
+    ) -> AsyncThrowingStream<LLMDelta, Error> {
+        stream(messages: messages, tools: tools, reasoningEffort: nil)
+    }
+
+    public func stream(
+        messages: [Message],
+        tools: [[String: Any]]?,
+        reasoningEffort: String? = nil
     ) -> AsyncThrowingStream<LLMDelta, Error> {
         // Serialize tools to Data before entering the closure to avoid
         // capturing non-Sendable types across a Task boundary.
@@ -112,9 +132,9 @@ public struct OpenAICompatibleClient: LLMClient {
                         guard let decoded = try JSONSerialization.jsonObject(with: toolsData) as? [[String: Any]] else {
                             throw LLMError.decodingError("Failed to re-decode tools data")
                         }
-                        body = try buildRequestBody(messages: messages, tools: decoded, stream: true)
+                        body = try buildRequestBody(messages: messages, tools: decoded, stream: true, reasoningEffort: reasoningEffort)
                     } else {
-                        body = try buildRequestBody(messages: messages, tools: nil, stream: true)
+                        body = try buildRequestBody(messages: messages, tools: nil, stream: true, reasoningEffort: reasoningEffort)
                     }
                     try await streamRequest(body: body, continuation: continuation)
                 } catch {
@@ -129,7 +149,8 @@ public struct OpenAICompatibleClient: LLMClient {
     private func buildRequestBody(
         messages: [Message],
         tools: [[String: Any]]?,
-        stream: Bool
+        stream: Bool,
+        reasoningEffort: String? = nil
     ) throws -> Data {
         var body: [String: Any] = [
             "model": model,
@@ -144,6 +165,11 @@ public struct OpenAICompatibleClient: LLMClient {
         if let stop = defaultParameters.stop { body["stop"] = stop }
         if let presencePenalty = defaultParameters.presencePenalty { body["presence_penalty"] = presencePenalty }
         if let frequencyPenalty = defaultParameters.frequencyPenalty { body["frequency_penalty"] = frequencyPenalty }
+        // Reasoning effort (Hermes parity: off omits the field; low/medium/
+        // high/max are sent through for providers that honor reasoning_effort).
+        if let effort = reasoningEffort, !effort.isEmpty {
+            body["reasoning_effort"] = effort
+        }
 
         // Attach tools if provided
         if let tools, !tools.isEmpty {
