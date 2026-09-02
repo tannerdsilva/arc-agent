@@ -58,14 +58,33 @@ public actor ApprovalManager {
     /// The approval mode, frozen at initialization.
     public let mode: ApprovalMode
 
+    /// Optional LLM risk classifier (Hermes "smart command approval"),
+    /// injected by the agent and fed by the `approval` auxiliary model.
+    /// A nil result means "classifier unavailable" → regex detection is used.
+    private var classifier: (@Sendable (String) async -> DangerLevel?)?
+
     /// Per-session approval state.
     private var sessionStates: [String: SessionApprovalState] = [:]
 
     /// Create an approval manager.
     ///
-    /// - Parameter mode: The approval mode. Defaults to `.manual`.
-    public init(mode: ApprovalMode = .manual) {
+    /// - Parameters:
+    ///   - mode: The approval mode. Defaults to `.manual`.
+    ///   - classifier: Optional LLM classifier used by `.smart` mode to
+    ///     classify command risk. When nil (or when it returns nil), the
+    ///     built-in regex detector stands in.
+    public init(
+        mode: ApprovalMode = .manual,
+        classifier: (@Sendable (String) async -> DangerLevel?)? = nil
+    ) {
         self.mode = mode
+        self.classifier = classifier
+    }
+
+    /// Assign the LLM classifier after initialization (used by the agent to
+    /// wire smart approval without capturing `self` mid-init).
+    public func setClassifier(_ classifier: @escaping @Sendable (String) async -> DangerLevel?) {
+        self.classifier = classifier
     }
 
     /// Check whether an action needs approval.
@@ -81,7 +100,7 @@ public actor ApprovalManager {
         case .manual:
             return await detectDangerLevel(command) >= .dangerous
         case .smart:
-            return await detectDangerLevel(command) >= .dangerous
+            return await smartLevel(command) >= .dangerous
         }
     }
 
@@ -105,9 +124,9 @@ public actor ApprovalManager {
             // In a CLI context, this would prompt the user.
             return .requiresReview
         case .smart:
-            // Smart mode uses an auxiliary LLM call to classify risk.
-            // For now, fall back to requiresReview for dangerous commands.
-            let level = await detectDangerLevel(command)
+            // Smart mode uses the configured auxiliary "approval" LLM when
+            // available; the regex detector is the fallback.
+            let level = await smartLevel(command)
             if level >= .critical {
                 return .denied
             }
@@ -116,6 +135,17 @@ public actor ApprovalManager {
             }
             return .approved
         }
+    }
+
+    /// Smart-mode risk level: LLM classifier first, regex detector as the
+    /// fallback (classifier nil, or the call failed).
+    private func smartLevel(_ command: String) async -> DangerLevel {
+        if let classifier {
+            if let level = await classifier(command) {
+                return level
+            }
+        }
+        return await detectDangerLevel(command)
     }
 }
 

@@ -52,6 +52,9 @@ public actor ArcAgent: Service {
         public var query: String?
         /// Approximate max context tokens before auto-compression.
         public var maxContextTokens: Int
+        /// Hermes-parity auxiliary-model overrides (`auxiliary.<task>`), used
+        /// for smart approval, LLM compression, and task routing.
+        public var auxiliary: AuxiliaryModelSet
 
         public init(
             model: String,
@@ -67,7 +70,8 @@ public actor ArcAgent: Service {
             persistSessions: Bool = true,
             approvalMode: ApprovalMode = .manual,
             query: String? = nil,
-            maxContextTokens: Int = 64_000
+            maxContextTokens: Int = 64_000,
+            auxiliary: AuxiliaryModelSet = AuxiliaryModelSet()
         ) {
             self.model = model
             self.provider = provider
@@ -83,6 +87,7 @@ public actor ArcAgent: Service {
             self.approvalMode = approvalMode
             self.query = query
             self.maxContextTokens = maxContextTokens
+            self.auxiliary = auxiliary
         }
     }
 
@@ -91,6 +96,7 @@ public actor ArcAgent: Service {
     private let config: Configuration
     private var llmClient: (any LLMClient)?
     private var httpClient: HTTPClient?
+    private var auxRouter: AuxiliaryModelRouter?
     private var messageHistory: [Message]
     private let sessionID: String
     /// How many messages of `messageHistory` have been persisted to the
@@ -118,14 +124,68 @@ public actor ArcAgent: Service {
         self.config = config
         self.messageHistory = []
         self.sessionID = UUID().uuidString
+        // The smart-approval classifier is wired from `wireSmartApproval()`
+        // (once the agent's own state is fully initialized).
         self.approvalManager = ApprovalManager(mode: config.approvalMode)
         self.delegationManager = DelegationManager(maxChildren: 10)
+    }
+
+    /// Wire the `approval` auxiliary model into smart approval mode.
+    private func wireSmartApproval() async {
+        guard config.approvalMode == .smart else { return }
+        await approvalManager.setClassifier { [weak self] command in
+            guard let self else { return nil }
+            return await self.classifyApprovalRisk(command)
+        }
+    }
+
+    /// Smart-approval risk classification via the `approval` auxiliary model.
+    /// Returns nil when no approval override is configured or the call fails,
+    /// letting the regex detector stand in.
+    private func classifyApprovalRisk(_ command: String) async -> DangerLevel? {
+        guard let router = auxRouter, router.hasOverride(.approval) else { return nil }
+        guard let hc = httpClient,
+              let client = router.makeClient(task: .approval, httpClient: hc) else { return nil }
+        let prompt = """
+        You classify shell commands for an autonomous coding agent. Reply with exactly one word from: safe, suspicious, dangerous, critical. Consider destructive or exfiltrating operations (rm -rf, mkfs, dd, diskutil erase, curl | sh) critical or dangerous.
+
+        Command: \(command)
+        """
+        do {
+            let resp = try await client.complete(
+                messages: [Message(role: .user, content: prompt)],
+                tools: nil,
+                reasoningEffort: nil
+            )
+            let low = (resp.content ?? "").lowercased()
+            if low.contains("critical") { return .critical }
+            if low.contains("danger") { return .dangerous }
+            if low.contains("suspicious") { return .suspicious }
+            return .safe
+        } catch {
+            return nil
+        }
+    }
+
+    /// Build the auxiliary-model router once a client HTTP stack exists.
+    private func makeAuxRouter() {
+        auxRouter = AuxiliaryModelRouter(
+            set: config.auxiliary,
+            main: ModelConfig(
+                defaultModel: config.model,
+                provider: config.provider,
+                baseURL: config.baseURL.absoluteString
+            ),
+            mainAPIKey: config.apiKey
+        )
     }
 
     /// Set up the LLM client for gateway use (without calling `run()`).
     /// The caller owns the HTTPClient lifecycle.
     func setupClient(httpClient: HTTPClient) async {
         self.httpClient = httpClient
+        makeAuxRouter()
+        await wireSmartApproval()
         let pool = CredentialPool(credentials: [config.apiKey])
         let resolvedKey = await pool.acquireLease() ?? config.apiKey
         self.llmClient = OpenAICompatibleClient(
@@ -164,6 +224,8 @@ public actor ArcAgent: Service {
     public func run() async throws {
         let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
         self.httpClient = httpClient
+        makeAuxRouter()
+        await wireSmartApproval()
 
         // Wire the credential pool (no longer dead code)
         let pool = CredentialPool(credentials: [config.apiKey])
@@ -373,7 +435,7 @@ public actor ArcAgent: Service {
     }
 
     /// Auto-compress history if estimated tokens exceed the configured limit.
-    private func autoCompressIfNeeded() {
+    private func autoCompressIfNeeded() async {
         let estimated = estimateHistoryTokens()
         guard estimated > config.maxContextTokens else { return }
 
@@ -393,8 +455,61 @@ public actor ArcAgent: Service {
             return
         }
 
-        // Extractive compression: concatenate older messages with context markers
-        let compressedContent = compressible.compactMap { msg -> String? in
+        // Hermes-parity compression: when a \`compression\` auxiliary model is
+        // configured, produce a real summary with it; otherwise fall back to
+        // the extractive record (older messages + context markers).
+        let summaryText: String
+        if let summarized = await summarizeForCompression(Array(compressible)) {
+            summaryText = summarized
+        } else {
+            summaryText = Self.compressedRecord(Array(compressible))
+        }
+
+        let summaryMessage = Message(
+            role: .system,
+            content: """
+            The following is a compressed record of earlier conversation context. \
+            Key information, decisions, and facts from these exchanges are preserved below:
+
+            \(summaryText)
+            """
+        )
+
+        messageHistory = systemMessages + [summaryMessage] + Array(recent)
+    }
+
+    /// Attempt an LLM summarization of older messages using the \`compression\`
+    /// auxiliary model. Returns nil when no override is configured or the
+    /// call fails — callers fall back to the extractive record.
+    private func summarizeForCompression(_ messages: [Message]) async -> String? {
+        guard let router = auxRouter, router.hasOverride(.compression) else { return nil }
+        guard let hc = httpClient,
+              let client = router.makeClient(task: .compression, httpClient: hc) else { return nil }
+        let record = Self.compressedRecord(messages)
+        let prompt = """
+        You are the context compressor for a long agent conversation. Produce a dense summary
+        of the conversation excerpts below. Preserve every decision, fact, path, tool result,
+        and instruction verbatim where practical. Target 150-400 words.
+
+        \(record)
+        """
+        do {
+            let resp = try await client.complete(
+                messages: [Message(role: .user, content: prompt)],
+                tools: nil,
+                reasoningEffort: nil
+            )
+            let text = (resp.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : text
+        } catch {
+            return nil
+        }
+    }
+
+    /// Extractive compression record: concatenate older messages with context
+    /// markers (the fallback when no compression auxiliary model is set).
+    private static func compressedRecord(_ messages: [Message]) -> String {
+        messages.compactMap { msg -> String? in
             guard let content = msg.content, !content.isEmpty else { return nil }
             let roleLabel: String
             switch msg.role {
@@ -406,18 +521,6 @@ public actor ArcAgent: Service {
             }
             return "[\(roleLabel)]: \(content)"
         }.joined(separator: "\n\n---\n\n")
-
-        let summaryMessage = Message(
-            role: .system,
-            content: """
-            The following is a compressed record of earlier conversation context. \
-            Key information, decisions, and facts from these exchanges are preserved below:
-
-            \(compressedContent)
-            """
-        )
-
-        messageHistory = systemMessages + [summaryMessage] + Array(recent)
     }
 
     // MARK: - Turn Loop
@@ -433,7 +536,7 @@ public actor ArcAgent: Service {
 
         for iteration in 0..<config.maxIterations {
             // Auto-compress if context is too large
-            autoCompressIfNeeded()
+            await autoCompressIfNeeded()
 
             // 1. Build system prompt with memory and skills (cached)
             let systemPrompt = try await buildSystemPrompt()
@@ -594,7 +697,7 @@ public actor ArcAgent: Service {
         let fallbacks = BundledProviders.resolve(config.provider)?.fallbackModels ?? []
 
         for iteration in 0..<config.maxIterations {
-            autoCompressIfNeeded()
+            await autoCompressIfNeeded()
 
             let systemPrompt = try await buildSystemPrompt()
             var messages: [Message] = [Message(role: .system, content: systemPrompt)]
@@ -819,7 +922,7 @@ public actor ArcAgent: Service {
                         continue
                     }
                 case .contextOverflow:
-                    autoCompressIfNeeded()
+                    await autoCompressIfNeeded()
                     if retryHandler.shouldRetry(attempt) {
                         try await retryHandler.wait(for: attempt)
                         continue
@@ -889,7 +992,7 @@ public actor ArcAgent: Service {
                         continue
                     }
                 case .contextOverflow:
-                    autoCompressIfNeeded()
+                    await autoCompressIfNeeded()
                     if retryHandler.shouldRetry(attempt) {
                         try await retryHandler.wait(for: attempt)
                         continue
