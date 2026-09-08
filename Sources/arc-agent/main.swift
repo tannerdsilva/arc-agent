@@ -51,6 +51,9 @@ struct Chat: AsyncParsableCommand {
     @Option(name: .shortAndLong, help: "API key.")
     var apiKey: String?
 
+    @Option(name: .long, help: "Resume a persisted session by ID.")
+    var session: String?
+
     @Flag(name: .shortAndLong, help: "Enable YOLO mode (no approval prompts).")
     var yolo: Bool = false
 
@@ -113,7 +116,8 @@ struct Chat: AsyncParsableCommand {
             maxIterations: arcConfig.agent.maxIterations,
             persistSessions: arcConfig.agent.persistSessions,
             approvalMode: approvalMode,
-            query: query
+            query: query,
+            sessionID: session
         )
 
         let agent = ArcAgent(config: agentConfig)

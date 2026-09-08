@@ -112,7 +112,8 @@ public actor SessionAgent: Service {
                 persistSessions: agentConfig.tessera != nil ? agentConfig.persistSessions : false,
                 approvalMode: .manual,
                 query: nil,
-                maxContextTokens: 64_000
+                maxContextTokens: 64_000,
+                sessionID: sessionID
             ))
             logger.info("step: setting up client")
             await agent.setupClient(httpClient: httpClient)

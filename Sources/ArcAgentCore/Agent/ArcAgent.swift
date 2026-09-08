@@ -56,6 +56,10 @@ public actor ArcAgent: Service {
         /// for smart approval, LLM compression, and task routing.
         public var auxiliary: AuxiliaryModelSet
 
+        /// The session ID to restore persisted history from. `nil` starts a
+        /// fresh session with a new UUID.
+        public var sessionID: String?
+
         public init(
             model: String,
             provider: String = "openai",
@@ -71,7 +75,8 @@ public actor ArcAgent: Service {
             approvalMode: ApprovalMode = .manual,
             query: String? = nil,
             maxContextTokens: Int = 64_000,
-            auxiliary: AuxiliaryModelSet = AuxiliaryModelSet()
+            auxiliary: AuxiliaryModelSet = AuxiliaryModelSet(),
+            sessionID: String? = nil
         ) {
             self.model = model
             self.provider = provider
@@ -88,6 +93,7 @@ public actor ArcAgent: Service {
             self.query = query
             self.maxContextTokens = maxContextTokens
             self.auxiliary = auxiliary
+            self.sessionID = sessionID
         }
     }
 
@@ -104,6 +110,9 @@ public actor ArcAgent: Service {
     private var persistedMessageCount = 0
     /// Whether the session metadata event has been created in the store.
     private var sessionCreatedInStore = false
+    /// Whether persisted history has been loaded for this session. Guards the
+    /// one-shot restore so repeated turns never re-read the store.
+    private var sessionRestored = false
     private let retryHandler = RetryHandler(maxRetries: 3, baseDelay: 1.0)
     /// Circuit breaker for the primary LLM endpoint.
     private let circuitBreaker = CircuitBreaker(label: "primary-llm", threshold: 3, resetTimeout: 30)
@@ -123,7 +132,7 @@ public actor ArcAgent: Service {
     public init(config: Configuration) {
         self.config = config
         self.messageHistory = []
-        self.sessionID = UUID().uuidString
+        self.sessionID = config.sessionID ?? UUID().uuidString
         // The smart-approval classifier is wired from `wireSmartApproval()`
         // (once the agent's own state is fully initialized).
         self.approvalManager = ApprovalManager(mode: config.approvalMode)
@@ -366,12 +375,37 @@ public actor ArcAgent: Service {
 
     // MARK: - Conversation
 
+    /// Restore persisted history for this session from the session store.
+    ///
+    /// One-shot and best-effort: a configured ``Configuration.sessionID``
+    /// loads the stored messages into ``messageHistory`` so a restarted
+    /// agent continues where it left off. Load failures are logged and the
+    /// agent starts fresh — persistence must never fail a turn.
+    func restoreSessionIfNeeded() async {
+        guard !sessionRestored else { return }
+        sessionRestored = true
+        guard let sid = config.sessionID else { return }
+        do {
+            if let session = try await config.sessionStore.get(id: sid) {
+                messageHistory = session.messages
+                persistedMessageCount = session.messages.count
+                sessionCreatedInStore = true
+                logger.info("restored \(session.messages.count) message(s) for session \(sid)")
+            } else {
+                logger.info("session \(sid) not found in store; starting fresh")
+            }
+        } catch {
+            logger.error("failed to restore session \(sid): \(error)")
+        }
+    }
+
     /// Run a single conversation turn with the given user message.
     func runConversation(message: String) async throws -> String {
         guard let llmClient else {
             return "Error: Agent not started. Call run() first."
         }
 
+        await restoreSessionIfNeeded()
         messageHistory.append(Message(role: .user, content: message))
 
         let response = try await runTurnLoop(client: llmClient)
@@ -533,6 +567,13 @@ public actor ArcAgent: Service {
         var currentClient = client
         var fallbackIndex = 0
         let fallbacks = BundledProviders.resolve(config.provider)?.fallbackModels ?? []
+        var emptyAfterToolsNudges = 0
+        var emptyToolCallsNudges = 0
+        var truncationContinuations = 0
+        /// Whether the *previous* iteration appended tool results — used by
+        /// the empty-response recovery on the following iteration. Persists
+        /// across iterations (per-turn state), not per-iteration.
+        var appendedToolResults = false
 
         for iteration in 0..<config.maxIterations {
             // Auto-compress if context is too large
@@ -582,7 +623,21 @@ public actor ArcAgent: Service {
                 return "Error: \(error.localizedDescription)"
             }
 
-            // 5. Parse response — tool calls take precedence over content.
+            // 5. Truncation recovery — "length"/"max_tokens" means the answer
+            // was cut off. Keep the partial, nudge a bounded continuation,
+            // and loop instead of returning a half answer.
+            let finishReason = response.finishReason ?? ""
+            if (finishReason == "length" || finishReason == "max_tokens"),
+               (response.toolCalls ?? []).isEmpty,
+               let partial = response.content, !partial.isEmpty,
+               truncationContinuations < Self.maxTruncationContinuations {
+                messageHistory.append(Message(role: .assistant, content: partial))
+                messageHistory.append(Message(role: .system, content: Self.truncationNudge))
+                truncationContinuations += 1
+                continue
+            }
+
+            // 6. Parse response — tool calls take precedence over content.
             switch Self.classifyTurn(content: response.content, toolCalls: response.toolCalls) {
             case .text(let content):
                 messageHistory.append(Message(role: .assistant, content: content))
@@ -595,59 +650,38 @@ public actor ArcAgent: Service {
                     toolCalls: toolCalls
                 ))
 
-                for toolCall in toolCalls {
-                    if toolCall.function.name == "terminal" {
-                        let args = toolCall.function.arguments
-                        let needsApproval = await approvalManager.needsApproval(
-                            command: args,
-                            sessionKey: sessionID
-                        )
-                        if needsApproval {
-                            let result = await approvalManager.requestApproval(
-                                command: args,
-                                description: "Execute shell command",
-                                sessionKey: sessionID
-                            )
-                            switch result {
-                            case .denied:
-                                messageHistory.append(Message(
-                                    role: .tool,
-                                    content: "Error: Command blocked by security policy.",
-                                    name: toolCall.function.name,
-                                    toolCallID: toolCall.id
-                                ))
-                                continue
-                            case .requiresReview:
-                                messageHistory.append(Message(
-                                    role: .tool,
-                                    content: "⚠️ Command requires manual approval. "
-                                        + "Run it yourself or disable the approval system.",
-                                    name: toolCall.function.name,
-                                    toolCallID: toolCall.id
-                                ))
-                                continue
-                            case .approved:
-                                break
-                            }
-                        }
-                    }
-
-                    let result = try await dispatchToolCall(toolCall)
-                    await Metrics.shared.recordToolCall()
+                let outcomes = await executeToolCalls(toolCalls)
+                for (call, result) in outcomes {
                     messageHistory.append(Message(
                         role: .tool,
                         content: result,
-                        name: toolCall.function.name,
-                        toolCallID: toolCall.id
+                        name: call.function.name,
+                        toolCallID: call.id
                     ))
                 }
+                appendedToolResults = !outcomes.isEmpty
 
                 continue
 
             case .empty:
-                // Neither real content nor tool calls — reasoning models can
-                // emit a whitespace-only prefix. Loop back for the next turn
-                // (the model will produce real content or a tool call).
+                // Neither real content nor tool calls. Two known model
+                // failures get bounded synthetic nudges before plain
+                // re-prompting: an empty tool-calls array under
+                // finish_reason == "tool_calls", and silence right after
+                // tool results were delivered.
+                if finishReason == "tool_calls",
+                   emptyToolCallsNudges < Self.maxEmptyToolCallsNudges {
+                    messageHistory.append(Message(role: .system, content: Self.emptyToolCallsNudge))
+                    emptyToolCallsNudges += 1
+                    continue
+                }
+                if appendedToolResults,
+                   emptyAfterToolsNudges < Self.maxEmptyAfterToolsNudges {
+                    messageHistory.append(Message(role: .system, content: Self.emptyAfterToolsNudge))
+                    emptyAfterToolsNudges += 1
+                    continue
+                }
+                // Reasoning models can emit a whitespace-only prefix — loop.
                 continue
             }
 
@@ -669,6 +703,7 @@ public actor ArcAgent: Service {
         AsyncThrowingStream { continuation in
             Task {
                 do {
+                    await restoreSessionIfNeeded()
                     messageHistory.append(Message(role: .user, content: message))
                     try await runStreamingTurnLoop(continuation: continuation)
                 } catch {
@@ -695,9 +730,16 @@ public actor ArcAgent: Service {
         )
         var fallbackIndex = 0
         let fallbacks = BundledProviders.resolve(config.provider)?.fallbackModels ?? []
+        var emptyAfterToolsNudges = 0
+        var emptyToolCallsNudges = 0
+        var truncationContinuations = 0
+        /// Whether the *previous* iteration appended tool results (see
+        /// runTurnLoop) — per-turn state that survives the iteration boundary.
+        var appendedToolResults = false
 
         for iteration in 0..<config.maxIterations {
             await autoCompressIfNeeded()
+            var streamFinishReason: String? = nil
 
             let systemPrompt = try await buildSystemPrompt()
             var messages: [Message] = [Message(role: .system, content: systemPrompt)]
@@ -750,7 +792,8 @@ public actor ArcAgent: Service {
                             }
                         }
                     }
-                    if delta.finishReason != nil {
+                    if let finish = delta.finishReason {
+                        streamFinishReason = finish
                         break
                     }
                 }
@@ -774,6 +817,18 @@ public actor ArcAgent: Service {
                 return
             }
 
+            // Truncation recovery (same contract as runTurnLoop).
+            let streamFinish = streamFinishReason ?? ""
+            if (streamFinish == "length" || streamFinish == "max_tokens"),
+               accumulatedToolCalls.isEmpty,
+               !accumulatedContent.isEmpty,
+               truncationContinuations < Self.maxTruncationContinuations {
+                messageHistory.append(Message(role: .assistant, content: accumulatedContent))
+                messageHistory.append(Message(role: .system, content: Self.truncationNudge))
+                truncationContinuations += 1
+                continue
+            }
+
             // Tool calls take precedence over content — classify with the
             // same rules as runTurnLoop (see classifyTurn).
             switch Self.classifyTurn(
@@ -792,19 +847,34 @@ public actor ArcAgent: Service {
                     toolCalls: toolCalls
                 ))
 
-                for toolCall in toolCalls {
-                    let result = try await dispatchToolCall(toolCall)
+                let outcomes = await executeToolCalls(toolCalls)
+                for (call, result) in outcomes {
                     messageHistory.append(Message(
                         role: .tool,
                         content: result,
-                        name: toolCall.function.name,
-                        toolCallID: toolCall.id
+                        name: call.function.name,
+                        toolCallID: call.id
                     ))
-                    continuation.yield("[Tool: \(toolCall.function.name)] \(result)\n")
+                    continuation.yield("[Tool: \(call.function.name)] \(result)\n")
                 }
+                appendedToolResults = !outcomes.isEmpty
                 continue
 
             case .empty:
+                // Bounded nudges for the same two failure modes as
+                // runTurnLoop, then plain re-prompting.
+                if streamFinish == "tool_calls",
+                   emptyToolCallsNudges < Self.maxEmptyToolCallsNudges {
+                    messageHistory.append(Message(role: .system, content: Self.emptyToolCallsNudge))
+                    emptyToolCallsNudges += 1
+                    continue
+                }
+                if appendedToolResults,
+                   emptyAfterToolsNudges < Self.maxEmptyAfterToolsNudges {
+                    messageHistory.append(Message(role: .system, content: Self.emptyAfterToolsNudge))
+                    emptyAfterToolsNudges += 1
+                    continue
+                }
                 // Whitespace-only prefix — keep the loop going.
                 continue
             }
@@ -1009,6 +1079,30 @@ public actor ArcAgent: Service {
 
     // MARK: - Tool Dispatch
 
+    /// Tools that are safe to run concurrently within one batch: read-only,
+    /// no shared mutable state, no side effects observable by a sibling call.
+    static let parallelSafeTools: Set<String> = [
+        "read_file", "web_search", "web_extract", "skill_view",
+        "kanban_list", "kanban_show", "list_profiles", "get_profile",
+    ]
+
+    /// Bounded recovery budgets. Each limits how many times a synthetic nudge
+    /// is injected for a failure mode before the loop falls through to plain
+    /// re-prompting (overall bounded by ``Configuration.maxIterations``).
+    static let maxEmptyAfterToolsNudges = 2
+    static let maxEmptyToolCallsNudges = 3
+    static let maxTruncationContinuations = 2
+
+    /// Nudge injected after tool results produced no response content.
+    static let emptyAfterToolsNudge =
+        "The previous turn ended without any response content. Using the tool results above, provide your answer now."
+    /// Nudge injected when finish_reason is `tool_calls` but no calls arrived.
+    static let emptyToolCallsNudge =
+        "You requested tool calls but did not specify any. Call a tool with valid arguments, or answer directly."
+    /// Nudge injected when output was truncated (finish_reason is "length").
+    static let truncationNudge =
+        "Your previous response was truncated. Continue exactly where it ended, without repeating yourself."
+
     /// The outcome of parsing a single LLM turn.
     ///
     /// Tool calls always take precedence over content: some providers
@@ -1053,6 +1147,91 @@ public actor ArcAgent: Service {
         } catch {
             return "Error executing tool '\(toolCall.function.name)': \(error.localizedDescription)"
         }
+    }
+
+    /// Split a tool-call batch into ordered execution segments: maximal runs
+    /// of parallel-safe calls, with every other call as its own single-call
+    /// segment. Callers execute segments sequentially and the calls within a
+    /// parallel segment concurrently, preserving emission order of results.
+    static func planToolBatch(_ toolCalls: [ToolCall]) -> [[ToolCall]] {
+        var segments: [[ToolCall]] = []
+        var run: [ToolCall] = []
+        for call in toolCalls {
+            if parallelSafeTools.contains(call.function.name) {
+                run.append(call)
+            } else {
+                if !run.isEmpty {
+                    segments.append(run)
+                    run = []
+                }
+                segments.append([call])
+            }
+        }
+        if !run.isEmpty {
+            segments.append(run)
+        }
+        return segments
+    }
+
+    /// Execute a batch of tool calls with a simple planner.
+    ///
+    /// Maximal runs of parallel-safe calls run concurrently in a ``TaskGroup``
+    /// (First Law — no hand-rolled threads); every other call runs alone so
+    /// side effects stay ordered. Results are returned in emission order.
+    private func executeToolCalls(_ toolCalls: [ToolCall]) async -> [(ToolCall, String)] {
+        var outcomes: [(ToolCall, String)] = []
+        for segment in Self.planToolBatch(toolCalls) {
+            if segment.count == 1 {
+                let call = segment[0]
+                outcomes.append((call, await runToolCall(call)))
+                continue
+            }
+            let ordered = await withTaskGroup(of: (Int, String).self) { group in
+                for (index, call) in segment.enumerated() {
+                    group.addTask {
+                        let result = await self.runToolCall(call)
+                        return (index, result)
+                    }
+                }
+                var collected: [(Int, String)] = []
+                for await pair in group {
+                    collected.append(pair)
+                }
+                return collected
+            }
+            outcomes.append(contentsOf: ordered.sorted { $0.0 < $1.0 }.map { (segment[$0.0], $0.1) })
+        }
+        return outcomes
+    }
+
+    /// Run one tool call end to end: terminal approval gate, dispatch, and
+    /// metrics. Returns the string that becomes the tool result message.
+    private func runToolCall(_ toolCall: ToolCall) async -> String {
+        if toolCall.function.name == "terminal" {
+            let args = toolCall.function.arguments
+            if await approvalManager.needsApproval(command: args, sessionKey: sessionID) {
+                switch await approvalManager.requestApproval(
+                    command: args,
+                    description: "Execute shell command",
+                    sessionKey: sessionID
+                ) {
+                case .denied:
+                    return "Error: Command blocked by security policy."
+                case .requiresReview:
+                    return "⚠️ Command requires manual approval. Run it yourself or disable the approval system."
+                case .approved:
+                    break
+                }
+            }
+        }
+        let result: String
+        do {
+            result = try await dispatchToolCall(toolCall)
+        } catch {
+            result = "Error executing tool '\(toolCall.function.name)': \(error.localizedDescription)"
+        }
+        await Metrics.shared.recordToolCall()
+        return result
     }
 
     // MARK: - Prompt Building
