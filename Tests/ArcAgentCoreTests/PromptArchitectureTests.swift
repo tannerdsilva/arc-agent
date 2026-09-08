@@ -307,4 +307,29 @@ struct PromptArchitectureTests {
         let untitled = Session(id: "t2")
         #expect(untitled.title == nil)
     }
+
+    // MARK: - Credential rotation (P3)
+
+    @Test("credential pool round-robins and parks exhausted keys")
+    func credentialRotation() async {
+        let pool = CredentialPool(credentials: ["key-a", "key-b"])
+        #expect(await pool.count == 2)
+        // Round-robin across both keys, then back to the first.
+        let first = await pool.acquireLease()
+        let second = await pool.acquireLease()
+        let third = await pool.acquireLease()
+        #expect(first == "key-a")
+        #expect(second == "key-b")
+        #expect(third == "key-a", "pool must round-robin, not prefer one key")
+
+        // An exhausted (401) key is parked: rotation skips it.
+        await pool.reportExhaustion(key: "key-a")
+        let rotated = await pool.acquireLease()
+        #expect(rotated == "key-b", "exhausted key must be skipped on rotation")
+        #expect(await pool.availableCount == 1)
+
+        // Single-key pool still yields its only key.
+        let single = CredentialPool(credentials: ["only"])
+        #expect(await single.acquireLease() == "only")
+    }
 }
