@@ -155,7 +155,7 @@ struct AuxiliaryModelsTests {
         }
 
         // main model stays the remote deepseek box; vision is unset (nothing)
-        #expect(main.defaultModel == "deepseek-v4-flash")
+        #expect(main.defaultModel == "deepseek-v4-flash-vision-exp")
         #expect(cfg.auxiliary.override(for: .vision) == nil)
     }
 }

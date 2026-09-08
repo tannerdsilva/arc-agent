@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Jobs can be one-shot (ISO timestamp) or recurring (cron expression or
 /// human-readable interval like "30m", "every 2h").
-public struct CronJob: Sendable, Codable, Identifiable {
+public struct CronJob: Sendable, Codable, Equatable, Identifiable {
     /// Unique identifier.
     public let id: String
     /// Human-readable name.
