@@ -113,7 +113,8 @@ public actor SessionAgent: Service {
                 approvalMode: .manual,
                 query: nil,
                 maxContextTokens: 64_000,
-                sessionID: sessionID
+                sessionID: sessionID,
+                platformHint: "gateway"
             ))
             logger.info("step: setting up client")
             await agent.setupClient(httpClient: httpClient)

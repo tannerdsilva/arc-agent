@@ -181,7 +181,8 @@ func parseSkillFile(content: String, path: URL) -> Skill? {
 
 // MARK: - Prompt Index
 
-/// Build a compact skills index for inclusion in the system prompt.
+/// Build a compact, category-grouped skills index for inclusion in the
+/// system prompt (Hermes parity: category headers + one line per skill).
 ///
 /// Each skill is shown as a single line with its name and truncated
 /// description (first 57 characters), matching the Hermes Agent format.
@@ -191,11 +192,16 @@ func parseSkillFile(content: String, path: URL) -> Skill? {
 public func buildSkillsIndex(_ skills: [Skill]) -> String {
     guard !skills.isEmpty else { return "No skills available." }
 
-    return skills.map { skill in
-        let desc = skill.description.count > 57
-            ? String(skill.description.prefix(57)) + "..."
-            : skill.description
-        let category = skill.category.map { "[\($0)] " } ?? ""
-        return "- \(category)`\(skill.name)`: \(desc)"
-    }.joined(separator: "\n")
+    let grouped = Dictionary(grouping: skills) { $0.category ?? "other" }
+    var lines: [String] = []
+    for category in grouped.keys.sorted() {
+        lines.append("### \(category)")
+        for skill in grouped[category]!.sorted(by: { $0.name < $1.name }) {
+            let desc = skill.description.count > 57
+                ? String(skill.description.prefix(57)) + "..."
+                : skill.description
+            lines.append("- `\(skill.name)`: \(desc)")
+        }
+    }
+    return lines.joined(separator: "\n")
 }

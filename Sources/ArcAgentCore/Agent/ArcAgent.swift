@@ -60,6 +60,26 @@ public actor ArcAgent: Service {
         /// fresh session with a new UUID.
         public var sessionID: String?
 
+        /// The model's context length in tokens (used to derive the
+        /// compression threshold; Hermes parity: threshold = context / 2).
+        /// `nil` falls back to ``maxContextTokens``.
+        public var contextLength: Int?
+
+        /// Additional API keys for the same endpoint, tried in order when a
+        /// key returns 401 (CredentialPool rotation).
+        public var fallbackAPIKeys: [String]
+
+        /// Inject project context files (AGENTS.md, .hermes.md, CLAUDE.md,
+        /// .cursorrules) from the working directory into the system prompt.
+        public var injectProjectContext: Bool
+
+        /// Directory scanned for project context files. `nil` = current
+        /// working directory (the default for the CLI).
+        public var contextDirectory: URL?
+
+        /// Platform label for the prompt's session line (Hermes parity).
+        public var platformHint: String
+
         public init(
             model: String,
             provider: String = "openai",
@@ -76,7 +96,12 @@ public actor ArcAgent: Service {
             query: String? = nil,
             maxContextTokens: Int = 64_000,
             auxiliary: AuxiliaryModelSet = AuxiliaryModelSet(),
-            sessionID: String? = nil
+            sessionID: String? = nil,
+            contextLength: Int? = nil,
+            fallbackAPIKeys: [String] = [],
+            injectProjectContext: Bool = true,
+            contextDirectory: URL? = nil,
+            platformHint: String = "cli"
         ) {
             self.model = model
             self.provider = provider
@@ -94,6 +119,11 @@ public actor ArcAgent: Service {
             self.maxContextTokens = maxContextTokens
             self.auxiliary = auxiliary
             self.sessionID = sessionID
+            self.contextLength = contextLength
+            self.fallbackAPIKeys = fallbackAPIKeys
+            self.injectProjectContext = injectProjectContext
+            self.contextDirectory = contextDirectory
+            self.platformHint = platformHint
         }
     }
 
@@ -126,6 +156,26 @@ public actor ArcAgent: Service {
     /// skills change; the cache is only rebuilt when this version changes.
     private var systemPromptVersion: Int = 0
     private var lastBuiltVersion: Int = -1
+    /// Credential pool for 401 rotation (built in ``setupClient``/``run``).
+    private var credentialPool: CredentialPool?
+    /// The API key the current client was built with.
+    private var currentAPIKey: String = ""
+    /// The model the current client targets (tracks /model + fallback swaps).
+    private var currentModelName: String = ""
+    /// Cached token estimate for the tool schemas (static per agent).
+    private var toolSchemaTokenEstimate: Int?
+    /// Cached project context files (static per agent/working directory).
+    private var contextFilesCache: [(name: String, content: String)]?
+    /// Compression cool-down: summary-LLM rate limit parks us until this date.
+    private var compressionCooldownUntil: Date?
+    /// Anti-thrash: after two consecutive low-savings compressions, suspend
+    /// compression for the remainder of the turn.
+    private var compressionThrottled = false
+    private var lastTwoCompressionSavings: [Int] = []
+    /// Mid-turn steering messages, drained before the next LLM request.
+    private var pendingSteers: [String] = []
+    /// Cooperative interrupt flag, honored at iteration boundaries.
+    private var turnInterrupted = false
 
     // MARK: - Init
 
@@ -195,7 +245,10 @@ public actor ArcAgent: Service {
         self.httpClient = httpClient
         makeAuxRouter()
         await wireSmartApproval()
-        let pool = CredentialPool(credentials: [config.apiKey])
+        let pool = CredentialPool(credentials: [config.apiKey] + config.fallbackAPIKeys)
+        self.credentialPool = pool
+        self.currentAPIKey = config.apiKey
+        self.currentModelName = config.model
         let resolvedKey = await pool.acquireLease() ?? config.apiKey
         self.llmClient = OpenAICompatibleClient(
             baseURL: config.baseURL,
@@ -206,6 +259,8 @@ public actor ArcAgent: Service {
         // The memory tool writes through the agent's configured provider so
         // the model reads and writes use the same backend as this agent.
         MemoryTool.provider = config.memoryProvider
+        // The session-search tool reads through the agent's session store.
+        SessionSearchTool.store = config.sessionStore
     }
 
     /// Replace the LLM client for this agent.
@@ -236,8 +291,11 @@ public actor ArcAgent: Service {
         makeAuxRouter()
         await wireSmartApproval()
 
-        // Wire the credential pool (no longer dead code)
-        let pool = CredentialPool(credentials: [config.apiKey])
+        // Wire the credential pool (multi-key rotation on 401)
+        let pool = CredentialPool(credentials: [config.apiKey] + config.fallbackAPIKeys)
+        self.credentialPool = pool
+        self.currentAPIKey = config.apiKey
+        self.currentModelName = config.model
         let resolvedKey = await pool.acquireLease() ?? config.apiKey
 
         let client = OpenAICompatibleClient(
@@ -256,6 +314,7 @@ public actor ArcAgent: Service {
 
         // The memory tool writes through the agent's configured provider.
         MemoryTool.provider = config.memoryProvider
+        SessionSearchTool.store = config.sessionStore
 
         if let q = config.query {
             let response = try await runConversation(message: q)
@@ -333,6 +392,7 @@ public actor ArcAgent: Service {
                     httpClient: hc
                 )
                 self.llmClient = client
+                self.currentModelName = args
             }
             print("Switched to model: \(args)")
             print("")
@@ -387,8 +447,8 @@ public actor ArcAgent: Service {
         guard let sid = config.sessionID else { return }
         do {
             if let session = try await config.sessionStore.get(id: sid) {
-                messageHistory = session.messages
-                persistedMessageCount = session.messages.count
+                messageHistory = Self.sanitizeMessages(session.messages)
+                persistedMessageCount = messageHistory.count
                 sessionCreatedInStore = true
                 logger.info("restored \(session.messages.count) message(s) for session \(sid)")
             } else {
@@ -399,18 +459,88 @@ public actor ArcAgent: Service {
         }
     }
 
+    /// Reset per-turn recovery/interruption state at the start of a turn.
+    /// ``turnInterrupted`` is intentionally NOT reset here: an interrupt
+    /// request is sticky until a turn boundary consumes it.
+    private func resetTurnState() {
+        compressionThrottled = false
+        lastTwoCompressionSavings = []
+    }
+
+    /// Inject a mid-turn steering instruction. Drained before the next LLM
+    /// request so the model sees it on this iteration (Hermes `/steer`
+    /// parity). Rendered as a distinct `[steer: …]` user turn.
+    func steer(_ message: String) {
+        pendingSteers.append(message)
+    }
+
+    /// Request cooperative interruption of the current turn. Honored at the
+    /// next iteration boundary — in-flight API calls finish first.
+    func interruptTurn() {
+        turnInterrupted = true
+    }
+
+    /// Drain pending steering messages into the history.
+    private func drainSteers() {
+        guard !pendingSteers.isEmpty else { return }
+        let steers = pendingSteers
+        pendingSteers.removeAll()
+        for s in steers {
+            messageHistory.append(Message(role: .user, content: "[steer: \(s)]"))
+        }
+    }
+
+    /// Generate a session title in the background via the `title_generation`
+    /// auxiliary model (Hermes parity). No-op when no override is configured
+    /// or persistence is off; best-effort by design.
+    private func maybeGenerateTitle() async {
+        guard config.persistSessions, sessionCreatedInStore else { return }
+        guard let router = auxRouter, router.hasOverride(.titleGeneration) else { return }
+        guard let hc = httpClient,
+              let client = router.makeClient(task: .titleGeneration, httpClient: hc) else { return }
+        let recent = messageHistory.suffix(6).compactMap { $0.content }.joined(separator: "\n")
+        guard !recent.isEmpty else { return }
+        let prompt = "Generate a short title (max 6 words) for this conversation:\n\n\(recent)"
+        do {
+            let resp = try await client.complete(
+                messages: [Message(role: .user, content: prompt)],
+                tools: nil,
+                reasoningEffort: nil
+            )
+            guard let title = resp.content?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !title.isEmpty, title.count <= 60 else { return }
+            if var session = try? await config.sessionStore.get(id: sessionID) {
+                session.title = (session.title?.isEmpty == false ? session.title : title)
+                try? await config.sessionStore.update(session)
+            }
+        } catch {
+            logger.debug("title generation failed: \(error)")
+        }
+    }
+
     /// Run a single conversation turn with the given user message.
     func runConversation(message: String) async throws -> String {
         guard let llmClient else {
             return "Error: Agent not started. Call run() first."
         }
 
+        // Sticky interrupt: a queued interrupt cancels this turn before any
+        // work (including restore) happens.
+        if turnInterrupted {
+            turnInterrupted = false
+            return "Interrupted by user."
+        }
+
         await restoreSessionIfNeeded()
+        resetTurnState()
         messageHistory.append(Message(role: .user, content: message))
 
         let response = try await runTurnLoop(client: llmClient)
 
         await persistConversationIfNeeded()
+
+        // Hermes parity: background title generation via the auxiliary router.
+        Task { await self.maybeGenerateTitle() }
 
         return response
     }
@@ -463,59 +593,126 @@ public actor ArcAgent: Service {
     /// Calibrated token counter for estimating context usage.
     private let tokenCounter = TokenCounter()
 
-    /// Estimate the total token count of the current message history.
-    private func estimateHistoryTokens() -> Int {
-        tokenCounter.count(messages: messageHistory, model: config.model)
+    /// Estimate the token count of the FULL request: system prompt (cached),
+    /// conversation history, and tool schemas. The old history-only estimate
+    /// hid a whole scaffold of tokens and under-fired compression.
+    private func estimateRequestTokens() async -> Int {
+        var total = tokenCounter.count(messages: messageHistory, model: config.model)
+        if let prompt = cachedSystemPrompt {
+            total += tokenCounter.count(prompt, model: config.model)
+        } else if let prompt = try? await buildSystemPrompt() {
+            total += tokenCounter.count(prompt, model: config.model)
+        }
+        total += toolSchemaTokens()
+        return total
     }
 
-    /// Auto-compress history if estimated tokens exceed the configured limit.
-    private func autoCompressIfNeeded() async {
-        let estimated = estimateHistoryTokens()
-        guard estimated > config.maxContextTokens else { return }
+    /// Effective compression threshold: 50% of the model context length when
+    /// known (Hermes parity), otherwise the configured ``maxContextTokens``.
+    nonisolated func effectiveContextLimit() -> Int {
+        if let ctx = config.contextLength, ctx > 0 {
+            return ctx / 2
+        }
+        return config.maxContextTokens
+    }
 
-        // Keep system messages intact
+    /// Token estimate for the tool schemas, cached (schema set is static).
+    private func toolSchemaTokens() -> Int {
+        if let cached = toolSchemaTokenEstimate { return cached }
+        let schemas = config.registry.buildToolSchemas(enabled: [], disabled: [])
+        guard let data = try? JSONSerialization.data(withJSONObject: schemas),
+              let text = String(data: data, encoding: .utf8) else { return 0 }
+        let estimate = tokenCounter.count(text, model: config.model)
+        toolSchemaTokenEstimate = estimate
+        return estimate
+    }
+
+    /// Auto-compress history if the FULL estimated request (system prompt +
+    /// history + tool schemas) exceeds the effective context limit.
+    ///
+    /// Hermes-parity guards: head protection (first exchange is never
+    /// summarized), token-budget tail (~20K), iterative summary updates,
+    /// summary-model cool-down after rate limits, and anti-thrash that
+    /// suspends compression after two consecutive low-savings rounds.
+    private func autoCompressIfNeeded() async {
+        guard !compressionThrottled else { return }
+        let limit = effectiveContextLimit()
+        let estimated = await estimateRequestTokens()
+        guard estimated > limit else { return }
+
         let systemMessages = messageHistory.filter { $0.role == .system }
         let nonSystem = messageHistory.filter { $0.role != .system }
 
-        // Keep the most recent 5 exchanges (10 messages) for active context
-        let minRecent = min(10, nonSystem.count)
-        let recent = nonSystem.suffix(minRecent)
-        let compressible = nonSystem.prefix(nonSystem.count - minRecent)
+        // Head protection: never summarize the first exchange.
+        let head = Array(nonSystem.prefix(min(2, nonSystem.count)))
+        let middle = Array(nonSystem.dropFirst(head.count))
+
+        // Tail protection: token budget (~20K, at least the last 4 messages).
+        let tailBudget = min(20_000, limit / 3)
+        var tailTokens = 0
+        var tailCount = 0
+        for msg in middle.reversed() {
+            tailTokens += tokenCounter.count(msg.content ?? "", model: config.model) + 4
+            tailCount += 1
+            if tailTokens >= tailBudget && tailCount >= 4 { break }
+        }
+        let tail = Array(middle.suffix(tailCount))
+        let compressible = Array(middle.prefix(max(0, middle.count - tailCount)))
 
         guard !compressible.isEmpty else {
-            // Even the recent messages alone exceed budget — keep last 4
-            let veryRecent = nonSystem.suffix(min(8, nonSystem.count))
-            messageHistory = systemMessages + Array(veryRecent)
+            // Even the protected window alone exceeds the budget.
+            messageHistory = systemMessages + Array(nonSystem.suffix(min(8, nonSystem.count)))
             return
         }
 
-        // Hermes-parity compression: when a \`compression\` auxiliary model is
-        // configured, produce a real summary with it; otherwise fall back to
-        // the extractive record (older messages + context markers).
-        let summaryText: String
-        if let summarized = await summarizeForCompression(Array(compressible)) {
-            summaryText = summarized
-        } else {
-            summaryText = Self.compressedRecord(Array(compressible))
+        let beforeTokens = tokenCounter.count(messages: messageHistory, model: config.model)
+
+        // Iterative: fold the existing summary into the material so a
+        // re-compression updates the summary instead of starting over.
+        var material: [Message] = compressible
+        if let existing = systemMessages.first(where: { ($0.content ?? "").hasPrefix(Self.compressionSummaryPrefix) }),
+           let summaryBody = existing.content {
+            material.insert(Message(role: .system, content: summaryBody), at: 0)
         }
 
+        let summaryText: String
+        if let summarized = await summarizeForCompression(material) {
+            summaryText = summarized
+        } else {
+            summaryText = Self.compressedRecord(material)
+            logger.warning("compression: aux summary unavailable; using extractive record")
+        }
+
+        let newSystem = systemMessages.filter { !($0.content ?? "").hasPrefix(Self.compressionSummaryPrefix) }
         let summaryMessage = Message(
             role: .system,
-            content: """
-            The following is a compressed record of earlier conversation context. \
-            Key information, decisions, and facts from these exchanges are preserved below:
-
-            \(summaryText)
-            """
+            content: "\(Self.compressionSummaryPrefix) Key information, decisions, and facts from these exchanges are preserved below:\n\n\(summaryText)"
         )
+        messageHistory = newSystem + [summaryMessage] + head + tail
 
-        messageHistory = systemMessages + [summaryMessage] + Array(recent)
+        // Anti-thrash: two consecutive compressions that each saved less than
+        // 10% of the limit suspend compression for the rest of the turn.
+        let afterTokens = tokenCounter.count(messages: messageHistory, model: config.model)
+        let saved = beforeTokens - afterTokens
+        lastTwoCompressionSavings.append(saved)
+        if lastTwoCompressionSavings.count > 2 { lastTwoCompressionSavings.removeFirst() }
+        if lastTwoCompressionSavings.count == 2,
+           lastTwoCompressionSavings.allSatisfy({ $0 < limit / 10 }) {
+            compressionThrottled = true
+            logger.warning("compression throttled: last two compressions saved <10% each")
+        }
+
+        // Rebuild the system prompt with fresh memory/skills (Hermes parity).
+        invalidateSystemPrompt()
     }
 
-    /// Attempt an LLM summarization of older messages using the \`compression\`
-    /// auxiliary model. Returns nil when no override is configured or the
-    /// call fails — callers fall back to the extractive record.
+    /// Attempt an LLM summarization of older messages using the `compression`
+    /// auxiliary model. Returns nil when no override is configured, when the
+    /// summary model is in cool-down, or when the call fails — callers fall
+    /// back to the extractive record.
     private func summarizeForCompression(_ messages: [Message]) async -> String? {
+        // Cool-down after the summary model was rate-limited (Hermes parity).
+        if let until = compressionCooldownUntil, Date() < until { return nil }
         guard let router = auxRouter, router.hasOverride(.compression) else { return nil }
         guard let hc = httpClient,
               let client = router.makeClient(task: .compression, httpClient: hc) else { return nil }
@@ -536,6 +733,12 @@ public actor ArcAgent: Service {
             let text = (resp.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             return text.isEmpty ? nil : text
         } catch {
+            if case LLMError.rateLimited = error {
+                compressionCooldownUntil = Date().addingTimeInterval(60)
+                logger.warning("compression aux model rate-limited; cool-down 60s")
+            } else {
+                logger.warning("compression aux model failed: \(error)")
+            }
             return nil
         }
     }
@@ -576,6 +779,12 @@ public actor ArcAgent: Service {
         var appendedToolResults = false
 
         for iteration in 0..<config.maxIterations {
+            if turnInterrupted {
+                turnInterrupted = false
+                return "Interrupted by user."
+            }
+            drainSteers()
+
             // Auto-compress if context is too large
             await autoCompressIfNeeded()
 
@@ -584,7 +793,7 @@ public actor ArcAgent: Service {
 
             // 2. Build messages array
             var messages: [Message] = [Message(role: .system, content: systemPrompt)]
-            messages.append(contentsOf: messageHistory)
+            messages.append(contentsOf: Self.sanitizeMessages(messageHistory))
 
             // 3. Build tool schemas
             let toolSchemas = config.registry.buildToolSchemas(
@@ -604,12 +813,20 @@ public actor ArcAgent: Service {
             } catch {
                 let errorClass = classifyError(error)
 
+                // Credential rotation: an auth failure means this key is bad.
+                if case LLMError.authenticationFailed = error,
+                   let rotated = await rotatedClient() {
+                    currentClient = rotated
+                    continue
+                }
+
                 // Try fallback models on permanent or retryable errors
                 if errorClass == .permanent || errorClass == .retryable {
                     if fallbackIndex < fallbacks.count {
                         let fallbackModel = fallbacks[fallbackIndex]
                         fallbackIndex += 1
                         logger.warning("Falling back to \(fallbackModel)")
+                        currentModelName = fallbackModel
                         currentClient = OpenAICompatibleClient(
                             baseURL: config.baseURL,
                             apiKey: config.apiKey,
@@ -704,6 +921,7 @@ public actor ArcAgent: Service {
             Task {
                 do {
                     await restoreSessionIfNeeded()
+                    resetTurnState()
                     messageHistory.append(Message(role: .user, content: message))
                     try await runStreamingTurnLoop(continuation: continuation)
                 } catch {
@@ -738,12 +956,19 @@ public actor ArcAgent: Service {
         var appendedToolResults = false
 
         for iteration in 0..<config.maxIterations {
+            if turnInterrupted {
+                turnInterrupted = false
+                continuation.yield("Interrupted by user.")
+                continuation.finish()
+                return
+            }
+            drainSteers()
             await autoCompressIfNeeded()
             var streamFinishReason: String? = nil
 
             let systemPrompt = try await buildSystemPrompt()
             var messages: [Message] = [Message(role: .system, content: systemPrompt)]
-            messages.append(contentsOf: messageHistory)
+            messages.append(contentsOf: Self.sanitizeMessages(messageHistory))
 
             let toolSchemas = config.registry.buildToolSchemas(
                 enabled: [],
@@ -799,10 +1024,19 @@ public actor ArcAgent: Service {
                 }
             } catch {
                 let errorClass = classifyError(error)
+
+                // Credential rotation: an auth failure means this key is bad.
+                if case LLMError.authenticationFailed = error,
+                   let rotated = await rotatedClient() {
+                    currentClient = rotated
+                    continue
+                }
+
                 if errorClass == .permanent || errorClass == .retryable {
                     if fallbackIndex < fallbacks.count {
                         let fallbackModel = fallbacks[fallbackIndex]
                         fallbackIndex += 1
+                        currentModelName = fallbackModel
                         currentClient = OpenAICompatibleClient(
                             baseURL: config.baseURL,
                             apiKey: config.apiKey,
@@ -1077,6 +1311,149 @@ public actor ArcAgent: Service {
         throw lastError ?? LLMError.networkError("Request failed after \(retryHandler.maxRetries) retries")
     }
 
+    // MARK: - Credential Rotation
+
+    /// Park the current API key (it just failed auth) and build a client with
+    /// the next available key. Returns nil when no rotation is possible.
+    private func rotatedClient() async -> OpenAICompatibleClient? {
+        guard let pool = credentialPool, await pool.count > 1, let hc = httpClient else { return nil }
+        await pool.reportExhaustion(key: currentAPIKey)
+        guard let next = await pool.acquireLease(), next != currentAPIKey else { return nil }
+        currentAPIKey = next
+        logger.warning("rotating API key after authentication failure")
+        return OpenAICompatibleClient(
+            baseURL: config.baseURL,
+            apiKey: next,
+            model: currentModelName,
+            httpClient: hc
+        )
+    }
+
+    // MARK: - Wire Laundering
+
+    /// Redact likely secrets from text before it enters model context.
+    /// NSRegularExpression is thread-safe, so these are safe static patterns.
+    private static let secretPatterns: [NSRegularExpression] = [
+        try! NSRegularExpression(pattern: #"\bsk-[A-Za-z0-9_-]{16,}\b"#),
+        try! NSRegularExpression(pattern: #"\bgh[pousr]_[A-Za-z0-9]{20,}\b"#),
+        try! NSRegularExpression(pattern: #"\bAKIA[0-9A-Z]{16}\b"#),
+        try! NSRegularExpression(pattern: #"\bBearer\s+[A-Za-z0-9._\-]{16,}\b"#),
+        try! NSRegularExpression(pattern: #"-----BEGIN [A-Z ]*PRIVATE KEY-----"#),
+    ]
+
+    static func redactSecrets(_ text: String) -> String {
+        var result = text
+        for pattern in secretPatterns {
+            let full = NSRange(result.startIndex..<result.endIndex, in: result)
+            result = pattern.stringByReplacingMatches(
+                in: result, options: [], range: full, withTemplate: "***REDACTED***"
+            )
+        }
+        return result
+    }
+
+    /// Canonicalize a tool call's arguments JSON (parse + re-serialize). A
+    /// corrupted payload becomes `{}` so the tool gets a clean, parseable
+    /// shape instead of an unparseable one.
+    private static func canonicalizeToolCall(_ call: ToolCall) -> ToolCall {
+        let args = call.function.arguments
+        let canonical: String
+        if let data = args.data(using: .utf8),
+           let obj = try? JSONSerialization.jsonObject(with: data),
+           let reparsed = try? JSONSerialization.data(withJSONObject: obj) {
+            canonical = String(data: reparsed, encoding: .utf8) ?? args
+        } else {
+            canonical = "{}"
+        }
+        return ToolCall(
+            id: call.id,
+            type: call.type,
+            function: ToolCallFunction(name: call.function.name, arguments: canonical)
+        )
+    }
+
+    /// Launder a message array before sending it to the provider or before
+    /// restoring it into history (Hermes api_messages parity):
+    /// - drop orphaned tool results (no matching preceding assistant call);
+    /// - add missing stubs so every assistant tool call has a result;
+    /// - drop thinking-only assistant turns, merging a user message that
+    ///   becomes adjacent *because of the drop* (never across turn
+    ///   boundaries — those must stay visible to the model);
+    /// - canonicalize tool-call argument JSON;
+    /// - redact secrets from tool contents.
+    static func sanitizeMessages(_ messages: [Message]) -> [Message] {
+        // Pass 1: drop orphans, canonicalize, strip thinking-only, redact,
+        // and repair only the adjacency the drop itself creates.
+        var cleaned: [Message] = []
+        var mergeNextUser = false
+        for msg in messages {
+            switch msg.role {
+            case .tool:
+                guard let id = msg.toolCallID,
+                      cleaned.contains(where: { ass in
+                          ass.role == .assistant
+                              && (ass.toolCalls ?? []).contains { $0.id == id }
+                      })
+                else { continue } // orphaned result with no preceding call — drop
+                mergeNextUser = false
+                let content = msg.content.map { redactSecrets($0) }
+                cleaned.append(Message(
+                    role: .tool, content: content, name: msg.name,
+                    toolCallID: msg.toolCallID, createdAt: msg.createdAt
+                ))
+            case .assistant:
+                let thinkingOnly = (msg.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && (msg.toolCalls ?? []).isEmpty
+                if thinkingOnly {
+                    // Only a drop directly after a user message creates an
+                    // adjacency that needs repair.
+                    mergeNextUser = (cleaned.last?.role == .user)
+                    continue
+                }
+                mergeNextUser = false
+                if let calls = msg.toolCalls {
+                    cleaned.append(Message(
+                        role: .assistant, content: msg.content, name: msg.name,
+                        toolCalls: calls.map { canonicalizeToolCall($0) },
+                        toolCallID: msg.toolCallID, createdAt: msg.createdAt,
+                        reasoning: msg.reasoning, usage: msg.usage, tps: msg.tps
+                    ))
+                } else {
+                    cleaned.append(msg)
+                }
+            case .user:
+                if mergeNextUser, cleaned.last?.role == .user {
+                    let last = cleaned[cleaned.count - 1]
+                    let combined = (last.content ?? "") + "\n\n" + (msg.content ?? "")
+                    cleaned[cleaned.count - 1] = Message(role: .user, content: combined, createdAt: last.createdAt)
+                } else {
+                    cleaned.append(msg)
+                }
+                mergeNextUser = false
+            default:
+                mergeNextUser = false
+                cleaned.append(msg)
+            }
+        }
+        // Pass 2: missing stubs — every assistant tool call needs a result.
+        var withStubs: [Message] = []
+        for (idx, msg) in cleaned.enumerated() {
+            withStubs.append(msg)
+            guard msg.role == .assistant, let calls = msg.toolCalls else { continue }
+            let following = cleaned.dropFirst(idx + 1)
+            for call in calls {
+                guard !following.contains(where: { $0.role == .tool && $0.toolCallID == call.id }) else { continue }
+                withStubs.append(Message(
+                    role: .tool,
+                    content: "<no result - tool call was never executed>",
+                    name: call.function.name,
+                    toolCallID: call.id
+                ))
+            }
+        }
+        return withStubs
+    }
+
     // MARK: - Tool Dispatch
 
     /// Tools that are safe to run concurrently within one batch: read-only,
@@ -1103,6 +1480,22 @@ public actor ArcAgent: Service {
     static let truncationNudge =
         "Your previous response was truncated. Continue exactly where it ended, without repeating yourself."
 
+    /// Prefix marking the compression summary system message (also used to
+    /// find and fold the previous summary on re-compression).
+    static let compressionSummaryPrefix =
+        "The following is a compressed record of earlier conversation context."
+
+    /// Floor cap for injected project context files (chars).
+    static let contextFileBudgetChars = 16_000
+
+    /// Hermes-parity mandatory skills framing that precedes the index.
+    static let skillsMandatoryFraming =
+        "Before replying, scan the skills below. If a skill matches or is even partially "
+        + "relevant to your task, you MUST load it with skill_view(name) and follow its "
+        + "instructions. Err on the side of loading — it is always better to have context "
+        + "you don't need than to miss critical steps, pitfalls, or established workflows. "
+        + "Skills contain specialized knowledge — API endpoints, tool-specific commands, "
+        + "and proven workflows that outperform general-purpose approaches."
     /// The outcome of parsing a single LLM turn.
     ///
     /// Tool calls always take precedence over content: some providers
@@ -1231,19 +1624,27 @@ public actor ArcAgent: Service {
             result = "Error executing tool '\(toolCall.function.name)': \(error.localizedDescription)"
         }
         await Metrics.shared.recordToolCall()
-        return result
+        return Self.redactSecrets(result)
     }
 
     // MARK: - Prompt Building
 
-    /// Build the system prompt with memory and skills injection.
-    /// Results are cached and only rebuilt when the cache version changes.
+    /// Build the system prompt as three ordered cache tiers (Hermes parity):
+    /// - **stable**: identity, rules, tool index, environment hints — never
+    ///   changes within a session, so provider prefix caches stay warm;
+    /// - **context**: workspace project context files (AGENTS.md etc.);
+    /// - **volatile**: skills index first, then the frozen memory/user
+    ///   snapshot, then the date-only session line — the only parts that
+    ///   change when the prompt is rebuilt.
+    /// Results are cached and only rebuilt when the cache version changes
+    /// (compression events and profile injection).
     private func buildSystemPrompt() async throws -> String {
         if lastBuiltVersion == systemPromptVersion, let cached = cachedSystemPrompt {
             return cached
         }
 
-        var prompt = """
+        // ── Stable tier ──
+        var stable = """
             You are ARC Agent, an intelligent AI assistant created by Nous Research.
             You are helpful, knowledgeable, and direct. You assist users with a wide
             range of tasks including answering questions, writing and editing code,
@@ -1267,16 +1668,14 @@ public actor ArcAgent: Service {
             - Keep working until the task is actually complete.
             """
 
-        // Environment context — so the model can use paths like ~/Desktop
-        // without a probe turn, and so relative tool paths resolve where
-        // the user expects.
+        // Environment hints (stable per machine).
         let osDescription: String
         #if os(macOS)
         osDescription = "macOS (\(ProcessInfo.processInfo.operatingSystemVersionString))"
         #else
         osDescription = "\(ProcessInfo.processInfo.operatingSystemName) \(ProcessInfo.processInfo.operatingSystemVersionString)"
         #endif
-        prompt += """
+        stable += """
 
 
             ## Environment
@@ -1288,28 +1687,86 @@ public actor ArcAgent: Service {
             - Use ~/... paths (or absolute paths) for user-visible locations; the `terminal` tool's shell expands `~`, and `write_file` accepts paths relative to the working directory.
             """
 
-        // Inject memory
+        // ── Context tier ──
+        var context = ""
+        if config.injectProjectContext {
+            let files = await loadContextFiles()
+            if !files.isEmpty {
+                context += "## Workspace & Project Context\n\n"
+                for (name, content) in files {
+                    context += "### \(name)\n\(content)\n\n"
+                }
+            }
+        }
+
+        // ── Volatile tier ──
+        var volatile = ""
+        if !config.skills.isEmpty {
+            volatile += "## Skills (mandatory)\n\n\(Self.skillsMandatoryFraming)\n\n<available_skills>\n\(buildSkillsIndex(config.skills))\n</available_skills>\n\n"
+        }
         if let memory = config.memoryProvider {
             let memoryContent = try await memory.readMemory()
             if !memoryContent.isEmpty {
-                prompt += "\n\n## Memory (Your Persistent Notes)\n\n\(memoryContent)"
+                volatile += "## Memory (Your Persistent Notes)\n\n\(memoryContent)\n\n"
             }
-
             let userContent = try await memory.readUser()
             if !userContent.isEmpty {
-                prompt += "\n\n## User Profile\n\n\(userContent)"
+                volatile += "## User Profile\n\n\(userContent)\n\n"
             }
         }
+        volatile += Self.timestampLine(
+            sessionID: sessionID,
+            model: config.model,
+            provider: config.provider,
+            platform: config.platformHint
+        )
 
-        // Inject skills index
-        if !config.skills.isEmpty {
-            prompt += "\n\n## Available Skills\n\n\(buildSkillsIndex(config.skills))\n\n"
-                + "Load a skill with `skill_view(name)` to follow its instructions."
-        }
-
+        let prompt = stable + "\n\n" + context + "\n\n" + volatile
         cachedSystemPrompt = prompt
         lastBuiltVersion = systemPromptVersion
         return prompt
+    }
+
+    /// Discover and cache project context files (AGENTS.md, .hermes.md,
+    /// CLAUDE.md, .cursorrules) from the working directory, floor-capped by
+    /// the context window so they never crowd out the conversation.
+    private func loadContextFiles() async -> [(name: String, content: String)] {
+        if let cached = contextFilesCache { return cached }
+        var result: [(name: String, content: String)] = []
+        let fm = FileManager.default
+        let base = config.contextDirectory ?? URL(fileURLWithPath: fm.currentDirectoryPath)
+        let names = ["AGENTS.md", ".hermes.md", "CLAUDE.md", ".cursorrules"]
+        var budget = min(Self.contextFileBudgetChars, max(4_000, effectiveContextLimit() / 4))
+        for name in names {
+            let url = base.appendingPathComponent(name)
+            guard fm.fileExists(atPath: url.path),
+                  let data = try? Data(contentsOf: url),
+                  let content = String(data: data, encoding: .utf8) else { continue }
+            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let take = min(trimmed.count, budget)
+            result.append((name, String(trimmed.prefix(take))))
+            budget -= take
+            if budget <= 0 { break }
+        }
+        contextFilesCache = result
+        return result
+    }
+
+    /// Date-only session line. Minute precision is deliberately avoided so
+    /// rebuilding the prompt (rare) does not bust the provider prefix cache.
+    static func timestampLine(sessionID: String, model: String, provider: String, platform: String) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "EEEE, MMMM dd, yyyy"
+        return "Conversation started: \(formatter.string(from: Date())) | Session: \(sessionID.prefix(8)) | Model: \(model) | Provider: \(provider) | Platform: \(platform)"
+    }
+
+    /// Force a system-prompt rebuild on the next turn (used by compression so
+    /// memory/skills are reloaded — Hermes `invalidate_system_prompt`).
+    private func invalidateSystemPrompt() {
+        cachedSystemPrompt = nil
+        systemPromptVersion += 1
     }
 
     private func buildToolsIndex() -> String {

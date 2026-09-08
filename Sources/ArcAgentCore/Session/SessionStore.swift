@@ -12,6 +12,8 @@ public struct Session: Sendable, Codable {
     public var model: String
     /// The provider used for this session.
     public var provider: String
+    /// Optional human-friendly title (background title generation).
+    public var title: String?
     /// Messages in this session.
     public var messages: [Message]
 
@@ -21,6 +23,7 @@ public struct Session: Sendable, Codable {
         updatedAt: Date = Date(),
         model: String = "",
         provider: String = "",
+        title: String? = nil,
         messages: [Message] = []
     ) {
         self.id = id
@@ -28,6 +31,7 @@ public struct Session: Sendable, Codable {
         self.updatedAt = updatedAt
         self.model = model
         self.provider = provider
+        self.title = title
         self.messages = messages
     }
 }
