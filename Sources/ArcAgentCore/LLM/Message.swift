@@ -110,10 +110,15 @@ public struct Usage: Sendable, Codable, Equatable {
     public let completionTokens: Int
     public let totalTokens: Int
 
-    public init(promptTokens: Int, completionTokens: Int, totalTokens: Int) {
+    /// Prompt tokens served from the provider's KV cache (`prompt_tokens_details.cached_tokens`),
+    /// when the provider reports it (e.g. vLLM). `nil` when unknown.
+    public let cachedPromptTokens: Int?
+
+    public init(promptTokens: Int, completionTokens: Int, totalTokens: Int, cachedPromptTokens: Int? = nil) {
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
         self.totalTokens = totalTokens
+        self.cachedPromptTokens = cachedPromptTokens
     }
 }
 

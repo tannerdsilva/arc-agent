@@ -28,6 +28,14 @@ import Logging
 /// )
 /// let response = try await client.complete(messages: [...], tools: nil)
 /// ```
+/// Extracts `prompt_tokens_details.cached_tokens` when the provider reports it
+/// (vLLM and some OpenAI-compatible gateways do); `nil` when unavailable.
+private func cachedTokens(from raw: [String: Any]) -> Int? {
+    guard let details = raw["prompt_tokens_details"] as? [String: Any],
+          let cached = details["cached_tokens"] as? Int else { return nil }
+    return cached
+}
+
 public struct OpenAICompatibleClient: LLMClient {
 
     /// The base URL of the API (e.g. `https://api.openai.com/v1`).
@@ -322,7 +330,8 @@ public struct OpenAICompatibleClient: LLMClient {
                     Usage(
                         promptTokens: raw["prompt_tokens"] as? Int ?? 0,
                         completionTokens: raw["completion_tokens"] as? Int ?? 0,
-                        totalTokens: raw["total_tokens"] as? Int ?? 0
+                        totalTokens: raw["total_tokens"] as? Int ?? 0,
+                        cachedPromptTokens: cachedTokens(from: raw)
                     )
                 }
                 guard let choice = (json["choices"] as? [[String: Any]])?.first else {
@@ -400,7 +409,8 @@ public struct OpenAICompatibleClient: LLMClient {
             usage = Usage(
                 promptTokens: rawUsage["prompt_tokens"] as? Int ?? 0,
                 completionTokens: rawUsage["completion_tokens"] as? Int ?? 0,
-                totalTokens: rawUsage["total_tokens"] as? Int ?? 0
+                totalTokens: rawUsage["total_tokens"] as? Int ?? 0,
+                cachedPromptTokens: cachedTokens(from: rawUsage)
             )
         } else {
             usage = nil
