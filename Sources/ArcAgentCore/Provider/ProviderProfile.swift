@@ -11,6 +11,9 @@ public enum APIMode: String, Sendable, Codable, CaseIterable {
 
     /// Google Gemini API format.
     case gemini
+
+    /// OpenAI Responses API format (`/v1/responses`; Codex / GPT-5.x).
+    case responses
 }
 
 /// The authentication type for a provider.

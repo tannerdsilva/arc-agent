@@ -146,6 +146,13 @@ public actor ArcAgent: Service {
     private let retryHandler = RetryHandler(maxRetries: 3, baseDelay: 1.0)
     /// Circuit breaker for the primary LLM endpoint.
     private let circuitBreaker = CircuitBreaker(label: "primary-llm", threshold: 3, resetTimeout: 30)
+
+    /// Per-turn recovery counters (Hermes conversation-loop parity).
+    private var turnRecoveryState = TurnRecoveryState()
+    /// Rate-limit buckets per route (Hermes rate_limit_tracker parity).
+    private let rateLimitTracker = RateLimitTracker()
+    /// Consecutive stale-stream giveups (Hermes staleness watchdog parity).
+    private let staleTracker = StaleStreakTracker()
     /// Structured logger for diagnostic output.
     private let logger = Logger(label: "com.arc-agent.agent")
     private let approvalManager: ApprovalManager
@@ -465,6 +472,7 @@ public actor ArcAgent: Service {
     private func resetTurnState() {
         compressionThrottled = false
         lastTwoCompressionSavings = []
+        turnRecoveryState = TurnRecoveryState()
     }
 
     /// Inject a mid-turn steering instruction. Drained before the next LLM
@@ -806,12 +814,23 @@ public actor ArcAgent: Service {
             do {
                 response = try await callWithRetry(
                     client: currentClient,
+                    makeClient: { self.freshClient() ?? currentClient },
                     messages: messages,
                     tools: toolSchemas,
                     timeout: config.maxTurnDuration
                 )
             } catch {
                 let errorClass = classifyError(error)
+
+                // Rate-limit recovery: honor Retry-After, bounded per turn.
+                if case LLMError.rateLimited(let retryAfter) = error,
+                   turnRecoveryState.rateLimitRecoveries < TurnRecoveryState.maxRateLimitRecoveries {
+                    turnRecoveryState.rateLimitRecoveries += 1
+                    await rateLimitTracker.recordThrottle(route: rateLimitRoute(), retryAfter: retryAfter)
+                    let delay = FailureBackoff.delay(for: .rateLimit, attempt: 0, retryAfter: retryAfter)
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    continue
+                }
 
                 // Credential rotation: an auth failure means this key is bad.
                 if case LLMError.authenticationFailed = error,
@@ -858,6 +877,7 @@ public actor ArcAgent: Service {
             switch Self.classifyTurn(content: response.content, toolCalls: response.toolCalls) {
             case .text(let content):
                 messageHistory.append(Message(role: .assistant, content: content))
+                turnRecoveryState.markProviderSuccess()
                 return content
 
             case .toolCalls(let toolCalls):
@@ -877,6 +897,7 @@ public actor ArcAgent: Service {
                     ))
                 }
                 appendedToolResults = !outcomes.isEmpty
+                turnRecoveryState.markProviderSuccess()
 
                 continue
 
@@ -897,6 +918,12 @@ public actor ArcAgent: Service {
                     messageHistory.append(Message(role: .system, content: Self.emptyAfterToolsNudge))
                     emptyAfterToolsNudges += 1
                     continue
+                }
+                // Empty-response storm guard (Hermes bounded empty responses):
+                // after N consecutive empty replies, stop re-prompting.
+                turnRecoveryState.emptyStormStreak += 1
+                if turnRecoveryState.emptyStormStreak >= TurnRecoveryState.emptyStormThreshold {
+                    return RecoveryNudges.emptyStormExhaustedMessage
                 }
                 // Reasoning models can emit a whitespace-only prefix — loop.
                 continue
@@ -981,6 +1008,7 @@ public actor ArcAgent: Service {
             do {
                 let stream = try await callStreamWithRetry(
                     client: currentClient,
+                    makeClient: { self.freshClient() ?? currentClient },
                     messages: messages,
                     tools: toolSchemas,
                     timeout: config.maxTurnDuration
@@ -1024,6 +1052,34 @@ public actor ArcAgent: Service {
                 }
             } catch {
                 let errorClass = classifyError(error)
+
+                // Stale-stream recovery (Hermes staleness watchdog with
+                // patience budget + give-up streak): reconnect once per turn,
+                // then give up after the streak threshold.
+                if error is StaleStreamError {
+                    _ = await staleTracker.recordStale()
+                    if await staleTracker.shouldGiveUp {
+                        continuation.yield("The model stream stalled repeatedly. Please try again.")
+                        continuation.finish()
+                        return
+                    }
+                    if !turnRecoveryState.primaryRecoveryAttempted {
+                        turnRecoveryState.primaryRecoveryAttempted = true
+                        logger.warning("stale stream detected; reconnecting")
+                        currentClient = freshClient() ?? currentClient
+                        continue
+                    }
+                }
+
+                // Rate-limit recovery: honor Retry-After, bounded per turn.
+                if case LLMError.rateLimited(let retryAfter) = error,
+                   turnRecoveryState.rateLimitRecoveries < TurnRecoveryState.maxRateLimitRecoveries {
+                    turnRecoveryState.rateLimitRecoveries += 1
+                    await rateLimitTracker.recordThrottle(route: rateLimitRoute(), retryAfter: retryAfter)
+                    let delay = FailureBackoff.delay(for: .rateLimit, attempt: 0, retryAfter: retryAfter)
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    continue
+                }
 
                 // Credential rotation: an auth failure means this key is bad.
                 if case LLMError.authenticationFailed = error,
@@ -1071,6 +1127,7 @@ public actor ArcAgent: Service {
             ) {
             case .text(let content):
                 messageHistory.append(Message(role: .assistant, content: content))
+                turnRecoveryState.markProviderSuccess()
                 continuation.finish()
                 return
 
@@ -1092,6 +1149,7 @@ public actor ArcAgent: Service {
                     continuation.yield("[Tool: \(call.function.name)] \(result)\n")
                 }
                 appendedToolResults = !outcomes.isEmpty
+                turnRecoveryState.markProviderSuccess()
                 continue
 
             case .empty:
@@ -1109,7 +1167,14 @@ public actor ArcAgent: Service {
                     emptyAfterToolsNudges += 1
                     continue
                 }
-                // Whitespace-only prefix — keep the loop going.
+                // Whitespace-only prefix — keep the loop going, but bounded by
+                // the empty-response storm guard (Hermes).
+                turnRecoveryState.emptyStormStreak += 1
+                if turnRecoveryState.emptyStormStreak >= TurnRecoveryState.emptyStormThreshold {
+                    continuation.yield(RecoveryNudges.emptyStormExhaustedMessage)
+                    continuation.finish()
+                    return
+                }
                 continue
             }
 
@@ -1136,6 +1201,7 @@ public actor ArcAgent: Service {
     ///   Throws ``CircuitBreakerError.open`` if the circuit is open.
     private func callWithRetry(
         client: any LLMClient,
+        makeClient: @escaping () -> any LLMClient,
         messages: [Message],
         tools: [[String: Any]]?,
         timeout: Int = 120
@@ -1151,6 +1217,9 @@ public actor ArcAgent: Service {
         }
 
         var lastError: Error? = nil
+        /// Client rebuilt by PRIMARY transport recovery (used only after a
+        /// transport-level failure; the injected client stays authoritative).
+        var recoveredClient: (any LLMClient)? = nil
         let toolsData: Data?
         if let tools, !tools.isEmpty {
             toolsData = try JSONSerialization.data(withJSONObject: tools)
@@ -1160,6 +1229,7 @@ public actor ArcAgent: Service {
 
         for attempt in 0..<retryHandler.maxRetries {
             do {
+                let activeClient = recoveredClient ?? client
                 let toolsArg: [[String: Any]]?
                 if let toolsData {
                     toolsArg = try JSONSerialization.jsonObject(with: toolsData) as? [[String: Any]]
@@ -1184,7 +1254,7 @@ public actor ArcAgent: Service {
                                 with: toolsPayload
                             ) as? [[String: Any]]
                         }
-                        return try await client.complete(
+                        return try await activeClient.complete(
                             messages: messages,
                             tools: deserialized
                         )
@@ -1211,11 +1281,33 @@ public actor ArcAgent: Service {
 
                 // Success — reset circuit breaker
                 await circuitBreaker.reset()
+                await rateLimitTracker.recordSuccess(route: rateLimitRoute())
+                turnRecoveryState.markProviderSuccess()
                 return result
             } catch {
                 lastError = error
                 let errorClass = classifyError(error)
                 await Metrics.shared.recordError("\(errorClass)")
+                let failure = ErrorClassifier.classify(error)
+
+                // Rate-limit backoff honoring Retry-After (Hermes).
+                if case LLMError.rateLimited(let retryAfter) = error {
+                    await rateLimitTracker.recordThrottle(route: rateLimitRoute(), retryAfter: retryAfter)
+                    let delay = FailureBackoff.delay(for: .rateLimit, attempt: attempt, retryAfter: retryAfter)
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    continue
+                }
+
+                // Primary transport recovery: rebuild the connection once per
+                // turn on transport-level failures (Hermes
+                // `_try_recover_primary_transport`).
+                if !turnRecoveryState.primaryRecoveryAttempted,
+                   failure.reason == .timeout || failure.reason == .tls {
+                    turnRecoveryState.primaryRecoveryAttempted = true
+                    logger.warning("recovering primary transport after \(failure.reason.rawValue)")
+                    recoveredClient = makeClient()
+                    continue
+                }
 
                 switch errorClass {
                 case .permanent:
@@ -1246,10 +1338,11 @@ public actor ArcAgent: Service {
     /// Call the LLM with streaming response, retry logic, and circuit breaker.
     private func callStreamWithRetry(
         client: any LLMClient,
+        makeClient: @escaping () -> any LLMClient,
         messages: [Message],
         tools: [[String: Any]]?,
         timeout: Int = 120
-    ) async throws -> AsyncThrowingStream<LLMDelta, Error> {
+    ) async throws -> any AsyncSequence<LLMDelta, Error> {
         let cbState = await circuitBreaker.currentState()
         if case .open(let resetAt) = cbState {
             throw CircuitBreakerError.open(
@@ -1260,6 +1353,9 @@ public actor ArcAgent: Service {
         }
 
         var lastError: Error? = nil
+        /// Client rebuilt by PRIMARY transport recovery (used only after a
+        /// transport-level failure; the injected client stays authoritative).
+        var recoveredClient: (any LLMClient)? = nil
         let toolsData: Data?
         if let tools, !tools.isEmpty {
             toolsData = try JSONSerialization.data(withJSONObject: tools)
@@ -1267,8 +1363,12 @@ public actor ArcAgent: Service {
             toolsData = nil
         }
 
+        // Staleness patience for this request (Hermes stream stale watchdog).
+        let patience = streamPatience(for: messages)
+
         for attempt in 0..<retryHandler.maxRetries {
             do {
+                let activeClient = recoveredClient ?? client
                 let toolsArg: [[String: Any]]?
                 if let toolsData {
                     toolsArg = try JSONSerialization.jsonObject(with: toolsData) as? [[String: Any]]
@@ -1276,16 +1376,38 @@ public actor ArcAgent: Service {
                     toolsArg = nil
                 }
 
-                let stream = try await client.stream(
+                let stream = try await activeClient.stream(
                     messages: messages,
                     tools: toolsArg
                 )
 
                 await circuitBreaker.reset()
-                return stream
+                await rateLimitTracker.recordSuccess(route: rateLimitRoute())
+                turnRecoveryState.markProviderSuccess()
+                // Apply the per-provider stale watchdog (Hermes
+                // stream-stale patience budget).
+                return IdleTimeoutStream(stream, idleSeconds: patience)
             } catch {
                 lastError = error
                 let errorClass = classifyError(error)
+                let failure = ErrorClassifier.classify(error)
+
+                // Rate-limit backoff honoring Retry-After (Hermes).
+                if case LLMError.rateLimited(let retryAfter) = error {
+                    await rateLimitTracker.recordThrottle(route: rateLimitRoute(), retryAfter: retryAfter)
+                    let delay = FailureBackoff.delay(for: .rateLimit, attempt: attempt, retryAfter: retryAfter)
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    continue
+                }
+
+                // Primary transport recovery on transport failures.
+                if !turnRecoveryState.primaryRecoveryAttempted,
+                   failure.reason == .timeout || failure.reason == .tls {
+                    turnRecoveryState.primaryRecoveryAttempted = true
+                    logger.warning("recovering primary transport after \(failure.reason.rawValue)")
+                    recoveredClient = makeClient()
+                    continue
+                }
 
                 switch errorClass {
                 case .permanent:
@@ -1327,6 +1449,33 @@ public actor ArcAgent: Service {
             model: currentModelName,
             httpClient: hc
         )
+    }
+
+    /// Rebuild the primary transport client from current state (Hermes
+    /// `_try_recover_primary_transport`: fresh connection, fresh credentials
+    /// — once per turn). Used when the transport itself went bad (timeout,
+    /// TLS, reset) rather than the model or key.
+    private func freshClient() -> OpenAICompatibleClient? {
+        guard let hc = self.httpClient else { return nil }
+        return OpenAICompatibleClient(
+            baseURL: config.baseURL,
+            apiKey: currentAPIKey,
+            model: currentModelName,
+            httpClient: hc
+        )
+    }
+
+    /// Route label for rate-limit tracking (provider/model), matching Hermes'
+    /// per-route buckets.
+    private func rateLimitRoute() -> String {
+        "\(config.provider)/\(currentModelName)"
+    }
+
+    /// Stream patience for the current model (Hermes staleness watchdog).
+    private func streamPatience(for messages: [Message]) -> Double {
+        let estimated = messages.reduce(0) { $0 + self.tokenCounter.count($1.content ?? "") }
+        let meta = ModelMetadataRegistry.shared.metadata(for: currentModelName, provider: config.provider)
+        return StalenessPolicy.streamPatience(estimatedTokens: estimated, metadata: meta)
     }
 
     // MARK: - Wire Laundering
@@ -1529,9 +1678,23 @@ public actor ArcAgent: Service {
             return "Error: Unknown tool '\(toolCall.function.name)'."
         }
 
-        guard let data = toolCall.function.arguments.data(using: .utf8),
-              let args = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
+        guard let data = toolCall.function.arguments.data(using: .utf8) else {
+            return "Error: Invalid arguments JSON for tool '\(toolCall.function.name)'."
+        }
+        let args: [String: Any]
+        do {
+            args = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        } catch {
+            // Invalid-JSON recovery (Hermes `_invalid_json_retries`): feed the
+            // parse failure back as a tool result and let the model retry —
+            // bounded per turn so a broken model cannot loop forever.
+            turnRecoveryState.invalidJSONRetries += 1
+            if turnRecoveryState.invalidJSONRetries <= TurnRecoveryState.maxInvalidJSONRetries {
+                return RecoveryNudges.invalidJSONToolResult(
+                    toolName: toolCall.function.name,
+                    error: String(describing: error)
+                )
+            }
             return "Error: Invalid arguments JSON for tool '\(toolCall.function.name)'."
         }
 
