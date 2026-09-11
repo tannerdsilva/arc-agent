@@ -41,13 +41,27 @@ public protocol LLMClient: Sendable {
         messages: [Message],
         tools: [[String: Any]]?
     ) -> AsyncThrowingStream<LLMDelta, Error>
+
+    /// Send messages with a reasoning-effort request (Hermes-style levels:
+    /// low / medium / high / max). Implementations that support effort send
+    /// it; conformers that don't ignore the parameter (default impl).
+    func complete(
+        messages: [Message],
+        tools: [[String: Any]]?,
+        reasoningEffort: String?
+    ) async throws -> LLMResponse
+
+    func stream(
+        messages: [Message],
+        tools: [[String: Any]]?,
+        reasoningEffort: String?
+    ) -> AsyncThrowingStream<LLMDelta, Error>
 }
 
 extension LLMClient {
-    /// Optional reasoning-effort passthrough (Hermes-style levels:
-    /// low / medium / high / max). Conformers that don't care ignore the
-    /// parameter; the plain two-argument requirement still satisfies it.
-    func complete(
+    /// Default reasoning-effort passthrough: ignore the parameter and use
+    /// the plain two-argument requirement.
+    public func complete(
         messages: [Message],
         tools: [[String: Any]]?,
         reasoningEffort: String?
@@ -55,7 +69,7 @@ extension LLMClient {
         try await complete(messages: messages, tools: tools)
     }
 
-    func stream(
+    public func stream(
         messages: [Message],
         tools: [[String: Any]]?,
         reasoningEffort: String?

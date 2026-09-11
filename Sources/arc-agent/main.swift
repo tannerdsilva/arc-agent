@@ -142,7 +142,9 @@ struct Chat: AsyncParsableCommand {
             do {
                 for try await chunk in agent.streamConversation(message: query) {
                     print(chunk, terminator: "")
-                    FileHandle.standardOutput.synchronizeFile()
+                    // fflush is safe on TTYs and pipes; synchronizeFile would
+                    // raise NSFileHandleOperationException on a pipe.
+                    fflush(stdout)
                 }
             } catch {
                 print("\nError: \(error.localizedDescription)")

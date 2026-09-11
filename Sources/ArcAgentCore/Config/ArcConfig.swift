@@ -174,6 +174,7 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         self.maxIterations = try container.decodeIfPresent(Int.self, forKey: .maxIterations) ?? AgentConfig().maxIterations
         self.persistSessions = try container.decodeIfPresent(Bool.self, forKey: .persistSessions) ?? AgentConfig().persistSessions
         self.loadSkills = try container.decodeIfPresent(Bool.self, forKey: .loadSkills) ?? AgentConfig().loadSkills
+        self.reasoningEffort = try container.decodeIfPresent(String.self, forKey: .reasoningEffort)
     }
 }
 
