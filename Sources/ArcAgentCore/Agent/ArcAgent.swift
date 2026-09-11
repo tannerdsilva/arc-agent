@@ -152,6 +152,9 @@ public actor ArcAgent: Service {
     /// Circuit breaker for the primary LLM endpoint.
     private let circuitBreaker = CircuitBreaker(label: "primary-llm", threshold: 3, resetTimeout: 30)
 
+    /// Local usage ledger (Hermes usage_pricing/credits parity).
+    private let usageLedger = UsageLedger()
+
     /// Per-turn recovery counters (Hermes conversation-loop parity).
     private var turnRecoveryState = TurnRecoveryState()
     /// Rate-limit buckets per route (Hermes rate_limit_tracker parity).
@@ -1056,6 +1059,7 @@ public actor ArcAgent: Service {
             }
 
             var accumulatedContent = ""
+            var streamUsage: Usage?
             var accumulatedToolCalls: [ToolCall] = []
 
             do {
@@ -1068,6 +1072,9 @@ public actor ArcAgent: Service {
                 )
 
                 for try await delta in stream {
+                    if let usage = delta.usage {
+                        streamUsage = usage
+                    }
                     if let content = delta.content {
                         accumulatedContent += content
                         continuation.yield(content)
@@ -1181,6 +1188,7 @@ public actor ArcAgent: Service {
             case .text(let content):
                 messageHistory.append(Message(role: .assistant, content: content))
                 turnRecoveryState.markProviderSuccess()
+                if let streamUsage { await recordUsage(streamUsage) }
                 continuation.finish()
                 return
 
@@ -1203,6 +1211,7 @@ public actor ArcAgent: Service {
                 }
                 appendedToolResults = !outcomes.isEmpty
                 turnRecoveryState.markProviderSuccess()
+                if let streamUsage { await recordUsage(streamUsage) }
                 continue
 
             case .empty:
@@ -1336,6 +1345,7 @@ public actor ArcAgent: Service {
                 await circuitBreaker.reset()
                 await rateLimitTracker.recordSuccess(route: rateLimitRoute())
                 turnRecoveryState.markProviderSuccess()
+                await recordUsage(result.usage)
                 return result
             } catch {
                 lastError = error
@@ -1501,6 +1511,28 @@ public actor ArcAgent: Service {
             apiKey: next,
             model: currentModelName,
             httpClient: hc
+        )
+    }
+
+    /// Record a turn's usage into the local ledger (Hermes usage_pricing +
+    /// credits_tracker parity; local JSON — usage is not session data).
+    private func recordUsage(_ usage: Usage?) async {
+        guard let usage else { return }
+        let route = BillingRoute(
+            provider: config.provider,
+            model: currentModelName,
+            baseURL: config.baseURL.absoluteString
+        )
+        await usageLedger.record(
+            route: route,
+            usage: CanonicalUsage(
+                inputTokens: usage.promptTokens,
+                outputTokens: usage.completionTokens,
+                cacheReadTokens: usage.cachedPromptTokens ?? 0,
+                cacheWriteTokens: 0,
+                reasoningTokens: 0,
+                requestCount: 1
+            )
         )
     }
 
