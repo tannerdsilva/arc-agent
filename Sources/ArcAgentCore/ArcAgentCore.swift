@@ -47,6 +47,25 @@ public enum ArcAgentCore {
         try registry.register(DeleteProfileTool.entry)
         try registry.register(SendGroupChatTool.entry)
 
+        // Media / integration tools (Hermes image_gen, tts, transcription,
+        // video, outbound webhooks, code_execution, shell hooks)
+        try registry.register(MediaTools.imageGenerate)
+        try registry.register(MediaTools.tts)
+        try registry.register(MediaTools.transcription)
+        try registry.register(MediaTools.videoGenerate)
+        try registry.register(WebhookTools.notify)
+        try registry.register(CodeExecutionTool.entry)
+
+        // Browser tools (CDP provider — no Playwright/Node required)
+        try registry.register(BrowserTools.navigate)
+        try registry.register(BrowserTools.snapshot)
+        try registry.register(BrowserTools.click)
+        try registry.register(BrowserTools.type)
+        try registry.register(BrowserTools.press)
+        try registry.register(BrowserTools.scroll)
+        try registry.register(BrowserTools.back)
+        Task { await BrowserRegistry.shared.register(CDPBrowserProvider()) }
+
         return registry
     }
 }

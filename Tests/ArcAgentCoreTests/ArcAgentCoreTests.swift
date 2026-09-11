@@ -18,7 +18,7 @@ func coreVersion() {
 @Test("default registry contains all built-in tools")
 func defaultRegistryTools() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
-    #expect(registry.allTools.count == 23)
+    #expect(registry.allTools.count == 36)
 
     #expect(registry.lookup(name: "read_file")?.toolset == "file")
     #expect(registry.lookup(name: "read_file")?.emoji == "📄")
@@ -52,7 +52,7 @@ func emptyRegistry() {
 @Test("registry toolset filtering with all toolsets disabled")
 func allToolsetsDisabled() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
-    let schemas = registry.buildToolSchemas(enabled: [], disabled: ["file", "terminal", "web", "core", "delegation", "kanban", "profile"])
+    let schemas = registry.buildToolSchemas(enabled: [], disabled: ["file", "terminal", "web", "core", "delegation", "kanban", "profile", "media", "webhooks", "sandbox", "browser"])
     #expect(schemas.isEmpty)
 }
 
@@ -168,7 +168,7 @@ func schemaFiltering() throws {
     #expect(webSchemas.count == 2)
 
     let disabled = registry.buildToolSchemas(enabled: [], disabled: ["file"])
-    #expect(disabled.count == 21)
+    #expect(disabled.count == 34)
 }
 
 // =========================================================================
@@ -836,7 +836,7 @@ func configSaveLoad() throws {
 func toolsCommand() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
     let names = registry.allTools.map(\.name).sorted()
-    #expect(names == ["create_profile", "delegate_task", "delete_profile", "get_profile", "kanban_block", "kanban_complete", "kanban_create", "kanban_list", "kanban_show", "list_children", "list_profiles", "memory", "read_file", "send_bot_message", "send_group_chat", "session_search", "skill_view", "steer_child", "stop_child", "terminal", "web_extract", "web_search", "write_file"])
+    #expect(names == ["browser_back", "browser_click", "browser_navigate", "browser_press", "browser_scroll", "browser_snapshot", "browser_type", "code_execution", "create_profile", "delegate_task", "delete_profile", "get_profile", "image_generate", "kanban_block", "kanban_complete", "kanban_create", "kanban_list", "kanban_show", "list_children", "list_profiles", "memory", "notify_webhook", "read_file", "send_bot_message", "send_group_chat", "session_search", "skill_view", "steer_child", "stop_child", "terminal", "transcription", "tts", "video_generate", "web_extract", "web_search", "write_file"])
 }
 
 // =========================================================================
