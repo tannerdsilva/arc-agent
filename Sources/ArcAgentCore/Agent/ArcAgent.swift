@@ -56,6 +56,9 @@ public actor ArcAgent: Service {
         /// for smart approval, LLM compression, and task routing.
         public var auxiliary: AuxiliaryModelSet
 
+        /// Mixture-of-Agents configuration (Hermes `moa` config block).
+        public var moa: MoAConfig
+
         /// The session ID to restore persisted history from. `nil` starts a
         /// fresh session with a new UUID.
         public var sessionID: String?
@@ -101,7 +104,8 @@ public actor ArcAgent: Service {
             fallbackAPIKeys: [String] = [],
             injectProjectContext: Bool = true,
             contextDirectory: URL? = nil,
-            platformHint: String = "cli"
+            platformHint: String = "cli",
+            moa: MoAConfig = MoAConfig()
         ) {
             self.model = model
             self.provider = provider
@@ -124,6 +128,7 @@ public actor ArcAgent: Service {
             self.injectProjectContext = injectProjectContext
             self.contextDirectory = contextDirectory
             self.platformHint = platformHint
+            self.moa = moa
         }
     }
 
@@ -153,6 +158,20 @@ public actor ArcAgent: Service {
     private let rateLimitTracker = RateLimitTracker()
     /// Consecutive stale-stream giveups (Hermes staleness watchdog parity).
     private let staleTracker = StaleStreakTracker()
+    /// Mixture-of-Agents service (Hermes moa_loop parity; built from config).
+    private lazy var moaService: MoAService = {
+        let baseProfile = BundledProviders.resolve(config.provider)
+        return MoAService(config: config.moa, aggregatorModelName: currentModelName) { [weak self] role, apiKey in
+            guard let self else { return nil }
+            guard let hc = await self.httpClient else { return nil }
+            let profile = role.provider.flatMap { BundledProviders.resolve($0) } ?? baseProfile
+            guard let profile else { return nil }
+            let key = apiKey.isEmpty ? await self.currentAPIKey : apiKey
+            return ClientFactory.makeClient(
+                profile: profile, model: role.model, apiKey: key, httpClient: hc
+            )
+        }
+    }()
     /// Structured logger for diagnostic output.
     private let logger = Logger(label: "com.arc-agent.agent")
     private let approvalManager: ApprovalManager
@@ -809,6 +828,21 @@ public actor ArcAgent: Service {
                 disabled: []
             )
 
+            // 3b. Mixture-of-Agents advisory context (Hermes moa_loop: the
+            // acting model sees synthesized reference advice before it acts).
+            if config.moa.enabled {
+                let moaResult = await moaService.aggregate(
+                    userPrompt: messageHistory.last(where: { $0.role == .user })?.content ?? "",
+                    apiMessages: Self.apiForm(messages)
+                )
+                if !moaResult.advisoryBlock.isEmpty {
+                    messages.append(Message(
+                        role: .system,
+                        content: "Advisory context from reference models (Mixture of Agents):\n\(moaResult.advisoryBlock)"
+                    ))
+                }
+            }
+
             // 4. Call LLM with retry logic and per-turn timeout
             let response: LLMResponse
             do {
@@ -1001,6 +1035,20 @@ public actor ArcAgent: Service {
                 enabled: [],
                 disabled: []
             )
+
+            // MoA advisory context (Hermes moa_loop parity).
+            if config.moa.enabled {
+                let moaResult = await moaService.aggregate(
+                    userPrompt: messageHistory.last(where: { $0.role == .user })?.content ?? "",
+                    apiMessages: Self.apiForm(messages)
+                )
+                if !moaResult.advisoryBlock.isEmpty {
+                    messages.append(Message(
+                        role: .system,
+                        content: "Advisory context from reference models (Mixture of Agents):\n\(moaResult.advisoryBlock)"
+                    ))
+                }
+            }
 
             var accumulatedContent = ""
             var accumulatedToolCalls: [ToolCall] = []
@@ -1499,6 +1547,28 @@ public actor ArcAgent: Service {
             )
         }
         return result
+    }
+
+    /// Convert `[Message]` to the wire API form (Hermes api_messages shape)
+    /// so MoA advisory views can preserve tool calls and results.
+    static func apiForm(_ messages: [Message]) -> [[String: Any]] {
+        messages.map { message in
+            var dict: [String: Any] = ["role": message.role.rawValue]
+            if let content = message.content { dict["content"] = content }
+            if let calls = message.toolCalls, !calls.isEmpty {
+                dict["tool_calls"] = calls.map { call in
+                    [
+                        "id": call.id,
+                        "type": "function",
+                        "function": [
+                            "name": call.function.name,
+                            "arguments": call.function.arguments,
+                        ],
+                    ]
+                }
+            }
+            return dict
+        }
     }
 
     /// Canonicalize a tool call's arguments JSON (parse + re-serialize). A

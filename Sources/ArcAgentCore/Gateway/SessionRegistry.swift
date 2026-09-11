@@ -57,6 +57,8 @@ public actor SessionRegistry {
         /// Whether session transcripts should be persisted each turn (only
         /// applies when `tessera` is set).
         public let persistSessions: Bool
+        /// Mixture-of-Agents configuration (Hermes `moa` config block).
+        public let moa: MoAConfig
 
         public init(
             model: String,
@@ -64,7 +66,8 @@ public actor SessionRegistry {
             baseURL: String,
             apiKey: String,
             tessera: TesseraConfig? = nil,
-            persistSessions: Bool = true
+            persistSessions: Bool = true,
+            moa: MoAConfig = MoAConfig()
         ) {
             self.model = model
             self.provider = provider
@@ -72,6 +75,7 @@ public actor SessionRegistry {
             self.apiKey = apiKey
             self.tessera = tessera
             self.persistSessions = persistSessions
+            self.moa = moa
         }
     }
 

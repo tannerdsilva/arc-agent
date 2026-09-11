@@ -55,6 +55,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// profile index are persisted as signed NOSTR events to a Tessera
     /// server instead of local files.
     public var tessera: TesseraConfig?
+    /// Mixture-of-Agents configuration (Hermes `moa` config block).
+    public var moa: MoAConfig
 
     /// Hermes-parity auxiliary-model overrides (`auxiliary.<task>`), routing
     /// secondary tasks (vision, web extract, compression, approval, titles, …)
@@ -72,6 +74,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         memory: MemoryConfig = MemoryConfig(),
         security: SecurityConfig = SecurityConfig(),
         tessera: TesseraConfig? = nil,
+        moa: MoAConfig = MoAConfig(),
         auxiliary: AuxiliaryModelSet = AuxiliaryModelSet()
     ) {
         self.model = model
@@ -81,6 +84,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.memory = memory
         self.security = security
         self.tessera = tessera
+        self.moa = moa
         self.auxiliary = auxiliary
     }
 
@@ -94,6 +98,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.memory = try container.decodeIfPresent(MemoryConfig.self, forKey: .memory) ?? MemoryConfig()
         self.security = try container.decodeIfPresent(SecurityConfig.self, forKey: .security) ?? SecurityConfig()
         self.tessera = try container.decodeIfPresent(TesseraConfig.self, forKey: .tessera)
+        self.moa = try container.decodeIfPresent(MoAConfig.self, forKey: .moa) ?? MoAConfig()
         self.auxiliary = try container.decodeIfPresent(AuxiliaryModelSet.self, forKey: .auxiliary) ?? AuxiliaryModelSet()
     }
 }

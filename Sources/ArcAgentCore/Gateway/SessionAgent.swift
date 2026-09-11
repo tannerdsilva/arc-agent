@@ -114,7 +114,8 @@ public actor SessionAgent: Service {
                 query: nil,
                 maxContextTokens: 64_000,
                 sessionID: sessionID,
-                platformHint: "gateway"
+                platformHint: "gateway",
+                moa: agentConfig.moa
             ))
             logger.info("step: setting up client")
             await agent.setupClient(httpClient: httpClient)

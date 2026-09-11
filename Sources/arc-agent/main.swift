@@ -118,7 +118,8 @@ struct Chat: AsyncParsableCommand {
             approvalMode: approvalMode,
             query: query,
             sessionID: session,
-            contextLength: arcConfig.model.contextLength
+            contextLength: arcConfig.model.contextLength,
+            moa: arcConfig.moa
         )
 
         let agent = ArcAgent(config: agentConfig)
