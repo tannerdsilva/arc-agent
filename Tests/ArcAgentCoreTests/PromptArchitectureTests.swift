@@ -6,7 +6,7 @@ import AsyncHTTPClient
 /// Hermes-parity prompt architecture tests: token-budget completeness,
 /// cache-tiered system prompt, project context injection, skills framing,
 /// compression guards, wire laundering, steer/interrupt, and session_search.
-@Suite("Prompt Architecture")
+@Suite("Prompt Architecture", .serialized)
 struct PromptArchitectureTests {
 
     // MARK: - Helpers

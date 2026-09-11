@@ -63,6 +63,12 @@ public actor ArcAgent: Service {
         /// fresh session with a new UUID.
         public var sessionID: String?
 
+        /// Reasoning effort sent to the provider (Hermes `reasoning_effort`).
+        public var reasoningEffort: String?
+
+        /// Explicit generation budget (max_tokens); nil = metadata/registry.
+        public var maxOutputTokens: Int?
+
         /// The model's context length in tokens (used to derive the
         /// compression threshold; Hermes parity: threshold = context / 2).
         /// `nil` falls back to ``maxContextTokens``.
@@ -105,7 +111,9 @@ public actor ArcAgent: Service {
             injectProjectContext: Bool = true,
             contextDirectory: URL? = nil,
             platformHint: String = "cli",
-            moa: MoAConfig = MoAConfig()
+            moa: MoAConfig = MoAConfig(),
+            reasoningEffort: String? = nil,
+            maxOutputTokens: Int? = nil
         ) {
             self.model = model
             self.provider = provider
@@ -123,6 +131,8 @@ public actor ArcAgent: Service {
             self.maxContextTokens = maxContextTokens
             self.auxiliary = auxiliary
             self.sessionID = sessionID
+            self.reasoningEffort = reasoningEffort
+            self.maxOutputTokens = maxOutputTokens
             self.contextLength = contextLength
             self.fallbackAPIKeys = fallbackAPIKeys
             self.injectProjectContext = injectProjectContext
@@ -196,6 +206,8 @@ public actor ArcAgent: Service {
     private var currentAPIKey: String = ""
     /// The model the current client targets (tracks /model + fallback swaps).
     private var currentModelName: String = ""
+    /// Effective reasoning effort for this run (Hermes `reasoning_effort`).
+    private var currentReasoningEffort: String?
     /// Cached token estimate for the tool schemas (static per agent).
     private var toolSchemaTokenEstimate: Int?
     /// Cached project context files (static per agent/working directory).
@@ -319,7 +331,10 @@ public actor ArcAgent: Service {
 
     // MARK: - Service
 
-    public func run() async throws {
+        /// One-time setup: HTTP client, auth pool, provider client, and tool
+    /// wiring. Idempotent — safe to call from `run()` and `streamConversation`.
+    public func prime() async throws {
+        if httpClient != nil { return }
         let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
         self.httpClient = httpClient
         makeAuxRouter()
@@ -330,6 +345,7 @@ public actor ArcAgent: Service {
         self.credentialPool = pool
         self.currentAPIKey = config.apiKey
         self.currentModelName = config.model
+        self.currentReasoningEffort = config.reasoningEffort
         let resolvedKey = await pool.acquireLease() ?? config.apiKey
 
         let client = OpenAICompatibleClient(
@@ -342,10 +358,12 @@ public actor ArcAgent: Service {
             // cap output at their default (often 4096), truncating long
             // answers with finish_reason == "length" and no error.
             defaultParameters: RequestParameters(
-                maxTokens: ModelMetadataRegistry.shared.metadata(
-                    for: config.model,
-                    provider: config.provider
-                ).maxOutputTokens ?? 32_768
+                maxTokens: config.maxOutputTokens
+                    ?? ModelMetadataRegistry.shared.metadata(
+                        for: config.model,
+                        provider: config.provider
+                    ).maxOutputTokens
+                    ?? 32_768
             )
         )
         self.llmClient = client
@@ -359,6 +377,16 @@ public actor ArcAgent: Service {
         // The memory tool writes through the agent's configured provider.
         MemoryTool.provider = config.memoryProvider
         SessionSearchTool.store = config.sessionStore
+    }
+
+    /// Tear the HTTP client down (streaming callers own their client).
+    public func shutdownHTTPClient() async {
+        try? await httpClient?.shutdown()
+        httpClient = nil
+    }
+
+    public func run() async throws {
+        try await prime()
 
         if let q = config.query {
             let response = try await runConversation(message: q)
@@ -367,7 +395,7 @@ public actor ArcAgent: Service {
             try await runInteractive()
         }
 
-        try? await httpClient.shutdown()
+        try? await httpClient?.shutdown()
     }
 
     // MARK: - Interactive REPL
@@ -510,6 +538,10 @@ public actor ArcAgent: Service {
         compressionThrottled = false
         lastTwoCompressionSavings = []
         turnRecoveryState = TurnRecoveryState()
+    }
+
+    private func appendUserMessage(_ message: Message) {
+        messageHistory.append(message)
     }
 
     /// Inject a mid-turn steering instruction. Drained before the next LLM
@@ -881,7 +913,8 @@ public actor ArcAgent: Service {
                     makeClient: { self.freshClient() ?? currentClient },
                     messages: messages,
                     tools: toolSchemas,
-                    timeout: config.maxTurnDuration
+                    timeout: config.maxTurnDuration,
+                    reasoningEffort: currentReasoningEffort
                 )
             } catch {
                 let errorClass = classifyError(error)
@@ -1007,13 +1040,14 @@ public actor ArcAgent: Service {
     /// Yields tokens as they arrive from the LLM, then yields the final
     /// response text. Tool calls are executed synchronously and their
     /// results are yielded as single chunks.
-    public func streamConversation(message: String) -> AsyncThrowingStream<String, Error> {
+    nonisolated public func streamConversation(message: String) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 do {
+                    try await prime()
                     await restoreSessionIfNeeded()
-                    resetTurnState()
-                    messageHistory.append(Message(role: .user, content: message))
+                    await resetTurnState()
+                    await self.appendUserMessage(Message(role: .user, content: message))
                     try await runStreamingTurnLoop(continuation: continuation)
                 } catch {
                     continuation.finish(throwing: error)
@@ -1091,7 +1125,8 @@ public actor ArcAgent: Service {
                     makeClient: { self.freshClient() ?? currentClient },
                     messages: messages,
                     tools: toolSchemas,
-                    timeout: config.maxTurnDuration
+                    timeout: config.maxTurnDuration,
+                    reasoningEffort: currentReasoningEffort
                 )
 
                 for try await delta in stream {
@@ -1289,7 +1324,8 @@ public actor ArcAgent: Service {
         makeClient: @escaping () -> any LLMClient,
         messages: [Message],
         tools: [[String: Any]]?,
-        timeout: Int = 120
+        timeout: Int = 120,
+        reasoningEffort: String? = nil
     ) async throws -> LLMResponse {
         // Check circuit breaker — if open, reject immediately
         let cbState = await circuitBreaker.currentState()
@@ -1341,7 +1377,8 @@ public actor ArcAgent: Service {
                         }
                         return try await activeClient.complete(
                             messages: messages,
-                            tools: deserialized
+                            tools: deserialized,
+                            reasoningEffort: reasoningEffort
                         )
                     }
 
@@ -1438,7 +1475,8 @@ public actor ArcAgent: Service {
         makeClient: @escaping () -> any LLMClient,
         messages: [Message],
         tools: [[String: Any]]?,
-        timeout: Int = 120
+        timeout: Int = 120,
+        reasoningEffort: String? = nil
     ) async throws -> any AsyncSequence<LLMDelta, Error> {
         let cbState = await circuitBreaker.currentState()
         if case .open(let resetAt) = cbState {
@@ -1475,7 +1513,8 @@ public actor ArcAgent: Service {
 
                 let stream = try await activeClient.stream(
                     messages: messages,
-                    tools: toolsArg
+                    tools: toolsArg,
+                    reasoningEffort: reasoningEffort
                 )
 
                 await circuitBreaker.reset()

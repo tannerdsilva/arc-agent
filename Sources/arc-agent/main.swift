@@ -129,15 +129,25 @@ struct Chat: AsyncParsableCommand {
             query: query,
             sessionID: session,
             contextLength: arcConfig.model.contextLength,
-            moa: arcConfig.moa
+            moa: arcConfig.moa,
+            reasoningEffort: arcConfig.agent.reasoningEffort,
+            maxOutputTokens: arcConfig.model.maxOutputTokens
         )
 
         let agent = ArcAgent(config: agentConfig)
 
-        if query != nil {
-            // Single-query mode: run directly, no ServiceGroup needed
-            // (ServiceGroup expects services that run forever)
-            try await agent.run()
+        if let query {
+            // Single-query mode: stream the reply like Hermes — visible
+            // tokens and tool activity instead of a silent wait.
+            do {
+                for try await chunk in agent.streamConversation(message: query) {
+                    print(chunk, terminator: "")
+                    FileHandle.standardOutput.synchronizeFile()
+                }
+            } catch {
+                print("\nError: \(error.localizedDescription)")
+            }
+            await agent.shutdownHTTPClient()
             // Tear the Tessera tunnel down before process exit so the
             // dependency's client is never deinitialized half-open (that
             // trap killed the CLI whenever the relay wedged).

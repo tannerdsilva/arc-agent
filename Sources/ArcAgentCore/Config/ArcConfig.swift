@@ -115,17 +115,22 @@ public struct ModelConfig: Codable, Sendable, Equatable {
     public var baseURL: String?
     /// Context length for the default model.
     public var contextLength: Int?
+    /// Explicit generation budget (Hermes `max_tokens` override). nil = use
+    /// the registry's per-model max output.
+    public var maxOutputTokens: Int?
 
     public init(
         defaultModel: String = "gpt-4o",
         provider: String = "openai",
         baseURL: String? = nil,
-        contextLength: Int? = nil
+        contextLength: Int? = nil,
+        maxOutputTokens: Int? = nil
     ) {
         self.defaultModel = defaultModel
         self.provider = provider
         self.baseURL = baseURL
         self.contextLength = contextLength
+        self.maxOutputTokens = maxOutputTokens
     }
 
     /// Decode each field independently, defaulting any that are absent.
@@ -135,6 +140,7 @@ public struct ModelConfig: Codable, Sendable, Equatable {
         self.provider = try container.decodeIfPresent(String.self, forKey: .provider) ?? ModelConfig().provider
         self.baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL)
         self.contextLength = try container.decodeIfPresent(Int.self, forKey: .contextLength)
+        self.maxOutputTokens = try container.decodeIfPresent(Int.self, forKey: .maxOutputTokens)
     }
 }
 
@@ -146,15 +152,20 @@ public struct AgentConfig: Codable, Sendable, Equatable {
     public var persistSessions: Bool
     /// Whether to load skills on startup.
     public var loadSkills: Bool
+    /// Reasoning effort passed to the provider (Hermes `agent.reasoning_effort`:
+    /// "minimal"/"low"/"medium"/"high"/"max"). nil = provider default.
+    public var reasoningEffort: String?
 
     public init(
         maxIterations: Int = 25,
         persistSessions: Bool = true,
-        loadSkills: Bool = true
+        loadSkills: Bool = true,
+        reasoningEffort: String? = nil
     ) {
         self.maxIterations = maxIterations
         self.persistSessions = persistSessions
         self.loadSkills = loadSkills
+        self.reasoningEffort = reasoningEffort
     }
 
     /// Decode each field independently, defaulting any that are absent.
