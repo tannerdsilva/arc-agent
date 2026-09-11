@@ -154,6 +154,8 @@ public actor ArcAgent: Service {
 
     /// Local usage ledger (Hermes usage_pricing/credits parity).
     private let usageLedger = UsageLedger()
+    /// Pluggable context engine (Hermes context_engine; ARC_CONTEXT_ENGINE).
+    private let contextEngine: any ContextEngine = ContextEngineRouter.resolve()
 
     /// Per-turn recovery counters (Hermes conversation-loop parity).
     private var turnRecoveryState = TurnRecoveryState()
@@ -672,6 +674,17 @@ public actor ArcAgent: Service {
         let limit = effectiveContextLimit()
         let estimated = await estimateRequestTokens()
         guard estimated > limit else { return }
+
+        // Pluggable context engines (Hermes context_engine): the
+        // prune-tool-results variant trims tool output only; everything else
+        // uses the default summarize-and-window engine below.
+        if contextEngine.name == "prune_tool_results" {
+            messageHistory = contextEngine.pruneToolResultsOnly(
+                messages: messageHistory,
+                maxBytes: 32_000
+            )
+            return
+        }
 
         let systemMessages = messageHistory.filter { $0.role == .system }
         let nonSystem = messageHistory.filter { $0.role != .system }
