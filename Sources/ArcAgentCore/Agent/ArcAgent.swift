@@ -1938,13 +1938,13 @@ public actor ArcAgent: Service {
             volatile += "## Skills (mandatory)\n\n\(Self.skillsMandatoryFraming)\n\n<available_skills>\n\(buildSkillsIndex(config.skills))\n</available_skills>\n\n"
         }
         if let memory = config.memoryProvider {
-            let memoryContent = try await memory.readMemory()
+            let memoryContent = MemoryManager.scrub(try await memory.readMemory())
             if !memoryContent.isEmpty {
-                volatile += "## Memory (Your Persistent Notes)\n\n\(memoryContent)\n\n"
+                volatile += "## Memory (Your Persistent Notes)\n\n\(MemoryManager.fence(memoryContent))\n\n"
             }
             let userContent = try await memory.readUser()
             if !userContent.isEmpty {
-                volatile += "## User Profile\n\n\(userContent)\n\n"
+                volatile += "## User Profile\n\n\(MemoryManager.scrub(userContent))\n\n"
             }
         }
         volatile += Self.timestampLine(
