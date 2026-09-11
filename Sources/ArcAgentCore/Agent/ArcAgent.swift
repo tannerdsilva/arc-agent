@@ -158,6 +158,9 @@ public actor ArcAgent: Service {
     private let rateLimitTracker = RateLimitTracker()
     /// Consecutive stale-stream giveups (Hermes staleness watchdog parity).
     private let staleTracker = StaleStreakTracker()
+    /// Per-turn tool loop caps + repeat/synthetic results (Hermes
+    /// tool_guardrails parity).
+    private let toolGuardrails = ToolGuardrails()
     /// Mixture-of-Agents service (Hermes moa_loop parity; built from config).
     private lazy var moaService: MoAService = {
         let baseProfile = BundledProviders.resolve(config.provider)
@@ -791,6 +794,7 @@ public actor ArcAgent: Service {
 
     /// The core turn loop with retry logic, fallback models, and timeout.
     private func runTurnLoop(client: any LLMClient) async throws -> String {
+        await toolGuardrails.resetTurn()
         guard let hc = self.httpClient else {
             return "Error: Agent HTTP client not initialized."
         }
@@ -996,6 +1000,7 @@ public actor ArcAgent: Service {
     private func runStreamingTurnLoop(
         continuation: AsyncThrowingStream<String, Error>.Continuation
     ) async throws {
+        await toolGuardrails.resetTurn()
         guard let hc = self.httpClient else {
             continuation.yield("Error: Agent HTTP client not initialized.")
             continuation.finish()
@@ -1571,6 +1576,15 @@ public actor ArcAgent: Service {
         }
     }
 
+    /// Post-execution laundering (Hermes `redact.py` parity): terminal tool
+    /// output is scrubbed for secret shapes before it is shown to the model.
+    static func launderToolResult(_ call: ToolCall, _ result: String) async -> String {
+        if call.function.name == "terminal" {
+            return Redactor.redact(Redactor.redactTerminalOutput(result))
+        }
+        return result
+    }
+
     /// Canonicalize a tool call's arguments JSON (parse + re-serialize). A
     /// corrupted payload becomes `{}` so the tool gets a clean, parseable
     /// shape instead of an unparseable one.
@@ -1670,7 +1684,10 @@ public actor ArcAgent: Service {
                 ))
             }
         }
-        return withStubs
+        // Pass 3: Hermes message sanitization — unicode/control cleanup and
+        // interrupted tool-sequence closing (synthetic results for unpaired
+        // trailing calls; a no-op for well-formed transcripts).
+        return MessageSanitizer.sanitize(withStubs)
     }
 
     // MARK: - Tool Dispatch
@@ -1751,21 +1768,40 @@ public actor ArcAgent: Service {
         guard let data = toolCall.function.arguments.data(using: .utf8) else {
             return "Error: Invalid arguments JSON for tool '\(toolCall.function.name)'."
         }
-        let args: [String: Any]
+        var args: [String: Any]
         do {
             args = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         } catch {
-            // Invalid-JSON recovery (Hermes `_invalid_json_retries`): feed the
-            // parse failure back as a tool result and let the model retry —
-            // bounded per turn so a broken model cannot loop forever.
-            turnRecoveryState.invalidJSONRetries += 1
-            if turnRecoveryState.invalidJSONRetries <= TurnRecoveryState.maxInvalidJSONRetries {
-                return RecoveryNudges.invalidJSONToolResult(
-                    toolName: toolCall.function.name,
-                    error: String(describing: error)
-                )
+            // Hermes `repair_tool_call_arguments`: recover corrupted JSON
+            // (unescaped newlines/quotes, bare keys) before failing.
+            let rawArgs = String(data: data, encoding: .utf8) ?? ""
+            let repair = MessageSanitizer.repairToolCallArguments(rawArgs)
+            if repair.repaired,
+               let repairedArgs = try? JSONSerialization.jsonObject(
+                   with: Data(repair.json.utf8)) as? [String: Any] {
+                args = repairedArgs
+            } else {
+                // Invalid-JSON recovery (Hermes `_invalid_json_retries`): feed
+                // the parse failure back as a tool result and let the model
+                // retry — bounded per turn so a broken model cannot loop.
+                turnRecoveryState.invalidJSONRetries += 1
+                if turnRecoveryState.invalidJSONRetries <= TurnRecoveryState.maxInvalidJSONRetries {
+                    return RecoveryNudges.invalidJSONToolResult(
+                        toolName: toolCall.function.name,
+                        error: String(describing: error)
+                    )
+                }
+                return "Error: Invalid arguments JSON for tool '\(toolCall.function.name)'."
             }
-            return "Error: Invalid arguments JSON for tool '\(toolCall.function.name)'."
+        }
+
+        // Tool guardrails (Hermes tool_guardrails): loop caps, per-turn
+        // budgets, and repeated-call synthetic results.
+        switch await toolGuardrails.decide(toolName: toolCall.function.name, args: args) {
+        case .synthetic(let message):
+            return message
+        case .allow:
+            break
         }
 
         do {
@@ -1809,14 +1845,14 @@ public actor ArcAgent: Service {
         for segment in Self.planToolBatch(toolCalls) {
             if segment.count == 1 {
                 let call = segment[0]
-                outcomes.append((call, await runToolCall(call)))
+                outcomes.append((call, await Self.launderToolResult(call, await runToolCall(call))))
                 continue
             }
             let ordered = await withTaskGroup(of: (Int, String).self) { group in
                 for (index, call) in segment.enumerated() {
                     group.addTask {
                         let result = await self.runToolCall(call)
-                        return (index, result)
+                        return (index, await Self.launderToolResult(call, result))
                     }
                 }
                 var collected: [(Int, String)] = []

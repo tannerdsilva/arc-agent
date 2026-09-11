@@ -38,6 +38,16 @@ public enum WriteFileTool {
         // Expand leading "~" (e.g. "~/Desktop/hello.txt") so models can use
         // home-relative paths without knowing the absolute home directory.
         let expanded = (path as NSString).expandingTildeInPath
+
+        // Hermes `file_safety.py`: refuse to overwrite protected paths
+        // (config/state files, cross-profile areas).
+        if FileSafety.isWriteDenied(expanded) {
+            return "Error: Refusing to write to a protected path: \(path). Choose a different location."
+        }
+        if let warning = FileSafety.sandboxMirrorWarning(expanded) {
+            return "Error: \(warning)"
+        }
+
         let filePath = FilePath(expanded)
 
         // Ensure the parent directory exists.
