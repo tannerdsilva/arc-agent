@@ -85,13 +85,23 @@ struct Chat: AsyncParsableCommand {
         let registry = try ArcAgentCore.buildDefaultRegistry()
 
         // Storage: with a `tessera` configuration, sessions and memory are
-        // persisted to the Tessera server as signed NOSTR events.
+        // persisted to the Tessera server as signed NOSTR events. If the
+        // relay is unreachable (bounded handshake), fall back to file
+        // storage so the agent never hangs or crashes on storage.
         let sessionStore: any SessionStore
         let memoryProvider: (any MemoryProvider)?
         if let tessera = arcConfig.tessera {
             await TesseraConnection.shared.configure(tessera)
-            sessionStore = TesseraSessionStore()
-            memoryProvider = TesseraMemoryProvider()
+            if await TesseraConnection.shared.healthCheck() {
+                sessionStore = TesseraSessionStore()
+                memoryProvider = TesseraMemoryProvider()
+            } else {
+                Logger(label: "arc-agent").warning(
+                    "Tessera relay unreachable (handshake timed out); falling back to file storage for this run"
+                )
+                sessionStore = FileSessionStore()
+                memoryProvider = FileMemoryProvider()
+            }
         } else {
             sessionStore = FileSessionStore()
             memoryProvider = FileMemoryProvider()
@@ -128,6 +138,10 @@ struct Chat: AsyncParsableCommand {
             // Single-query mode: run directly, no ServiceGroup needed
             // (ServiceGroup expects services that run forever)
             try await agent.run()
+            // Tear the Tessera tunnel down before process exit so the
+            // dependency's client is never deinitialized half-open (that
+            // trap killed the CLI whenever the relay wedged).
+            await TesseraConnection.shared.shutdown()
         } else {
             // Interactive mode: wrap in ServiceGroup for lifecycle management
             let serviceGroup = ServiceGroup(
@@ -137,6 +151,7 @@ struct Chat: AsyncParsableCommand {
                 )
             )
             try await serviceGroup.run()
+            await TesseraConnection.shared.shutdown()
         }
     }
 }

@@ -90,6 +90,11 @@ public enum LLMError: Error, Sendable, CustomStringConvertible {
     /// The response could not be parsed.
     case decodingError(String)
 
+    /// The provider returned an empty response (no choices / no content /
+    /// no tool calls). Transient by nature — Hermes treats this as retryable
+    /// with a storm guard, not as a permanent failure.
+    case emptyResponse
+
     /// The context length was exceeded — messages need compression.
     case contextLengthExceeded(limit: Int)
 
@@ -112,6 +117,8 @@ public enum LLMError: Error, Sendable, CustomStringConvertible {
             return "Network error: \(message)"
         case .decodingError(let message):
             return "Failed to decode response: \(message)"
+        case .emptyResponse:
+            return "Provider returned an empty response"
         case .contextLengthExceeded(let limit):
             return "Context length exceeded (limit: \(limit) tokens). Compress history."
         case .contentPolicyViolation(let message):

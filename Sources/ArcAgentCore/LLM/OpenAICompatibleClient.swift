@@ -377,10 +377,13 @@ public struct OpenAICompatibleClient: LLMClient {
     // MARK: - Response Parsing
 
     private func parseResponse(json: [String: Any]) throws -> LLMResponse {
-        guard let choices = json["choices"] as? [[String: Any]],
-              let choice = choices.first
-        else {
+        guard let choices = json["choices"] as? [[String: Any]] else {
+            // Missing the key entirely is a malformed response (decode fail);
+            // an empty array is a provider empty response (retryable).
             throw LLMError.decodingError("Missing 'choices' in response")
+        }
+        guard let choice = choices.first else {
+            throw LLMError.emptyResponse
         }
 
         let message = choice["message"] as? [String: Any] ?? [:]

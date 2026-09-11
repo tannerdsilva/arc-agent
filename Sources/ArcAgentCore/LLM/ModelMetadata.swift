@@ -214,6 +214,9 @@ public struct ModelMetadataRegistry: Sendable {
     // families; context lengths are the provider-declared windows).
 
     public static let builtInEntries: [ModelMetadata] = [
+        .init(model: "deepseek-v4-flash-vision-exp", provider: "custom", contextLength: 1_048_576, maxOutputTokens: 32_768,
+              supportsThinking: true, thinkingField: .reasoningEffort,
+              reasoningEffortLevels: ["low", "medium", "high", "max"], staleTimeoutFloor: 180),
         .init(model: "gpt-4o", provider: "openai", contextLength: 128_000, maxOutputTokens: 16_384,
               pricing: .init(inputPerMillion: 2.5, outputPerMillion: 10)),
         .init(model: "gpt-4o-mini", provider: "openai", contextLength: 128_000, maxOutputTokens: 16_384,

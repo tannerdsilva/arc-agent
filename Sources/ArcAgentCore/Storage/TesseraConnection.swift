@@ -12,6 +12,8 @@ public enum TesseraStoreError: Swift.Error, CustomStringConvertible {
     case notStarted
     /// Timed out waiting for the server's end-of-history markers.
     case eoseTimeout
+    /// The WireGuard handshake did not complete within the bound.
+    case connectTimeout
 
     public var description: String {
         switch self {
@@ -23,6 +25,8 @@ public enum TesseraStoreError: Swift.Error, CustomStringConvertible {
             return "Tessera connection has not been started"
         case .eoseTimeout:
             return "timed out waiting for the server's end-of-history markers"
+        case .connectTimeout:
+            return "Tessera relay handshake timed out"
         }
     }
 }
@@ -120,6 +124,20 @@ public actor TesseraConnection {
 
     /// Whether a Tessera configuration has been provided.
     public var isConfigured: Bool { config != nil }
+
+    /// Probe the relay with a bounded handshake; tears the probe session
+    /// down either way so the process never keeps a half-open client.
+    /// Used by the CLI to fall back to file storage when the relay is down.
+    public func healthCheck() async -> Bool {
+        do {
+            try await ensureStarted()
+            await shutdown()
+            return true
+        } catch {
+            await shutdown()
+            return false
+        }
+    }
 
     // MARK: - Configuration
 
@@ -232,7 +250,21 @@ public actor TesseraConnection {
         self.session = session
         self.eoseTracker = tracker
 
-        try await session.connect()
+        // Bound the connect: a wedged relay (handshake never completing) must
+        // fail the store after a bounded wait instead of hanging the process.
+        // Race via TaskGroup per the First Law; the loser keeps its work but
+        // never blocks the caller.
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await session.connect()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: 25_000_000_000)
+                throw TesseraStoreError.connectTimeout
+            }
+            try await group.next()
+            group.cancelAll()
+        }
         for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind]) {
             try await session.subscribe(subscriptionID: sub, filters: [Filter(applications: [config.application], kinds: [kind])])
         }

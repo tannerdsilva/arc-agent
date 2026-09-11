@@ -91,6 +91,10 @@ public func classifyError(_ error: Error) -> ErrorClass {
             return .retryable
         case .decodingError:
             return .permanent
+        case .emptyResponse:
+            // Empty 200s are transient provider anomalies (Hermes retries
+            // with a nudge and a storm guard). Never a permanent failure.
+            return .retryable
         case .contextLengthExceeded:
             return .contextOverflow
         case .contentPolicyViolation:

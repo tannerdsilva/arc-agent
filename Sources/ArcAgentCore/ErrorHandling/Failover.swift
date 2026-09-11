@@ -105,6 +105,8 @@ public enum ErrorClassifier {
             return ClassifiedFailure(reason: .contentPolicy)
         case .decodingError:
             return ClassifiedFailure(reason: .decoding)
+        case .emptyResponse:
+            return ClassifiedFailure(reason: .emptyResponse)
         case .networkError:
             return ClassifiedFailure(reason: .timeout)
         case .modelNotFound:

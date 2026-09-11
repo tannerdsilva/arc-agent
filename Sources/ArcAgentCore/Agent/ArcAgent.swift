@@ -336,7 +336,17 @@ public actor ArcAgent: Service {
             baseURL: config.baseURL,
             apiKey: resolvedKey,
             model: config.model,
-            httpClient: httpClient
+            httpClient: httpClient,
+            // Hermes parity: always declare a generation budget. Without an
+            // explicit max_tokens some OpenAI-compatible servers silently
+            // cap output at their default (often 4096), truncating long
+            // answers with finish_reason == "length" and no error.
+            defaultParameters: RequestParameters(
+                maxTokens: ModelMetadataRegistry.shared.metadata(
+                    for: config.model,
+                    provider: config.provider
+                ).maxOutputTokens ?? 32_768
+            )
         )
         self.llmClient = client
 
@@ -1374,6 +1384,17 @@ public actor ArcAgent: Service {
                     continue
                 }
 
+                // Empty-response storm guard (Hermes `_check_empty_storm`):
+                // empty 200s retry, but a streak means the provider is stuck —
+                // stop with a visible reason instead of looping.
+                if case LLMError.emptyResponse = error {
+                    turnRecoveryState.emptyStormStreak += 1
+                    logger.warning("empty response \(turnRecoveryState.emptyStormStreak)/\(TurnRecoveryState.emptyStormThreshold) from provider")
+                    if turnRecoveryState.emptyStormStreak > TurnRecoveryState.emptyStormThreshold {
+                        throw error
+                    }
+                }
+
                 // Primary transport recovery: rebuild the connection once per
                 // turn on transport-level failures (Hermes
                 // `_try_recover_primary_transport`).
@@ -1474,6 +1495,15 @@ public actor ArcAgent: Service {
                     let delay = FailureBackoff.delay(for: .rateLimit, attempt: attempt, retryAfter: retryAfter)
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                     continue
+                }
+
+                // Empty-response storm guard (Hermes `_check_empty_storm`).
+                if case LLMError.emptyResponse = error {
+                    turnRecoveryState.emptyStormStreak += 1
+                    logger.warning("empty response \(turnRecoveryState.emptyStormStreak)/\(TurnRecoveryState.emptyStormThreshold) from provider (stream)")
+                    if turnRecoveryState.emptyStormStreak > TurnRecoveryState.emptyStormThreshold {
+                        throw error
+                    }
                 }
 
                 // Primary transport recovery on transport failures.
