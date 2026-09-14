@@ -47,6 +47,12 @@ public struct Message: Sendable, Codable, Equatable {
     /// output tokens / wall-clock duration. nil when unknown.
     public let tps: Double?
 
+    /// Terminal-state reason for assistant replies that ended the turn
+    /// abnormally (e.g. `"max_iterations"` when the tool-iteration budget was
+    /// exhausted). nil for normal replies and legacy stored messages.
+    /// Mirrors Hermes `_terminal_reason` so UIs can surface a status card.
+    public let terminalReason: String?
+
     public init(
         role: Role,
         content: String? = nil,
@@ -56,7 +62,8 @@ public struct Message: Sendable, Codable, Equatable {
         createdAt: Date? = nil,
         reasoning: String? = nil,
         usage: Usage? = nil,
-        tps: Double? = nil
+        tps: Double? = nil,
+        terminalReason: String? = nil
     ) {
         self.role = role
         self.content = content
@@ -67,6 +74,7 @@ public struct Message: Sendable, Codable, Equatable {
         self.reasoning = reasoning
         self.usage = usage
         self.tps = tps
+        self.terminalReason = terminalReason
     }
 }
 
