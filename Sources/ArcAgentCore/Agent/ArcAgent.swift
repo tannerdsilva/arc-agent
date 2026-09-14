@@ -32,8 +32,9 @@ public actor ArcAgent: Service {
         public var baseURL: URL
         /// The API key.
         public var apiKey: String
-        /// The tool registry.
-        public var registry: CompileTimeToolRegistry
+        /// The tool registry (built-ins plus any runtime-discovered plugin
+        /// tools; see ``MutableToolRegistry``).
+        public var registry: any ToolRegistry
         /// The session store.
         public var sessionStore: SessionStore
         /// The memory provider for persistent memory injection.
@@ -66,6 +67,12 @@ public actor ArcAgent: Service {
         /// Reasoning effort sent to the provider (Hermes `reasoning_effort`).
         public var reasoningEffort: String?
 
+        /// Sampling temperature (0.0 - 2.0) sent to the provider.
+        public var temperature: Double?
+
+        /// Nucleus sampling threshold (0.0 - 1.0) sent to the provider.
+        public var topP: Double?
+
         /// Explicit generation budget (max_tokens); nil = metadata/registry.
         public var maxOutputTokens: Int?
 
@@ -94,7 +101,7 @@ public actor ArcAgent: Service {
             provider: String = "openai",
             baseURL: URL = URL(string: "https://api.openai.com/v1")!,
             apiKey: String,
-            registry: CompileTimeToolRegistry,
+            registry: any ToolRegistry,
             sessionStore: SessionStore = FileSessionStore(),
             memoryProvider: MemoryProvider? = FileMemoryProvider(),
             skills: [Skill] = [],
@@ -113,6 +120,8 @@ public actor ArcAgent: Service {
             platformHint: String = "cli",
             moa: MoAConfig = MoAConfig(),
             reasoningEffort: String? = nil,
+            temperature: Double? = nil,
+            topP: Double? = nil,
             maxOutputTokens: Int? = nil
         ) {
             self.model = model
@@ -132,6 +141,8 @@ public actor ArcAgent: Service {
             self.auxiliary = auxiliary
             self.sessionID = sessionID
             self.reasoningEffort = reasoningEffort
+            self.temperature = temperature
+            self.topP = topP
             self.maxOutputTokens = maxOutputTokens
             self.contextLength = contextLength
             self.fallbackAPIKeys = fallbackAPIKeys
@@ -300,7 +311,12 @@ public actor ArcAgent: Service {
             baseURL: config.baseURL,
             apiKey: resolvedKey,
             model: config.model,
-            httpClient: httpClient
+            httpClient: httpClient,
+            defaultParameters: RequestParameters(
+                temperature: config.temperature,
+                maxTokens: config.maxOutputTokens,
+                topP: config.topP
+            )
         )
         // The memory tool writes through the agent's configured provider so
         // the model reads and writes use the same backend as this agent.

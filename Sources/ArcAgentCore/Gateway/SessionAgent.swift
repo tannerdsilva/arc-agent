@@ -50,6 +50,7 @@ public actor SessionAgent: Service {
             let resolvedKey: String
             let resolvedSOUL: String?
             let resolvedToolsets: (enabled: Set<String>?, disabled: Set<String>?)
+            let resolvedContext: ProfileContextConfig?
 
             if let profileConfig = try await profileManager.get(name: profile) {
                 resolvedModel = profileConfig.model ?? agentConfig.model
@@ -65,6 +66,7 @@ public actor SessionAgent: Service {
                 resolvedKey = agentConfig.apiKey
                 resolvedSOUL = profileConfig.soulMD
                 resolvedToolsets = (profileConfig.enabledToolsets, profileConfig.disabledToolsets)
+                resolvedContext = profileConfig.context
             } else {
                 resolvedModel = agentConfig.model
                 resolvedProvider = agentConfig.provider
@@ -76,6 +78,7 @@ public actor SessionAgent: Service {
                 resolvedKey = agentConfig.apiKey
                 resolvedSOUL = nil
                 resolvedToolsets = (nil, nil)
+                resolvedContext = nil
             }
 
             // Storage backend. When Tessera is configured, sessions and
@@ -95,7 +98,7 @@ public actor SessionAgent: Service {
             }
 
             logger.info("step: building tool registry")
-            let toolRegistry = try ArcAgentCore.buildDefaultRegistry()
+            let toolRegistry = try await MutableToolRegistry.make(enabledPlugins: pluginAllowList())
 
             logger.info("step: creating ArcAgent")
             let agent = ArcAgent(config: ArcAgent.Configuration(
@@ -114,8 +117,13 @@ public actor SessionAgent: Service {
                 query: nil,
                 maxContextTokens: 64_000,
                 sessionID: sessionID,
+                contextLength: resolvedContext?.contextLength,
                 platformHint: "gateway",
-                moa: agentConfig.moa
+                moa: agentConfig.moa,
+                reasoningEffort: resolvedContext?.reasoningEffort,
+                temperature: resolvedContext?.temperature,
+                topP: resolvedContext?.topP,
+                maxOutputTokens: resolvedContext?.maxOutputTokens
             ))
             logger.info("step: setting up client")
             await agent.setupClient(httpClient: httpClient)

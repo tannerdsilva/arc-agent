@@ -96,4 +96,50 @@ public enum JSONSchema: Sendable {
             return dict
         }
     }
+
+    // MARK: - Decoding (OpenAI function parameters)
+
+    /// Parse an OpenAI-style parameters object (as carried by a tool schema
+    /// or an MCP response) into the native schema. Unknown keys are ignored;
+    /// an unrecognized `type` falls back to ``/string``.
+    public init?(fromOpenAI dict: [String: Any]) {
+        guard let type = dict["type"] as? String else { return nil }
+        let description = dict["description"] as? String ?? ""
+        switch type {
+        case "object":
+            var props: [String: JSONSchema] = [:]
+            if let rawProps = dict["properties"] as? [String: Any] {
+                for (key, value) in rawProps {
+                    if let sub = value as? [String: Any], let parsed = JSONSchema(fromOpenAI: sub) {
+                        props[key] = parsed
+                    }
+                }
+            }
+            self = .object(
+                description: description.isEmpty ? nil : description,
+                properties: props,
+                required: dict["required"] as? [String]
+            )
+        case "array":
+            if let items = (dict["items"] as? [String: Any]).flatMap({ JSONSchema(fromOpenAI: $0) }) {
+                self = .array(description: description.isEmpty ? nil : description, items: items)
+            } else {
+                self = .array(description: description.isEmpty ? nil : description, items: .object(properties: [:]))
+            }
+        case "string":
+            if let values = dict["enum"] as? [String] {
+                self = .enum(description: description, values: values)
+            } else {
+                self = .string(description: description, default: dict["default"] as? String)
+            }
+        case "integer":
+            self = .integer(description: description, default: dict["default"] as? Int)
+        case "number":
+            self = .number(description: description, default: dict["default"] as? Double)
+        case "boolean":
+            self = .boolean(description: description, default: dict["default"] as? Bool)
+        default:
+            self = .string(description: description)
+        }
+    }
 }

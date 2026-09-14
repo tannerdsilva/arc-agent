@@ -64,6 +64,11 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// main model.
     public var auxiliary: AuxiliaryModelSet
 
+    /// Tool-plugin enablement (Hermes `plugins.enabled` parity). `nil` = the
+    /// key is absent (grandfathered: all discovered plugins are enabled);
+    /// `[]` = explicitly none; a list = allow-list of plugin names.
+    public var plugins: PluginsConfig
+
     // MARK: - Init
 
     public init(
@@ -75,7 +80,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         security: SecurityConfig = SecurityConfig(),
         tessera: TesseraConfig? = nil,
         moa: MoAConfig = MoAConfig(),
-        auxiliary: AuxiliaryModelSet = AuxiliaryModelSet()
+        auxiliary: AuxiliaryModelSet = AuxiliaryModelSet(),
+        plugins: PluginsConfig = PluginsConfig()
     ) {
         self.model = model
         self.agent = agent
@@ -86,6 +92,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.tessera = tessera
         self.moa = moa
         self.auxiliary = auxiliary
+        self.plugins = plugins
     }
 
     /// Decode each section independently, defaulting any that are absent.
@@ -100,10 +107,29 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.tessera = try container.decodeIfPresent(TesseraConfig.self, forKey: .tessera)
         self.moa = try container.decodeIfPresent(MoAConfig.self, forKey: .moa) ?? MoAConfig()
         self.auxiliary = try container.decodeIfPresent(AuxiliaryModelSet.self, forKey: .auxiliary) ?? AuxiliaryModelSet()
+        self.plugins = try container.decodeIfPresent(PluginsConfig.self, forKey: .plugins) ?? PluginsConfig()
     }
 }
 
 // MARK: - Sub-Configs
+
+/// Tool-plugin enablement (Hermes `plugins.enabled` parity). See
+/// ``ArcConfig/plugins`` for the `nil` vs `[]` vs allow-list semantics.
+public struct PluginsConfig: Codable, Sendable, Equatable {
+    /// Allow-list of enabled plugin names. `nil` (key absent) means all
+    /// discovered plugins are enabled (grandfathered); `[]` means none.
+    public var enabled: [String]?
+
+    public init(enabled: [String]? = nil) {
+        self.enabled = enabled
+    }
+
+    /// Decode each field independently, defaulting any that are absent.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.enabled = try container.decodeIfPresent([String].self, forKey: .enabled)
+    }
+}
 
 /// Model and provider configuration.
 public struct ModelConfig: Codable, Sendable, Equatable {
@@ -362,4 +388,14 @@ public func saveConfig(_ config: ArcConfig, to configURL: URL? = nil) throws {
     try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
     let data = try JSONEncoder().encode(config)
     try data.write(to: resolvedURL, options: .atomic)
+}
+
+/// Resolve the plugin allow-list from `~/.arc/config.json` (Hermes
+/// `plugins.enabled` parity).
+///
+/// - Returns: `nil` when the `plugins.enabled` key is absent — callers treat
+///   that as "all discovered plugins are enabled" (grandfathered); an empty
+///   set means none are enabled; otherwise the concrete allow-list.
+public func pluginAllowList(from configURL: URL? = nil) -> Set<String>? {
+    loadConfig(from: configURL).plugins.enabled.map { Set($0) }
 }

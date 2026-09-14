@@ -82,7 +82,7 @@ struct Chat: AsyncParsableCommand {
             return
         }
 
-        let registry = try ArcAgentCore.buildDefaultRegistry()
+        let registry = try await MutableToolRegistry.make(enabledPlugins: pluginAllowList())
 
         // Storage: with a `tessera` configuration, sessions and memory are
         // persisted to the Tessera server as signed NOSTR events. If the
@@ -303,7 +303,7 @@ struct Tools: AsyncParsableCommand {
     )
 
     func run() async throws {
-        let registry = try ArcAgentCore.buildDefaultRegistry()
+        let registry = try await MutableToolRegistry.make(enabledPlugins: pluginAllowList())
         let tools = registry.allTools
 
         print("⚡ ARC Agent — Registered Tools")
@@ -394,6 +394,24 @@ struct ProfileCreate: AsyncParsableCommand {
     @Option(name: .long, help: "Clone from an existing profile.")
     var cloneFrom: String?
 
+    @Option(name: .long, help: "Context window size in tokens (Hermes context_length).")
+    var contextLength: Int?
+
+    @Option(name: .long, help: "Max output tokens.")
+    var maxOutputTokens: Int?
+
+    @Option(name: .long, help: "Reasoning effort (minimal/low/medium/high/max).")
+    var reasoningEffort: String?
+
+    @Option(name: .long, help: "Sampling temperature (0.0-2.0).")
+    var temperature: Double?
+
+    @Option(name: .long, help: "Nucleus sampling threshold (0.0-1.0).")
+    var topP: Double?
+
+    @Option(name: .long, help: "Auto-compress threshold in tokens.")
+    var compressionBudget: Int?
+
     @Option(name: .long, help: "Model override.")
     var model: String?
 
@@ -411,6 +429,15 @@ struct ProfileCreate: AsyncParsableCommand {
         profile.model = model
         profile.provider = provider
         profile.group = group
+        let ctx = ProfileContextConfig(
+            contextLength: contextLength,
+            maxOutputTokens: maxOutputTokens,
+            reasoningEffort: reasoningEffort,
+            temperature: temperature,
+            topP: topP,
+            compressionBudget: compressionBudget
+        )
+        profile.context = ctx.isEmpty ? nil : ctx
         try await manager.update(profile)
         print("✅ Profile '\(name)' created.")
     }
@@ -461,6 +488,14 @@ struct ProfileShow: AsyncParsableCommand {
         print("  Pinned:      \(profile.isPinned)")
         print("  Created:     \(profile.createdAt)")
         print("  Updated:     \(profile.updatedAt)")
+        if let context = profile.context, !context.isEmpty {
+            print("  Context window: \(context.contextLength.map { String($0) } ?? "(default)") tokens")
+            print("  Max output:     \(context.maxOutputTokens.map { String($0) } ?? "(default)") tokens")
+            print("  Reasoning:      \(context.reasoningEffort ?? "(default)")")
+            print("  Temperature:    \(context.temperature.map { String($0) } ?? "(default)")")
+            print("  Top P:          \(context.topP.map { String($0) } ?? "(default)")")
+            print("  Compress at:    \(context.compressionBudget.map { String($0) } ?? "(default)") tokens")
+        }
         if let avatar = profile.avatar {
             print("  Avatar:      \(avatar.shape) \(avatar.color)")
         }
