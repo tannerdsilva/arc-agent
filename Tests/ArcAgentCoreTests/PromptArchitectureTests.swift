@@ -55,8 +55,8 @@ struct PromptArchitectureTests {
     }
 
     private func runOnce(_ config: ArcAgent.Configuration, box: ClientScripts) async throws -> String {
-        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-        defer { httpClient.shutdown() }
+        let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
+        defer { try? httpClient.syncShutdown() }
         let agent = ArcAgent(config: config)
         await agent.setupClient(httpClient: httpClient)
         await agent.setClient(ScriptedClient(box: box))
@@ -253,8 +253,8 @@ struct PromptArchitectureTests {
     func steerDrains() async throws {
         let box = ClientScripts(responses: [LLMResponse(content: "ok", finishReason: "stop")])
         let config = makeConfig(persistSessions: false, injectProjectContext: false)
-        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-        defer { httpClient.shutdown() }
+        let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
+        defer { try? httpClient.syncShutdown() }
         let agent = ArcAgent(config: config)
         await agent.setupClient(httpClient: httpClient)
         await agent.setClient(ScriptedClient(box: box))
@@ -269,8 +269,8 @@ struct PromptArchitectureTests {
     func interruptAborts() async throws {
         let box = ClientScripts(responses: [LLMResponse(content: "never", finishReason: "stop")])
         let config = makeConfig(persistSessions: false, injectProjectContext: false)
-        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-        defer { httpClient.shutdown() }
+        let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
+        defer { try? httpClient.syncShutdown() }
         let agent = ArcAgent(config: config)
         await agent.setupClient(httpClient: httpClient)
         await agent.setClient(ScriptedClient(box: box))

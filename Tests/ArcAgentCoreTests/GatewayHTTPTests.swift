@@ -15,7 +15,7 @@ struct GatewayHTTPTests {
     /// the "every message flows through them" test for the HTTP layer.
     @Test("health, UI, and chat routes answer over real HTTP")
     func httpRoutesAnswer() async throws {
-        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+        let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
         defer { try? httpClient.shutdown() }
 
         let port = 18091

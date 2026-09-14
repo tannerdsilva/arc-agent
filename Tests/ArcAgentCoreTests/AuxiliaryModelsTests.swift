@@ -91,7 +91,7 @@ struct AuxiliaryModelsTests {
         #expect(inherited.apiKey == "mainkey")
 
         // makeClient builds clients for both overridden and inherited tasks
-        let hc = HTTPClient(eventLoopGroupProvider: .singleton)
+        let hc = HTTPClient(eventLoopGroupProvider: .createNew)
         #expect(router.makeClient(task: .compression, httpClient: hc) != nil)
         #expect(router.makeClient(task: .titleGeneration, httpClient: hc) != nil)
         try hc.syncShutdown()
