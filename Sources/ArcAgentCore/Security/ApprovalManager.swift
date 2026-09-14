@@ -66,6 +66,14 @@ public actor ApprovalManager {
     /// Per-session approval state.
     private var sessionStates: [String: SessionApprovalState] = [:]
 
+    /// Commands the user has explicitly marked "Always allow" (persisted in
+    /// the security config). Matched by exact, trimmed command string.
+    private var alwaysAllowed: Set<String>
+
+    /// Optional sink invoked when the user picks "Always allow" so the caller
+    /// can persist the pattern (e.g. into ~/.arc/config.json). nil = no-op.
+    private var alwaysAllowSink: (@Sendable (String) async -> Void)?
+
     /// Create an approval manager.
     ///
     /// - Parameters:
@@ -73,12 +81,16 @@ public actor ApprovalManager {
     ///   - classifier: Optional LLM classifier used by `.smart` mode to
     ///     classify command risk. When nil (or when it returns nil), the
     ///     built-in regex detector stands in.
+    ///   - alwaysAllowedCommands: Commands pre-exempted from approval
+    ///     (exact trimmed match). Loaded from the persisted allowlist.
     public init(
         mode: ApprovalMode = .manual,
-        classifier: (@Sendable (String) async -> DangerLevel?)? = nil
+        classifier: (@Sendable (String) async -> DangerLevel?)? = nil,
+        alwaysAllowedCommands: [String] = []
     ) {
         self.mode = mode
         self.classifier = classifier
+        self.alwaysAllowed = Set(alwaysAllowedCommands.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })
     }
 
     /// Assign the LLM classifier after initialization (used by the agent to
@@ -87,13 +99,47 @@ public actor ApprovalManager {
         self.classifier = classifier
     }
 
+    /// Register the persistence sink for "Always allow" choices.
+    public func setAlwaysAllowSink(_ sink: @escaping @Sendable (String) async -> Void) {
+        self.alwaysAllowSink = sink
+    }
+
+    /// Record a command as always-allowed for this and future sessions, and
+    /// persist it through the registered sink (if any).
+    public func alwaysAllow(command: String) async {
+        let normalized = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return }
+        alwaysAllowed.insert(normalized)
+        await alwaysAllowSink?(normalized)
+    }
+
+    /// Pre-approve every approval for the session ("Allow session"). Critical
+    /// commands still require approval even in a pre-approved session.
+    public func preApproveSession(_ sessionKey: String) {
+        var st = sessionStates[sessionKey] ?? SessionApprovalState()
+        st.isPreApproved = true
+        sessionStates[sessionKey] = st
+    }
+
     /// Check whether an action needs approval.
     ///
     /// - Parameters:
     ///   - command: The command or action to check.
     ///   - sessionKey: A session identifier for state tracking.
+    ///   - yolo: When true the session is in "skip all approvals" mode;
+    ///     only critical commands require approval.
     /// - Returns: `true` if the action needs approval.
-    public func needsApproval(command: String, sessionKey: String) async -> Bool {
+    public func needsApproval(command: String, sessionKey: String, yolo: Bool = false) async -> Bool {
+        let normalized = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        if alwaysAllowed.contains(normalized) {
+            return false
+        }
+        // Allow-session and yolo both bypass approvals, but critical commands
+        // (destructive / irreversible) always require human approval.
+        let preApproved = sessionStates[sessionKey]?.isPreApproved == true
+        if preApproved || yolo {
+            return await detectDangerLevel(command) >= .critical
+        }
         switch mode {
         case .off:
             return false

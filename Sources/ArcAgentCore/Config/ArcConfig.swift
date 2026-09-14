@@ -270,10 +270,14 @@ public struct SecurityConfig: Codable, Sendable, Equatable {
     public var approvalMode: String
     /// Whether YOLO mode is enabled (frozen at start).
     public var yoloMode: Bool
+    /// Commands pre-exempted from approval ("Always allow" choices).
+    /// Matched by exact, trimmed command string.
+    public var alwaysAllowedCommands: [String]
 
-    public init(approvalMode: String = "manual", yoloMode: Bool = false) {
+    public init(approvalMode: String = "manual", yoloMode: Bool = false, alwaysAllowedCommands: [String] = []) {
         self.approvalMode = approvalMode
         self.yoloMode = yoloMode
+        self.alwaysAllowedCommands = alwaysAllowedCommands
     }
 
     /// Decode each field independently, defaulting any that are absent.
@@ -281,6 +285,7 @@ public struct SecurityConfig: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.approvalMode = try container.decodeIfPresent(String.self, forKey: .approvalMode) ?? SecurityConfig().approvalMode
         self.yoloMode = try container.decodeIfPresent(Bool.self, forKey: .yoloMode) ?? SecurityConfig().yoloMode
+        self.alwaysAllowedCommands = try container.decodeIfPresent([String].self, forKey: .alwaysAllowedCommands) ?? SecurityConfig().alwaysAllowedCommands
     }
 }
 
