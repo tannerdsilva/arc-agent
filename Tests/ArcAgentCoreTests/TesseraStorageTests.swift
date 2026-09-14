@@ -323,4 +323,16 @@ struct TesseraStorageE2ETests {
         let reloaded = try await TesseraSessionStore().get(id: "e2e-durable")
         #expect(reloaded?.messages.first?.content == "survives")
     }
+
+    @Test("transport errors classify as unavailable; config errors do not")
+    func unavailableClassification() {
+        #expect(TesseraStoreError.publishTimeout.isUnavailable)
+        #expect(TesseraStoreError.deleteTimeout.isUnavailable)
+        #expect(TesseraStoreError.connectTimeout.isUnavailable)
+        #expect(TesseraStoreError.eoseTimeout.isUnavailable)
+        #expect(TesseraStoreError.notStarted.isUnavailable)
+        #expect(!TesseraStoreError.invalidKeys.isUnavailable)
+        #expect(TesseraStoreError.publishTimeout.description.contains("write timed out"))
+        #expect(TesseraStoreError.deleteTimeout.description.contains("delete timed out"))
+    }
 }

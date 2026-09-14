@@ -14,6 +14,11 @@ public enum TesseraStoreError: Swift.Error, CustomStringConvertible {
     case eoseTimeout
     /// The WireGuard handshake did not complete within the bound.
     case connectTimeout
+    /// The tunnel write did not complete within the bound (e.g. the relay
+    /// died after startup — the channel wait never resolves).
+    case publishTimeout
+    /// The tunnel deletion did not complete within the bound.
+    case deleteTimeout
 
     public var description: String {
         switch self {
@@ -27,6 +32,23 @@ public enum TesseraStoreError: Swift.Error, CustomStringConvertible {
             return "timed out waiting for the server's end-of-history markers"
         case .connectTimeout:
             return "Tessera relay handshake timed out"
+        case .publishTimeout:
+            return "Tessera relay write timed out"
+        case .deleteTimeout:
+            return "Tessera relay delete timed out"
+        }
+    }
+
+    /// Whether this error means the relay/tunnel is unavailable (vs a
+    /// configuration problem). Consumers fall back to file storage for the
+    /// unavailable family — the same degradation as the boot-time fallback.
+    public var isUnavailable: Bool {
+        switch self {
+        case .notConfigured, .notStarted, .connectTimeout, .eoseTimeout,
+             .publishTimeout, .deleteTimeout:
+            return true
+        case .invalidKeys:
+            return false
         }
     }
 }
@@ -254,19 +276,19 @@ public actor TesseraConnection {
         // fail the store after a bounded wait instead of hanging the process.
         // Race via TaskGroup per the First Law; the loser keeps its work but
         // never blocks the caller.
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
-                try await session.connect()
-            }
-            group.addTask {
-                try await Task.sleep(nanoseconds: 25_000_000_000)
-                throw TesseraStoreError.connectTimeout
-            }
-            try await group.next()
-            group.cancelAll()
+        try await Self.boundedOp(seconds: 25) {
+            try await session.connect()
         }
-        for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind]) {
-            try await session.subscribe(subscriptionID: sub, filters: [Filter(applications: [config.application], kinds: [kind])])
+        // The subscribe path waits on the same tunnel channel as connect; a
+        // relay that dies mid-handshake leaves it unresolved forever, so
+        // bound the whole subscribe phase (mirror of the connect race above).
+        // The raw client's channel wait cannot be cancelled once entered, so
+        // the losing task stays blocked inside the client's own pool — a
+        // bounded leak beats an unbounded caller freeze.
+        try await Self.boundedOp(seconds: Self.writeTimeoutSeconds) {
+            for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind]) {
+                try await session.subscribe(subscriptionID: sub, filters: [Filter(applications: [config.application], kinds: [kind])])
+            }
         }
 
         // Wait for every end-of-history marker, then give the receiver a
@@ -311,7 +333,7 @@ public actor TesseraConnection {
             dTag: dTagValue,
             content: content
         ))
-        try await session.publish(signed)
+        try await Self.boundedPublish(session, event: signed)
     }
 
     /// Publish kind-5 deletion events for every known event whose `d` tag
@@ -336,8 +358,93 @@ public actor TesseraConnection {
         pendingRecords.removeAll { $0.kind == kind && $0.dTag.hasPrefix(prefix) }
 
         for id in Set(ids) {
-            try? await session.delete(eventID: id, signedBy: nostrPrivateKey)
+            // Propagate a delete timeout so callers (ProfileManager etc.) can
+            // fall back (the `try?` here would hide the unavailable tunnel
+            // and leave the removal half-applied).
+            guard try await Self.boundedDelete(session, eventID: id, signedBy: nostrPrivateKey) else {
+                throw TesseraStoreError.deleteTimeout
+            }
             try? model.delete(id: id)
+        }
+    }
+
+    // MARK: - Timeout guards
+
+    /// Bound for one tunnel write/delete/episode. A relay that dies
+    /// mid-session leaves the raw client's channel wait unresolved forever;
+    /// without this bound the caller hangs (in the webui, one hung profile
+    /// save freezes the whole UI because the WebSocket handler never returns).
+    static let writeTimeoutSeconds: UInt64 = 15
+
+    /// Run an async op under a bounded race (First Law) WITHOUT inheriting
+    /// this actor's isolation. TaskGroup children created inside an actor
+    /// method inherit its isolation, so a child that blocks synchronously
+    /// (the raw client's channel wait) deadlocks the very timer that should
+    /// rescue the caller. Static helpers are nonisolated and avoid that trap
+    /// entirely.
+    ///
+    /// - Important: do NOT implement this via `withThrowingTaskGroup`+
+    ///   `group.next()`. When a group's first child stays suspended forever
+    ///   (the no-channel case), Swift 6.3 silently swallows a later child's
+    ///   throw — `next()` never returns and the caller deadlocks (observed
+    ///   live on macOS 26). The AsyncStream race has no such dependency:
+    ///   whichever racer reports first wins.
+    nonisolated static func boundedOp(seconds: UInt64, _ body: @escaping @Sendable () async throws -> Void) async throws {
+        try await Self.race(seconds: seconds, timeout: .connectTimeout, body)
+    }
+
+    /// Race `body` against a deadline; first report wins (see `boundedOp`).
+    nonisolated static func race(
+        seconds: UInt64,
+        timeout: TesseraStoreError,
+        _ body: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        let stream = AsyncStream<Result<Void, Swift.Error>>.makeStream()
+        let c = stream.continuation
+        Task {
+            do {
+                try await body()
+                c.yield(.success(())); c.finish()
+            } catch {
+                c.yield(.failure(error)); c.finish()
+            }
+        }
+        Task {
+            do { try await Task.sleep(nanoseconds: seconds * 1_000_000_000) } catch {}
+            c.yield(.failure(timeout)); c.finish()
+        }
+        guard let first = await stream.stream.first(where: { _ in true }) else { throw timeout }
+        switch first {
+        case .success: return
+        case .failure(let error): throw error
+        }
+    }
+
+    /// Run a session publish under a bounded race. The raw client's channel
+    /// wait cannot be cancelled once entered, so the losing task stays blocked
+    /// inside the client's own pool; bounded leakage is preferred to an
+    /// unbounded caller freeze. (Stream race — see `race(_:timeout:_:)`.)
+    static func boundedPublish(
+        _ session: TesseraSession,
+        event: NOSTR_event_signed<UnsignedEvent<ByteBuffer>>
+    ) async throws {
+        try await Self.race(seconds: Self.writeTimeoutSeconds, timeout: .publishTimeout) {
+            try await session.publish(event)
+        }
+    }
+
+    static func boundedDelete(
+        _ session: TesseraSession,
+        eventID: NOSTR_id,
+        signedBy: MemoryGuarded<RAW_ed25519.PrivateKey>
+    ) async -> Bool {
+        do {
+            try await Self.race(seconds: Self.writeTimeoutSeconds, timeout: .deleteTimeout) {
+                try await session.delete(eventID: eventID, signedBy: signedBy)
+            }
+            return true
+        } catch {
+            return false
         }
     }
 

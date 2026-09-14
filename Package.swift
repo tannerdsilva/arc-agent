@@ -32,8 +32,7 @@ let package = Package(
             from: "2.0.0"
         ),
 		.package(
-			url: "https://github.com/tannerdsilva/swift-mcp",
-			from: "1.0.0"
+			path: "../swift-mcp"
 		),
         .package(
             url: "https://github.com/apple/swift-nio.git",

@@ -149,10 +149,16 @@ public actor ProfileManager {
 
         // Remove from the profile index (Tessera or JSON file)
         if await TesseraConnection.shared.isConfigured {
-            try await TesseraConnection.shared.deleteAll(
-                dTagPrefix: "arc/p/\(name)/",
-                kind: TesseraConnection.profileKind
-            )
+            do {
+                try await TesseraConnection.shared.deleteAll(
+                    dTagPrefix: "arc/p/\(name)/",
+                    kind: TesseraConnection.profileKind
+                )
+            } catch let error as TesseraStoreError where error.isUnavailable {
+                var index = loadProfilesFromIndexFile()
+                index.removeValue(forKey: name)
+                try writeIndexFile(index)
+            }
         } else {
             var index = loadProfilesFromIndexFile()
             index.removeValue(forKey: name)
@@ -215,7 +221,14 @@ public actor ProfileManager {
         do {
             var loaded: [String: Profile] = [:]
             if await TesseraConnection.shared.isConfigured {
-                loaded = try await loadProfilesFromTessera()
+                do {
+                    loaded = try await loadProfilesFromTessera()
+                } catch let error as TesseraStoreError where error.isUnavailable {
+                    // Relay/tunnel unavailable mid-run (same degradation as the
+                    // boot-time file fallback): keep profiles functional from
+                    // the JSON index.
+                    loaded = loadProfilesFromIndexFile()
+                }
             } else {
                 loaded = loadProfilesFromIndexFile()
             }
@@ -272,22 +285,28 @@ public actor ProfileManager {
     }
 
     /// Persist a profile to Tessera (when configured) or the JSON index.
+    /// When the tunnel is configured but unavailable, the JSON index takes
+    /// over — the write must not hang or fail just because the relay is down.
     private func persistProfile(_ profile: Profile) async throws {
         if await TesseraConnection.shared.isConfigured {
-            let conn = TesseraConnection.shared
-            try await conn.ensureStarted()
-            let seq = await conn.takeSequence()
-            let content = String(decoding: try JSONEncoder().encode(profile), as: UTF8.self)
-            try await conn.publish(
-                kind: TesseraConnection.profileKind,
-                dTagValue: "arc/p/\(profile.name)/\(seq)",
-                content: content
-            )
-        } else {
-            var index = loadProfilesFromIndexFile()
-            index[profile.name] = profile
-            try writeIndexFile(index)
+            do {
+                let conn = TesseraConnection.shared
+                try await conn.ensureStarted()
+                let seq = await conn.takeSequence()
+                let content = String(decoding: try JSONEncoder().encode(profile), as: UTF8.self)
+                try await conn.publish(
+                    kind: TesseraConnection.profileKind,
+                    dTagValue: "arc/p/\(profile.name)/\(seq)",
+                    content: content
+                )
+                return
+            } catch let error as TesseraStoreError where error.isUnavailable {
+                // Tunnel unavailable: fall through to the JSON index.
+            }
         }
+        var index = loadProfilesFromIndexFile()
+        index[profile.name] = profile
+        try writeIndexFile(index)
     }
 }
 
