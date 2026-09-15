@@ -122,7 +122,7 @@ struct MarkdownParityTests {
 
     @Test("images render sanitized")
     func images() {
-        #expect(markdownToHTML("![alt](https://example.com/x.png)") == "<p><img src=\"https://example.com/x.png\" alt=\"alt\"></p>")
+        #expect(markdownToHTML("![alt](https://example.com/x.png)") == "<p><img src=\"https://example.com/x.png\" alt=\"alt\" loading=\"lazy\"></p>")
         #expect(markdownToHTML("![x](javascript:alert(1))").contains("![x](javascript:alert(1))"))
     }
 
@@ -192,5 +192,46 @@ struct MarkdownParityTests {
         let html = markdownToHTML("$a < b$")
         #expect(html.contains("a &lt; b"))
         #expect(!html.contains("<equation-inline>a < b"))
+    }
+}
+
+@Suite("Markdown Image URL Policy")
+struct MarkdownImageURLPolicyTests {
+    @Test("safe data raster image renders with lazy loading")
+    func dataRasterImage() {
+        let md = "![alt](data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==)"
+        #expect(markdownToHTML(md) == "<p><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==\" alt=\"alt\" loading=\"lazy\"></p>")
+    }
+
+    @Test("safe data svg image renders")
+    func dataSVGImage() {
+        let md = "![dot](data:image/svg+xml;base64,PHN2Zy8+)"
+        #expect(markdownToHTML(md).contains("src=\"data:image/svg+xml;base64,PHN2Zy8+\""))
+    }
+
+    @Test("non-image data uri stays literal")
+    func dataHTMLRejected() {
+        let md = "![x](data:text/html,<script>alert(1)</script>)"
+        #expect(markdownToHTML(md) == "<p>![x](data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;)</p>")
+    }
+
+    @Test("javascript image url stays literal")
+    func javascriptImageRejected() {
+        let md = "![x](javascript:alert(1))"
+        #expect(markdownToHTML(md) == "<p>![x](javascript:alert(1))</p>")
+    }
+
+    @Test("https image renders")
+    func httpsImage() {
+        let md = "![alt](https://example.com/a.png)"
+        #expect(markdownToHTML(md) == "<p><img src=\"https://example.com/a.png\" alt=\"alt\" loading=\"lazy\"></p>")
+    }
+
+    @Test("oversized data uri stays literal")
+    func oversizedDataRejected() {
+        let md = "![x](data:image/png;base64," + String(repeating: "A", count: 2 * 1024 * 1024 + 10) + ")"
+        let out = markdownToHTML(md)
+        #expect(out.hasPrefix("<p>![x](data:image/png;base64,"))
+        #expect(!out.contains("<img"))
     }
 }

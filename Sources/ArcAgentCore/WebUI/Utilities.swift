@@ -55,6 +55,20 @@ public func sanitizeURL(_ url: String) -> String? {
     return normalized
 }
 
+public func sanitizeImageURL(_ url: String) -> String? {
+    let normalized = normalizedURLString(url)
+    if normalized.lowercased().hasPrefix("data:") {
+        guard normalized.count <= 2 * 1024 * 1024 else { return nil }
+        let raster = #"^data:image/(?:png|jpe?g|gif|webp|avif)(?:;base64)?,[a-z0-9+/=%._~:@!$&'()*+,;-]*$"#
+        let svg = #"^data:image/svg\+xml;base64,[a-z0-9+/=]+$"#
+        if normalized.range(of: raster, options: [.regularExpression, .caseInsensitive]) != nil { return normalized }
+        if normalized.range(of: svg, options: [.regularExpression, .caseInsensitive]) != nil { return normalized }
+        return nil
+    }
+    return sanitizeURL(normalized)
+}
+
+
 // MARK: - Markdown Rendering
 
 /// Hermes-parity markdown renderer (mirrors the Hermes WebUI's streaming `smd`
@@ -444,14 +458,16 @@ private func carveLinksAndImages(_ text: String, into rich: inout [String]) -> S
                 let urlStart = text.index(close, offsetBy: 2)
                 if let urlEnd = text[urlStart...].firstIndex(of: ")") {
                     let url = String(text[urlStart..<urlEnd])
-                    if let safe = sanitizeURL(url), !label.isEmpty {
-                        if isImage {
-                            rich.append("<img src=\"" + htmlEscape(safe) + "\" alt=\"" + htmlEscape(label) + "\">")
+                    if isImage {
+                        if let safe = sanitizeImageURL(url), !label.isEmpty {
+                            rich.append("<img src=\"" + htmlEscape(safe) + "\" alt=\"" + htmlEscape(label) + "\" loading=\"lazy\">")
                         } else {
-                            rich.append("<a href=\"" + htmlEscape(safe) + "\">" + label + "</a>")
+                            rich.append("![" + label + "](" + url + ")")
                         }
+                    } else if let safe = sanitizeURL(url), !label.isEmpty {
+                        rich.append("<a href=\"" + htmlEscape(safe) + "\">" + label + "</a>")
                     } else {
-                        rich.append((isImage ? "![" : "[") + label + "](" + url + ")")
+                        rich.append("[" + label + "](" + url + ")")
                     }
                     result += "\u{3}\(rich.count - 1)\u{4}"
                     i = text.index(after: urlEnd)
