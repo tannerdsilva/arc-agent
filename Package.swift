@@ -46,6 +46,11 @@ let package = Package(
             url: "https://github.com/apple/swift-http-types.git",
             from: "1.3.0"
         ),
+        .package(
+            url: "https://github.com/apple/swift-log.git",
+            from: "1.6.0"
+        ),
+        .package(name: "no-webui", path: "../no-webui-stabs"),
     ],
 
     targets: [
@@ -89,6 +94,32 @@ let package = Package(
             ]
         ),
 
+        // ── Web UI (merged from arc-agent-webui) ───────────────────
+        .executableTarget(
+            name: "arc-agent-webui",
+            dependencies: [
+                .target(name: "ArcAgentCore"),
+                .product(name: "WebUI", package: "no-webui"),
+                .product(name: "AsyncHTTPClient", package: "async-http-client"),
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOWebSocket", package: "swift-nio"),
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Sources/ArcAgentWebUI",
+            exclude: [
+                // Canonical source for the patched runtime; RuntimeAsset.swift
+                // is a generated Swift embedding of it. KaTeXAssets.swift
+                // is generated separately under Generated/.
+                "Assets",
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+
         // ── Tests ─────────────────────────────────────────────────
         .testTarget(
             name: "ArcAgentCoreTests",
@@ -106,4 +137,5 @@ let package = Package(
 // embed ArcAgentCore in-process.
 package.products = [
     .library(name: "ArcAgentCore", targets: ["ArcAgentCore"]),
+    .executable(name: "arc-agent-webui", targets: ["arc-agent-webui"]),
 ]

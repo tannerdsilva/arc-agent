@@ -1,5 +1,5 @@
 {
-  "originHash" : "e2e17ae38029a827bd0004101955411d084644a3bd3c881bc7074888bac74135",
+  "originHash" : "4399b37de260a65d069232ce32bdae7ac34736cd85f216f2ae2e6b0edc696cd8",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -62,15 +62,6 @@
       "state" : {
         "revision" : "e5574ba70f6b65a08d78db972e063fd839c62068",
         "version" : "0.2.1"
-      }
-    },
-    {
-      "identity" : "quicklmdb",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/tannerdsilva/QuickLMDB",
-      "state" : {
-        "branch" : "rawdog-v22-bump",
-        "revision" : "df12a8489322654f3df165f6af6681a8d81827a0"
       }
     },
     {
@@ -283,7 +274,7 @@
     {
       "identity" : "swift-syntax",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/swift-syntax.git",
+      "location" : "https://github.com/apple/swift-syntax.git",
       "state" : {
         "revision" : "79e4b74a295b6eb74a8b585e3a39d29e70c1dbd1",
         "version" : "603.0.2"
