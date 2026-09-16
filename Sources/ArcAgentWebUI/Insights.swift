@@ -224,7 +224,7 @@ extension AppState {
         """
 
         // Section 2 — agent activity (all-time totals)
-        let totalMessages = sessions.reduce(0) { $0 + $1.messages.count }
+        let totalMessages = sessions.reduce(0) { $0 + ($1.messages.isEmpty ? $1.messageCount : $1.messages.count) }
         let rangeTokens = insights.dailyTokens
             .filter { $0.key >= Self.dayString(graphStart()) && $0.key <= Self.dayString(Date()) }
             .values.reduce(0, +)

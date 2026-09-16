@@ -483,6 +483,63 @@ actor AppState {
     var logFilter = "all"
 
     var sessions: [Session] = []
+
+    // MARK: Lazy message loading (scalable design)
+
+    /// Chat IDs whose message bodies are currently materialized, oldest-open
+    /// first. `sessions` entries outside this set carry metadata only.
+    var loadedSessionOrder: [String] = []
+
+    /// Bound on how many chats keep their messages in memory. Eviction is
+    /// least-recently-opened and never touches the active chat, so memory
+    /// stays constant no matter how large the history grows.
+    static let sessionMessageCacheCap = 32
+
+    /// Materialize a session's messages (fetching from the store if they were
+    /// never loaded or were evicted from the LRU cache). No-op when the
+    /// session is already loaded or the store is unavailable.
+    func ensureSessionMessages(_ id: String) async {
+        guard let store else { return }
+        guard let idx = sessions.firstIndex(where: { $0.id == id }) else { return }
+        if !sessions[idx].messages.isEmpty {
+            touchSessionLoaded(id)
+            return
+        }
+        if !loadedSessionOrder.contains(id) {
+            guard let full = try? await store.get(id: id) else { return }
+            guard let i = sessions.firstIndex(where: { $0.id == id }) else { return }
+            sessions[i].messages = full.messages
+            sessions[i].messageCount = full.messages.count
+            sessions[i].title = full.title
+            touchSessionLoaded(id)
+        }
+        evictOverloadedCache()
+    }
+
+    func touchSessionLoaded(_ id: String) {
+        loadedSessionOrder.removeAll { $0 == id }
+        loadedSessionOrder.append(id)
+    }
+
+    /// Drop the least-recently-opened chat bodies beyond the cache cap, never
+    /// the active chat (its count stays in `messageCount` for the sidebar).
+    func evictOverloadedCache() {
+        while loadedSessionOrder.count > Self.sessionMessageCacheCap {
+            guard let victim = loadedSessionOrder.first else { break }
+            if victim == activeSessionID {
+                loadedSessionOrder.removeFirst()
+                loadedSessionOrder.append(victim)
+                continue
+            }
+            loadedSessionOrder.removeFirst()
+            if let idx = sessions.firstIndex(where: { $0.id == victim }) {
+                // Capture the live count before dropping bodies so sidebar
+                // counts stay correct after eviction.
+                sessions[idx].messageCount = sessions[idx].messages.count
+                sessions[idx].messages = []
+            }
+        }
+    }
     var activeSessionID: String?
     var sessionVersion = 0
 
@@ -1147,10 +1204,16 @@ actor AppState {
            !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return custom
         }
-        guard let first = s.messages.first(where: { $0.role == .user }),
-              let c = first.content, !c.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else { return "New chat" }
-        return trunc(c, 44)
+        if let first = s.messages.first(where: { $0.role == .user }),
+           let c = first.content, !c.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return trunc(c, 44)
+        }
+        // Unloaded summaries carry the title hint (first user message) in
+        // `title`; fall back to "New chat" only when neither exists.
+        if let t = s.title, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return trunc(t, 44)
+        }
+        return "New chat"
     }
 
     func isArchived(_ id: String) -> Bool {

@@ -550,6 +550,10 @@ extension AppState {
         guard activeTurns[sessionID] == nil,
               let idx = sessions.firstIndex(where: { $0.id == sessionID })
         else { return }
+        // Lazy design: materialize this session's messages (they may have
+        // been evicted from the cache when another chat was opened). The
+        // array is only mutated in place, so `idx` stays valid.
+        await ensureSessionMessages(sessionID)
         var session = sessions[idx]
 
         let atts = attachments
@@ -902,6 +906,9 @@ extension AppState {
             sessions = (try? await store.list(limit: 500)) ?? []
         }
         sessionVersion += 1
+        // list() returns metadata-only summaries: drop the lazy cache and
+        // re-materialize whichever chat is now active.
+        loadedSessionOrder.removeAll()
         if let wanted {
             if sessions.contains(where: { $0.id == wanted }) {
                 activeSessionID = wanted
@@ -909,6 +916,9 @@ extension AppState {
         }
         if let current = activeSessionID, !sessions.contains(where: { $0.id == current }) {
             activeSessionID = nil
+        }
+        if let keep = activeSessionID {
+            await ensureSessionMessages(keep)
         }
     }
 }

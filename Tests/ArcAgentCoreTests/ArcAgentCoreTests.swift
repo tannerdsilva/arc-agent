@@ -761,6 +761,8 @@ func sessionStoreCRUD() async throws {
 
     let sessions = try await store.list(limit: 10)
     #expect(sessions.count == 1)
+    #expect(sessions[0].messages.isEmpty, "list() returns summaries only")
+    #expect(sessions[0].messageCount == 1, "summary carries the metadata count")
 
     try await store.delete(id: "test-1")
     let deleted = try await store.get(id: "test-1")

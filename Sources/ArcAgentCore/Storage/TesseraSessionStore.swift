@@ -34,9 +34,14 @@ public struct TesseraSessionMeta: Codable, Sendable, Equatable {
     public var provider: String
     public var messageCount: Int
     public var totalTokens: Int
+    /// First user message (truncated), or a generated title — lets UIs show
+    /// conversation titles from list summaries without loading messages.
+    /// Older records without this field decode as nil.
+    public var titleHint: String?
 
     public init(seq: Int, sessionID: String, createdAt: Date, updatedAt: Date,
-                model: String, provider: String, messageCount: Int, totalTokens: Int) {
+                model: String, provider: String, messageCount: Int, totalTokens: Int,
+                titleHint: String? = nil) {
         self.seq = seq
         self.sessionID = sessionID
         self.createdAt = createdAt
@@ -45,6 +50,7 @@ public struct TesseraSessionMeta: Codable, Sendable, Equatable {
         self.provider = provider
         self.messageCount = messageCount
         self.totalTokens = totalTokens
+        self.titleHint = titleHint
     }
 }
 
@@ -90,12 +96,30 @@ public actor TesseraSessionStore: SessionStore {
             pairs.append((stored.seq, stored.message))
         }
         pairs.sort { $0.seq < $1.seq }
+        // Self-healing metadata: historical appends could leave messageCount
+        // ahead of the real event count (or titleHint unset for legacy
+        // records); republish a corrected meta — same updatedAt, so the
+        // sidebar ordering is untouched — once, on the next open.
+        let hinted = meta.titleHint
+            ?? pairs.first(where: { $0.message.role == .user })?.message.content.map { String($0.prefix(120)) }
+        if pairs.count != meta.messageCount || hinted != meta.titleHint {
+            let corrected = TesseraSessionMeta(
+                seq: await conn.takeSequence(), sessionID: id,
+                createdAt: meta.createdAt, updatedAt: meta.updatedAt,
+                model: meta.model, provider: meta.provider,
+                messageCount: pairs.count, totalTokens: meta.totalTokens,
+                titleHint: hinted
+            )
+            try await publish(meta: corrected)
+        }
         return Session(
             id: id,
             createdAt: meta.createdAt,
             updatedAt: meta.updatedAt,
             model: meta.model,
             provider: meta.provider,
+            title: hinted,
+            messageCount: pairs.count,
             messages: pairs.map(\.message)
         )
     }
@@ -125,13 +149,19 @@ public actor TesseraSessionStore: SessionStore {
         try await conn.ensureStarted()
         let metas = await latestMetaGrouped()
         let ordered = metas.values.sorted { $0.updatedAt > $1.updatedAt }.prefix(limit)
-        var sessions: [Session] = []
-        for meta in ordered {
-            if let s = try await get(id: meta.sessionID) {
-                sessions.append(s)
-            }
+        // Metadata-only summaries: message bodies are materialized lazily via
+        // get(id:) when a chat is opened (bounded memory at very large scale).
+        return ordered.map { meta in
+            Session(
+                id: meta.sessionID,
+                createdAt: meta.createdAt,
+                updatedAt: meta.updatedAt,
+                model: meta.model,
+                provider: meta.provider,
+                title: meta.titleHint,
+                messageCount: meta.messageCount
+            )
         }
-        return sessions
     }
 
     public func appendMessage(sessionID: String, message: Message) async throws {
@@ -139,11 +169,17 @@ public actor TesseraSessionStore: SessionStore {
         try await conn.ensureStarted()
         try await publishMessage(message, sessionID: sessionID)
         if var meta = await latestMeta(for: sessionID) {
+            var hint = meta.titleHint
+            if hint == nil, message.role == .user,
+               let c = message.content, !c.isEmpty {
+                hint = String(c.prefix(120))
+            }
             let updated = TesseraSessionMeta(
                 seq: await conn.takeSequence(), sessionID: meta.sessionID,
                 createdAt: meta.createdAt, updatedAt: Date(),
                 model: meta.model, provider: meta.provider,
-                messageCount: meta.messageCount + 1, totalTokens: meta.totalTokens
+                messageCount: meta.messageCount + 1, totalTokens: meta.totalTokens,
+                titleHint: hint
             )
             try await publish(meta: updated)
         }
@@ -156,9 +192,22 @@ public actor TesseraSessionStore: SessionStore {
             seq: await connection.takeSequence(), sessionID: session.id,
             createdAt: session.createdAt, updatedAt: session.updatedAt,
             model: session.model, provider: session.provider,
-            messageCount: messageCount, totalTokens: 0
+            messageCount: messageCount, totalTokens: 0,
+            titleHint: metaTitleHint(session: session)
         )
         try await publish(meta: meta)
+    }
+
+    /// Title hint for a session summary: the explicit title if set, otherwise
+    /// the first user message (truncated). Never empty.
+    private func metaTitleHint(session: Session) -> String? {
+        if let t = session.title, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return String(t.prefix(120))
+        }
+        guard let first = session.messages.first(where: { $0.role == .user }),
+              let c = first.content, !c.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        return String(c.prefix(120))
     }
 
     private func publish(meta: TesseraSessionMeta) async throws {

@@ -280,9 +280,12 @@ struct TesseraStorageE2ETests {
         #expect(afterAppend?.messages.count == 3)
         #expect(afterAppend?.messages[2].content == "Third message")
 
-        // --- List ---
+        // --- List (summaries: no message bodies, count from metadata) ---
         let listed = try await sessionStore.list(limit: 10)
-        #expect(listed.contains { $0.id == "e2e-session-1" })
+        let listedOne = try #require(listed.first { $0.id == "e2e-session-1" })
+        #expect(listedOne.messages.isEmpty, "list() must not materialize messages")
+        #expect(listedOne.messageCount == 3, "summary carries the metadata count")
+        #expect(listedOne.title == "Hello", "summary carries the first-user-message title hint")
 
         // --- Update (meta-only change; messages preserved) ---
         let appendResult = try #require(afterAppend)

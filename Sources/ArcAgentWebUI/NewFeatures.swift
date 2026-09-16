@@ -152,6 +152,8 @@ extension AppState {
         let sid = jobSessionID(job)
         var session: Session
         if let existing = sessions.first(where: { $0.id == sid }) {
+            await ensureSessionMessages(sid)
+            guard let existing = sessions.first(where: { $0.id == sid }) else { return }
             session = existing
         } else {
             session = Session(id: sid, createdAt: now, updatedAt: now, model: settings.modelConfig(named: settings.activeConfig)?.model ?? "")
@@ -497,6 +499,7 @@ extension AppState {
     /// Returns nil while a turn is running or when no user message exists.
     func regenText() async -> String? {
         guard let s = activeSession(), activeTurns[s.id] == nil else { return nil }
+        await ensureSessionMessages(s.id)
         guard let lastUser = s.messages.reversed().first(where: { $0.role == .user }) else { return nil }
         return lastUser.content
     }

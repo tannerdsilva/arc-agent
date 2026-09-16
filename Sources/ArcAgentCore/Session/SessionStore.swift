@@ -15,7 +15,23 @@ public struct Session: Sendable, Codable {
     /// Optional human-friendly title (background title generation).
     public var title: String?
     /// Messages in this session.
+    ///
+    /// For scalability, `list(limit:)` returns *summaries*: sessions whose
+    /// `messages` array is empty. Message bodies are materialized on demand
+    /// with `get(id:)` (the webui lazily loads a chat when it is opened and
+    /// keeps a bounded LRU cache of loaded chats).
     public var messages: [Message]
+
+    /// Number of messages known from metadata.
+    ///
+    /// Summaries carry this so UIs can show message counts (and excerpt
+    /// hints) without materializing message bodies; `get(id:)` re-derives it
+    /// from the loaded messages. Not persisted — always populated by the store.
+    public var messageCount: Int = 0
+
+    private enum CodingKeys: String, CodingKey {
+        case id, createdAt, updatedAt, model, provider, title, messages
+    }
 
     public init(
         id: String = UUID().uuidString,
@@ -24,6 +40,7 @@ public struct Session: Sendable, Codable {
         model: String = "",
         provider: String = "",
         title: String? = nil,
+        messageCount: Int = 0,
         messages: [Message] = []
     ) {
         self.id = id
@@ -32,6 +49,7 @@ public struct Session: Sendable, Codable {
         self.model = model
         self.provider = provider
         self.title = title
+        self.messageCount = messageCount
         self.messages = messages
     }
 }
@@ -62,6 +80,11 @@ public protocol SessionStore: Sendable {
     func delete(id: String) async throws
 
     /// List all sessions, newest first.
+    ///
+    /// Returns *summaries only*: each session's `messages` array is empty and
+    /// ``messageCount``/``title`` carry the metadata. Use `get(id:)` to
+    /// materialize a session's messages. This keeps listing O(sessions) in
+    /// memory and time instead of O(total messages).
     func list(limit: Int) async throws -> [Session]
 
     /// Append a message to a session.
@@ -108,7 +131,9 @@ public struct FileSessionStore: SessionStore {
         let url = fileURL(for: id)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode(Session.self, from: data)
+        var session = try JSONDecoder().decode(Session.self, from: data)
+        session.messageCount = session.messages.count
+        return session
     }
 
     public func update(_ session: Session) async throws {
@@ -139,7 +164,9 @@ public struct FileSessionStore: SessionStore {
         var sessions: [Session] = []
         for file in files {
             let data = try Data(contentsOf: file)
-            if let session = try? JSONDecoder().decode(Session.self, from: data) {
+            if var session = try? JSONDecoder().decode(Session.self, from: data) {
+                session.messageCount = session.messages.count
+                session.messages = []
                 sessions.append(session)
             }
         }

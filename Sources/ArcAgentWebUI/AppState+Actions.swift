@@ -62,7 +62,7 @@ extension AppState {
         createWorkspace = on
     }
 
-    func setActiveSession(_ id: String) {
+    func setActiveSession(_ id: String) async {
         activeSessionID = id
         pendingDelete = false
         filePopOpen = false
@@ -71,7 +71,11 @@ extension AppState {
         // Follow the chat's own workspace (right panel + composer selector).
         if let id = activeSessionID {
             selectedWorkspace = settings.sessionWorkspaces[id] ?? settings.activeWorkspace
+            // Lazy design: fetch this chat's messages on open (and evict
+            // least-recently-opened bodies beyond the cache cap).
+            await ensureSessionMessages(id)
         }
+        evictOverloadedCache()
     }
 
     func clearPendingDelete() {
@@ -89,7 +93,7 @@ extension AppState {
     func openDeepLink(_ id: String) async {
         await reloadSessions(selecting: id)
         guard activeSessionID == id else { return }
-        setActiveSession(id)
+        await setActiveSession(id)
         if isArchived(id) {
             setShowArchived(true)
         }
@@ -327,7 +331,9 @@ extension AppState {
     }
 
     func duplicateSession(_ id: String) async {
-        guard let store, let src = sessions.first(where: { $0.id == id }) else { return }
+        guard let store else { return }
+        await ensureSessionMessages(id)
+        guard let src = sessions.first(where: { $0.id == id }) else { return }
         let copy = Session(
             id: UUID().uuidString,
             createdAt: Date(),
@@ -1168,8 +1174,9 @@ extension AppState {
         isTitleGenRunning = true
         defer { isTitleGenRunning = false }
         guard settings.sessionTitles[sessionID] == nil,
-              let session = sessions.first(where: { $0.id == sessionID }),
-              let content = session.messages.first(where: { $0.role == .user })?.content,
+              let session = sessions.first(where: { $0.id == sessionID }) else { return }
+        await ensureSessionMessages(sessionID)
+        guard let content = session.messages.first(where: { $0.role == .user })?.content,
               !content.isEmpty,
               let client = makeAuxClient(for: .titleGeneration, sessionID: sessionID)
         else { return }

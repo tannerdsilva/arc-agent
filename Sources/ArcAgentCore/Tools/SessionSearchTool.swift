@@ -27,11 +27,14 @@ public struct SessionSearchTool: Sendable {
 
             let sessions = (try? await store.list(limit: limit)) ?? []
             var results: [String] = []
-            for session in sessions {
+            for summary in sessions {
+                // list() returns metadata-only summaries; materialize each
+                // session's messages before searching them.
+                guard let session = try? await store.get(id: summary.id) else { continue }
                 let matches = session.messages.filter { ($0.content ?? "").lowercased().contains(query) }
                 guard !matches.isEmpty else { continue }
-                let title = session.title ?? "(untitled)"
-                var lines = "Session \(session.id.prefix(8)) — \(title) (\(matches.count) match(es)):"
+                let title = session.title ?? summary.title ?? "(untitled)"
+                var lines = "Session \(summary.id.prefix(8)) — \(title) (\(matches.count) match(es)):"
                 for m in matches.prefix(3) {
                     let snippet = (m.content ?? "").replacingOccurrences(of: "\n", with: " ")
                     let preview = String(snippet.prefix(200))

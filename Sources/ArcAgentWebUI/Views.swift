@@ -455,7 +455,8 @@ extension AppState {
             """
         }
         let booked = isBookmarked(s.id)
-        let count = s.messages.count
+        // Summaries carry the metadata count; loaded sessions use the live array.
+        let count = s.messages.isEmpty ? s.messageCount : s.messages.count
         let epochMs = Int(s.updatedAt.timeIntervalSince1970 * 1000)
         let meta = "\(count) msg • <span class=\"rel-time\" data-reltime=\"\(epochMs)\">\(relTimeLabel(s.updatedAt))</span>" + (archived.isEmpty ? "" : " • Archived")
         let pinBadge = booked ? "<span class=\"pin-badge\" title=\"Pinned\">" + svgIcon("pin", 12) + "</span>" : ""
@@ -756,7 +757,7 @@ extension AppState {
         let configName = configName(for: activeSessionID)
 
         let title = session.map { trunc(sessionTitle($0), 60) } ?? "Chat"
-        let count = session?.messages.count ?? 0
+        let count = session.map { $0.messages.isEmpty ? $0.messageCount : $0.messages.count } ?? 0
         let model = settings.modelConfig(named: configName)?.model ?? configName
         let meta = "\(esc(model)) • \(count) messages"
         let delLabel = pendingDelete ? "Confirm?" : svgIcon("x", 11)

@@ -208,6 +208,7 @@ extension AppState {
 
     /// The last assistant reply in a chat (the runnable "output" of a task).
     func lastAssistantReply(_ chatID: String) async -> String {
+        await ensureSessionMessages(chatID)
         guard let s = sessions.first(where: { $0.id == chatID }) else { return "" }
         return s.messages.reversed().first { $0.role == .assistant && !(($0.content ?? "").isEmpty) }?.content ?? ""
     }
