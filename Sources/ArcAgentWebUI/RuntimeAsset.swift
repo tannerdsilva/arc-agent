@@ -722,6 +722,7 @@ window.WebUIRuntime = (function () {
       // Hermes parity: typeset math and add table controls after every patch.
       enhanceMarkdownTables(document);
       renderKatexBlocks(document, { streaming: true });
+      applyTurnWorklogStates(document);
     }
 
     function captureScrollState() {
@@ -1134,9 +1135,82 @@ window.WebUIRuntime = (function () {
     // math/table post-render once on the initial document too (fragment
     // patches already trigger it inside createFragmentPatcher). The runtime
     // loads in <head>, so wait for the body to exist.
+    // ---- Turn activity dropdown state ----
+    // Dropdowns render closed. Track which ones the user opened so transcript
+    // re-renders (sending a message, streaming patches) don't reset them; a
+    // chat switch clears tracking so a freshly opened chat loads all closed.
+    var twOpen = {};
+    var twActiveSession = null;
+
+    function twActiveSessionNow() {
+      // Ground truth: the transcript currently rendered in the chat pane.
+      // (Not the composer — a stale/hidden composer or a restored page can
+      // carry a different data-session and would reset the open states.)
+      var scroll = document.getElementById('chat-scroll') || document.querySelector('.chat-scroll');
+      if (scroll) {
+        var wl = scroll.querySelector('.turn-worklog');
+        if (wl) return wl.getAttribute('data-tw-session');
+      }
+      return null;
+    }
+
+    function applyTurnWorklogStates(root) {
+      var wl = root ? root.querySelectorAll('.turn-worklog') : [];
+      if (root) {
+        window.__twApplyLog = window.__twApplyLog || [];
+        window.__twApplyLog.push({ t: Date.now(), n: wl.length, sid: twActiveSessionNow(), act: twActiveSession });
+        if (window.__twApplyLog.length > 40) window.__twApplyLog.shift();
+      }
+      if (!wl.length) return;
+      var sid = twActiveSessionNow();
+      if (sid !== null && sid !== twActiveSession) {
+        twOpen = {};
+        twActiveSession = sid;
+      }
+      for (var i = 0; i < wl.length; i++) {
+        var key = wl[i].getAttribute('data-tw-key');
+        if (key && twOpen[key]) wl[i].open = true;
+        else wl[i].open = false;
+      }
+    }
+
+    window.__twDebug = function () {
+      var wl = document.querySelectorAll('.turn-worklog');
+      var keys = [];
+      for (var i = 0; i < wl.length; i++) {
+        keys.push(wl[i].getAttribute('data-tw-key') + '=' + wl[i].open);
+      }
+      return {
+        open: JSON.parse(JSON.stringify(twOpen)),
+        active: twActiveSession,
+        now: twActiveSessionNow(),
+        wl: keys
+      };
+    };
+
+    document.addEventListener('toggle', function (e) {
+      var t = e.target;
+      if (!t || !t.classList || !t.classList.contains('turn-worklog')) return;
+      var key = t.getAttribute('data-tw-key');
+      if (!key) return;
+      if (t.open) twOpen[key] = true; else delete twOpen[key];
+    }, true);
+
     var bootPostRender = function () {
       enhanceMarkdownTables(document);
       renderKatexBlocks(document, { streaming: false });
+      applyTurnWorklogStates(document);
+      var twObs = new MutationObserver(function (muts) {
+        for (var i = 0; i < muts.length; i++) {
+          var m = muts[i];
+          if (m.addedNodes && m.addedNodes.length && m.target.closest &&
+              m.target.closest('#chat-scroll, .chat-scroll')) {
+            requestAnimationFrame(function () { applyTurnWorklogStates(document); });
+            break;
+          }
+        }
+      });
+      twObs.observe(document.body, { childList: true, subtree: true });
     };
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', bootPostRender);

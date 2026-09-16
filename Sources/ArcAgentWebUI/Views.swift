@@ -957,7 +957,7 @@ extension AppState {
         return """
         <div class="assistant-turn" data-turn-duration="\(String(format: "%.0f", finalMsg.turnDuration ?? 0))">
           \(assistantRoleHeaderHTML(finalMsg))
-          <details class="turn-worklog"\(mode == "transparent_stream" ? " open" : "")>
+          <details class="turn-worklog" data-tw-session="\(esc(activeSessionID ?? ""))" data-tw-key="\(turnIndex)-\(String(format: "%.3f", finalMsg.createdAt?.timeIntervalSince1970 ?? 0))">
             <summary>
               <span class="tw-dot"></span>
               <span class="tw-label">\(esc(label))</span>

@@ -285,7 +285,11 @@ extension AppState {
     func confirmDeleteSession(_ id: String?) async {
         guard let store, let id else { return }
         confirmDeleteID = nil
-        try? await store.delete(id: id)
+        do {
+            try await store.delete(id: id)
+        } catch {
+            LogCollector.shared.append(level: .error, text: "[store] failed to delete session \(String(id.prefix(8))): \(error)")
+        }
         settings.sessionWorkspaces.removeValue(forKey: id)
         settings.sessionCategories.removeValue(forKey: id)
         settings.sessionProfile.removeValue(forKey: id)
