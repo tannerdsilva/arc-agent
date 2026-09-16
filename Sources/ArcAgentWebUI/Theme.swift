@@ -1259,10 +1259,14 @@ static let css: String = """
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 2px 0;
+      padding: 2px 0 8px;
       font-size: 0.9em;
       color: var(--muted);
       user-select: none;
+      /* Horizontal break under the "Processed …" row: separates the turn
+         activity controls from the response; the opened activity body sits
+         below this line (it follows the summary inside the details). */
+      border-bottom: 1px solid var(--border);
     }
     .turn-worklog > summary::-webkit-details-marker { display: none; }
     .turn-worklog > summary:hover { color: var(--text); }
@@ -1281,7 +1285,7 @@ static let css: String = """
     .tw-spacer { flex: 1 1 auto; }
     .tw-caret { flex: 0 0 auto; display: inline-flex; opacity: 0.8; transition: transform 0.15s ease; }
     .turn-worklog[open] .tw-caret { transform: rotate(90deg); }
-    .tw-body { padding: 0; }
+    .turn-worklog .tw-body { padding: 8px 0 0; }
     .turn-worklog .worklog-summary { max-width: 100%; margin: 6px 0; }
     .tw-copy {
       flex: 0 0 auto;
