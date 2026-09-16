@@ -510,6 +510,17 @@ static let css: String = """
       cursor: pointer;
     }
     .plus-btn:hover { background: var(--surface-2); color: var(--accent-strong); }
+
+    /* Global scrollbar theming: every scrollable surface (dropdowns, chips
+       rows, queue feeds, textareas, …) uses the theme scroll thumb, never
+       the native light scrollbar. */
+    * { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+    *::-webkit-scrollbar { width: 8px; height: 8px; }
+    *::-webkit-scrollbar-track { background: transparent; }
+    *::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 4px; }
+    *::-webkit-scrollbar-corner { background: transparent; }
+    *::-webkit-scrollbar-button { display: none; }
+
     .panel-body { flex: 1; overflow-y: auto; padding: 4px 8px 12px; }
     .panel-body::-webkit-scrollbar, .chat-scroll::-webkit-scrollbar { width: 8px; }
     .panel-body::-webkit-scrollbar-track, .chat-scroll::-webkit-scrollbar-track { background: transparent; }
