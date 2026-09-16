@@ -121,7 +121,7 @@ struct ArcAgentWebUI: AsyncParsableCommand {
                 head: """
                 <link rel="stylesheet" href="/ui/style.css?v=43">
                 <link rel="stylesheet" href="/ui/vendor/katex/katex.min.css">
-                <script src="/ui/runtime.js?v=38"></script>
+                <script src="/ui/runtime.js?v=39"></script>
                 <script src="/ui/init.js?v=29"></script>
                 """,
                 devMode: false,

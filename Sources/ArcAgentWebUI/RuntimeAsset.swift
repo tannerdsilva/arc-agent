@@ -1156,11 +1156,6 @@ window.WebUIRuntime = (function () {
 
     function applyTurnWorklogStates(root) {
       var wl = root ? root.querySelectorAll('.turn-worklog') : [];
-      if (root) {
-        window.__twApplyLog = window.__twApplyLog || [];
-        window.__twApplyLog.push({ t: Date.now(), n: wl.length, sid: twActiveSessionNow(), act: twActiveSession });
-        if (window.__twApplyLog.length > 40) window.__twApplyLog.shift();
-      }
       if (!wl.length) return;
       var sid = twActiveSessionNow();
       if (sid !== null && sid !== twActiveSession) {
@@ -1173,20 +1168,6 @@ window.WebUIRuntime = (function () {
         else wl[i].open = false;
       }
     }
-
-    window.__twDebug = function () {
-      var wl = document.querySelectorAll('.turn-worklog');
-      var keys = [];
-      for (var i = 0; i < wl.length; i++) {
-        keys.push(wl[i].getAttribute('data-tw-key') + '=' + wl[i].open);
-      }
-      return {
-        open: JSON.parse(JSON.stringify(twOpen)),
-        active: twActiveSession,
-        now: twActiveSessionNow(),
-        wl: keys
-      };
-    };
 
     document.addEventListener('toggle', function (e) {
       var t = e.target;
