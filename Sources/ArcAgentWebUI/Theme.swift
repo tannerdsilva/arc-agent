@@ -1248,11 +1248,10 @@ static let css: String = """
     .assistant-turn { display: block; }
     .assistant-turn > .msg-meta { margin: 14px 0 2px; }
     .turn-worklog {
-      max-width: 86%;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      background: var(--surface-2);
-      margin: 4px 0 10px;
+      /* A plain show/hide control, not a boxed section: the activity rows
+         it reveals keep their own (pre-feature) card styling. */
+      max-width: 100%;
+      margin: 2px 0 8px;
     }
     .turn-worklog > summary {
       cursor: pointer;
@@ -1260,13 +1259,16 @@ static let css: String = """
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 7px 12px;
+      padding: 2px 0;
       font-size: 0.9em;
       color: var(--muted);
       user-select: none;
     }
     .turn-worklog > summary::-webkit-details-marker { display: none; }
     .turn-worklog > summary:hover { color: var(--text); }
+    .turn-worklog .worklog-summary, .turn-worklog .thinking-row, .turn-worklog .tool-card {
+      margin-left: 0;
+    }
     .tw-dot {
       flex: 0 0 auto;
       width: 7px;
@@ -1279,7 +1281,7 @@ static let css: String = """
     .tw-spacer { flex: 1 1 auto; }
     .tw-caret { flex: 0 0 auto; display: inline-flex; opacity: 0.8; transition: transform 0.15s ease; }
     .turn-worklog[open] .tw-caret { transform: rotate(90deg); }
-    .tw-body { padding: 2px 8px 6px 12px; }
+    .tw-body { padding: 0; }
     .turn-worklog .worklog-summary { max-width: 100%; margin: 6px 0; }
     .tw-copy {
       flex: 0 0 auto;
