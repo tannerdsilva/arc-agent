@@ -356,11 +356,23 @@ extension AppState {
         let status = queueStatuses[e.id] ?? ""
         let statusCls = status.isEmpty ? "" : " qst-" + status
         let statusText = status.isEmpty ? "" : (status == "done" ? "done" : status == "failed" ? "failed" : status)
-        let inputsLabel: String
+        // Feed chips: same named-context presentation as the composer's
+        // "Reply with selection" context blocks (truncated + accent bar).
+        let inputsChips: String
         if e.inputs.isEmpty {
-            inputsLabel = "no feed"
+            inputsChips = "<span class=\"queue-in\">no feed</span>"
         } else {
-            inputsLabel = "feeds: " + queueInputLabels(e.id).joined(separator: ", ")
+            let plan = settings.queuePlan
+            let chips = e.inputs.compactMap { id -> String? in
+                guard let i = plan.firstIndex(where: { $0.id == id }) else { return nil }
+                let todo = queueTodo(plan[i])
+                let label = trunc(todo?.text ?? "…", 60)
+                let full = todo?.text ?? ""
+                return "<span class=\"queue-feed-chip\" title=\"\(esc(full))\">"
+                    + "<span class=\"queue-feed-accent\"></span>"
+                    + "<span class=\"queue-feed-label\">Task \(i + 1): \(esc(label))</span></span>"
+            }.joined()
+            inputsChips = "<span class=\"queue-in\">feeds: <span class=\"queue-feed-chips\">\(chips)</span></span>"
         }
         let linkPop = queueLinksOpen == e.id ? queueLinkPopupHTML(e, plan: plan) : ""
         return """
@@ -369,7 +381,7 @@ extension AppState {
           <span class="queue-idx">\(index + 1)</span>
           <div class="queue-main">
             <div class="queue-text">\(esc(todo?.text ?? "⚠︎ todo no longer exists"))</div>
-            <div class="queue-meta">\(esc(queueChatLabel(e.chatID))) · <span class="queue-in">\(esc(inputsLabel))</span></div>
+            <div class="queue-meta">\(esc(queueChatLabel(e.chatID))) · \(inputsChips)</div>
           </div>
           <button type="button" id="queue-inputs-\(e.id)" data-component-id="queue" data-event="click" class="icon-mini queue-link-btn" title="Feed earlier task output into this task">\(svgIcon("link", 12))</button>
           <span class="queue-status\(statusCls)">\(esc(statusText))</span>
@@ -385,7 +397,7 @@ extension AppState {
         var rows: [String] = []
         for (i, prev) in earlier.enumerated() {
             let checked = queueLinkSel.contains(prev.id) ? " checked" : ""
-            rows.append("<label class='queue-link-row'><input type='checkbox' id='qlink-\(prev.id)' data-component-id='queue' data-event='change'\(checked)><span class='queue-link-num'>Task \(i + 1)</span><span class='queue-link-title'>\(esc(queueTodo(prev)?.text ?? "…"))</span></label>")
+            rows.append("<label class='queue-link-row'><input type='checkbox' id='qlink-\(prev.id)' data-component-id='queue' data-event='change'\(checked)><span class='queue-link-num'>Task \(i + 1)</span><span class='queue-link-title' title='\(esc(queueTodo(prev)?.text ?? ""))'>\(esc(trunc(queueTodo(prev)?.text ?? "…", 80)))</span></label>")
         }
         let body: String
         if rows.isEmpty {

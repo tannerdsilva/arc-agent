@@ -28,6 +28,17 @@ extension AppState {
     }
 
     /// Chat-region fragments (panel + main + toasts).
+    /// Append a message to a session by index and persist it (used for
+    /// local slash-command echoes).
+    func appendToSession(idx: Int, message: Message) async {
+        guard sessions.indices.contains(idx) else { return }
+        sessions[idx].messages.append(message)
+        sessionVersion += 1
+        if let store {
+            try? await store.appendMessage(sessionID: sessions[idx].id, message: message)
+        }
+    }
+
     func chatFragments() async -> [FragmentUpdate] {
         await refreshFragments()
     }

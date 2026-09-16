@@ -191,7 +191,17 @@ extension AppState {
           \(statBubble(label: "Skills Used", value: "\(touched)/\(skillNames.count)", icon: svgIcon("book", 18)))
         </div>
         """
-        let tableRows = skillNames.map { name -> String in
+        // Top 10 skills by times used (keeps the panel uncluttered).
+        let ranked = skillNames.sorted { a, b in
+            let sa = insights.skillStats[a] ?? SkillStat()
+            let sb = insights.skillStats[b] ?? SkillStat()
+            if sa.uses != sb.uses { return sa.uses > sb.uses }
+            if sa.views != sb.views { return sa.views > sb.views }
+            if sa.patches != sb.patches { return sa.patches > sb.patches }
+            return a < b
+        }
+        let topSkills = Array(ranked.prefix(10))
+        let tableRows = topSkills.map { name -> String in
             let s = insights.skillStats[name] ?? SkillStat()
             let pct = totalUses > 0
                 ? String(format: "%.1f%%", Double(s.uses) / Double(totalUses) * 100)
@@ -203,7 +213,7 @@ extension AppState {
               <td>\(pct)</td>
             </tr>
             """
-        }.joined()
+        }.joined() + (ranked.count > 10 ? "<tr class=\"ins-more-row\"><td colspan=\"5\">… and \(ranked.count - 10) more skills</td></tr>" : "")
         let table = """
         <div class="ins-table-wrap">
           <table class="ins-table">
@@ -232,7 +242,7 @@ extension AppState {
         return """
         <div class="main-scroll insights-main" style="padding:18px 22px">
           <div class="detail-card" style="margin-bottom:16px">
-            <h3 style="margin:0 0 12px">Skill Usage</h3>
+            <h3 style="margin:0 0 12px">Skill Usage <span class="ins-range-hint">(top \(min(10, ranked.count)) by uses)</span></h3>
             \(bubbles)
             \(table)
           </div>

@@ -1363,9 +1363,241 @@ window.WebUIRuntime = (function () {
       setTimeout(hideCatSub, 60);
     }
   });
+
+  /* ── Slash autocomplete (Hermes commands.js parity) ──────────────────── */
+  var slashDataCache = null;
+  function slashEsc(v) {
+    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function slashData() {
+    if (slashDataCache) return slashDataCache;
+    var el = document.getElementById('slash-data');
+    try { slashDataCache = el ? JSON.parse(el.textContent) : { items: [] }; }
+    catch (e) { slashDataCache = { items: [] }; }
+    return slashDataCache;
+  }
+  function slashIndexOf(text) {
+    // Token-initial "/" at line start or after whitespace (Hermes
+    // _activeSlashCommandOffset). Single-line commands only.
+    if (!text || text.indexOf('\n') !== -1) return -1;
+    for (var i = 0; i < text.length; i++) {
+      if (text[i] !== '/') continue;
+      if (i === 0) return i;
+      if (/\s/.test(text[i - 1])) {
+        if (text[i + 1] === '~') return -1;
+        return i;
+      }
+    }
+    return -1;
+  }
+  function slashMatches(prefix) {
+    var q = String(prefix || '').toLowerCase();
+    var items = slashData().items || [];
+    var out = [];
+    for (var i = 0; i < items.length; i++) {
+      if (String(items[i].name).toLowerCase().indexOf(q) === 0) out.push(items[i]);
+    }
+    return out;
+  }
+  function positionSlashDropdown() {
+    var dd = document.getElementById('cmd-dropdown');
+    var wrap = document.getElementById('composer-wrap');
+    if (!dd || !wrap) return;
+    var r = wrap.getBoundingClientRect();
+    dd.style.left = Math.max(8, r.left) + 'px';
+    dd.style.bottom = (window.innerHeight - r.top + 6) + 'px';
+    dd.style.width = Math.min(r.width - 16, 560) + 'px';
+  }
+  function renderSlashDropdown(matches) {
+    var dd = document.getElementById('cmd-dropdown');
+    if (!dd) return;
+    if (!matches.length) { dd.classList.remove('open'); dd.innerHTML = ''; return; }
+    var html = '';
+    for (var i = 0; i < matches.length; i++) {
+      var m = matches[i];
+      var badge = m.kind === 'skill'
+        ? '<span class="cmd-item-badge cmd-item-badge-skill">SKILL</span>' : '';
+      var arg = (m.kind === 'builtin' && m.arg)
+        ? ' <span class="cmd-item-arg">' + slashEsc(m.arg) + '</span>' : '';
+      var insert = '/' + m.name + (m.kind === 'builtin' && m.arg ? ' ' : '');
+      html += '<button type="button" class="cmd-item' + (i === 0 ? ' selected' : '') + '"'
+        + ' data-idx="' + i + '" data-insert="' + slashEsc(insert) + '">'
+        + '<div class="cmd-item-name">/' + slashEsc(m.name) + arg + badge + '</div>'
+        + '<div class="cmd-item-desc">' + slashEsc(m.desc) + '</div></button>';
+    }
+    dd.innerHTML = html;
+    dd.classList.add('open');
+    positionSlashDropdown();
+  }
+  function hideSlashDropdown() {
+    var dd = document.getElementById('cmd-dropdown');
+    if (dd) { dd.classList.remove('open'); dd.innerHTML = ''; }
+  }
+  function slashSelectedIndex() {
+    var dd = document.getElementById('cmd-dropdown');
+    var items = dd ? dd.querySelectorAll('.cmd-item') : [];
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].classList.contains('selected')) return i;
+    }
+    return 0;
+  }
+  function slashArrow(dir) {
+    var dd = document.getElementById('cmd-dropdown');
+    if (!dd) return;
+    var items = dd.querySelectorAll('.cmd-item');
+    if (!items.length) return;
+    var next = slashSelectedIndex() + dir;
+    if (next < 0) next = items.length - 1;
+    if (next >= items.length) next = 0;
+    for (var i = 0; i < items.length; i++) items[i].classList.remove('selected');
+    items[next].classList.add('selected');
+    try { items[next].scrollIntoView({ block: 'nearest' }); } catch (e) {}
+  }
+  function slashSelect(idx) {
+    var dd = document.getElementById('cmd-dropdown');
+    if (!dd) return;
+    var items = dd.querySelectorAll('.cmd-item');
+    if (!items.length) return;
+    var el = items[Math.max(0, Math.min(idx, items.length - 1))];
+    var insert = el.getAttribute('data-insert') || '';
+    var ta = document.getElementById('composer-input');
+    if (!ta) return;
+    var text = String(ta.value || '');
+    var sidx = slashIndexOf(text);
+    if (sidx < 0) return;
+    // Replace from the slash token to the end (Hermes: prefix + /name).
+    ta.value = text.slice(0, sidx) + insert;
+    ta.focus();
+    try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {}
+    hideSlashDropdown();
+    slashPauseUntil = Date.now() + 120;
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  var slashPauseUntil = 0;
+  function updateSlashDropdown() {
+    // After a pick we re-dispatch `input` to persist the draft; suppress the
+    // immediate re-open (Hermes hides after skill selection).
+    if (Date.now() < slashPauseUntil) return;
+    var ta = document.getElementById('composer-input');
+    if (!ta) return;
+    var text = String(ta.value || '');
+    var idx = slashIndexOf(text);
+    if (idx < 0) { hideSlashDropdown(); return; }
+    renderSlashDropdown(slashMatches(text.slice(idx + 1)));
+  }
+  document.addEventListener('input', function (e) {
+    if (e.target && e.target.id === 'composer-input') updateSlashDropdown();
+  });
+  document.addEventListener('focusin', function (e) {
+    if (e.target && e.target.id === 'composer-input') updateSlashDropdown();
+  });
+  // Capture phase: must preempt the runtime's own delegate (which would
+  // submit the form on Enter) — registered later on the same element.
+  document.addEventListener('keydown', function (e) {
+    var ta = e.target;
+    if (!ta || ta.id !== 'composer-input') return;
+    var dd = document.getElementById('cmd-dropdown');
+    if (!dd || !dd.classList.contains('open')) return;
+    // Hermes: Tab picks the top item, arrows navigate, Esc closes, Enter picks
+    // the highlighted item.
+    if (e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); slashSelect(0); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); slashArrow(1); return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); slashArrow(-1); return; }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hideSlashDropdown(); return; }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault(); e.stopPropagation(); slashSelect(slashSelectedIndex()); return;
+    }
+  }, true);
+  document.addEventListener('click', function (e) {
+    var it = e.target && e.target.closest ? e.target.closest('#cmd-dropdown .cmd-item') : null;
+    if (!it) return;
+    e.preventDefault();
+    slashSelect(parseInt(it.getAttribute('data-idx'), 10) || 0);
+  });
+
+  /* ── Reply with selection (Hermes messages.js parity) ────────────────── */
+  var selBtn = null;
+  function getSelBtn() {
+    if (selBtn && document.body.contains(selBtn)) return selBtn;
+    selBtn = document.createElement('button');
+    selBtn.type = 'button';
+    selBtn.id = 'selected-text-reply-btn';
+    selBtn.className = 'selected-text-reply-btn';
+    selBtn.textContent = 'Reply with selection';
+    selBtn.title = 'Append selected chat text as quoted context';
+    selBtn.setAttribute('aria-label', selBtn.title);
+    selBtn.setAttribute('data-component-id', 'selection-context-add');
+    selBtn.setAttribute('data-event', 'click');
+    selBtn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    selBtn.addEventListener('click', function () {
+      hideSelBtn();
+      var sel = window.getSelection && window.getSelection();
+      if (sel && sel.removeAllRanges) sel.removeAllRanges();
+    });
+    document.body.appendChild(selBtn);
+    return selBtn;
+  }
+  function inChatText(node) {
+    if (!node) return false;
+    var el = node.nodeType === 1 ? node : node.parentElement;
+    if (!el) return false;
+    if (el.closest && el.closest('textarea, input, [contenteditable="true"]')) return false;
+    // Message text AND tool-call groups live inside #chat-scroll (members
+    // aren't all wrapped in .msg) — root the check at the scroll container,
+    // mirroring Hermes (which checks the messages container).
+    return !!(el.closest && (el.closest('#chat-scroll') || el.closest('.chat-scroll')));
+  }
+  function selectionInfo() {
+    var sel = window.getSelection && window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+    var range = sel.getRangeAt(0);
+    if (!inChatText(range.startContainer) || !inChatText(range.endContainer)) return null;
+    var text = sel.toString().replace(/\u00a0/g, ' ').trim();
+    if (!text) return null;
+    var rect = range.getBoundingClientRect();
+    if (!rect || (!rect.width && !rect.height)) return null;
+    return { text: text, rect: rect };
+  }
+  function positionSelBtn(info) {
+    var btn = getSelBtn();
+    btn.setAttribute('data-payload', info.text);
+    btn.classList.add('visible');
+    var gap = 8;
+    var w = btn.offsetWidth || 150;
+    var h = btn.offsetHeight || 32;
+    var left = Math.min(Math.max(gap, info.rect.left + (info.rect.width / 2) - (w / 2)),
+      Math.max(gap, window.innerWidth - w - gap));
+    var top = Math.max(gap, info.rect.top - h - gap);
+    btn.style.left = left + 'px';
+    btn.style.top = top + 'px';
+  }
+  function hideSelBtn() {
+    if (selBtn) selBtn.classList.remove('visible');
+  }
+  var selRaf = 0;
+  function updateSelBtn() {
+    if (selRaf) return;
+    selRaf = window.requestAnimationFrame(function () {
+      selRaf = 0;
+      var info = selectionInfo();
+      if (!info) { hideSelBtn(); return; }
+      positionSelBtn(info);
+    });
+  }
+  document.addEventListener('selectionchange', updateSelBtn);
+  document.addEventListener('mouseup', function (e) {
+    if (e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT')) {
+      hideSelBtn();
+      return;
+    }
+    updateSelBtn();
+  });
+  document.addEventListener('keyup', updateSelBtn);
+  document.addEventListener('scroll', function (e) {
+    var el = e.target;
+    if (el && el.closest && el.closest('.main-scroll')) hideSelBtn();
+  }, true);
 })();
-
-
-
 """#
 }

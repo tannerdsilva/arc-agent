@@ -889,7 +889,9 @@ extension AppState {
     func messageHTML(_ m: Message) -> String {
         switch m.role {
         case .user:
-            let content = m.content ?? ""
+            // Slash-command rewrites (skill invocation scaffolding) keep the
+            // typed line as the display text; the model sees `content`.
+            let content = m.displayText ?? m.content ?? ""
             return """
             <div class="msg user">
               <div class="msg-body user-bubble">\(mdBox(content))</div>
@@ -1230,6 +1232,71 @@ extension AppState {
         """
     }
 
+    // MARK: Slash autocomplete + selection context (Hermes parity)
+
+    /// Slash commands available from the composer (Hermes webui COMMANDS
+    /// subset that arc implements). Shared by the autocomplete payload and
+    /// `submitChat` dispatch.
+    static let slashBuiltins: [(name: String, desc: String, arg: String?)] = [
+        ("help", "Show available slash commands", nil),
+        ("new", "Start a new chat", nil),
+        ("usage", "Toggle token usage display", nil),
+        ("theme", "Set or list the color scheme", "[name]"),
+        ("skills", "List installed skills", "[query]"),
+        ("use", "Force a skill for the next turn", "<skill-name>"),
+        ("stop", "Stop the current turn", nil),
+        ("title", "Rename this chat", "[title]"),
+        ("workspace", "Switch workspace", "<name>"),
+        ("model", "Switch model configuration", "<name>"),
+    ]
+
+    /// JSON payload for the client-side slash autocomplete (Hermes
+    /// `/api/skills` + COMMANDS merged into one list).
+    func slashDataJSON() -> String {
+        func jstr(_ v: String) -> String {
+            var out = ""
+            for ch in v {
+                switch ch {
+                case "\"": out += "\\\""
+                case "\\": out += "\\\\"
+                case "\n": out += "\\n"
+                case "\r": out += "\\r"
+                case "\t": out += "\\t"
+                default: out.append(ch)
+                }
+            }
+            return "\"\(out)\""
+        }
+        var items: [String] = []
+        for b in Self.slashBuiltins {
+            let arg = b.arg.map { ",\"arg\":" + jstr($0) } ?? ""
+            items.append("{\"name\":\(jstr(b.name)),\"desc\":\(jstr(b.desc)),\"kind\":\"builtin\"\(arg)}")
+        }
+        for skill in skills {
+            items.append("{\"name\":\(jstr(skill.name)),\"desc\":\(jstr(skill.description)),\"kind\":\"skill\"}")
+        }
+        return "{\"items\":[\n      " + items.joined(separator: ",\n      ") + "\n    ]}"
+    }
+
+    /// "Context N" chips above the composer (Hermes `_renderSelectionChips`).
+    func selectionChipsHTML() -> String {
+        guard !pendingContexts.isEmpty else { return "" }
+        var cards = ""
+        for block in pendingContexts {
+            let preview = AppState.contextPreview(block.text)
+            cards += #"<article class="selection-context-card" data-selection-id="\#(esc(block.id))">"#
+            cards += #"<div class="selection-context-accent" aria-hidden="true"></div>"#
+            cards += "<div class=\"selection-context-body\">"
+            cards += "<div class=\"selection-context-header\">"
+            cards += #"<span class="selection-context-name">\#(esc(block.name))</span>"#
+            cards += #"<button type="button" id="\#(esc(block.id))" data-component-id="selection-context-del" data-event="click" class="selection-context-remove" title="Remove context block">&#x2715;</button>"#
+            cards += "</div>"
+            cards += #"<blockquote class="selection-context-quote">\#(esc(preview))</blockquote>"#
+            cards += "</div></article>"
+        }
+        return #"<div id="composer-selection-chips" class="selection-chips-wrap">\#(cards)</div>"#
+    }
+
     func composerHTML() -> String {
         let running = activeTurns[activeSessionID ?? ""] != nil
         let sid = activeSessionID ?? ""
@@ -1282,6 +1349,8 @@ extension AppState {
         return """
         <div class="composer-wrap" id="composer-wrap">
           <div id="composer-flyout">\(composerFlyoutHTML())</div>
+          <div id="cmd-dropdown" class="cmd-dropdown" aria-label="Slash commands"></div>
+          \(selectionChipsHTML())
           <form id="composer-form" data-component-id="composer-form" class="composer-bar\(selOpen ? " sel-open" : "")">
             <div class="attach-chips" id="attach-chips">\(attachmentsHTML)</div>
             <textarea id="composer-input" name="composer-input" data-component-id="composer-input" data-session="\(esc(sid))" data-prevent-enter="send" placeholder="\(running ? "Steer the current response…" : "Message ARC…")" rows="1" style="min-height:24px">\(esc(draft))</textarea>
@@ -1295,6 +1364,7 @@ extension AppState {
             </div>
           </form>
           \(filePop)
+          <div id="slash-data" hidden>\(esc(slashDataJSON()))</div>
         </div>
         """
     }

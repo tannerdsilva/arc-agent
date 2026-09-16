@@ -542,7 +542,8 @@ extension AppState {
         pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void,
         sessionID: String,
         headless: Bool = false,
-        selectAfter: Bool = true
+        selectAfter: Bool = true,
+        displayText: String? = nil
     ) async {
         // Bind to the session the message was typed into — the active session
         // may change while the Task is queued or while another chat runs.
@@ -593,7 +594,7 @@ extension AppState {
         attachments = []
         storeComposerDraft("", sessionID: sessionID)
 
-        let userMsg = Message(role: .user, content: userContent, createdAt: Date())
+        let userMsg = Message(role: .user, content: userContent, createdAt: Date(), displayText: displayText)
         session.messages.append(userMsg)
         if let idx = sessions.firstIndex(where: { $0.id == sessionID }) {
             sessions[idx] = session
@@ -1026,6 +1027,18 @@ final class Controller {
             let text = event.data["composer-input"] ?? ""
             return await self.submitChat(text: text)
         }
+        wire(router, id: "selection-context-add", events: ["click"]) { event in
+            // "Reply with selection" button: the selected chat text rides in
+            // `payload` (dynamic button, Hermes `_addNamedContextBlock`).
+            guard let sel = event.data["payload"], !sel.isEmpty else { return [] }
+            await self.app.addPendingContext(sel)
+            return await self.app.chatFragments()
+        }
+        wire(router, id: "selection-context-del", events: ["click"]) { event in
+            let tid = event.data["targetId"] ?? ""
+            await self.app.removePendingContext(tid)
+            return await self.app.chatFragments()
+        }
         wire(router, id: "stop-turn", events: ["click"]) { _ in
             let sid = await self.app.activeSessionID ?? ""
             await self.app.requestStopTurn(sessionID: sid)
@@ -1362,20 +1375,41 @@ final class Controller {
     func submitChat(text raw: String) async -> [FragmentUpdate] {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
-        // Hermes-parity slash command: /usage toggles the token-usage display.
-        if trimmed.lowercased() == "/usage" {
-            await app.toggleShowTokenUsage()
-            let on = await app.settings.showTokenUsage
-            _ = await app.hint(on ? "Token usage on." : "Token usage off.")
-            return await app.chatFragments()
+
+        // Builtin slash commands are resolved locally (Hermes webui
+        // COMMANDS) before anything else, including while a turn is running.
+        if trimmed.hasPrefix("/") {
+            if let updates = await handleBuiltinSlashCommand(trimmed) {
+                return updates
+            }
         }
+
+        // Hermes `agent/skill_commands.py`: `/skill-name [instruction]` (and
+        // stacked `/skill-a /skill-b do X`) expands into the model-facing
+        // user message that embeds the full skill bodies. The transcript
+        // shows the typed line via `displayText` (Hermes
+        // `_slashDisplayTextOverride` pattern).
+        var displayOverride: String? = nil
+        var dispatchText = trimmed
+        if let expanded = SkillCommands.expandSlashCommand(trimmed) {
+            displayOverride = trimmed
+            dispatchText = expanded
+            await recordSlashSkillUse(trimmed)
+        }
+
+        // "Reply with selection" context blocks (Hermes
+        // `_composerTextWithPendingSelections`): inline them as
+        // `**Context N:**` + blockquote sections, then clear the chips.
+        let withContexts = await app.composeWithPendingContexts(dispatchText)
+        await app.clearPendingContexts()
+
         // Hermes parity: while a turn in THIS chat is running, a submitted
         // message is STEER — mid-run guidance injected at the next tool
         // boundary. A message typed in a different chat is NOT a steer: it
         // starts its own concurrent turn (the two runs are independent).
         let sid = await app.activeSessionID ?? ""
         if await app.isTurnActive(sessionID: sid) {
-            await app.submitSteer(trimmed, sessionID: sid)
+            await app.submitSteer(withContexts, sessionID: sid)
             _ = await app.hint("Steering current response…")
             return await app.chatFragments()
         }
@@ -1383,10 +1417,195 @@ final class Controller {
         let cid = TaskEnv.clientID ?? 0
         let pusher = pusher(forClientID: cid)
         Task {
-            await self.app.runTurn(userText: trimmed, pusher: pusher, sessionID: sid)
+            await self.app.runTurn(userText: withContexts, pusher: pusher, sessionID: sid, displayText: displayOverride)
         }
         // Immediately clear the composer for the sender.
         return await self.app.chatFragments()
+    }
+
+    /// Resolve the skill a typed invocation refers to and bump its usage
+    /// counter (Hermes `tools.skill_usage.bump_use`).
+    private func recordSlashSkillUse(_ typed: String) async {
+        let tokens = typed.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        guard let first = tokens.first,
+              let key = SkillCommands.resolveSkillCommandKey(first),
+              let info = SkillCommands.getSkillCommands()[key]
+        else { return }
+        await app.recordSkillEvent(name: info.name, uses: 1)
+    }
+
+    /// Append a user message to the active session and persist it (for local
+    /// slash-command echoes).
+    private func echoUserMessage(_ text: String) async {
+        guard let sid = await app.activeSessionID,
+              let idx = await app.sessions.firstIndex(where: { $0.id == sid })
+        else { return }
+        let msg = Message(role: .user, content: text, createdAt: Date())
+        await app.appendToSession(idx: idx, message: msg)
+    }
+
+    /// Append an assistant note to the active session and persist it (for
+    /// local slash-command responses).
+    private func pushAssistantNote(_ text: String) async {
+        guard let sid = await app.activeSessionID,
+              let idx = await app.sessions.firstIndex(where: { $0.id == sid })
+        else { return }
+        let msg = Message(role: .assistant, content: text, createdAt: Date())
+        await app.appendToSession(idx: idx, message: msg)
+    }
+
+    /// Local slash-command dispatch. Returns `nil` when the text is not a
+    /// recognized builtin (fall through to skill expansion / normal send).
+    private func handleBuiltinSlashCommand(_ text: String) async -> [FragmentUpdate]? {
+        let parts = text.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        guard let nameToken = parts.first else { return nil }
+        let name = String(nameToken.dropFirst()).lowercased()
+        let args = parts.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        let builtins = AppState.slashBuiltins.map { $0.name }
+        guard builtins.contains(name) else { return nil }
+
+        // /usage — existing Hermes-parity toggle, kept verbatim.
+        if name == "usage" {
+            await app.toggleShowTokenUsage()
+            let on = await app.settings.showTokenUsage
+            _ = await app.hint(on ? "Token usage on." : "Token usage off.")
+            return await app.chatFragments()
+        }
+        if name == "stop" {
+            let sid = await app.activeSessionID ?? ""
+            await app.requestStopTurn(sessionID: sid)
+            _ = await app.hint("Stopping current response…")
+            return await app.chatFragments()
+        }
+        if name == "new" {
+            await self.newChat()
+            _ = await app.hint("Started a new chat.")
+            return await app.chatFragments()
+        }
+        if name == "title" {
+            if args.isEmpty {
+                _ = await app.hint("Usage: /title <new title>", kind: "error")
+                return await app.chatFragments()
+            }
+            let sid = await app.activeSessionID ?? ""
+            await app.renameSession(sid, to: args)
+            _ = await app.hint("Renamed chat to \(trunc(args, 60)).")
+            return await app.chatFragments()
+        }
+        if name == "workspace" {
+            if args.isEmpty {
+                _ = await app.hint("Usage: /workspace <name>", kind: "error")
+                return await app.chatFragments()
+            }
+            let workspaces = await app.settings.workspaces
+            guard workspaces.contains(where: { $0.name == args }) else {
+                _ = await app.hint("No workspace named '\(args)'.", kind: "error")
+                return await app.chatFragments()
+            }
+            await app.setWorkspace(active: args)
+            _ = await app.hint("Workspace '\(args)'.")
+            return await app.chatFragments()
+        }
+        if name == "model" {
+            if args.isEmpty {
+                _ = await app.hint("Usage: /model <name>", kind: "error")
+                return await app.chatFragments()
+            }
+            let configs = await app.settings.modelConfigs
+            guard configs.contains(where: { $0.name == args }) else {
+                _ = await app.hint("No model configuration '\(args)'.", kind: "error")
+                return await app.chatFragments()
+            }
+            await app.useModelConfig(args)
+            _ = await app.hint("Model '\(trunc(args, 40))'.")
+            return await app.chatFragments()
+        }
+        if name == "theme" {
+            if args.isEmpty {
+                let names = ColorScheme.all.map { $0.id }
+                await echoUserMessage(text)
+                await pushAssistantNote("Available color schemes:\n\n" + names.map { "  `\($0)`" }.joined(separator: "\n"))
+                return await app.chatFragments()
+            }
+            // Resolve by id first, then by label, case-insensitively.
+            let byID = ColorScheme.all.first { $0.id.lowercased() == args.lowercased() }
+            let byLabel = byID == nil ? ColorScheme.all.first { $0.label.lowercased() == args.lowercased() } : nil
+            guard let scheme = byID ?? byLabel else {
+                _ = await app.hint("No scheme named '\(args)'. Use /theme to list.", kind: "error")
+                return await app.chatFragments()
+            }
+            await app.setColorScheme(scheme.id)
+            _ = await app.hint("Theme '\(scheme.label)'.")
+            return await app.chatFragments()
+        }
+        if name == "help" {
+            await echoUserMessage(text)
+            var lines: [String] = []
+            for b in AppState.slashBuiltins {
+                let usage = b.arg.map { ($0.hasPrefix("[") || $0.hasPrefix("<")) ? " \($0)" : " <\($0)>" } ?? ""
+                lines.append("  /`\(b.name)`\(usage) — \(b.desc)")
+            }
+            lines.append("")
+            lines.append("Any installed skill can also be invoked directly: type `/` and autocomplete, or `/skill-name <instruction>` (stacked skills allowed: `/a /b do X`).")
+            await pushAssistantNote("Available slash commands:\n\n" + lines.joined(separator: "\n"))
+            return await app.chatFragments()
+        }
+        if name == "skills" {
+            await echoUserMessage(text)
+            let q = args.lowercased()
+            let skills = await app.skills
+            let filtered = q.isEmpty
+                ? skills
+                : skills.filter {
+                    $0.name.lowercased().contains(q) || $0.description.lowercased().contains(q)
+                }
+            guard !filtered.isEmpty else {
+                await pushAssistantNote("No skills matching \"\(args)\".")
+                return await app.chatFragments()
+            }
+            let grouped = Dictionary(grouping: filtered) { ($0.category?.isEmpty == false ? $0.category! : "General") }
+            var out: [String] = []
+            out.append(q.isEmpty ? "Available skills (\(filtered.count)):\n" : "Skills matching \"\(args)\" (\(filtered.count)):\n")
+            for cat in grouped.keys.sorted() {
+                out.append("**\(cat)**")
+                for skill in grouped[cat]!.sorted(by: { $0.name < $1.name }) {
+                    let d = skill.description.count > 80 ? String(skill.description.prefix(80)) + "..." : skill.description
+                    out.append("  `\(skill.name)` — \(d)")
+                }
+                out.append("")
+            }
+            await pushAssistantNote(out.joined(separator: "\n"))
+            return await app.chatFragments()
+        }
+        if name == "use" {
+            guard !args.isEmpty else {
+                await pushAssistantNote("Usage: `/use <skill-name>` — forces the agent to consult that skill before its next response.")
+                return await app.chatFragments()
+            }
+            guard let key = SkillCommands.resolveSkillCommandKey(args),
+                  let info = SkillCommands.getSkillCommands()[key],
+                  let content = try? String(contentsOf: info.skillMDURL, encoding: .utf8)
+            else {
+                await echoUserMessage(text)
+                await pushAssistantNote("No skill named `\(args)`. Use `/skills` to see available skills.")
+                return await app.chatFragments()
+            }
+            await echoUserMessage(text)
+            await pushAssistantNote("Next turn: skill `\(info.name)` will be forced.")
+            let directive = "[USER OVERRIDE] You MUST follow the skill '\(info.name)' content provided below before responding to the next message."
+            let forced = "[FORCED SKILL CONTEXT: \(info.name)]\n\(content)\n[/FORCED SKILL CONTEXT]"
+            let sid = await app.activeSessionID ?? ""
+            let cid = TaskEnv.clientID ?? 0
+            let pusher = pusher(forClientID: cid)
+            Task {
+                await self.app.runTurn(
+                    userText: directive + "\n\n" + forced + "\n\n" + (args.split(separator: " ", maxSplits: 1).dropFirst().joined(separator: " ")),
+                    pusher: pusher, sessionID: sid, displayText: text
+                )
+            }
+            return await app.chatFragments()
+        }
+        return nil
     }
 
     private func attachFile(_ path: String) async -> [FragmentUpdate] {

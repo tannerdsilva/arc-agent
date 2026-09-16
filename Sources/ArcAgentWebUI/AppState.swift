@@ -425,6 +425,14 @@ struct LiveTurn {
 }
 
 /// A pending user-approval request (Hermes-style permission card in the chat).
+/// A named context block attached to the composer (Hermes webui parity:
+/// `_pendingSelections`, rendered as "Context N" chips above the input).
+struct PendingContext: Codable, Equatable, Sendable {
+    let id: String
+    var name: String
+    let text: String
+}
+
 struct PendingApproval {
     let command: String
     let description: String
@@ -496,6 +504,73 @@ actor AppState {
     /// each keystroke; writes at most once per ~1.5 s while typing).
     var draftSaveTask: Task<Void, Never>?
     var attachments: [String] = []
+    /// Context blocks attached to the composer via "Reply with selection"
+    /// (Hermes `_pendingSelections`). In-memory only (not persisted).
+    var pendingContexts: [PendingContext] = []
+    private var contextCounter = 0
+
+    /// Attach a context block; returns the new block (id "ctx-N", name
+    /// "Context N").
+    func addPendingContext(_ text: String) -> PendingContext {
+        contextCounter += 1
+        // Hermes parity: chip names are positional ("Context 1", "Context 2",
+        // ...) at add time, not monotonic.
+        let block = PendingContext(id: "ctx-\(contextCounter)",
+                                   name: "Context \(pendingContexts.count + 1)",
+                                   text: text)
+        pendingContexts.append(block)
+        return block
+    }
+
+    /// Remove a context block by id; resets the counter when empty.
+    func removePendingContext(_ id: String) {
+        pendingContexts.removeAll { $0.id == id }
+        if pendingContexts.isEmpty { contextCounter = 0 }
+    }
+
+    /// Drop all pending context blocks.
+    func clearPendingContexts() {
+        pendingContexts = []
+        contextCounter = 0
+    }
+
+    /// Truncated preview (Hermes `_selectedContextPreview`: 360 chars + …).
+    static func contextPreview(_ text: String, limit: Int = 360) -> String {
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let collapsed = normalized.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !collapsed.isEmpty else { return "" }
+        return collapsed.count > limit ? String(collapsed.prefix(limit)).trimmingCharacters(in: .whitespaces) + "…" : collapsed
+    }
+
+    /// Markdown for one context block (Hermes `_composerTextWithPendingSelections`):
+    /// `**Context N:**` + blockquote lines. Long content is truncated (…)
+    /// so it never overtakes the sent message (user requirement).
+    static func contextBlockMarkdown(_ block: PendingContext, contentLimit: Int = 600) -> String {
+        var text = block.text.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        if text.count > contentLimit {
+            text = String(text.prefix(contentLimit)).trimmingCharacters(in: .whitespaces) + "…"
+        }
+        let quoted = text.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { "> " + $0 }
+            .joined(separator: "\n")
+        return "**\(block.name):**\n\(quoted)"
+    }
+
+    /// Final composer text with pending contexts inlined (Hermes
+    /// `_composerTextWithPendingSelections`).
+    func composeWithPendingContexts(_ raw: String) -> String {
+        guard !pendingContexts.isEmpty else { return raw }
+        let blocks = pendingContexts
+            .map { Self.contextBlockMarkdown($0) }
+            .joined(separator: "\n\n")
+        let current = raw.trimmingCharacters(in: .whitespaces)
+        if current.isEmpty { return blocks }
+        return current + "\n\n" + blocks
+    }
+
 
     /// UI mode flags
     var pendingDelete = false

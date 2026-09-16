@@ -2453,6 +2453,62 @@ static let css: String = """
       padding: 40px;
     }
     .blank .big { font-size: 2.2em; }
+
+    /* ── Slash autocomplete (Hermes commands.js parity) ── */
+    .cmd-dropdown { display: none; position: fixed; width: min(560px, calc(100vw - 24px));
+      background: var(--bg); border: 1px solid var(--border-strong); border-radius: 10px;
+      box-shadow: 0 -8px 24px rgba(0,0,0,.4); z-index: 200; max-height: 240px; overflow-y: auto; }
+    .cmd-dropdown.open { display: block; }
+    .cmd-item { display: block; width: 100%; text-align: left; padding: 8px 14px; cursor: pointer;
+      transition: background .12s; background: transparent; border: 0; color: inherit; font: inherit; }
+    .cmd-item:hover { background: rgba(140,140,140,.12); }
+    .cmd-item.selected { background: var(--accent-soft); outline: 1px solid var(--accent-strong); }
+    .cmd-item-name { font-size: 13px; color: var(--text); font-weight: 500; }
+    .cmd-item-arg { color: var(--muted); font-weight: 400; font-style: italic; }
+    .cmd-item-desc { font-size: 11px; color: var(--muted); margin-top: 1px; }
+    .cmd-item-badge { display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700;
+      letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 999px;
+      border: 1px solid var(--border-strong); color: var(--muted); background: var(--hover-bg); vertical-align: 1px; }
+    .cmd-item-badge-skill { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-strong); }
+
+    /* ── Reply with selection (Hermes messages.js parity) ── */
+    .selected-text-reply-btn { position: fixed; z-index: 1200; display: inline-flex; align-items: center;
+      gap: 6px; padding: 7px 11px; border: 2px solid var(--accent); border-radius: 999px;
+      background: var(--bg); color: var(--text);
+      box-shadow: 0 8px 24px rgba(0,0,0,.26), 0 0 0 1px var(--bg-subtle);
+      font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer; opacity: 0;
+      pointer-events: none; transform: translateY(4px);
+      transition: opacity .12s ease, transform .12s ease; user-select: none; }
+    .selected-text-reply-btn.visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
+
+    /* ── Context chips (Hermes _renderSelectionChips parity) ── */
+    .selection-chips-wrap { display: flex; flex-direction: column; gap: 8px; max-width: 100%;
+      box-sizing: border-box; margin: 0 auto; padding: 8px 0 0; min-height: 0;
+      max-height: min(32vh, 280px); overflow-y: auto; scrollbar-gutter: stable; }
+    .selection-chips-wrap:empty { display: none; }
+    .selection-context-card { display: flex; gap: 10px; align-items: stretch;
+      border: 1px solid var(--border-strong); border-radius: 12px;
+      background: linear-gradient(135deg, var(--bg-subtle), rgba(255,255,255,.015));
+      box-shadow: 0 1px 0 rgba(255,255,255,.03) inset; color: var(--text); overflow: hidden; }
+    .selection-context-accent { width: 3px; flex: 0 0 3px; background: var(--accent); opacity: .82; }
+    .selection-context-body { min-width: 0; flex: 1; padding: 9px 10px 9px 0; }
+    .selection-context-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+    .selection-context-name { color: var(--accent); font-size: 11px; font-weight: 700; line-height: 1.2;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .selection-context-remove { display: inline-flex; align-items: center; justify-content: center;
+      min-width: 28px; min-height: 28px; background: transparent; border: 1px solid transparent;
+      border-radius: 999px; color: var(--muted); cursor: pointer; font-size: 12px; line-height: 1;
+      padding: 2px 5px; flex: 0 0 auto; }
+    .selection-context-remove:hover { color: var(--text); background: var(--hover-bg); border-color: var(--border); }
+    .selection-context-quote { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.45;
+      white-space: pre-wrap; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+
+    /* ── Queue feed chips (same named-context presentation as the composer) ── */
+    .queue-feed-chips { display: flex; flex-wrap: wrap; gap: 4px; max-height: 54px; overflow-y: auto; }
+    .queue-feed-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border-strong);
+      border-radius: 999px; padding: 1px 8px 1px 4px; font-size: 11px; color: var(--muted); }
+    .queue-feed-accent { width: 3px; height: 10px; border-radius: 2px; background: var(--accent); opacity: .8; }
+    .queue-feed-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
     """
 
     /// Palette blocks for every color scheme, appended after `css`. A page
