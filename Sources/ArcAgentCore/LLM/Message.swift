@@ -53,6 +53,13 @@ public struct Message: Sendable, Codable, Equatable {
     /// Mirrors Hermes `_terminal_reason` so UIs can surface a status card.
     public let terminalReason: String?
 
+    /// Optional short text shown in the UI transcript instead of ``content``.
+    /// Used by slash-command rewrites that expand a `/cmd` into a large
+    /// model-facing payload (e.g. skill invocation scaffolding): the model
+    /// sees ``content``, the user sees ``displayText``. Mirrors Hermes'
+    /// webui `_slashDisplayTextOverride`. nil for normal messages.
+    public let displayText: String?
+
     public init(
         role: Role,
         content: String? = nil,
@@ -63,7 +70,8 @@ public struct Message: Sendable, Codable, Equatable {
         reasoning: String? = nil,
         usage: Usage? = nil,
         tps: Double? = nil,
-        terminalReason: String? = nil
+        terminalReason: String? = nil,
+        displayText: String? = nil
     ) {
         self.role = role
         self.content = content
@@ -75,6 +83,7 @@ public struct Message: Sendable, Codable, Equatable {
         self.usage = usage
         self.tps = tps
         self.terminalReason = terminalReason
+        self.displayText = displayText
     }
 }
 

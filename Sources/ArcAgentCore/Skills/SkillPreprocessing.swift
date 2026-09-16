@@ -107,37 +107,3 @@ public enum SkillPreprocessing {
         return try await runInlineCommands(expanded)
     }
 }
-
-// MARK: - Skill commands (Hermes `skill_commands.py`)
-
-/// Invocable-skill machinery: skills may declare a short `command:` frontmatter
-/// name; matching a slash-command (or a user phrase) preloads the skill with
-/// the invocation message. Stacks are bounded (Hermes: max 5).
-public enum SkillCommands {
-    public static let maxStack = 5
-    public static let invocationPrefix = "[IMPORTANT: The user has invoked the"
-
-    /// Parse a `command:` frontmatter line (Hermes skill frontmatter can carry
-    /// `command:` for slash-style invocation).
-    public static func commandName(fromFrontmatter frontmatter: String) -> String? {
-        for line in frontmatter.split(separator: "\n") {
-            let l = line.trimmingCharacters(in: .whitespaces)
-            if l.hasPrefix("command:") {
-                return l.dropFirst("command:".count).trimmingCharacters(in: .whitespaces)
-            }
-        }
-        return nil
-    }
-
-    /// The invocation message appended to the agent's context when a command
-    /// skill is activated (Hermes format).
-    public static func invocationMessage(command: String, skillName: String) -> String {
-        "\(invocationPrefix) \"\(command)\" skill. The full skill content is loaded below. Follow its instructions."
-    }
-
-    /// Preload prompt when the user typed `/<command>` (Hermes
-    /// `preload_command_skill`): include the skill name in the preloaded line.
-    public static func preloadedLine(command: String, skillName: String) -> String {
-        "/\(command) — invoking skill '\(skillName)'."
-    }
-}
