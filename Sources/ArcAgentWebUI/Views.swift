@@ -802,24 +802,26 @@ extension AppState {
         var i = 0
         let mode = settings.activityDisplay
         while i < messages.count {
-            let m = messages[i]
-            if m.role == .assistant, let tc = m.toolCalls, !tc.isEmpty {
-                // Supporting-activity group: this assistant turn (reasoning +
-                // interim text + tool calls) followed by its tool results.
-                var results: [String: String] = [:]
-                var j = i + 1
-                while j < messages.count, messages[j].role == .tool {
-                    if let cid = messages[j].toolCallID {
-                        results[cid] = messages[j].content ?? ""
-                    }
-                    j += 1
-                }
-                html.append(activityGroupHTML(m, calls: tc, results: results, mode: mode))
-                i = j
+            if messages[i].role == .user {
+                html.append(messageHTML(messages[i]))
+                i += 1
                 continue
             }
-            html.append(messageHTML(m))
-            i += 1
+            // This assistant segment runs until the next user message. Once a
+            // turn has completed, all of its thinking + tool rounds collapse
+            // behind one turn-level dropdown with a "Processed Xm Ys" label
+            // and a chevron (Hermes webui parity). `transparent_stream` keeps
+            // the same block but pre-opened; `hide_all_activity` keeps the
+            // legacy final-answer-only rendering.
+            var j = i
+            while j < messages.count, messages[j].role != .user { j += 1 }
+            let seg = Array(messages[i..<j])
+            if let block = turnBlockHTML(seg, mode: mode, turnIndex: i) {
+                html.append(block)
+            } else {
+                html.append(contentsOf: legacySegmentHTML(seg, mode: mode))
+            }
+            i = j
         }
         // Live turn + steer bubble belong to their owning session only.
         if let live = activeTurns[activeSessionID ?? ""] {
@@ -841,6 +843,165 @@ extension AppState {
             html.append("<div class=\"blank\"><div class=\"big\">\(svgIcon("chat", 44))</div><div>Start a conversation below.</div></div>")
         }
         return html.joined()
+    }
+
+    /// The role header for an assistant reply: sparkle icon + "ARC Agent" +
+    /// the tokens-per-second chip when TPS display is on (Hermes parity).
+    func assistantRoleHeaderHTML(_ m: Message) -> String {
+        let tp = m.tps ?? 0
+        let tpsChip = settings.showTps && tp > 0
+            ? "<span class=\"msg-tps-inline\" title=\"Tokens per second\">\(esc(fmtTps(tp)))</span>" : ""
+        return "<div class=\"msg-meta\"><span class=\"role-icon assistant\">\(svgIcon("sparkle", 11))</span> ARC Agent\(tpsChip)</div>"
+    }
+
+    /// The body (markdown + tool chips) of an assistant reply.
+    func assistantBodyHTML(_ m: Message) -> String {
+        let content = m.content ?? ""
+        let chips = toolChipsHTML(m.toolCalls)
+        if content.isEmpty { return chips }
+        return "<div class=\"msg-body\">\(mdBox(content))</div>" + chips
+    }
+
+    /// Hermes parity: input/output token usage line below a reply.
+    func usageFootHTML(_ m: Message) -> String {
+        guard settings.showTokenUsage, let u = m.usage else { return "" }
+        return "<div class=\"msg-foot-inline\"><span class=\"msg-usage-inline\">\(fmtTokens(u.promptTokens)) in · \(fmtTokens(u.completionTokens)) out</span></div>"
+    }
+
+    /// Hermes `_formatTurnDuration`: <60s → "Ns"; else "Xh Ym" / "Xm Ys".
+    func formatTurnDuration(_ seconds: Double) -> String {
+        let n = Int(max(0, seconds.rounded()))
+        if n < 60 { return "\(n)s" }
+        let h = n / 3600
+        let m = (n % 3600) / 60
+        let s = n % 60
+        if h > 0 { return "\(h)h \(m)m" }
+        return "\(m)m \(s)s"
+    }
+
+    /// Hermes-parity turn dropdown. Wraps a completed turn's supporting
+    /// activity behind one `Processed Xm Ys` summary; only the final reply
+    /// stays visible until the user opens it. `transparent_stream` renders the
+    /// same block pre-opened (full cards visible). Returns nil for modes that
+    /// don't use the block, for trunks with no activity, and for trunks with
+    /// no final reply (stop/error edges) — callers fall back to the legacy
+    /// per-piece rendering.
+    func turnBlockHTML(_ seg: [Message], mode: String, turnIndex: Int) -> String? {
+        guard mode == "compact_worklog" || mode == "transparent_stream" else { return nil }
+        guard let finalIdx = seg.lastIndex(where: { $0.role == .assistant && ($0.toolCalls ?? []).isEmpty }) else { return nil }
+        var rounds: [(Message, [String: String])] = []
+        var i = 0
+        while i < seg.count {
+            let m = seg[i]
+            if m.role == .assistant, let tc = m.toolCalls, !tc.isEmpty {
+                var results: [String: String] = [:]
+                var j = i + 1
+                while j < seg.count, seg[j].role == .tool {
+                    if let cid = seg[j].toolCallID { results[cid] = seg[j].content ?? "" }
+                    j += 1
+                }
+                rounds.append((m, results))
+                i = j
+                continue
+            }
+            i += 1
+        }
+        let finalMsg = seg[finalIdx]
+        let reasons = rounds.compactMap { $0.0.reasoning } + [finalMsg.reasoning].compactMap { $0 }
+        let hasActivity = !rounds.isEmpty || reasons.contains { !$0.isEmpty }
+        guard hasActivity else { return nil }
+
+        var rows: [String] = []
+        if mode == "compact_worklog" {
+            // One aggregated "Thinking" row + one "Ran N commands/tools" row
+            // per tool round with a copy button (Hermes worklog look).
+            let allReasoning = reasons.filter { !$0.isEmpty }.joined(separator: "\n\n")
+            if !allReasoning.isEmpty {
+                rows.append("<details class=\"thinking-row\"><summary>" + svgIcon("pencil", 13) + "<span>Thinking</span></summary><div class=\"tc-detail\">" + esc(allReasoning) + "</div></details>")
+            }
+            for (idx, pair) in rounds.enumerated() {
+                let target = "twc-\(turnIndex)-\(idx)"
+                let m = pair.0
+                let calls = m.toolCalls ?? []
+                let names = calls.map { $0.function.name }
+                let summary: String
+                if names.allSatisfy({ $0 == "terminal" }) {
+                    summary = calls.count == 1 ? "Ran a command" : "Ran \(calls.count) commands"
+                } else {
+                    summary = calls.count == 1 ? "Ran a tool" : "Ran \(calls.count) tools"
+                }
+                var detail: [String] = []
+                if let interim = m.content, !interim.isEmpty {
+                    detail.append("<div class=\"msg-body interim\">" + mdBox(interim) + "</div>")
+                }
+                detail.append(toolChipsHTML(calls))
+                rows.append("<details class=\"worklog-summary\" id=\"\(target)\"><summary>" + svgIcon("tools", 13)
+                    + "<span>" + esc(summary) + "</span><span class=\"tw-spacer\"></span>"
+                    + "<button class=\"tw-copy\" type=\"button\" data-copy-target=\"\(target)\" title=\"Copy this activity\">" + svgIcon("copy", 12) + "</button>"
+                    + svgIcon("chevron-right", 11) + "</summary><div class=\"wl-detail\">" + detail.joined() + "</div></details>")
+            }
+        } else {
+            // transparent_stream: full cards, block pre-opened.
+            for pair in rounds {
+                rows.append(activityGroupHTML(pair.0, calls: pair.0.toolCalls ?? [], results: pair.1, mode: "transparent_stream"))
+            }
+            // Direct replies (no tool rounds) still stream reasoning: surface
+            // it as a thinking row so the dropdown body is never empty.
+            if let r = finalMsg.reasoning, !r.isEmpty {
+                rows.append("<details class=\"thinking-row\"><summary>" + svgIcon("pencil", 13) + "<span>Thinking</span></summary><div class=\"tc-detail\">" + esc(r) + "</div></details>")
+            }
+        }
+
+        let label = finalMsg.turnDuration.map { "Processed " + formatTurnDuration($0) } ?? "Turn activity"
+        let limitCard = finalMsg.terminalReason == "max_iterations" ? limitCardHTML() : ""
+        return """
+        <div class="assistant-turn" data-turn-duration="\(String(format: "%.0f", finalMsg.turnDuration ?? 0))">
+          \(assistantRoleHeaderHTML(finalMsg))
+          <details class="worklog-summary turn-worklog"\(mode == "transparent_stream" ? " open" : "")>
+            <summary>
+              <span class="tw-dot"></span>
+              <span class="tw-label">\(esc(label))</span>
+              <span class="tw-spacer"></span>
+              <span class="tw-caret">\(svgIcon("chevron-right", 11))</span>
+            </summary>
+            <div class="wl-detail tw-body">
+              \(rows.joined())
+            </div>
+          </details>
+          <div class="msg assistant">
+            <div style="max-width:100%;width:100%">
+              \(assistantBodyHTML(finalMsg))
+              \(usageFootHTML(finalMsg))
+              \(limitCard)
+              \(msgFootHTML(finalMsg))
+            </div>
+          </div>
+        </div>
+        """
+    }
+
+    /// Legacy per-piece rendering for a completed assistant segment (used when
+    /// `turnBlockHTML` declines — e.g. stop/error trunks, hide mode).
+    func legacySegmentHTML(_ seg: [Message], mode: String) -> [String] {
+        var out: [String] = []
+        var i = 0
+        while i < seg.count {
+            let m = seg[i]
+            if m.role == .assistant, let tc = m.toolCalls, !tc.isEmpty {
+                var results: [String: String] = [:]
+                var j = i + 1
+                while j < seg.count, seg[j].role == .tool {
+                    if let cid = seg[j].toolCallID { results[cid] = seg[j].content ?? "" }
+                    j += 1
+                }
+                out.append(activityGroupHTML(m, calls: tc, results: results, mode: mode))
+                i = j
+                continue
+            }
+            out.append(messageHTML(m))
+            i += 1
+        }
+        return out
     }
 
     /// Renders one assistant turn's supporting activity (reasoning, interim
@@ -899,34 +1060,15 @@ extension AppState {
             </div>
             """
         case .assistant:
-            let content = m.content ?? ""
-            let chips = toolChipsHTML(m.toolCalls)
-            let body: String
-            if content.isEmpty {
-                body = chips
-            } else {
-                body = "<div class=\"msg-body\">\(mdBox(content))</div>" + chips
-            }
-            // Hermes parity: TPS chip in the role header while/after streaming.
-            let tp = m.tps ?? 0
-            let tpsChip = settings.showTps && tp > 0
-                ? "<span class=\"msg-tps-inline\" title=\"Tokens per second\">\(esc(fmtTps(tp)))</span>" : ""
-            // Hermes parity: input/output token usage below the reply.
-            let usageFoot: String
-            if settings.showTokenUsage, let u = m.usage {
-                usageFoot = "<div class=\"msg-foot-inline\"><span class=\"msg-usage-inline\">\(fmtTokens(u.promptTokens)) in · \(fmtTokens(u.completionTokens)) out</span></div>"
-            } else {
-                usageFoot = ""
-            }
             // Hermes parity: terminal-state status card (e.g. tool iteration
             // limit reached) rendered under the reply that ended the turn.
             let limitCard = m.terminalReason == "max_iterations" ? limitCardHTML() : ""
             return """
             <div class="msg assistant">
               <div style="max-width:100%;width:100%">
-                <div class="msg-meta"><span class="role-icon assistant">\(svgIcon("sparkle", 11))</span> ARC Agent\(tpsChip)</div>
-                \(body)
-                \(usageFoot)
+                \(assistantRoleHeaderHTML(m))
+                \(assistantBodyHTML(m))
+                \(usageFootHTML(m))
                 \(limitCard)
                 \(msgFootHTML(m))
               </div>

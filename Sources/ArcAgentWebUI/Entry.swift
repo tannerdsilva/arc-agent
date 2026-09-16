@@ -119,10 +119,10 @@ struct ArcAgentWebUI: AsyncParsableCommand {
                 body: body,
                 rawStyles: [],
                 head: """
-                <link rel="stylesheet" href="/ui/style.css?v=40">
+                <link rel="stylesheet" href="/ui/style.css?v=41">
                 <link rel="stylesheet" href="/ui/vendor/katex/katex.min.css">
                 <script src="/ui/runtime.js?v=33"></script>
-                <script src="/ui/init.js?v=27"></script>
+                <script src="/ui/init.js?v=28"></script>
                 """,
                 devMode: false,
                 includeRuntime: false,
@@ -807,6 +807,26 @@ struct ArcAgentWebUI: AsyncParsableCommand {
                 setTimeout(function () { b.innerHTML = orig; }, 1500);
               }, function () { });
             }
+          });
+
+
+          // ---- Turn worklog "copy activity" buttons (delegated): copy the
+          // expanded text of that tool round's detail block.
+          document.addEventListener('click', function (e) {
+            var b = e.target && e.target.closest ? e.target.closest('.tw-copy') : null;
+            if (!b) return;
+            e.stopPropagation();
+            var tgt = b.getAttribute('data-copy-target');
+            var host = tgt ? document.getElementById(tgt) : null;
+            var body = host ? host.querySelector('.wl-detail') : null;
+            var text = (body ? body.innerText : '').trim();
+            if (!text || !navigator.clipboard || !navigator.clipboard.writeText) return;
+            navigator.clipboard.writeText(text).then(function () {
+              var orig = b.innerHTML;
+              b.innerHTML = '" + CHECK + "';
+              b.classList.add('copied');
+              setTimeout(function () { b.innerHTML = orig; b.classList.remove('copied'); }, 1500);
+            }, function () { });
           });
         })();
         """

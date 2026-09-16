@@ -35,7 +35,7 @@ extension AppState {
         sessions[idx].messages.append(message)
         sessionVersion += 1
         if let store {
-            try? await store.appendMessage(sessionID: sessions[idx].id, message: message)
+            await persistMessage(message, sessionID: sessions[idx].id, store: store)
         }
     }
 

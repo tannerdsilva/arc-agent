@@ -173,7 +173,7 @@ extension AppState {
 
         let userMsg = Message(role: .user, content: job.prompt, createdAt: now)
         session.messages.append(userMsg)
-        if let store { try? await store.appendMessage(sessionID: sid, message: userMsg) }
+        await persistMessage(userMsg, sessionID: sid, store: store)
 
         let system = Message(role: .system, content: await buildSystemPrompt(config: preset, sessionID: sid))
         let tools = registry.buildToolSchemas(enabled: [], disabled: Set(settings.disabledToolsets))
@@ -196,18 +196,18 @@ extension AppState {
                     let result = await runTool(call, sessionID: sid, pusher: { _ in }, headless: true)
                     let toolMsg = Message(role: .tool, content: result, name: call.function.name, createdAt: Date())
                     history.append(toolMsg)
-                    if let store { try? await store.appendMessage(sessionID: sid, message: toolMsg) }
+                    await persistMessage(toolMsg, sessionID: sid, store: store)
                 }
                 let asst = Message(role: .assistant, content: "Ran \(calls.count) tool call(s).", createdAt: Date())
                 history.append(asst)
-                if let store { try? await store.appendMessage(sessionID: sid, message: asst) }
+                await persistMessage(asst, sessionID: sid, store: store)
                 continue
             }
             break
         }
         let asstMsg = Message(role: .assistant, content: finalText, createdAt: Date())
         history.append(asstMsg)
-        if let store { try? await store.appendMessage(sessionID: sid, message: asstMsg) }
+        await persistMessage(asstMsg, sessionID: sid, store: store)
         updateJob(job.id) {
             $0.lastRunAt = now
             $0.runCount += 1

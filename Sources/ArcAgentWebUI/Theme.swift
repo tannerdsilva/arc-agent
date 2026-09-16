@@ -1244,6 +1244,62 @@ static let css: String = """
     .tool-card summary::-webkit-details-marker,
     .worklog-summary summary::-webkit-details-marker { display: none; }
     .thinking-row summary svg, .tool-card summary svg, .worklog-summary summary svg { flex: 0 0 auto; opacity: 0.8; }
+    /* --- Turn dropdown (Hermes parity: "Processed Xm Ys" worklog) --- */
+    .assistant-turn { display: block; }
+    .assistant-turn > .msg-meta { margin: 14px 0 2px; }
+    .turn-worklog {
+      max-width: 86%;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface-2);
+      margin: 4px 0 10px;
+    }
+    .turn-worklog > summary {
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      font-size: 0.9em;
+      color: var(--muted);
+      user-select: none;
+    }
+    .turn-worklog > summary::-webkit-details-marker { display: none; }
+    .turn-worklog > summary:hover { color: var(--text); }
+    .tw-dot {
+      flex: 0 0 auto;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+      opacity: 0.7;
+    }
+    .tw-label { flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tw-spacer { flex: 1 1 auto; }
+    .tw-caret { flex: 0 0 auto; display: inline-flex; opacity: 0.8; transition: transform 0.15s ease; }
+    .turn-worklog[open] .tw-caret { transform: rotate(90deg); }
+    .tw-body { padding: 2px 8px 6px 12px; }
+    .turn-worklog .worklog-summary { max-width: 100%; margin: 6px 0; }
+    .tw-copy {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      background: none;
+      border: none;
+      padding: 2px;
+      border-radius: 6px;
+      color: var(--muted);
+      cursor: pointer;
+      opacity: 0.8;
+    }
+    .tw-copy:hover { color: var(--text); background: var(--surface-1); opacity: 1; }
+    .tw-copy.copied { color: var(--text); opacity: 1; }
+    .thinking-row .tc-detail, .worklog-summary .wl-detail {
+      padding: 4px 14px 10px;
+      max-height: 320px;
+      overflow: auto;
+    }
     .tool-card summary .tc-name { font-weight: 650; color: var(--text); }
     .tool-card summary .tc-arg {
       flex: 1;

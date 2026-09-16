@@ -467,6 +467,25 @@ extension AppState {
     /// same nudge Hermes uses (`chat_completion_helpers.py`), take ONE final
     /// no-tools call for the closing summary, and mark the reply with
     /// `terminalReason = "max_iterations"` so the UI shows the status card.
+    /// Persist a message to the store, surfacing failures to the Logs panel.
+    /// Append failures used to be silent `try?` swallows — a write could be
+    /// lost (and its Turn/Processed label dropped) without any trace.
+    func persistMessage(_ message: Message, sessionID: String, store: (any SessionStore)?) async {
+        guard let store else { return }
+        do {
+            try await store.appendMessage(sessionID: sessionID, message: message)
+        } catch {
+            LogCollector.shared.append(level: .error, text: "[store] failed to persist \(message.role.rawValue) message for session \(String(sessionID.prefix(8))): \(error)")
+        }
+    }
+
+    /// Seconds elapsed since the live turn started, for the "Processed Xm Ys"
+    /// label on the turn's activity dropdown. nil when no turn is running.
+    func turnDurationSeconds(_ sessionID: String) -> Double? {
+        guard let t = activeTurns[sessionID] else { return nil }
+        return max(0, Date().timeIntervalSince(t.startedAt))
+    }
+
     private func handleIterationLimit(
         history: inout [Message],
         sessionID: String,
@@ -484,7 +503,7 @@ extension AppState {
             createdAt: Date()
         )
         history.append(nudge)
-        if let store { try? await store.appendMessage(sessionID: sessionID, message: nudge) }
+        if let store { await persistMessage(nudge, sessionID: sessionID, store: store) }
         await flush()
 
         // One final no-tool call: the model cannot emit tool calls, so the
@@ -495,9 +514,9 @@ extension AppState {
         var usage: Usage?
         guard let client = makeClient(for: preset) else {
             // No client for the configured model: fall back to graceful text.
-            let f = Message(role: .assistant, content: "I reached the iteration limit and couldn't generate a summary.", createdAt: Date(), terminalReason: "max_iterations")
+            let f = Message(role: .assistant, content: "I reached the iteration limit and couldn't generate a summary.", createdAt: Date(), terminalReason: "max_iterations", turnDuration: turnDurationSeconds(sessionID))
             history.append(f)
-            if let store { try? await store.appendMessage(sessionID: sessionID, message: f) }
+            if let store { await persistMessage(f, sessionID: sessionID, store: store) }
             await flush()
             return
         }
@@ -529,10 +548,11 @@ extension AppState {
             reasoning: reasoning.isEmpty ? nil : reasoning,
             usage: usage,
             tps: tps,
-            terminalReason: "max_iterations"
+            terminalReason: "max_iterations",
+            turnDuration: turnDurationSeconds(sessionID)
         )
         history.append(final)
-        if let store { try? await store.appendMessage(sessionID: sessionID, message: final) }
+        if let store { await persistMessage(final, sessionID: sessionID, store: store) }
         if let u = usage { await Self.recordUsage(u, preset: preset) }
         await flush()
     }
@@ -605,7 +625,7 @@ extension AppState {
         }
         sessionVersion += 1
         if let store {
-            try? await store.appendMessage(sessionID: sessionID, message: userMsg)
+            await persistMessage(userMsg, sessionID: sessionID, store: store)
         }
 
         // Hermes-parity: when a title_gen auxiliary model is assigned, name the
@@ -781,11 +801,12 @@ extension AppState {
                     createdAt: Date(),
                     reasoning: reasoningAccum.isEmpty ? nil : reasoningAccum,
                     usage: roundUsage,
-                    tps: finalTps
+                    tps: finalTps,
+                    turnDuration: max(0, Date().timeIntervalSince(turn.startedAt))
                 )
                 history.append(asstMsg)
                 if let store {
-                    try? await store.appendMessage(sessionID: sessionID, message: asstMsg)
+                    await persistMessage(asstMsg, sessionID: sessionID, store: store)
                 }
                 if let u = roundUsage {
                     await Self.recordUsage(u, preset: preset)
@@ -798,7 +819,7 @@ extension AppState {
             let asstMsg = Message(role: .assistant, content: contentAccum.isEmpty ? nil : contentAccum, toolCalls: calls, createdAt: Date(), reasoning: reasoningAccum.isEmpty ? nil : reasoningAccum)
             history.append(asstMsg)
             if let store {
-                try? await store.appendMessage(sessionID: sessionID, message: asstMsg)
+                await persistMessage(asstMsg, sessionID: sessionID, store: store)
             }
             activeTurns[sessionID]?.toolChips = calls.map { "⚙ \($0.function.name)" }
             activeTurns[sessionID]?.status = "tool"
@@ -810,7 +831,7 @@ extension AppState {
                 let toolMsg = Message(role: .tool, content: result, name: call.function.name, toolCallID: call.id, createdAt: Date())
                 history.append(toolMsg)
                 if let store {
-                    try? await store.appendMessage(sessionID: sessionID, message: toolMsg)
+                    await persistMessage(toolMsg, sessionID: sessionID, store: store)
                 }
             }
             // Steer injection at the tool-result boundary (Hermes parity):

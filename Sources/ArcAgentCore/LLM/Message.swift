@@ -60,6 +60,12 @@ public struct Message: Sendable, Codable, Equatable {
     /// webui `_slashDisplayTextOverride`. nil for normal messages.
     public let displayText: String?
 
+    /// Wall-clock duration of the whole turn (user prompt → this final reply),
+    /// in seconds. Set on the assistant reply that ends a turn so the UI can
+    /// render Hermes' "Processed Xm Ys" label on the turn's activity dropdown.
+    /// nil for legacy messages and replies that did not end a turn.
+    public let turnDuration: Double?
+
     public init(
         role: Role,
         content: String? = nil,
@@ -71,7 +77,8 @@ public struct Message: Sendable, Codable, Equatable {
         usage: Usage? = nil,
         tps: Double? = nil,
         terminalReason: String? = nil,
-        displayText: String? = nil
+        displayText: String? = nil,
+        turnDuration: Double? = nil
     ) {
         self.role = role
         self.content = content
@@ -84,6 +91,7 @@ public struct Message: Sendable, Codable, Equatable {
         self.tps = tps
         self.terminalReason = terminalReason
         self.displayText = displayText
+        self.turnDuration = turnDuration
     }
 }
 

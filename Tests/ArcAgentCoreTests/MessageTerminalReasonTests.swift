@@ -38,4 +38,28 @@ struct MessageTerminalReasonTests {
         let msg = Message(role: .assistant, content: "hi")
         #expect(msg.terminalReason == nil)
     }
+
+    // turnDuration — the "Processed Xm Ys" label data for the turn dropdown.
+
+    @Test("turnDuration round-trips through Codable")
+    func turnDurationRoundTrip() throws {
+        let msg = Message(
+            role: .assistant,
+            content: "final",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            turnDuration: 247.0
+        )
+        let data = try JSONEncoder().encode(msg)
+        let decoded = try JSONDecoder().decode(Message.self, from: data)
+        #expect(decoded.turnDuration == 247.0)
+    }
+
+    @Test("Legacy payload without turnDuration decodes as nil")
+    func turnDurationLegacy() throws {
+        let json = """
+        {"role":"assistant","content":"old reply"}
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(Message.self, from: json)
+        #expect(decoded.turnDuration == nil)
+    }
 }
