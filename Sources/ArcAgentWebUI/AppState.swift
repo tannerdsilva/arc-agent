@@ -238,6 +238,12 @@ struct AppSettings: Codable, Equatable {
     var todos: [String: [TodoItem]] = [:]
     /// Run queue: todo tasks (from any chat) in the order the user chose.
     var queuePlan: [QueueEntry] = []
+    /// Run queue loop: repeat the sequential run `queueLoopCount` times.
+    /// While on, feed links may reference ANY other task (later tasks feed
+    /// back into earlier ones on the next pass).
+    var queueLoopEnabled: Bool = false
+    /// Total passes of a looped sequential run (1 = no loop).
+    var queueLoopCount: Int = 2
     /// Hermes-parity scheduled tasks (cron jobs).
     var scheduledJobs: [CronJob] = []
     /// Archived chats are hidden from the default list but restorable.
@@ -318,6 +324,7 @@ struct AppSettings: Codable, Equatable {
         case kanbanColumns, kanbanCards
         case todos, scheduledJobs
         case queuePlan
+        case queueLoopEnabled, queueLoopCount
         case workspaceRoot
         case profileSkills
         case composerDrafts
@@ -371,6 +378,8 @@ struct AppSettings: Codable, Equatable {
             todos = [:]
         }
         queuePlan = try c.decodeIfPresent([QueueEntry].self, forKey: .queuePlan) ?? []
+        queueLoopEnabled = try c.decodeIfPresent(Bool.self, forKey: .queueLoopEnabled) ?? false
+        queueLoopCount = try c.decodeIfPresent(Int.self, forKey: .queueLoopCount) ?? 2
         scheduledJobs = try c.decodeIfPresent([CronJob].self, forKey: .scheduledJobs) ?? []
         kanbanColumns = try c.decodeIfPresent([KBColumn].self, forKey: .kanbanColumns) ?? []
         kanbanCards = try c.decodeIfPresent([KBCard].self, forKey: .kanbanCards) ?? []
@@ -721,6 +730,8 @@ actor AppState {
     var queueLinkSel: Set<String> = []
     var queueRunActive = false
     var queueStatuses: [String: String] = [:]
+    /// Current 1-based pass while a looped sequential run is active (0 idle).
+    var queueLoopPass = 0
     /// The currently awaiting user approval (rendered as a card in chat).
     var pendingApproval: PendingApproval?
     /// Owned task handle for the scheduled-jobs engine (cancelled at stop).

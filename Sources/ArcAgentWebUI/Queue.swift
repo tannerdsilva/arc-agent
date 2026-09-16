@@ -92,13 +92,45 @@ extension AppState {
     }
 
     /// Set (or clear) the input links of one entry. Only entries that come
-    /// BEFORE it in the current order are allowed.
+    /// BEFORE it in the current order are allowed — unless the loop toggle
+    /// is on, in which case any OTHER task may feed (later tasks' output
+    /// arrives on the next pass of the loop).
     func setQueueInputs(_ entryID: String, _ inputs: Set<String>) {
         guard let i = settings.queuePlan.firstIndex(where: { $0.id == entryID }) else { return }
-        let earlier = Set(settings.queuePlan.prefix(i).map(\.id))
-        let allowed = inputs.intersection(earlier)
-        let ordered = settings.queuePlan.prefix(i).map(\.id).filter { allowed.contains($0) }
-        settings.queuePlan[i].inputs = ordered
+        let allowed: Set<String>
+        let order: [String]
+        if settings.queueLoopEnabled {
+            allowed = Set(settings.queuePlan.filter { $0.id != entryID }.map(\.id))
+            order = settings.queuePlan.map(\.id)
+        } else {
+            allowed = Set(settings.queuePlan.prefix(i).map(\.id))
+            order = settings.queuePlan.prefix(i).map(\.id)
+        }
+        settings.queuePlan[i].inputs = order.filter { allowed.contains($0) && inputs.contains($0) }
+        saveSettings()
+    }
+
+    /// Toggle the sequential loop. Turning it OFF also drops backward
+    /// references (they are meaningless without a loop) but keeps forward ones.
+    func setQueueLoopEnabled(_ on: Bool) {
+        guard settings.queueLoopEnabled != on else { return }
+        settings.queueLoopEnabled = on
+        if !on {
+            for i in settings.queuePlan.indices {
+                let e = settings.queuePlan[i]
+                let earlier = Set(settings.queuePlan.prefix(i).map(\.id))
+                settings.queuePlan[i].inputs = e.inputs.filter { earlier.contains($0) }
+            }
+        }
+        saveSettings()
+    }
+
+    /// Clamp the loop count to 1...99 passes (1 = no loop).
+    func setQueueLoopCount(_ raw: String) {
+        let v = Int(raw.trimmingCharacters(in: .whitespaces)) ?? settings.queueLoopCount
+        let clamped = min(max(v, 1), 99)
+        guard clamped != settings.queueLoopCount else { return }
+        settings.queueLoopCount = clamped
         saveSettings()
     }
 
@@ -256,24 +288,34 @@ extension AppState {
         await notifyQueueView(pusher)
 
         var outputs: [String: String] = [:]
-        for e in plan {
-            if queueTodo(e) == nil {
-                queueStatuses[e.id] = "failed"
+        let passes = settings.queueLoopEnabled ? max(1, settings.queueLoopCount) : 1
+        for pass in 1...passes {
+            queueLoopPass = pass
+            queueStatuses = [:]
+            for e in plan {
+                if queueTodo(e) == nil {
+                    queueStatuses[e.id] = "failed"
+                    await notifyQueueView(pusher)
+                    continue
+                }
+                queueStatuses[e.id] = "running"
                 await notifyQueueView(pusher)
-                continue
+                let todoText = queueTodo(e)?.text ?? ""
+                // With the loop on, `outputs` may hold a LATER task's reply
+                // from the previous pass — that is what makes backward feed
+                // links resolve (TaskB's output feeds TaskA on pass 2).
+                let ctx = e.inputs.compactMap { outputs[$0] }
+                let prompt = queuePrompt(text: todoText, priorOutputs: ctx)
+                let ok = await runQueueTurn(chatID: e.chatID, prompt: prompt, pusher: pusher)
+                let reply = await lastAssistantReply(e.chatID)
+                if !reply.isEmpty { outputs[e.id] = reply }
+                // Only the final pass closes the todo; earlier passes keep it open.
+                if ok, pass == passes { markQueueTodoDone(e) }
+                queueStatuses[e.id] = ok ? "done" : "failed"
+                await notifyQueueView(pusher)
             }
-            queueStatuses[e.id] = "running"
-            await notifyQueueView(pusher)
-            let todoText = queueTodo(e)?.text ?? ""
-            let ctx = e.inputs.compactMap { outputs[$0] }
-            let prompt = queuePrompt(text: todoText, priorOutputs: ctx)
-            let ok = await runQueueTurn(chatID: e.chatID, prompt: prompt, pusher: pusher)
-            let reply = await lastAssistantReply(e.chatID)
-            if !reply.isEmpty { outputs[e.id] = reply }
-            if ok { markQueueTodoDone(e) }
-            queueStatuses[e.id] = ok ? "done" : "failed"
-            await notifyQueueView(pusher)
         }
+        queueLoopPass = 0
         queueRunActive = false
         await notifyQueueView(pusher)
     }
@@ -392,24 +434,32 @@ extension AppState {
         """
     }
 
-    /// Inline checklist: which EARLIER tasks feed this task's context.
+    /// Inline checklist: which OTHER tasks feed this task's context.
+    /// Without the loop only earlier tasks may feed; with the loop on any
+    /// task may feed — later tasks' output arrives on the next pass.
     func queueLinkPopupHTML(_ e: QueueEntry, plan: [QueueEntry]) -> String {
-        let earlier = plan.prefix(plan.firstIndex(where: { $0.id == e.id }) ?? 0)
+        let myIdx = plan.firstIndex(where: { $0.id == e.id }) ?? 0
+        let loopOn = settings.queueLoopEnabled
         var rows: [String] = []
-        for (i, prev) in earlier.enumerated() {
+        for (i, prev) in plan.enumerated() where prev.id != e.id && (loopOn || i < myIdx) {
+            let later = loopOn && i > myIdx
             let checked = queueLinkSel.contains(prev.id) ? " checked" : ""
-            rows.append("<label class='queue-link-row'><input type='checkbox' id='qlink-\(prev.id)' data-component-id='queue' data-event='change'\(checked)><span class='queue-link-num'>Task \(i + 1)</span><span class='queue-link-title' title='\(esc(queueTodo(prev)?.text ?? ""))'>\(esc(trunc(queueTodo(prev)?.text ?? "…", 80)))</span></label>")
+            let laterTag = later ? "<span class='queue-link-loop'>loops back</span>" : ""
+            rows.append("<label class='queue-link-row'><input type='checkbox' id='qlink-\(prev.id)' data-component-id='queue' data-event='change'\(checked)><span class='queue-link-num'>Task \(i + 1)</span><span class='queue-link-title' title='\(esc(queueTodo(prev)?.text ?? ""))'>\(esc(trunc(queueTodo(prev)?.text ?? "…", 80)))</span>\(laterTag)</label>")
         }
         let body: String
         if rows.isEmpty {
-            body = "<div class='queue-link-empty'>No earlier tasks to feed from.</div>"
+            body = "<div class='queue-link-empty'>No other tasks to feed from.</div>"
         } else {
             body = rows.joined()
         }
+        let head = loopOn ? "Feed output of other tasks into this task" : "Feed output of earlier tasks into this task"
+        let note = loopOn ? "<div class='queue-link-note'>Loop is on: later tasks feed back on the next pass.</div>" : ""
         return """
         <div class="queue-link">
-          <div class="queue-link-head">Feed output of earlier tasks into this task</div>
+          <div class="queue-link-head">\(head)</div>
           \(body)
+          \(note)
           <div class="queue-link-actions">
             <button type="button" id="queue-link-apply" data-component-id="queue" data-event="click" class="primary-btn">Apply</button>
             <button type="button" id="queue-link-clear" data-component-id="queue" data-event="click" class="ghost-btn">Clear</button>
@@ -466,18 +516,39 @@ extension AppState {
             """ : ""
         let picker = queuePickerHTML()
         let running = queueRunActive
+        let loopOn = settings.queueLoopEnabled
         let runBtns: String
         if running {
-            runBtns = "<span class='queue-running'><span class='queue-running-dot'></span>Running…</span>"
+            var passText = ""
+            if queueLoopPass > 0 {
+                passText = " · pass \(queueLoopPass)/\(max(1, settings.queueLoopCount))"
+            }
+            runBtns = "<span class='queue-running'><span class='queue-running-dot'></span>Running…\(esc(passText))</span>"
         } else {
+            let checked = loopOn ? " checked" : ""
+            let countField = loopOn ? """
+            <label class="queue-loop-count" title="How many times to run the queue (1 = no loop)">
+              <span class="queue-loop-count-label">Loops</span>
+              <input type="number" id="queue-loop-count" data-component-id="queue" data-event="change" min="1" max="99" value="\(settings.queueLoopCount)" class="queue-loop-count-input">
+            </label>
+            """ : ""
             runBtns = """
-            <button type="button" id="queue-run-sync" data-component-id="queue" data-event="click" class="queue-run-btn" title="Run tasks in the shown order; linked tasks receive earlier output as context">
-              <span class="queue-run-ico">\(svgIcon("play", 10))</span>Run sequential
-            </button>
-            <button type="button" id="queue-run-async" data-component-id="queue" data-event="click" class="queue-run-btn" title="Run each chat at the same time; same-chat tasks are combined">
-              <span class="queue-run-ico">\(svgIcon("fast-forward", 10))</span>Run parallel
-            </button>
-            <button type="button" id="queue-picker-toggle" data-component-id="queue" data-event="click" class="queue-add-btn">\(svgIcon("plus", 11)) Add tasks</button>
+            <div class="queue-ctrl-btns">
+              <button type="button" id="queue-run-sync" data-component-id="queue" data-event="click" class="queue-run-btn" title="Run tasks in the shown order; linked tasks receive earlier output as context">
+                <span class="queue-run-ico">\(svgIcon("play", 10))</span>Run sequential
+              </button>
+              <button type="button" id="queue-run-async" data-component-id="queue" data-event="click" class="queue-run-btn" title="Run each chat at the same time; same-chat tasks are combined">
+                <span class="queue-run-ico">\(svgIcon("fast-forward", 10))</span>Run parallel
+              </button>
+              <button type="button" id="queue-picker-toggle" data-component-id="queue" data-event="click" class="queue-add-btn">\(svgIcon("plus", 11)) Add tasks</button>
+            </div>
+            <div class="queue-loop-row">
+              <label class="queue-loop-toggle" title="Repeat the sequential run; linked later tasks feed back on the next pass">
+                <span class="switch"><input type="checkbox" id="queue-loop-toggle" data-component-id="queue" data-event="change"\(checked)><span class="track"></span><span class="knob"></span></span>
+                <span class="queue-loop-label">Loop sequential</span>
+              </label>
+              \(countField)
+            </div>
             """
         }
         return """
@@ -487,7 +558,7 @@ extension AppState {
               <h2 class="todo-title">Run queue</h2>
               <div class="todo-sub">Tasks run in the order shown. Sequential feeds linked output; parallel runs each chat at once.</div>
             </div>
-            <div class="todo-head-actions">\(runBtns)</div>
+            <div class="todo-head-actions"><div class="queue-ctrl">\(runBtns)</div></div>
           </div>
           <div class="queue-list">
             \(empty)
@@ -508,6 +579,14 @@ extension Controller {
         wire(router, id: "queue", events: ["click", "submit", "change"]) { event in
             if event.event == "change" {
                 guard let tid = event.data["targetId"] else { return [] }
+                if tid == "queue-loop-toggle" {
+                    await self.app.setQueueLoopEnabled(!(await self.app.settings.queueLoopEnabled))
+                    return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+                }
+                if tid == "queue-loop-count" {
+                    await self.app.setQueueLoopCount(event.data["value"] ?? "")
+                    return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+                }
                 if tid.hasPrefix("qpick-") {
                     let todoID = String(tid.dropFirst("qpick-".count))
                     await self.app.queueToggleCandidate(todoID)

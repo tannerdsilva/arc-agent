@@ -1746,6 +1746,40 @@ static let css: String = """
       cursor: pointer;
     }
     .queue-add-btn:hover { border-color: var(--accent); color: var(--accent); }
+    /* ── Run queue: sequential loop controls ── */
+    .queue-ctrl {
+      display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+    }
+    .queue-ctrl-btns {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .queue-loop-row {
+      display: flex; align-items: center; gap: 12px;
+      justify-content: flex-end; margin-top: 8px;
+    }
+    .queue-loop-toggle {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 12.5px; font-weight: 600;
+      cursor: pointer; user-select: none;
+    }
+    .queue-loop-label { color: var(--muted); transition: color 0.15s; }
+    .queue-loop-toggle:hover .queue-loop-label { color: var(--accent); }
+    .queue-loop-count {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; font-weight: 600; color: var(--muted);
+    }
+    .queue-loop-count-input {
+      width: 54px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 12.5px; font-weight: 600;
+      padding: 5px 7px; text-align: center;
+    }
+    .queue-loop-count-input:focus { outline: none; border-color: var(--accent); }
+
     .queue-running {
       display: inline-flex; align-items: center; gap: 7px;
       color: var(--accent);
@@ -1794,6 +1828,16 @@ static let css: String = """
     }
     .queue-link-empty { font-size: 12px; color: var(--muted); }
     .queue-link-actions { display: flex; gap: 8px; margin-top: 4px; }
+    .queue-link-loop {
+      margin-left: auto; white-space: nowrap;
+      font-size: 10.5px; font-weight: 700; color: var(--accent);
+      text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    .queue-link-note {
+      font-size: 11px; color: var(--muted);
+      padding-top: 6px; margin-top: 4px;
+      border-top: 1px dashed var(--border);
+    }
 
     /* ── Add-tasks picker ── */
     .queue-picker {
