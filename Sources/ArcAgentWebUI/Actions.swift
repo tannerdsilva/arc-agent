@@ -1012,7 +1012,7 @@ final class Controller {
     private func wireLogs(_ router: EventRouter) {
         // Severity filter chips (log-filter-all | info | warn | error).
         wire(router, id: "log-filter", events: ["click"]) { event in
-            guard let tid = event.data["targetId"], tid.hasPrefix("log-filter-") else { return [] }
+            guard let tid = event.string("targetId"), tid.hasPrefix("log-filter-") else { return [] }
             let lvl = String(tid.dropFirst("log-filter-".count))
             await self.app.setLogFilter(lvl)
             return await self.app.logsFragments()
@@ -1028,7 +1028,7 @@ final class Controller {
 
     private func wireInsights(_ router: EventRouter) {
         wire(router, id: "ins-range", events: ["change"]) { event in
-            let days = Int(event.data["value"] ?? "30") ?? 30
+            let days = Int(event.string("value") ?? "30") ?? 30
             await self.app.setInsightsRange(days)
             return await self.app.refreshFragments()
         }
@@ -1042,7 +1042,7 @@ final class Controller {
             return await self.app.refreshFragments()
         }
         wire(router, id: "sess-list", events: ["click", "change"]) { event in
-            guard let tid = event.data["targetId"] else { return [] }
+            guard let tid = event.string("targetId") else { return [] }
             return await self.sessionListAction(tid)
         }
         wire(router, id: "chat-del", events: ["click"]) { _ in
@@ -1051,22 +1051,22 @@ final class Controller {
         }
         wire(router, id: "composer-input", events: ["input"]) { event in
             let sid = await self.app.activeSessionID ?? ""
-            await self.app.storeComposerDraft(event.data["value"] ?? "", sessionID: sid)
+            await self.app.storeComposerDraft(event.string("value") ?? "", sessionID: sid)
             return []
         }
         wire(router, id: "composer-form", events: ["submit"]) { event in
-            let text = event.data["composer-input"] ?? ""
+            let text = event.string("composer-input") ?? ""
             return await self.submitChat(text: text)
         }
         wire(router, id: "selection-context-add", events: ["click"]) { event in
             // "Reply with selection" button: the selected chat text rides in
             // `payload` (dynamic button, Hermes `_addNamedContextBlock`).
-            guard let sel = event.data["payload"], !sel.isEmpty else { return [] }
+            guard let sel = event.string("payload"), !sel.isEmpty else { return [] }
             await self.app.addPendingContext(sel)
             return await self.app.chatFragments()
         }
         wire(router, id: "selection-context-del", events: ["click"]) { event in
-            let tid = event.data["targetId"] ?? ""
+            let tid = event.string("targetId") ?? ""
             await self.app.removePendingContext(tid)
             return await self.app.chatFragments()
         }
@@ -1112,7 +1112,7 @@ final class Controller {
         wire(router, id: "clarify-choice", events: ["click"]) { event in
             // Element ids are clarify-choice-0..3; the index maps to the
             // pending request's choices array.
-            let tid = event.data["targetId"] ?? ""
+            let tid = event.string("targetId") ?? ""
             guard tid.hasPrefix("clarify-choice-"),
                   let idx = Int(String(tid.dropFirst("clarify-choice-".count))),
                   let pc = await self.app.pendingClarify,
@@ -1121,7 +1121,7 @@ final class Controller {
             return []
         }
         wire(router, id: "clarify-form", events: ["submit"]) { event in
-            let ans = event.data["clarify-input"] ?? ""
+            let ans = event.string("clarify-input") ?? ""
             guard !ans.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
             await self.app.respondClarify(ans)
             return []
@@ -1131,7 +1131,7 @@ final class Controller {
             return await self.app.chatFragments()
         }
         wire(router, id: "file-path-input", events: ["input"]) { event in
-            await self.app.storeFormValue("file-path-input", event.data["value"] ?? "")
+            await self.app.storeFormValue("file-path-input", event.string("value") ?? "")
             return []
         }
         wire(router, id: "file-attach", events: ["click"]) { _ in
@@ -1139,11 +1139,11 @@ final class Controller {
             return await self.attachFile(path)
         }
         wire(router, id: "file-recents", events: ["click"]) { event in
-            guard let tid = event.data["targetId"], let p = dec(tid.replacingOccurrences(of: "fr-", with: "")) else { return [] }
+            guard let tid = event.string("targetId"), let p = dec(tid.replacingOccurrences(of: "fr-", with: "")) else { return [] }
             return await self.attachFile(p)
         }
         wire(router, id: "att-chips", events: ["click"]) { event in
-            guard let tid = event.data["targetId"], tid.hasPrefix("att-del-"),
+            guard let tid = event.string("targetId"), tid.hasPrefix("att-del-"),
                   let idx = Int(tid.dropFirst("att-del-".count)) else { return [] }
             await self.app.removeAttachment(idx)
             return await self.app.chatFragments()
@@ -1177,7 +1177,7 @@ final class Controller {
             return await self.app.chatFragments()
         }
         wire(router, id: "ws-search-input", events: ["input"]) { event in
-            await self.app.setWSSelectQuery(event.data["value"] ?? "")
+            await self.app.setWSSelectQuery(event.string("value") ?? "")
             return await self.app.chatFragments()
         }
         wire(router, id: "ws-search-clear", events: ["click"]) { _ in
@@ -1185,7 +1185,7 @@ final class Controller {
             return await self.app.chatFragments()
         }
         wire(router, id: "model-search-input", events: ["input"]) { event in
-            await self.app.setModelSelectQuery(event.data["value"] ?? "")
+            await self.app.setModelSelectQuery(event.string("value") ?? "")
             return await self.app.chatFragments()
         }
         wire(router, id: "model-search-clear", events: ["click"]) { _ in
@@ -1193,28 +1193,28 @@ final class Controller {
             return await self.app.chatFragments()
         }
         wire(router, id: "ws-pick", events: ["click"]) { event in
-            guard let tid = event.data["targetId"], tid.hasPrefix("ws-pick-"),
+            guard let tid = event.string("targetId"), tid.hasPrefix("ws-pick-"),
                   let name = dec(String(tid.dropFirst("ws-pick-".count))) else { return [] }
             await self.app.closeComposerSelectors()
             await self.app.setChatWorkspace(name)
             return await self.app.refreshFragments(includeApp: true)
         }
         wire(router, id: "profile-pick", events: ["click"]) { event in
-            guard let tid = event.data["targetId"], tid.hasPrefix("pp-"),
+            guard let tid = event.string("targetId"), tid.hasPrefix("pp-"),
                   let name = dec(String(tid.dropFirst("pp-".count))) else { return [] }
             await self.app.closeComposerSelectors()
             await self.app.setChatProfile(name)
             return await self.app.chatFragments()
         }
         wire(router, id: "model-pick", events: ["click"]) { event in
-            guard let tid = event.data["targetId"], tid.hasPrefix("mc-"),
+            guard let tid = event.string("targetId"), tid.hasPrefix("mc-"),
                   let name = dec(String(tid.dropFirst("mc-".count))) else { return [] }
             await self.app.closeComposerSelectors()
             await self.app.setChatConfig(name)
             return await self.app.chatFragments()
         }
         wire(router, id: "think-pick", events: ["click"]) { event in
-            guard let tid = event.data["targetId"], tid.hasPrefix("tp-") else { return [] }
+            guard let tid = event.string("targetId"), tid.hasPrefix("tp-") else { return [] }
             await self.app.closeComposerSelectors()
             await self.app.setChatThinking(String(tid.dropFirst("tp-".count)))
             return await self.app.chatFragments()
@@ -1236,29 +1236,29 @@ final class Controller {
             return await self.app.refreshFragments(includeApp: true)
         }
         wire(router, id: "chat-search-input", events: ["input"]) { event in
-            await self.app.setChatFilter(event.data["value"] ?? "")
+            await self.app.setChatFilter(event.string("value") ?? "")
             return await self.app.skillPanelFragment()
         }
         wire(router, id: "cat-pick", events: ["click", "contextmenu"]) { event in
-            guard let tid = event.data["targetId"] else { return [] }
+            guard let tid = event.string("targetId") else { return [] }
             if event.event == "contextmenu" {
                 // Right-click on a category chip opens its edit menu.
                 guard tid.hasPrefix("cat-"),
                       let id = dec(String(tid.dropFirst("cat-".count))),
                       await self.app.categoryExists(id)
                 else { return [] }
-                let x = Int(event.data["mouseX"] ?? "") ?? 0
-                let y = Int(event.data["mouseY"] ?? "") ?? 0
+                let x = Int(event.string("mouseX") ?? "") ?? 0
+                let y = Int(event.string("mouseY") ?? "") ?? 0
                 await self.app.openCategoryMenu(id: id, x: x, y: y)
                 return await self.app.refreshFragments()
             }
             return await self.categoryAction(tid)
         }
         wire(router, id: "cat-menu", events: ["click", "submit"]) { event in
-            let tid = event.data["targetId"] ?? ""
+            let tid = event.string("targetId") ?? ""
             if event.event == "submit" {
                 guard let cid = await self.app.menuCategoryID(),
-                      let name = event.data["cat-rename-input"] else { return [] }
+                      let name = event.string("cat-rename-input") else { return [] }
                 await self.app.renameCategory(cid, to: name)
                 await self.app.closeCategoryMenu()
                 return await self.app.refreshFragments()
@@ -1272,7 +1272,7 @@ final class Controller {
                 return await self.app.refreshFragments()
             }
             if tid.hasPrefix("cm-color-") {
-                guard let color = event.data["color"],
+                guard let color = event.string("color"),
                       let cid = await self.app.menuCategoryID() else { return [] }
                 await self.app.setCategoryColor(cid, color: color)
                 return await self.app.refreshFragments()
@@ -1286,11 +1286,11 @@ final class Controller {
         }
         wire(router, id: "cat-add-form", events: ["submit", "click"]) { event in
             if event.event == "submit" {
-                let name = event.data["cat-name-input"] ?? ""
-                let color = event.data["cat-color-input"] ?? ""
+                let name = event.string("cat-name-input") ?? ""
+                let color = event.string("cat-color-input") ?? ""
                 await self.app.addCategory(name: name, color: color)
                 await self.app.setAddingCategory(false)
-            } else if event.data["targetId"] != "cat-add-cancel" {
+            } else if event.string("targetId") != "cat-add-cancel" {
                 return []   // swatch clicks are client-side
             } else {
                 await self.app.setAddingCategory(false)
@@ -1325,11 +1325,11 @@ final class Controller {
     private func wireChatMenu(_ router: EventRouter) {
         wire(router, id: "chat-menu", events: ["click", "submit"]) { event in
             if event.event == "submit" {
-                guard let sid = event.data["rename-id"], let name = event.data["rename-name"] else { return [] }
+                guard let sid = event.string("rename-id"), let name = event.string("rename-name") else { return [] }
                 await self.app.renameSession(sid, to: name)
                 return await self.app.refreshFragments()
             }
-            let tid = event.data["targetId"] ?? ""
+            let tid = event.string("targetId") ?? ""
             if tid.hasPrefix("sm-copy-") || tid.hasPrefix("sm-rename-") {
                 return []   // handled client-side (clipboard copy / inline editor)
             }
@@ -1355,7 +1355,7 @@ final class Controller {
             return await self.app.refreshFragments()
         }
         wire(router, id: "modal", events: ["click"]) { event in
-            if event.data["targetId"] == "modal-confirm" {
+            if event.string("targetId") == "modal-confirm" {
                 if let pid = await self.app.confirmProfileDelete {
                     await self.app.cancelProfileDelete()
                     return await self.deleteProfile(pid)
@@ -1663,23 +1663,23 @@ final class Controller {
             return await self.app.refreshFragments()
         }
         wire(router, id: "skill-search-input", events: ["input"]) { event in
-            await self.app.setSkillFilter(event.data["value"] ?? "")
+            await self.app.setSkillFilter(event.string("value") ?? "")
             return await self.app.skillPanelFragment()
         }
         wire(router, id: "skill-list", events: ["click", "change"]) { event in
-            guard let tid = event.data["targetId"] else { return [] }
-            return await self.skillListAction(tid, checked: event.data["checked"])
+            guard let tid = event.string("targetId") else { return [] }
+            return await self.skillListAction(tid, checked: event.string("checked"))
         }
         wire(router, id: "skill-create-form", events: ["submit"]) { event in
-            let name = (event.data["skill-name-input"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let cat = (event.data["skill-cat-input"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let desc = event.data["skill-desc-input"] ?? ""
-            let content = event.data["skill-content-input"] ?? ""
+            let name = (event.string("skill-name-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let cat = (event.string("skill-cat-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let desc = event.string("skill-desc-input") ?? ""
+            let content = event.string("skill-content-input") ?? ""
             return await self.createSkill(name: name, desc: desc, content: content, category: cat)
         }
         for field in ["skill-name-input", "skill-cat-input", "skill-desc-input", "skill-content-input"] {
             wire(router, id: field, events: ["input"]) { event in
-                await self.app.storeFormValue(field, event.data["value"] ?? "")
+                await self.app.storeFormValue(field, event.string("value") ?? "")
                 return []
             }
         }
@@ -1688,14 +1688,14 @@ final class Controller {
             return await self.app.refreshFragments()
         }
         wire(router, id: "side-tab-chips", events: ["change"]) { event in
-            guard let tid = event.data["targetId"], tid.hasPrefix("st-") else { return [] }
+            guard let tid = event.string("targetId"), tid.hasPrefix("st-") else { return [] }
             let key = dec(String(tid.dropFirst("st-".count))) ?? ""
-            let on = event.data["checked"] == "true"
+            let on = event.string("checked") == "true"
             await self.app.setSidebarTab(key, visible: on)
             return await self.app.fragmentsWithIconbar()
         }
         wire(router, id: "sidebar-tab-order", events: ["change"]) { event in
-            let keys = (event.data["value"] ?? "").split(separator: ",").map(String.init)
+            let keys = (event.string("value") ?? "").split(separator: ",").map(String.init)
             await self.app.setSidebarTabOrder(keys)
             return await self.app.fragmentsWithIconbar()
         }
@@ -1708,17 +1708,17 @@ final class Controller {
             // form) carry NO field values: only handle the named action
             // buttons here. The Save button's real work arrives as a "submit".
             if event.event == "click" {
-                if event.data["targetId"] == "sk-edit-cancel" {
+                if event.string("targetId") == "sk-edit-cancel" {
                     await self.app.cancelSkillEdit()
                     return await self.app.refreshFragments()
                 }
                 return []
             }
-            let orig = event.data["sk-orig"] ?? ""
-            let name = (event.data["sk-edit-name-input"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let cat = (event.data["sk-edit-cat-input"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let desc = event.data["sk-edit-desc-input"] ?? ""
-            let content = event.data["sk-edit-content-input"] ?? ""
+            let orig = event.string("sk-orig") ?? ""
+            let name = (event.string("sk-edit-name-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let cat = (event.string("sk-edit-cat-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let desc = event.string("sk-edit-desc-input") ?? ""
+            let content = event.string("sk-edit-content-input") ?? ""
             return await self.saveSkill(original: orig, name: name, category: cat, desc: desc, content: content)
         }
         wire(router, id: "sk-edit-delete", events: ["click"]) { _ in
@@ -1729,7 +1729,7 @@ final class Controller {
         }
         for field in ["sk-edit-name-input", "sk-edit-cat-input", "sk-edit-desc-input", "sk-edit-content-input"] {
             wire(router, id: field, events: ["input"]) { event in
-                await self.app.storeFormValue(field, event.data["value"] ?? "")
+                await self.app.storeFormValue(field, event.string("value") ?? "")
                 return []
             }
         }
@@ -1829,16 +1829,16 @@ final class Controller {
             return await self.app.refreshFragments()
         }
         wire(router, id: "profile-create-form", events: ["submit"]) { event in
-            let name = (event.data["profile-name-input"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let title = event.data["profile-title-input"] ?? ""
-            let desc = event.data["profile-desc-input"] ?? ""
-            let ctxLength = AppState.optInt(event.data["profile-ctx-length"] ?? "")
-            let maxOutput = AppState.optInt(event.data["profile-ctx-maxtok"] ?? "")
-            let rawEffort = event.data["profile-ctx-effort"] ?? ""
+            let name = (event.string("profile-name-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = event.string("profile-title-input") ?? ""
+            let desc = event.string("profile-desc-input") ?? ""
+            let ctxLength = AppState.optInt(event.string("profile-ctx-length") ?? "")
+            let maxOutput = AppState.optInt(event.string("profile-ctx-maxtok") ?? "")
+            let rawEffort = event.string("profile-ctx-effort") ?? ""
             let effort = rawEffort.isEmpty ? nil : rawEffort
-            let temperature = AppState.optDouble(event.data["profile-ctx-temp"] ?? "")
-            let topP = AppState.optDouble(event.data["profile-ctx-topp"] ?? "")
-            let budget = AppState.optInt(event.data["profile-ctx-budget"] ?? "")
+            let temperature = AppState.optDouble(event.string("profile-ctx-temp") ?? "")
+            let topP = AppState.optDouble(event.string("profile-ctx-topp") ?? "")
+            let budget = AppState.optInt(event.string("profile-ctx-budget") ?? "")
             return await self.submitProfileForm(
                 name: name, title: title, desc: desc,
                 contextLength: ctxLength, maxOutputTokens: maxOutput,
@@ -1848,7 +1848,7 @@ final class Controller {
         }
         for field in ["profile-name-input", "profile-title-input", "profile-desc-input"] {
             wire(router, id: field, events: ["input"]) { event in
-                await self.app.storeFormValue(field, event.data["value"] ?? "")
+                await self.app.storeFormValue(field, event.string("value") ?? "")
                 return []
             }
         }
@@ -1858,16 +1858,16 @@ final class Controller {
             return await self.app.refreshFragments()
         }
         wire(router, id: "profile-list", events: ["click"]) { event in
-            guard let tid = event.data["targetId"] else { return [] }
+            guard let tid = event.string("targetId") else { return [] }
             return await self.profileListAction(tid)
         }
         wire(router, id: "profile-skills", events: ["change"]) { event in
-            guard let tid = event.data["targetId"] else { return [] }
+            guard let tid = event.string("targetId") else { return [] }
             let rest = String(tid.dropFirst("ps-".count))
             let parts = rest.split(separator: "-", maxSplits: 1).map(String.init)
             guard parts.count == 2, let pname = dec(parts[0]) else { return [] }
             let skillName = dec(parts[1]) ?? ""
-            let on = event.data["checked"] == "true"
+            let on = event.string("checked") == "true"
             await self.app.toggleProfileSkill(profile: pname, skill: skillName, on: on)
             return await self.app.refreshFragments()
         }
@@ -1991,15 +1991,15 @@ final class Controller {
 
     private func wireTools(_ router: EventRouter) {
         wire(router, id: "tool-list", events: ["click"]) { event in
-            guard let tid = event.data["targetId"], tid.hasPrefix("tl-open-") else { return [] }
+            guard let tid = event.string("targetId"), tid.hasPrefix("tl-open-") else { return [] }
             let name = dec(String(tid.dropFirst("tl-open-".count))) ?? ""
             await self.app.selectTool(name)
             return await self.app.refreshFragments()
         }
         wire(router, id: "tools-toggle", events: ["change"]) { event in
-            guard let tid = event.data["targetId"], tid.hasPrefix("ts-") else { return [] }
+            guard let tid = event.string("targetId"), tid.hasPrefix("ts-") else { return [] }
             let ts = dec(String(tid.dropFirst("ts-".count))) ?? ""
-            let on = event.data["checked"] == "true"
+            let on = event.string("checked") == "true"
             await self.app.setToolset(ts, enabled: on)
             return await self.app.refreshFragments()
         }
@@ -2009,9 +2009,9 @@ final class Controller {
 
     private func wirePlugins(_ router: EventRouter) {
         wire(router, id: "plugin-toggle", events: ["change"]) { event in
-            guard let tid = event.data["targetId"], tid.hasPrefix("plgl-") else { return [] }
+            guard let tid = event.string("targetId"), tid.hasPrefix("plgl-") else { return [] }
             let name = dec(String(tid.dropFirst("plgl-".count))) ?? ""
-            let on = event.data["checked"] == "true"
+            let on = event.string("checked") == "true"
             await self.app.setPluginEnabled(name, enabled: on)
             return await self.app.refreshFragments()
         }
@@ -2029,16 +2029,16 @@ final class Controller {
             return await self.app.refreshFragments()
         }
         wire(router, id: "ws-create-form", events: ["submit"]) { event in
-            let name = (event.data["ws-name-input"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let path = (event.data["ws-path-input"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = (event.string("ws-name-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let path = (event.string("ws-path-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             return await self.createWorkspace(name: name, path: path)
         }
         wire(router, id: "ws-name-input", events: ["input"]) { event in
-            await self.app.storeFormValue("ws-name-input", event.data["value"] ?? "")
+            await self.app.storeFormValue("ws-name-input", event.string("value") ?? "")
             return []
         }
         wire(router, id: "ws-path-input", events: ["input"]) { event in
-            await self.app.storeFormValue("ws-path-input", event.data["value"] ?? "")
+            await self.app.storeFormValue("ws-path-input", event.string("value") ?? "")
             return []
         }
         wire(router, id: "ws-cancel", events: ["click"]) { _ in
@@ -2046,7 +2046,7 @@ final class Controller {
             return await self.app.refreshFragments()
         }
         wire(router, id: "workspace-list", events: ["click"]) { event in
-            guard let tid = event.data["targetId"] else { return [] }
+            guard let tid = event.string("targetId") else { return [] }
             return await self.workspaceListAction(tid)
         }
     }
@@ -2119,66 +2119,66 @@ final class Controller {
 
     private func wireSettings(_ router: EventRouter) {
         wire(router, id: "set-theme", events: ["change"]) { event in
-            await self.app.setTheme(event.data["value"] ?? "light")
+            await self.app.setTheme(event.string("value") ?? "light")
             return await self.app.refreshFragments(includeApp: true)
         }
         wire(router, id: "set-size", events: ["change"]) { event in
-            await self.app.setTextSize(event.data["value"] ?? "md")
+            await self.app.setTextSize(event.string("value") ?? "md")
             _ = await self.app.hint("Text size updated.")
             return await self.app.refreshFragments(includeApp: true)
         }
         wire(router, id: "theme-pick", events: ["click"]) { event in
-            guard let tid = event.data["targetId"], tid.hasPrefix("thm-") else { return [] }
+            guard let tid = event.string("targetId"), tid.hasPrefix("thm-") else { return [] }
             let theme = String(tid.dropFirst("thm-".count))
             await self.app.setTheme(theme)
             _ = await self.app.hint("Theme set to \(theme).")
             return await self.app.refreshFragments(includeApp: true)
         }
         wire(router, id: "font-size-pick", events: ["click"]) { event in
-            guard let tid = event.data["targetId"], tid.hasPrefix("fsz-") else { return [] }
+            guard let tid = event.string("targetId"), tid.hasPrefix("fsz-") else { return [] }
             let size = String(tid.dropFirst("fsz-".count))
             await self.app.setTextSize(size)
             _ = await self.app.hint("Text size updated.")
             return await self.app.refreshFragments(includeApp: true)
         }
         wire(router, id: "scheme-pick", events: ["click"]) { event in
-            guard let tid = event.data["targetId"], tid.hasPrefix("scheme-") else { return [] }
+            guard let tid = event.string("targetId"), tid.hasPrefix("scheme-") else { return [] }
             if let name = dec(String(tid.dropFirst("scheme-".count))) {
                 await self.app.setColorScheme(name)
             }
             return await self.app.refreshFragments(includeApp: true)
         }
         wire(router, id: "activity-display", events: ["click"]) { event in
-            guard let tid = event.data["targetId"], tid.hasPrefix("actdisp-") else { return [] }
+            guard let tid = event.string("targetId"), tid.hasPrefix("actdisp-") else { return [] }
             let mode = String(tid.dropFirst("actdisp-".count))
             await self.app.setActivityDisplay(mode)
             _ = await self.app.hint("Activity display set to \(mode.replacingOccurrences(of: "_", with: " "))")
             return await self.app.refreshFragments()
         }
         wire(router, id: "set-think", events: ["change"]) { event in
-            await self.app.setDefaultThinking(event.data["value"] ?? "medium")
+            await self.app.setDefaultThinking(event.string("value") ?? "medium")
             _ = await self.app.hint("Default thinking level updated.")
             return await self.app.refreshFragments()
         }
         wire(router, id: "set-showtokens", events: ["change"]) { event in
-            await self.app.setShowTokenUsage(event.data["checked"] == "true")
+            await self.app.setShowTokenUsage(event.string("checked") == "true")
             return await self.app.refreshFragments()
         }
         wire(router, id: "set-showoutline", events: ["change"]) { event in
-            await self.app.setShowConversationOutline(event.data["checked"] == "true")
+            await self.app.setShowConversationOutline(event.string("checked") == "true")
             return await self.app.refreshFragments()
         }
         wire(router, id: "set-showtps", events: ["change"]) { event in
-            await self.app.setShowTps(event.data["checked"] == "true")
+            await self.app.setShowTps(event.string("checked") == "true")
             return await self.app.refreshFragments()
         }
         wire(router, id: "set-pinlimit", events: ["change"]) { event in
-            let n = Int(event.data["value"] ?? "") ?? 3
+            let n = Int(event.string("value") ?? "") ?? 3
             await self.app.setPinnedSessionsLimit(n)
             return await self.app.refreshFragments()
         }
         wire(router, id: "aux-edit", events: ["click"]) { event in
-            guard let tid = event.data["targetId"] else { return [] }
+            guard let tid = event.string("targetId") else { return [] }
             if tid.hasPrefix("aux-edit-") {
                 await self.app.setAuxEditing(String(tid.dropFirst("aux-edit-".count)))
                 return await self.app.refreshFragments()
@@ -2198,28 +2198,28 @@ final class Controller {
             return []
         }
         wire(router, id: "aux-form", events: ["submit"]) { event in
-            guard let tid = event.data["targetId"], tid.hasPrefix("aux-form-") else { return [] }
+            guard let tid = event.string("targetId"), tid.hasPrefix("aux-form-") else { return [] }
             let key = String(tid.dropFirst("aux-form-".count))
             guard let task = AuxiliaryTask(configKey: key) else { return [] }
             await self.app.setAuxOverride(
                 task: task,
-                provider: event.data["aux-provider"] ?? "",
-                model: event.data["aux-model"] ?? "",
-                baseURL: event.data["aux-base-url"] ?? "",
-                apiKey: event.data["aux-api-key"] ?? ""
+                provider: event.string("aux-provider") ?? "",
+                model: event.string("aux-model") ?? "",
+                baseURL: event.string("aux-base-url") ?? "",
+                apiKey: event.string("aux-api-key") ?? ""
             )
             await self.app.setAuxEditing(nil)
             return await self.app.refreshFragments()
         }
         wire(router, id: "set-tessera", events: ["change"]) { event in
-            let off = event.data["checked"] == "true"
+            let off = event.string("checked") == "true"
             await self.app.setTesseraOff(off)
             await self.app.rebuildAndReload()
             _ = await self.app.hint(off ? "Switched to file storage." : "Switched to Tessera storage.", kind: off ? "" : "success")
             return await self.app.refreshFragments(includeApp: true)
         }
         wire(router, id: "set-moa", events: ["change"]) { event in
-            let on = event.data["checked"] == "true"
+            let on = event.string("checked") == "true"
             await self.app.setMoaEnabled(on)
             _ = await self.app.hint(on
                 ? "Mixture of Agents enabled — reference models must be configured in ~/.arc/config.json."
@@ -2227,50 +2227,50 @@ final class Controller {
             return await self.app.refreshFragments(includeApp: true)
         }
         wire(router, id: "modelcfg-add-form", events: ["submit"]) { event in
-            let name = (event.data["mc-name"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let model = (event.data["mc-model"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let provider = (event.data["mc-provider"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let base = (event.data["mc-baseurl"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let key = event.data["mc-apikey"] ?? ""
-            let ctx = Int((event.data["mc-ctx"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
-            let maxtok = Int((event.data["mc-maxtok"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+            let name = (event.string("mc-name") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let model = (event.string("mc-model") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let provider = (event.string("mc-provider") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let base = (event.string("mc-baseurl") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = event.string("mc-apikey") ?? ""
+            let ctx = Int((event.string("mc-ctx") ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+            let maxtok = Int((event.string("mc-maxtok") ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
             return await self.addModelConfig(name: name, model: model, provider: provider, baseURL: base, apiKey: key, contextLength: ctx, maxOutputTokens: maxtok)
         }
         for field in ["mc-name", "mc-model", "mc-provider", "mc-baseurl", "mc-apikey", "mc-ctx", "mc-maxtok"] {
             wire(router, id: field, events: ["input"]) { event in
-                await self.app.storeFormValue(field, event.data["value"] ?? "")
+                await self.app.storeFormValue(field, event.string("value") ?? "")
                 return []
             }
         }
         wire(router, id: "modelcfg-list", events: ["click"]) { event in
-            guard let tid = event.data["targetId"] else { return [] }
+            guard let tid = event.string("targetId") else { return [] }
             return await self.modelConfigAction(tid)
         }
         wire(router, id: "kanban", events: ["click", "submit"]) { event in
             if event.event == "submit" {
                 // The inline form always carries all four fields; branch on
                 // which one is actually populated (empty strings are ignored).
-                if let cid = event.data["kb-col-id"], !cid.isEmpty,
-                   let name = event.data["kb-col-name"], !name.isEmpty {
+                if let cid = event.string("kb-col-id"), !cid.isEmpty,
+                   let name = event.string("kb-col-name"), !name.isEmpty {
                     await self.app.renameKanbanColumn(cid, to: name)
-                } else if let cardid = event.data["kb-card-id"], !cardid.isEmpty,
-                          let title = event.data["kb-card-title"], !title.isEmpty {
+                } else if let cardid = event.string("kb-card-id"), !cardid.isEmpty,
+                          let title = event.string("kb-card-title"), !title.isEmpty {
                     await self.app.renameKanbanCard(cardid, to: title)
                 } else {
                     return []
                 }
                 return await self.app.refreshFragments()
             }
-            guard let tid = event.data["targetId"] else { return [] }
+            guard let tid = event.string("targetId") else { return [] }
             return await self.kanbanAction(tid)
         }
         wire(router, id: "kb-addcol-form", events: ["submit", "click"]) { event in
             if event.event == "submit" {
-                let name = event.data["kb-addcol-name"] ?? ""
-                let color = event.data["kb-addcol-color"] ?? ""
+                let name = event.string("kb-addcol-name") ?? ""
+                let color = event.string("kb-addcol-color") ?? ""
                 await self.app.addKanbanColumn(name: name, color: color)
                 await self.app.setAddingColumn(false)
-            } else if event.data["targetId"] != "kb-addcol-cancel" {
+            } else if event.string("targetId") != "kb-addcol-cancel" {
                 return []
             } else {
                 await self.app.setAddingColumn(false)
@@ -2279,10 +2279,10 @@ final class Controller {
         }
         wire(router, id: "kb-addcard-form", events: ["submit", "click"]) { event in
             if event.event == "submit" {
-                let title = event.data["kb-addcard-name"] ?? ""
-                let col = event.data["kb-addcard-col"] ?? ""
+                let title = event.string("kb-addcard-name") ?? ""
+                let col = event.string("kb-addcard-col") ?? ""
                 await self.app.addKanbanCard(title, in: col)
-            } else if event.data["targetId"] != "kb-addcard-cancel" {
+            } else if event.string("targetId") != "kb-addcard-cancel" {
                 return []
             } else {
                 await self.app.setAddingCard(nil)
@@ -2290,7 +2290,7 @@ final class Controller {
             return await self.app.refreshFragments()
         }
         wire(router, id: "memory", events: ["click"]) { event in
-            guard let tid = event.data["targetId"] else { return [] }
+            guard let tid = event.string("targetId") else { return [] }
             if tid.hasPrefix("mem-open-") {
                 await self.app.openMemoryDoc(String(tid.dropFirst("mem-open-".count)))
             } else if tid == "mem-edit" {
@@ -2302,10 +2302,10 @@ final class Controller {
         }
         wire(router, id: "mem-save-form", events: ["submit", "click"]) { event in
             if event.event == "submit" {
-                let key = event.data["mem-key"] ?? "memory"
-                let content = event.data["mem-content"] ?? ""
+                let key = event.string("mem-key") ?? "memory"
+                let content = event.string("mem-content") ?? ""
                 await self.app.saveMemoryDoc(key, content: content)
-            } else if event.data["targetId"] == "mem-cancel" {
+            } else if event.string("targetId") == "mem-cancel" {
                 await self.app.cancelMemoryEdit()
             } else {
                 return []
@@ -2313,23 +2313,23 @@ final class Controller {
             return await self.app.refreshFragments()
         }
         wire(router, id: "workspace", events: ["click"]) { event in
-            guard let tid = event.data["targetId"] else { return [] }
+            guard let tid = event.string("targetId") else { return [] }
             return await self.workspaceAction(tid)
         }
         wire(router, id: "workspace-upload", events: ["submit"]) { event in
-            let name = event.data["upl-name"] ?? ""
-            let path = event.data["upl-path"] ?? ""
-            let b64 = event.data["upl-b64"] ?? ""
+            let name = event.string("upl-name") ?? ""
+            let path = event.string("upl-path") ?? ""
+            let b64 = event.string("upl-b64") ?? ""
             guard !path.isEmpty, !b64.isEmpty else { return [] }
             await self.app.uploadWorkspaceFile(name: name, relPath: path, b64: b64)
             return await self.workspaceFragments()
         }
         wire(router, id: "ws-new-form", events: ["submit", "click"]) { event in
             if event.event == "submit" {
-                let name = event.data["ws-new-name"] ?? ""
-                let kind = event.data["ws-new-kind"] ?? "file"
+                let name = event.string("ws-new-name") ?? ""
+                let kind = event.string("ws-new-kind") ?? "file"
                 await self.app.createWorkspaceEntry(name: name, kind: kind)
-            } else if event.data["targetId"] == "ws-new-cancel" {
+            } else if event.string("targetId") == "ws-new-cancel" {
                 await self.app.setWsNewMode("")
             } else {
                 return []
@@ -2441,7 +2441,7 @@ final class Controller {
 
     private func wireToasts(_ router: EventRouter) {
         wire(router, id: "toast-dismiss", events: ["click"]) { event in
-            guard let tid = event.data["targetId"], tid.hasPrefix("t-"),
+            guard let tid = event.string("targetId"), tid.hasPrefix("t-"),
                   let id = Int(tid.dropFirst("t-".count)) else { return [] }
             await self.app.dismissToast(id: id)
             let html = await self.app.toastsHTML()

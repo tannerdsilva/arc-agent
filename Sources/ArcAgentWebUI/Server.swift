@@ -186,7 +186,7 @@ final class WebServer {
         do {
             let msg = try JSONDecoder().decode(WSIncoming.self, from: data)
             switch msg {
-            case .event(let component, let event, let data):
+            case .event(let component, let event, let data, _):
                 let eventData = EventData(component: ComponentID(component), event: event, data: data)
                 let updates = await TaskEnv.$clientID.withValue(clientID) {
                     await self.router.handle(eventData)

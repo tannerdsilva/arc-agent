@@ -50,7 +50,7 @@ let package = Package(
             url: "https://github.com/apple/swift-log.git",
             from: "1.6.0"
         ),
-        .package(name: "no-webui", path: "../no-webui-stabs"),
+        .package(name: "no-webui", path: "../no-webui-upstream"),
     ],
 
     targets: [

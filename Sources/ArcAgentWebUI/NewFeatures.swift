@@ -422,11 +422,11 @@ extension Controller {
     func wireTodos(_ router: EventRouter) {
         wire(router, id: "todos", events: ["click", "submit"]) { event in
             if event.event == "submit" {
-                let text = event.data["todo-text"] ?? ""
+                let text = event.string("todo-text") ?? ""
                 await self.app.addTodo(text)
                 return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
             }
-            guard let tid = event.data["targetId"] else { return [] }
+            guard let tid = event.string("targetId") else { return [] }
             // Clicks on the add-todo text field/form are cursor placement, not
             // actions — never re-render from them (that would wipe the draft).
             if tid.hasPrefix("todo-add") { return [] }
@@ -466,13 +466,13 @@ extension Controller {
     func wireCron(_ router: EventRouter) {
         wire(router, id: "cron", events: ["click", "submit"]) { event in
             if event.event == "submit" {
-                let name = event.data["cron-name"] ?? ""
-                let sched = event.data["cron-schedule"] ?? ""
-                let prompt = event.data["cron-prompt"] ?? ""
+                let name = event.string("cron-name") ?? ""
+                let sched = event.string("cron-schedule") ?? ""
+                let prompt = event.string("cron-prompt") ?? ""
                 await self.app.addJob(name: name, schedule: sched, prompt: prompt)
                 return [FragmentUpdate(id: "main", html: await self.app.cronPanelHTML())]
             }
-            guard let tid = event.data["targetId"] else { return [] }
+            guard let tid = event.string("targetId") else { return [] }
             if tid.hasPrefix("cron-toggle-") {
                 await self.app.toggleJob(String(tid.dropFirst("cron-toggle-".count)))
             } else if tid.hasPrefix("cron-now-") {
@@ -486,7 +486,7 @@ extension Controller {
 
     func wireRegen(_ router: EventRouter) {
         wire(router, id: "regen", events: ["click"]) { event in
-            guard let tid = event.data["targetId"],
+            guard let tid = event.string("targetId"),
                   tid.hasPrefix("regen-"),
                   let lastUser = await self.app.regenText() else { return [] }
             return await self.submitChat(text: lastUser)

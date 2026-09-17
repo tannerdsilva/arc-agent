@@ -1,5 +1,5 @@
 {
-  "originHash" : "4399b37de260a65d069232ce32bdae7ac34736cd85f216f2ae2e6b0edc696cd8",
+  "originHash" : "705184c2919e7747f6d032bee95cdae7214df50a563eada301735ceee30ee87f",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -62,6 +62,15 @@
       "state" : {
         "revision" : "e5574ba70f6b65a08d78db972e063fd839c62068",
         "version" : "0.2.1"
+      }
+    },
+    {
+      "identity" : "quicklmdb",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tannerdsilva/QuickLMDB",
+      "state" : {
+        "branch" : "rawdog-v22-bump",
+        "revision" : "df12a8489322654f3df165f6af6681a8d81827a0"
       }
     },
     {

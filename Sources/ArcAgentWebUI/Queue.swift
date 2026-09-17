@@ -600,13 +600,13 @@ extension Controller {
     func wireQueue(_ router: EventRouter) {
         wire(router, id: "queue", events: ["click", "submit", "change"]) { event in
             if event.event == "change" {
-                guard let tid = event.data["targetId"] else { return [] }
+                guard let tid = event.string("targetId") else { return [] }
                 if tid == "queue-loop-toggle" {
                     await self.app.setQueueLoopEnabled(!(await self.app.settings.queueLoopEnabled))
                     return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
                 }
                 if tid == "queue-loop-count" {
-                    await self.app.setQueueLoopCount(event.data["value"] ?? "")
+                    await self.app.setQueueLoopCount(event.string("value") ?? "")
                     return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
                 }
                 if tid.hasPrefix("qpick-") {
@@ -621,7 +621,7 @@ extension Controller {
                 }
                 return []
             }
-            guard let tid = event.data["targetId"] else { return [] }
+            guard let tid = event.string("targetId") else { return [] }
 
             if tid == "queue-tab-tasks" || tid == "queue-tab-queue" {
                 await self.app.setTodosTab(tid == "queue-tab-tasks" ? .tasks : .queue)
@@ -646,7 +646,7 @@ extension Controller {
                 return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
             }
             if tid == "queue-reorder" {
-                let payload = event.data["payload"] ?? ""
+                let payload = event.string("payload") ?? ""
                 if payload.hasPrefix("move:") {
                     await self.app.reorderQueueMove(payload)
                 } else {
