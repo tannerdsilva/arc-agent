@@ -127,6 +127,11 @@ struct Chat: AsyncParsableCommand {
             persistSessions: arcConfig.agent.persistSessions,
             approvalMode: approvalMode,
             query: query,
+            microCompact: MicroCompactConfig(
+                enabled: arcConfig.agent.microCompactEnabled,
+                everyNTurns: arcConfig.agent.microCompactEveryNTurns,
+                defragThresholdTokens: arcConfig.agent.microCompactDefragThresholdTokens
+            ),
             sessionID: session,
             contextLength: arcConfig.model.contextLength,
             moa: arcConfig.moa,

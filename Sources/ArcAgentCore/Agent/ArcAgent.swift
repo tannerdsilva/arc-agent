@@ -57,6 +57,11 @@ public actor ArcAgent: Service {
         /// for smart approval, LLM compression, and task routing.
         public var auxiliary: AuxiliaryModelSet
 
+        /// Hermes micro-compaction (docs/micro-compaction.md): after each
+        /// completed turn, absorb one exchange into a rolling summary. Off by
+        /// default; enabled via `compression.micro_compact`.
+        public var microCompact: MicroCompactConfig = MicroCompactConfig()
+
         /// Mixture-of-Agents configuration (Hermes `moa` config block).
         public var moa: MoAConfig
 
@@ -112,6 +117,7 @@ public actor ArcAgent: Service {
             query: String? = nil,
             maxContextTokens: Int = 64_000,
             auxiliary: AuxiliaryModelSet = AuxiliaryModelSet(),
+            microCompact: MicroCompactConfig = MicroCompactConfig(),
             sessionID: String? = nil,
             contextLength: Int? = nil,
             fallbackAPIKeys: [String] = [],
@@ -139,6 +145,7 @@ public actor ArcAgent: Service {
             self.query = query
             self.maxContextTokens = maxContextTokens
             self.auxiliary = auxiliary
+            self.microCompact = microCompact
             self.sessionID = sessionID
             self.reasoningEffort = reasoningEffort
             self.temperature = temperature
@@ -228,6 +235,11 @@ public actor ArcAgent: Service {
     /// Anti-thrash: after two consecutive low-savings compressions, suspend
     /// compression for the remainder of the turn.
     private var compressionThrottled = false
+
+    /// Micro-compaction session state (cursor, rolling summary, failure
+    /// tracking). Lives across turns; the transcript is the source of truth
+    /// for cursor recovery after a restart.
+    private var microState = MicroCompactState()
     private var lastTwoCompressionSavings: [Int] = []
     /// Mid-turn steering messages, drained before the next LLM request.
     private var pendingSteers: [String] = []
@@ -632,6 +644,12 @@ public actor ArcAgent: Service {
 
         await persistConversationIfNeeded()
 
+        // Hermes parity (docs/micro-compaction.md): after each completed turn,
+        // absorb the oldest un-absorbed exchange into the rolling summary.
+        // Best-effort — a failure leaves the transcript unchanged and the
+        // turn standing; the user's messages are never touched.
+        await maybeMicroCompact()
+
         // Hermes parity: background title generation via the auxiliary router.
         Task { await self.maybeGenerateTitle() }
 
@@ -844,6 +862,143 @@ public actor ArcAgent: Service {
                 logger.warning("compression aux model failed: \(error)")
             }
             return nil
+        }
+    }
+
+    // MARK: - Micro-compaction (Hermes docs/micro-compaction.md)
+
+    /// Run one micro-compaction pass after a completed turn. Best-effort by
+    /// contract: every failure path keeps the conversation unchanged and the
+    /// turn stands. Off unless `compression.micro_compact` is enabled.
+    private func maybeMicroCompact() async {
+        guard config.microCompact.enabled else { return }
+        guard let hc = httpClient,
+              let router = auxRouter,
+              router.hasOverride(.compression),
+              let client = router.makeClient(task: .compression, httpClient: hc) else {
+            // No compression aux model: passes cannot run (batch-only, Hermes
+            // parity — micro-compaction uses `auxiliary.compression`).
+            return
+        }
+        var state = microState
+        let limit = effectiveContextLimit()
+        let run = await MicroCompactor.run(
+            messages: messageHistory,
+            state: &state,
+            config: config.microCompact,
+            limit: limit,
+            countTokens: { [config] text in tokenCounter.count(text, model: config.model) },
+            summarize: { existing, exchange in
+                let prompt = await self.microSummaryPrompt(existing: existing, exchange: exchange)
+                return await self.microAuxComplete(client: client, prompt: prompt)
+            },
+            defragSummarize: { baggy in
+                let prompt = await self.microSummaryPrompt(existing: "", exchange: baggy)
+                return await self.microAuxComplete(client: client, prompt: prompt)
+            }
+        )
+        microState = state
+
+        if run.outcome == .absorbed || run.outcome == .defrag {
+            if run.messages != messageHistory {
+                messageHistory = run.messages
+                invalidateSystemPrompt()
+                await persistCompactIfNeeded(run.messages)
+            }
+        }
+        emitMicroTelemetry(run, limit: limit)
+    }
+
+    /// Hermes `_build_micro_summary_prompt`: merge one exchange into the
+    /// running summary. The same builder serves defrag (empty base + the
+    /// baggy summary as the "exchange").
+    private func microSummaryPrompt(existing: String, exchange: String) -> [Message] {
+        let summaryBlock = existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "(No previous summary yet.)" : existing
+        let user = "You are a summarization agent creating a compact record of an ongoing conversation.  "
+            + "You are given a running summary and the next exchange from the conversation.  "
+            + "Merge the exchange's key decisions, requirements, file paths, and open questions into the "
+            + "summary.  Preserve the summary's structure.  Drop resolved details that are no longer "
+            + "relevant.  Add new decisions, file paths, and open questions.\n\n"
+            + "NEVER include API keys, tokens, passwords, secrets, credentials, or connection strings "
+            + "in the summary — replace any that appear with [REDACTED].\n\n"
+            + "## Current Running Summary\n" + summaryBlock + "\n\n"
+            + "## Next Exchange to Merge\n" + exchange + "\n\n"
+            + "Return ONLY the updated summary text, no preamble or explanation.  "
+            + "Do not include this instruction block in your output."
+        return [
+            Message(role: .system, content: "You are a conversation summarization assistant."),
+            Message(role: .user, content: user)
+        ]
+    }
+
+    /// One aux call to the `auxiliary.compression` model (mirrors
+    /// ``summarizeForCompression``'s call shape).
+    private func microAuxComplete(client: any LLMClient, prompt: [Message]) async -> String? {
+        do {
+            let resp = try await client.complete(messages: prompt, tools: nil, reasoningEffort: nil)
+            let text = (resp.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : text
+        } catch {
+            logger.warning("micro-compaction aux model failed: \(error)")
+            return nil
+        }
+    }
+
+    /// Rewrite the persisted session after a splice/defrag so a resume does
+    /// not double-load the summary AND the exchanges it replaced (Hermes
+    /// `archive_and_compact` equivalent). Mirror of the append-only flush:
+    /// soft failure only — the transcript stays consistent in memory and the
+    /// next batch compaction cleans up the double-load on resume.
+    private func persistCompactIfNeeded(_ messages: [Message]) async {
+        guard config.persistSessions, sessionCreatedInStore else { return }
+        do {
+            try await config.sessionStore.update(Session(
+                id: sessionID,
+                createdAt: Date(),
+                updatedAt: Date(),
+                model: config.model,
+                provider: config.provider,
+                messages: messages
+            ))
+            persistedMessageCount = messages.count
+            logger.info("micro-compaction: session store rewritten (\(messages.count) messages)")
+        } catch {
+            logger.warning("micro-compaction: session store update failed: \(error)")
+        }
+    }
+
+    /// One content-free telemetry JSON line, same shape as the batch path
+    /// (docs: occupancy_pct is the headroom figure; tokens_delta negative when
+    /// the pass shrank the transcript).
+    private func emitMicroTelemetry(_ run: MicroCompactRun, limit: Int) {
+        let delta = run.tokensAfter - run.tokensBefore
+        var occupancy: Double? = nil
+        if limit > 0, run.tokensAfter > 0 {
+            occupancy = Double(run.tokensAfter) / Double(limit) * 100
+        }
+        let payload: [String: Any] = [
+            "event": "micro_compaction",
+            "session_id": sessionID,
+            "outcome": run.outcome.rawValue,
+            "tokens_before": run.tokensBefore,
+            "tokens_after": run.tokensAfter,
+            "tokens_delta": delta,
+            "exchange_tokens": run.exchangeTokens ?? -1,
+            "rolling_summary_tokens": tokenCounter.count(microState.rollingSummary, model: config.model),
+            "cursor": microState.cursor,
+            "passes_total": microState.passes,
+            "tokens_saved_total": microState.tokensSavedTotal,
+            "duration_ms": run.durationMs ?? -1,
+            "threshold_tokens": limit,
+            "context_limit": config.contextLength ?? config.maxContextTokens,
+            "occupancy_pct": occupancy ?? -1,
+            "main_model": config.model,
+            "aux_model": config.auxiliary.override(for: .compression)?.model ?? ""
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+           let json = String(data: data, encoding: .utf8) {
+            logger.info("micro compaction telemetry: \(json)")
         }
     }
 

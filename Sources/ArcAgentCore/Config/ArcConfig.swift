@@ -69,6 +69,12 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// `[]` = explicitly none; a list = allow-list of plugin names.
     public var plugins: PluginsConfig
 
+    /// Profile-based inbound routing (Hermes `profile_routes` /
+    /// `gateway.multiplex_profiles`): routes inbound platform messages by
+    /// platform/guild/channel/thread to a dedicated profile. Ignored unless
+    /// `multiplexProfiles` is true.
+    public var profileRouting: ProfileRoutingConfig
+
     // MARK: - Init
 
     public init(
@@ -81,7 +87,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         tessera: TesseraConfig? = nil,
         moa: MoAConfig = MoAConfig(),
         auxiliary: AuxiliaryModelSet = AuxiliaryModelSet(),
-        plugins: PluginsConfig = PluginsConfig()
+        plugins: PluginsConfig = PluginsConfig(),
+        profileRouting: ProfileRoutingConfig = ProfileRoutingConfig()
     ) {
         self.model = model
         self.agent = agent
@@ -93,6 +100,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.moa = moa
         self.auxiliary = auxiliary
         self.plugins = plugins
+        self.profileRouting = profileRouting
     }
 
     /// Decode each section independently, defaulting any that are absent.
@@ -108,6 +116,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.moa = try container.decodeIfPresent(MoAConfig.self, forKey: .moa) ?? MoAConfig()
         self.auxiliary = try container.decodeIfPresent(AuxiliaryModelSet.self, forKey: .auxiliary) ?? AuxiliaryModelSet()
         self.plugins = try container.decodeIfPresent(PluginsConfig.self, forKey: .plugins) ?? PluginsConfig()
+        self.profileRouting = try container.decodeIfPresent(ProfileRoutingConfig.self, forKey: .profileRouting) ?? ProfileRoutingConfig()
     }
 }
 
@@ -181,17 +190,33 @@ public struct AgentConfig: Codable, Sendable, Equatable {
     /// Reasoning effort passed to the provider (Hermes `agent.reasoning_effort`:
     /// "minimal"/"low"/"medium"/"high"/"max"). nil = provider default.
     public var reasoningEffort: String?
+    /// Micro-compaction on/off (Hermes `compression.micro_compact`). Off by
+    /// default; when on, one exchange is absorbed into a rolling summary after
+    /// every completed turn (or every N turns, see ``microCompactEveryNTurns``).
+    public var microCompactEnabled: Bool
+    /// Micro-compaction cadence: one pass every N turns (Hermes
+    /// `compression.micro_compact_every_n_turns`).
+    public var microCompactEveryNTurns: Int
+    /// Rolling-summary size that triggers a defrag pass (Hermes
+    /// `compression.micro_compact_defrag_threshold_tokens`).
+    public var microCompactDefragThresholdTokens: Int
 
     public init(
         maxIterations: Int = 25,
         persistSessions: Bool = true,
         loadSkills: Bool = true,
-        reasoningEffort: String? = nil
+        reasoningEffort: String? = nil,
+        microCompactEnabled: Bool = false,
+        microCompactEveryNTurns: Int = 1,
+        microCompactDefragThresholdTokens: Int = 2000
     ) {
         self.maxIterations = maxIterations
         self.persistSessions = persistSessions
         self.loadSkills = loadSkills
         self.reasoningEffort = reasoningEffort
+        self.microCompactEnabled = microCompactEnabled
+        self.microCompactEveryNTurns = microCompactEveryNTurns
+        self.microCompactDefragThresholdTokens = microCompactDefragThresholdTokens
     }
 
     /// Decode each field independently, defaulting any that are absent.
@@ -201,6 +226,9 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         self.persistSessions = try container.decodeIfPresent(Bool.self, forKey: .persistSessions) ?? AgentConfig().persistSessions
         self.loadSkills = try container.decodeIfPresent(Bool.self, forKey: .loadSkills) ?? AgentConfig().loadSkills
         self.reasoningEffort = try container.decodeIfPresent(String.self, forKey: .reasoningEffort)
+        self.microCompactEnabled = try container.decodeIfPresent(Bool.self, forKey: .microCompactEnabled) ?? AgentConfig().microCompactEnabled
+        self.microCompactEveryNTurns = try container.decodeIfPresent(Int.self, forKey: .microCompactEveryNTurns) ?? AgentConfig().microCompactEveryNTurns
+        self.microCompactDefragThresholdTokens = try container.decodeIfPresent(Int.self, forKey: .microCompactDefragThresholdTokens) ?? AgentConfig().microCompactDefragThresholdTokens
     }
 }
 

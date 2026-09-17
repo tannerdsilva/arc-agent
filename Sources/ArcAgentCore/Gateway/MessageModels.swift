@@ -13,11 +13,25 @@ public struct ChatTarget: Sendable, Codable, Hashable {
     public let chatID: String
     /// Optional thread/topic identifier within the chat.
     public let threadID: String?
+    /// Optional guild/server identifier (Discord etc.) — profile-routing
+    /// discriminator.
+    public let guildID: String?
+    /// Optional parent channel of a thread/post — allows route tables keyed
+    /// on a channel to match messages in its threads (hierarchical matching).
+    public let parentChatID: String?
 
-    public init(platform: String, chatID: String, threadID: String? = nil) {
+    public init(
+        platform: String,
+        chatID: String,
+        threadID: String? = nil,
+        guildID: String? = nil,
+        parentChatID: String? = nil
+    ) {
         self.platform = platform
         self.chatID = chatID
         self.threadID = threadID
+        self.guildID = guildID
+        self.parentChatID = parentChatID
     }
 }
 

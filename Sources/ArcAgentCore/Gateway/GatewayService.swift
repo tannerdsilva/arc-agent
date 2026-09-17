@@ -27,12 +27,15 @@ public struct GatewayService: Service {
     private let groupChatManager: GroupChatManager
     private let profileManager: ProfileManager
     private let logger: Logger
+    private let profileRoutes: [ProfileRoute]
+    private let multiplexProfiles: Bool
 
     public init(
         host: String = "127.0.0.1",
         port: Int = 8080,
         telegramToken: String? = nil,
-        agentConfig: SessionRegistry.AgentConfig
+        agentConfig: SessionRegistry.AgentConfig,
+        profileRouting: ProfileRoutingConfig = ProfileRoutingConfig()
     ) {
         let pm = ProfileManager()
         let dm = DeliveryManager()
@@ -51,6 +54,8 @@ public struct GatewayService: Service {
         self.groupChatManager = gcm
         self.registry = reg
         self.logger = log
+        self.profileRoutes = profileRouting.sortedRoutes
+        self.multiplexProfiles = profileRouting.multiplexProfiles
 
         // Wire up the messaging service
         Task {
@@ -72,8 +77,12 @@ public struct GatewayService: Service {
         // Build the HTTP server with bot-mode web UI
         self.httpServer = HTTPServerService(
             config: .init(host: host, port: port),
-            onChat: { [reg] sessionID, message in
-                let handle = await reg.getOrCreate(sessionID: sessionID)
+            onChat: { [reg, routes = profileRouting.sortedRoutes, multiplex = profileRouting.multiplexProfiles] sessionID, message in
+                let chat = ChatTarget(platform: "api", chatID: sessionID)
+                let profile = ProfileRouteResolver.profile(
+                    for: chat, routes: routes, multiplexProfiles: multiplex
+                ) ?? "default"
+                let handle = await reg.getOrCreate(sessionID: sessionID, profile: profile)
                 let incoming = IncomingMessage(
                     id: UUID().uuidString,
                     chat: ChatTarget(platform: "api", chatID: sessionID),
@@ -209,6 +218,23 @@ public struct GatewayService: Service {
         var services: [any Service] = [httpServer, wsServer, botMessaging]
         if let telegram = telegramAdapter {
             services.append(telegram)
+            // Ingest platform messages into sessions, routing each to the
+            // profile its route table specifies (default when unmatched).
+            // Same consumption pattern as the HTTP path; the task's lifetime
+            // is bounded by the adapter's AsyncStream (see
+            // TelegramAdapter.incomingMessages).
+            Task {
+                for await incoming in telegram.incomingMessages {
+                    let profile = ProfileRouteResolver.profile(
+                        for: incoming.chat,
+                        routes: self.profileRoutes,
+                        multiplexProfiles: self.multiplexProfiles
+                    ) ?? "default"
+                    let sessionID = "\(incoming.chat.platform):\(incoming.chat.chatID):\(incoming.chat.threadID ?? "")"
+                    let handle = await self.registry.getOrCreate(sessionID: sessionID, profile: profile)
+                    handle.inputContinuation.yield(incoming)
+                }
+            }
         }
 
         let serviceGroup = ServiceGroup(
