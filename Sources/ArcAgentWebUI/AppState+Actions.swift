@@ -238,6 +238,12 @@ extension AppState {
         saveSettings()
     }
 
+    func setShowConversationOutline(_ on: Bool) {
+        guard settings.showConversationOutline != on else { return }
+        settings.showConversationOutline = on
+        saveSettings()
+    }
+
     func setShowTps(_ on: Bool) {
         guard settings.showTps != on else { return }
         settings.showTps = on

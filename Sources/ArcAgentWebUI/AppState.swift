@@ -280,6 +280,9 @@ struct AppSettings: Codable, Equatable {
     /// Maximum active conversations that can be pinned in the sidebar
     /// (Hermes: pinned_sessions_limit). Default 3.
     var pinnedSessionsLimit: Int = 3
+    /// Floating "conversation outline" button in the chat view (Hermes
+    /// `show_conversation_outline` parity). Lists sent messages; click to jump.
+    var showConversationOutline: Bool = true
     /// Canonical order of every rail tab (view keys; chat + settings are
     /// always visible and are never listed here). This list never loses
     /// entries: a hidden tab keeps its slot, so re-enabling restores its
@@ -330,6 +333,7 @@ struct AppSettings: Codable, Equatable {
         case composerDrafts
         case insightsRangeDays
         case showTokenUsage, showTps, pinnedSessionsLimit
+        case showConversationOutline
         case sidebarTabs, hiddenSidebarTabs, yoloSessions
     }
 
@@ -390,6 +394,7 @@ struct AppSettings: Codable, Equatable {
         showTokenUsage = try c.decodeIfPresent(Bool.self, forKey: .showTokenUsage) ?? false
         showTps = try c.decodeIfPresent(Bool.self, forKey: .showTps) ?? false
         pinnedSessionsLimit = try c.decodeIfPresent(Int.self, forKey: .pinnedSessionsLimit) ?? 3
+        showConversationOutline = try c.decodeIfPresent(Bool.self, forKey: .showConversationOutline) ?? true
         sidebarTabs = try c.decodeIfPresent([String].self, forKey: .sidebarTabs) ?? AppSettings.defaultSidebarTabs
         hiddenSidebarTabs = try c.decodeIfPresent([String].self, forKey: .hiddenSidebarTabs) ?? []
         yoloSessions = try c.decodeIfPresent([String].self, forKey: .yoloSessions) ?? []
@@ -732,6 +737,9 @@ actor AppState {
     var queueStatuses: [String: String] = [:]
     /// Current 1-based pass while a looped sequential run is active (0 idle).
     var queueLoopPass = 0
+    /// Set by the Stop button; the run engine honors it between entries/passes
+    /// (or before a parallel group starts). Running prompts are left alone.
+    var queueCancelRequested = false
     /// The currently awaiting user approval (rendered as a card in chat).
     var pendingApproval: PendingApproval?
     /// Owned task handle for the scheduled-jobs engine (cancelled at stop).

@@ -2164,6 +2164,10 @@ final class Controller {
             await self.app.setShowTokenUsage(event.data["checked"] == "true")
             return await self.app.refreshFragments()
         }
+        wire(router, id: "set-showoutline", events: ["change"]) { event in
+            await self.app.setShowConversationOutline(event.data["checked"] == "true")
+            return await self.app.refreshFragments()
+        }
         wire(router, id: "set-showtps", events: ["change"]) { event in
             await self.app.setShowTps(event.data["checked"] == "true")
             return await self.app.refreshFragments()

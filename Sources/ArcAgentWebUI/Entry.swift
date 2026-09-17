@@ -407,18 +407,44 @@ struct ArcAgentWebUI: AsyncParsableCommand {
           // ---- Chat row "..." menu: open/close is client-side so the open
           // menu survives the click that opened it; edge actions still go to
           // the server through the normal runtime pipeline.
+          function closeCatMenus() {
+            var open = document.querySelectorAll('.chat-menu.open');
+            for (var i = 0; i < open.length; i++) {
+              var it = open[i].querySelector('.chat-menu-items');
+              var pn = open[i].querySelector('.chat-menu-panel');
+              if (it) it.hidden = false;
+              if (pn) pn.hidden = true;
+              open[i].classList.remove('open');
+            }
+          }
+          // "Move to Category": swap the open menu's items for the category
+          // panel (all client-side; picking a category still rides the wire).
+          function setCatPanel(menu, show) {
+            if (!menu) return;
+            var it = menu.querySelector('.chat-menu-items');
+            var pn = menu.querySelector('.chat-menu-panel');
+            if (it) it.hidden = show;
+            if (pn) pn.hidden = !show;
+          }
           document.addEventListener('click', function (e) {
+            var catBtn = e.target && e.target.closest ? e.target.closest('[id^="sm-catmenu-"]') : null;
+            if (catBtn) { setCatPanel(catBtn.closest('.chat-menu'), true); return; }
+            var backBtn = e.target && e.target.closest ? e.target.closest('[id^="sm-catback-"]') : null;
+            if (backBtn) {
+              setCatPanel(backBtn.closest('.chat-menu'), false);
+              return;
+            }
             var open = document.querySelectorAll('.chat-menu.open');
             var dot = e.target && e.target.closest ? e.target.closest('.menu-dots') : null;
             if (dot) {
               var wrap = dot.closest('.menu-wrap');
               var menu = wrap && wrap.querySelector('.chat-menu');
               var wasOpen = menu && menu.classList.contains('open');
-              for (var i = 0; i < open.length; i++) open[i].classList.remove('open');
+              closeCatMenus();
               if (menu && !wasOpen) menu.classList.add('open');
               return;
             }
-            for (var i = 0; i < open.length; i++) open[i].classList.remove('open');
+            closeCatMenus();
           });
 
           // ---- Copy conversation link (client-side clipboard + toast).

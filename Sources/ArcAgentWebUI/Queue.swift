@@ -249,6 +249,24 @@ extension AppState {
 
     /// Repaint the Todos panel when it is on screen (run progress updates
     /// never clobber the chat view).
+    /// Request the running queue to stop between entries (or before a
+    /// parallel group starts). Already-running prompts keep running.
+    func requestQueueCancel() {
+        queueCancelRequested = true
+    }
+
+    /// Clear queue-qued statuses (used when a run stops early) and reset the
+    /// cancel flag + pass indicator.
+    private func finishQueueRun(_ pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void) async {
+        queueCancelRequested = false
+        queueLoopPass = 0
+        queueRunActive = false
+        for (id, st) in queueStatuses where st == "queued" {
+            queueStatuses[id] = ""
+        }
+        await notifyQueueView(pusher)
+    }
+
     func notifyQueueView(_ pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void) async {
         guard activeView == .todos else { return }
         await pusher([FragmentUpdate(id: "main", html: await self.todosPanelHTML())])
@@ -282,6 +300,7 @@ extension AppState {
             _ = toast("Queue is empty — add tasks first.", kind: "error")
             return
         }
+        queueCancelRequested = false
         queueRunActive = true
         queueStatuses = [:]
         for e in plan { queueStatuses[e.id] = "queued" }
@@ -290,9 +309,11 @@ extension AppState {
         var outputs: [String: String] = [:]
         let passes = settings.queueLoopEnabled ? max(1, settings.queueLoopCount) : 1
         for pass in 1...passes {
+            if queueCancelRequested { break }
             queueLoopPass = pass
             queueStatuses = [:]
             for e in plan {
+                if queueCancelRequested { break }
                 if queueTodo(e) == nil {
                     queueStatuses[e.id] = "failed"
                     await notifyQueueView(pusher)
@@ -315,9 +336,7 @@ extension AppState {
                 await notifyQueueView(pusher)
             }
         }
-        queueLoopPass = 0
-        queueRunActive = false
-        await notifyQueueView(pusher)
+        await finishQueueRun(pusher)
     }
 
     /// Parallel run: each chat's tasks run at the same time; tasks from the
@@ -329,6 +348,7 @@ extension AppState {
             _ = toast("Queue is empty — add tasks first.", kind: "error")
             return
         }
+        queueCancelRequested = false
         queueRunActive = true
         queueStatuses = [:]
         for e in plan { queueStatuses[e.id] = "queued" }
@@ -345,14 +365,14 @@ extension AppState {
 
         await withTaskGroup(of: Void.self) { group in
             for g in groups {
+                if queueCancelRequested { break }
                 group.addTask {
                     await self.runQueueGroup(g, pusher: pusher)
                 }
             }
         }
 
-        queueRunActive = false
-        await notifyQueueView(pusher)
+        await finishQueueRun(pusher)
     }
 
     /// One parallel chat group: mark running, combine the chat's tasks into a
@@ -361,6 +381,7 @@ extension AppState {
         _ g: (chat: String, entries: [QueueEntry]),
         pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void
     ) async {
+        guard !queueCancelRequested else { return }
         for e in g.entries { queueStatuses[e.id] = "running" }
         await notifyQueueView(pusher)
         let texts = g.entries.compactMap { queueTodo($0)?.text }
@@ -517,13 +538,14 @@ extension AppState {
         let picker = queuePickerHTML()
         let running = queueRunActive
         let loopOn = settings.queueLoopEnabled
-        let runBtns: String
+        var runBtns: String
         if running {
             var passText = ""
             if queueLoopPass > 0 {
                 passText = " · pass \(queueLoopPass)/\(max(1, settings.queueLoopCount))"
             }
             runBtns = "<span class='queue-running'><span class='queue-running-dot'></span>Running…\(esc(passText))</span>"
+            runBtns += "<button type=\"button\" id=\"queue-stop\" data-component-id=\"queue\" data-event=\"click\" class=\"queue-stop-btn\" title=\"Stop the queue run; prompts already running in chats keep going\">Stop</button>"
         } else {
             let checked = loopOn ? " checked" : ""
             let countField = loopOn ? """
@@ -603,6 +625,10 @@ extension Controller {
 
             if tid == "queue-tab-tasks" || tid == "queue-tab-queue" {
                 await self.app.setTodosTab(tid == "queue-tab-tasks" ? .tasks : .queue)
+                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+            }
+            if tid == "queue-stop" {
+                await self.app.requestQueueCancel()
                 return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
             }
             if tid == "queue-run-sync" || tid == "queue-run-async" {

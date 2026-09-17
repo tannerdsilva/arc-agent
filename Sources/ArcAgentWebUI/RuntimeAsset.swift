@@ -723,6 +723,7 @@ window.WebUIRuntime = (function () {
       enhanceMarkdownTables(document);
       renderKatexBlocks(document, { streaming: true });
       applyTurnWorklogStates(document);
+      renderOutlineIfOpen();
     }
 
     function captureScrollState() {
@@ -1381,41 +1382,84 @@ window.WebUIRuntime = (function () {
     }
   }, 800);
 
-  // "Set category" flyout: position the submenu with fixed coordinates next
-  // to the menu item (escapes .panel-body's overflow clip). Shows on hover or
-  // focus; hides when the pointer/keyboard leaves the menu item.
-  function catItemIn(el) {
-    return el && el.closest && el.closest('.menu-item.has-sub') ? true : false;
+
+  /* ── Conversation outline (#2124 parity): floating button + panel ───── */
+  var outlineOpen = false;
+  function outlineEntries() {
+    var rows = document.querySelectorAll('#chat-scroll .msg.user[id^="msg-user-"]');
+    var list = [];
+    var n = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var text = (rows[i].textContent || '').replace(/\s+/g, ' ').trim();
+      if (!text) continue;
+      n++;
+      list.push({ idx: rows[i].id.slice('msg-user-'.length), label: n,
+                  text: text.length > 60 ? text.slice(0, 60) + '…' : text });
+    }
+    return list;
   }
-  function showCatSub() {
-    var head = document.querySelector('.cat-set-head');
-    if (!head) return;
-    var item = head.closest('.menu-item.has-sub');
-    var sub = item && item.querySelector('.cat-sub');
-    if (!sub) return;
-    var r = head.getBoundingClientRect();
-    sub.style.position = 'fixed';
-    sub.style.left = (r.right + 6) + 'px';
-    sub.style.top = r.top + 'px';
-    sub.style.zIndex = '80';
-    sub.style.display = 'flex';
+  function renderOutline() {
+    var box = document.getElementById('outline-entries');
+    if (!box) return;
+    var entries = outlineEntries();
+    box.textContent = '';
+    if (!entries.length) {
+      var p = document.createElement('p');
+      p.className = 'outline-empty';
+      p.textContent = 'No messages to outline yet.';
+      box.appendChild(p);
+      return;
+    }
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'outline-entry';
+      btn.setAttribute('data-jump', e.idx);
+      var num = document.createElement('span');
+      num.className = 'outline-entry-num';
+      num.textContent = e.label;
+      var txt = document.createElement('span');
+      txt.className = 'outline-entry-text';
+      txt.textContent = e.text;
+      btn.appendChild(num);
+      btn.appendChild(txt);
+      box.appendChild(btn);
+    }
   }
-  function hideCatSub() {
-    var sub = document.querySelector('.cat-sub');
-    if (sub) sub.style.display = '';
+  function renderOutlineIfOpen() {
+    if (!outlineOpen) return;
+    var panel = document.getElementById('outline-panel');
+    if (panel) { panel.hidden = false; renderOutline(); }
   }
-  document.addEventListener('pointerover', function (e) {
-    if (catItemIn(e.target)) showCatSub();
-  });
-  document.addEventListener('pointerout', function (e) {
-    if (catItemIn(e.target) && !catItemIn(e.relatedTarget)) hideCatSub();
-  });
-  document.addEventListener('focusin', function (e) {
-    if (e.target && e.target.closest && e.target.closest('.cat-set-head')) showCatSub();
-  });
-  document.addEventListener('focusout', function (e) {
-    if (e.target && e.target.closest && e.target.closest('.cat-set-head')) {
-      setTimeout(hideCatSub, 60);
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+    if (t.closest('#outline-toggle')) {
+      outlineOpen = !outlineOpen;
+      var panel = document.getElementById('outline-panel');
+      if (panel) {
+        if (outlineOpen) { renderOutline(); panel.hidden = false; }
+        else { panel.hidden = true; }
+      }
+      return;
+    }
+    if (t.closest('#outline-close')) {
+      outlineOpen = false;
+      var panel = document.getElementById('outline-panel');
+      if (panel) panel.hidden = true;
+      return;
+    }
+    var entry = t.closest('.outline-entry');
+    if (entry) {
+      var idx = entry.getAttribute('data-jump');
+      var row = document.getElementById('msg-user-' + idx);
+      if (row) {
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        row.classList.remove('outline-jump-flash');
+        void row.offsetWidth;
+        row.classList.add('outline-jump-flash');
+      }
     }
   });
 

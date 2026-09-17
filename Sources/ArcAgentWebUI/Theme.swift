@@ -127,21 +127,9 @@ struct ColorScheme {
                "shadow": "0 2px 14px rgba(0, 0, 0, 0.45)", "user-bubble": "rgba(0, 229, 255, 0.12)",
                "code-bg": "#1A1E28", "scroll-thumb": "#2E3546"])
 
-    static let codex = ColorScheme(id: "codex", label: "Codex", accentHex: "#0969DA", dots: ["#10A37F", "#E8E8E8", "#333333"],
-        light: ["bg": "#F6F8FA", "surface": "#FFFFFF", "surface-2": "#EDF0F3", "sidebar": "#F2F4F7",
-                "border": "#D8DEE4", "border-strong": "#C2CAD1", "text": "#24292F", "muted": "#6A737D",
-                "accent": "#0969DA", "accent-strong": "#0757B8", "accent-soft": "rgba(9, 105, 218, 0.09)",
-                "accent-border": "rgba(9, 105, 218, 0.40)", "link": "#0969DA", "danger": "#CF222E",
-                "danger-soft": "rgba(207, 34, 46, 0.09)", "success": "#1A7F37",
-                "shadow": "0 2px 12px rgba(20, 40, 70, 0.07)", "user-bubble": "rgba(9, 105, 218, 0.09)",
-                "code-bg": "#F1F2F4", "scroll-thumb": "#C9D1D9"],
-        dark: ["bg": "#0D1117", "surface": "#161B22", "surface-2": "#1C2129", "sidebar": "#0D1117",
-               "border": "#30363D", "border-strong": "#3F4751", "text": "#E6EDF3", "muted": "#8B949E",
-               "accent": "#58A6FF", "accent-strong": "#79B8FF", "accent-soft": "rgba(88, 166, 255, 0.14)",
-               "accent-border": "rgba(88, 166, 255, 0.5)", "link": "#58A6FF", "danger": "#F85149",
-               "danger-soft": "rgba(248, 81, 73, 0.14)", "success": "#3FB950",
-               "shadow": "0 2px 14px rgba(0, 0, 0, 0.4)", "user-bubble": "rgba(88, 166, 255, 0.12)",
-               "code-bg": "#161B22", "scroll-thumb": "#30363D"])
+    static let codex = make(id: "codex", label: "Codex", accent: "#72B39A", strong: "#84BEA8", dots: ["#10A37F", "#E8E8E8", "#333333"],
+        lightO: ["bg": "#FFFFFF", "sidebar": "#F3F3F3", "surface": "#FFFFFF", "surface-2": "#F1F1F1", "border": "#E0E0E0", "border-strong": "#C8C8C8", "border-subtle": "#E8E8E8", "text": "#252523", "muted": "#6A6A68", "accent": "#2E7A60", "accent-strong": "#1D6850", "accent-soft": "rgba(46,122,96,0.08)", "accent-border": "rgba(46,122,96,0.16)", "code-bg": "#F3F3F3", "code-inline-bg": "rgba(0,0,0,0.06)", "code-text": "#252523", "input-bg": "#FFFFFF", "hover-bg": "rgba(0,0,0,0.04)", "danger": "#D92D20", "success": "#2E7A60", "warning": "#B87916", "link": "#4D8DFF", "user-bubble": "#EBEBEB"],
+        darkO: ["bg": "#151614", "sidebar": "#242624", "surface": "#1B1C1A", "surface-2": "#20211F", "border": "#343631", "border-strong": "#4B4D47", "border-subtle": "#2A2C28", "text": "#ECEBE4", "muted": "#A7A79D", "accent": "#72B39A", "accent-strong": "#84BEA8", "accent-soft": "rgba(114,179,154,0.10)", "accent-border": "rgba(114,179,154,0.18)", "code-bg": "#111210", "code-inline-bg": "rgba(255,255,255,0.08)", "code-text": "#F1F0EA", "input-bg": "#1E1F1D", "hover-bg": "rgba(255,255,255,0.06)", "danger": "#FF6B6B", "success": "#72B39A", "warning": "#E6B15C", "link": "#C9C8C0", "user-bubble": "#2E302D"])
 
     /// Hermes WebUI dark + Sisyphus (violet) — mirrors the Hermes chat UI.
     static let sisyphus = ColorScheme(id: "sisyphus", label: "Sisyphus", accentHex: "#A78BFA", dots: ["#C4B5FD", "#8B5CF6", "#5B21B6"],
@@ -167,8 +155,9 @@ struct ColorScheme {
     /// Build a scheme from an accent trio; light/dark variants are derived
     /// from the accent plus a neutral base so all 27 Skin entries stay
     /// compact while reading cleanly in both themes.
-    static func make(id: String, label: String, accent: String, strong: String, dots: [String]) -> ColorScheme {
-        let light: [String: String] = [
+    static func make(id: String, label: String, accent: String, strong: String, dots: [String],
+                     lightO: [String: String] = [:], darkO: [String: String] = [:]) -> ColorScheme {
+        var light: [String: String] = [
             "bg": "#F7F7F9", "surface": "#FFFFFF", "surface-2": "#EFEFF3",
             "sidebar": "#F2F2F5", "border": "#E2E2E8", "border-strong": "#D0D0D8",
             "text": "#1D1D24", "muted": "#71717A",
@@ -182,7 +171,7 @@ struct ColorScheme {
             "input-bg": "rgba(0, 0, 0, 0.02)", "hover-bg": "rgba(0, 0, 0, 0.04)",
             "border-subtle": "rgba(0, 0, 0, 0.08)", "scroll-thumb": "#D4D4DC",
         ]
-        let dark: [String: String] = [
+        var dark: [String: String] = [
             "bg": "#131318", "surface": "#1B1B22", "surface-2": "#23232C",
             "sidebar": "#17171D", "border": "#2C2C36", "border-strong": "#3A3A46",
             "text": "#E6E6EC", "muted": "#9A9AA5",
@@ -196,6 +185,8 @@ struct ColorScheme {
             "input-bg": "rgba(255, 255, 255, 0.04)", "hover-bg": "rgba(255, 255, 255, 0.06)",
             "border-subtle": "rgba(255, 255, 255, 0.075)", "scroll-thumb": "#33333E",
         ]
+        light.merge(lightO) { _, new in new }
+        dark.merge(darkO) { _, new in new }
         return ColorScheme(id: id, label: label, accentHex: accent, dots: dots, light: light, dark: dark)
     }
 
@@ -207,27 +198,66 @@ struct ColorScheme {
         return "rgba(\(r), \(g), \(b), \(alpha))"
     }
 
-    static let ares = make(id: "ares", label: "Ares", accent: "#E5484D", strong: "#C6373C", dots: ["#E5484D", "#F06A75", "#F8A5AE"])
-    static let mono = make(id: "mono", label: "Mono", accent: "#8B8B93", strong: "#6E6E76", dots: ["#C8C8CD", "#8B8B93", "#4A4A52"])
-    static let graphite = make(id: "graphite", label: "Graphite", accent: "#6E6E76", strong: "#55555C", dots: ["#FFFFFF", "#B8B8C0", "#3A3A42"])
-    static let github = make(id: "github", label: "GitHub", accent: "#0969DA", strong: "#0857B0", dots: ["#0969DA", "#1F883D", "#30363D"])
-    static let terracotta = make(id: "terracotta", label: "Terracotta", accent: "#C0785A", strong: "#A8624A", dots: ["#C08A6D", "#E8E8E8", "#3A3A42"])
-    static let slate = make(id: "slate", label: "Slate", accent: "#4E7C99", strong: "#3D647D", dots: ["#7DA7C4", "#4E7C99", "#2A3F4C"])
-    static let charizard = make(id: "charizard", label: "Charizard", accent: "#F97316", strong: "#C2410C", dots: ["#F9A03F", "#F97316", "#C2410C"])
-    static let sienna = make(id: "sienna", label: "Sienna", accent: "#A9714B", strong: "#8A5A3B", dots: ["#D2A17E", "#A9714B", "#6B4632"])
-    static let catppuccin = make(id: "catppuccin", label: "Catppuccin", accent: "#C6A0F6", strong: "#A480E4", dots: ["#CDD6F4", "#C6A0F6", "#7C6FA8"])
-    static let hepburn = make(id: "hepburn", label: "Hepburn", accent: "#F472B6", strong: "#E75CA8", dots: ["#F472B6", "#F9A8D4", "#FBCFE8"])
-    static let nous = make(id: "nous", label: "Nous", accent: "#3B82F6", strong: "#2563EB", dots: ["#93C5FD", "#3B82F6", "#1E3A8A"])
-    static let neonSoft = make(id: "neon-soft", label: "Neon Soft", accent: "#C084FC", strong: "#A855F7", dots: ["#C084FC", "#67E8F9", "#BAE6FD"])
-    static let neonPaint = make(id: "neon-paint", label: "Neon Paint", accent: "#EC4899", strong: "#DB2777", dots: ["#EC4899", "#22D3EE", "#FDE047"])
-    static let geistContrast = make(id: "geist-contrast", label: "Geist Contrast", accent: "#FFF175", strong: "#E5D95B", dots: ["#000000", "#FFFFFF", "#FFF175"])
-    static let zeus = make(id: "zeus", label: "Zeus", accent: "#E5B75D", strong: "#C9A227", dots: ["#E5B75D", "#C9A227", "#365314"])
-    static let verdigris = make(id: "verdigris", label: "Verdigris", accent: "#2F5D50", strong: "#24493F", dots: ["#C0A080", "#2F5D50", "#3A3A42"])
-    static let gruvbox = make(id: "gruvbox", label: "Gruvbox", accent: "#D79921", strong: "#B07E15", dots: ["#D79921", "#FE8019", "#B8BB26"])
-    static let oneDark = make(id: "one-dark", label: "One Dark", accent: "#61AFEF", strong: "#4A93CC", dots: ["#61AFEF", "#C678DD", "#98C379"])
-    static let tokyoNight = make(id: "tokyo-night", label: "Tokyo Night", accent: "#7AA2F7", strong: "#5E88E8", dots: ["#7AA2F7", "#BB9AF7", "#9ECE6A"])
-    static let solarizedDark = make(id: "solarized-dark", label: "Solarized Dark", accent: "#268BD2", strong: "#1B6FA8", dots: ["#268BD2", "#2AA198", "#859900"])
-}
+    static let ares = make(id: "ares", label: "Ares", accent: "#E5484D", strong: "#C6373C", dots: ["#E5484D", "#F06A75", "#F8A5AE"],
+        lightO: ["bg": "#F6EBED", "surface": "#FEF6F6", "surface-2": "#EEDEE2", "sidebar": "#F1E8EB", "border": "#E2CCD2", "border-strong": "#D3BAC2", "scroll-thumb": "#D8B1B8", "accent-soft": "rgba(229, 72, 77, 0.10)", "accent-border": "rgba(229, 72, 77, 0.45)", "accent": "#E5484D", "link": "#C6373C", "user-bubble": "rgba(229, 72, 77, 0.10)"],
+        darkO: ["bg": "#22171C", "surface": "#251D24", "surface-2": "#36272F", "sidebar": "#231A20", "border": "#463039", "border-strong": "#553C47", "scroll-thumb": "#603842", "accent-soft": "rgba(229, 72, 77, 0.15)", "accent-border": "rgba(229, 72, 77, 0.50)", "accent": "#E5484D", "accent-strong": "#C6373C", "link": "#C6373C", "user-bubble": "rgba(229, 72, 77, 0.13)"])
+    static let mono = make(id: "mono", label: "Mono", accent: "#8B8B93", strong: "#6E6E76", dots: ["#C8C8CD", "#8B8B93", "#4A4A52"],
+        lightO: ["bg": "#EFEFF2", "surface": "#F9F9FA", "surface-2": "#E5E5E9", "sidebar": "#ECECEF", "border": "#D6D6DC", "border-strong": "#C5C5CD", "scroll-thumb": "#C2C2CA", "accent-soft": "rgba(139, 139, 147, 0.10)", "accent-border": "rgba(139, 139, 147, 0.45)", "accent": "#8B8B93", "link": "#6E6E76", "user-bubble": "rgba(139, 139, 147, 0.10)"],
+        darkO: ["bg": "#1B1B21", "surface": "#212128", "surface-2": "#2D2D36", "sidebar": "#1E1E24", "border": "#393943", "border-strong": "#474752", "scroll-thumb": "#494953", "accent-soft": "rgba(139, 139, 147, 0.15)", "accent-border": "rgba(139, 139, 147, 0.50)", "accent": "#8B8B93", "accent-strong": "#6E6E76", "link": "#6E6E76", "user-bubble": "rgba(139, 139, 147, 0.13)"])
+    static let graphite = make(id: "graphite", label: "Graphite", accent: "#303030", strong: "#171717", dots: ["#FFFFFF", "#B8B8C0", "#3A3A42"],
+        lightO: ["bg": "#FFFFFF", "sidebar": "#F3F3F3", "surface": "#FFFFFF", "surface-2": "#F7F7F7", "border": "#E2E2E2", "border-strong": "#CFCFCF", "border-subtle": "#E8E8E8", "text": "#242424", "muted": "#707070", "accent": "#303030", "accent-strong": "#303030", "accent-soft": "rgba(0,0,0,0.07)", "accent-border": "rgba(0,0,0,0.13)", "code-bg": "#F1F1F1", "code-inline-bg": "rgba(0,0,0,0.06)", "code-text": "#242424", "input-bg": "#FFFFFF", "hover-bg": "rgba(0,0,0,0.05)", "danger": "#D44D4D", "success": "#0F8F70", "warning": "#B87916", "link": "#5F5F5F", "user-bubble": "#EFEFEF"],
+        darkO: ["bg": "#151614", "sidebar": "#242624", "surface": "#1B1C1A", "surface-2": "#20211F", "border": "#343631", "border-strong": "#4B4D47", "border-subtle": "#2A2C28", "text": "#ECEBE4", "muted": "#A7A79D", "accent": "#D7D6CE", "accent-strong": "#D7D6CE", "accent-soft": "rgba(255,255,255,0.08)", "accent-border": "rgba(255,255,255,0.14)", "code-bg": "#111210", "code-inline-bg": "rgba(255,255,255,0.08)", "code-text": "#F1F0EA", "input-bg": "#1E1F1D", "hover-bg": "rgba(255,255,255,0.06)", "danger": "#FF6B6B", "success": "#10A37F", "warning": "#E6B15C", "link": "#C9C8C0", "user-bubble": "#2E302D"])
+    static let github = make(id: "github", label: "GitHub", accent: "#0969DA", strong: "#0857B0", dots: ["#0969DA", "#1F883D", "#30363D"],
+        lightO: ["bg": "#FFFFFF", "sidebar": "#F3F3F3", "surface": "#FFFFFF", "surface-2": "#F7F7F7", "border": "#E2E2E2", "border-strong": "#CFCFCF", "border-subtle": "#E8E8E8", "text": "#242424", "muted": "#707070", "accent": "#0969DA", "accent-strong": "#0969DA", "accent-soft": "#DDF4FF", "accent-border": "rgba(9,105,218,0.18)", "code-bg": "#F1F1F1", "code-inline-bg": "rgba(0,0,0,0.06)", "code-text": "#242424", "input-bg": "#FFFFFF", "hover-bg": "rgba(0,0,0,0.05)", "danger": "#D1242F", "success": "#1A7F37", "warning": "#9A6700", "link": "#0969DA", "user-bubble": "#EFEFEF"],
+        darkO: ["bg": "#151614", "sidebar": "#242624", "surface": "#1B1C1A", "surface-2": "#20211F", "border": "#343631", "border-strong": "#4B4D47", "border-subtle": "#2A2C28", "text": "#ECEBE4", "muted": "#A7A79D", "accent": "#4493F8", "accent-strong": "#58A6FF", "accent-soft": "rgba(56,139,253,0.10)", "accent-border": "rgba(31,111,235,0.24)", "code-bg": "#111210", "code-inline-bg": "rgba(255,255,255,0.08)", "code-text": "#F1F0EA", "input-bg": "#1E1F1D", "hover-bg": "rgba(255,255,255,0.06)", "danger": "#FF7B72", "success": "#3FB950", "warning": "#D29922", "link": "#58A6FF", "user-bubble": "#2E302D"])
+    static let terracotta = make(id: "terracotta", label: "Terracotta", accent: "#C0785A", strong: "#A8624A", dots: ["#C08A6D", "#E8E8E8", "#3A3A42"],
+        lightO: ["bg": "#FAF9F5", "sidebar": "#F0EEE6", "surface": "#FFFEFA", "surface-2": "#F7F4EC", "border": "#E8E6DC", "border-strong": "#D7D2C4", "border-subtle": "#F0EDE4", "text": "#30302E", "muted": "#87867F", "accent": "#D97757", "accent-strong": "#A94F35", "accent-soft": "rgba(217,119,87,0.10)", "accent-border": "rgba(217,119,87,0.18)", "code-bg": "#F0EEE6", "code-inline-bg": "rgba(48,48,46,0.065)", "code-text": "#30302E", "input-bg": "#FFFEFA", "hover-bg": "rgba(48,48,46,0.05)", "danger": "#C15F3C", "success": "#6EA100", "warning": "#B87916", "link": "#6396D6", "user-bubble": "#F0EEE6"],
+        darkO: ["bg": "#141413", "sidebar": "#1E1D1A", "surface": "#191917", "surface-2": "#20201D", "border": "#34332E", "border-strong": "#4A473F", "border-subtle": "#292824", "text": "#EDEAE0", "muted": "#B0AEA5", "accent": "#D97757", "accent-strong": "#E69072", "accent-soft": "rgba(217,119,87,0.11)", "accent-border": "rgba(217,119,87,0.20)", "code-bg": "#10100F", "code-inline-bg": "rgba(237,234,224,0.08)", "code-text": "#F0EEE6", "input-bg": "#191917", "hover-bg": "rgba(237,234,224,0.055)", "danger": "#F08A6F", "success": "#9BCB5A", "warning": "#E6B15C", "link": "#7BA7DE", "user-bubble": "#282620"])
+    static let slate = make(id: "slate", label: "Slate", accent: "#4E7C99", strong: "#3D647D", dots: ["#7DA7C4", "#4E7C99", "#2A3F4C"],
+        lightO: ["bg": "#EBEEF2", "surface": "#F6F8FA", "surface-2": "#DFE4EA", "sidebar": "#E8EBEF", "border": "#CDD4DD", "border-strong": "#BBC3CE", "scroll-thumb": "#B2BECB", "accent-soft": "rgba(78, 124, 153, 0.10)", "accent-border": "rgba(78, 124, 153, 0.45)", "accent": "#4E7C99", "link": "#3D647D", "user-bubble": "rgba(78, 124, 153, 0.10)"],
+        darkO: ["bg": "#171A21", "surface": "#1E2028", "surface-2": "#272C37", "sidebar": "#1A1D24", "border": "#313744", "border-strong": "#3D4553", "scroll-thumb": "#3A4555", "accent-soft": "rgba(78, 124, 153, 0.15)", "accent-border": "rgba(78, 124, 153, 0.50)", "accent": "#4E7C99", "accent-strong": "#3D647D", "link": "#3D647D", "user-bubble": "rgba(78, 124, 153, 0.13)"])
+    static let charizard = make(id: "charizard", label: "Charizard", accent: "#F97316", strong: "#C2410C", dots: ["#F9A03F", "#F97316", "#C2410C"],
+        lightO: ["bg": "#F7EEE9", "surface": "#FFF8F3", "surface-2": "#F0E3DD", "sidebar": "#F2EAE8", "border": "#E5D2CB", "border-strong": "#D7C1B9", "scroll-thumb": "#DDBCAA", "accent-soft": "rgba(249, 115, 22, 0.10)", "accent-border": "rgba(249, 115, 22, 0.45)", "accent": "#F97316", "link": "#C2410C", "user-bubble": "rgba(249, 115, 22, 0.10)"],
+        darkO: ["bg": "#231A18", "surface": "#261F21", "surface-2": "#382B2A", "sidebar": "#251D1D", "border": "#493632", "border-strong": "#59433E", "scroll-thumb": "#644334", "accent-soft": "rgba(249, 115, 22, 0.15)", "accent-border": "rgba(249, 115, 22, 0.50)", "accent": "#F97316", "accent-strong": "#C2410C", "link": "#C2410C", "user-bubble": "rgba(249, 115, 22, 0.13)"])
+    static let sienna = make(id: "sienna", label: "Sienna", accent: "#A9714B", strong: "#8A5A3B", dots: ["#D2A17E", "#A9714B", "#6B4632"],
+        lightO: ["bg": "#FAF9F5", "sidebar": "#F0EEE6", "surface": "#FFFFFF", "border": "#E7E4DB", "border-strong": "#D7D3C7", "text": "#1F1E1C", "muted": "#6B6A63", "accent": "#D97757", "accent-strong": "#A55237", "accent-soft": "rgba(217,119,87,0.09)", "accent-border": "rgba(217,119,87,0.18)", "code-bg": "#F5F3EC", "code-inline-bg": "rgba(20,19,17,0.06)", "code-text": "#8A3E1A", "input-bg": "rgba(20,19,17,0.035)", "hover-bg": "rgba(20,19,17,0.05)", "link": "#2E6F9E", "user-bubble": "#ECE9DF"],
+        darkO: ["bg": "#1F1E1C", "sidebar": "#262522", "surface": "#2C2B28", "border": "#3A3935", "border-strong": "#4A4843", "text": "#EDEBE3", "muted": "#A3A197", "accent": "#E0896D", "accent-strong": "#E6A88A", "accent-soft": "rgba(224,137,109,0.12)", "accent-border": "rgba(224,137,109,0.22)", "code-bg": "#2A2926", "code-inline-bg": "rgba(255,255,255,0.07)", "code-text": "#F0B593", "input-bg": "rgba(255,255,255,0.045)", "hover-bg": "rgba(255,255,255,0.07)", "link": "#8BB8D6", "user-bubble": "#34322E"])
+    static let catppuccin = make(id: "catppuccin", label: "Catppuccin", accent: "#CBA6F7", strong: "#A480E4", dots: ["#CDD6F4", "#C6A0F6", "#7C6FA8"],
+        lightO: ["bg": "#EFF1F5", "sidebar": "#E6E9EF", "surface": "#FFFFFF", "border": "#CCD0DA", "border-strong": "#BCC0CC", "text": "#4C4F69", "muted": "#7C7F93", "accent": "#8839EF", "accent-strong": "#8839EF", "accent-soft": "rgba(136,57,239,0.09)", "accent-border": "rgba(136,57,239,0.18)", "code-bg": "#E6E9EF", "code-inline-bg": "rgba(30,30,46,0.06)", "code-text": "#8839EF", "input-bg": "rgba(30,30,46,0.035)", "hover-bg": "rgba(30,30,46,0.05)", "link": "#1E66F5", "user-bubble": "#E6E9EF"],
+        darkO: ["bg": "#1E1E2E", "sidebar": "#181825", "surface": "#313244", "border": "#45475A", "border-strong": "#585B70", "text": "#CDD6F4", "muted": "#A6ADC8", "accent": "#CBA6F7", "accent-strong": "#CBA6F7", "accent-soft": "rgba(203,166,247,0.12)", "accent-border": "rgba(203,166,247,0.22)", "code-bg": "#181825", "code-inline-bg": "rgba(255,255,255,0.07)", "code-text": "#CBA6F7", "input-bg": "rgba(255,255,255,0.045)", "hover-bg": "rgba(255,255,255,0.07)", "link": "#89B4FA", "user-bubble": "#313244"])
+    static let hepburn = make(id: "hepburn", label: "Hepburn", accent: "#F278AD", strong: "#C6246A", dots: ["#F472B6", "#F9A8D4", "#FBCFE8"],
+        lightO: ["bg": "#fff3f7", "sidebar": "#fbe4ed", "surface": "#fff9fb", "surface-2": "rgba(242,120,173,0.04)", "border": "#ecc8d5", "border-strong": "rgba(242,120,173,0.18)", "border-subtle": "rgba(242,120,173,0.10)", "text": "#3d1a28", "muted": "#906270", "accent": "#d44a7a", "accent-strong": "#c6246a", "accent-soft": "rgba(242,120,173,0.10)", "accent-border": "rgba(242,120,173,0.20)", "code-bg": "#fbe6ef", "code-inline-bg": "rgba(242,120,173,0.12)", "code-text": "#d44a7a", "input-bg": "rgba(242,120,173,0.06)", "hover-bg": "rgba(242,120,173,0.08)", "danger": "#c0392b", "success": "#3d8b40", "warning": "#e67e22", "link": "#8671e5", "user-bubble": "rgba(242, 120, 173, 0.10)"],
+        darkO: ["bg": "#110a0f", "sidebar": "#1e0f19", "surface": "#241420", "surface-2": "rgba(242,120,173,0.05)", "border": "#311a28", "border-strong": "rgba(242,120,173,0.20)", "border-subtle": "rgba(242,120,173,0.12)", "text": "#f2e4ee", "muted": "#c8a4b8", "accent": "#f278ad", "accent-strong": "#f278ad", "accent-soft": "rgba(242,120,173,0.14)", "accent-border": "rgba(242,120,173,0.25)", "code-bg": "#1e0f19", "code-inline-bg": "rgba(242,120,173,0.22)", "code-text": "#f5a0c5", "input-bg": "rgba(242,120,173,0.08)", "hover-bg": "rgba(242,120,173,0.12)", "danger": "#ff5c5c", "success": "#6cd4a5", "warning": "#f2b370", "link": "#8671e5", "user-bubble": "rgba(242, 120, 173, 0.13)"])
+    static let nous = make(id: "nous", label: "Nous", accent: "#4682B4", strong: "#2C5F88", dots: ["#93C5FD", "#4682B4", "#1E3A8A"],
+        lightO: ["bg": "#FFFFFF", "sidebar": "#F5F5F5", "surface": "#FFFFFF", "surface-2": "rgba(0,0,0,.025)", "border": "#D0D8E0", "border-strong": "rgba(0,0,0,0.15)", "border-subtle": "rgba(0,0,0,.08)", "text": "#1A2A3A", "muted": "#6B7B8B", "accent": "#4682B4", "accent-strong": "#2C5F88", "accent-soft": "rgba(70,130,180,0.06)", "accent-border": "rgba(70,130,180,0.12)", "code-bg": "#F0F2F5", "code-inline-bg": "rgba(70,130,180,.08)", "code-text": "#2C5F88", "input-bg": "rgba(0,0,0,.03)", "hover-bg": "rgba(0,0,0,.05)", "danger": "#C62828", "success": "#3D8B40", "warning": "#E68A00", "link": "#4682B4", "user-bubble": "rgba(70, 130, 180, 0.10)"],
+        darkO: ["bg": "#0A0E14", "sidebar": "#0F1419", "surface": "#111820", "surface-2": "rgba(255,255,255,.025)", "border": "#1E2A3A", "border-strong": "rgba(255,255,255,0.14)", "border-subtle": "rgba(255,255,255,.075)", "text": "#C8D6E5", "muted": "#5A6A7A", "accent": "#4682B4", "accent-strong": "#7EB6E0", "accent-soft": "rgba(70,130,180,0.1)", "accent-border": "rgba(70,130,180,0.2)", "code-bg": "#111820", "code-inline-bg": "rgba(70,130,180,.12)", "code-text": "#7EB6E0", "input-bg": "rgba(255,255,255,.04)", "hover-bg": "rgba(255,255,255,.06)", "danger": "#EF5350", "success": "#4CAF50", "warning": "#FFA726", "link": "#4682B4", "user-bubble": "rgba(70, 130, 180, 0.13)"])
+    static let neonSoft = make(id: "neon-soft", label: "Neon Soft", accent: "#C084FC", strong: "#A855F7", dots: ["#C084FC", "#67E8F9", "#BAE6FD"],
+        lightO: ["bg": "#F8F7FC", "sidebar": "#F0EEF8", "surface": "#FFFFFF", "surface-2": "rgba(147,51,234,.025)", "border": "#D8D4EC", "border-strong": "rgba(0,0,0,0.12)", "border-subtle": "rgba(147,51,234,.08)", "text": "#1E1B2E", "muted": "#6E6888", "accent": "#9333EA", "accent-strong": "#6D28D9", "accent-soft": "rgba(147,51,234,0.06)", "accent-border": "rgba(147,51,234,0.12)", "code-bg": "#F0EDF8", "code-inline-bg": "rgba(147,51,234,.08)", "code-text": "#6D28D9", "input-bg": "rgba(147,51,234,.03)", "hover-bg": "rgba(147,51,234,.05)", "danger": "#DC2626", "success": "#059669", "warning": "#D97706", "link": "#7C3AED", "user-bubble": "rgba(192, 132, 252, 0.10)"],
+        darkO: ["bg": "#181428", "sidebar": "#141024", "surface": "#1c1732", "surface-2": "rgba(179,71,255,.03)", "border": "#2a2448", "border-strong": "rgba(179,71,255,0.15)", "border-subtle": "rgba(179,71,255,.08)", "text": "#e8e6f8", "muted": "#8a85aa", "accent": "#b347ff", "accent-strong": "#c8a0ff", "accent-soft": "rgba(179,71,255,0.10)", "accent-border": "rgba(179,71,255,0.20)", "code-bg": "#121020", "code-inline-bg": "rgba(179,71,255,.10)", "code-text": "#c8c0f0", "input-bg": "rgba(179,71,255,.04)", "hover-bg": "rgba(179,71,255,.06)", "danger": "#ff4466", "success": "#00dd88", "warning": "#ffaa33", "link": "#a78bfa", "user-bubble": "rgba(192, 132, 252, 0.13)"])
+    static let neonPaint = make(id: "neon-paint", label: "Neon Paint", accent: "#EC4899", strong: "#DB2777", dots: ["#EC4899", "#22D3EE", "#FDE047"],
+        lightO: ["bg": "#F5F0FF", "sidebar": "#EDE6F8", "surface": "#FFFFFF", "surface-2": "rgba(255,45,149,.025)", "border": "#D4C8EE", "border-strong": "rgba(0,0,0,0.12)", "border-subtle": "rgba(255,45,149,.08)", "text": "#1A1028", "muted": "#6E5A88", "accent": "#FF2D95", "accent-strong": "#C2185B", "accent-soft": "rgba(255,45,149,0.06)", "accent-border": "rgba(255,45,149,0.12)", "code-bg": "#EDE6F8", "code-inline-bg": "rgba(255,45,149,.08)", "code-text": "#D81B60", "input-bg": "rgba(255,45,149,.03)", "hover-bg": "rgba(255,45,149,.05)", "danger": "#FF1744", "success": "#00E676", "warning": "#FFB300", "link": "#00E5FF", "user-bubble": "rgba(236, 72, 153, 0.10)"],
+        darkO: ["bg": "#0D0A16", "sidebar": "#0A0712", "surface": "#12101e", "surface-2": "rgba(255,45,149,.03)", "border": "#2a1f40", "border-strong": "rgba(255,45,149,0.15)", "border-subtle": "rgba(255,45,149,.08)", "text": "#f0e8ff", "muted": "#9a8ab8", "accent": "#FF2D95", "accent-strong": "#FF80BF", "accent-soft": "rgba(255,45,149,0.10)", "accent-border": "rgba(255,45,149,0.20)", "code-bg": "#080510", "code-inline-bg": "rgba(255,45,149,.12)", "code-text": "#f0c0e8", "input-bg": "rgba(255,45,149,.04)", "hover-bg": "rgba(255,45,149,.06)", "danger": "#FF1744", "success": "#00E676", "warning": "#FFB300", "link": "#00E5FF", "user-bubble": "rgba(236, 72, 153, 0.13)"])
+    static let geistContrast = make(id: "geist-contrast", label: "Geist Contrast", accent: "#FFF175", strong: "#E5D95B", dots: ["#000000", "#FFFFFF", "#FFF175"],
+        lightO: ["bg": "#ffffff", "sidebar": "#fafafa", "surface": "#ffffff", "surface-2": "#fafafa", "border": "#eaeaea", "border-strong": "#d4d4d4", "border-subtle": "#ededed", "text": "#111111", "muted": "#666666", "accent": "#0070f3", "accent-strong": "#005bd1", "accent-soft": "rgba(0,112,243,.075)", "accent-border": "rgba(0,112,243,.16)", "code-bg": "#fafafa", "code-inline-bg": "#f5f5f5", "code-text": "#111111", "input-bg": "#ffffff", "hover-bg": "#f5f5f5", "danger": "#e5484d", "success": "#007a45", "warning": "#b45309", "link": "#0070f3", "user-bubble": "rgba(255, 241, 117, 0.10)"],
+        darkO: ["bg": "#000000", "sidebar": "#050505", "surface": "#0a0a0a", "surface-2": "#111111", "border": "#262626", "border-strong": "#3f3f3f", "border-subtle": "#171717", "text": "#ededed", "muted": "#a1a1a1", "accent": "#FFF175", "accent-strong": "#f5e65f", "accent-soft": "rgba(255,241,117,.075)", "accent-border": "rgba(255,241,117,.14)", "code-bg": "#0a0a0a", "code-inline-bg": "#171717", "code-text": "#f5f5f5", "input-bg": "#0a0a0a", "hover-bg": "#111111", "danger": "#ff6369", "success": "#3dd68c", "warning": "#f5a524", "link": "#FFF175", "user-bubble": "rgba(255, 241, 117, 0.13)"])
+    static let zeus = make(id: "zeus", label: "Zeus", accent: "#E5B75D", strong: "#C9A227", dots: ["#E5B75D", "#C9A227", "#365314"],
+        lightO: ["bg": "#F6F3EE", "surface": "#FEFBF7", "surface-2": "#EEE9E4", "sidebar": "#F1EEEC", "border": "#E2DCD5", "border-strong": "#D3CCC4", "scroll-thumb": "#D8CDBC", "accent-soft": "rgba(229, 183, 93, 0.10)", "accent-border": "rgba(229, 183, 93, 0.45)", "accent": "#E5B75D", "link": "#C9A227", "user-bubble": "rgba(229, 183, 93, 0.10)"],
+        darkO: ["bg": "#0F0F0F", "sidebar": "#111111", "surface": "#181818", "surface-2": "rgba(255,255,255,.03)", "border": "#2A2A1E", "border-strong": "rgba(255,215,0,0.18)", "border-subtle": "rgba(255,215,0,.08)", "code-bg": "#181818", "input-bg": "rgba(255,255,255,.04)", "hover-bg": "rgba(255,215,0,.06)", "accent-soft": "rgba(229, 183, 93, 0.15)", "accent-border": "rgba(229, 183, 93, 0.50)", "accent": "#E5B75D", "accent-strong": "#C9A227", "link": "#C9A227", "user-bubble": "rgba(229, 183, 93, 0.13)"])
+    static let verdigris = make(id: "verdigris", label: "Verdigris", accent: "#2F5D50", strong: "#24493F", dots: ["#C0A080", "#2F5D50", "#3A3A42"],
+        lightO: ["bg": "#E9ECED", "surface": "#F5F7F6", "surface-2": "#DCE0E3", "sidebar": "#E6E9EB", "border": "#C9CFD3", "border-strong": "#B6BEC2", "scroll-thumb": "#ABB6B9", "accent-soft": "rgba(47, 93, 80, 0.10)", "accent-border": "rgba(47, 93, 80, 0.45)", "accent": "#2F5D50", "link": "#24493F", "user-bubble": "rgba(47, 93, 80, 0.10)"],
+        darkO: ["bg": "#0F1714", "sidebar": "#121D18", "surface": "#16211C", "surface-2": "rgba(255,255,255,.02)", "border": "#22342C", "border-strong": "rgba(200,154,90,0.10)", "border-subtle": "rgba(255,255,255,.06)", "text": "#F3ECDD", "muted": "#A8B4A5", "accent": "#C89A5A", "accent-strong": "#E4C28D", "accent-soft": "rgba(47, 93, 80, 0.15)", "accent-border": "rgba(47, 93, 80, 0.50)", "code-bg": "#111B17", "code-inline-bg": "rgba(200,154,90,.08)", "code-text": "#D6AE74", "input-bg": "rgba(255,255,255,.025)", "hover-bg": "rgba(255,255,255,.045)", "danger": "#D26A6A", "success": "#719A68", "warning": "#D1A45C", "link": "#C89A5A", "user-bubble": "rgba(47, 93, 80, 0.13)"])
+    static let gruvbox = make(id: "gruvbox", label: "Gruvbox", accent: "#D79921", strong: "#B07E15", dots: ["#D79921", "#FE8019", "#B8BB26"],
+        lightO: ["bg": "#FBF1C7", "sidebar": "#F2E5BC", "surface": "#FFFDF5", "surface-2": "#EBDBB2", "border": "#D5C4A1", "border-strong": "#BDAE8B", "text": "#3C3836", "muted": "#7C6F64", "scroll-thumb": "#D5C4A1", "accent": "#D79921", "accent-strong": "#B07E15", "accent-soft": "rgba(215, 153, 33, 0.10)", "accent-border": "rgba(215, 153, 33, 0.45)", "link": "#B07E15", "user-bubble": "rgba(215, 153, 33, 0.10)"],
+        darkO: ["bg": "#282828", "sidebar": "#32302F", "surface": "#3C3836", "surface-2": "#45403D", "border": "#504945", "border-strong": "#665C54", "text": "#EBDBB2", "muted": "#A89984", "scroll-thumb": "#504945", "accent": "#D79921", "accent-strong": "#B07E15", "accent-soft": "rgba(215, 153, 33, 0.15)", "accent-border": "rgba(215, 153, 33, 0.50)", "link": "#B07E15", "user-bubble": "rgba(215, 153, 33, 0.15)"])
+    static let oneDark = make(id: "one-dark", label: "One Dark", accent: "#61AFEF", strong: "#4A93CC", dots: ["#61AFEF", "#C678DD", "#98C379"],
+        lightO: ["bg": "#ECF2F8", "surface": "#F7FBFE", "surface-2": "#E1E9F3", "sidebar": "#E9EEF5", "border": "#D0DBE9", "border-strong": "#BECBDC", "scroll-thumb": "#B7CBE1", "accent-soft": "rgba(97, 175, 239, 0.10)", "accent-border": "rgba(97, 175, 239, 0.45)", "accent": "#61AFEF", "link": "#4A93CC", "user-bubble": "rgba(97, 175, 239, 0.10)"],
+        darkO: ["bg": "#181E27", "surface": "#1E222C", "surface-2": "#293140", "sidebar": "#1B202A", "border": "#333E50", "border-strong": "#404D61", "scroll-thumb": "#3E526A", "accent-soft": "rgba(97, 175, 239, 0.15)", "accent-border": "rgba(97, 175, 239, 0.50)", "accent": "#61AFEF", "accent-strong": "#4A93CC", "link": "#4A93CC", "user-bubble": "rgba(97, 175, 239, 0.13)"])
+    static let tokyoNight = make(id: "tokyo-night", label: "Tokyo Night", accent: "#7AA2F7", strong: "#5E88E8", dots: ["#7AA2F7", "#BB9AF7", "#9ECE6A"],
+        lightO: ["bg": "#EEF1F9", "surface": "#F8FAFF", "surface-2": "#E3E7F3", "sidebar": "#EBEDF5", "border": "#D3D9EA", "border-strong": "#C2C9DD", "scroll-thumb": "#BEC8E3", "accent-soft": "rgba(122, 162, 247, 0.10)", "accent-border": "rgba(122, 162, 247, 0.45)", "accent": "#7AA2F7", "link": "#5E88E8", "user-bubble": "rgba(122, 162, 247, 0.10)"],
+        darkO: ["bg": "#1A1D28", "surface": "#20222D", "surface-2": "#2C3040", "sidebar": "#1D1F2A", "border": "#373D51", "border-strong": "#444B62", "scroll-thumb": "#454F6C", "accent-soft": "rgba(122, 162, 247, 0.15)", "accent-border": "rgba(122, 162, 247, 0.50)", "accent": "#7AA2F7", "accent-strong": "#5E88E8", "link": "#5E88E8", "user-bubble": "rgba(122, 162, 247, 0.13)"])
+    static let solarizedDark = make(id: "solarized-dark", label: "Solarized Dark", accent: "#268BD2", strong: "#1B6FA8", dots: ["#268BD2", "#2AA198", "#859900"],
+        lightO: ["bg": "#E8EFF6", "surface": "#F4F9FD", "surface-2": "#DBE5F0", "sidebar": "#E6ECF3", "border": "#C8D6E5", "border-strong": "#B5C5D7", "scroll-thumb": "#A8C2DA", "accent-soft": "rgba(38, 139, 210, 0.10)", "accent-border": "rgba(38, 139, 210, 0.45)", "accent": "#268BD2", "link": "#1B6FA8", "user-bubble": "rgba(38, 139, 210, 0.10)"],
+        darkO: ["bg": "#141B25", "surface": "#1C212B", "surface-2": "#232D3D", "sidebar": "#181E28", "border": "#2B394C", "border-strong": "#37475C", "scroll-thumb": "#304963", "accent-soft": "rgba(38, 139, 210, 0.15)", "accent-border": "rgba(38, 139, 210, 0.50)", "accent": "#268BD2", "accent-strong": "#1B6FA8", "link": "#1B6FA8", "user-bubble": "rgba(38, 139, 210, 0.13)"])}
 
 enum ThemeSize: String, CaseIterable {
     case sm = "sm"
@@ -781,7 +811,59 @@ static let css: String = """
       color: var(--muted); padding: 7px 12px 3px;
     }
     .chat-menu button.menu-sel { color: var(--accent-strong); }
+    /* "Move to Category" panel (swaps the chat-menu item list) */
+    .catmenu-head { width: 100%; display: flex; align-items: center; justify-content: space-between; }
+    .menu-arrow { display: inline-flex; color: var(--muted); }
+    .chat-menu-panel { display: flex; flex-direction: column; padding: 4px; }
+    .chat-menu-panel[hidden] { display: none; }
+    .cat-panel-head {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 8px 6px; border-bottom: 1px solid var(--border-subtle);
+      margin-bottom: 4px;
+    }
+    .cat-panel-title {
+      font-size: 0.72em; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.05em; color: var(--muted);
+    }
+    .cat-panel-back {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 22px; height: 22px; border-radius: 6px;
+      background: transparent; border: none; color: var(--muted);
+      cursor: pointer; padding: 0;
+    }
+    .cat-panel-back:hover { background: var(--surface-2); color: var(--text); }
+    .cat-panel-list { display: flex; flex-direction: column; }
+    .chat-menu-panel button {
+      width: 100%; text-align: left;
+      display: flex; align-items: center; gap: 7px;
+    }
+    .chat-menu-panel button.menu-sel { color: var(--accent-strong); }
     .chat-menu button > .cat-dot + span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ─── Skill metadata box (editor only, Hermes look) ───────── */
+    .skill-meta-box {
+      margin: 10px 0 14px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .skill-meta-head {
+      padding: 6px 12px;
+      font-size: 0.68em; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--muted);
+      background: var(--surface);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .skill-meta-pre {
+      margin: 0; padding: 10px 12px;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.78em; line-height: 1.55;
+      color: var(--text);
+      overflow-x: auto;
+      white-space: pre-wrap; word-break: break-word;
+    }
 
     /* ─── Skill rows / toggles ────────────────────────────────── */
     .skill-row {
@@ -1194,12 +1276,90 @@ static let css: String = """
       font-size: 11px; color: var(--muted); opacity: .7;
       font-variant-numeric: tabular-nums;
     }
-    .steer-tag {
-      display: inline-block; margin-left: 6px; padding: 0 6px;
-      border-radius: 999px; font-size: 9.5px; font-weight: 600;
-      letter-spacing: .04em; text-transform: uppercase;
-      color: var(--accent); border: 1px solid var(--accent);
-      vertical-align: 1px;
+    /* ── Conversation outline (Hermes #2124 parity) ───────────── */
+    #outline-toggle {
+      position: absolute; bottom: 60px; right: 20px; z-index: 12;
+      width: 38px; height: 38px; border-radius: 50%;
+      background: var(--surface); border: 1px solid var(--border-strong);
+      color: var(--text); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+      font-size: 16px; line-height: 1;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+    #outline-toggle:hover {
+      background: var(--accent-soft);
+      border-color: var(--accent-border);
+      color: var(--accent-strong);
+    }
+    #outline-panel {
+      position: fixed; right: 20px; bottom: 170px;
+      width: 320px; max-height: 50vh; z-index: 9998;
+      background: var(--surface); border: 1px solid var(--border-strong);
+      border-radius: 10px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #outline-panel[hidden] { display: none; }
+    .outline-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 12px 8px;
+      border-bottom: 1px solid var(--border-strong);
+      font-size: 12px; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0;
+    }
+    .outline-close-btn {
+      background: none; border: none; cursor: pointer;
+      color: var(--muted); font-size: 16px; line-height: 1; padding: 0 2px;
+    }
+    .outline-close-btn:hover { color: var(--text); }
+    .outline-entries { overflow-y: auto; flex: 1; }
+    .outline-entry {
+      display: flex; align-items: baseline; gap: 8px;
+      width: 100%; padding: 7px 12px;
+      background: none; border: none;
+      border-bottom: 1px solid var(--border-subtle);
+      cursor: pointer; text-align: left; color: var(--text);
+      transition: background 0.12s ease;
+    }
+    .outline-entry:last-child { border-bottom: none; }
+    .outline-entry:hover { background: var(--accent-soft); }
+    .outline-entry-num {
+      font-size: 11px; font-weight: 600; color: var(--muted);
+      min-width: 18px; flex-shrink: 0;
+    }
+    .outline-entry-text {
+      font-size: 13px; line-height: 1.4; word-break: break-word;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .outline-empty {
+      padding: 16px 12px; font-size: 13px; color: var(--muted); text-align: center;
+    }
+    @keyframes outline-flash {
+      0% { background: var(--accent-border); }
+      100% { background: transparent; }
+    }
+    .outline-jump-flash { animation: outline-flash 1.2s ease-out forwards; }
+
+    /* Steer indicator: transient banner below messages (Hermes parity).
+       Badge + italic steer body, accent-tinted. */
+    .steer-indicator {
+      display: flex; align-items: baseline; gap: 8px;
+      padding: 10px 0; opacity: 0.65;
+      font-style: italic; color: var(--accent-strong);
+    }
+    .steer-indicator .steer-body {
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .steer-badge {
+      display: inline-block;
+      font-size: 10px; font-weight: 600;
+      letter-spacing: 0.04em; text-transform: uppercase;
+      color: var(--accent-strong);
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-border);
+      border-radius: 4px; padding: 1px 6px;
+      vertical-align: middle; line-height: 1.6;
+      font-style: normal; flex-shrink: 0;
     }
     .msg-foot-inline { margin-top: 6px; }
 
@@ -1780,6 +1940,18 @@ static let css: String = """
     }
     .queue-loop-count-input:focus { outline: none; border-color: var(--accent); }
 
+    .queue-stop-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: transparent;
+      border: 1px solid var(--danger);
+      color: var(--danger);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .queue-stop-btn:hover { background: var(--danger-soft); }
     .queue-running {
       display: inline-flex; align-items: center; gap: 7px;
       color: var(--accent);

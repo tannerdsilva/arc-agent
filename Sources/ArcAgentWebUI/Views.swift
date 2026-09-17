@@ -469,7 +469,7 @@ extension AppState {
         // right of "Set category" (Hermes parity), keeping category option
         // button ids so the existing chat-menu wire handles them unchanged.
         let noneCls = catID == nil ? " menu-sel" : ""
-        var catSub = "<button type=\"button\" id=\"sm-uncat-\(encID)\" data-component-id=\"chat-menu\" class=\"" + noneCls.trimmingCharacters(in: .whitespaces) + ">No category" + (catID == nil ? " " + svgIcon("check", 12) : "") + "</button>"
+        var catSub = "<button type=\"button\" id=\"sm-uncat-\(encID)\" data-component-id=\"chat-menu\" class=\"" + noneCls.trimmingCharacters(in: .whitespaces) + "\">No Project" + (catID == nil ? " " + svgIcon("check", 12) : "") + "</button>"
         for c in settings.chatCategories {
             let sel = c.id == catID ? " menu-sel" : ""
             let check = c.id == catID ? " " + svgIcon("check", 12) : ""
@@ -479,11 +479,22 @@ extension AppState {
             </button>
             """
         }
-        let catOpts = """
-        <div class="menu-item has-sub">
-          <div class="menu-item-head cat-set-head" tabindex="0" role="menuitem" aria-haspopup="true"><span>Set category</span><span class="menu-arrow">\(svgIcon("chevron-right", 12))</span></div>
-          <div class="menu-sub cat-sub">\(catSub)</div>
+        // "Move to Category" swaps this menu's items for a category panel
+        // (client-side panel swap; the category buttons keep their wire ids).
+        let catPanel = """
+        <div class="chat-menu-panel" id="catpanel-\(encID)" hidden>
+          <div class="cat-panel-head">
+            <button type="button" id="sm-catback-\(encID)" data-component-id="chat-menu" class="cat-panel-back" title="Back">\(svgIcon("chevron-left", 11))</button>
+            <span class="cat-panel-title">Move to Category</span>
+          </div>
+          <div class="cat-panel-list">\(catSub)</div>
         </div>
+        """
+        let catOpts = """
+        <button type="button" id="sm-catmenu-\(encID)" data-component-id="chat-menu" class="menu-item-head catmenu-head">
+          <span>Move to Category</span><span class="menu-arrow">\(svgIcon("chevron-right", 12))</span>
+        </button>
+        \(catPanel)
         """
         let rowDotContent: String
         if activeTurns[s.id] != nil {
@@ -496,6 +507,7 @@ extension AppState {
           <div class="menu-left">\(catDot)</div>
           <button type="button" id="s-menu-\(encID)" data-component-id="sess-list" class="menu-dots" title="Chat actions">\(rowDotContent)</button>
           <div class="chat-menu" id="menu-\(encID)">
+            <div class="chat-menu-items">
             <button type="button" id="sm-copy-\(encID)" data-component-id="chat-menu" data-sid="\(s.id)">Copy conversation link</button>
             <button type="button" id="sm-rename-\(encID)" data-component-id="chat-menu" data-sid="\(s.id)">Rename conversation</button>
             <button type="button" id="sm-pin-\(encID)" data-component-id="chat-menu" data-sid="\(s.id)">\(pinLabel)</button>
@@ -503,6 +515,7 @@ extension AppState {
             \(catOpts)
             <button type="button" id="sm-dup-\(encID)" data-component-id="chat-menu" data-sid="\(s.id)">Duplicate conversation</button>
             <button type="button" id="sm-del-\(encID)" data-component-id="chat-menu" class="danger" data-sid="\(s.id)">Delete conversation</button>
+            </div>
           </div>
         </div>
         """
@@ -791,10 +804,34 @@ extension AppState {
             </div>
           </div>
           \(scrollBtn)
+          \(outlineToggleHTML)
+          \(outlinePanelHTML)
         </div>
         """
         let composer = composerHTML()
         return header + scroll + composer
+    }
+
+    /// Floating "Conversation outline" button (Hermes #2124 parity); hidden
+    /// entirely when the appearance setting is off.
+    var outlineToggleHTML: String {
+        guard settings.showConversationOutline else { return "" }
+        return "<button type=\"button\" id=\"outline-toggle\" class=\"outline-toggle-btn\" title=\"Conversation outline\" aria-label=\"Toggle conversation outline\">&#9776;</button>"
+    }
+
+    /// The outline panel itself (server-rendered shell; the JS fills entries
+    /// from the rendered user message anchors and handles jumps).
+    var outlinePanelHTML: String {
+        guard settings.showConversationOutline else { return "" }
+        return """
+        <div id="outline-panel" role="navigation" aria-label="Conversation outline" hidden>
+          <div class="outline-header">
+            <span>Outline</span>
+            <button type="button" id="outline-close" class="outline-close-btn" title="Close outline" aria-label="Close outline">&#215;</button>
+          </div>
+          <div id="outline-entries" class="outline-entries"></div>
+        </div>
+        """
     }
 
     func messagesHTML(_ messages: [Message]) -> String {
@@ -803,7 +840,7 @@ extension AppState {
         let mode = settings.activityDisplay
         while i < messages.count {
             if messages[i].role == .user {
-                html.append(messageHTML(messages[i]))
+                html.append(messageHTML(messages[i], rawIdx: i))
                 i += 1
                 continue
             }
@@ -825,15 +862,14 @@ extension AppState {
         }
         // Live turn + steer bubble belong to their owning session only.
         if let live = activeTurns[activeSessionID ?? ""] {
-            // A pending steer renders as a user bubble that visually splits the
-            // live run (Hermes parity), without being persisted as a message.
+            // A pending steer renders as a Hermes-style steer indicator: a
+            // transient italic banner with the uppercase STEER badge, below
+            // the messages (never persisted as a message).
             if let steer = live.steerText, !steer.isEmpty {
                 html.append("""
-                <div class="msg user">
-                  <div style="max-width:100%;width:100%">
-                    <div class="msg-meta">You <span class="steer-tag">steer</span></div>
-                    <div class="msg-body user-bubble">\(esc(steer))</div>
-                  </div>
+                <div class="steer-indicator">
+                  <span class="steer-badge">Steer</span>
+                  <span class="steer-body">\(esc(steer))</span>
                 </div>
                 """)
             }
@@ -1048,14 +1084,15 @@ extension AppState {
         return "<details class=\"tool-card\"><summary>" + svgIcon("tools", 13) + "<span class=\"tc-name\">" + esc(c.function.name) + "</span><span class=\"tc-arg\">" + esc(preview) + "</span></summary><div class=\"tc-detail\"><div class=\"tc-label\">Arguments</div><pre class=\"tc-block\">" + esc(args) + "</pre><div class=\"tc-label\">Result</div><pre class=\"tc-block\">" + resultText + "</pre></div></details>"
     }
 
-    func messageHTML(_ m: Message) -> String {
+    func messageHTML(_ m: Message, rawIdx: Int = -1) -> String {
         switch m.role {
         case .user:
             // Slash-command rewrites (skill invocation scaffolding) keep the
             // typed line as the display text; the model sees `content`.
             let content = m.displayText ?? m.content ?? ""
+            let anchor = rawIdx >= 0 ? " id=\"msg-user-\(rawIdx)\"" : ""
             return """
-            <div class="msg user">
+            <div class="msg user"\(anchor)>
               <div class="msg-body user-bubble">\(mdBox(content))</div>
             </div>
             """
@@ -1692,6 +1729,24 @@ extension AppState {
 
     // MARK: Skills main
 
+    /// The markdown body of a skill file with its YAML frontmatter stripped
+    /// (the metadata is for the editor, not the reader — Hermes parity).
+    func skillBodyOnly(_ content: String) -> String {
+        guard let fm = skillFrontmatterRange(content) else { return content }
+        let lines = content.components(separatedBy: .newlines)
+        return lines[fm.upperBound...].joined(separator: "\n")
+    }
+
+    /// The raw YAML frontmatter block between the `---` fences, if present.
+    func skillFrontmatterRange(_ content: String) -> Range<Int>? {
+        let lines = content.components(separatedBy: .newlines)
+        guard lines.first?.trimmingCharacters(in: .whitespaces) == "---" else { return nil }
+        for i in 1..<lines.count where lines[i].trimmingCharacters(in: .whitespaces) == "---" {
+            return 1..<i
+        }
+        return nil
+    }
+
     func skillsMain() -> String {
         if createSkill {
             return skillCreateForm()
@@ -1705,7 +1760,7 @@ extension AppState {
             </div>
             """
         }
-        let body = mdBox(skill.content.isEmpty ? skill.description : skill.content)
+        let body = mdBox(skillBodyOnly(skill.content).isEmpty ? skill.description : skillBodyOnly(skill.content))
         if skillEdit {
             return skillEditForm(skill)
         }
@@ -1737,6 +1792,7 @@ extension AppState {
           <form id="sk-edit-form" data-component-id="sk-edit-form" class="detail-card" style="max-width:720px">
             <h1 class="detail-title">Edit skill</h1>
             <div class="detail-sub">Editing \(esc(skill.name)) — saves back to \(esc(skill.path.path))</div>
+            \(skillMetadataHTML(skill))
             <input type="hidden" name="sk-orig" value="\(esc(skill.name))">
             <div class="form-grid">
               <div><label for="sk-edit-name-input">Name</label><input id="sk-edit-name-input" name="sk-edit-name-input" data-component-id="sk-edit-name-input" data-event="input" value="\(esc(nameV))"></div>
@@ -1751,6 +1807,20 @@ extension AppState {
             </div>
           </form>
         </div></div>
+        """
+    }
+
+    /// Hermes metadata box: a rounded monospace panel with the raw YAML
+    /// frontmatter. Shown only in the skill EDITOR (never in the reader).
+    func skillMetadataHTML(_ skill: Skill) -> String {
+        let lines = skill.content.components(separatedBy: .newlines)
+        guard let r = skillFrontmatterRange(skill.content) else { return "" }
+        let block = lines[r].joined(separator: "\n")
+        return """
+        <div class="skill-meta-box">
+          <div class="skill-meta-head">Metadata</div>
+          <pre class="skill-meta-pre">\(esc(block))</pre>
+        </div>
         """
     }
 
@@ -2250,6 +2320,13 @@ extension AppState {
                   <div class="set-label">Color scheme<small>Full palette for the interface.</small></div>
                   <div class="scheme-grid">\(swatches)</div>
                 </div>
+                  <div class="set-row">
+                    <div class="set-label">Show conversation outline<small>Adds a floating button to the chat view that lists your sent messages; clicking one jumps to it.</small></div>
+                    <label class="switch">
+                      <input type="checkbox" id="set-showoutline" data-component-id="set-showoutline" data-event="change" data-no-restore \(settings.showConversationOutline ? "checked" : "")>
+                      <span class="track"></span><span class="knob"></span>
+                    </label>
+                  </div>
                   <div class="set-row">
                     <div class="set-label">Activity display<small>How thinking and tool activity appear in chats.</small></div>
                     <div class="bubble-opts">\(actOpts)</div>
