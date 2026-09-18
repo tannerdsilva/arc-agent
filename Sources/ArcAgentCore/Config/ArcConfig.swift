@@ -39,6 +39,13 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// Agent behavior configuration.
     public var agent: AgentConfig
 
+    /// Legacy root-level tool-iteration limit (Hermes `max_turns` in flat
+    /// configs). `agent.max_turns` takes precedence; `0`/negative = unlimited.
+    public var max_turns: Int?
+
+    /// Guardrail loop limits (Hermes tool-loop caps).
+    public var guardrails: GuardrailsConfig
+
     /// Terminal tool configuration.
     public var terminal: TerminalConfig
 
@@ -85,6 +92,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     public init(
         model: ModelConfig = ModelConfig(),
         agent: AgentConfig = AgentConfig(),
+        max_turns: Int? = nil,
+        guardrails: GuardrailsConfig = GuardrailsConfig(),
         terminal: TerminalConfig = TerminalConfig(),
         delegation: DelegationConfig = DelegationConfig(),
         memory: MemoryConfig = MemoryConfig(),
@@ -98,6 +107,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     ) {
         self.model = model
         self.agent = agent
+        self.max_turns = max_turns
+        self.guardrails = guardrails
         self.terminal = terminal
         self.delegation = delegation
         self.memory = memory
@@ -115,6 +126,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.model = try container.decodeIfPresent(ModelConfig.self, forKey: .model) ?? ModelConfig()
         self.agent = try container.decodeIfPresent(AgentConfig.self, forKey: .agent) ?? AgentConfig()
+        self.max_turns = try container.decodeIfPresent(Int.self, forKey: .max_turns)
+        self.guardrails = try container.decodeIfPresent(GuardrailsConfig.self, forKey: .guardrails) ?? GuardrailsConfig()
         self.terminal = try container.decodeIfPresent(TerminalConfig.self, forKey: .terminal) ?? TerminalConfig()
         self.delegation = try container.decodeIfPresent(DelegationConfig.self, forKey: .delegation) ?? DelegationConfig()
         self.memory = try container.decodeIfPresent(MemoryConfig.self, forKey: .memory) ?? MemoryConfig()
@@ -187,10 +200,39 @@ public struct ModelConfig: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - Effective limits (Hermes `max_turns` precedence)
+
+extension ArcConfig {
+
+    /// Effective tool-iteration budget. Precedence (Hermes `api/streaming.py`):
+    /// `agent.max_turns` → legacy root `max_turns` → `agent.maxIterations` →
+    /// 90 (Hermes `AIAgent` default). A value of 0 or negative means
+    /// **unlimited** — the agent runs until the prompt finishes.
+    public func effectiveMaxTurns() -> Int {
+        if let n = agent.max_turns ?? max_turns {
+            return n > 0 ? n : Int.max
+        }
+        return agent.maxIterations > 0 ? agent.maxIterations : Int.max
+    }
+
+    /// Effective per-tool call cap: `guardrails.toolLoopCap` when present and
+    /// positive; `Int.max` (unlimited) when 0/negative; otherwise arc's
+    /// default loop cap (25).
+    public func effectiveToolLoopCap() -> Int {
+        guard let cap = guardrails.toolLoopCap else {
+            return ToolGuardrails.defaultLoopCap
+        }
+        return cap > 0 ? cap : Int.max
+    }
+}
+
 /// Agent behavior configuration.
 public struct AgentConfig: Codable, Sendable, Equatable {
     /// Maximum iterations per conversation.
     public var maxIterations: Int
+    /// Hermes `agent.max_turns` — tool-iteration budget override. Takes
+    /// precedence over `maxIterations`; `0`/negative = unlimited.
+    public var max_turns: Int?
     /// Whether to persist sessions.
     public var persistSessions: Bool
     /// Whether to load skills on startup.
@@ -211,6 +253,7 @@ public struct AgentConfig: Codable, Sendable, Equatable {
 
     public init(
         maxIterations: Int = 25,
+        max_turns: Int? = nil,
         persistSessions: Bool = true,
         loadSkills: Bool = true,
         reasoningEffort: String? = nil,
@@ -219,6 +262,7 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         microCompactDefragThresholdTokens: Int = 2000
     ) {
         self.maxIterations = maxIterations
+        self.max_turns = max_turns
         self.persistSessions = persistSessions
         self.loadSkills = loadSkills
         self.reasoningEffort = reasoningEffort
@@ -231,12 +275,30 @@ public struct AgentConfig: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.maxIterations = try container.decodeIfPresent(Int.self, forKey: .maxIterations) ?? AgentConfig().maxIterations
+        self.max_turns = try container.decodeIfPresent(Int.self, forKey: .max_turns)
         self.persistSessions = try container.decodeIfPresent(Bool.self, forKey: .persistSessions) ?? AgentConfig().persistSessions
         self.loadSkills = try container.decodeIfPresent(Bool.self, forKey: .loadSkills) ?? AgentConfig().loadSkills
         self.reasoningEffort = try container.decodeIfPresent(String.self, forKey: .reasoningEffort)
         self.microCompactEnabled = try container.decodeIfPresent(Bool.self, forKey: .microCompactEnabled) ?? AgentConfig().microCompactEnabled
         self.microCompactEveryNTurns = try container.decodeIfPresent(Int.self, forKey: .microCompactEveryNTurns) ?? AgentConfig().microCompactEveryNTurns
         self.microCompactDefragThresholdTokens = try container.decodeIfPresent(Int.self, forKey: .microCompactDefragThresholdTokens) ?? AgentConfig().microCompactDefragThresholdTokens
+    }
+}
+
+/// Guardrail loop limits (`guardrails` block).
+public struct GuardrailsConfig: Codable, Sendable, Equatable {
+    /// Per-tool call cap before synthetic results (arc's default loop cap is
+    /// 25). `0`/negative = unlimited (no synthetic limit for any tool).
+    public var toolLoopCap: Int?
+
+    public init(toolLoopCap: Int? = nil) {
+        self.toolLoopCap = toolLoopCap
+    }
+
+    /// Decode each field independently, defaulting any that are absent.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.toolLoopCap = try container.decodeIfPresent(Int.self, forKey: .toolLoopCap)
     }
 }
 

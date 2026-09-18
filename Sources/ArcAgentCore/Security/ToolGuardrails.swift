@@ -21,12 +21,17 @@ public actor ToolGuardrails {
         public var perToolCaps: [String: Int]
         public var maxWebSearches: Int
         public var maxSubagentSpawns: Int
+        /// Override for the default per-tool loop cap. nil = use
+        /// ``ToolGuardrails/defaultLoopCap`` (25); 0/negative = unlimited.
+        public var loopCap: Int?
         public init(perToolCaps: [String: Int] = [:],
                     maxWebSearches: Int = ToolGuardrails.maxWebSearchesPerTurn,
-                    maxSubagentSpawns: Int = ToolGuardrails.maxSubagentSpawnsPerTurn) {
+                    maxSubagentSpawns: Int = ToolGuardrails.maxSubagentSpawnsPerTurn,
+                    loopCap: Int? = nil) {
             self.perToolCaps = perToolCaps
             self.maxWebSearches = maxWebSearches
             self.maxSubagentSpawns = maxSubagentSpawns
+            self.loopCap = loopCap
         }
     }
 
@@ -80,17 +85,20 @@ public actor ToolGuardrails {
         counts[toolName, default: 0] += 1
         let n = counts[toolName] ?? 0
 
-        let cap = limits.perToolCaps[toolName] ?? ToolGuardrails.defaultLoopCap
+        let configuredCap = limits.loopCap ?? limits.perToolCaps[toolName] ?? ToolGuardrails.defaultLoopCap
+        let cap = configuredCap > 0 ? configuredCap : Int.max
         if n > cap {
             return .synthetic("Tool call limit reached for \(toolName) after \(n) calls (cap \(cap)). Do not repeat this same call again; try a different approach or ask the user.")
         }
 
         // Repeat detection: the same canonical call more than twice in a turn
-        // is almost always a loop — synthetic result + guidance.
+        // is almost always a loop — synthetic result + guidance. With an
+        // unlimited cap, keep a floor so infinite loops are still caught.
         let sig = ToolSignature(tool: toolName, canonicalArgs: ToolGuardrails.canonicalArgs(args))
         signatures[sig, default: 0] += 1
         let repeats = signatures[sig] ?? 0
-        if repeats > max(2, cap / 3) {
+        let repeatLimit = configuredCap > 0 ? max(2, cap / 3) : max(3, 10)
+        if repeats > repeatLimit {
             return .synthetic("Repeated identical call to \(toolName) detected (\(repeats)x). The result will not change. Reconsider your approach or gather new information first.")
         }
 

@@ -2176,6 +2176,56 @@ extension AppState {
     /// ~/.arc/config.json; the running agent picks them up on next start and
     /// the dedicated tools (skill_creation / skill_edit / profile_edit) refuse
     /// locked surfaces.
+
+    /// Settings: editable tool-iteration limit and per-tool call cap
+    /// (`agent.max_turns` + `guardrails.toolLoopCap`, Hermes parity). Values
+    /// of 0/negative mean unlimited; the UI writes -1 for that state.
+    func agentLimitsSection() -> String {
+        let rawMax: Int? = arcConfig.agent.max_turns ?? arcConfig.max_turns
+        let maxUnlimited = (rawMax ?? 1) <= 0
+        let effMax = arcConfig.effectiveMaxTurns()
+        let maxValue = effMax == Int.max ? 90 : effMax
+        let rawLoop: Int? = arcConfig.guardrails.toolLoopCap
+        let loopUnlimited = (rawLoop ?? 1) <= 0
+        let effLoop = arcConfig.effectiveToolLoopCap()
+        let loopValue = effLoop == Int.max ? 25 : effLoop
+        func sw(_ id: String, _ on: Bool) -> String {
+            "<label class=\"switch\"><input type=\"checkbox\" id=\"\(id)\" data-no-restore \(on ? "checked" : "")><span class=\"track\"></span><span class=\"knob\"></span></label>"
+        }
+        let numStyle = "width:96px;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:13px"
+        return """
+        <section class="set-section" id="agent-limits">
+          <h2>Agent limits</h2>
+          <div class="detail-card">
+            <div class="set-row">
+              <div class="set-label">Tool iteration limit<small>Tool-calling iterations allowed per turn before the agent is asked to wrap up (Hermes max_turns, default 90).</small></div>
+              <div id="al-max-turns-wrap" data-component-id="al-max-turns" data-event="change">
+                <input type="number" id="al-max-turns" min="1" step="1" value="\(maxValue)" \(maxUnlimited ? "disabled" : "") style="\(numStyle)">
+              </div>
+            </div>
+            <div class="set-row">
+              <div class="set-label">Unlimited tool iterations<small>No iteration cap: the turn keeps running until the agent finishes the prompt on its own.</small></div>
+              <div id="al-max-turns-unl-wrap" data-component-id="al-max-turns-unlimited" data-event="change">
+                \(sw("al-max-turns-unlimited", maxUnlimited))
+              </div>
+            </div>
+            <div class="set-row" style="margin-top:14px">
+              <div class="set-label">Per-tool call cap<small>How many times one tool may run per turn before a synthetic "N calls (cap N)" reply (default 25).</small></div>
+              <div id="al-tool-cap-wrap" data-component-id="al-tool-cap" data-event="change">
+                <input type="number" id="al-tool-cap" min="1" step="1" value="\(loopValue)" \(loopUnlimited ? "disabled" : "") style="\(numStyle)">
+              </div>
+            </div>
+            <div class="set-row">
+              <div class="set-label">Unlimited per-tool calls<small>No synthetic call cap for any tool in a turn.</small></div>
+              <div id="al-tool-cap-unl-wrap" data-component-id="al-tool-cap-unlimited" data-event="change">
+                \(sw("al-tool-cap-unlimited", loopUnlimited))
+              </div>
+            </div>
+          </div>
+        </section>
+        """
+    }
+
     func agentPowersSection() -> String {
         let powers = arcConfig.agentPowers
         func sw(_ id: String, _ on: Bool) -> String {
@@ -2467,6 +2517,8 @@ extension AppState {
                 \(auxRows)
               </div>
             </section>
+
+            \(agentLimitsSection())
 
             \(agentPowersSection())
 

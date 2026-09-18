@@ -173,7 +173,7 @@ extension AppState {
         }
         // Tool guardrails (Hermes tool_guardrails parity): per-turn budgets,
         // repeated-call detection, and synthetic results.
-        switch await Self.guardrails.decide(toolName: call.function.name, args: args) {
+        switch await guardrails.decide(toolName: call.function.name, args: args) {
         case .synthetic(let message):
             return message
         case .allow:
@@ -412,8 +412,14 @@ extension AppState {
     // MARK: - Core-service integrations (Hermes parity)
 
     private static let rateLimits = RateLimitTracker()
-    private static let guardrails = ToolGuardrails()
     private static let usageLedger = UsageLedger()
+
+    /// Per-turn tool guardrails, rebuilt from `~/.arc/config.json` at the
+    /// start of every turn so `guardrails.toolLoopCap` edits apply without a
+    /// restart (Hermes reads config per request too).
+    private static func freshGuardrails() -> ToolGuardrails {
+        ToolGuardrails(limits: .init(loopCap: Self.rawArcConfig().effectiveToolLoopCap()))
+    }
 
     /// Bounded empty-response nudge (mirrors the core's recovery budget).
     static let emptyResponseNudge =
@@ -464,19 +470,11 @@ extension AppState {
     /// `~/.arc/config.json` so edits apply without a restart (Hermes reads the
     /// config per request too). Key precedence matches Hermes
     /// (`api/streaming.py`): `agent.max_turns` → legacy root `max_turns` →
-    /// `agent.maxIterations` (arc-agent's own key) → default 90.
+    /// `agent.maxIterations` (arc-agent's own key) → default 90. A value of
+    /// `0`/negative means **unlimited** (the turn runs until the prompt
+    /// finishes); the settings UI writes `-1` for that state.
     static func effectiveMaxTurns() -> Int {
-        let url = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/config.json")
-        guard let data = try? Data(contentsOf: url),
-              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            return defaultMaxTurns
-        }
-        let agent = root["agent"] as? [String: Any]
-        let raw = agent?["max_turns"] ?? root["max_turns"] ?? agent?["maxIterations"]
-        if let n = raw as? Int, n > 0 { return n }
-        if let s = raw as? String, let n = Int(s), n > 0 { return n }
-        return defaultMaxTurns
+        Self.rawArcConfig().effectiveMaxTurns()
     }
 
     /// Hermes parity: when the tool-iteration budget is exhausted, append the
@@ -690,7 +688,8 @@ extension AppState {
         let tools = registry.buildToolSchemas(enabled: [], disabled: Set(settings.disabledToolsets))
         var finalError: String?
         var recovery = TurnRecoveryState()
-        await Self.guardrails.resetTurn()
+        guardrails = Self.freshGuardrails()
+        await guardrails.resetTurn()
         let maxTurns = max(1, Self.effectiveMaxTurns())
         var turnCompleted = false
 
@@ -2287,6 +2286,35 @@ final class Controller {
             return await self.app.refreshFragments(includeApp: true)
         }
 
+
+        wire(router, id: "al-max-turns", events: ["change"]) { event in
+            guard let v = Int(event.string("value") ?? ""), v > 0 else { return [] }
+            await self.app.setToolIterationLimit(v)
+            _ = await self.app.hint("Tool iteration limit set to \(v) (agent.max_turns).", kind: "success")
+            return await self.app.refreshFragments(includeApp: true)
+        }
+        wire(router, id: "al-max-turns-unlimited", events: ["change"]) { event in
+            let on = event.string("checked") == "true"
+            await self.app.setToolIterationLimit(on ? -1 : 90)
+            _ = await self.app.hint(
+                on ? "Tool iteration limit disabled — turns run until the prompt finishes." : "Tool iteration limit restored to 90.",
+                kind: "success")
+            return await self.app.refreshFragments(includeApp: true)
+        }
+        wire(router, id: "al-tool-cap", events: ["change"]) { event in
+            guard let v = Int(event.string("value") ?? ""), v > 0 else { return [] }
+            await self.app.setToolLoopCap(v)
+            _ = await self.app.hint("Per-tool call cap set to \(v) (guardrails.toolLoopCap).", kind: "success")
+            return await self.app.refreshFragments(includeApp: true)
+        }
+        wire(router, id: "al-tool-cap-unlimited", events: ["change"]) { event in
+            let on = event.string("checked") == "true"
+            await self.app.setToolLoopCap(on ? -1 : 25)
+            _ = await self.app.hint(
+                on ? "Per-tool call cap disabled." : "Per-tool call cap restored to 25.",
+                kind: "success")
+            return await self.app.refreshFragments(includeApp: true)
+        }
         wire(router, id: "modelcfg-add-form", events: ["submit"]) { event in
             let name = (event.string("mc-name") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let model = (event.string("mc-model") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)

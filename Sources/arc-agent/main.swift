@@ -123,7 +123,8 @@ struct Chat: AsyncParsableCommand {
             sessionStore: sessionStore,
             memoryProvider: memoryProvider,
             skills: skills,
-            maxIterations: arcConfig.agent.maxIterations,
+            maxIterations: arcConfig.effectiveMaxTurns(),
+            toolLoopCap: arcConfig.effectiveToolLoopCap(),
             persistSessions: arcConfig.agent.persistSessions,
             approvalMode: approvalMode,
             query: query,
@@ -208,7 +209,9 @@ struct Serve: AsyncParsableCommand {
             baseURL: arcConfig.model.baseURL ?? "https://api.openai.com/v1",
             apiKey: ProcessInfo.processInfo.environment["ARC_API_KEY"] ?? "",
             tessera: arcConfig.tessera,
-            persistSessions: arcConfig.agent.persistSessions
+            persistSessions: arcConfig.agent.persistSessions,
+            maxIterations: arcConfig.effectiveMaxTurns(),
+            toolLoopCap: arcConfig.effectiveToolLoopCap()
         )
 
         let gateway = GatewayService(

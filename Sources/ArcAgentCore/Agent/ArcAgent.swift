@@ -43,6 +43,9 @@ public actor ArcAgent: Service {
         public var skills: [Skill]
         /// Maximum iterations per conversation.
         public var maxIterations: Int
+        /// Per-tool call cap override (nil = default 25; 0/negative =
+        /// unlimited). Mirrors `guardrails.toolLoopCap` in `~/.arc/config.json`.
+        public var toolLoopCap: Int?
         /// Maximum duration per turn in seconds.
         public var maxTurnDuration: Int
         /// Whether to persist sessions.
@@ -116,6 +119,7 @@ public actor ArcAgent: Service {
             memoryProvider: MemoryProvider? = FileMemoryProvider(),
             skills: [Skill] = [],
             maxIterations: Int = 25,
+            toolLoopCap: Int? = nil,
             maxTurnDuration: Int = 120,
             persistSessions: Bool = true,
             approvalMode: ApprovalMode = .manual,
@@ -145,6 +149,7 @@ public actor ArcAgent: Service {
             self.memoryProvider = memoryProvider
             self.skills = skills
             self.maxIterations = maxIterations
+            self.toolLoopCap = toolLoopCap
             self.maxTurnDuration = maxTurnDuration
             self.persistSessions = persistSessions
             self.approvalMode = approvalMode
@@ -200,7 +205,7 @@ public actor ArcAgent: Service {
     private let staleTracker = StaleStreakTracker()
     /// Per-turn tool loop caps + repeat/synthetic results (Hermes
     /// tool_guardrails parity).
-    private let toolGuardrails = ToolGuardrails()
+    private let toolGuardrails: ToolGuardrails
     /// Mixture-of-Agents service (Hermes moa_loop parity; built from config).
     private lazy var moaService: MoAService = {
         let baseProfile = BundledProviders.resolve(config.provider)
@@ -257,14 +262,20 @@ public actor ArcAgent: Service {
 
     public init(config: Configuration) {
         // Install the lockdown gate so every tool consults the same live
-        // config (skills, profile files).
-        AgentPowers.configure(config.agentPowers)
+        // config (skills, profile files). AgentPowers is a process-global
+        // gate, so only apply a *non-default* powers config here — an agent
+        // constructed with default (all-unlocked) powers must not clobber a
+        // lockdown active in another session.
+        if config.agentPowers != AgentPowersConfig() {
+            AgentPowers.configure(config.agentPowers)
+        }
         self.config = config
         self.messageHistory = []
         self.sessionID = config.sessionID ?? UUID().uuidString
         // The smart-approval classifier is wired from `wireSmartApproval()`
         // (once the agent's own state is fully initialized).
         self.approvalManager = ApprovalManager(mode: config.approvalMode)
+        self.toolGuardrails = ToolGuardrails(limits: .init(loopCap: config.toolLoopCap))
         self.delegationManager = DelegationManager(maxChildren: 10)
     }
 
@@ -1048,7 +1059,8 @@ public actor ArcAgent: Service {
         /// across iterations (per-turn state), not per-iteration.
         var appendedToolResults = false
 
-        for iteration in 0..<config.maxIterations {
+        let maxIters = config.maxIterations > 0 ? config.maxIterations : Int.max
+        for iteration in 0..<maxIters {
             if turnInterrupted {
                 turnInterrupted = false
                 return "Interrupted by user."
@@ -1207,7 +1219,7 @@ public actor ArcAgent: Service {
                 continue
             }
 
-            if iteration == config.maxIterations - 1 {
+            if iteration == maxIters - 1 {
                 return "I encountered an issue processing your request. Please try again."
             }
         }
@@ -1262,7 +1274,8 @@ public actor ArcAgent: Service {
         /// runTurnLoop) — per-turn state that survives the iteration boundary.
         var appendedToolResults = false
 
-        for iteration in 0..<config.maxIterations {
+        let maxIters = config.maxIterations > 0 ? config.maxIterations : Int.max
+        for iteration in 0..<maxIters {
             if turnInterrupted {
                 turnInterrupted = false
                 continuation.yield("Interrupted by user.")
@@ -1479,7 +1492,7 @@ public actor ArcAgent: Service {
                 continue
             }
 
-            if iteration == config.maxIterations - 1 {
+            if iteration == maxIters - 1 {
                 continuation.yield("I encountered an issue processing your request. Please try again.")
                 continuation.finish()
                 return

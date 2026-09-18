@@ -57,6 +57,12 @@ public actor SessionRegistry {
         /// Whether session transcripts should be persisted each turn (only
         /// applies when `tessera` is set).
         public let persistSessions: Bool
+        /// Tool-iteration budget for gateway sessions (nil = default 25;
+        /// 0/negative = unlimited).
+        public let maxIterations: Int?
+        /// Per-tool call cap for gateway sessions (nil = default 25;
+        /// 0/negative = unlimited).
+        public let toolLoopCap: Int?
         /// Mixture-of-Agents configuration (Hermes `moa` config block).
         public let moa: MoAConfig
 
@@ -67,7 +73,9 @@ public actor SessionRegistry {
             apiKey: String,
             tessera: TesseraConfig? = nil,
             persistSessions: Bool = true,
-            moa: MoAConfig = MoAConfig()
+            moa: MoAConfig = MoAConfig(),
+            maxIterations: Int? = nil,
+            toolLoopCap: Int? = nil
         ) {
             self.model = model
             self.provider = provider
@@ -76,6 +84,8 @@ public actor SessionRegistry {
             self.tessera = tessera
             self.persistSessions = persistSessions
             self.moa = moa
+            self.maxIterations = maxIterations
+            self.toolLoopCap = toolLoopCap
         }
     }
 

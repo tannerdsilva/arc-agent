@@ -749,6 +749,8 @@ actor AppState {
     /// The `~/.arc/config.json` as loaded from disk (no env overrides), the
     /// canonical home of the `auxiliary` block edited from Preferences.
     var arcConfig: ArcConfig = ArcConfig()
+    /// Per-turn tool guardrails (rebuilt from config at turn start).
+    var guardrails = ToolGuardrails()
     /// Which auxiliary task is currently being edited in Preferences.
     var auxEditingTask: String? = nil
     /// Durable insights analytics (skill usage, daily token burn).
@@ -845,6 +847,29 @@ actor AppState {
         self.arcConfig = raw
         try? saveConfig(raw)
         AgentPowers.configure(raw.agentPowers)
+    }
+
+
+    /// Persist the tool-iteration limit (`agent.max_turns`) into
+    /// `~/.arc/config.json` and refresh the in-memory copy. Values <= 0 mean
+    /// unlimited; the settings UI writes -1 for that state. The legacy root
+    /// `max_turns` key is cleared so `agent.max_turns` wins precedence.
+    func setToolIterationLimit(_ value: Int) {
+        var raw = Self.rawArcConfig()
+        raw.agent.max_turns = value
+        raw.max_turns = nil
+        self.arcConfig = raw
+        try? saveConfig(raw)
+    }
+
+    /// Persist the per-tool call cap (`guardrails.toolLoopCap`) into
+    /// `~/.arc/config.json` and refresh the in-memory copy. Values <= 0 mean
+    /// unlimited; the settings UI writes -1 for that state.
+    func setToolLoopCap(_ value: Int) {
+        var raw = Self.rawArcConfig()
+        raw.guardrails.toolLoopCap = value
+        self.arcConfig = raw
+        try? saveConfig(raw)
     }
 
     /// Persist an "Always allow" command into `~/.arc/config.json` so the CLI
