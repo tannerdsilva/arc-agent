@@ -31,8 +31,8 @@ let package = Package(
             url: "https://github.com/hummingbird-project/hummingbird.git",
             from: "2.0.0"
         ),
-		.package(path: "../swift-mcp"),
-		.package(path: "../no-webui"),
+        .package(url: "https://github.com/tannerdsilva/swift-mcp.git", from: "2.0.0"),
+        .package(url: "https://github.com/tannerdsilva/no-webui.git", branch: "dev"),
         .package(
             url: "https://github.com/apple/swift-nio.git",
             from: "2.100.0"
