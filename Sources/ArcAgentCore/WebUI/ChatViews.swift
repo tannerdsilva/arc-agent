@@ -20,7 +20,7 @@ public actor ChatConnection {
 	private var attachment: UUID?
 	private var inputSequence = 0
 	private var busy = false
-	private var wired = false
+	private var wiredSocketID: UUID?
 	private var turnTasks: [Task<Void, Never>] = []
 
 	public init(
@@ -60,19 +60,26 @@ public actor ChatConnection {
 		attachment = await coordinator.attach(sessionID: sessionID, relay: relay)
 	}
 
-	/// attach exactly once — the host calls this on a socket's first verified
-	/// event so a page that never reaches the server cannot consume a slot.
-	/// returns true when this call performed the wiring.
+	/// attach a socket as the connection's active sink (its writer is bound
+	/// into the relay and the relay into the coordinator). called on a
+	/// socket's first verified event so a page that never reaches the server
+	/// cannot consume a slot. a newer socket (browser reconnect) seamlessly
+	/// claims the sink from an older one; returns whether this socket now owns
+	/// the sink.
 	@discardableResult
-	public func wireOnOnce(_ writer: NIOAsyncChannelOutboundWriter<WebSocketFrame>) async -> Bool {
-		guard wired == false else { return false }
-		wired = true
+	public func wireOnOnce(_ writer: NIOAsyncChannelOutboundWriter<WebSocketFrame>, socketID: UUID) async -> Bool {
+		guard wiredSocketID != socketID else { return false }
+		wiredSocketID = socketID
 		await wireOn(writer)
 		return true
 	}
 
-	/// detach the ws writer and unbind from the active session.
-	public func wireOff() async {
+	/// detach the relay from the coordinator and drop the writer, but only if
+	/// `socketID` currently owns the sink — a stale socket closing must not
+	/// tear down the socket that succeeded it.
+	public func wireOffIfCurrent(socketID: UUID) async {
+		guard wiredSocketID == socketID else { return }
+		wiredSocketID = nil
 		if let attachment {
 			await coordinator.detach(sessionID: sessionID, id: attachment)
 			self.attachment = nil

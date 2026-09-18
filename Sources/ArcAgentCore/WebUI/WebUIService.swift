@@ -257,8 +257,10 @@ public final class WebUIService: Service {
 		} catch {
 			// connection error; the unregister below still runs.
 		}
-		// release the chat relay this socket was wired to (if any).
-		await socketWiring.connection?.wireOff()
+		// release the chat relay this socket was wired to (only if it still
+		// owns the sink — a newer socket that took over must not be torn
+		// down by a stale socket's close).
+		await socketWiring.connection?.wireOffIfCurrent(socketID: socketWiring.socketID)
 		if let tokenHash, let connectionID {
 			await connections.unregister(connectionID, tokenHash: tokenHash)
 		}
@@ -276,7 +278,7 @@ public final class WebUIService: Service {
 			case .event(let component, let event, let data, let token):
 				guard await sessionIsAlive(tokenHash: tokenHash, outbound: outbound) else { return }
 				guard let entry = await boundEntry(token: token, tokenHash: tokenHash, outbound: outbound) else { return }
-				if let connection = await wireOnce(entry: entry, outbound: outbound) {
+				if let connection = await wireOnce(entry: entry, outbound: outbound, wiring: wiring) {
 					wiring.connection = connection
 				}
 				let eventData = EventData(component: ComponentID(component), event: event, data: data)
@@ -287,7 +289,7 @@ public final class WebUIService: Service {
 			case .ping(let token):
 				guard await sessionIsAlive(tokenHash: tokenHash, outbound: outbound) else { return }
 				guard let entry = await boundEntry(token: token, tokenHash: tokenHash, outbound: outbound) else { return }
-				if let connection = await wireOnce(entry: entry, outbound: outbound) {
+				if let connection = await wireOnce(entry: entry, outbound: outbound, wiring: wiring) {
 					wiring.connection = connection
 				}
 				try await writeJSON(WSOutgoing.pong, outbound: outbound)
@@ -304,8 +306,8 @@ public final class WebUIService: Service {
 	/// verified event); all subsequent events and the coordinator's broadcasts
 	/// flow through the connection's relay. returns the connection when this
 	/// call performed the wiring.
-	private func wireOnce(entry: RouterRegistry.Entry, outbound: NIOAsyncChannelOutboundWriter<WebSocketFrame>) async -> ChatConnection? {
-		if await entry.connection.wireOnOnce(outbound) {
+	private func wireOnce(entry: RouterRegistry.Entry, outbound: NIOAsyncChannelOutboundWriter<WebSocketFrame>, wiring: SocketWiring) async -> ChatConnection? {
+		if await entry.connection.wireOnOnce(outbound, socketID: wiring.socketID) {
 			return entry.connection
 		}
 		return nil
@@ -824,6 +826,9 @@ enum WebUIUpgradeResult: Sendable {
 /// channel from the coordinator. set from the socket's single read task.
 final class SocketWiring: Sendable {
 	private let state = Mutex<ChatConnection?>(nil)
+
+	/// this socket's identity in the connection's sink negotiation.
+	let socketID = UUID()
 
 	var connection: ChatConnection? {
 		get { state.withLock { $0 } }
