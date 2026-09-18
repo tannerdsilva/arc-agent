@@ -26,6 +26,9 @@ public enum WriteFileTool {
         ], required: ["path", "content"]),
         handler: { args in
             let path: String = try Self.required(args, key: "path")
+            if let refusal = AgentPowers.blockedWriteReason(path: path) {
+                return "Error: " + refusal
+            }
             let content: String = try Self.required(args, key: "content")
             return try await Self.writeFile(path: path, content: content)
         },

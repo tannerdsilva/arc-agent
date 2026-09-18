@@ -48,6 +48,9 @@ struct MemoryTool {
                 guard let content, !content.isEmpty else {
                     return "Error: 'content' is required for 'add' action."
                 }
+                if let refusal = AgentPowers.profileWriteRefusal(file: "memory") {
+                    return "Error: " + refusal
+                }
                 try await provider.appendMemory(content)
                 return "Saved to memory."
 

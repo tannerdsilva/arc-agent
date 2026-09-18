@@ -2226,6 +2226,51 @@ final class Controller {
                 : "Mixture of Agents disabled.")
             return await self.app.refreshFragments(includeApp: true)
         }
+        // Agent powers (lockdown) — Settings → Agent powers.
+        wire(router, id: "ap-skills-global", events: ["change"]) { event in
+            let on = event.string("checked") == "true"
+            await self.app.updateAgentPowers { $0.skillsManage = on }
+            _ = await self.app.hint(
+                on ? "Agent can create/edit skills." : "Skill creation/editing locked — only skill_creation / skill_edit while unlocked.",
+                kind: "success")
+            return await self.app.refreshFragments(includeApp: true)
+        }
+        wire(router, id: "ap-profile-global", events: ["change"]) { event in
+            let on = event.string("checked") == "true"
+            await self.app.updateAgentPowers { $0.profileEdit = on }
+            _ = await self.app.hint(
+                on ? "Agent can edit MEMORY/USER/SOUL/AGENTS." : "Profile editing locked — only profile_edit while unlocked.",
+                kind: "success")
+            return await self.app.refreshFragments(includeApp: true)
+        }
+        wire(router, id: "ap-skill-locks", events: ["change"]) { event in
+            guard let tid = event.string("targetId"), tid.hasPrefix("ap-skill-lock-") else { return [] }
+            let name = String(tid.dropFirst("ap-skill-lock-".count))
+            let locked = event.string("checked") == "true"
+            await self.app.updateAgentPowers { cfg in
+                if locked {
+                    if !cfg.lockedSkills.contains(name) { cfg.lockedSkills.append(name) }
+                } else {
+                    cfg.lockedSkills.removeAll { $0 == name }
+                }
+            }
+            return await self.app.refreshFragments(includeApp: true)
+        }
+        wire(router, id: "ap-profilefile-locks", events: ["change"]) { event in
+            guard let tid = event.string("targetId"), tid.hasPrefix("ap-profilefile-lock-") else { return [] }
+            let key = String(tid.dropFirst("ap-profilefile-lock-".count))
+            guard ["memory", "user", "soul", "agents"].contains(key) else { return [] }
+            let locked = event.string("checked") == "true"
+            await self.app.updateAgentPowers { cfg in
+                if locked {
+                    if !cfg.lockedProfileFiles.contains(key) { cfg.lockedProfileFiles.append(key) }
+                } else {
+                    cfg.lockedProfileFiles.removeAll { $0 == key }
+                }
+            }
+            return await self.app.refreshFragments(includeApp: true)
+        }
+
         wire(router, id: "modelcfg-add-form", events: ["submit"]) { event in
             let name = (event.string("mc-name") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let model = (event.string("mc-model") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)

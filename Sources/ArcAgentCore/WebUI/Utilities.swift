@@ -90,6 +90,17 @@ public func markdownToHTML(_ markdown: String) -> String {
     return parser.parseBlocks().joined(separator: "\n")
 }
 
+/// Type-scoped accessor for renderers outside this module. The arc-agent
+/// webui target also imports a `WebUI` module (no-webui) that exports a
+/// *different* `markdownToHTML` — and `ArcAgentCore.markdownToHTML(...)`
+/// cannot be used because a type named `ArcAgentCore` shadows the module
+/// name for qualified lookup. This accessor is unambiguous.
+public enum MarkdownRenderer {
+    public static func render(_ markdown: String) -> String {
+        markdownToHTML(markdown)
+    }
+}
+
 // MARK: Block parsing
 
 private struct MarkdownBlockParser {

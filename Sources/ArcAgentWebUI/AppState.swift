@@ -790,6 +790,9 @@ actor AppState {
         self.settings = Self.loadSettings()
         let rawConfig = Self.rawArcConfig()
         self.arcConfig = rawConfig
+        // Install the agent-powers lockdown gate so tools in THIS process
+        // (the webui turn loop runs its own tool dispatch) consult it live.
+        AgentPowers.configure(rawConfig.agentPowers)
         self.insights = Self.loadInsights()
         self.insightsRangeDays = self.settings.insightsRangeDays
         let resolvedConfig = loadConfig()
@@ -832,6 +835,16 @@ actor AppState {
         self.arcConfig = raw
         try? saveConfig(raw)
         Task { await self.refreshPlugins() }
+    }
+
+    /// Mutate the agent-powers lockdown block in `~/.arc/config.json` (the
+    /// file the CLI/gateway/tools read), then refresh the in-memory copy.
+    func updateAgentPowers(_ mutate: (inout AgentPowersConfig) -> Void) async {
+        var raw = Self.rawArcConfig()
+        mutate(&raw.agentPowers)
+        self.arcConfig = raw
+        try? saveConfig(raw)
+        AgentPowers.configure(raw.agentPowers)
     }
 
     /// Persist an "Always allow" command into `~/.arc/config.json` so the CLI

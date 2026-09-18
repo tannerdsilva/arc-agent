@@ -136,7 +136,8 @@ struct Chat: AsyncParsableCommand {
             contextLength: arcConfig.model.contextLength,
             moa: arcConfig.moa,
             reasoningEffort: arcConfig.agent.reasoningEffort,
-            maxOutputTokens: arcConfig.model.maxOutputTokens
+            maxOutputTokens: arcConfig.model.maxOutputTokens,
+            agentPowers: arcConfig.agentPowers
         )
 
         let agent = ArcAgent(config: agentConfig)

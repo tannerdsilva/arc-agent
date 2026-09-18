@@ -119,10 +119,10 @@ struct ArcAgentWebUI: AsyncParsableCommand {
                 body: body,
                 rawStyles: [],
                 head: """
-                <link rel="stylesheet" href="/ui/style.css?v=44">
+                <link rel="stylesheet" href="/ui/style.css?v=45">
                 <link rel="stylesheet" href="/ui/vendor/katex/katex.min.css">
-                <script src="/ui/runtime.js?v=39"></script>
-                <script src="/ui/init.js?v=29"></script>
+                <script src="/ui/runtime.js?v=40"></script>
+                <script src="/ui/init.js?v=30"></script>
                 """,
                 devMode: false,
                 includeRuntime: false,

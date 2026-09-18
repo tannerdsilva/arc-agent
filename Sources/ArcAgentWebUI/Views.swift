@@ -40,7 +40,11 @@ extension AppState {
                 let langAttr = lang.isEmpty ? "" : " class=\"language-\(esc(lang))\""
                 out += "<div class=\"code-wrap\"><button type=\"button\" class=\"copy-code\" data-copy=\"\(esc(clean))\" title=\"Copy code\">Copy</button><pre><code\(langAttr)>\(esc(clean))</code></pre></div>"
             } else {
-                out += WebUI.markdownToHTML(part)
+                // Hermes-parity renderer (ArcAgentCore/WebUI): headings,
+                // tables, blockquotes, nested lists, task checkboxes, math
+                // elements, sanitized images/autolinks — identical to the
+                // tested parity output, engine-independent.
+                out += MarkdownRenderer.render(part)
             }
         }
         return out
@@ -2167,6 +2171,71 @@ extension AppState {
 
     // MARK: Settings main
 
+    /// Settings → Agent powers: lockdown toggles for skill and profile
+    /// (MEMORY/USER/SOUL/AGENTS) mutation. These write `agentPowers` in
+    /// ~/.arc/config.json; the running agent picks them up on next start and
+    /// the dedicated tools (skill_creation / skill_edit / profile_edit) refuse
+    /// locked surfaces.
+    func agentPowersSection() -> String {
+        let powers = arcConfig.agentPowers
+        func sw(_ id: String, _ on: Bool) -> String {
+            "<label class=\"switch\"><input type=\"checkbox\" id=\"\(id)\" data-component-id=\"\(id)\" data-event=\"change\" data-no-restore \(on ? "checked" : "")><span class=\"track\"></span><span class=\"knob\"></span></label>"
+        }
+        /// Plain switch for per-item rows: NO data-component-id on the input,
+        /// so the runtime resolves the component to the container div below
+        /// (whose wire dispatches on `targetId`). With an id on the input the
+        /// client would address the checkbox directly and the container wire
+        /// would never fire.
+        func swPlain(_ id: String, _ on: Bool) -> String {
+            "<label class=\"switch\"><input type=\"checkbox\" id=\"\(id)\" data-no-restore \(on ? "checked" : "")><span class=\"track\"></span><span class=\"knob\"></span></label>"
+        }
+        let lockedNames = Set(powers.lockedSkills)
+        var skillRows = ""
+        for sk in skills {
+            let locked = lockedNames.contains(sk.name)
+            skillRows += "<div class=\"set-row\"><div class=\"set-label\">\(esc(sk.name))<small>Locked: skill_edit refuses this skill.</small></div>" + swPlain("ap-skill-lock-\(sk.name)", locked) + "</div>"
+        }
+        if skills.isEmpty {
+            skillRows = "<div class=\"empty-hint\">No skills discovered yet.</div>"
+        }
+        skillRows = "<div id=\"ap-skill-locks\" data-component-id=\"ap-skill-locks\" data-event=\"change\">" + skillRows + "</div>"
+        let profileFiles: [(String, String, String)] = [
+            ("memory", "MEMORY.md", "the agent's persistent notes (memory tool, profile_edit)"),
+            ("user", "USER.md", "the user profile"),
+            ("soul", "SOUL.md", "the profile persona/prompt"),
+            ("agents", "AGENTS.md", "workspace project instructions"),
+        ]
+        var profileRows = ""
+        for (key, label, detail) in profileFiles {
+            let locked = powers.lockedProfileFiles.contains(key)
+            profileRows += "<div class=\"set-row\"><div class=\"set-label\">\(label)<small>\(detail).</small></div>" + swPlain("ap-profilefile-lock-\(key)", locked) + "</div>"
+        }
+        profileRows = "<div id=\"ap-profilefile-locks\" data-component-id=\"ap-profilefile-locks\" data-event=\"change\">" + profileRows + "</div>"
+        return """
+        <section class="set-section" id="agent-powers">
+          <h2>Agent powers</h2>
+          <div class="detail-card">
+            <h3 style="margin:0 0 6px">Skills</h3>
+            <div class="set-row">
+              <div class="set-label">Agent can create/edit skills<small>When off, skill_creation and skill_edit refuse, and write_file/terminal refuse writes under the skills directory. Skills become readable-only.</small></div>
+              \(sw("ap-skills-global", powers.skillsManage))
+            </div>
+            <div class="detail-sub" style="margin:10px 0 4px">Locked skills<small>Individually locked skills cannot be edited (skill_edit refuses them).</small></div>
+            \(skillRows)
+          </div>
+          <div class="detail-card" style="margin-top:12px">
+            <h3 style="margin:0 0 6px">Profile (MEMORY / USER / SOUL / AGENTS)</h3>
+            <div class="set-row">
+              <div class="set-label">Agent can edit the profile<small>When off, profile_edit and the memory tool refuse writes to MEMORY/USER/SOUL/AGENTS, and write_file/terminal refuse those files.</small></div>
+              \(sw("ap-profile-global", powers.profileEdit))
+            </div>
+            <div class="detail-sub" style="margin:10px 0 4px">Locked profile files<small>These cannot be edited by the agent while locked.</small></div>
+            \(profileRows)
+          </div>
+        </section>
+        """
+    }
+
     func settingsMain() -> String {
         // Appearance
         let themeDefs: [(key: String, label: String, icon: String, preview: String)] = [
@@ -2398,6 +2467,8 @@ extension AppState {
                 \(auxRows)
               </div>
             </section>
+
+            \(agentPowersSection())
 
             <section class="set-section" id="storage">
               <h2>Storage</h2>

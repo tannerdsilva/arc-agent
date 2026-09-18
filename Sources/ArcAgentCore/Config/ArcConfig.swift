@@ -75,6 +75,11 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// `multiplexProfiles` is true.
     public var profileRouting: ProfileRoutingConfig
 
+    /// Agent-powers lockdown (skills + profile files). All locks default to
+    /// OFF (agent may create/edit); enabling any of them makes the dedicated
+    /// tools refuse. See ``AgentPowersConfig``.
+    public var agentPowers: AgentPowersConfig
+
     // MARK: - Init
 
     public init(
@@ -88,7 +93,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         moa: MoAConfig = MoAConfig(),
         auxiliary: AuxiliaryModelSet = AuxiliaryModelSet(),
         plugins: PluginsConfig = PluginsConfig(),
-        profileRouting: ProfileRoutingConfig = ProfileRoutingConfig()
+        profileRouting: ProfileRoutingConfig = ProfileRoutingConfig(),
+        agentPowers: AgentPowersConfig = AgentPowersConfig()
     ) {
         self.model = model
         self.agent = agent
@@ -101,6 +107,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.auxiliary = auxiliary
         self.plugins = plugins
         self.profileRouting = profileRouting
+        self.agentPowers = agentPowers
     }
 
     /// Decode each section independently, defaulting any that are absent.
@@ -117,6 +124,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.auxiliary = try container.decodeIfPresent(AuxiliaryModelSet.self, forKey: .auxiliary) ?? AuxiliaryModelSet()
         self.plugins = try container.decodeIfPresent(PluginsConfig.self, forKey: .plugins) ?? PluginsConfig()
         self.profileRouting = try container.decodeIfPresent(ProfileRoutingConfig.self, forKey: .profileRouting) ?? ProfileRoutingConfig()
+        self.agentPowers = try container.decodeIfPresent(AgentPowersConfig.self, forKey: .agentPowers) ?? AgentPowersConfig()
     }
 }
 
@@ -431,4 +439,50 @@ public func saveConfig(_ config: ArcConfig, to configURL: URL? = nil) throws {
 ///   set means none are enabled; otherwise the concrete allow-list.
 public func pluginAllowList(from configURL: URL? = nil) -> Set<String>? {
     loadConfig(from: configURL).plugins.enabled.map { Set($0) }
+}
+
+
+// MARK: - Agent Powers (lockdown)
+
+/// Lockdown configuration for what the agent may create/edit.
+///
+/// - `skillsManage`: when false the agent cannot create or edit skills at
+///   all (`skill_creation`/`skill_edit` refuse; general write tools refuse
+///   paths under the skills directory).
+/// - `lockedSkills`: per-skill locks — the named skills cannot be edited
+///   (creation of an existing name is also refused).
+/// - `profileEdit`: when false the agent cannot modify MEMORY.md, USER.md,
+///   SOUL.md or AGENTS.md at all.
+/// - `lockedProfileFiles`: per-file locks among `"memory"`, `"user"`,
+///   `"soul"`, `"agents"`.
+public struct AgentPowersConfig: Codable, Sendable, Equatable {
+    public var skillsManage: Bool
+    public var lockedSkills: [String]
+    public var profileEdit: Bool
+    public var lockedProfileFiles: [String]
+
+    public init(
+        skillsManage: Bool = true,
+        lockedSkills: [String] = [],
+        profileEdit: Bool = true,
+        lockedProfileFiles: [String] = []
+    ) {
+        self.skillsManage = skillsManage
+        self.lockedSkills = lockedSkills
+        self.profileEdit = profileEdit
+        self.lockedProfileFiles = lockedProfileFiles
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.skillsManage = try container.decodeIfPresent(Bool.self, forKey: .skillsManage) ?? true
+        self.lockedSkills = try container.decodeIfPresent([String].self, forKey: .lockedSkills) ?? []
+        self.profileEdit = try container.decodeIfPresent(Bool.self, forKey: .profileEdit) ?? true
+        self.lockedProfileFiles = try container.decodeIfPresent([String].self, forKey: .lockedProfileFiles) ?? []
+    }
+
+    public var isMemoryLocked: Bool { lockedProfileFiles.contains("memory") }
+    public var isUserLocked: Bool { lockedProfileFiles.contains("user") }
+    public var isSoulLocked: Bool { lockedProfileFiles.contains("soul") }
+    public var isAgentsLocked: Bool { lockedProfileFiles.contains("agents") }
 }

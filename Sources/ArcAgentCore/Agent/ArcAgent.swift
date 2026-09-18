@@ -62,6 +62,11 @@ public actor ArcAgent: Service {
         /// default; enabled via `compression.micro_compact`.
         public var microCompact: MicroCompactConfig = MicroCompactConfig()
 
+        /// Agent-powers lockdown gate (skills + profile files). All locks
+        /// default to OFF; the running agent installs this into
+        /// ``AgentPowers`` at init so tools refuse locked surfaces.
+        public var agentPowers: AgentPowersConfig = AgentPowersConfig()
+
         /// Mixture-of-Agents configuration (Hermes `moa` config block).
         public var moa: MoAConfig
 
@@ -128,7 +133,8 @@ public actor ArcAgent: Service {
             reasoningEffort: String? = nil,
             temperature: Double? = nil,
             topP: Double? = nil,
-            maxOutputTokens: Int? = nil
+            maxOutputTokens: Int? = nil,
+            agentPowers: AgentPowersConfig = AgentPowersConfig()
         ) {
             self.model = model
             self.provider = provider
@@ -146,6 +152,7 @@ public actor ArcAgent: Service {
             self.maxContextTokens = maxContextTokens
             self.auxiliary = auxiliary
             self.microCompact = microCompact
+            self.agentPowers = agentPowers
             self.sessionID = sessionID
             self.reasoningEffort = reasoningEffort
             self.temperature = temperature
@@ -249,6 +256,9 @@ public actor ArcAgent: Service {
     // MARK: - Init
 
     public init(config: Configuration) {
+        // Install the lockdown gate so every tool consults the same live
+        // config (skills, profile files).
+        AgentPowers.configure(config.agentPowers)
         self.config = config
         self.messageHistory = []
         self.sessionID = config.sessionID ?? UUID().uuidString

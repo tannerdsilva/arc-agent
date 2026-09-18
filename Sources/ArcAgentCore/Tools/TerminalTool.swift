@@ -33,6 +33,9 @@ public enum TerminalTool {
             required: ["command"]
         ),
         handler: { args in
+            if let refusal = Self.lockdownRefusal(command: (args["command"] as? String) ?? "") {
+                return "Error: " + refusal
+            }
             let command: String = try Self.required(args, key: "command")
             let timeout: Int = (args["timeout"] as? Int) ?? 180
             let workdir: String? = args["workdir"] as? String
@@ -41,6 +44,42 @@ public enum TerminalTool {
         },
         emoji: "💻"
     )
+
+    /// Best-effort lockdown guard: refuse clearly-mutating commands that
+    /// target locked surfaces (skills directory tree or locked profile
+    /// files). Read-only references (cat/grep/ls) pass through.
+    static func lockdownRefusal(command: String) -> String? {
+        let lower = command.lowercased()
+        // Write-ish markers only — never block reads.
+        let looksWritable = lower.contains(">") || lower.contains("tee ") || lower.contains("sed -i")
+            || lower.contains("perl -i") || lower.contains("mv ") || lower.contains("cp ")
+            || lower.contains("rm ") || lower.contains("touch ") || lower.contains("mkdir")
+        guard looksWritable else { return nil }
+
+        let skillsPath = AgentPowers.skillsDirectory.path
+        if command.contains(skillsPath) || command.contains("/.arc/skills/") {
+            if !AgentPowers.canManageSkills() {
+                return "Refused: writes under the skills directory are locked in Settings "
+                    + "(Agent powers → Skills). Use skill_creation / skill_edit while unlocked."
+            }
+            for locked in AgentPowers.config.lockedSkills {
+                if command.contains("/\(locked)/") {
+                    return "Refused: skill '\(locked)' is locked in Settings "
+                        + "(Agent powers → Skills). Use skill_edit after unlocking."
+                }
+            }
+        }
+        let files: [(String, String)] = [
+            ("MEMORY.md", "memory"), ("USER.md", "user"),
+            ("SOUL.md", "soul"), ("AGENTS.md", "agents"),
+        ]
+        for (filename, key) in files where command.contains(filename) {
+            if let refusal = AgentPowers.profileWriteRefusal(file: key) {
+                return refusal
+            }
+        }
+        return nil
+    }
 
     // MARK: - Handler
 
