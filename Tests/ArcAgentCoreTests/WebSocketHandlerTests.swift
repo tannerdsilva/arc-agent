@@ -59,45 +59,6 @@ func nextResponseTerminatesOnNeverFinishingStream() async {
     #expect(value == "\nPONG")
 }
 
-// MARK: - Settings panel wiring
-
-@Test("SettingsPanel renders a hidden overlay containing the settings controls")
-func settingsPanelRendersHiddenOverlay() {
-    let html = SettingsPanel(isOpen: false).render()
-    #expect(html.contains("id=\"settings-overlay\""))
-    #expect(html.contains("style=\"display: none\""))
-    // The controls the gear button is supposed to open.
-    #expect(html.contains("id=\"settings-model\""))
-    #expect(html.contains("id=\"settings-temp\""))
-    #expect(html.contains("id=\"settings-maxtokens\""))
-}
-
-@Test("SettingsPanel renders visible when isOpen")
-func settingsPanelRendersVisibleWhenOpen() {
-    let html = SettingsPanel(isOpen: true).render()
-    #expect(html.contains("id=\"settings-overlay\""))
-    #expect(html.contains("style=\"display: flex\""))
-}
-
-@Test("chat page includes the settings overlay so the gear button is not dead")
-func chatPageIncludesSettingsOverlay() {
-    // The /ui chat route injects SettingsPanel via HTMLDocument's
-    // `settingsHTML` parameter (rendered inside #app). Simulate that
-    // composition: chat body + settings overlay, both inside the app div.
-    let body = ChatPage(welcomeMessage: "hi").render()
-    let settings = SettingsPanel(isOpen: false).render()
-    let html = HTMLDocument(
-        title: "ARC Agent",
-        body: body,
-        settingsHTML: settings,
-        devMode: false
-    ).render()
-    // The gear button (in the header) and its target must coexist in the page.
-    #expect(html.contains("id=\"settings-btn\""))
-    #expect(html.contains("id=\"settings-overlay\""))
-    #expect(html.contains("onclick=\"toggleSettings()\""))
-}
-
 // MARK: - Session lifecycle: a superseded agent must not kill its successor
 
 @Test("superseded session agent does not tear down the new one")

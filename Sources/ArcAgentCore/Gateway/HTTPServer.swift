@@ -98,41 +98,6 @@ public final class HTTPServerService: Service {
                     body: .init(byteBuffer: buffer)
                 )
             }
-#if DEBUG
-            // Dev mode: serve CSS/JS from disk for live iteration.
-            // These routes are only compiled in debug builds.
-            // Edit Assets/styles.css or Assets/scripts.js and refresh.
-            Get("/ui/styles.css") { _, _ in
-                let cssPath = "Sources/ArcAgentCore/WebUI/Assets/styles.css"
-                let cwd = FileManager.default.currentDirectoryPath
-                let fullPath = (cwd as NSString).appendingPathComponent(cssPath)
-                guard let cssData = FileManager.default.contents(atPath: fullPath),
-                      let css = String(data: cssData, encoding: .utf8)
-                else {
-                    return Response(status: .notFound)
-                }
-                return Response(
-                    status: .ok,
-                    headers: [.contentType: "text/css; charset=utf-8"],
-                    body: .init(byteBuffer: ByteBuffer(string: css))
-                )
-            }
-            Get("/ui/scripts.js") { _, _ in
-                let jsPath = "Sources/ArcAgentCore/WebUI/Assets/scripts.js"
-                let cwd = FileManager.default.currentDirectoryPath
-                let fullPath = (cwd as NSString).appendingPathComponent(jsPath)
-                guard let jsData = FileManager.default.contents(atPath: fullPath),
-                      let js = String(data: jsData, encoding: .utf8)
-                else {
-                    return Response(status: .notFound)
-                }
-                return Response(
-                    status: .ok,
-                    headers: [.contentType: "application/javascript; charset=utf-8"],
-                    body: .init(byteBuffer: ByteBuffer(string: js))
-                )
-            }
-#endif
         }
 
         let app = Application(
