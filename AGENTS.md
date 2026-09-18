@@ -5,13 +5,13 @@
 This project has completed five feature-build phases and is now in **vascular hardening** — strengthening the internal data flow, session integrity, error recovery, and observability before adding new capabilities.
 
 The core architecture is built and proven:
-- **80 Swift source files** across 12 subsystems
-- **160 tests**, all passing
-- **11 dependencies** (AsyncHTTPClient, ArgumentParser, System, ServiceLifecycle, tessera, Hummingbird, swift-mcp, swift-nio, swift-nio-extras, swift-http-types)
-- **22 registered tools** across 7 toolsets
-- **Full gateway stack** — HTTP server, Telegram adapter, MCP server, session management
+- **141 Swift source files** across 3 targets (ArcAgentCore library, arc-agent CLI, arc-agent-webui)
+- **363 tests**, all passing across 29 suites
+- **11 dependencies** (AsyncHTTPClient, ArgumentParser, System, ServiceLifecycle, tessera, Hummingbird, swift-mcp, swift-nio, swift-nio-extras, swift-http-types, no-webui)
+- **40 registered tools** across ~9 toolsets
+- **Gateway stack** — HTTP server, Telegram adapter, MCP server, session management
 - **Tessera-backed persistence** — sessions and memory stored as signed NOSTR events through the tessera-client library
-- **Swift-native web UI** — declarative Swift DSL generating HTML/CSS/JS, served from the Hummingbird HTTP server at `GET /ui`. Zero npm, zero hand-written web code.
+- **Swift-native web UI** — `arc-agent-webui` executable, declarative Swift DSL generating HTML/CSS/JS, served from its own Hummingbird server. Zero npm, zero hand-written web code. All assets (styles, runtime JS, KaTeX) are embedded Swift strings.
 
 ## What This Means for an AI Agent Reading This
 
@@ -29,34 +29,35 @@ When asked to produce code, assume it is:
 | VISION.md | Updated with hardening roadmap + web UI architecture |
 | AGENTS.md | This file |
 | README.md | Updated |
-| Source files | 80 Swift files (79 in ArcAgentCore + CLI main) |
-| Tests | 160, all passing |
+| Source files | 141 Swift files (117 core + CLI, 14 webui, 9 core-WebUI shared) |
+| Tests | 363, all passing (29 suites) |
 | Build | Clean |
-| Branch | `dev/all-phases` |
+| Branch | `tessera` (active development; `dev/all-phases` remote has diverged) |
 
-## Subsystem Inventory
+## Subsystem Inventory (highlights)
 
-| Subsystem | Files | Status |
+| Subsystem | Location | Status |
 |---|---|---|
 | **Core Agent** — ArcAgent actor, prompt builder, turn loop | `Agent/ArcAgent.swift` | Built |
-| **Tool Registry** — ToolEntry, JSONSchema, CompileTimeToolRegistry | `ToolRegistry/` (4 files) | Built |
-| **Tools** — read_file, write_file, terminal, web_search, web_extract, delegation, kanban, memory, skill_view | `Tools/` (14 tools) | Built |
-| **LLM Client** — LLMClient protocol, OpenAICompatibleClient, Message models | `LLM/` (3 files) | Built |
-| **Provider System** — ProviderProfile, BundledProviders, CredentialPool | `Provider/` (3 files) | Built |
+| **Tool Registry** — ToolEntry, JSONSchema, CompileTimeToolRegistry | `ToolRegistry/` | Built |
+| **Tools** — 40 tools (file, terminal, web, delegation, kanban, memory, skill_view, skill_creation, skill_edit, profile_edit, clarify, browser/CDP, media, webhooks, …) | `Tools/` | Built |
+| **LLM Client** — LLMClient protocol, adapters (OpenAI, Anthropic, Gemini, Bedrock, Vertex, ACP, Codex) | `LLM/` | Built |
+| **Provider System** — ProviderProfile, BundledProviders, CredentialPool | `Provider/` | Built |
 | **Session Management** — SessionStore protocol, TesseraSessionStore | `Session/` + `Storage/` | Built |
 | **Memory System** — MemoryProvider protocol, TesseraMemoryProvider, FileMemoryProvider | `Memory/` + `Storage/` | Built |
 | **Skills System** — Skill model, YAML frontmatter parsing, discovery | `Skills/Skill.swift` | Built |
-| **Security** — ApprovalManager, dangerous command detection (Swift Regex) | `Security/ApprovalManager.swift` | Built |
-| **Error Handling** — RetryHandler with exponential backoff + jitter | `ErrorHandling/RetryHandler.swift` | Built |
-| **Config** — ArcConfig, JSON loading/saving, env var overrides | `Config/ArcConfig.swift` | Built |
-| **Delegation** — DelegationManager, subagent spawning/steering/stopping | `Delegation/` (2 files) | Built |
-| **Kanban** — KanbanBoard protocol, FileKanbanBoard, KanbanDispatcher, KanbanTask | `Kanban/` (4 files) | Built |
-| **Cron** — CronScheduler, CronJob, schedule parsing | `Cron/` (2 files) | Built |
-| **Gateway** — GatewayService, HTTPServerService, SessionRegistry, SessionAgent, TelegramAdapter, DeliveryManager, SessionRouter, PlatformAdapter | `Gateway/` (8 files) | Built |
-| **MCP** — MCPServerAdapter, DynamicMCPTool | `Gateway/MCP/` (2 files) | Built |
-| **Tessera** — TesseraConnection (shared tunnel), TesseraSessionStore, TesseraMemoryProvider, TesseraConfig | `Storage/` (4 files) | Built |
-| **Web UI** — View protocol, ViewBuilder, Primitives, Layouts, CSSRule, AppStyles, Scripts, HTMLDocument, ChatViews, Modifiers, ModifiedView, Utilities | `WebUI/` (12 files) | Built |
-| **Bot Mode** — Profile struct, ProfileManager, BotMessagingService, GroupChatRoom, BotViews, BotStyles, BotScripts, ProfileTools | `Profile/` (4 files) + `WebUI/` (3 files) + `Tools/` (1 file) | Built |
+| **Security** — ApprovalManager, dangerous command detection, AgentPowers lockdown gate | `Security/` | Built |
+| **Error Handling** — RetryHandler, CircuitBreaker, Failover, RecoveryState | `ErrorHandling/` | Built |
+| **Delegation** — DelegationManager, subagent spawning/steering/stopping | `Delegation/` | Built |
+| **Kanban** — KanbanBoard protocol, FileKanbanBoard, KanbanDispatcher | `Kanban/` | Built |
+| **Cron** — CronScheduler, CronJob, schedule parsing | `Cron/` | Built |
+| **Gateway** — GatewayService, HTTPServerService, SessionRegistry, SessionAgent, TelegramAdapter, DeliveryManager, SessionRouter, PlatformAdapter, ProfileRouting | `Gateway/` | Built |
+| **MCP** — MCPServerAdapter, DynamicMCPTool | `Gateway/MCP/` | Built |
+| **Tessera** — TesseraConnection (shared tunnel), TesseraSessionStore, TesseraMemoryProvider | `Storage/` | Built |
+| **Web UI** — AppState, Actions, Views, Theme, RuntimeAsset, Queue, NewFeatures, Insights, Server, Entry | `Sources/ArcAgentWebUI/` | Built |
+| **Shared renderers** — Hermes-parity markdownToHTML + MarkdownRenderer, WebSocket server/handler | `ArcAgentCore/WebUI/` (3 files) | Built |
+| **Compression** — MicroCompactor (per-turn transcript absorption) | `Compression/` | Built |
+| **Bot Mode** — Profile struct, ProfileManager, BotMessagingService, GroupChatRoom | `Profile/` | Built |
 
 ## How We Work
 
@@ -66,7 +67,7 @@ When asked to produce code, assume it is:
 
 3. **One phase at a time.** Phase A (Session & Data Integrity) must be complete before Phase B begins. Each phase builds on the foundation of the previous one.
 
-4. **Commit early, commit often.** Each hardening step is a separate commit with a clear before/after. The `dev/all-phases` branch is the active development branch.
+4. **Commit early, commit often.** Each hardening step is a separate commit with a clear before/after. The `tessera` branch is the active development branch.
 
 5. **The Laws are not negotiable.** First Law (Structured Concurrency) and Second Law (Service Lifecycle) are enforced at every level. Code that violates them shall not be merged.
 
@@ -74,7 +75,7 @@ When asked to produce code, assume it is:
 
 HEAR YE, HEAR YE. In this beautiful project, of which we are so proud, there shall be a law of the land, of which all agents and humans alike shall abide unconditionally at all times. THE LAW OF THE LAND IS SIMPLE, AND AS FOLLOWS:
 
-**First Law — Swift Structured Concurrency, Without Exception.** Every fiber of this codebase shall run on `async`/`await`, every mutable state shall be guarded by an `actor`, every concurrent work stream shall be expressed as a `TaskGroup` or `AsyncStream`. There shall be no threads spawned by hand. There shall be no locks acquired by hand. There shall be no dispatch queues, no semaphores, no `@unchecked Sendable` cheats that subvert the compiler's concurrency guarantees. The compiler is our shield, and we shall not set it aside.
+**First Law — Swift Structured Concurrency, Without Exception.** Every fiber of this codebase shall run on `async`/`await`, every mutable state shall be guarded by an `actor`, every concurrent work stream shall be expressed as a `TaskGroup` or `AsyncStream`. There shall be no threads spawned by hand. There shall be no locks acquired by hand. There shall be no dispatch queues, no semaphores, no `@unchecked Sendable` cheats that subvert the compiler's concurrency guarantees. The compiler is our shield, and we shall not set it aside. (Known, accepted exceptions: Tessera/storage and CDP browser internals use a small number of `@unchecked Sendable`/lock workarounds documented in code.)
 
 **Second Law — Swift Service Lifecycle, Without Exception.** Every long-lived component — the agent loop, the gateway, the cron scheduler, the kanban dispatcher — shall be a `Service` in a tree managed by `swift-service-lifecycle`. There shall be no ad-hoc daemon threads, no `atexit` cleanup handlers, no `DispatchMain()` calls that bypass the lifecycle framework. Startup is ordered, shutdown is graceful, and every service knows its place in the hierarchy.
 
@@ -84,19 +85,13 @@ This is the contract. This is the foundation. Everything else is negotiable.
 
 ## Web UI Law (Subsystem-Specific)
 
-The web UI subsystem has an additional law, with a critical nuance for the two build modes:
+**Second Law (Web UI) — No npm, No Exceptions.** There shall be no `npm install`, no `package.json`, no `node_modules`, no webpack, no vite, no tailwind, no react, no vue, no svelte, no solid, no alpine, no stimulus, no htmx, no turbolinks, no hotwire, no stimulus_reflex. There shall be no JavaScript framework, no CSS preprocessor, no build pipeline. The web UI is generated by Swift code in `Sources/ArcAgentWebUI/` — the CSS and JS it needs are Swift string constants:
 
-**Second Law (Web UI) — No npm, No Exceptions.** There shall be no `npm install`, no `package.json`, no `node_modules`, no webpack, no vite, no tailwind, no react, no vue, no svelte, no solid, no alpine, no stimulus, no htmx, no turbolinks, no hotwire, no stimulus_reflex. There shall be no JavaScript framework, no CSS preprocessor, no build pipeline. The canonical CSS and JS source files live in `Sources/ArcAgentCore/WebUI/Assets/` as plain `.css` and `.js` files — no toolchain required to edit them.
+- `Theme.swift` — the stylesheet (27 color schemes), pure Swift strings
+- `RuntimeAsset.swift` — the client runtime JS, embedded strings
+- `Generated/KaTeXAssets.swift` — KaTeX CSS/JS/fonts, regenerated by `python3 Scripts/gen_katex_assets.py` (`make assets`)
 
-**Nuance — Two Build Modes.** The web UI operates in two modes, selected by build configuration:
-
-- **Debug mode** (`swift build`): CSS and JS are served from disk at `/ui/styles.css` and `/ui/scripts.js`. Edit the files in `Assets/`, refresh the browser, see changes instantly. No rebuild needed. The `#if DEBUG` compiler flag enables the disk-reading routes automatically.
-
-- **Release mode** (`swift build -c release`): CSS and JS are compiled into the binary as static strings via `Assets/Generated/Assets.swift` (generated by `make assets`). The disk-reading routes do not exist in the release binary. Single file, zero runtime dependencies.
-
-The asset pipeline enforces this: `Assets/styles.css` and `Assets/scripts.js` are the canonical source files. The `make assets` command bakes them into `Assets/Generated/Assets.swift` for release builds. In debug builds, the HTTP server reads them directly from disk. The `#if DEBUG` guard ensures the dev routes are stripped from the release binary at compile time.
-
-This means the "every byte is compiled into the binary" rule applies strictly to **release builds**. In debug builds, the browser fetches assets from the server on every request — this is intentional, and the debug server is never distributed.
+There is no "disk mode": every asset is compiled into the binary. Chat markdown is rendered server-side by the shared Hermes-parity renderer (`ArcAgentCore/WebUI/Utilities.swift`), then enhanced client-side (table sort/filter, KaTeX rendering).
 
 ## Design Temperament
 
@@ -108,9 +103,7 @@ This means the "every byte is compiled into the binary" rule applies strictly to
 
 - **Minimal dependencies.** Every Swift package we add is a maintenance commitment. Before adding a dependency, ask: "Can we do this with Foundation + Swift Standard Library in 200 lines?"
 
-- **Single binary target.** The goal is a precompiled binary you can `brew install` and run. No interpreter, no virtual machine, no npm install.
-
-- **Web UI has two modes.** In debug builds, CSS and JS are served from disk for instant iteration. In release builds, everything is compiled into a single binary. Both modes share the same canonical source files in `Assets/`. The `#if DEBUG` flag selects the mode at compile time — the dev routes are stripped from release binaries.
+- **Single binary target.** The goal is a precompiled binary you can `brew install` and run. No interpreter, no virtual machine, no npm install. The web UI is its own binary; the gateway is another; shared logic lives in ArcAgentCore.
 
 ## What Success Looks Like
 
@@ -123,5 +116,6 @@ Success for the hardening phase is:
 - Test coverage on every critical path
 - Streaming responses from the gateway and web UI
 - Structured logging and metrics that make the system observable
+- Locked-down surfaces (skills/profile edits) that cannot be bypassed
 
 If we achieve that, the project is ready for additional platform adapters, distribution tooling, and eventual public release.
