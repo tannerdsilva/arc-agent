@@ -31,21 +31,11 @@ let package = Package(
             url: "https://github.com/hummingbird-project/hummingbird.git",
             from: "2.0.0"
         ),
-		.package(
-			url: "https://github.com/tannerdsilva/swift-mcp",
-			from: "1.0.0"
-		),
+		.package(path: "../swift-mcp"),
+		.package(path: "../no-webui"),
         .package(
             url: "https://github.com/apple/swift-nio.git",
             from: "2.100.0"
-        ),
-        .package(
-            url: "https://github.com/apple/swift-nio-extras.git",
-            from: "1.26.0"
-        ),
-        .package(
-            url: "https://github.com/apple/swift-http-types.git",
-            from: "1.3.0"
         ),
     ],
 
@@ -75,14 +65,12 @@ let package = Package(
                 .product(name: "HummingbirdRouter", package: "hummingbird"),
                 .product(name: "MCP", package: "swift-mcp"),
                 .product(name: "NIOCore", package: "swift-nio"),
-                .product(name: "NIOWebSocket", package: "swift-nio"),
                 .product(name: "NIOHTTP1", package: "swift-nio"),
-                .product(name: "NIOHTTPTypes", package: "swift-nio-extras"),
-                .product(name: "HTTPTypes", package: "swift-http-types"),
-            ],
-            exclude: [
-                "WebUI/Assets/styles.css",
-                "WebUI/Assets/scripts.js",
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOWebSocket", package: "swift-nio"),
+                .product(name: "WebUI", package: "no-webui"),
+                .product(name: "WebUIDesignSystem", package: "no-webui"),
+                .product(name: "WebUIAuth", package: "no-webui"),
             ],
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug)),
@@ -103,8 +91,8 @@ let package = Package(
     ]
 )
 
-// Library product so external packages (e.g. the no-webui-based webui) can
-// embed ArcAgentCore in-process.
+// Library product so an external SwiftUI frontend can embed ArcAgentCore
+// in-process.
 package.products = [
     .library(name: "ArcAgentCore", targets: ["ArcAgentCore"]),
 ]

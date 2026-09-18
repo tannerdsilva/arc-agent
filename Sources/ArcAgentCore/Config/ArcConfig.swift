@@ -51,6 +51,9 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// Security/approval configuration.
     public var security: SecurityConfig
 
+    /// Web UI host configuration.
+    public var web: WebConfig
+
     /// Tessera storage configuration. When set, sessions, memory, and the
     /// profile index are persisted as signed NOSTR events to a Tessera
     /// server instead of local files.
@@ -65,6 +68,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         delegation: DelegationConfig = DelegationConfig(),
         memory: MemoryConfig = MemoryConfig(),
         security: SecurityConfig = SecurityConfig(),
+        web: WebConfig = WebConfig(),
         tessera: TesseraConfig? = nil
     ) {
         self.model = model
@@ -73,6 +77,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.delegation = delegation
         self.memory = memory
         self.security = security
+        self.web = web
         self.tessera = tessera
     }
 
@@ -85,6 +90,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.delegation = try container.decodeIfPresent(DelegationConfig.self, forKey: .delegation) ?? DelegationConfig()
         self.memory = try container.decodeIfPresent(MemoryConfig.self, forKey: .memory) ?? MemoryConfig()
         self.security = try container.decodeIfPresent(SecurityConfig.self, forKey: .security) ?? SecurityConfig()
+        self.web = try container.decodeIfPresent(WebConfig.self, forKey: .web) ?? WebConfig()
         self.tessera = try container.decodeIfPresent(TesseraConfig.self, forKey: .tessera)
     }
 }
@@ -296,6 +302,20 @@ public func loadConfig(from configURL: URL? = nil) -> ArcConfig {
     }
     if ProcessInfo.processInfo.environment["ARC_YOLO"] != nil {
         config.security.yoloMode = true
+    }
+
+    // Web UI overrides.
+    if let webPort = ProcessInfo.processInfo.environment["ARC_WEB_PORT"], let p = Int(webPort) {
+        config.web.port = p
+    }
+    if let webHost = ProcessInfo.processInfo.environment["ARC_WEB_HOST"] {
+        config.web.host = webHost
+    }
+    if let webAuth = ProcessInfo.processInfo.environment["ARC_WEB_AUTH"] {
+        config.web.authEnabled = (webAuth as NSString).boolValue
+    }
+    if let webPassword = ProcessInfo.processInfo.environment["ARC_WEB_PASSWORD"] {
+        config.web.password = webPassword
     }
 
     // Tessera storage overrides. Any ARC_TESSERA_* variable activates the

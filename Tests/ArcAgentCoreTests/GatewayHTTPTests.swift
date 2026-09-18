@@ -11,9 +11,9 @@ import NIOCore
 struct GatewayHTTPTests {
 
     /// Boot the real ``HTTPServerService`` on an ephemeral port and probe
-    /// the primary entry points: health, web UI, and the chat API. This is
-    /// the "every message flows through them" test for the HTTP layer.
-    @Test("health, UI, and chat routes answer over real HTTP")
+    /// the primary entry points: health and the chat API. This is the
+    /// "every message flows through them" test for the HTTP layer.
+    @Test("health and chat routes answer over real HTTP")
     func httpRoutesAnswer() async throws {
         let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
         defer { try? httpClient.shutdown() }
@@ -25,9 +25,6 @@ struct GatewayHTTPTests {
             config: .init(host: "127.0.0.1", port: port),
             onChat: { sessionID, message in
                 "echo:\(sessionID):\(message)"
-            },
-            onUI: { mode in
-                "<h1>ui-\(mode)</h1>"
             }
         )
 
@@ -61,15 +58,6 @@ struct GatewayHTTPTests {
             timeout: .seconds(2)
         )
         #expect(health.status.code == 200)
-
-        // GET /ui — the web UI router, with the stub onUI closure
-        let ui = try await httpClient.execute(
-            HTTPClientRequest(url: base + "/ui"),
-            timeout: .seconds(2)
-        )
-        let uiBody = try await ui.body.collect(upTo: 1_000_000)
-        #expect(ui.status.code == 200)
-        #expect(String(data: Data(buffer: uiBody), encoding: .utf8)?.contains("ui-chat") == true)
 
         // POST /v1/chat — the chokepoint through which every message flows
         var chatRequest = HTTPClientRequest(url: base + "/v1/chat")

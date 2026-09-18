@@ -20,21 +20,21 @@ public actor DeliveryManager {
     /// rather than through a push adapter. These are never "unknown" and never
     /// need a registered adapter.
     ///
-    /// - `api`   — HTTP `POST /v1/chat` (GatewayService.onChat)
-    /// - `webui` — WebSocket chat (WebSocketHandler)
+    /// - `api`  — HTTP `POST /v1/chat` (GatewayService.onChat)
+    /// - `web`  — no-webui browser chat (ChatConnection, via the WebSocket
+    ///   relay; responses stream back through the coordinator's broadcast)
     ///
-    /// Before this, a web/API turn reached `send(to:)` with platform "api" or
-    /// "webui", no adapter was registered, `unknownPlatform` was thrown, and
+    /// Before this, an API turn reached `send(to:)` with platform "api", no
+    /// adapter was registered, `unknownPlatform` was thrown, and
     /// `SessionAgent`'s catch block removed the session and shut down its HTTP
     /// client — wiping conversation context on every turn.
-    private let localPlatforms: Set<String> = ["api", "webui"]
+    private let localPlatforms: Set<String> = ["api", "web"]
 
     /// Send a message to the appropriate platform adapter.
     ///
-    /// For local request/response platforms (`api`, `webui`) this is a no-op:
+    /// For the local request/response platform (`api`) this is a no-op:
     /// the response has already been (or will be) delivered to the caller via
-    /// its own channel (HTTP response / WS frame), so no push delivery is
-    /// needed.
+    /// its own channel (HTTP response), so no push delivery is needed.
     public func send(message: OutgoingMessage, to target: ChatTarget) async throws {
         // Local request/response platforms need no push delivery.
         guard !localPlatforms.contains(target.platform) else { return }

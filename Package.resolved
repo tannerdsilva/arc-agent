@@ -1,5 +1,5 @@
 {
-  "originHash" : "5c0ab1f5cbe741e3d8e1783961e1fa8f99f1f4899d695dd19f20e19a33e52a5f",
+  "originHash" : "a298bacda7e0d53874c5944576fb5380caf654f0b58e9c96b00b465306653e4a",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -8,6 +8,15 @@
       "state" : {
         "revision" : "9544287b9416c0bc71e58b9f3aead8dd14b16103",
         "version" : "1.36.0"
+      }
+    },
+    {
+      "identity" : "bedrock",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tannerdsilva/bedrock.git",
+      "state" : {
+        "branch" : "v22-rewrite",
+        "revision" : "6c92dd55c6c39bb8d416d97d153c81a8a81149a9"
       }
     },
     {
@@ -29,12 +38,57 @@
       }
     },
     {
+      "identity" : "negentropy-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/bwyma1/negentropy-swift",
+      "state" : {
+        "branch" : "main",
+        "revision" : "aeda715d53f6467a142c5e59d38a222e2e4e009b"
+      }
+    },
+    {
+      "identity" : "nostr-kit-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/bwyma1/nostr-kit-swift",
+      "state" : {
+        "revision" : "ccadc493003b5ef5109c4aeeafe03af54ad5ea5f",
+        "version" : "0.1.0"
+      }
+    },
+    {
+      "identity" : "openpgp-kit-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/bwyma1/openpgp-kit-swift",
+      "state" : {
+        "revision" : "e5574ba70f6b65a08d78db972e063fd839c62068",
+        "version" : "0.2.1"
+      }
+    },
+    {
+      "identity" : "quickjson",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tannerdsilva/QuickJSON.git",
+      "state" : {
+        "revision" : "5e5b769d55248ed41acb42ac8806c1675461200f",
+        "version" : "2.0.1"
+      }
+    },
+    {
+      "identity" : "quicklmdb",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tannerdsilva/QuickLMDB",
+      "state" : {
+        "branch" : "rawdog-v22-bump",
+        "revision" : "df12a8489322654f3df165f6af6681a8d81827a0"
+      }
+    },
+    {
       "identity" : "rawdog",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/rawdog.git",
       "state" : {
-        "revision" : "378e87e49d2cf95c92882b1bcbe21252c5c1d0a6",
-        "version" : "21.0.0"
+        "revision" : "99afc54d3de7015b2dde3886727c9d82f9c32998",
+        "version" : "22.0.0"
       }
     },
     {
@@ -94,7 +148,7 @@
     {
       "identity" : "swift-collections",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-collections.git",
+      "location" : "https://github.com/apple/swift-collections",
       "state" : {
         "revision" : "a0cb0954ecb21e4e31b0070e6ed5674e8556685a",
         "version" : "1.6.0"
@@ -152,15 +206,6 @@
       "state" : {
         "revision" : "3ffafb9722d5d918c614feb496c8789a3b59d222",
         "version" : "1.15.0"
-      }
-    },
-    {
-      "identity" : "swift-mcp",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/tannerdsilva/swift-mcp",
-      "state" : {
-        "revision" : "859aae2adeb3e30fe15cc3f587cf798413d8ff61",
-        "version" : "1.0.0"
       }
     },
     {
@@ -247,19 +292,46 @@
     {
       "identity" : "swift-syntax",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/swift-syntax.git",
+      "location" : "https://github.com/apple/swift-syntax.git",
       "state" : {
-        "revision" : "4799286537280063c85a32f09884cfbca301b1a1",
-        "version" : "602.0.0"
+        "revision" : "79e4b74a295b6eb74a8b585e3a39d29e70c1dbd1",
+        "version" : "603.0.2"
       }
     },
     {
       "identity" : "swift-system",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-system.git",
+      "location" : "https://github.com/apple/swift-system",
       "state" : {
         "revision" : "869129b7bf4ecc57b97d0193ad29690ca2134750",
         "version" : "1.8.1"
+      }
+    },
+    {
+      "identity" : "swiftslash",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tannerdsilva/SwiftSlash.git",
+      "state" : {
+        "revision" : "89654221a526ad4496f59c32746025067d72491a",
+        "version" : "5.0.1"
+      }
+    },
+    {
+      "identity" : "wireguard-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tannerdsilva/wireguard-swift",
+      "state" : {
+        "branch" : "master",
+        "revision" : "b2dbd057996cfe0f96ab3307aa0ce0aab11f12ea"
+      }
+    },
+    {
+      "identity" : "yyjson",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ibireme/yyjson.git",
+      "state" : {
+        "revision" : "8b4a38dc994a110abaec8a400615567bd996105f",
+        "version" : "0.12.0"
       }
     }
   ],

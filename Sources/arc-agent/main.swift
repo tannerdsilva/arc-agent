@@ -153,9 +153,23 @@ struct Serve: AsyncParsableCommand {
     @Option(name: .long, help: "Telegram bot token.")
     var telegramToken: String?
 
+    @Option(name: .long, help: "Web UI port (overrides config).")
+    var webPort: Int?
+
+    @Option(name: .long, help: "Web UI host (overrides config).")
+    var webHost: String?
+
     func run() async throws {
-        let arcConfig = loadConfig()
+        var arcConfig = loadConfig()
         let logger = Logger(label: "arc-agent.gateway")
+
+        // CLI web overrides ride on top of config + env.
+        if let webPort { arcConfig.web.port = webPort }
+        if let webHost { arcConfig.web.host = webHost }
+
+        // Web UI credential: first run with auth enabled generates a random
+        // password, prints it once, and persists only its argon2id hash.
+        let credential = try arcConfig.web.resolveCredential(persistingTo: nil)
 
         // Tessera storage for the gateway: sessions, memory, and the profile
         // index all flow through the shared connection.
@@ -172,16 +186,22 @@ struct Serve: AsyncParsableCommand {
             persistSessions: arcConfig.agent.persistSessions
         )
 
-        let gateway = GatewayService(
+        let gateway = try GatewayService(
             host: host,
             port: port,
             telegramToken: telegramToken ?? ProcessInfo.processInfo.environment["TELEGRAM_BOT_TOKEN"],
-            agentConfig: agentConfig
+            agentConfig: agentConfig,
+            config: arcConfig,
+            webCredential: credential
         )
 
         print("⚡ ARC Agent Gateway")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("HTTP server: http://\(host):\(port)")
+        print("Browser UI:  http://\(arcConfig.web.host):\(arcConfig.web.port)\(arcConfig.web.authEnabled ? " (login required)" : "")")
+        if let generated = credential?.generatedPassword {
+            print("Web UI password: \(generated)   ← save this now (only shown once)")
+        }
         if telegramToken != nil || ProcessInfo.processInfo.environment["TELEGRAM_BOT_TOKEN"] != nil {
             print("Telegram: enabled")
         }

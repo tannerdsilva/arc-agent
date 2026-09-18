@@ -1,85 +1,71 @@
 import Foundation
+import WebUI
+import WebUIDesignSystem
 
-// MARK: - Settings Page
+/// the settings page: a read-only snapshot of the frozen startup
+/// configuration plus the registered cron jobs. server-rendered per request;
+/// configuration changes belong to the next process start (`arc config` or
+/// the config file), so there is nothing editable here.
+public enum SettingsViews {
 
-/// The settings page for the ARC Agent web UI.
-///
-/// Contains configuration options including cronjob management,
-/// model settings, and profile configuration.
-public struct SettingsPage: View {
-    public let profiles: [ProfileData]
-    public let selectedBot: String
+	public static func renderSettingsPage(config: ArcConfig, cronJobs: [CronJob]) -> String {
+		VStack(alignment: .leading, spacing: 16) {
+			Heading("Settings", level: .h2)
 
-    public init(
-        profiles: [ProfileData] = [],
-        selectedBot: String = "default"
-    ) {
-        self.profiles = profiles
-        self.selectedBot = selectedBot
-    }
+			WebUICard(variant: .outlined) {
+				VStack(alignment: .leading, spacing: 8) {
+					Heading("General", level: .h3)
+					WebUIDescriptionList([
+						("Model", config.model.defaultModel),
+						("Provider", config.model.provider),
+						("Base URL", config.model.baseURL ?? "(default)"),
+						("Approval mode", config.security.approvalMode),
+						("Max iterations", "\(config.agent.maxIterations)"),
+						("Max context tokens", config.model.contextLength.map(String.init) ?? "(auto)"),
+						("Memory", config.memory.enabled ? "on (max \(config.memory.maxSize) chars)" : "off"),
+						("Web UI", "http://\(config.web.host):\(config.web.port)\(config.web.authEnabled ? " · auth on" : "")"),
+					])
+				}
+			}
+			.maxWidth("640px")
 
-    public func render() -> String {
-        return """
-        <div class="settings-page">
-          <div class="settings-header">
-            <a href="/ui/bots" class="nav-tab">← Back to Bots</a>
-            <h1>Settings</h1>
-          </div>
+			WebUICard(variant: .outlined) {
+				VStack(alignment: .leading, spacing: 12) {
+					Heading("Cron jobs", level: .h3)
+					if cronJobs.isEmpty {
+						WebUIEmptyState(
+							icon: .clock,
+							title: "No cron jobs",
+							message: "Jobs are configured in the cron store."
+						)
+					} else {
+						WebUITable(
+							headers: ["Name", "Schedule", "Active", "Last run", "Runs"],
+							rows: cronJobs.map { job in
+								[
+									Text(job.name),
+									Text(job.schedule),
+									Text(job.isActive ? "yes" : "no"),
+									Text(job.lastRunAt.map(Self.shortDate) ?? "never"),
+									Text("\(job.runCount)"),
+								]
+							},
+							compact: true
+						)
+					}
+				}
+			}
+		}
+		.render()
+	}
 
-          <div class="settings-content">
-            \(renderCronjobsSection())
-            \(renderGeneralSection())
-          </div>
-        </div>
-        """
-    }
+	private static func shortDate(_ date: Date) -> String {
+		Self.dateFormatter.string(from: date)
+	}
 
-    private func renderCronjobsSection() -> String {
-        return """
-        <div class="settings-section">
-          <div class="settings-section-header">
-            <h2>📅 Cronjobs</h2>
-            <button class="btn-primary" onclick="openNewRoutineDialog()">+ New Cronjob</button>
-          </div>
-          <div class="settings-section-body">
-            <div class="empty-state">
-              <div class="icon">📅</div>
-              <div>Cronjobs are recurring tasks this agent runs on a schedule.</div>
-              <button class="btn-secondary" onclick="openNewRoutineDialog()">Create Cronjob</button>
-            </div>
-          </div>
-        </div>
-        """
-    }
-
-    private func renderGeneralSection() -> String {
-        return """
-        <div class="settings-section">
-          <div class="settings-section-header">
-            <h2>⚙️ General</h2>
-          </div>
-          <div class="settings-section-body">
-            <div class="setting-row">
-              <div class="setting-label">
-                <div class="setting-name">Default Model</div>
-                <div class="setting-desc">The model used for new conversations.</div>
-              </div>
-              <select class="model-select" id="settings-model" onchange="switchModel(this.value)">
-                <option value="default">Default</option>
-              </select>
-            </div>
-
-            <div class="setting-row">
-              <div class="setting-label">
-                <div class="setting-name">Provider</div>
-                <div class="setting-desc">The LLM provider for the default model.</div>
-              </div>
-              <select class="model-select" id="settings-provider">
-                <option value="default">Default</option>
-              </select>
-            </div>
-          </div>
-        </div>
-        """
-    }
+	private static let dateFormatter: DateFormatter = {
+		let formatter = DateFormatter()
+		formatter.dateFormat = "yyyy-MM-dd HH:mm"
+		return formatter
+	}()
 }

@@ -7,17 +7,17 @@ import ServiceLifecycle
 // MARK: - Delivery Manager Tests
 //
 // These test the hardening of `DeliveryManager.send` for **local**
-// (request/response) platforms — `api` (HTTP) and `webui` (WebSocket).
+// (request/response) platforms — `api` (HTTP).
 //
-// Regression: before the fix, a web/API chat turn would reach
-// `deliveryManager.send(message:to:)` with platform "api"/"webui" and no
-// adapter registered for it, throwing `unknownPlatform`. That throw was
-// caught upstream by `SessionAgent`, which **removed the session and shut
-// down its HTTP client** — so every web turn wiped conversation context.
+// Regression: before the fix, an API chat turn would reach
+// `deliveryManager.send(message:to:)` with platform "api" and no adapter
+// registered for it, throwing `unknownPlatform`. That throw was caught
+// upstream by `SessionAgent`, which **removed the session and shut down its
+// HTTP client** — so every API turn wiped conversation context.
 //
-// The fix: `api`/`webui` are local platforms whose answer already travels
-// over the caller's own response channel (the HTTP body / WS frame). They
-// must never be treated as "unknown" or routed to a push adapter.
+// The fix: `api` is a local platform whose answer already travels over the
+// caller's own response channel (the HTTP body). It must never be treated
+// as "unknown" or routed to a push adapter.
 // =========================================================================
 
 /// A minimal push adapter used to prove that *real* platforms still route
@@ -67,12 +67,14 @@ func sendApiLocalNoThrow() async {
     }
 }
 
-@Test("send to 'webui' platform does not throw when no adapter is registered")
-func sendWebUILocalNoThrow() async {
+@Test("send to 'web' platform does not throw when no adapter is registered")
+func sendWebLocalNoThrow() async {
     let dm = DeliveryManager()
-    let target = ChatTarget(platform: "webui", chatID: "s2")
-    let msg = OutgoingMessage(text: "hello from webui")
-    // Must NOT throw. Before the fix this threw `.unknownPlatform("webui")`.
+    let target = ChatTarget(platform: "web", chatID: "s2")
+    let msg = OutgoingMessage(text: "hello from the browser frontend")
+    // The no-webui ChatConnection delivers responses back over its own
+    // WebSocket relay — this is a local request/response platform and must
+    // never be treated as "unknown" or routed to a push adapter.
     await #expect(throws: Never.self) {
         try await dm.send(message: msg, to: target)
     }

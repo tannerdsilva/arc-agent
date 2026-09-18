@@ -22,7 +22,7 @@ A precompiled, Swift-native AI agent harness — architecturally inspired by Her
 
 7. **Protocols first, macros last.** Every abstraction starts as a protocol. Concrete types conform to protocols; protocols never depend on concrete types. Only after the protocol proves unwieldy in practice do we introduce a macro to compress the syntax. This ordering is not optional — macros that paper over a bad protocol design hide the problem, not fix it.
 
-8. **Native web UI is a 1.0 requirement.** The project ships with a web-based user interface before version 1.0. How that UI is built is an open question — the author dislikes web technology and will not write JavaScript, CSS, or HTML by hand. The web UI must be generated, compiled from Swift, or delegated to a separate toolchain. This is a non-negotiable requirement; the approach is undecided and deferred.
+8. **no-webui browser frontend.** The project ships a browser UI rendered by the [no-webui](https://github.com/tannerdsilva/no-webui) SwiftUI-for-web toolkit: every page is a Swift `View` (design-system components, tokens, layout primitives — no hand-written HTML, CSS, or JS), served by a raw-NIO host, and interactive chat streams over a session-gated WebSocket. Auth (WebUIAuth, argon2id) is on by default with a generated first-run password. This is a non-negotiable requirement; the approach is settled.
 
 ## The Law of the Land
 
@@ -784,7 +784,7 @@ The project has completed five feature-build phases and is now entering a **hard
 
 *Untested code is broken code. The vascular system must have monitors at every junction.*
 
-- [ ] **Gateway tests** — `HTTPServerService` (health/UI/chat over a real socket), `DeliveryManager`, `WebSocketHandler`, and `SessionRegistry` are covered; `GatewayService`, `TelegramAdapter`, and `SessionAgent` are not directly.
+- [ ] **Gateway tests** — `HTTPServerService` (health/chat over a real socket), `DeliveryManager`, and `SessionRegistry` are covered; `GatewayService`, `TelegramAdapter`, and `SessionAgent` are not directly.
 - [x] **Tessera storage tests** — unit coverage for d-tag/sequence parsing and store shape (`TesseraTagTests`); opt-in E2E suite (`TesseraStorageE2ETests`, `ARC_TESSERA_E2E=1`) spawns a real daemon and exercises session + memory round-trips, deletion, and reconnect persistence. All green.
 - [x] **Integration tests** — mock-LLM tests now exercise the full agent pipeline (LLM → tool call → real registry handler → final response) on both completion and streaming paths (`AgentIntegrationTests`), and the gateway HTTP chokepoint is covered end-to-end over a real socket (`GatewayHTTPTests`).
 - [x] **Concurrency tests** — concurrent `getOrCreate` races against one session serialize into a single coherent generation (`SessionRecoveryTests`). Actor-isolation and task-cancellation cases remain open.
@@ -796,7 +796,7 @@ The project has completed five feature-build phases and is now entering a **hard
 
 *You can't fix what you can't see. You can't scale what you haven't measured.*
 
-- [ ] **Streaming responses** — the LLM client streams deltas and the WebSocket path streams responses to the UI (including the one-response-per-message fix); the gateway HTTP path still returns the whole buffered reply.
+- [ ] **Streaming responses** — the LLM client streams deltas; the gateway HTTP path still returns the whole buffered reply.
 - [ ] **Structured logging** — ad-hoc `print()` statements remain in the CLI; gateway and session-agent paths use `Logger` with per-step tracing (visible as `info` lines in server logs).
 - [x] **Metrics** — counters exist and are wired into `ArcAgent` for tool calls, tokens, and errors by type (`Metrics.shared`); trace IDs and request correlation are not yet implemented.
 - [ ] **LMDB performance** — measure read/write latency under load. The session path now holds a persistent environment for the agent's lifetime (no per-call open/close); the memory provider's global-env open/close-per-call path is unchanged. Benchmark and optimize.
@@ -901,12 +901,11 @@ GroupChatManager [1] (actor — multi-agent coordination rooms)
     ├── Epoch-based superseding
     └── Per-member watermark tracking
 
-Web UI (compiled Swift DSL — no npm, no JS framework)
-├── BotsPane (left sidebar — roster with avatars, search, groups)
-├── RoutinesPane (right tile — per-bot cron jobs)
-├── ActiveNowStrip (presence strip above roster)
-├── NewAgentDialog (profile creation form)
-└── BotChatHeader (profile-aware chat header)
+Frontend surface — no-webui browser UI (SwiftUI-for-web toolkit)
+├── Chat page (thread + sidebar + streaming input bar over /ws)
+├── Bots page (profile roster + create form)
+├── Settings page (config + cron snapshot)
+└── Auth (WebUIAuth login/logout, argon2id sessions, default on)
 ```
 
 ### Key Design Decisions
@@ -938,9 +937,9 @@ Where Hermes Bot Mode shells out to `hermes -p <target> chat ...` for bot-to-bot
 
 Where Hermes Bot Mode uses a 2-second poll loop with epoch-based superseding, ARC Agent's `GroupChatRoom` uses push-based delivery through `AsyncThrowingStream`. Each member turn is a direct `SessionRegistry.route()` call with an async stream for the response. Swift's cooperative timeout handles stuck members.
 
-#### 5. Compiled web UI (improvement over Hermes)
+#### 5. no-webui browser frontend
 
-Where Hermes Bot Mode is a 6,461-line JS/React plugin, ARC Agent's bot UI is compiled Swift using the existing `View` protocol DSL. No React, no JSX, no npm, no `package.json`. The avatar system generates SVG inline from Swift structs.
+The frontend is a browser UI rendered entirely by the [no-webui](https://github.com/tannerdsilva/no-webui) SwiftUI-for-web toolkit — every page is a Swift `View` built from design-system components, tokens, and layout primitives. A raw-NIO host (`WebUIService`, default `:8088`) serves the pages, the design-system assets, and a session-gated WebSocket (`/ws`) for interactive chat. Auth (WebUIAuth, argon2id) is on by default; the first-run password is generated and printed once, and only its hash is persisted. Bot-mode UI work previously expressed as compiled Swift web views was removed; the new surface lives under `Sources/ArcAgentCore/WebUI/`.
 
 ### Files
 
@@ -951,9 +950,7 @@ Where Hermes Bot Mode is a 6,461-line JS/React plugin, ARC Agent's bot UI is com
 | `Profile/BotMessagingService.swift` | `BotMessagingService` actor, inter-agent message routing |
 | `Profile/GroupChatRoom.swift` | `GroupChatRoom` actor, `GroupChatManager`, turn protocol |
 | `Tools/ProfileTools.swift` | Agent-facing tools: list, get, create, delete profiles, send messages |
-| `WebUI/BotViews.swift` | `BotsPage`, `BotsPane`, `BotRow`, `BotAvatar`, `RoutinesPane`, dialogs |
-| `WebUI/BotStyles.swift` | CSS rules for the bot mode UI |
-| `WebUI/BotScripts.swift` | Extended JS runtime for bot interactions |
+| `WebUI/` | no-webui browser surface: `WebUIService`, `AppShell`, `ChatViews`/`BotViews`/`SettingsViews`, `AuthViews`, `ChatCoordinator`, `WebUIConfig` |
 
 ### Improvements Over Hermes Bot Mode
 
@@ -962,12 +959,12 @@ Where Hermes Bot Mode is a 6,461-line JS/React plugin, ARC Agent's bot UI is com
 | **Bot-to-bot delivery** | CLI invocation (`hermes -p ...`) | Direct actor method call |
 | **Reply waiting** | Async via `notify_on_complete` | `AsyncThrowingStream` — inline await |
 | **Group chat polling** | 2-second poll loop | Push-based via `SessionRegistry.route()` |
-| **Avatar rendering** | JS `requestAnimationFrame` | Compiled Swift SVG DSL |
+| **Avatar rendering** | JS `requestAnimationFrame` | no-webui design-system components |
 | **Storage** | Plugin storage + `ui_meta` RPC | LMDB (single source of truth) |
 | **Profile isolation** | Filesystem directories | LMDB environments + Service Lifecycle |
 | **Type safety** | None (JS) | Compile-time (Swift) |
 | **Dependencies** | Hermes Desktop + plugin SDK | Single binary, zero new deps |
-| **Web UI** | React plugin (6,461 lines JS) | Compiled Swift View DSL |
+| **Web UI** | React plugin (6,461 lines JS) | no-webui browser frontend (Swift views, zero hand-written HTML/CSS/JS) |
 
 ---
 
@@ -975,12 +972,12 @@ Where Hermes Bot Mode is a 6,461-line JS/React plugin, ARC Agent's bot UI is com
 
 *You can't diagnose what you can't see. Print statements are not logging.*
 
-The codebase has 40+ `print()` calls scattered across library code — in the agent loop, kanban dispatcher, cron scheduler, and WebSocket server. These are not user-facing output; they are diagnostic messages with no structure, no severity levels, no trace IDs, and no machine-parseability. When the system runs as a daemon (via `arc serve`), these `print()` calls go to stdout with no way to filter, route, or search them.
+The codebase has 40+ `print()` calls scattered across library code — in the agent loop, kanban dispatcher, and cron scheduler. These are not user-facing output; they are diagnostic messages with no structure, no severity levels, no trace IDs, and no machine-parseability. When the system runs as a daemon (via `arc serve`), these `print()` calls go to stdout with no way to filter, search, or route them.
 
 The `swift-log` package is already a dependency. `Logger(label:)` is already used in `GatewayService`. The work is to extend this pattern to every Service in the codebase.
 
 - [ ] **Audit all `print()` calls** — distinguish user-facing CLI output (keep as `print()`) from diagnostic logging (replace with `Logger`)
-- [ ] **Add `Logger` to every Service** — `ArcAgent`, `KanbanDispatcher`, `CronScheduler`, `WebSocketServer`, `TelegramAdapter`, `SessionAgent`
+- [ ] **Add `Logger` to every Service** — `ArcAgent`, `KanbanDispatcher`, `CronScheduler`, `TelegramAdapter`, `SessionAgent`",
 - [ ] **Replace diagnostic `print()`** with appropriate severity levels: `.debug`, `.info`, `.warning`, `.error`
 - [ ] **Add trace IDs** — a `traceID: String` metadata field passed through the gateway pipeline for request correlation
 - [ ] **Structured metadata** — attach session ID, profile name, model name, and error details to log statements

@@ -4,7 +4,9 @@
 
 ARC Agent is a **precompiled, Swift-native AI agent harness** — architecturally inspired by [Hermes Agent](https://hermes-agent.nousresearch.com), but built from the ground up for Swift's concurrency model, type system, and distribution story. Single binary, zero interpreter overhead, no npm dependency chain, instant startup.
 
-**Status:** Vascular hardening. The core architecture is built across 80 source files with 171 passing tests and a clean release build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. The web UI has a dual-mode asset pipeline — debug mode serves CSS/JS from disk for instant iteration, release mode compiles everything into the binary.
+**Status:** Vascular hardening. The core architecture is built across ~80 source files with a clean build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities.
+
+> **Frontend surface:** ARC Agent serves a **no-webui** browser frontend (chat, bots, settings) straight from the gateway — `arc serve` runs a raw-NIO host on `:8088` that renders every page through the [no-webui](https://github.com/tannerdsilva/no-webui) SwiftUI-for-web toolkit (design-system components, tokens, layout primitives — no hand-written HTML/CSS/JS). Interactive chat streams over a session-gated WebSocket. Login (WebUIAuth, argon2id) is on by default; the first-run password is printed and persisted hash-only. The REST API (`/health`, `/v1/chat`) remains on the Hummingbird server (`:8080`).
 
 ## Why Swift?
 
@@ -15,7 +17,7 @@ ARC Agent is a **precompiled, Swift-native AI agent harness** — architecturall
 | Distribution | pip + venv + 227MB repo | Single binary (~33MB) |
 | Concurrency | threading + asyncio hybrid | Structured async/await + actors |
 | Type safety | Runtime (duck typing) | Compile-time (strong typing) |
-| Dependencies | 100+ Python + npm | 11 Swift packages |
+| Dependencies | 100+ Python + npm | 8 Swift packages |
 | Tool schemas | Dicts at runtime | Codable at compile time |
 
 ## The Law of the Land
@@ -33,11 +35,14 @@ The full architecture is documented in [VISION.md](VISION.md). At a high level:
 ```
 GatewayService (Service Lifecycle tree)
 ├── HTTPServerService (Hummingbird)
-│   ├── GET /ui → HTMLDocument (Swift DSL → HTML)
-│   ├── GET /ui/styles.css (debug mode only — reads from disk)
-│   ├── GET /ui/scripts.js (debug mode only — reads from disk)
+│   ├── GET /health
 │   └── POST /v1/chat → SessionAgent
-├── WebSocketServerService (NIOWebSocket, port+1)
+├── WebUIService (raw NIO, no-webui)
+│   ├── GET /                → chat page (WebSocket /ws for streaming)
+│   ├── GET /bots            → bot roster + create form
+│   ├── GET /settings        → config + cron view
+│   ├── GET /login · /logout → WebUIAuth sessions (default on)
+│   └── GET /__assets/…      → design-system css + js runtime
 ├── TelegramAdapter (long polling)
 ├── MCPServerAdapter (MCP protocol)
 ├── SessionRegistry (actor)
@@ -51,7 +56,7 @@ GatewayService (Service Lifecycle tree)
 ## Quick Start
 
 ```bash
-# Build (debug mode — assets served from disk for live iteration)
+# Build
 swift build
 
 # Run tests
@@ -64,71 +69,21 @@ swift run arc-agent tools
 export ARC_API_KEY=sk-...
 swift run arc-agent chat -q "hello world"
 
-# Start gateway server (debug mode — edit CSS/JS, refresh browser)
+# Start gateway server
 swift run arc-agent serve --port 8080
 ```
-
-## Two Build Modes
-
-ARC Agent has two distinct build modes, each optimized for a different phase of the development lifecycle:
-
-### 🛠️ Debug Mode (`swift build`)
-
-**Purpose:** Rapid UI iteration. CSS and JavaScript are served from disk on every request.
-
-```
-Edit Assets/styles.css or Assets/scripts.js
-        │
-        ▼  (refresh browser)
-   See changes instantly — no rebuild needed
-```
-
-- CSS is served at `/ui/styles.css` — edit and refresh
-- JS is served at `/ui/scripts.js` — edit and refresh
-- The HTML document links to these external URLs instead of inlining
-- The `#if DEBUG` compiler flag enables the disk-reading routes automatically
-- Run with `make dev` or `swift run arc-agent serve`
-
-### 🚀 Release Mode (`swift build -c release`)
-
-**Purpose:** Single-binary distribution. Everything is compiled into the executable.
-
-```
-make assets     → bake CSS/JS into generated Swift source
-swift build -c release  → single binary with everything embedded
-```
-
-- CSS and JS are inlined as `<style>` and `<script>` tags
-- The disk-reading routes do not exist in the release binary
-- Zero runtime dependencies — one file, run anywhere
-- Run with `make install` or `make update` (full cycle)
 
 ### Makefile
 
 ```bash
 make          → debug build
 make release  → optimized release build
-make assets   → bake CSS/JS into generated Swift source
 make install  → release + copy to ~/.local/bin
-make update   → assets + release + install (full cycle)
-make dev      → debug build + serve (assets from disk)
-make test     → run all 117 tests
+make test     → run tests
 make dist     → create release tarball
 make clean    → clean build artifacts
 make uninstall → remove from install dir
 ```
-
-### Asset Pipeline
-
-```
-Sources/ArcAgentCore/WebUI/Assets/
-├── styles.css              ← Canonical CSS (edit here)
-├── scripts.js              ← Canonical JS (edit here)
-└── Generated/
-    └── Assets.swift         ← Auto-generated by `make assets`
-```
-
-The canonical CSS and JS files live in `Assets/`. In debug mode, the HTTP server reads them from disk. Before a release build, run `make assets` to bake them into `Assets/Generated/Assets.swift` as static strings, which are then compiled into the binary.
 
 ## Roadmap
 
@@ -155,16 +110,13 @@ See [VISION.md](VISION.md) for the full roadmap and subsystem documentation.
 | Argument parsing | Swift Argument Parser |
 | Lifecycle | Swift Service Lifecycle |
 | Regex | Swift Regex (built-in) |
-| Web UI | Swift DSL → HTML/CSS/JS (zero npm) |
-| WebSocket | NIOWebSocket (standalone, port+1) |
-| Asset pipeline | `make assets` — bakes CSS/JS into binary |
+| Frontend | SwiftUI (external app, embeds `ArcAgentCore` as a library) |
 
 ## Related
 
 - [Hermes Agent](https://hermes-agent.nousresearch.com) — the Python agent framework that inspired this project's architecture
 - [VISION.md](VISION.md) — full architecture document and hardening roadmap
 - [AGENTS.md](AGENTS.md) — project phase and working conventions
-- [docs/web-ui-architecture.md](docs/web-ui-architecture.md) — web UI subsystem architecture and dual-mode asset pipeline
 
 ## License
 

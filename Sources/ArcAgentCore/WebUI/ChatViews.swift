@@ -1,334 +1,321 @@
 import Foundation
+import NIOCore
+import NIOWebSocket
+import WebUI
+import WebUIDesignSystem
 
-// MARK: - Chat Page
+/// per-connection chat state for one browser tab: the active chat target,
+/// the outbound relay (attached to this tab's websocket), and the turn
+/// runner that streams agent responses into the shared thread.
+public actor ChatConnection {
 
-/// The main chat interface — clean, modern, distraction-free.
-///
-/// Layout:
-/// ```
-/// ┌─────────────────────────────────────┐
-/// │ Header: logo, model picker, status  │
-/// ├─────────────────────────────────────┤
-/// │                                     │
-/// │  Messages (scrollable)              │
-/// │                                     │
-/// ├─────────────────────────────────────┤
-/// │ Input bar                           │
-/// └─────────────────────────────────────┘
-/// ```
-public struct ChatPage: View {
-    public let welcomeMessage: String
-    public let modelName: String
-    public let models: [String]
-    public let activeMode: String
-    public let includeHeader: Bool
+	private let coordinator: ChatCoordinator
+	private let registry: SessionRegistry
+	private let profileManager: ProfileManager
+	private let profiles: [Profile]
 
-    public init(
-        welcomeMessage: String = "How can I help you today?",
-        modelName: String = "default",
-        models: [String] = [],
-        activeMode: String = "chat",
-        includeHeader: Bool = true
-    ) {
-        self.welcomeMessage = welcomeMessage
-        self.modelName = modelName
-        self.models = models
-        self.activeMode = activeMode
-        self.includeHeader = includeHeader
-    }
+	private let relay = OutboundRelay()
+	private var sessionID: String
+	private var profile: String
+	private var attachment: UUID?
+	private var inputSequence = 0
+	private var busy = false
+	private var wired = false
+	private var turnTasks: [Task<Void, Never>] = []
 
-    public func render() -> String {
-        let headerHTML = includeHeader ? HeaderView(modelName: modelName, models: models, activeMode: activeMode).render() : ""
-        return """
-        <div class="app-layout">
-          \(headerHTML)
-          \(MessageContainer(welcomeMessage: welcomeMessage).render())
-          \(InputBar().render())
-        </div>
-        """
-    }
+	public init(
+		coordinator: ChatCoordinator,
+		registry: SessionRegistry,
+		profileManager: ProfileManager,
+		profiles: [Profile]
+	) {
+		self.coordinator = coordinator
+		self.registry = registry
+		self.profileManager = profileManager
+		self.profiles = profiles
+		let target = ChatCoordinator.defaultTarget()
+		self.sessionID = target.sessionID
+		self.profile = target.profile
+	}
+
+	// MARK: - websocket lifecycle
+
+	/// the relay the ws loop attaches its outbound writer to.
+	public var relayRef: OutboundRelay { relay }
+
+	/// the session this connection's relay is currently bound to.
+	public var sessionIDRef: String { sessionID }
+
+	/// the submit closure the host passes into every chat-bar render.
+	nonisolated public var submitHandlerRef: EventHandler {
+		{ [weak self] event in
+			guard let self else { return [] }
+			return await self.submitHandler(event)
+		}
+	}
+
+	/// attach the ws writer and bind the relay to the active session.
+	public func wireOn(_ writer: NIOAsyncChannelOutboundWriter<WebSocketFrame>) async {
+		await relay.attach(writer)
+		attachment = await coordinator.attach(sessionID: sessionID, relay: relay)
+	}
+
+	/// attach exactly once — the host calls this on a socket's first verified
+	/// event so a page that never reaches the server cannot consume a slot.
+	/// returns true when this call performed the wiring.
+	@discardableResult
+	public func wireOnOnce(_ writer: NIOAsyncChannelOutboundWriter<WebSocketFrame>) async -> Bool {
+		guard wired == false else { return false }
+		wired = true
+		await wireOn(writer)
+		return true
+	}
+
+	/// detach the ws writer and unbind from the active session.
+	public func wireOff() async {
+		if let attachment {
+			await coordinator.detach(sessionID: sessionID, id: attachment)
+			self.attachment = nil
+		}
+		await relay.detach()
+	}
+
+	// MARK: - interactive handlers
+
+	/// the chat-bar submit handler: fires a turn and returns the cleared
+	/// input bar fragment (the thread itself arrives via the coordinator's
+	/// broadcast so every tab of the session sees it).
+	public func submitHandler(_ event: EventData) async -> [FragmentUpdate] {
+		guard !busy,
+			  let text = event.string("message")?.trimmingCharacters(in: .whitespacesAndNewlines),
+			  !text.isEmpty else { return [] }
+		busy = true
+
+		let userID = await coordinator.nextMessageID()
+		let statusID = await coordinator.nextMessageID()
+		await coordinator.setInflight(sessionID: sessionID, profile: profile, true)
+		await coordinator.append(sessionID: sessionID, profile: profile, messages: [
+			ChatMessage(id: userID, role: .user, text: text),
+			ChatMessage(id: statusID, role: .status, text: "thinking…", streaming: true),
+		])
+
+		turnTasks.append(Task { [weak self] in
+			await self?.runTurn(userID: userID, statusID: statusID, text: text)
+		})
+		turnTasks.removeAll { $0.isCancelled }
+
+		let inputID = nextInputID()
+		return [FragmentUpdate(id: "chat-bar", html: Self.renderChatBar(inputID: inputID, isBusy: true, submitHandler: submitHandlerRef))]
+	}
+
+	/// a sidebar row click handler: switches the active chat target for this
+	/// tab and returns the sidebar + thread fragments for this tab only.
+	nonisolated func selectHandler(profile target: String) -> EventHandler {
+		{ [weak self] _ in
+			guard let self else { return [] }
+			return await self.select(target: target)
+		}
+	}
+
+	private func select(target: String) async -> [FragmentUpdate] {
+		let newSession: String
+		if target == "default" {
+			newSession = "default"
+		} else if let canonical = try? await profileManager.getOrCreateCanonicalChat(profile: target) {
+			newSession = canonical
+		} else {
+			return []
+		}
+
+		if newSession != sessionID {
+			if let attachment {
+				await coordinator.detach(sessionID: sessionID, id: attachment)
+				self.attachment = nil
+			}
+			sessionID = newSession
+			profile = target
+			attachment = await coordinator.attach(sessionID: newSession, relay: relay)
+		}
+
+		let messages = await coordinator.messages(for: newSession)
+		let inflight = await coordinator.isInflight(newSession)
+		return [
+			FragmentUpdate(id: "chat-sidebar", html: Self.renderSidebar(profiles: profiles, active: target, connection: self)),
+			FragmentUpdate(id: "chat-thread", html: Self.renderThread(messages: messages, inflight: inflight)),
+		]
+	}
+
+	// MARK: - turn runner
+
+	private func runTurn(userID: String, statusID: String, text: String) async {
+		defer { busy = false }
+		do {
+			let handle = await registry.getOrCreate(sessionID: sessionID, profile: profile)
+			let incoming = IncomingMessage(
+				id: UUID().uuidString,
+				chat: ChatTarget(platform: "web", chatID: sessionID),
+				text: text,
+				senderID: "web"
+			)
+			handle.inputContinuation.yield(incoming)
+
+			var first = true
+			var received = false
+			for await response in handle.responses {
+				if first {
+					await coordinator.replace(
+						sessionID: sessionID, profile: profile, messageID: statusID,
+						with: ChatMessage(id: statusID, role: .assistant, text: response, streaming: false)
+					)
+					first = false
+				} else {
+					let id = await coordinator.nextMessageID()
+					await coordinator.append(sessionID: sessionID, profile: profile, messages: [
+						ChatMessage(id: id, role: .assistant, text: response, streaming: false)
+					])
+				}
+				received = true
+			}
+			if !received {
+				await coordinator.replace(
+					sessionID: sessionID, profile: profile, messageID: statusID,
+					with: ChatMessage(id: statusID, role: .status, text: "no response", streaming: false)
+				)
+			}
+		} catch is CancellationError {
+			await coordinator.replace(
+				sessionID: sessionID, profile: profile, messageID: statusID,
+				with: ChatMessage(id: statusID, role: .status, text: "cancelled", streaming: false)
+			)
+		} catch {
+			await coordinator.replace(
+				sessionID: sessionID, profile: profile, messageID: statusID,
+				with: ChatMessage(id: statusID, role: .status, text: "turn failed", streaming: false)
+			)
+		}
+		await coordinator.setInflight(sessionID: sessionID, profile: profile, false)
+	}
+
+	// MARK: - rendering
+
+	/// the message thread fragment (id `chat-thread`).
+	public static func renderThread(messages: [ChatMessage], inflight: Bool) -> String {
+		Div(id: "chat-thread") {
+			if messages.isEmpty {
+				WebUIEmptyState(
+					icon: .bot,
+					title: "Start a conversation",
+					message: "Send a message to begin chatting with the agent."
+				)
+			} else {
+				ForEach(messages) { message in
+					MessageBubble(message: message)
+				}
+			}
+		}
+		.render()
+	}
+
+	/// the target sidebar fragment (id `chat-sidebar`).
+	public static func renderSidebar(profiles: [Profile], active: String, connection: ChatConnection) -> String {
+		Div(id: "chat-sidebar") {
+			ForEach(profiles) { profile in
+				Raw(sidebarRow(profile: profile, active: profile.name == active, connection: connection))
+			}
+		}
+		.render()
+	}
+
+	private static func sidebarRow(profile: Profile, active: Bool, connection: ChatConnection) -> String {
+		let label = active ? "◉ \(profile.displayName)" : profile.displayName
+		let button = WebUIButton(
+			label,
+			variant: active ? .primary : .ghost,
+			size: .sm,
+			fullWidth: true
+		).render()
+		let attrs = controlAttributes(id: "side-\(profile.name)", handler: connection.selectHandler(profile: profile.name))
+		return injectAttributes(into: button, attrs)
+	}
+
+	/// the input bar fragment (id `chat-bar`). each render mints a fresh
+	/// textarea id so the runtime's input-state preservation cannot restore a
+	/// sent message into the cleared field; the form keeps its stable
+	/// `chat-bar` component id so routing survives the patch.
+	public static func renderChatBar(inputID: String, isBusy: Bool, submitHandler: @escaping EventHandler) -> String {
+		let form = Form(action: "/", method: "post", id: "chat-bar") {
+			HStack(spacing: 8) {
+				TextArea(
+					id: inputID,
+					name: "message",
+					placeholder: "Message…",
+					rows: 1
+				)
+				.width("100%")
+				WebUIButton("Send", variant: .primary, size: .md, disabled: isBusy)
+			}
+		}
+		.render()
+		let attrs = controlAttributes(id: "chat-bar", event: .submit, handler: submitHandler)
+		return injectAttributes(into: form, attrs)
+	}
+
+	/// the next textarea id (called inside the actor, so sequence is safe).
+	public func nextInputID() -> String {
+		defer { inputSequence += 1 }
+		return "chat-input-\(inputSequence)"
+	}
 }
 
-// MARK: - Header
+// MARK: - Message bubble
 
-/// Minimal header bar — just the essentials.
-public struct HeaderView: View {
-    public let modelName: String
-    public let models: [String]
-    public let activeMode: String
-
-    public init(modelName: String = "default", models: [String] = [], activeMode: String = "chat") {
-        self.modelName = modelName
-        self.models = models
-        self.activeMode = activeMode
-    }
-
-    public func render() -> String {
-        let modelOptions = models.map { m in
-            let sel = m == modelName ? " selected" : ""
-            return "<option value=\"\(htmlEscape(m))\"\(sel)>\(htmlEscape(m))</option>"
-        }.joined()
-
-        let chatActive = activeMode == "chat" ? " active" : ""
-        let botsActive = activeMode == "bots" ? " active" : ""
-
-        return """
-        <header class="chat-header">
-          <div class="header-left">
-            <span class="header-logo">⚡</span>
-            <span class="header-title">ARC Agent</span>
-          </div>
-          <nav class="header-nav">
-            <a href="/ui" class="nav-tab\(chatActive)" data-mode="chat">Chat</a>
-            <a href="/ui/bots" class="nav-tab\(botsActive)" data-mode="bots">Bots</a>
-          </nav>
-          <div class="header-right">
-            <span id="conn" class="status-badge off">Disconnected</span>
-            <button class="header-btn" id="settings-btn" onclick="toggleSettings()" title="Settings">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M8 10a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" stroke-width="1.5"/>
-                <path d="M13.5 8a5.5 5.5 0 01-.3 1.8l1.2.9-.8 1.4-1.4-.5a5.5 5.5 0 01-1.6.9l-.4 1.5H9.2l-.4-1.5a5.5 5.5 0 01-1.6-.9l-1.4.5-.8-1.4 1.2-.9A5.5 5.5 0 016 8a5.5 5.5 0 01.3-1.8l-1.2-.9.8-1.4 1.4.5a5.5 5.5 0 011.6-.9L9.2 2h1.6l.4 1.5a5.5 5.5 0 011.6.9l1.4-.5.8 1.4-1.2.9A5.5 5.5 0 0113.5 8z" stroke="currentColor" stroke-width="1.5"/>
-              </svg>
-            </button>
-          </div>
-        </header>
-        """
-    }
-}
-
-// MARK: - Message Container
-
-/// The scrollable message area with welcome state.
-public struct MessageContainer: View {
-    public let welcomeMessage: String
-
-    public init(welcomeMessage: String = "") {
-        self.welcomeMessage = welcomeMessage
-    }
-
-    public func render() -> String {
-        """
-        <div class="messages-container" id="messages-container">
-          <div class="messages-scroll" id="messages">
-            \(renderWelcome(welcomeMessage: welcomeMessage))
-          </div>
-          <div id="scroll-anchor"></div>
-        </div>
-        """
-    }
-
-    private func renderWelcome(welcomeMessage: String) -> String {
-        """
-        <div class="welcome-screen">
-          <div class="welcome-icon">⚡</div>
-          <h2 class="welcome-title">ARC Agent</h2>
-          <p class="welcome-subtitle">\(htmlEscape(welcomeMessage.isEmpty ? "How can I help you today?" : welcomeMessage))</p>
-          <div class="welcome-suggestions">
-            <div class="suggestion-chip" onclick="sendSuggestion('Write a Swift function')">
-              <span class="suggestion-icon">⌨️</span>
-              Write a Swift function
-            </div>
-            <div class="suggestion-chip" onclick="sendSuggestion('Explain this concept')">
-              <span class="suggestion-icon">📖</span>
-              Explain this concept
-            </div>
-            <div class="suggestion-chip" onclick="sendSuggestion('Debug my code')">
-              <span class="suggestion-icon">🔍</span>
-              Debug my code
-            </div>
-            <div class="suggestion-chip" onclick="sendSuggestion('Summarize a webpage')">
-              <span class="suggestion-icon">🌐</span>
-              Summarize a webpage
-            </div>
-          </div>
-        </div>
-        """
-    }
-}
-
-// MARK: - Message Bubble
-
-/// A single message with avatar, content, timestamp, and actions.
+/// one message in the chat thread: a right-aligned flat card for the user, a
+/// left-aligned raised card for the assistant (server-side markdown), and a
+/// spinner chip for status rows.
 public struct MessageBubble: View {
-    public let role: String
-    public let contentHTML: String
-    public let timestamp: String
-    public let messageID: String
 
-    public init(role: String, contentHTML: String, timestamp: String = "", messageID: String = "") {
-        self.role = role
-        self.contentHTML = contentHTML
-        self.timestamp = timestamp
-        self.messageID = timestamp.isEmpty ? "msg-\(UUID().uuidString.prefix(8))" : messageID
-    }
+	public let message: ChatMessage
 
-    public func render() -> String {
-        let isUser = role == "user"
-        let avatarIcon = isUser ? "👤" : "⚡"
-        let avatarClass = isUser ? "avatar-user" : "avatar-assistant"
+	public init(message: ChatMessage) {
+		self.message = message
+	}
 
-        return """
-        <div class="message-row \(role)" id="\(htmlEscape(messageID))">
-          <div class="message-avatar \(avatarClass)">\(avatarIcon)</div>
-          <div class="message-content">
-            <div class="message-header-row">
-              <span class="message-role-label">\(isUser ? "You" : "ARC Agent")</span>
-              <span class="message-timestamp">\(htmlEscape(formatTimestamp(timestamp)))</span>
-            </div>
-            <div class="message-bubble">
-              <div class="markdown">\(contentHTML)</div>
-            </div>
-            \(isUser ? "" : renderActions())
-          </div>
-        </div>
-        """
-    }
+	public func render() -> String {
+		let isUser = message.role == .user
+		let isStatus = message.role == .status
 
-    private func renderActions() -> String {
-        """
-        <div class="message-actions">
-          <button class="action-btn" onclick="copyMessage('\(htmlEscape(messageID))')" title="Copy">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <rect x="3" y="3" width="10" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
-              <path d="M1 11V2.5A1.5 1.5 0 012.5 1H11" stroke="currentColor" stroke-width="1.2"/>
-            </svg>
-          </button>
-          <button class="action-btn" onclick="regenerateMessage('\(htmlEscape(messageID))')" title="Regenerate">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M1 7a6 6 0 0111.3-3M13 7a6 6 0 01-11.3 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-              <path d="M13 1v4h-4M1 13V9h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </button>
-        </div>
-        """
-    }
-}
+		return HStack(spacing: 8) {
+			if isUser { Spacer(minSize: 120) }
 
-// MARK: - Streaming Indicator
+			if isStatus {
+				HStack(spacing: 8) {
+					WebUISpinner(size: .sm)
+					Text(message.text).foregroundColor(.textMuted)
+				}
+				.padding(12)
+				.backgroundColor("var(--color-bg-subtle)")
+				.cornerRadius("10px")
+			} else {
+				VStack(alignment: .leading, spacing: 4) {
+					WebUIBadge(
+						isUser ? "you" : "agent",
+						variant: isUser ? .info : .primary,
+						size: .sm
+					)
+					if isUser {
+						Text(message.text)
+					} else {
+						Raw(markdownToHTML(message.text))
+					}
+				}
+				.padding(12)
+				.backgroundColor(isUser ? "var(--color-bg-inset)" : "var(--color-bg-raised)")
+				.cornerRadius("12px")
+				.maxWidth("80%")
+			}
 
-/// Animated typing indicator shown while the LLM is generating.
-public struct StreamingIndicator: View {
-    public init() {}
-
-    public func render() -> String {
-        """
-        <div class="message-row assistant streaming-row" id="streaming-indicator">
-          <div class="message-avatar avatar-assistant">⚡</div>
-          <div class="message-content">
-            <div class="message-header-row">
-              <span class="message-role-label">ARC Agent</span>
-            </div>
-            <div class="message-bubble streaming-bubble" id="streaming-content">
-              <span class="typing-dots">
-                <span class="dot"></span>
-                <span class="dot"></span>
-                <span class="dot"></span>
-              </span>
-            </div>
-          </div>
-        </div>
-        """
-    }
-}
-
-// MARK: - Input Bar
-
-/// Clean input bar with auto-resizing textarea and send button.
-public struct InputBar: View {
-    public let placeholder: String
-
-    public init(placeholder: String = "Type a message...") {
-        self.placeholder = placeholder
-    }
-
-    public func render() -> String {
-        """
-        <div class="input-bar">
-          <div class="input-container">
-            <textarea
-              id="message-input"
-              class="input-field"
-              placeholder="\(htmlEscape(placeholder))"
-              rows="1"
-              autofocus
-            ></textarea>
-            <button id="send-button" class="send-btn" onclick="sendMessage()" disabled>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M2 8l12-6-6 12-2-4-4-2z" fill="currentColor"/>
-              </svg>
-            </button>
-          </div>
-          <div class="input-hint">Cmd+Enter for new line</div>
-        </div>
-        """
-    }
-}
-
-// MARK: - Settings Panel
-
-/// Slide-out settings drawer.
-public struct SettingsPanel: View {
-    public let isOpen: Bool
-
-    public init(isOpen: Bool = false) {
-        self.isOpen = isOpen
-    }
-
-    public func render() -> String {
-        let display = isOpen ? "flex" : "none"
-        return """
-        <div class="settings-overlay" id="settings-overlay" style="display: \(display)" onclick="toggleSettings()">
-          <div class="settings-panel" id="settings-panel" onclick="event.stopPropagation()">
-            <div class="settings-header">
-              <h3>Settings</h3>
-              <button class="header-btn" onclick="toggleSettings()">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                </svg>
-              </button>
-            </div>
-            <div class="settings-body">
-              <div class="settings-section">
-                <label class="settings-label">Model</label>
-                <select class="settings-select" id="settings-model" onchange="switchModel(this.value)">
-                  <option value="default">default</option>
-                </select>
-              </div>
-              <div class="settings-section">
-                <label class="settings-label">Temperature</label>
-                <input type="range" class="settings-slider" id="settings-temp" min="0" max="2" step="0.1" value="0.7">
-                <span class="settings-value" id="settings-temp-value">0.7</span>
-              </div>
-              <div class="settings-section">
-                <label class="settings-label">Max Tokens</label>
-                <input type="range" class="settings-slider" id="settings-maxtokens" min="256" max="8192" step="256" value="2048">
-                <span class="settings-value" id="settings-maxtokens-value">2048</span>
-              </div>
-              <div class="settings-section">
-                <label class="settings-label">
-                  <input type="checkbox" id="settings-stream" checked>
-                  Stream responses
-                </label>
-              </div>
-            </div>
-          </div>
-        </div>
-        """
-    }
-}
-
-// MARK: - Helpers
-
-/// Format an ISO8601 timestamp for display.
-private func formatTimestamp(_ iso: String) -> String {
-    guard !iso.isEmpty else { return "" }
-    // The JS side handles formatting; pass through for server-rendered messages
-    return iso
-}
-
-/// Get current time as ISO8601 string.
-private func nowISO8601() -> String {
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return formatter.string(from: Date())
+			if !isUser { Spacer(minSize: 120) }
+		}
+		.render()
+	}
 }
