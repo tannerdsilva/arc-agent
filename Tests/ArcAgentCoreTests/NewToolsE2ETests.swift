@@ -3,12 +3,7 @@ import Testing
 @testable import ArcAgentCore
 
 /// Shared helper namespace for tool tests.
-enum SearchFilesToolTests {
-    static let rgPresent: Bool = {
-        let (_, _, code) = SearchFilesTool.runProcess(["rg", "--version"])
-        return code == 0
-    }()
-}
+enum SearchFilesToolTests {}
 
 /// Sendable capture box for tests (actor-isolated, First-Law compliant).
 actor CaptureBox {
@@ -189,7 +184,7 @@ struct NewToolsE2ETests {
         try "def foo():\n    return 42\n".write(to: f, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let result = SearchFilesTool.search(
+        let result = try await SearchFilesTool.search(
             pattern: "return 42", path: dir.path, target: "content",
             fileGlob: nil, limit: 50, offset: 0, outputMode: "content", context: 0)
         #expect(result.contains("\"total_count\":1"))
@@ -205,7 +200,7 @@ struct NewToolsE2ETests {
         try "x".write(to: dir.appendingPathComponent("two.txt"), atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let result = SearchFilesTool.search(
+        let result = try await SearchFilesTool.search(
             pattern: "*.py", path: dir.path, target: "files",
             fileGlob: nil, limit: 50, offset: 0, outputMode: "files_only", context: 0)
         #expect(result.contains("\"files\""))
@@ -219,7 +214,7 @@ struct NewToolsE2ETests {
         try "alpha beta\nalpha\n".write(to: dir.appendingPathComponent("c.txt"), atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let result = SearchFilesTool.search(
+        let result = try await SearchFilesTool.search(
             pattern: "alpha", path: dir.path, target: "content",
             fileGlob: "*.txt", limit: 50, offset: 0, outputMode: "count", context: 0)
         #expect(result.contains("\"counts\""))
@@ -233,7 +228,7 @@ struct NewToolsE2ETests {
         try "x".write(to: dir.appendingPathComponent("other.yaml"), atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let result = SearchFilesTool.search(
+        let result = try await SearchFilesTool.search(
             pattern: "*.json", path: dir.path, target: "files",
             fileGlob: nil, limit: 50, offset: 0, outputMode: "content", context: 0)
         #expect(result.contains("config.json"))
@@ -248,7 +243,7 @@ struct NewToolsE2ETests {
         }
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let page2 = SearchFilesTool.search(
+        let page2 = try await SearchFilesTool.search(
             pattern: "needle", path: dir.path, target: "content",
             fileGlob: nil, limit: 1, offset: 1, outputMode: "files_only", context: 0)
         #expect(page2.contains("\"truncated\":true"))
@@ -256,7 +251,7 @@ struct NewToolsE2ETests {
 
     @Test("search_files missing path reports similar paths")
     func searchMissingPath() async throws {
-        let result = SearchFilesTool.search(
+        let result = try await SearchFilesTool.search(
             pattern: "x", path: "/nonexistent-dir-xyz", target: "content",
             fileGlob: nil, limit: 50, offset: 0, outputMode: "content", context: 0)
         #expect(result.contains("Path not found"))

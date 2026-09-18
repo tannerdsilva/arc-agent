@@ -1,4 +1,5 @@
 import Foundation
+import SwiftSlash
 
 // MARK: - Plugin JSON value (arbitrary JSON for tool schemas)
 
@@ -216,10 +217,13 @@ public struct PluginTool: Sendable {
 
     enum InvokeError: Error, CustomStringConvertible {
         case executableNotFound(String)
+        case timeout(TimeInterval)
         var description: String {
             switch self {
             case .executableNotFound(let cmd):
                 return "plugin executable not found: \(cmd)"
+            case .timeout(let seconds):
+                return "plugin invocation timed out after \(seconds)s"
             }
         }
     }
@@ -250,47 +254,38 @@ public struct PluginTool: Sendable {
     /// Invoke the plugin binary: JSON `{"tool": name, "args": {...}}` on
     /// stdin → JSON `{"result": "..."}` on stdout. Bounded: 60s, 1MB.
     public func invoke(args: [String: Any]) async throws -> String {
-        let process = Process()
         let cwd = cwdOverride ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".arc/plugins/\(plugin)")
-        process.currentDirectoryURL = cwd
-        process.executableURL = try resolveExecutable(cwd: cwd)
+        let exe = try resolveExecutable(cwd: cwd)
         var processArgs = self.args
         if let entry {
             processArgs.insert(entry, at: 0)
         }
-        process.arguments = processArgs
-        return try await withThrowingTaskGroup(of: String.self) { group in
-            let stdin = Pipe()
-            let stdout = Pipe()
-            process.standardInput = stdin
-            process.standardOutput = stdout
-            process.standardError = Pipe()
-            let payload: [String: Any] = ["tool": name, "args": args]
-            stdin.fileHandleForWriting.write(try JSONSerialization.data(withJSONObject: payload))
-            try stdin.fileHandleForWriting.close()
-            try process.run()
-            group.addTask {
-                var data = Data()
-                for try await byte in stdout.fileHandleForReading.bytes {
-                    data.append(byte)
-                    if data.count > 1_000_000 { break }
-                }
-                return String(data: data, encoding: .utf8) ?? ""
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 60_000_000_000)
-                process.terminate()
-                return ""
-            }
-            let raw = try await group.next() ?? ""
-            group.cancelAll()
-            if let json = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any],
-               let result = json["result"] as? String {
-                return result
-            }
-            return raw.isEmpty ? "(plugin returned no output)" : raw
+
+        // SwiftSlash: posix_spawn; payload rides stdin; process-group kill +
+        // reap on the 60s bound. (Old Foundation-Pipe path could deadlock on
+        // unresolvable stderr and left no reaping guarantee.)
+        var command = Command(
+            absolutePath: Path(URL(fileURLWithPath: exe.path).path),
+            arguments: processArgs)
+        command.inheritCurrentEnvironment()
+        command.workingDirectory = Path(cwd.path)
+
+        let payload: [String: Any] = ["tool": name, "args": args]
+        let payloadBytes = Array(try JSONSerialization.data(withJSONObject: payload))
+
+        let outcome = try await SubprocessRunner.runBytes(
+            command, timeout: 60, captureCap: 1_000_000, stdin: payloadBytes)
+        if outcome.timedOut {
+            throw InvokeError.timeout(60)
         }
+
+        let raw = String(data: outcome.stdout, encoding: .utf8) ?? ""
+        if let json = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any],
+           let result = json["result"] as? String {
+            return result
+        }
+        return raw.isEmpty ? "(plugin returned no output)" : raw
     }
 }
 

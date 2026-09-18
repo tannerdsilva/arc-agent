@@ -1,4 +1,5 @@
 import Foundation
+import SwiftSlash
 
 /// Agent Client Protocol (ACP) host client (Hermes `copilot_acp_client.py`):
 /// spawns a `copilot` ACP subprocess and speaks JSON-RPC 2.0 over stdio —
@@ -32,8 +33,12 @@ public actor ACPClient {
     }
 
     private let config: Config
-    private var process: Process?
-    private var stdin: FileHandle?
+    /// SwiftSlash child; stdin/stdout are the built-in channels (newline
+    /// framing matches ACP's JSON-RPC line protocol exactly).
+    private var child: ChildProcess?
+    /// Detached reaper: `run()` suspends until the process exits, so the
+    /// child is always reaped (no zombies) even after abrupt disconnects.
+    private var runTask: Task<Void, Never>?
     private var nextID: Int = 1
 
     public init(config: Config) {
@@ -44,20 +49,24 @@ public actor ACPClient {
 
     /// Start the ACP process and run `initialize`; returns the server info.
     public func start() async throws -> [String: Any] {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: config.command)
-        process.arguments = config.args
-        if let cwd = config.workingDirectory {
-            process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+        if child == nil {
+            var command = Command(
+                absolutePath: Path(config.command),
+                arguments: config.args)
+            command.inheritCurrentEnvironment()
+            if let cwd = config.workingDirectory {
+                command.workingDirectory = Path(cwd)
+            }
+            let acp = ChildProcess(command, dataChannels: [
+                STDOUT_FILENO: .write(.toParentProcess(stream: .init(), separator: [0x0A])),
+                STDERR_FILENO: .write(.toNull),  // stderr is never protocol data
+                STDIN_FILENO: .read(.fromParentProcess(stream: .init())),
+            ])
+            self.child = acp
+            // Reap in a detached task: run() suspends for the process's
+            // lifetime and returns once it exits (after shutdown signal).
+            self.runTask = Task { try? await acp.run(cancellationSignal: SIGTERM) }
         }
-        let outputPipe = Pipe()
-        let inputPipe = Pipe()
-        process.standardInput = inputPipe
-        process.standardOutput = outputPipe
-        process.standardError = Pipe()
-        try process.run()
-        self.process = process
-        self.stdin = inputPipe.fileHandleForWriting
         return try await rpc(method: "initialize", params: [
             "protocolVersion": 1,
             "clientCapabilities": ["fs": ["readTextFile": true, "writeTextFile": true]],
@@ -94,17 +103,21 @@ public actor ACPClient {
         ])
     }
 
-    public func shutdown() {
-        try? stdin?.close()
-        process?.terminate()
-        process = nil
-        stdin = nil
+    public func shutdown() async {
+        guard let child else { return }
+        // Close stdin (child sees EOF) then signal the process group so
+        // `run()` unwinds and reaps; await the reaper before returning.
+        child.stdin.closeDataChannel()
+        try? await child.signal(SIGTERM)
+        await runTask?.value
+        self.child = nil
+        self.runTask = nil
     }
 
     // MARK: - JSON-RPC plumbing (AsyncBytes — no threads)
 
     private func rpc(method: String, params: [String: Any]) async throws -> [String: Any] {
-        guard let process, let stdin else { throw LLMError.networkError("ACP client not started") }
+        guard let child else { throw LLMError.networkError("ACP client not started") }
         let id = nextID
         nextID += 1
         let payload: [String: Any] = [
@@ -115,18 +128,20 @@ public actor ACPClient {
         ]
         let data = try JSONSerialization.data(withJSONObject: payload)
         let framed = data + Data([0x0A])
-        try stdin.write(contentsOf: framed)
+        try await child.stdin.write(Array(framed))
 
-        // Read one JSON-RPC response line for this id.
-        let stdout = process.standardOutput as? Pipe
-        guard let pipe = stdout else { throw LLMError.decodingError("ACP stdout unavailable") }
-        let bytes = pipe.fileHandleForReading.bytes
-        var collector = Data()
-        for try await byte in bytes {
-            collector.append(byte)
-            if byte == 0x0A {
-                let line = collector.dropLast()
-                collector = Data()
+        // ACP responses are newline-framed JSON; SwiftSlash's line channel
+        // yields exactly those frames. Requests are strictly sequential per
+        // client, so this single-consumer sequence is unambiguous.
+        var sawAny = false
+        var collectorBytes = 0
+        for await chunk in child.stdout {
+            for line in chunk {
+                sawAny = true
+                collectorBytes += line.count
+                if collectorBytes > 4_000_000 {
+                    throw LLMError.decodingError("ACP response exceeded 4 MB")
+                }
                 if let json = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                    (json["id"] as? Int) == id {
                     if let error = json["error"] as? [String: Any] {
@@ -135,11 +150,10 @@ public actor ACPClient {
                     return json["result"] as? [String: Any] ?? [:]
                 }
             }
-            if collector.count > 4_000_000 {
-                throw LLMError.decodingError("ACP response exceeded 4 MB")
-            }
         }
-        throw LLMError.decodingError("ACP process closed before responding to \(method)")
+        throw LLMError.decodingError(
+            "ACP process closed before responding to \(method)" + (sawAny ? "" : " (no output)")
+        )
     }
 
     // MARK: - LLMClient adapter (maps a prompt to a chat round)

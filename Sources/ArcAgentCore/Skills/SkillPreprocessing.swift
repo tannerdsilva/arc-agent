@@ -1,4 +1,5 @@
 import Foundation
+import SwiftSlash
 
 // MARK: - Skill preprocessing (Hermes `skill_preprocessing.py`)
 
@@ -62,39 +63,19 @@ public enum SkillPreprocessing {
     }
 
     /// Run one shell command via /bin/sh, capturing stdout, capped at
-    /// `maxInlineOutputBytes`, with a hard timeout.
+    /// `maxInlineOutputBytes`, with a hard timeout (SwiftSlash: posix_spawn,
+    /// concurrent byte-exact capture, process-group kill + reap on timeout).
     public static func runShell(_ command: String) async throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", command]
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = Pipe()
-        try process.run()
-
-        let output = try await readBytes(pipe: outputPipe, cap: maxInlineOutputBytes)
-        // Wait with a bounded timeout (Law: no threads — timeout via task race).
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask { process.waitUntilExit() }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(inlineCommandTimeoutSeconds * 1_000_000_000))
-                process.terminate()
-                throw CuratorError.backupFailed("inline command timed out: \(command.prefix(80))")
-            }
-            _ = try? await group.next()
-            group.cancelAll()
+        var shell = Command(absolutePath: Path("/bin/sh"), arguments: ["-c", command])
+        shell.inheritCurrentEnvironment()
+        let outcome = try await SubprocessRunner.runBytes(
+            shell,
+            timeout: inlineCommandTimeoutSeconds,
+            captureCap: maxInlineOutputBytes)
+        if outcome.timedOut {
+            throw CuratorError.backupFailed("inline command timed out: \(command.prefix(80))")
         }
-        return output
-    }
-
-    /// Read a pipe's bytes with a cap (Foundation AsyncBytes; no threads).
-    static func readBytes(pipe: Pipe, cap: Int) async throws -> String {
-        var collected = Data()
-        for try await byte in pipe.fileHandleForReading.bytes {
-            collected.append(byte)
-            if collected.count >= cap { break }
-        }
-        return String(data: collected, encoding: .utf8) ?? ""
+        return String(data: outcome.stdout, encoding: .utf8) ?? ""
     }
 
     /// Full preprocessing pipeline: templates, then inline commands.

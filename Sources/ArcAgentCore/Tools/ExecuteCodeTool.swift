@@ -1,4 +1,5 @@
 import Foundation
+import SwiftSlash
 import NIOCore
 import NIO
 import NIOPosix
@@ -126,36 +127,34 @@ public enum ExecuteCodeTool {
             let (server, port) = try await ToolRPCServer.start(
                 host: host, limiter: limiter, token: token)
 
-            // 2) Spawn python3.
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["python3", scriptURL.path]
+            // 2) Spawn python3 via SwiftSlash (posix_spawn; process-group kill
+            //    + full reap on timeout — no polling loops, no detached reads).
             var env = ProcessInfo.processInfo.environment
             env["HERMES_TOOLS_RPC"] = "127.0.0.1:\(port)"
             env["HERMES_TOOLS_TOKEN"] = token
             env["PYTHONPATH"] = tempDir.path
             env["PYTHONIOENCODING"] = "utf-8"
             env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
-            process.environment = env
-            process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 
-            let outPipe = Pipe()
-            let errPipe = Pipe()
-            process.standardOutput = outPipe
-            process.standardError = errPipe
+            var pyCommand = Command(
+                absolutePath: Path("/usr/bin/env"),
+                arguments: ["python3", scriptURL.path])
+            pyCommand.environment = env
+            pyCommand.workingDirectory = Path(FileManager.default.currentDirectoryPath)
 
-            try process.run()
-
-            // 3) Drain stdout/stderr concurrently (head/tail window cap).
-            let (stdoutData, stderrData, timedOut) = try await drain(
-                process: process, outPipe: outPipe, errPipe: errPipe,
-                timeout: timeoutSeconds)
+            // 3) Run concurrently with byte-exact captured output bounded by
+            //    the head/tail window (capture cap = maxStdoutBytes; excess is
+            //    still drained so the child can finish).
+            let outcome = try await SubprocessRunner.runBytes(
+                pyCommand, timeout: timeoutSeconds, captureCap: maxStdoutBytes)
+            let timedOut = outcome.timedOut
+            let exitCode = outcome.exitCodeValue
 
             let callsMade = await limiter.callsMade()
 
             let duration = Date().timeIntervalSince(start)
-            var stdoutText = truncateHeadTail(stdoutData, cap: maxStdoutBytes)
-            var stderrText = String(data: stderrData, encoding: .utf8) ?? ""
+            var stdoutText = truncateHeadTail(outcome.stdout, cap: maxStdoutBytes)
+            var stderrText = String(data: outcome.stderr, encoding: .utf8) ?? ""
             if stderrText.count > 10_000 {
                 stderrText = String(stderrText.prefix(10_000)) + "\n... (stderr truncated)"
             }
@@ -163,7 +162,7 @@ public enum ExecuteCodeTool {
             var result: [String: Any] = [
                 "status": timedOut ? "timeout" : "success",
                 "output": stdoutText,
-                "exit_code": Int(process.terminationStatus),
+                "exit_code": Int(exitCode),
                 "tool_calls_made": callsMade,
                 "duration_seconds": (duration * 100).rounded() / 100,
             ]
@@ -174,10 +173,10 @@ public enum ExecuteCodeTool {
                 result["output"] = stdoutText.isEmpty
                     ? "⏰ \(timeoutMsg)"
                     : stdoutText + "\n\n⏰ \(timeoutMsg)"
-            } else if process.terminationStatus != 0 {
+            } else if exitCode != 0 {
                 result["status"] = "error"
                 result["error"] = stderrText.isEmpty
-                    ? "Script exited with code \(process.terminationStatus)"
+                    ? "Script exited with code \(exitCode)"
                     : stderrText
                 result["output"] = stdoutText + "\n--- stderr ---\n" + stderrText
                 if let hint = failureHint(stderr: stderrText) {
@@ -199,33 +198,6 @@ public enum ExecuteCodeTool {
             ]
             return try jsonString(result)
         }
-    }
-
-    // MARK: - Process drain + timeout (async-poll, no semaphores/threads)
-
-    static func drain(
-        process: Process, outPipe: Pipe, errPipe: Pipe, timeout: Double
-    ) async throws -> (Data, Data, Bool) {
-        let outTask = Task.detached { outPipe.fileHandleForReading.readDataToEndOfFile() }
-        let errTask = Task.detached { errPipe.fileHandleForReading.readDataToEndOfFile() }
-
-        let deadline = Date().addingTimeInterval(timeout)
-        var timedOut = false
-        while process.isRunning && Date() < deadline {
-            try await Task.sleep(nanoseconds: 50_000_000)
-        }
-        if process.isRunning {
-            timedOut = true
-            process.terminate()
-            // brief grace for the pipe readers to finish
-            try await Task.sleep(nanoseconds: 200_000_000)
-            if process.isRunning {
-                process.interrupt()
-            }
-        }
-        let out = await outTask.value
-        let err = await errTask.value
-        return (out, err, timedOut)
     }
 
     /// Head/tail capture with explicit truncation metadata.

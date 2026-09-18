@@ -1,4 +1,5 @@
 import Foundation
+import SwiftSlash
 import CryptoKit
 
 // MARK: - Media tools (Hermes image_gen/tts/transcription/video provider
@@ -326,37 +327,20 @@ public actor ShellHooks {
     }
 
     private func run(_ command: String) async -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", command]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
+        // SwiftSlash: posix_spawn, concurrent capture, process-group kill on
+        // the 15s bound (cancellation reaps — no orphaned hooks).
+        var shell = Command(absolutePath: Path("/bin/sh"), arguments: ["-c", command])
+        shell.inheritCurrentEnvironment()
+        let outcome: SubprocessOutcome
         do {
-            try process.run()
+            outcome = try await SubprocessRunner.runBytes(shell, timeout: 15, captureCap: 8_000)
         } catch {
             return "hook failed: \(error.localizedDescription)"
         }
-        let output = await withTaskGroup(of: String.self) { group in
-            group.addTask {
-                var data = Data()
-                do {
-                    for try await byte in pipe.fileHandleForReading.bytes {
-                        data.append(byte)
-                        if data.count >= 8_000 { break }
-                    }
-                } catch {}
-                return String(data: data, encoding: .utf8) ?? ""
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 15_000_000_000)
-                process.terminate()
-                return ""
-            }
-            let first = await group.next() ?? ""
-            group.cancelAll()
-            return first
-        }
+        if outcome.timedOut { return nil }
+        var data = outcome.stdout
+        data.append(outcome.stderr)
+        let output = String(data: data, encoding: .utf8) ?? ""
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
@@ -364,7 +348,7 @@ public actor ShellHooks {
 
 // MARK: - Code execution (Hermes `code_execution_tool`)
 
-/// Runs Python (or another interpreter) via `Process` with a hard timeout
+/// Runs Python (or another interpreter) via SwiftSlash with a hard timeout
 /// and output cap. Local execution, no sandbox — the result text says so.
 public enum CodeExecutionTool {
     public static let entry = ToolEntry(
@@ -378,35 +362,13 @@ public enum CodeExecutionTool {
         handler: { args in
             let code: String = try MediaTools.required(args, key: "code")
             let timeout = args["timeout_seconds"] as? Int ?? 30
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["python3", "-c", code]
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = pipe
-            try process.run()
-            let output = await withTaskGroup(of: (String, Int32).self) { group in
-                group.addTask {
-                    var data = Data()
-                    do {
-                        for try await byte in pipe.fileHandleForReading.bytes {
-                            data.append(byte)
-                            if data.count >= 100_000 { break }
-                        }
-                    } catch {}
-                    return (String(data: data, encoding: .utf8) ?? "", -1)
-                }
-                group.addTask {
-                    // Wait for exit with a timeout race.
-                    try? await Task.sleep(nanoseconds: UInt64(timeout) * 1_000_000_000)
-                    process.terminate()
-                    return ("", -2)
-                }
-                let first = await group.next() ?? ("", -1)
-                group.cancelAll()
-                return first
-            }
-            let (text, _) = output
+            var py = Command(absolutePath: Path("/usr/bin/env"), arguments: ["python3", "-c", code])
+            py.inheritCurrentEnvironment()
+            let outcome = try await SubprocessRunner.runBytes(
+                py, timeout: TimeInterval(timeout), captureCap: 100_000)
+            var data = outcome.stdout
+            data.append(outcome.stderr)
+            let text = String(data: data, encoding: .utf8) ?? ""
             return text.isEmpty
                 ? "(no output)"
                 : "Execution finished (local, no sandbox).\n\(text)"

@@ -47,6 +47,10 @@ let package = Package(
             from: "1.3.0"
         ),
         .package(
+            url: "https://github.com/tannerdsilva/SwiftSlash.git",
+            from: "5.0.1"
+        ),
+        .package(
             url: "https://github.com/apple/swift-log.git",
             from: "1.6.0"
         ),
@@ -83,6 +87,7 @@ let package = Package(
                 .product(name: "NIOHTTP1", package: "swift-nio"),
                 .product(name: "NIOHTTPTypes", package: "swift-nio-extras"),
                 .product(name: "HTTPTypes", package: "swift-http-types"),
+                .product(name: "SwiftSlash", package: "SwiftSlash"),
             ],
             exclude: [
             ],

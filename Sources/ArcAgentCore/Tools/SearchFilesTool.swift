@@ -1,4 +1,5 @@
 import Foundation
+import SwiftSlash
 
 /// The `search_files` tool: ripgrep-backed content/file search.
 /// Faithful port of Hermes `search_files` (rg flags, output modes, zero-match
@@ -30,7 +31,7 @@ public enum SearchFilesTool {
             let offset = (args["offset"] as? Int) ?? 0
             let outputMode = (args["output_mode"] as? String) ?? "content"
             let context = (args["context"] as? Int) ?? 0
-            return Self.search(
+            return try await Self.search(
                 pattern: pattern, path: path, target: target, fileGlob: fileGlob,
                 limit: limit, offset: offset, outputMode: outputMode, context: context)
         },
@@ -61,7 +62,7 @@ public enum SearchFilesTool {
     static func search(
         pattern: String, path: String, target: String, fileGlob: String?,
         limit: Int, offset: Int, outputMode: String, context: Int
-    ) -> String {
+    ) async -> String {
         let clampedLimit = min(max(limit, 1), 500)
         let clampedOffset = max(offset, 0)
 
@@ -88,9 +89,9 @@ public enum SearchFilesTool {
         let bs = String(UnicodeScalar(92)!)  // backslash
         var outcome: SearchOutcome
         if target == "files" {
-            outcome = searchFiles(pattern: pattern, path: expandedPath, limit: clampedLimit, offset: clampedOffset)
+            outcome = await searchFiles(pattern: pattern, path: expandedPath, limit: clampedLimit, offset: clampedOffset)
         } else {
-            outcome = searchContent(
+            outcome = await searchContent(
                 pattern: pattern, path: expandedPath, fileGlob: fileGlob,
                 limit: clampedLimit, offset: clampedOffset, outputMode: outputMode,
                 context: context, backslash: bs)
@@ -99,7 +100,7 @@ public enum SearchFilesTool {
         // Zero-match steering probes (Hermes parity).
         if outcome.error == nil && outcome.totalCount == 0
             && outcome.matches.isEmpty && outcome.files.isEmpty && outcome.counts.isEmpty {
-            if let hint = zeroMatchProbe(pattern: pattern, path: expandedPath, fileGlob: fileGlob, backslash: bs) {
+            if let hint = await zeroMatchProbe(pattern: pattern, path: expandedPath, fileGlob: fileGlob, backslash: bs) {
                 outcome.warning = hint
             }
         }
@@ -131,10 +132,10 @@ public enum SearchFilesTool {
     static func searchContent(
         pattern: String, path: String, fileGlob: String?, limit: Int, offset: Int,
         outputMode: String, context: Int, backslash: String
-    ) -> SearchOutcome {
+    ) async -> SearchOutcome {
         var result = SearchOutcome()
         // Foundation-native fallback when ripgrep is unavailable.
-        if !rgAvailable() {
+        if !(await rgAvailable()) {
             return foundationSearchContent(
                 pattern: pattern, path: path, fileGlob: fileGlob,
                 limit: limit, offset: offset, outputMode: outputMode, context: context)
@@ -160,7 +161,7 @@ public enum SearchFilesTool {
         args.append(pattern)
         args.append(path)
 
-        let (stdout, stderr, exitCode) = runProcess(args)
+        let (stdout, stderr, exitCode) = await runProcess(args)
         let diagnostics = (stderr.isEmpty ? stdout : stderr)
             .components(separatedBy: "\n")
             .filter { $0.hasPrefix("rg: ") }
@@ -229,7 +230,7 @@ public enum SearchFilesTool {
 
     // MARK: - File search
 
-    static func searchFiles(pattern: String, path: String, limit: Int, offset: Int) -> SearchOutcome {
+    static func searchFiles(pattern: String, path: String, limit: Int, offset: Int) async -> SearchOutcome {
         let globPattern: String
         if !pattern.contains("/") && !pattern.hasPrefix("*") {
             globPattern = "*\(pattern)"
@@ -237,16 +238,16 @@ public enum SearchFilesTool {
             globPattern = pattern
         }
         // Foundation-native fallback when ripgrep is unavailable.
-        if !rgAvailable() {
+        if !(await rgAvailable()) {
             return foundationSearchFiles(pattern: globPattern, path: path, limit: limit, offset: offset)
         }
         var lines: [String] = []
-        var (stdout, _, code) = runProcess(["rg", "--files", "--sortr=modified", "-g", globPattern, path])
+        var (stdout, _, code) = await runProcess(["rg", "--files", "--sortr=modified", "-g", globPattern, path])
         if code == 0 && !stdout.isEmpty {
             lines = stdout.components(separatedBy: "\n").filter { !$0.isEmpty }
         }
         if lines.isEmpty {
-            (stdout, _, _) = runProcess(["rg", "--files", "-g", globPattern, path])
+            (stdout, _, _) = await runProcess(["rg", "--files", "-g", globPattern, path])
             lines = stdout.components(separatedBy: "\n").filter { !$0.isEmpty }
         }
         var result = SearchOutcome()
@@ -259,12 +260,12 @@ public enum SearchFilesTool {
 
     // MARK: - Zero-match probes (Hermes parity)
 
-    static func zeroMatchProbe(pattern: String, path: String, fileGlob: String?, backslash: String) -> String? {
+    static func zeroMatchProbe(pattern: String, path: String, fileGlob: String?, backslash: String) async -> String? {
         var globArgs: [String] = []
         if let fileGlob, !fileGlob.isEmpty {
             globArgs = ["--glob", fileGlob]
         }
-        let (ciOut, _, _) = runProcess(["rg", "-i", "--count-matches"] + globArgs + [pattern, path])
+        let (ciOut, _, _) = await runProcess(["rg", "-i", "--count-matches"] + globArgs + [pattern, path])
         var ciTotal = 0
         var ciFiles = 0
         for line in ciOut.components(separatedBy: "\n") {
@@ -276,7 +277,7 @@ public enum SearchFilesTool {
         if ciTotal > 0 {
             return "0 exact matches, but \(ciTotal) case-insensitive match(es) in \(ciFiles) file(s) — the pattern's casing may be wrong."
         }
-        let (hiddenOut, _, _) = runProcess(["rg", "--hidden", "--no-ignore", "--count-matches"] + globArgs + [pattern, path])
+        let (hiddenOut, _, _) = await runProcess(["rg", "--hidden", "--no-ignore", "--count-matches"] + globArgs + [pattern, path])
         var hTotal = 0
         var hFiles = 0
         for line in hiddenOut.components(separatedBy: "\n") {
@@ -289,7 +290,7 @@ public enum SearchFilesTool {
             return "0 matches in visible files, but \(hTotal) match(es) in \(hFiles) hidden or gitignored file(s) — these are excluded by default. Search the hidden path explicitly to include them."
         }
         if pattern.range(of: ".[\\[\\](){}?*+^$|]", options: .regularExpression) != nil {
-            let (fixedOut, _, _) = runProcess(["rg", "-F", "--count-matches"] + globArgs + [pattern, path])
+            let (fixedOut, _, _) = await runProcess(["rg", "-F", "--count-matches"] + globArgs + [pattern, path])
             var fTotal = 0
             for line in fixedOut.components(separatedBy: "\n") {
                 if let colon = line.lastIndex(of: ":"), let n = Int(line[line.index(after: colon)...]) {
@@ -327,26 +328,29 @@ public enum SearchFilesTool {
         return text
     }
 
-    static func rgAvailable() -> Bool {
-        let (_, _, code) = runProcess(["rg", "--version"])
+    static func rgAvailable() async -> Bool {
+        let (_, _, code) = await runProcess(["rg", "--version"])
         return code == 0
     }
 
-    static func runProcess(_ args: [String]) -> (String, String, Int32) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["rg"] + Array(args.dropFirst())
-        let pipe = Pipe()
-        let errPipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = errPipe
+    static func runProcess(_ args: [String]) async -> (String, String, Int32) {
+        guard let exe = args.first else { return ("", "", -1) }
+        var command: Command
         do {
-            try process.run()
-            let outData = pipe.fileHandleForReading.readDataToEndOfFile()
-            _ = errPipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            let out = String(data: outData, encoding: .utf8) ?? ""
-            return (out, "", process.terminationStatus)
+            if exe.hasPrefix("/") {
+                command = Command(absolutePath: Path(exe), arguments: Array(args.dropFirst()))
+            } else {
+                command = try Command(exe, arguments: Array(args.dropFirst()))
+            }
+        } catch {
+            return ("", "executable not found: \(exe)", -1)
+        }
+        command.inheritCurrentEnvironment()
+        do {
+            let outcome = try await SubprocessRunner.runBytes(command)
+            let out = String(data: outcome.stdout, encoding: .utf8) ?? ""
+            let err = String(data: outcome.stderr, encoding: .utf8) ?? ""
+            return (out, err, outcome.exitCodeValue)
         } catch {
             return ("", error.localizedDescription, -1)
         }

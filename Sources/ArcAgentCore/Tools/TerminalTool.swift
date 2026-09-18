@@ -1,10 +1,13 @@
 import Foundation
+import SwiftSlash
 
 /// The `terminal` tool: executes a shell command and returns its output.
 ///
-/// Uses Foundation's `Process` for command execution. Supports both foreground
-/// (wait for completion) and background (return immediately with a session ID)
-/// modes via the `background` parameter.
+/// Foreground execution uses SwiftSlash (`SubprocessRunner`): posix_spawn,
+/// concurrent byte-exact capture, process-group kill on timeout. Background
+/// mode (detached start, return PID immediately) stays on Foundation
+/// `Process` because SwiftSlash has no detached-launch API — documented
+/// exception.
 ///
 /// ## Parameters
 /// - `command`: The shell command to execute.
@@ -89,62 +92,39 @@ public enum TerminalTool {
         workdir: String?,
         background: Bool
     ) async throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-c", command]
-
-        if let workdir {
-            process.currentDirectoryURL = URL(fileURLWithPath: workdir)
-        }
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
+        // Background mode: SwiftSlash has no detached-launch API (its run()
+        // always waits, then reaps), so this path keeps Foundation Process —
+        // documented exception alongside Tessera/storage internals.
         if background {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = ["-c", command]
+            if let workdir {
+                process.currentDirectoryURL = URL(fileURLWithPath: workdir)
+            }
             try process.run()
             let pid = process.processIdentifier
             return "Background process started with PID: \(pid)"
         }
 
-        // Wait for completion using a checked continuation bridged from
-        // Process.terminationHandler — no blocking on the cooperative pool.
-        let exitCode = try await withThrowingTaskGroup(of: Int32.self) { group in
-            group.addTask {
-                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, Error>) in
-                    process.terminationHandler = { proc in
-                        continuation.resume(returning: proc.terminationStatus)
-                    }
-                    do {
-                        try process.run()
-                    } catch {
-                        // If run() throws, the handler will never fire.
-                        continuation.resume(throwing: error)
-                    }
-                }
-            }
-
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(timeout) * 1_000_000_000)
-                process.terminate()
-                throw TerminalError.timeout(timeout)
-            }
-
-            let result = try await group.next()
-            group.cancelAll()
-
-            guard let exitCode = result else {
-                throw TerminalError.noResult
-            }
-            return exitCode
+        // Foreground: SwiftSlash. Byte-exact capture (BYO pipes, drained
+        // concurrently — no pipe-buffer deadlock on large outputs) and
+        // process-group kill on timeout with full reaping.
+        var shellCommand = Command(absolutePath: Path("/bin/bash"), arguments: ["-c", command])
+        shellCommand.inheritCurrentEnvironment()
+        if let workdir {
+            shellCommand.workingDirectory = Path(workdir)
         }
 
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-        let exitCodeInt = exitCode
+        let outcome = try await SubprocessRunner.runBytes(
+            shellCommand, timeout: TimeInterval(timeout))
+        if outcome.timedOut {
+            throw TerminalError.timeout(timeout)
+        }
+
+        let stdout = String(data: outcome.stdout, encoding: .utf8) ?? ""
+        let stderr = String(data: outcome.stderr, encoding: .utf8) ?? ""
+        let exitCodeInt = outcome.exitCodeValue
 
         var parts: [String] = []
         if !stdout.isEmpty { parts.append(stdout) }
