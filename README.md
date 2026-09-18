@@ -4,7 +4,7 @@
 
 ARC Agent is a **precompiled, Swift-native AI agent harness** — architecturally inspired by [Hermes Agent](https://hermes-agent.nousresearch.com), but built from the ground up for Swift's concurrency model, type system, and distribution story. Single binary, zero interpreter overhead, no npm dependency chain, instant startup.
 
-**Status:** Vascular hardening. The core architecture is built across 131 source files with 363 passing tests and a clean build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. The web UI ships as the `arc-agent-webui` executable: all CSS/JS are Swift-embedded strings (no build pipeline, no external assets at runtime).
+**Status:** Vascular hardening. The core architecture is built across 141 source files with 414 passing tests and a clean build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. The web UI ships as the `arc-agent-webui` executable: all CSS/JS are Swift-embedded strings (no build pipeline, no external assets at runtime).
 
 ## Why Swift?
 
@@ -49,7 +49,7 @@ arc-agent-webui (executable)                     — web UI on :8890
 └── Generated/KaTeXAssets.swift   (KaTeX CSS/JS/fonts, generated)
 ```
 
-**40 registered tools** across ~9 toolsets: `core`, `file`, `terminal`, `web`, `delegation`, `kanban`, `profile`, `media`, `webhooks`, `skills`.
+**43 registered tools** across ~9 toolsets: `core`, `file`, `terminal`, `web`, `delegation`, `kanban`, `profile`, `media`, `webhooks`, `skills`.
 
 ## Quick Start
 

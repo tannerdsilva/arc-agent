@@ -2100,10 +2100,31 @@ public actor ArcAgent: Service {
         }
 
         do {
+            // Ambient tool dispatcher for execute_code: child Python processes
+            // dispatch tools back into THIS agent (same registry, guardrails,
+            // and session) via the loopback RPC server.
+            await ExecuteCodeTool.dispatcher.setHost { [weak self] name, args in
+                guard let self else {
+                    throw ToolError.execution("execute_code host agent no longer active")
+                }
+                return try await self.dispatchAmbientTool(name: name, args: args)
+            }
             return try await entry.handler(args)
         } catch {
             return "Error executing tool '\(toolCall.function.name)': \(error.localizedDescription)"
         }
+    }
+
+    /// Re-enter the tool pipeline from execute_code's RPC dispatcher (returns
+    /// the tool result text, same as a direct tool call).
+    private func dispatchAmbientTool(name: String, args: [String: Any]) async throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: args)
+        let call = ToolCall(
+            id: "ambient-\(name)",
+            function: ToolCallFunction(
+                name: name,
+                arguments: String(data: data, encoding: .utf8) ?? "{}"))
+        return try await dispatchToolCall(call)
     }
 
     /// Split a tool-call batch into ordered execution segments: maximal runs

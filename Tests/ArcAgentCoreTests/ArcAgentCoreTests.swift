@@ -18,7 +18,7 @@ func coreVersion() {
 @Test("default registry contains all built-in tools")
 func defaultRegistryTools() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
-    #expect(registry.allTools.count == 40)
+    #expect(registry.allTools.count == 43)
 
     #expect(registry.lookup(name: "read_file")?.toolset == "file")
     #expect(registry.lookup(name: "read_file")?.emoji == "📄")
@@ -52,7 +52,7 @@ func emptyRegistry() {
 @Test("registry toolset filtering with all toolsets disabled")
 func allToolsetsDisabled() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
-    let schemas = registry.buildToolSchemas(enabled: [], disabled: ["file", "terminal", "web", "core", "delegation", "kanban", "profile", "media", "webhooks", "sandbox", "browser", "skills"])
+    let schemas = registry.buildToolSchemas(enabled: [], disabled: ["file", "terminal", "web", "core", "delegation", "kanban", "profile", "media", "webhooks", "sandbox", "browser", "skills", "code_execution"])
     #expect(schemas.isEmpty)
 }
 
@@ -161,14 +161,14 @@ func schemaFiltering() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
 
     let fileSchemas = registry.buildToolSchemas(enabled: ["file"], disabled: [])
-    #expect(fileSchemas.count == 2)
+    #expect(fileSchemas.count == 4)
     #expect(fileSchemas[0]["type"] as? String == "function")
 
     let webSchemas = registry.buildToolSchemas(enabled: ["web"], disabled: [])
     #expect(webSchemas.count == 2)
 
     let disabled = registry.buildToolSchemas(enabled: [], disabled: ["file"])
-    #expect(disabled.count == 38)
+    #expect(disabled.count == 39)
 }
 
 // =========================================================================
@@ -838,7 +838,7 @@ func configSaveLoad() throws {
 func toolsCommand() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
     let names = registry.allTools.map(\.name).sorted()
-    #expect(names == ["browser_back", "browser_click", "browser_navigate", "browser_press", "browser_scroll", "browser_snapshot", "browser_type", "clarify", "code_execution", "create_profile", "delegate_task", "delete_profile", "get_profile", "image_generate", "kanban_block", "kanban_complete", "kanban_create", "kanban_list", "kanban_show", "list_children", "list_profiles", "memory", "notify_webhook", "profile_edit", "read_file", "send_bot_message", "send_group_chat", "session_search", "skill_creation", "skill_edit", "skill_view", "steer_child", "stop_child", "terminal", "transcription", "tts", "video_generate", "web_extract", "web_search", "write_file"])
+    #expect(names == ["browser_back", "browser_click", "browser_navigate", "browser_press", "browser_scroll", "browser_snapshot", "browser_type", "clarify", "code_execution", "create_profile", "delegate_task", "delete_profile", "execute_code", "get_profile", "image_generate", "kanban_block", "kanban_complete", "kanban_create", "kanban_list", "kanban_show", "list_children", "list_profiles", "memory", "notify_webhook", "patch", "profile_edit", "read_file", "search_files", "send_bot_message", "send_group_chat", "session_search", "skill_creation", "skill_edit", "skill_view", "steer_child", "stop_child", "terminal", "transcription", "tts", "video_generate", "web_extract", "web_search", "write_file"])
 }
 
 // =========================================================================

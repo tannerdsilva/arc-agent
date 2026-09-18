@@ -115,10 +115,15 @@ public enum ToolError: Error, Sendable, CustomStringConvertible {
     /// A required parameter was missing from the arguments dictionary.
     case missingParameter(String)
 
+    /// A runtime execution failure with a user-facing message.
+    case execution(String)
+
     public var description: String {
         switch self {
         case .missingParameter(let key):
             return "Missing required parameter: '\(key)'."
+        case .execution(let message):
+            return message
         }
     }
 }

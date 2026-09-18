@@ -6,9 +6,9 @@ This project has completed five feature-build phases and is now in **vascular ha
 
 The core architecture is built and proven:
 - **141 Swift source files** across 3 targets (ArcAgentCore library, arc-agent CLI, arc-agent-webui)
-- **363 tests**, all passing across 29 suites
+- **414 tests**, all passing across 32 suites
 - **11 dependencies** (AsyncHTTPClient, ArgumentParser, System, ServiceLifecycle, tessera, Hummingbird, swift-mcp, swift-nio, swift-nio-extras, swift-http-types, no-webui)
-- **40 registered tools** across ~9 toolsets
+- **43 registered tools** across ~9 toolsets
 - **Gateway stack** — HTTP server, Telegram adapter, MCP server, session management
 - **Tessera-backed persistence** — sessions and memory stored as signed NOSTR events through the tessera-client library
 - **Swift-native web UI** — `arc-agent-webui` executable, declarative Swift DSL generating HTML/CSS/JS, served from its own Hummingbird server. Zero npm, zero hand-written web code. All assets (styles, runtime JS, KaTeX) are embedded Swift strings.
@@ -30,7 +30,7 @@ When asked to produce code, assume it is:
 | AGENTS.md | This file |
 | README.md | Updated |
 | Source files | 141 Swift files (117 core + CLI, 14 webui, 9 core-WebUI shared) |
-| Tests | 363, all passing (29 suites) |
+| Tests | 414, all passing (32 suites) |
 | Build | Clean |
 | Branch | `tessera` (active development; `dev/all-phases` remote has diverged) |
 
@@ -40,7 +40,7 @@ When asked to produce code, assume it is:
 |---|---|---|
 | **Core Agent** — ArcAgent actor, prompt builder, turn loop | `Agent/ArcAgent.swift` | Built |
 | **Tool Registry** — ToolEntry, JSONSchema, CompileTimeToolRegistry | `ToolRegistry/` | Built |
-| **Tools** — 40 tools (file, terminal, web, delegation, kanban, memory, skill_view, skill_creation, skill_edit, profile_edit, clarify, browser/CDP, media, webhooks, …) | `Tools/` | Built |
+| **Tools** — 43 tools (file, terminal, web, delegation, kanban, memory, skill_view, skill_creation, skill_edit, profile_edit, clarify, browser/CDP, media, webhooks, patch, search_files, execute_code, …) | `Tools/` | Built |
 | **LLM Client** — LLMClient protocol, adapters (OpenAI, Anthropic, Gemini, Bedrock, Vertex, ACP, Codex) | `LLM/` | Built |
 | **Provider System** — ProviderProfile, BundledProviders, CredentialPool | `Provider/` | Built |
 | **Session Management** — SessionStore protocol, TesseraSessionStore | `Session/` + `Storage/` | Built |

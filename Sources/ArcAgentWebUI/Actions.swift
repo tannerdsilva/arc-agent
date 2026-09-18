@@ -147,6 +147,22 @@ extension AppState {
     /// are gated by ApprovalManager (Hermes smart approval): dangerous ones
     /// pause on a permission card until the user approves or denies.
     func runTool(_ call: ToolCall, sessionID: String, pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void, headless: Bool = false) async -> String {
+        // Ambient dispatcher for execute_code: child Python processes dispatch
+        // tools back into THIS webui session (same registry, guardrails, and
+        // approval flows), bound to the session this tool call belongs to.
+        await ExecuteCodeTool.dispatcher.setHost { [weak self] name, args in
+            guard let self else {
+                throw ToolError.execution("webui host deallocated")
+            }
+            let data = try JSONSerialization.data(withJSONObject: args)
+            let ambient = ToolCall(
+                id: "ambient-\(name)", type: "function",
+                function: .init(
+                    name: name,
+                    arguments: String(data: data, encoding: .utf8) ?? "{}"))
+            return try await self.runTool(
+                ambient, sessionID: sessionID, pusher: { _ in }, headless: true)
+        }
         guard let tool = registry.lookup(name: call.function.name) else {
             return "Error: tool '\(call.function.name)' is not registered."
         }
