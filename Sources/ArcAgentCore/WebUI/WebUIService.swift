@@ -670,7 +670,8 @@ public final class WebUIService: Service {
 				active: "default",
 				workspace: ChatPage.workspaceTree(),
 				submitHandler: submitHandler,
-				listSelect: listSelect
+				listSelect: listSelect,
+				treeToggle: connection.treeToggleHandler()
 			)
 			return AppShell.document(
 				title: "Chat · ARC Agent",

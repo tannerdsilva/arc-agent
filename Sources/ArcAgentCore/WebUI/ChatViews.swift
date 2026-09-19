@@ -22,6 +22,9 @@ public actor ChatConnection {
 	private var busy = false
 	private var wiredSocketID: UUID?
 	private var turnTasks: [Task<Void, Never>] = []
+	/// which workspace-tree nodes are expanded (server-driven, shared across
+	/// the session's tabs so a toggle re-renders consistently).
+	private var treeExpanded: Set<String> = ["arc-agent", "sources", "webui"]
 
 	public init(
 		coordinator: ChatCoordinator,
@@ -61,6 +64,34 @@ public actor ChatConnection {
 			guard let self, let target = event.string("targetId") else { return [] }
 			return await self.select(target: target)
 		}
+	}
+
+	/// the workspace-tree toggle closure (dispatches on the clicked row's
+	/// `<base>-node-<id>` targetId).
+	nonisolated public func treeToggleHandler() -> EventHandler {
+		{ [weak self] event in
+			guard let self, let target = event.string("targetId") else { return [] }
+			return await self.toggleWorkspaceNode(target)
+		}
+	}
+
+	/// toggle a workspace-tree node open/closed and re-render just the tree
+	/// fragment (the routing anchor on the tree container persists, so the
+	/// page-build registration keeps routing subsequent clicks).
+	private func toggleWorkspaceNode(_ target: String) async -> [FragmentUpdate] {
+		let prefix = "workspace-tree-node-"
+		let node = target.hasPrefix(prefix) ? String(target.dropFirst(prefix.count)) : target
+		if treeExpanded.contains(node) {
+			treeExpanded.remove(node)
+		} else {
+			treeExpanded.insert(node)
+		}
+		return [FragmentUpdate(id: "workspace-tree", html: Self.renderWorkspaceTree(expanded: treeExpanded, onToggle: treeToggleHandler()))]
+	}
+
+	/// render the workspace tree fragment with a given expanded set.
+	static func renderWorkspaceTree(expanded: Set<String>, onToggle: EventHandler?) -> String {
+		WebUITree(nodes: ChatPage.workspaceTree(), id: "workspace-tree", expanded: expanded, selected: nil, onToggle: onToggle).render()
 	}
 
 	/// attach the ws writer and bind the relay to the active session.
@@ -333,7 +364,8 @@ public enum ChatPage {
 		active: String,
 		workspace: [WebUITree.Node],
 		submitHandler: @escaping EventHandler,
-		listSelect: @escaping EventHandler
+		listSelect: @escaping EventHandler,
+		treeToggle: EventHandler? = nil
 	) -> String {
 		let conversationItems = ChatConversationPanel.items(profiles: profiles)
 		let page: some View = HStack(alignment: .top, spacing: 0) {
@@ -351,7 +383,7 @@ public enum ChatPage {
 			.fill()
 			.backgroundColor("var(--color-bg)")
 
-			WorkspacePanel.render(nodes: workspace)
+			WorkspacePanel.render(nodes: workspace, onToggle: treeToggle)
 				.stretch()
 		}
 		.fill()
@@ -442,7 +474,7 @@ private enum ChatConversationPanel {
 
 private enum WorkspacePanel {
 
-	static func render(nodes: [WebUITree.Node]) -> some View {
+	static func render(nodes: [WebUITree.Node], onToggle: EventHandler? = nil) -> some View {
 		WebUIPanel(
 			title: "Workspace",
 			subtitle: "\(nodes.count)",
@@ -454,7 +486,7 @@ private enum WorkspacePanel {
 					activeTab: "files",
 					id: "workspace-tabs"
 				)
-				WebUITree(nodes: nodes, id: "workspace-tree", expanded: ["arc-agent", "sources", "webui"])
+				WebUITree(nodes: nodes, id: "workspace-tree", expanded: ["arc-agent", "sources", "webui"], selected: nil, onToggle: onToggle)
 			}
 			.padding(12)
 		}
