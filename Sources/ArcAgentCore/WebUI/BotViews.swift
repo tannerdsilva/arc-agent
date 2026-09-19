@@ -27,7 +27,7 @@ public enum BotViews {
 					message: "Create an agent below, or run `arc profile create <name>`."
 				)
 			} else {
-				Grid(columns: .fraction(3), spacing: 12) {
+				Grid(columns: .autoFit(220), spacing: 12) {
 					ForEach(profiles) { profile in
 						Raw(profileCard(profile).render())
 					}

@@ -162,7 +162,7 @@ public actor ChatCoordinator {
 	private func broadcastThread(_ sessionID: String) async {
 		guard let session = sessions[sessionID] else { return }
 		await broadcast(sessionID: sessionID, WSOutgoing.update(fragments: [
-			FragmentUpdate(id: "chat-thread", html: ChatConnection.renderThread(messages: session.messages, inflight: session.inflight))
+			FragmentUpdate(id: "chat-thread", html: ChatConnection.renderThread(messages: session.messages))
 		]))
 	}
 }

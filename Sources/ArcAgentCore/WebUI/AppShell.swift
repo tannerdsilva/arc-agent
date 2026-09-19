@@ -1,15 +1,15 @@
 import WebUI
 import WebUIDesignSystem
 
-/// the shared arc-agent page shell: brand header with session identity, a
-/// navigation sidebar, and the page content area. every page is assembled
-/// through ``AppShell/document(title:active:content:identity:csrfToken:renderToken:)``.
-/// the whole shell is built from framework layout primitives, design-system
-/// components, and tokens — no hand-written css.
+/// the shared arc-agent page shell: a full-height icon rail (`WebUISidebar`
+/// in `.rail` mode) on the left and the page content filling the rest.
+/// every page is assembled through ``AppShell/document(title:active:content:identity:csrfToken:renderToken:fills:)``.
+/// the shell is built from framework layout primitives and design-system
+/// components — no hand-written css or raw div/button markup.
 public enum AppShell {
 
 	/// a navigation section. the current section renders as an emphasized
-	/// text row; the rest render as links.
+	/// rail item; the rest render as links.
 	public struct Section: Equatable, Sendable {
 		public let name: String
 		public let path: String
@@ -38,84 +38,61 @@ public enum AppShell {
 	///     is disabled).
 	///   - renderToken: the per-render websocket binding token minted by the
 	///     server; the runtime echoes it with every ws event.
+	///   - fills: when true the content area is NOT wrapped in the shell's
+	///     scroll container; instead the content receives all remaining space
+	///     (full width, full height) and manages its own scrolling. chat uses
+	///     this: the message thread scrolls, the composer stays docked.
 	public static func document(
 		title: String,
 		active: Section,
 		content: String,
 		identity: String?,
 		csrfToken: String,
-		renderToken: String
+		renderToken: String,
+		fills: Bool = false
 	) -> String {
-		let body = VStack(spacing: 0) {
-			header(identity: identity, csrfToken: csrfToken)
-			HStack(alignment: .top, spacing: 0) {
-				sidebar(active: active)
-				ScrollView {
-					VStack(alignment: .leading, spacing: 16) {
-						Raw(content)
-					}
-					.padding(24)
+		let contentArea: String
+		if fills {
+			// the content owns its own scroll regions; hand it all remaining
+			// space instead of double-wrapping it in a scrolling container.
+			contentArea = Raw(content).fill().render()
+		} else {
+			contentArea = ScrollView {
+				VStack(alignment: .leading, spacing: 16) {
+					Raw(content).stretch()
 				}
+				.padding(24)
 			}
+			.fill()
+			.render()
 		}
+
+		let body = HStack(alignment: .top, spacing: 0) {
+			navRail(active: active)
+				.stretch()
+			Raw(contentArea)
+		}
+		.height("100vh")
 		.render()
 		return WebUIDocument(title: title, body: body, runtimeConfig: RuntimeConfig(renderToken: renderToken)).render()
 	}
 
-	// MARK: - header
+	// MARK: - nav rail
 
-	private static func header(identity: String?, csrfToken: String) -> some View {
-		HStack(spacing: 8) {
-			HStack(spacing: 4) {
-				WebUIIcon(.bot, size: .medium)
-				Text("ARC Agent").font(size: 16, weight: .semibold)
-			}
-
-			Spacer(minSize: 8)
-
-			if let identity {
-				WebUIBadge(identity, variant: .secondary, size: .sm)
-				if !csrfToken.isEmpty {
-					Form(action: "/logout", method: "post", csrfToken: csrfToken) {
-						Button("sign out", class: "button button--ghost button--sm", type: .submit)
-					}
-				}
-			} else {
-				Text("local").foregroundColor(.textMuted).font(size: 13)
-			}
+	private static func navRail(active: Section) -> some View {
+		let items = Section.all.map { section in
+			WebUISidebarItem(
+				id: section.name.lowercased(),
+				label: section.name,
+				icon: section.icon,
+				href: section.path
+			)
 		}
-		.padding(horizontal: 16, vertical: 10)
-		.backgroundColor("var(--color-bg-raised)")
-		.border("1px solid var(--color-border)")
-	}
-
-	// MARK: - sidebar
-
-	private static func sidebar(active: Section) -> some View {
-		VStack(alignment: .leading, spacing: 2) {
-			ForEach(Section.all) { section in
-				if section == active {
-					row(section: section, emphasized: true)
-				} else {
-					Link(section.name, href: section.path)
-				}
-			}
-			Spacer(minSize: 16)
-		}
-		.padding(16)
-		.width("220px")
-		.backgroundColor("var(--color-bg-subtle)")
-		.border("1px solid var(--color-border)")
-		.cornerRadius("10px")
-	}
-
-	private static func row(section: Section, emphasized: Bool) -> some View {
-		HStack(spacing: 6) {
-			WebUIIcon(section.icon, size: .small)
-			Text(section.name)
-				.font(size: 14, weight: emphasized ? .semibold : .normal)
-				.foregroundColor(emphasized ? .primary : .textMuted)
-		}
-		.padding(6)
+		return WebUISidebar(
+			items: items,
+			activeID: active.name.lowercased(),
+			id: "nav-rail",
+			style: .rail
+		)
 	}
 }

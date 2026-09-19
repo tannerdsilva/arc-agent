@@ -32,7 +32,7 @@ let package = Package(
             from: "2.0.0"
         ),
         .package(url: "https://github.com/tannerdsilva/swift-mcp.git", from: "2.0.0"),
-        .package(url: "https://github.com/tannerdsilva/no-webui.git", branch: "dev"),
+        .package(path: "../no-webui"),
         .package(
             url: "https://github.com/apple/swift-nio.git",
             from: "2.100.0"

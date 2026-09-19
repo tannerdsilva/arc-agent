@@ -653,32 +653,33 @@ public final class WebUIService: Service {
 			profiles: profiles
 		)
 		let inputID = await connection.nextInputID()
-		let submitHandler = await connection.submitHandlerRef
+		let submitHandler = connection.submitHandlerRef
+		let listSelect = connection.listSelectHandler()
 		let messages = await coordinator.messages(for: "default")
-		let inflight = await coordinator.isInflight("default")
 
 		let router = EventRouter(logger: Logger(label: "webui.arc.chat"))
 		let html = RenderContext.$current.withValue(RenderContext(router: router)) {
-			let content = HStack(alignment: .top, spacing: 16) {
-				VStack(alignment: .leading, spacing: 8) {
-					Heading("Conversations", level: .h3)
-					Raw(ChatConnection.renderSidebar(profiles: profiles, active: "default", connection: connection))
-				}
-				.width("240px")
-
-				VStack(alignment: .leading, spacing: 8) {
-					Raw(ChatConnection.renderThread(messages: messages, inflight: inflight))
-					Raw(ChatConnection.renderChatBar(inputID: inputID, isBusy: false, submitHandler: submitHandler))
-				}
-			}
-			.render()
+			// a three-pane row — conversation list, message thread + composer,
+			// workspace/file-tree panel — composed from no-webui components.
+			// with fills:true the shell hands the content all remaining space:
+			// the row fills, the thread scrolls, the composer stays docked.
+			let content = ChatPage.render(
+				profiles: profiles,
+				messages: messages,
+				inputID: inputID,
+				active: "default",
+				workspace: ChatPage.workspaceTree(),
+				submitHandler: submitHandler,
+				listSelect: listSelect
+			)
 			return AppShell.document(
 				title: "Chat · ARC Agent",
 				active: .chat,
 				content: content,
 				identity: identity?.id,
 				csrfToken: csrfToken,
-				renderToken: renderToken
+				renderToken: renderToken,
+				fills: true
 			)
 		}
 
