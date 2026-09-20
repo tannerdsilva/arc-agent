@@ -612,8 +612,10 @@ private enum ChatConversationPanel {
 					id: "conv-tabs"
 				)
 				WebUIListView(items: items, selectedID: active, id: "conv-list", onSelect: onSelect)
+					.fill()
 			}
 			.padding(12)
+			.fill()
 		}
 		.width("280px")
 	}
@@ -636,8 +638,10 @@ private enum WorkspacePanel {
 					id: "workspace-tabs"
 				)
 				WebUITree(nodes: nodes, id: "workspace-tree", expanded: [], selected: nil, onToggle: onToggle)
+					.fill()
 			}
 			.padding(12)
+			.fill()
 		}
 		.width("320px")
 	}
