@@ -39,4 +39,26 @@ public enum AuthViews {
 			contentSecurityPolicy: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'self'"
 		).render()
 	}
+
+	/// a styled "too many attempts" page for throttled login requests (a short
+	/// wait message, not a bare plain-text 429 body).
+	public static func renderThrottlePage(message: String) -> String {
+		let body = VStack(alignment: .center, spacing: 0) {
+			WebUICard(variant: .elevated) {
+				VStack(alignment: .leading, spacing: 12) {
+					Heading("ARC Agent", level: .h2)
+					WebUIAlert(variant: .danger, title: "Too many attempts", message: message)
+				}
+				.padding(24)
+			}
+			.maxWidth("24rem")
+		}
+		.render()
+		return WebUIDocument(
+			title: "Too many attempts · ARC Agent",
+			body: body,
+			includeRuntime: false,
+			contentSecurityPolicy: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'self'"
+		).render()
+	}
 }

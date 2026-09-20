@@ -449,11 +449,11 @@ public final class WebUIService: Service {
 		}
 		let ipKey = "ip:\(peerIP)"
 		guard loginPageThrottle.record(ipKey) else {
-			return try await httpResponse(channel: channel, status: .tooManyRequests, headers: [("Content-Type", "text/plain; charset=utf-8"), ("Retry-After", "60")], body: "too many login pages — try again later")
+			return try await httpResponse(channel: channel, status: .tooManyRequests, headers: [("Content-Type", "text/html; charset=utf-8"), ("Retry-After", "60")], body: AuthViews.renderThrottlePage(message: "too many login pages — try again later"))
 		}
 		let token = try CSRFProtection.token(for: "login", secret: csrfSecret)
 		guard await loginTokenStore.reserve(token, expiresAt: CSRFProtection.expiry(of: token) ?? Date().timeIntervalSince1970, key: ipKey) else {
-			return try await httpResponse(channel: channel, status: .tooManyRequests, headers: [("Content-Type", "text/plain; charset=utf-8"), ("Retry-After", "60")], body: "too many outstanding login forms — submit one first")
+			return try await httpResponse(channel: channel, status: .tooManyRequests, headers: [("Content-Type", "text/html; charset=utf-8"), ("Retry-After", "60")], body: AuthViews.renderThrottlePage(message: "too many outstanding login forms — submit one first"))
 		}
 		try await httpResponse(channel: channel, status: .ok, headers: [("Content-Type", "text/html; charset=utf-8")], body: AuthViews.renderLoginPage(error: nil, csrfToken: token))
 	}
@@ -464,7 +464,7 @@ public final class WebUIService: Service {
 			try await httpResponse(channel: channel, status: .ok, headers: [("Content-Type", "text/html; charset=utf-8")], body: AuthViews.renderLoginPage(error: message, csrfToken: token))
 		}
 		func tooMany(_ message: String) async throws {
-			try await httpResponse(channel: channel, status: .tooManyRequests, headers: [("Content-Type", "text/plain; charset=utf-8"), ("Retry-After", "60")], body: message)
+			try await httpResponse(channel: channel, status: .tooManyRequests, headers: [("Content-Type", "text/html; charset=utf-8"), ("Retry-After", "60")], body: AuthViews.renderThrottlePage(message: message))
 		}
 
 		guard let contentType = head.headers.first(name: "content-type")?.lowercased(),
