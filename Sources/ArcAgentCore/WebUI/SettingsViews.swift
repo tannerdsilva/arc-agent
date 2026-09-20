@@ -27,7 +27,7 @@ public enum SettingsViews {
 					])
 				}
 			}
-			.maxWidth("640px")
+			.maxWidth(SettingsLayout.proseMaxWidth)
 
 			WebUICard(variant: .outlined) {
 				VStack(alignment: .leading, spacing: 12) {
@@ -68,4 +68,10 @@ public enum SettingsViews {
 		formatter.dateFormat = "yyyy-MM-dd HH:mm"
 		return formatter
 	}()
+}
+
+/// the settings page reads at the prose width (640px): labels and tables stay
+/// legible without stretching the full content region.
+enum SettingsLayout {
+	static let proseMaxWidth = "640px"
 }

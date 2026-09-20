@@ -27,7 +27,7 @@ public enum BotViews {
 					message: "Create an agent below, or run `arc profile create <name>`."
 				)
 			} else {
-				Grid(columns: .autoFit(220), spacing: 12) {
+				Grid(columns: .autoFit(BotLayout.cardMinWidth), spacing: 12) {
 					ForEach(profiles) { profile in
 						Raw(profileCard(profile).render())
 					}
@@ -50,7 +50,7 @@ public enum BotViews {
 					}
 				}
 			}
-			.maxWidth("480px")
+			.maxWidth(BotLayout.formMaxWidth)
 		}
 		.render()
 	}
@@ -62,14 +62,14 @@ public enum BotViews {
 			VStack(alignment: .leading, spacing: 8) {
 				HStack(spacing: 8) {
 					WebUIAvatar(initials: initials(profile.displayName), size: .md)
-					VStack(alignment: .leading, spacing: 2) {
-						Text(profile.displayName).font(size: 15, weight: .semibold)
+					VStack(alignment: .leading, spacing: 4) {
+						Text(profile.displayName).font(size: 16, weight: .semibold)
 						if !profile.title.isEmpty {
-							Text(profile.title).font(size: 13).foregroundColor(.textMuted)
+							Text(profile.title).font(size: 14).foregroundColor(.textMuted)
 						}
 					}
 				}
-				HStack(spacing: 6) {
+				HStack(spacing: 8) {
 					WebUIBadge("@\(profile.handle)", variant: .secondary, size: .sm)
 					if profile.isPinned {
 						WebUIBadge("pinned", variant: .info, size: .sm)
@@ -90,4 +90,12 @@ public enum BotViews {
 		let value = parts.compactMap { $0.first.map(String.init) }.joined()
 		return value.isEmpty ? "?" : String(value.prefix(2)).uppercased()
 	}
+}
+
+/// fixed app-side layout dimensions for the bots page. the design system has
+/// no width token scale, so these are named file-scope constants rather than
+/// inline literals.
+enum BotLayout {
+	static let cardMinWidth = 220
+	static let formMaxWidth = "480px"
 }

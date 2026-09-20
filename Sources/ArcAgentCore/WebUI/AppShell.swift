@@ -61,7 +61,7 @@ public enum AppShell {
 				VStack(alignment: .leading, spacing: 16) {
 					Raw(content).stretch()
 				}
-				.padding(24)
+				.padding(.six)
 			}
 			.fill()
 			.render()
