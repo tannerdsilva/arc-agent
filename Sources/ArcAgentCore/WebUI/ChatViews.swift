@@ -470,28 +470,36 @@ public enum ChatPage {
 	) -> String {
 		let conversationItems = ChatConversationPanel.items(profiles: profiles)
 		let page: some View = VStack(alignment: .leading, spacing: 0) {
-			// top bar: provider + thinking-effort controls.
-			HStack(alignment: .center, spacing: 12) {
-				WebUISelect(
-					id: "provider-select",
-					options: providerOptions,
-					value: currentProvider,
-					onChange: providerChange
-				)
-				WebUISegmentedControl(
-					items: [
-						WebUISegmentedItem(id: "low", label: "Low", count: nil),
-						WebUISegmentedItem(id: "medium", label: "Medium", count: nil),
-						WebUISegmentedItem(id: "high", label: "High", count: nil),
-					],
-					selectedID: currentEffort,
-					id: "effort-control",
-					onSelect: effortChange
-				)
+			// top bar: provider + thinking-effort controls, a compact pill
+			// centred in the middle section rather than hugging the edge.
+			HStack(alignment: .center, spacing: 0) {
+				Spacer(minSize: 0)
+				HStack(alignment: .center, spacing: 12) {
+					WebUISelect(
+						id: "provider-select",
+						options: providerOptions,
+						value: currentProvider,
+						onChange: providerChange
+					)
+					WebUISegmentedControl(
+						items: [
+							WebUISegmentedItem(id: "low", label: "Low", count: nil),
+							WebUISegmentedItem(id: "medium", label: "Medium", count: nil),
+							WebUISegmentedItem(id: "high", label: "High", count: nil),
+						],
+						selectedID: currentEffort,
+						id: "effort-control",
+						onSelect: effortChange
+					)
+				}
+				.padding(10)
+				.backgroundColor("var(--color-bg-raised)")
+				.cornerRadius("12px")
 				Spacer(minSize: 0)
 			}
 			.padding(12)
-			.backgroundColor("var(--color-bg-raised)")
+			.backgroundColor("transparent")
+			.stretch()
 
 			HStack(alignment: .top, spacing: 0) {
 				ChatConversationPanel.render(
