@@ -20,14 +20,17 @@ public struct ChatMessage: Sendable, Equatable {
 	public let reasoning: String?
 	/// the tools the agent executed during this turn (assistant messages).
 	public let toolSteps: [AgentToolStep]?
+	/// a compact turn summary (e.g. "3 tools · 1.2k tokens · 4 iterations").
+	public let summary: String?
 
-	public init(id: String, role: Role, text: String, streaming: Bool = false, reasoning: String? = nil, toolSteps: [AgentToolStep]? = nil) {
+	public init(id: String, role: Role, text: String, streaming: Bool = false, reasoning: String? = nil, toolSteps: [AgentToolStep]? = nil, summary: String? = nil) {
 		self.id = id
 		self.role = role
 		self.text = text
 		self.streaming = streaming
 		self.reasoning = reasoning
 		self.toolSteps = toolSteps
+		self.summary = summary
 	}
 }
 

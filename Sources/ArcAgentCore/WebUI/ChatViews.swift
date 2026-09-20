@@ -206,7 +206,8 @@ public actor ChatConnection {
 					text: turn.finalResponse,
 					streaming: false,
 					reasoning: turn.reasoning.isEmpty ? nil : turn.reasoning,
-					toolSteps: turn.toolSteps.isEmpty ? nil : turn.toolSteps
+					toolSteps: turn.toolSteps.isEmpty ? nil : turn.toolSteps,
+					summary: MessageBubble.summary(for: turn)
 				)
 				if first {
 					await coordinator.replace(
@@ -356,7 +357,8 @@ public struct MessageBubble: View {
 	}
 
 	/// the assistant message body: a collapsible reasoning block, a styled
-	/// block per tool the agent executed, then the final markdown response.
+	/// block per tool the agent executed (with duration), a compact turn
+	/// summary, then the final markdown response.
 	static func assistantContent(_ message: ChatMessage) -> String {
 		var parts = ""
 		if let reasoning = message.reasoning, !reasoning.isEmpty {
@@ -368,13 +370,40 @@ public struct MessageBubble: View {
 				let cls = step.isError ? "turn-tool turn-tool--error" : "turn-tool"
 				let result = step.result.count > 200 ? String(step.result.prefix(200)) + "…" : step.result
 				parts += "<div class=\"" + cls + "\">"
-					+ "<span class=\"turn-tool__name\">" + escapeHTML(step.name) + "</span>"
+					+ "<span class=\"turn-tool__name\">" + escapeHTML(step.name)
+					+ durationLabel(step.durationMs) + "</span>"
 					+ "<pre class=\"turn-tool__args\">" + escapeHTML(step.arguments) + "</pre>"
 					+ "<pre class=\"turn-tool__result\">" + escapeHTML(result) + "</pre></div>"
 			}
 		}
+		if let summary = message.summary {
+			parts += "<div class=\"turn-summary\">" + escapeHTML(summary) + "</div>"
+		}
 		parts += markdownBody(message.text)
 		return parts
+	}
+
+	static func summary(for turn: AgentTurn) -> String? {
+		var parts: [String] = []
+		parts.append("\(turn.toolSteps.count) tool\(turn.toolSteps.count == 1 ? "" : "s")")
+		if turn.totalTokens > 0 {
+			parts.append(formatCount(turn.totalTokens) + " tokens")
+		}
+		if turn.iterations > 0 {
+			parts.append("\(turn.iterations) iteration\(turn.iterations == 1 ? "" : "s")")
+		}
+		return parts.isEmpty ? nil : parts.joined(separator: " · ")
+	}
+
+	private static func durationLabel(_ ms: Double?) -> String {
+		guard let ms, ms > 0 else { return "" }
+		if ms >= 1000 { return " · \(Int(ms / 1000))s" }
+		return " · \(Int(ms))ms"
+	}
+
+	private static func formatCount(_ n: Int) -> String {
+		if n >= 1000 { return String(format: "%.1fk", Double(n) / 1000) }
+		return "\(n)"
 	}
 
 	private static func escapeHTML(_ text: String) -> String {

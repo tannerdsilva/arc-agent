@@ -441,6 +441,9 @@ public actor ArcAgent: Service {
         let fallbacks = BundledProviders.resolve(config.provider)?.fallbackModels ?? []
         var reasoning = ""
         var toolSteps: [AgentToolStep] = []
+        var promptTokens = 0
+        var completionTokens = 0
+        var totalTokens = 0
 
         for iteration in 0..<config.maxIterations {
             // Auto-compress if context is too large
@@ -494,12 +497,17 @@ public actor ArcAgent: Service {
             if let r = response.reasoning, !r.isEmpty {
                 reasoning += (reasoning.isEmpty ? "" : "\n") + r
             }
+            if let usage = response.usage {
+                promptTokens += usage.promptTokens
+                completionTokens += usage.completionTokens
+                totalTokens += usage.totalTokens
+            }
 
             // 5. Parse response — tool calls take precedence over content.
             switch Self.classifyTurn(content: response.content, toolCalls: response.toolCalls) {
             case .text(let content):
                 messageHistory.append(Message(role: .assistant, content: content))
-                return AgentTurn(finalResponse: content, reasoning: reasoning, toolSteps: toolSteps)
+                return AgentTurn(finalResponse: content, reasoning: reasoning, toolSteps: toolSteps, iterations: iteration + 1, promptTokens: promptTokens, completionTokens: completionTokens, totalTokens: totalTokens)
 
             case .toolCalls(let toolCalls):
                 messageHistory.append(Message(
@@ -523,6 +531,12 @@ public actor ArcAgent: Service {
                             )
                             switch result {
                             case .denied:
+                                toolSteps.append(AgentToolStep(
+                                    name: toolCall.function.name,
+                                    arguments: args,
+                                    result: "🚫 blocked by security policy (not executed)",
+                                    isError: true
+                                ))
                                 messageHistory.append(Message(
                                     role: .tool,
                                     content: "Error: Command blocked by security policy.",
@@ -531,6 +545,12 @@ public actor ArcAgent: Service {
                                 ))
                                 continue
                             case .requiresReview:
+                                toolSteps.append(AgentToolStep(
+                                    name: toolCall.function.name,
+                                    arguments: args,
+                                    result: "⚠️ requires manual approval (not executed)",
+                                    isError: true
+                                ))
                                 messageHistory.append(Message(
                                     role: .tool,
                                     content: "⚠️ Command requires manual approval. "
@@ -545,6 +565,7 @@ public actor ArcAgent: Service {
                         }
                     }
 
+                    let start = Date()
                     let result = try await dispatchToolCall(toolCall)
                     await Metrics.shared.recordToolCall()
                     let isError = result.hasPrefix("Error:") || result.hasPrefix("⚠️")
@@ -552,7 +573,8 @@ public actor ArcAgent: Service {
                         name: toolCall.function.name,
                         arguments: toolCall.function.arguments,
                         result: result,
-                        isError: isError
+                        isError: isError,
+                        durationMs: Date().timeIntervalSince(start) * 1000
                     ))
                     messageHistory.append(Message(
                         role: .tool,
