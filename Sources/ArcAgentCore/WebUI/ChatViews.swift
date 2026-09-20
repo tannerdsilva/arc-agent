@@ -291,7 +291,7 @@ public actor ChatConnection {
 					}
 				}
 			}
-			.padding(20)
+			.padding(.five)
 		}
 		.id("chat-thread")
 		.fill()
@@ -357,9 +357,9 @@ public struct MessageBubble: View {
 					WebUISpinner(size: .sm)
 					Text(message.text).foregroundColor(.textMuted)
 				}
-				.padding(12)
+				.padding(.three)
 				.backgroundColor("var(--color-bg-subtle)")
-				.cornerRadius("10px")
+				.cornerRadius("var(--radius-lg)")
 			} else {
 				VStack(alignment: .leading, spacing: 4) {
 					WebUIBadge(
@@ -373,9 +373,9 @@ public struct MessageBubble: View {
 						Raw(Self.assistantContent(message))
 					}
 				}
-				.padding(12)
+				.padding(.three)
 				.backgroundColor(isUser ? "var(--color-bg-inset)" : "var(--color-bg-raised)")
-				.cornerRadius("12px")
+				.cornerRadius("var(--radius-xl)")
 				.maxWidth("80%")
 			}
 
@@ -390,22 +390,22 @@ public struct MessageBubble: View {
 	static func assistantContent(_ message: ChatMessage) -> String {
 		var parts = ""
 		if let reasoning = message.reasoning, !reasoning.isEmpty {
-			parts += "<details class=\"turn-reasoning\"><summary>Reasoning</summary><pre>"
-				+ escapeHTML(reasoning) + "</pre></details>"
+			parts += WebUIReasoningBlock(reasoning).render()
 		}
 		if let steps = message.toolSteps {
 			for step in steps {
-				let cls = step.isError ? "turn-tool turn-tool--error" : "turn-tool"
 				let result = step.result.count > 200 ? String(step.result.prefix(200)) + "…" : step.result
-				parts += "<div class=\"" + cls + "\">"
-					+ "<span class=\"turn-tool__name\">" + escapeHTML(step.name)
-					+ durationLabel(step.durationMs) + "</span>"
-					+ "<pre class=\"turn-tool__args\">" + escapeHTML(step.arguments) + "</pre>"
-					+ "<pre class=\"turn-tool__result\">" + escapeHTML(result) + "</pre></div>"
+				parts += WebUIToolStep(
+					name: step.name,
+					arguments: step.arguments,
+					result: result,
+					isError: step.isError,
+					meta: durationLabel(step.durationMs)
+				).render()
 			}
 		}
 		if let summary = message.summary {
-			parts += "<div class=\"turn-summary\">" + escapeHTML(summary) + "</div>"
+			parts += WebUITurnSummary(summary).render()
 		}
 		parts += markdownBody(message.text)
 		return parts
@@ -436,12 +436,6 @@ public struct MessageBubble: View {
 		return "\(n)"
 	}
 
-	private static func escapeHTML(_ text: String) -> String {
-		text.replacingOccurrences(of: "&", with: "&amp;")
-			.replacingOccurrences(of: "<", with: "&lt;")
-			.replacingOccurrences(of: ">", with: "&gt;")
-			.replacingOccurrences(of: "\"", with: "&quot;")
-	}
 }
 
 // MARK: - Chat page shell
@@ -492,12 +486,12 @@ public enum ChatPage {
 						onSelect: effortChange
 					)
 				}
-				.padding(10)
+				.padding(.three)
 				.backgroundColor("var(--color-bg-raised)")
-				.cornerRadius("12px")
+				.cornerRadius("var(--radius-xl)")
 				Spacer(minSize: 0)
-			}
-			.padding(12)
+				}
+			.padding(.three)
 			.backgroundColor("transparent")
 			.stretch()
 
@@ -614,10 +608,10 @@ private enum ChatConversationPanel {
 				WebUIListView(items: items, selectedID: active, id: "conv-list", onSelect: onSelect)
 					.fill()
 			}
-			.padding(12)
+			.padding(.three)
 			.fill()
 		}
-		.width("280px")
+		.width(ChatPanelLayout.conversationWidth)
 	}
 }
 
@@ -640,9 +634,17 @@ private enum WorkspacePanel {
 				WebUITree(nodes: nodes, id: "workspace-tree", expanded: [], selected: nil, onToggle: onToggle)
 					.fill()
 			}
-			.padding(12)
+			.padding(.three)
 			.fill()
 		}
-		.width("320px")
+		.width(ChatPanelLayout.workspaceWidth)
 	}
+}
+
+/// fixed side-panel widths for the chat page. the design system has no width
+/// token scale, so these are named file-scope constants rather than inline
+/// literals.
+enum ChatPanelLayout {
+	static let conversationWidth = "280px"
+	static let workspaceWidth = "320px"
 }

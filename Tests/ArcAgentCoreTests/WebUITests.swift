@@ -115,19 +115,20 @@ struct WebUITests {
 
 	// MARK: - page rendering
 
-	@Test("app shell document carries title, csp nonce, and identity")
+	@Test("app shell document carries title, csp nonce, and render token")
 	func shellDocument() {
 		let html = AppShell.document(
 			title: "Test · ARC Agent",
 			active: .chat,
 			content: "<p>hi</p>",
-			identity: "admin",
+			identity: nil,
 			csrfToken: "tok",
 			renderToken: "rt"
 		)
 		#expect(html.contains("Test · ARC Agent"))
 		#expect(html.contains("nonce="))
-		#expect(html.contains("admin"))
+		#expect(html.contains("\"renderToken\":\"rt\""))
+		#expect(html.contains("href=\"/bots\""))
 	}
 
 	@Test("bots page renders profile cards and the create form")
@@ -175,7 +176,7 @@ struct WebUITests {
 		let router = EventRouter()
 		let submit: EventHandler = { _ in [] }
 		let html = RenderContext.$current.withValue(RenderContext(router: router)) {
-			ChatConnection.renderChatBar(inputID: "chat-input-0", isBusy: false, submitHandler: submit)
+			ChatConnection.renderChatBar(inputID: "chat-input-0", submitHandler: submit)
 		}
 		#expect(html.contains("data-component-id=\"chat-bar\""))
 		#expect(html.contains("data-event=\"submit\""))
@@ -199,8 +200,33 @@ struct WebUITests {
 
 	@Test("message thread renders an empty state before any messages")
 	func threadEmptyState() {
-		let html = ChatConnection.renderThread(messages: [], inflight: false)
+		let html = ChatConnection.renderThread(messages: [])
 		#expect(html.contains("chat-thread"))
 		#expect(html.contains("Start a conversation"))
+	}
+
+	@Test("assistant bubbles render turn transparency via toolkit components")
+	func assistantTurnTransparency() {
+		let message = ChatMessage(
+			id: "m4",
+			role: .assistant,
+			text: "answer",
+			reasoning: "think <step>",
+			toolSteps: [
+				AgentToolStep(name: "read_file", arguments: "path: a", result: "ok", durationMs: 120)
+			],
+			summary: "1 tool · 1.2k tokens"
+		)
+		let html = MessageBubble(message: message).render()
+		#expect(html.contains("turn-reasoning"))
+		#expect(html.contains("<summary>Reasoning</summary>"))
+		#expect(html.contains("turn-tool"))
+		#expect(html.contains("turn-tool__name"))
+		#expect(html.contains("read_file"))
+		#expect(html.contains("turn-summary"))
+		// content is escaped by the toolkit components, never injected raw.
+		#expect(!html.contains("<step>"))
+		#expect(html.contains("&lt;step&gt;"))
+		#expect(!html.contains("<script>"))
 	}
 }
