@@ -4,13 +4,19 @@ import WebUIDesignSystem
 /// the login page: a static document (no js runtime), a native form post, a
 /// synchronizer csrf token, and a hardened csp. layout is built entirely
 /// from design-system components and tokens.
+///
+/// the card is centred in the viewport: the root `VStack` shrink-wraps by
+/// default, so it first fills the width (`width("100%")`) and the viewport
+/// height (`minHeight("100vh")`), then the two flex spacers push the card to
+/// the middle. see `css-layout-shrink-stretch` in the design skill.
 public enum AuthViews {
 
 	public static func renderLoginPage(error: String?, csrfToken: String) -> String {
 		let body = VStack(alignment: .center, spacing: 0) {
+			Spacer(minSize: 0)
 			WebUICard(variant: .elevated) {
 				VStack(alignment: .leading, spacing: 12) {
-					HStack(spacing: 6) {
+					HStack(spacing: 8) {
 						WebUIIcon(.bot, size: .medium)
 						Heading("ARC Agent", level: .h1)
 					}
@@ -29,8 +35,17 @@ public enum AuthViews {
 				}
 			}
 			.maxWidth("24rem")
-			.padding(24)
+			.width("100%")
+			// `.card` carries align-self: stretch (the design system's
+			// shrink/stretch fix); stretched against max-width clamps the
+			// box to the cross-start, so an explicit center is required to
+			// truly centre the login card in the flex column.
+			.style("align-self", "center")
+			Spacer(minSize: 0)
 		}
+		.width("100%")
+		.minHeight("100vh")
+		.padding(.six)
 		.render()
 		return WebUIDocument(
 			title: "Sign in · ARC Agent",
@@ -44,15 +59,21 @@ public enum AuthViews {
 	/// wait message, not a bare plain-text 429 body).
 	public static func renderThrottlePage(message: String) -> String {
 		let body = VStack(alignment: .center, spacing: 0) {
+			Spacer(minSize: 0)
 			WebUICard(variant: .elevated) {
 				VStack(alignment: .leading, spacing: 12) {
 					Heading("ARC Agent", level: .h2)
 					WebUIAlert(variant: .danger, title: "Too many attempts", message: message)
 				}
-				.padding(24)
 			}
 			.maxWidth("24rem")
+			.width("100%")
+			.style("align-self", "center")
+			Spacer(minSize: 0)
 		}
+		.width("100%")
+		.minHeight("100vh")
+		.padding(.six)
 		.render()
 		return WebUIDocument(
 			title: "Too many attempts · ARC Agent",
