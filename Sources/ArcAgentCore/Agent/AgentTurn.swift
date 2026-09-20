@@ -36,6 +36,10 @@ public struct AgentTurn: Sendable, Codable, Equatable {
     public let promptTokens: Int
     public let completionTokens: Int
     public let totalTokens: Int
+    /// true when this envelope is the terminal one for the turn (carries the
+    /// final answer); consumers use it to close the turn without waiting on
+    /// the long-lived session stream.
+    public let done: Bool
 
     public init(
         finalResponse: String,
@@ -44,7 +48,8 @@ public struct AgentTurn: Sendable, Codable, Equatable {
         iterations: Int = 0,
         promptTokens: Int = 0,
         completionTokens: Int = 0,
-        totalTokens: Int = 0
+        totalTokens: Int = 0,
+        done: Bool = false
     ) {
         self.finalResponse = finalResponse
         self.reasoning = reasoning
@@ -53,6 +58,7 @@ public struct AgentTurn: Sendable, Codable, Equatable {
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
         self.totalTokens = totalTokens
+        self.done = done
     }
 
     /// The JSON envelope sent over the response stream.

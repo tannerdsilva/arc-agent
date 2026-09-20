@@ -75,11 +75,13 @@ public struct GatewayService: Service {
 					senderID: "api"
 				)
 				handle.inputContinuation.yield(incoming)
-				// Await the agent's response from the response stream
+				// Await the agent's streamed response; take the answer envelope
+				// (interim envelopes carry live reasoning/tool progress).
 				var responseText = ""
 				for await response in handle.responses {
-					responseText = AgentTurn.decodeEnvelope(response).finalResponse
-					break  // Take the first response
+					let turn = AgentTurn.decodeEnvelope(response)
+					if !turn.finalResponse.isEmpty { responseText = turn.finalResponse }
+					if turn.done { break }
 				}
 				return responseText.isEmpty ? "Message received" : responseText
 			}

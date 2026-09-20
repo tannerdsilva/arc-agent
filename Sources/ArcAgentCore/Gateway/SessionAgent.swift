@@ -127,15 +127,15 @@ public actor SessionAgent: Service {
             logger.info("step: entering message loop")
             for try await message in incomingMessages {
                 logger.info("step: running conversation")
-                let turn = try await agent.runConversationTurn(message: message.text)
-                let outgoing = OutgoingMessage(text: turn.finalResponse)
-
-                // Send response through BOTH channels:
-                // 1. the structured envelope (the web UI renders reasoning +
-                //    tool steps from it); legacy surfaces decode to the bare
-                //    final response.
-                responseContinuation.yield(turn.encoded())
-                // 2. Delivery manager (for platform adapters like Telegram)
+                var lastTurn = AgentTurn(finalResponse: "")
+                for try await turn in agent.runConversationTurnEvents(message: message.text) {
+                    lastTurn = turn
+                    // yield each live envelope (the web UI renders reasoning /
+                    // tool steps as they arrive; legacy surfaces decode).
+                    responseContinuation.yield(turn.encoded())
+                }
+                // deliver only the final response text to platform adapters.
+                let outgoing = OutgoingMessage(text: lastTurn.finalResponse)
                 try await deliveryManager.send(message: outgoing, to: message.chat)
 
                 // Report activity for the \"active now\" strip

@@ -196,7 +196,6 @@ public actor ChatConnection {
 			)
 			handle.inputContinuation.yield(incoming)
 
-			var first = true
 			var received = false
 			for await response in handle.responses {
 				let turn = AgentTurn.decodeEnvelope(response)
@@ -204,22 +203,17 @@ public actor ChatConnection {
 					id: statusID,
 					role: .assistant,
 					text: turn.finalResponse,
-					streaming: false,
+					streaming: turn.finalResponse.isEmpty,
 					reasoning: turn.reasoning.isEmpty ? nil : turn.reasoning,
 					toolSteps: turn.toolSteps.isEmpty ? nil : turn.toolSteps,
 					summary: MessageBubble.summary(for: turn)
 				)
-				if first {
-					await coordinator.replace(
-						sessionID: sessionID, profile: profile, messageID: statusID,
-						with: message
-					)
-					first = false
-				} else {
-					let id = await coordinator.nextMessageID()
-					await coordinator.append(sessionID: sessionID, profile: profile, messages: [ message ])
-				}
+				await coordinator.replace(
+					sessionID: sessionID, profile: profile, messageID: statusID,
+					with: message
+				)
 				received = true
+				if turn.done { break }
 			}
 			if !received {
 				await coordinator.replace(
@@ -385,7 +379,9 @@ public struct MessageBubble: View {
 
 	static func summary(for turn: AgentTurn) -> String? {
 		var parts: [String] = []
-		parts.append("\(turn.toolSteps.count) tool\(turn.toolSteps.count == 1 ? "" : "s")")
+		if !turn.toolSteps.isEmpty {
+			parts.append("\(turn.toolSteps.count) tool\(turn.toolSteps.count == 1 ? "" : "s")")
+		}
 		if turn.totalTokens > 0 {
 			parts.append(formatCount(turn.totalTokens) + " tokens")
 		}

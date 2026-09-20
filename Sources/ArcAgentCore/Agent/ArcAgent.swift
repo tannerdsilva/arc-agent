@@ -328,6 +328,101 @@ public actor ArcAgent: Service {
         return turn
     }
 
+    /// Run a conversation turn, streaming progressively-updated ``AgentTurn``
+    /// envelopes so the web UI can render reasoning + tool use live. The
+    /// final envelope carries the answer.
+    nonisolated func runConversationTurnEvents(message: String) -> AsyncThrowingStream<AgentTurn, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                await self.runConversationTurnEventsLoop(message: message, continuation: continuation)
+            }
+        }
+    }
+
+    private func runConversationTurnEventsLoop(message: String, continuation: AsyncThrowingStream<AgentTurn, Error>.Continuation) async {
+        do {
+            guard let llmClient, let hc = self.httpClient else {
+                        continuation.yield(AgentTurn(finalResponse: "Error: Agent not started. Call run() first.", done: true))
+                        continuation.finish()
+                        return
+                    }
+                    messageHistory.append(Message(role: .user, content: message))
+                    var currentClient = llmClient
+                    var fallbackIndex = 0
+                    let fallbacks = BundledProviders.resolve(config.provider)?.fallbackModels ?? []
+                    var reasoning = ""
+                    var toolSteps: [AgentToolStep] = []
+                    var promptTokens = 0, completionTokens = 0, totalTokens = 0
+                    var lastYieldTokenCount = 0
+
+                    for iteration in 0..<config.maxIterations {
+                        autoCompressIfNeeded()
+                        let systemPrompt = try await buildSystemPrompt()
+                        var messages: [Message] = [Message(role: .system, content: systemPrompt)]
+                        messages.append(contentsOf: messageHistory)
+                        let toolSchemas = config.registry.buildToolSchemas(enabled: [], disabled: [])
+
+                        var accumulatedContent = ""
+                        var accumulatedToolCalls: [ToolCall] = []
+                        let stream = try await callStreamWithRetry(
+                            client: currentClient, messages: messages, tools: toolSchemas, timeout: config.maxTurnDuration
+                        )
+                        for try await delta in stream {
+                            if let r = delta.reasoning, !r.isEmpty { reasoning += r }
+                            if let c = delta.content { accumulatedContent += c }
+                            if let tcs = delta.toolCalls {
+                                for tcd in tcs {
+                                    if tcd.index < accumulatedToolCalls.count {
+                                        let existing = accumulatedToolCalls[tcd.index]
+                                        accumulatedToolCalls[tcd.index] = ToolCall(
+                                            id: tcd.id ?? existing.id, type: "function",
+                                            function: ToolCallFunction(name: tcd.name ?? existing.function.name, arguments: existing.function.arguments + (tcd.arguments ?? ""))
+                                        )
+                                    } else if let id = tcd.id, let name = tcd.name {
+                                        accumulatedToolCalls.append(ToolCall(id: id, type: "function", function: ToolCallFunction(name: name, arguments: tcd.arguments ?? "")))
+                                    }
+                                }
+                            }
+                        }
+
+                        // surface the accumulated reasoning once this LLM pass lands.
+                        if reasoning.count != lastYieldTokenCount {
+                            lastYieldTokenCount = reasoning.count
+                            continuation.yield(AgentTurn(finalResponse: "", reasoning: reasoning, toolSteps: toolSteps, promptTokens: promptTokens, completionTokens: completionTokens, totalTokens: totalTokens))
+                        }
+
+                        switch Self.classifyTurn(content: accumulatedContent, toolCalls: accumulatedToolCalls.isEmpty ? nil : accumulatedToolCalls) {
+                        case .text(let content):
+                            messageHistory.append(Message(role: .assistant, content: content))
+                            await persistConversationIfNeeded()
+                            continuation.yield(AgentTurn(finalResponse: content, reasoning: reasoning, toolSteps: toolSteps, iterations: iteration + 1, promptTokens: promptTokens, completionTokens: completionTokens, totalTokens: totalTokens, done: true))
+                            continuation.finish()
+                            return
+                        case .toolCalls(let calls):
+                            messageHistory.append(Message(role: .assistant, content: accumulatedContent.isEmpty ? nil : accumulatedContent, toolCalls: calls))
+                            for call in calls {
+                                let start = Date()
+                                let result = try await dispatchToolCall(call)
+                                await Metrics.shared.recordToolCall()
+                                let isError = result.hasPrefix("Error:") || result.hasPrefix("⚠️")
+                                toolSteps.append(AgentToolStep(name: call.function.name, arguments: call.function.arguments, result: result, isError: isError, durationMs: Date().timeIntervalSince(start) * 1000))
+                                messageHistory.append(Message(role: .tool, content: result, name: call.function.name, toolCallID: call.id))
+                                continuation.yield(AgentTurn(finalResponse: "", reasoning: reasoning, toolSteps: toolSteps, promptTokens: promptTokens, completionTokens: completionTokens, totalTokens: totalTokens))
+                            }
+                            continue
+                        case .empty:
+                            continue
+                        }
+                    }
+                    continuation.yield(AgentTurn(finalResponse: "The conversation reached the maximum iteration limit. Please start a new session.", reasoning: reasoning, toolSteps: toolSteps, done: true))
+                    continuation.finish()
+        } catch is CancellationError {
+            continuation.finish(throwing: CancellationError())
+        } catch {
+            continuation.finish(throwing: error)
+        }
+    }
+
     /// Persist any messages not yet stored for this session.
     ///
     /// The first persist creates the session (metadata + messages in one
