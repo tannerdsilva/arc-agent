@@ -199,17 +199,24 @@ public actor ChatConnection {
 			var first = true
 			var received = false
 			for await response in handle.responses {
+				let turn = AgentTurn.decodeEnvelope(response)
+				let message = ChatMessage(
+					id: statusID,
+					role: .assistant,
+					text: turn.finalResponse,
+					streaming: false,
+					reasoning: turn.reasoning.isEmpty ? nil : turn.reasoning,
+					toolSteps: turn.toolSteps.isEmpty ? nil : turn.toolSteps
+				)
 				if first {
 					await coordinator.replace(
 						sessionID: sessionID, profile: profile, messageID: statusID,
-						with: ChatMessage(id: statusID, role: .assistant, text: response, streaming: false)
+						with: message
 					)
 					first = false
 				} else {
 					let id = await coordinator.nextMessageID()
-					await coordinator.append(sessionID: sessionID, profile: profile, messages: [
-						ChatMessage(id: id, role: .assistant, text: response, streaming: false)
-					])
+					await coordinator.append(sessionID: sessionID, profile: profile, messages: [ message ])
 				}
 				received = true
 			}
@@ -334,7 +341,7 @@ public struct MessageBubble: View {
 					if isUser {
 						Text(message.text)
 					} else {
-						Raw(markdownBody(message.text))
+						Raw(Self.assistantContent(message))
 					}
 				}
 				.padding(12)
@@ -346,6 +353,35 @@ public struct MessageBubble: View {
 			if !isUser { Spacer(minSize: 120) }
 		}
 		.render()
+	}
+
+	/// the assistant message body: a collapsible reasoning block, a styled
+	/// block per tool the agent executed, then the final markdown response.
+	static func assistantContent(_ message: ChatMessage) -> String {
+		var parts = ""
+		if let reasoning = message.reasoning, !reasoning.isEmpty {
+			parts += "<details class=\"turn-reasoning\"><summary>Reasoning</summary><pre>"
+				+ escapeHTML(reasoning) + "</pre></details>"
+		}
+		if let steps = message.toolSteps {
+			for step in steps {
+				let cls = step.isError ? "turn-tool turn-tool--error" : "turn-tool"
+				let result = step.result.count > 200 ? String(step.result.prefix(200)) + "…" : step.result
+				parts += "<div class=\"" + cls + "\">"
+					+ "<span class=\"turn-tool__name\">" + escapeHTML(step.name) + "</span>"
+					+ "<pre class=\"turn-tool__args\">" + escapeHTML(step.arguments) + "</pre>"
+					+ "<pre class=\"turn-tool__result\">" + escapeHTML(result) + "</pre></div>"
+			}
+		}
+		parts += markdownBody(message.text)
+		return parts
+	}
+
+	private static func escapeHTML(_ text: String) -> String {
+		text.replacingOccurrences(of: "&", with: "&amp;")
+			.replacingOccurrences(of: "<", with: "&lt;")
+			.replacingOccurrences(of: ">", with: "&gt;")
+			.replacingOccurrences(of: "\"", with: "&quot;")
 	}
 }
 

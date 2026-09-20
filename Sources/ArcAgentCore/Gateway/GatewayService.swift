@@ -78,7 +78,7 @@ public struct GatewayService: Service {
 				// Await the agent's response from the response stream
 				var responseText = ""
 				for await response in handle.responses {
-					responseText = response
+					responseText = AgentTurn.decodeEnvelope(response).finalResponse
 					break  // Take the first response
 				}
 				return responseText.isEmpty ? "Message received" : responseText

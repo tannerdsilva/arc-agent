@@ -120,16 +120,22 @@ public struct LLMResponse: Sendable {
     /// Usage statistics, if provided by the API.
     public let usage: Usage?
 
+    /// Chain-of-thought / reasoning text (assistant-only; reasoning models
+    /// emit it alongside `content` or a tool call).
+    public let reasoning: String?
+
     public init(
         content: String?,
         toolCalls: [ToolCall]? = nil,
         finishReason: String? = nil,
-        usage: Usage? = nil
+        usage: Usage? = nil,
+        reasoning: String? = nil
     ) {
         self.content = content
         self.toolCalls = toolCalls
         self.finishReason = finishReason
         self.usage = usage
+        self.reasoning = reasoning
     }
 }
 

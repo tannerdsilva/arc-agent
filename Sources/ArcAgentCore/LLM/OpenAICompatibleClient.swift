@@ -335,6 +335,7 @@ public struct OpenAICompatibleClient: LLMClient {
         let message = choice["message"] as? [String: Any] ?? [:]
         let finishReason = choice["finish_reason"] as? String
         let content = message["content"] as? String
+        let reasoning = (message["reasoning"] as? String) ?? (message["reasoning_content"] as? String)
 
         let toolCalls: [ToolCall]?
         if let rawToolCalls = message["tool_calls"] as? [[String: Any]] {
@@ -368,7 +369,8 @@ public struct OpenAICompatibleClient: LLMClient {
             content: content,
             toolCalls: toolCalls,
             finishReason: finishReason,
-            usage: usage
+            usage: usage,
+            reasoning: reasoning
         )
     }
 }

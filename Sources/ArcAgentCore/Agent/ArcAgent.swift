@@ -304,19 +304,28 @@ public actor ArcAgent: Service {
 
     // MARK: - Conversation
 
-    /// Run a single conversation turn with the given user message.
+    /// Run a single conversation turn, returning only the final text. Use
+    /// ``runConversationTurn(message:)`` when you also want the reasoning and
+    /// tool steps for UI transparency.
     func runConversation(message: String) async throws -> String {
+        let turn = try await runConversationTurn(message: message)
+        return turn.finalResponse
+    }
+
+    /// Run a single conversation turn and return the structured outcome
+    /// (final response + reasoning + tool steps).
+    func runConversationTurn(message: String) async throws -> AgentTurn {
         guard let llmClient else {
-            return "Error: Agent not started. Call run() first."
+            return AgentTurn(finalResponse: "Error: Agent not started. Call run() first.")
         }
 
         messageHistory.append(Message(role: .user, content: message))
 
-        let response = try await runTurnLoop(client: llmClient)
+        let turn = try await runTurnLoop(client: llmClient)
 
         await persistConversationIfNeeded()
 
-        return response
+        return turn
     }
 
     /// Persist any messages not yet stored for this session.
@@ -423,13 +432,15 @@ public actor ArcAgent: Service {
     // MARK: - Turn Loop
 
     /// The core turn loop with retry logic, fallback models, and timeout.
-    private func runTurnLoop(client: any LLMClient) async throws -> String {
+    private func runTurnLoop(client: any LLMClient) async throws -> AgentTurn {
         guard let hc = self.httpClient else {
-            return "Error: Agent HTTP client not initialized."
+            return AgentTurn(finalResponse: "Error: Agent HTTP client not initialized.")
         }
         var currentClient = client
         var fallbackIndex = 0
         let fallbacks = BundledProviders.resolve(config.provider)?.fallbackModels ?? []
+        var reasoning = ""
+        var toolSteps: [AgentToolStep] = []
 
         for iteration in 0..<config.maxIterations {
             // Auto-compress if context is too large
@@ -476,14 +487,19 @@ public actor ArcAgent: Service {
                     }
                 }
 
-                return "Error: \(error.localizedDescription)"
+                return AgentTurn(finalResponse: "Error: \(error.localizedDescription)")
+            }
+
+            // Capture reasoning/CoT emitted by the model (UI transparency).
+            if let r = response.reasoning, !r.isEmpty {
+                reasoning += (reasoning.isEmpty ? "" : "\n") + r
             }
 
             // 5. Parse response — tool calls take precedence over content.
             switch Self.classifyTurn(content: response.content, toolCalls: response.toolCalls) {
             case .text(let content):
                 messageHistory.append(Message(role: .assistant, content: content))
-                return content
+                return AgentTurn(finalResponse: content, reasoning: reasoning, toolSteps: toolSteps)
 
             case .toolCalls(let toolCalls):
                 messageHistory.append(Message(
@@ -531,6 +547,13 @@ public actor ArcAgent: Service {
 
                     let result = try await dispatchToolCall(toolCall)
                     await Metrics.shared.recordToolCall()
+                    let isError = result.hasPrefix("Error:") || result.hasPrefix("⚠️")
+                    toolSteps.append(AgentToolStep(
+                        name: toolCall.function.name,
+                        arguments: toolCall.function.arguments,
+                        result: result,
+                        isError: isError
+                    ))
                     messageHistory.append(Message(
                         role: .tool,
                         content: result,
@@ -549,11 +572,11 @@ public actor ArcAgent: Service {
             }
 
             if iteration == config.maxIterations - 1 {
-                return "I encountered an issue processing your request. Please try again."
+                return AgentTurn(finalResponse: "I encountered an issue processing your request. Please try again.", reasoning: reasoning, toolSteps: toolSteps)
             }
         }
 
-        return "The conversation reached the maximum iteration limit. Please start a new session."
+        return AgentTurn(finalResponse: "The conversation reached the maximum iteration limit. Please start a new session.", reasoning: reasoning, toolSteps: toolSteps)
     }
 
     // MARK: - Streaming Turn Loop

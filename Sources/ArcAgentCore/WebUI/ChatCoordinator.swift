@@ -16,12 +16,18 @@ public struct ChatMessage: Sendable, Equatable {
 	public let role: Role
 	public let text: String
 	public let streaming: Bool
+	/// the model's reasoning/CoT (assistant messages; rendered collapsible).
+	public let reasoning: String?
+	/// the tools the agent executed during this turn (assistant messages).
+	public let toolSteps: [AgentToolStep]?
 
-	public init(id: String, role: Role, text: String, streaming: Bool = false) {
+	public init(id: String, role: Role, text: String, streaming: Bool = false, reasoning: String? = nil, toolSteps: [AgentToolStep]? = nil) {
 		self.id = id
 		self.role = role
 		self.text = text
 		self.streaming = streaming
+		self.reasoning = reasoning
+		self.toolSteps = toolSteps
 	}
 }
 
