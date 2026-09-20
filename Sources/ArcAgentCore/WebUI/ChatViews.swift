@@ -24,7 +24,7 @@ public actor ChatConnection {
 	private var turnTasks: [Task<Void, Never>] = []
 	/// which workspace-tree nodes are expanded (server-driven, shared across
 	/// the session's tabs so a toggle re-renders consistently).
-	private var treeExpanded: Set<String> = ["arc-agent", "sources", "webui"]
+	private var treeExpanded: Set<String> = []
 
 	public init(
 		coordinator: ChatCoordinator,
@@ -390,42 +390,56 @@ public enum ChatPage {
 		return page.render()
 	}
 
-	/// a representative file tree of the arc-agent repo, rooted at `arc-agent`.
+	/// the on-disk workspace file tree (reads the real repo, skipping generated
+	/// dirs and capping depth) so the file browser reflects the actual project.
 	public static func workspaceTree() -> [WebUITree.Node] {
-		func dir(_ id: String, _ label: String, _ children: [WebUITree.Node]) -> WebUITree.Node {
-			WebUITree.Node(id: id, label: label, icon: .folder, children: children)
+		WorkspaceTreeBuilder.build(from: WorkspaceTreeBuilder.workspaceRoot())
+	}
+}
+
+// MARK: - Workspace tree (on-disk)
+
+/// Build a ``WebUITree`` from the live file system so the workspace pane
+/// reflects the real project instead of a hardcoded snapshot. Generated dirs
+/// (`.git`, `.build`) are skipped and recursion is depth-capped to keep the
+/// read cheap; node ids are the path relative to the workspace root, so they
+/// are unique and stable for the toggle handler.
+enum WorkspaceTreeBuilder {
+	static let maxDepth = 4
+	private static let ignoredNames: Set<String> = [".git", ".build", ".swiftpm", "node_modules", ".DS_Store"]
+
+	static func workspaceRoot() -> URL {
+		URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+	}
+
+	static func build(from root: URL) -> [WebUITree.Node] {
+		contents(root, relative: "", depth: maxDepth)
+	}
+
+	private static func contents(_ dir: URL, relative: String, depth: Int) -> [WebUITree.Node] {
+		guard depth > 0 else { return [] }
+		let entries = (try? FileManager.default.contentsOfDirectory(
+			at: dir,
+			includingPropertiesForKeys: [.isDirectoryKey],
+			options: [.skipsHiddenFiles]
+		)) ?? []
+		let items = entries.filter { !ignoredNames.contains($0.lastPathComponent) }
+			.sorted { a, b in
+				let aDir = (try? a.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+				let bDir = (try? b.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+				if aDir != bDir { return aDir }
+				return a.lastPathComponent.localizedStandardCompare(b.lastPathComponent) == .orderedAscending
+			}
+		return items.map { entry -> WebUITree.Node in
+			let name = entry.lastPathComponent
+			let path = relative.isEmpty ? name : "\(relative)/\(name)"
+			let isDir = (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+			if isDir {
+				let children = contents(entry, relative: path, depth: depth - 1)
+				return WebUITree.Node(id: path, label: name, icon: .folder, children: children.isEmpty ? nil : children)
+			}
+			return WebUITree.Node(id: path, label: name, icon: .fileText)
 		}
-		func file(_ id: String, _ label: String, _ icon: IconName = .fileText) -> WebUITree.Node {
-			WebUITree.Node(id: id, label: label, icon: icon)
-		}
-		return [
-			dir("arc-agent", "arc-agent", [
-				dir("build", ".build", []),
-				dir("sources", "Sources", [
-					dir("agent", "Agent", [file("agent-arc", "ArcAgent.swift")]),
-					file("arcagentcore", "ArcAgentCore.swift"),
-					dir("config", "Config", []),
-					dir("cron", "Cron", []),
-					dir("delegation", "Delegation", []),
-					dir("errorhandling", "ErrorHandling", []),
-					dir("gateway", "Gateway", []),
-					dir("kanban", "Kanban", []),
-					dir("llm", "LLM", []),
-					dir("memory", "Memory", []),
-					dir("metrics", "Metrics", []),
-					dir("profile", "Profile", []),
-					dir("provider", "Provider", []),
-					dir("security", "Security", []),
-					dir("session", "Session", []),
-					dir("skills", "Skills", []),
-					dir("storage", "Storage", []),
-					dir("toolregistry", "ToolRegistry", []),
-					dir("tools", "Tools", []),
-					dir("webui", "WebUI", [file("appshell", "AppShell.swift"), file("chatviews", "ChatViews.swift")]),
-				]),
-				file("main", "main.swift", .braces),
-			]),
-		]
 	}
 }
 
@@ -486,7 +500,7 @@ private enum WorkspacePanel {
 					activeTab: "files",
 					id: "workspace-tabs"
 				)
-				WebUITree(nodes: nodes, id: "workspace-tree", expanded: ["arc-agent", "sources", "webui"], selected: nil, onToggle: onToggle)
+				WebUITree(nodes: nodes, id: "workspace-tree", expanded: [], selected: nil, onToggle: onToggle)
 			}
 			.padding(12)
 		}
