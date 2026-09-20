@@ -333,7 +333,7 @@ public struct MessageBubble: View {
 					if isUser {
 						Text(message.text)
 					} else {
-						Raw(markdownToHTML(message.text))
+						Raw(markdownBody(message.text))
 					}
 				}
 				.padding(12)
