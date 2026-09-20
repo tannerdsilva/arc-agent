@@ -284,7 +284,8 @@ public actor ChatConnection {
 			placeholder: "Message…",
 			inputID: inputID,
 			id: "chat-bar",
-			onSubmit: submitHandler
+			onSubmit: submitHandler,
+			hint: "Enter ↵ to send · Shift+↵ for a new line"
 		).render()
 	}
 
