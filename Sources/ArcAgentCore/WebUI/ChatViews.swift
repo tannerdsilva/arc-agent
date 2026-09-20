@@ -75,6 +75,40 @@ public actor ChatConnection {
 		}
 	}
 
+	/// top-bar provider change: switch the agent's API endpoint to the chosen
+	/// provider (kept for the next turn via RuntimeSettings).
+	nonisolated public func providerChangeHandler() -> EventHandler {
+		{ [weak self] event in
+			guard let self, let value = event.string("value") else { return [] }
+			await self.setProvider(value)
+			return []
+		}
+	}
+
+	/// top-bar reasoning-effort change (`low`/`medium`/`high`).
+	nonisolated public func effortChangeHandler() -> EventHandler {
+		{ [weak self] event in
+			guard let self, let value = event.string("value") else { return [] }
+			await RuntimeSettings.shared.setEffort(value)
+			return []
+		}
+	}
+
+	private func setProvider(_ name: String) async {
+		guard name != "default" else {
+			await RuntimeSettings.shared.clearProvider()
+			return
+		}
+		let profile = BundledProviders.resolve(name)
+			?? BundledProviders.unique.first(where: { $0.name == name })
+		if let profile {
+			await RuntimeSettings.shared.overrideProvider(
+				name: profile.name,
+				baseURL: profile.baseURL.absoluteString
+			)
+		}
+	}
+
 	/// toggle a workspace-tree node open/closed and re-render just the tree
 	/// fragment (the routing anchor on the tree container persists, so the
 	/// page-build registration keeps routing subsequent clicks).
@@ -427,26 +461,57 @@ public enum ChatPage {
 		workspace: [WebUITree.Node],
 		submitHandler: @escaping EventHandler,
 		listSelect: @escaping EventHandler,
-		treeToggle: EventHandler? = nil
+		treeToggle: EventHandler? = nil,
+		providerOptions: [WebUISelect.Option] = [],
+		currentProvider: String = "default",
+		currentEffort: String = "medium",
+		providerChange: EventHandler? = nil,
+		effortChange: EventHandler? = nil
 	) -> String {
 		let conversationItems = ChatConversationPanel.items(profiles: profiles)
-		let page: some View = HStack(alignment: .top, spacing: 0) {
-			ChatConversationPanel.render(
-				items: conversationItems,
-				active: active,
-				onSelect: listSelect
-			)
-			.stretch()
+		let page: some View = VStack(alignment: .leading, spacing: 0) {
+			// top bar: provider + thinking-effort controls.
+			HStack(alignment: .center, spacing: 12) {
+				WebUISelect(
+					id: "provider-select",
+					options: providerOptions,
+					value: currentProvider,
+					onChange: providerChange
+				)
+				WebUISegmentedControl(
+					items: [
+						WebUISegmentedItem(id: "low", label: "Low", count: nil),
+						WebUISegmentedItem(id: "medium", label: "Medium", count: nil),
+						WebUISegmentedItem(id: "high", label: "High", count: nil),
+					],
+					selectedID: currentEffort,
+					id: "effort-control",
+					onSelect: effortChange
+				)
+				Spacer(minSize: 0)
+			}
+			.padding(12)
+			.backgroundColor("var(--color-bg-raised)")
 
-			VStack(alignment: .leading, spacing: 0) {
-				Raw(ChatConnection.renderThread(messages: messages))
-				Raw(ChatConnection.renderChatBar(inputID: inputID, submitHandler: submitHandler))
+			HStack(alignment: .top, spacing: 0) {
+				ChatConversationPanel.render(
+					items: conversationItems,
+					active: active,
+					onSelect: listSelect
+				)
+				.stretch()
+
+				VStack(alignment: .leading, spacing: 0) {
+					Raw(ChatConnection.renderThread(messages: messages))
+					Raw(ChatConnection.renderChatBar(inputID: inputID, submitHandler: submitHandler))
+				}
+				.fill()
+				.backgroundColor("var(--color-bg)")
+
+				WorkspacePanel.render(nodes: workspace, onToggle: treeToggle)
+					.stretch()
 			}
 			.fill()
-			.backgroundColor("var(--color-bg)")
-
-			WorkspacePanel.render(nodes: workspace, onToggle: treeToggle)
-				.stretch()
 		}
 		.fill()
 		return page.render()

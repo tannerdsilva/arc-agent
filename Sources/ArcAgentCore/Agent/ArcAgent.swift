@@ -91,6 +91,11 @@ public actor ArcAgent: Service {
     private let config: Configuration
     private var llmClient: (any LLMClient)?
     private var httpClient: HTTPClient?
+    /// the provider/effort the current client was built with (to avoid
+    /// rebuilding every turn).
+    private var lastAppliedProvider: String?
+    private var lastAppliedBaseURL: String?
+    private var lastAppliedEffort: String?
     private var messageHistory: [Message]
     private let sessionID: String
     /// How many messages of `messageHistory` have been persisted to the
@@ -315,6 +320,7 @@ public actor ArcAgent: Service {
     /// Run a single conversation turn and return the structured outcome
     /// (final response + reasoning + tool steps).
     func runConversationTurn(message: String) async throws -> AgentTurn {
+        await applyRuntimeSettings()
         guard let llmClient else {
             return AgentTurn(finalResponse: "Error: Agent not started. Call run() first.")
         }
@@ -341,7 +347,8 @@ public actor ArcAgent: Service {
 
     private func runConversationTurnEventsLoop(message: String, continuation: AsyncThrowingStream<AgentTurn, Error>.Continuation) async {
         do {
-            guard let llmClient, let hc = self.httpClient else {
+            await self.applyRuntimeSettings()
+            guard let llmClient = self.llmClient, let hc = self.httpClient else {
                         continuation.yield(AgentTurn(finalResponse: "Error: Agent not started. Call run() first.", done: true))
                         continuation.finish()
                         return
@@ -525,6 +532,32 @@ public actor ArcAgent: Service {
     }
 
     // MARK: - Turn Loop
+
+    /// Apply the user's runtime settings (provider override + reasoning
+    /// effort), rebuilding the LLM client when they change. Called at the
+    /// start of each turn so a top-bar selection takes effect on the next
+    /// message.
+    func applyRuntimeSettings() async {
+        let snap = await RuntimeSettings.shared.snapshot()
+        let model = config.model
+        let baseURL = (snap.baseURL.flatMap { URL(string: $0) }) ?? config.baseURL
+        let effort = snap.effort
+        if lastAppliedProvider == model, lastAppliedBaseURL == baseURL.absoluteString, lastAppliedEffort == effort {
+            return
+        }
+        lastAppliedProvider = model
+        lastAppliedBaseURL = baseURL.absoluteString
+        lastAppliedEffort = effort
+        if let hc = self.httpClient {
+            self.llmClient = OpenAICompatibleClient(
+                baseURL: baseURL,
+                apiKey: config.apiKey,
+                model: model,
+                httpClient: hc,
+                defaultParameters: RequestParameters(reasoningEffort: effort == "auto" ? nil : effort)
+            )
+        }
+    }
 
     /// The core turn loop with retry logic, fallback models, and timeout.
     private func runTurnLoop(client: any LLMClient) async throws -> AgentTurn {

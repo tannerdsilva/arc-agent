@@ -657,6 +657,18 @@ public final class WebUIService: Service {
 		let listSelect = connection.listSelectHandler()
 		let messages = await coordinator.messages(for: "default")
 
+		// top-bar options: the configured provider (if any) plus the bundled
+		// providers, so the user can switch the agent's API endpoint live.
+		var seen = Set<String>()
+		var providerOptions: [WebUISelect.Option] = [WebUISelect.Option(value: "default", label: "Default (config)")]
+		if !config.arcConfig.model.provider.isEmpty, seen.insert(config.arcConfig.model.provider).inserted {
+			providerOptions.append(WebUISelect.Option(value: config.arcConfig.model.provider, label: config.arcConfig.model.provider))
+		}
+		for p in BundledProviders.unique where seen.insert(p.name).inserted {
+			providerOptions.append(WebUISelect.Option(value: p.name, label: p.name))
+		}
+		let currentProvider = config.arcConfig.model.provider.isEmpty ? "default" : config.arcConfig.model.provider
+
 		let router = EventRouter(logger: Logger(label: "webui.arc.chat"))
 		let html = RenderContext.$current.withValue(RenderContext(router: router)) {
 			// a three-pane row — conversation list, message thread + composer,
@@ -671,7 +683,12 @@ public final class WebUIService: Service {
 				workspace: ChatPage.workspaceTree(),
 				submitHandler: submitHandler,
 				listSelect: listSelect,
-				treeToggle: connection.treeToggleHandler()
+				treeToggle: connection.treeToggleHandler(),
+				providerOptions: providerOptions,
+				currentProvider: currentProvider,
+				currentEffort: "medium",
+				providerChange: connection.providerChangeHandler(),
+				effortChange: connection.effortChangeHandler()
 			)
 			return AppShell.document(
 				title: "Chat · ARC Agent",

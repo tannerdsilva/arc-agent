@@ -144,6 +144,7 @@ public struct OpenAICompatibleClient: LLMClient {
         if let stop = defaultParameters.stop { body["stop"] = stop }
         if let presencePenalty = defaultParameters.presencePenalty { body["presence_penalty"] = presencePenalty }
         if let frequencyPenalty = defaultParameters.frequencyPenalty { body["frequency_penalty"] = frequencyPenalty }
+        if let effort = defaultParameters.reasoningEffort { body["reasoning_effort"] = effort }
 
         // Attach tools if provided
         if let tools, !tools.isEmpty {
@@ -392,13 +393,17 @@ public struct RequestParameters: Sendable {
     /// Frequency penalty.
     public var frequencyPenalty: Double?
 
+    /// Reasoning-effort knob for reasoning models (`low`/`medium`/`high`).
+    public var reasoningEffort: String?
+
     public init(
         temperature: Double? = nil,
         maxTokens: Int? = nil,
         topP: Double? = nil,
         stop: [String]? = nil,
         presencePenalty: Double? = nil,
-        frequencyPenalty: Double? = nil
+        frequencyPenalty: Double? = nil,
+        reasoningEffort: String? = nil
     ) {
         self.temperature = temperature
         self.maxTokens = maxTokens
@@ -406,6 +411,7 @@ public struct RequestParameters: Sendable {
         self.stop = stop
         self.presencePenalty = presencePenalty
         self.frequencyPenalty = frequencyPenalty
+        self.reasoningEffort = reasoningEffort
     }
 }
 
