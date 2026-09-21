@@ -798,6 +798,13 @@ public final class WebUIService: Service {
 		head.headers.replaceOrAdd(name: "X-Frame-Options", value: "SAMEORIGIN")
 		head.headers.replaceOrAdd(name: "Cache-Control", value: "no-store")
 		head.headers.replaceOrAdd(name: "X-Content-Type-Options", value: "nosniff")
+		// cross-origin isolation (parity with the framework's smoke/auth
+		// servers): client-mode pages boot the wasm module in a worker only
+		// on cross-origin-isolated documents, so the host must present the
+		// pair on every document response. all pages are self-contained, so
+		// require-corp blocks nothing in-tree.
+		head.headers.replaceOrAdd(name: "Cross-Origin-Opener-Policy", value: "same-origin")
+		head.headers.replaceOrAdd(name: "Cross-Origin-Embedder-Policy", value: "require-corp")
 		for (name, value) in headers {
 			head.headers.replaceOrAdd(name: name, value: value)
 		}
