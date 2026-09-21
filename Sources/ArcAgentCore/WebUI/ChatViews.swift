@@ -252,18 +252,18 @@ public actor ChatConnection {
 			if !received {
 				await coordinator.replace(
 					sessionID: sessionID, profile: profile, messageID: statusID,
-					with: ChatMessage(id: statusID, role: .status, text: "no response", streaming: false)
+					with: ChatMessage(id: statusID, role: .status, text: "The model didn't return a response. Check that the provider is reachable and configured.", streaming: false, retryText: text)
 				)
 			}
 		} catch is CancellationError {
 			await coordinator.replace(
 				sessionID: sessionID, profile: profile, messageID: statusID,
-				with: ChatMessage(id: statusID, role: .status, text: "cancelled", streaming: false)
+				with: ChatMessage(id: statusID, role: .status, text: "This turn was cancelled.", streaming: false, retryText: text)
 			)
 		} catch {
 			await coordinator.replace(
 				sessionID: sessionID, profile: profile, messageID: statusID,
-				with: ChatMessage(id: statusID, role: .status, text: "turn failed", streaming: false)
+				with: ChatMessage(id: statusID, role: .status, text: "The turn failed. Check the model provider.", streaming: false, retryText: text)
 			)
 		}
 		await coordinator.setInflight(sessionID: sessionID, profile: profile, false)
@@ -353,13 +353,19 @@ public struct MessageBubble: View {
 			if isUser { Spacer(minSize: 120) }
 
 			if isStatus {
-				HStack(spacing: 8) {
-					WebUISpinner(size: .sm)
-					Text(message.text).foregroundColor(.textMuted)
+				if message.streaming {
+					HStack(spacing: 8) {
+						WebUISpinner(size: .sm)
+						Text(message.text).foregroundColor(.textMuted)
+					}
+					.padding(.three)
+					.backgroundColor("var(--color-bg-subtle)")
+					.cornerRadius("var(--radius-lg)")
+				} else {
+					// a terminal (failed) turn: a real error card, not a
+					// spinner — so it reads as "stopped", not "still loading".
+					WebUIAlert(variant: .danger, title: "Something went wrong", message: Self.statusMessage(message))
 				}
-				.padding(.three)
-				.backgroundColor("var(--color-bg-subtle)")
-				.cornerRadius("var(--radius-lg)")
 			} else {
 				VStack(alignment: .leading, spacing: 4) {
 					WebUIBadge(
@@ -423,6 +429,16 @@ public struct MessageBubble: View {
 			parts.append("\(turn.iterations) iteration\(turn.iterations == 1 ? "" : "s")")
 		}
 		return parts.isEmpty ? nil : parts.joined(separator: " · ")
+	}
+
+	/// the message body for a terminal status card: the specific failure text
+	/// plus, when the failed user turn is known, a pointer back to resend it.
+	private static func statusMessage(_ message: ChatMessage) -> String {
+		let base = message.text.isEmpty ? "The turn didn't complete." : message.text
+		if let retry = message.retryText, !retry.isEmpty {
+			return base + " Send your message again to retry."
+		}
+		return base
 	}
 
 	private static func durationLabel(_ ms: Double?) -> String {

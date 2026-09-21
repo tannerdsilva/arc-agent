@@ -97,12 +97,27 @@ public enum ClientDemo {
 	/// sheet, so it extends without overriding the design-system defaults).
 	static let demoStyles = """
 	.client-demo { max-width: 960px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
-	.search { display: flex; flex-direction: column; gap: var(--space-4); }
+	/* the module mounts into #search-app inside a leading-aligned stack, so give
+	   the mount (and thus the search/table/chart/applet) the full column width
+	   instead of collapsing to the content's intrinsic width. */
+	#search-app { width: 100%; }
+	.search { display: flex; flex-direction: column; gap: var(--space-4); width: 100%; }
 	.search__field { display: flex; align-items: center; width: 100%; }
 	.search__field input { width: 100%; padding: var(--space-2) var(--space-3); font: inherit; color: var(--color-text); background: var(--color-bg-raised); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
 	.search__field input:focus { outline: none; border-color: var(--color-primary-500); box-shadow: var(--ring-focus); }
+	/* table: lift data cells out of muted so rows read clearly in both themes;
+	   keep the selection/expand controls subdued. */
 	.search__rows { overflow-x: auto; }
-	.search__chart svg { width: 100%; height: auto; }
+	.search__rows table td { color: var(--color-text); }
+	.search__rows table td.table__expand-col, .search__rows table td.table__select-col { color: var(--color-text-muted); }
+	/* chart: full-width, legible axes, subtle grid, refined rounded bars. */
+	.search__chart { width: 100%; }
+	.search__chart svg { width: 100%; height: auto; display: block; }
+	.search__chart .chart__axis-label { fill: var(--color-text-muted); font-size: var(--font-size-sm); }
+	.search__chart .chart__grid { stroke: var(--color-border); opacity: 0.5; }
+	.search__chart .chart__baseline { stroke: var(--color-border); }
+	.search__chart .chart__bar { fill: var(--color-primary-500); clip-path: inset(0 round 7px 7px 0 0); }
+	.search__chart .chart__bar:hover { fill: var(--color-primary-600); }
 	.search__meta, .search__error, .search__valid { color: var(--color-text-muted); font-size: var(--font-size-sm); }
 	.search__error { color: var(--color-danger); }
 	.search__valid { color: var(--color-success); }

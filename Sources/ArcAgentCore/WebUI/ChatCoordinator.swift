@@ -22,8 +22,11 @@ public struct ChatMessage: Sendable, Equatable {
 	public let toolSteps: [AgentToolStep]?
 	/// a compact turn summary (e.g. "3 tools · 1.2k tokens · 4 iterations").
 	public let summary: String?
+	/// the original user text for a terminal `status` (failed) message, kept so
+	/// the error card can point the user back at what didn't get an answer.
+	public let retryText: String?
 
-	public init(id: String, role: Role, text: String, streaming: Bool = false, reasoning: String? = nil, toolSteps: [AgentToolStep]? = nil, summary: String? = nil) {
+	public init(id: String, role: Role, text: String, streaming: Bool = false, reasoning: String? = nil, toolSteps: [AgentToolStep]? = nil, summary: String? = nil, retryText: String? = nil) {
 		self.id = id
 		self.role = role
 		self.text = text
@@ -31,6 +34,7 @@ public struct ChatMessage: Sendable, Equatable {
 		self.reasoning = reasoning
 		self.toolSteps = toolSteps
 		self.summary = summary
+		self.retryText = retryText
 	}
 }
 
