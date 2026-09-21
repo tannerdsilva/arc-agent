@@ -8,6 +8,8 @@ ARC Agent is a **precompiled, Swift-native AI agent harness** — architecturall
 
 > **Frontend surface:** ARC Agent serves a **no-webui** browser frontend (chat, bots, settings) straight from the gateway — `arc serve` runs a raw-NIO host on `:8088` that renders every page through the [no-webui](https://github.com/tannerdsilva/no-webui) SwiftUI-for-web toolkit (design-system components, tokens, layout primitives — no hand-written HTML/CSS/JS). Interactive chat streams over a session-gated WebSocket. Login (WebUIAuth, argon2id) is on by default; the first-run password is printed and persisted hash-only. The REST API (`/health`, `/v1/chat`) remains on the Hummingbird server (`:8080`).
 
+> **Client demo (`/client`):** a client-mode page that boots the no-webui **wasm module** through arc's own serving stack (chamber + worker scripts, content-addressed wasm route, COOP/COEP on every response) — a live testbed for the framework's applet/worker-offload/capability features. Build the artifact with `make wasm-client` (needs the swiftly 6.4 wasm SDK), or point `ARC_WASM_PATH` at an existing `WebUIClient.wasm`.
+
 ## Why Swift?
 
 | Concern | Python Agent (Hermes) | Swift Agent (ARC) |

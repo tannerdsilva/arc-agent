@@ -23,9 +23,10 @@ public enum AppShell {
 
 		public static let chat = Section(name: "Chat", path: "/", icon: .bot)
 		public static let bots = Section(name: "Bots", path: "/bots", icon: .users)
+		public static let client = Section(name: "Client Demo", path: "/client", icon: .cpu)
 		public static let settings = Section(name: "Settings", path: "/settings", icon: .settings)
 
-		public static let all: [Section] = [.chat, .bots, .settings]
+		public static let all: [Section] = [.chat, .bots, .client, .settings]
 	}
 
 	/// assemble a complete html document for a page.

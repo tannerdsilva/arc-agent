@@ -413,6 +413,18 @@ public final class WebUIService: Service {
 		case (.GET, "/__assets/js"):
 			try await httpResponse(channel: channel, status: .ok, headers: [("Content-Type", "text/javascript; charset=utf-8")], body: WebUIAssets.js)
 			return
+		case (.GET, "/__assets/webui-client.js"):
+			try await httpResponse(channel: channel, status: .ok, headers: [("Content-Type", "text/javascript; charset=utf-8")], body: WebUIAssets.client)
+			return
+		case (.GET, "/__assets/webui-worker.js"):
+			try await httpResponse(channel: channel, status: .ok, headers: [("Content-Type", "text/javascript; charset=utf-8")], body: WebUIAssets.worker)
+			return
+		case (.GET, "/__assets/arc-client-boot.js"):
+			try await httpResponse(channel: channel, status: .ok, headers: [("Content-Type", "text/javascript; charset=utf-8")], body: WebUIAssets.clientSearchBoot)
+			return
+		case (.GET, let uri) where uri.hasPrefix("/__assets/app") && uri.hasSuffix(".wasm"):
+			try await serveClientWasm(channel: channel, uri: uri)
+			return
 		default:
 			break
 		}
@@ -434,11 +446,44 @@ public final class WebUIService: Service {
 			try await handleIndex(head: head, path: "/bots", channel: channel)
 		case (.GET, "/settings"):
 			try await handleIndex(head: head, path: "/settings", channel: channel)
+		case (.GET, "/client"):
+			try await handleClientPage(head: head, channel: channel)
 		case (_, "/ws"):
 			try await httpResponse(channel: channel, status: .notFound, headers: [("Content-Type", "text/plain; charset=utf-8")], body: "not found")
 		default:
 			try await httpResponse(channel: channel, status: .notFound, headers: [("Content-Type", "text/plain; charset=utf-8")], body: "not found")
 		}
+	}
+
+	// MARK: - client demo
+
+	/// the `/client` page: auth-gated like the app pages, then rendered as a
+	/// client-mode `WebUIDocument` (the chamber boots the wasm module; the
+	/// server runtime is suppressed on the page).
+	private func handleClientPage(head: HTTPRequestHead, channel: Channel) async throws {
+		if config.authEnabled {
+			guard await sessionDescription(for: head) != nil else {
+				return try await redirect(channel: channel, to: "/login")
+			}
+		}
+		let (bytes, hash) = ClientDemo.artifact()
+		let page = ClientDemo.renderPage(wasmPresent: !bytes.isEmpty, wasmHash: hash)
+		try await httpResponse(channel: channel, status: .ok, headers: [("Content-Type", "text/html; charset=utf-8")], body: page)
+	}
+
+	/// the content-addressed wasm route: immutable caching on the hashed url,
+	/// no-store on the alias, and a hint 404 when the artifact was never built.
+	private func serveClientWasm(channel: Channel, uri: String) async throws {
+		let (bytes, _) = ClientDemo.artifact()
+		guard !bytes.isEmpty else {
+			try await httpResponse(channel: channel, status: .notFound, headers: [("Content-Type", "text/plain; charset=utf-8")], body: "wasm artifact not built — see ClientDemo.swift")
+			return
+		}
+		var headers = [("Content-Type", "application/wasm")]
+		if uri != "/__assets/app.wasm" {
+			headers.append(("Cache-Control", "public, max-age=31536000, immutable"))
+		}
+		try await httpResponse(channel: channel, status: .ok, headers: headers, bytes: bytes)
 	}
 
 	// MARK: - auth pages
@@ -815,6 +860,29 @@ public final class WebUIService: Service {
 		// await the terminal write promise: the async channel writer does not
 		// await write promises, and a large response would lose its tail when
 		// the connection closes right after writing.
+		_ = channel.write(HTTPPart<HTTPResponseHead, ByteBuffer>.head(head))
+		_ = channel.write(HTTPPart<HTTPResponseHead, ByteBuffer>.body(buf))
+		try await channel.writeAndFlush(HTTPPart<HTTPResponseHead, ByteBuffer>.end(nil)).get()
+	}
+
+	private func httpResponse(channel: Channel, status: HTTPResponseStatus, headers: [(String, String)], bytes: [UInt8]) async throws {
+		var head = HTTPResponseHead(version: .http1_1, status: status)
+		head.headers.replaceOrAdd(name: "X-Frame-Options", value: "SAMEORIGIN")
+		head.headers.replaceOrAdd(name: "X-Content-Type-Options", value: "nosniff")
+		head.headers.replaceOrAdd(name: "Cross-Origin-Opener-Policy", value: "same-origin")
+		head.headers.replaceOrAdd(name: "Cross-Origin-Embedder-Policy", value: "require-corp")
+		head.headers.replaceOrAdd(name: "Cache-Control", value: "no-store")
+		for (name, value) in headers {
+			head.headers.replaceOrAdd(name: name, value: value)
+		}
+		head.headers.replaceOrAdd(name: "Content-Length", value: "\(bytes.count)")
+		head.headers.replaceOrAdd(name: "Connection", value: "close")
+		var buf = ByteBuffer()
+		buf.writeBytes(bytes)
+		// await the terminal write promise: the async channel writer does not
+		// await write promises, and a response larger than the socket send
+		// buffer would otherwise lose its tail when the connection closes
+		// right after writing (probe-verified truncation).
 		_ = channel.write(HTTPPart<HTTPResponseHead, ByteBuffer>.head(head))
 		_ = channel.write(HTTPPart<HTTPResponseHead, ByteBuffer>.body(buf))
 		try await channel.writeAndFlush(HTTPPart<HTTPResponseHead, ByteBuffer>.end(nil)).get()

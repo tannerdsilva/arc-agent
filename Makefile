@@ -18,13 +18,25 @@ VERSION    := $(shell git describe --tags --always 2>/dev/null || echo "dev")
 DIST_DIR   := dist
 DIST_NAME  := arc-agent-$(VERSION)-macos-arm64
 
-.PHONY: all build release install test clean dist uninstall
+.PHONY: all build release install test clean dist uninstall wasm-client
 
 # ── Default: debug build ──────────────────────────────────
 all: build
 
 build:
 	$(SWIFT) build
+
+# ── Client-mode wasm artifact (from the no-webui checkout) ──
+# builds the WebUIClient product the /client demo page serves.
+# needs the swiftly-hosted swift 6.4 wasm sdk registered; the Xcode
+# frontend cannot read the sdk's prebuilt modules, so the swiftly shim
+# is used directly. override with NO_WEBUI_DIR=/path/to/no-webui or
+# WASM_SWIFT=/path/to/swift.
+NO_WEBUI_DIR ?= ../no-webui
+WASM_SWIFT ?= $(HOME)/.swiftly/bin/swift
+wasm-client:
+	cd $(NO_WEBUI_DIR) && $(WASM_SWIFT) build -c release --swift-sdk swift-6.4.0-RELEASE_wasm --product WebUIClient
+	@echo "  built WebUIClient.wasm → $(NO_WEBUI_DIR)/.build/out/Products/Release-webassembly-wasm32/"
 
 # ── Release build ─────────────────────────────────────────
 release:
