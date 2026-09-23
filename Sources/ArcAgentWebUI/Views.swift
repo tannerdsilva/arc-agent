@@ -242,6 +242,8 @@ extension AppState {
             return "<div id=\"\(id)\">\(toolsPanel())</div>"
         case .workspaces:
             return "<div id=\"\(id)\">\(workspacesPanel())</div>"
+        case .github:
+            return "<div id=\"\(id)\">\(githubPanel())</div>"
         case .kanban:
             return "<div id=\"\(id)\">\(kanbanPanel())</div>"
         case .memory:
@@ -743,6 +745,8 @@ extension AppState {
             return "<div id=\"\(id)\">\(toolsMain())</div>"
         case .workspaces:
             return "<div id=\"\(id)\">\(workspacesMain())</div>"
+        case .github:
+            return "<div id=\"\(id)\">\(githubMain())</div>"
         case .kanban:
             return "<div id=\"\(id)\">\(kanbanMain())</div>"
         case .memory:
@@ -2330,7 +2334,7 @@ extension AppState {
         // Sidebar tabs (Hermes-style chips; Chat + Settings are always visible)
         let tabDefs: [(key: String, label: String)] = [
             ("skills", "Skills"), ("profiles", "Profiles"), ("tools", "Tools"),
-            ("workspaces", "Workspace"), ("kanban", "Kanban"), ("memory", "Memory"),
+            ("workspaces", "Workspace"), ("github", "GitHub"), ("kanban", "Kanban"), ("memory", "Memory"),
             ("insights", "Insights"), ("logs", "Logs"), ("tasks", "Tasks"), ("todos", "Todos"),
         ]
         // Chips follow the canonical sidebar order; state = hidden set.
@@ -2515,6 +2519,26 @@ extension AppState {
                 <h3 style="margin:0 0 6px">Auxiliary models</h3>
                 <div class="detail-sub" style="margin-bottom:10px">Auxiliary tasks (vision, compression, approval, titles, …) use a dedicated model from the <code>auxiliary</code> block of ~/.arc/config.json. Empty overrides fall back to the chat's main model.</div>
                 \(auxRows)
+              </div>
+            </section>
+
+            <section class="set-section" id="assistance">
+              <h2>Assistance &amp; approvals</h2>
+              <div class="detail-card">
+                <div class="set-row">
+                  <div class="set-label">Smart approval<small>Flagged commands are assessed by the <code>approval</code> auxiliary model (Hermes smart mode): low risk auto-approves, high risk is denied, uncertainty still prompts. Off = classic prompt for every flagged command. <code>approvals: off</code> in ~/.arc/config.json always wins.</small></div>
+                  <label class="switch">
+                    <input type="checkbox" id="set-smart-approval" data-component-id="set-smart-approval" data-event="change" data-no-restore \(settings.smartApproval ? "checked" : "")>
+                    <span class="track"></span><span class="knob"></span>
+                  </label>
+                </div>
+                <div class="set-row">
+                  <div class="set-label">Smart pick-a-path<small>When a pick-a-path question times out (120 s), the <code>clarify</code> auxiliary model chooses the best offered answer instead of the agent's unguided judgement.</small></div>
+                  <label class="switch">
+                    <input type="checkbox" id="set-smart-pickapath" data-component-id="set-smart-pickapath" data-event="change" data-no-restore \(settings.smartPickAPath ? "checked" : "")>
+                    <span class="track"></span><span class="knob"></span>
+                  </label>
+                </div>
               </div>
             </section>
 
@@ -3042,6 +3066,136 @@ extension AppState {
     }
 }
 
+// MARK: - GitHub page
+
+extension AppState {
+
+    /// Left panel: repository summary + commit list (newest first). Unpushed
+    /// commits carry the theme-accent badge; the selected commit is active.
+    func githubPanel() -> String {
+        let refreshBtn = btn("gh-refresh", "gh-refresh", "icon-btn",
+                             svgIcon("refresh", 15), " title=\"Refresh repository\" data-tip=\"Refresh\"")
+        let head = """
+        <div class="panel-head">
+          <span class="panel-title">GitHub</span>
+          <div class="panel-actions">\(refreshBtn)</div>
+        </div>
+        """
+        let body: String
+        switch githubPage {
+        case .idle, .loading:
+            body = "<div class=\"empty-hint\">Loading repository…</div>"
+        case .notARepo(let path):
+            body = """
+            <div class="gh-notice">
+              <div class="gh-notice-title">Not a git project</div>
+              <div class="gh-notice-body">The workspace <code>\(esc(path))</code> is not a git repository, so there is nothing to show. Open a chat whose workspace is a git project, or change the default workspace under Settings → Workspaces.</div>
+            </div>
+            """
+        case .error(let msg):
+            body = "<div class=\"empty-hint\">\(esc(msg))</div>"
+        case .repo(let path, let branch, let remote):
+            var meta: [String] = []
+            if let branch { meta.append("branch <b>\(esc(branch))</b>") }
+            if let remote { meta.append("<span class=\"gh-remote\">\(esc(remote))</span>") }
+            let unpushedCount = githubCommits.filter(\.unpushed).count
+            var sub = "\(esc(path)) · \(githubCommits.count) commits"
+            if unpushedCount > 0 {
+                sub += " · <span class=\"gh-unpushed\">\(unpushedCount) unpushed</span>"
+            }
+            let summary = """
+            <div class="gh-summary">
+              <div class="gh-summary-meta">\(meta.joined(separator: " · "))</div>
+              <div class="gh-summary-sub">\(sub)</div>
+            </div>
+            """
+            let rows = githubCommits.map { githubCommitRow($0) }.joined()
+            if githubCommits.isEmpty {
+                body = summary + "<div class=\"empty-hint\">No commits found.</div>"
+            } else {
+                body = summary + "<div class=\"gh-list\">\(rows)</div>"
+            }
+        }
+        return head + "<div class=\"panel-body gh-panel-body\" id=\"gh-list-body\">\(body)</div>"
+    }
+
+    private func githubCommitRow(_ c: GitHubCommit) -> String {
+        let active = c.sha == githubSelectedSHA ? " active" : ""
+        let unpushed = c.unpushed ? "<span class=\"gh-unpushed-badge\">↑ unpushed</span>" : ""
+        let refs = c.refs.isEmpty
+            ? ""
+            : "<span class=\"gh-refs\">\(esc(trunc(c.refs, 40)))</span>"
+        let date = ghShortDate(c.dateISO)
+        return """
+        <button type="button" id="gh-commit-\(c.sha)" data-component-id="gh-commit" class="gh-commit\(active)">
+          <span class="gh-commit-row">
+            <span class="gh-sha">\(esc(c.short))</span>
+            <span class="gh-commit-subject">\(esc(trunc(c.subject, 56)))</span>
+          </span>
+          <span class="gh-commit-meta">\(esc(c.author)) · \(date)\(unpushed)</span>
+          \(refs.isEmpty ? "" : "<span class=\"gh-commit-refs\">\(refs)</span>")
+        </button>
+        """
+    }
+
+    /// Main pane: the selected commit's message + file changes.
+    func githubMain() -> String {
+        guard let sha = githubSelectedSHA else {
+            return """
+            <div class="main-view" style="justify-content:center">
+              <div class="blank"><div class="big">\(svgIcon("branch", 44))</div><div>Select a commit on the left to see its message and files.</div></div>
+            </div>
+            """
+        }
+        guard let detail = githubDetail else {
+            return """
+            <div class="main-view" style="justify-content:center">
+              <div class="blank"><div>Loading commit \(esc(sha))…</div></div>
+            </div>
+            """
+        }
+        let filesHTML = detail.files.map { f -> String in
+            let plus = f.insertions > 0 ? "<span class=\"gh-num-add\">+\(f.insertions)</span>" : ""
+            let minus = f.deletions > 0 ? "<span class=\"gh-num-del\">−\(f.deletions)</span>" : ""
+            return """
+            <div class="gh-file">
+              <span class="gh-status \(f.statusClass)">\(esc(f.statusLabel))</span>
+              <span class="gh-file-path">\(esc(f.path))</span>
+              <span class="gh-nums">\(plus)\(minus)</span>
+            </div>
+            """
+        }.joined()
+        let bodyHTML = detail.body.isEmpty
+            ? ""
+            : "<div class=\"gh-body\">\(esc(detail.body))</div>"
+        return """
+        <div class="main-view">
+          <div class="main-scroll settings-wrap" data-scroll-key="main-scroll">
+            <div class="detail-card gh-detail">
+              <div class="gh-detail-subject">\(esc(detail.subject))</div>
+              <div class="gh-detail-meta">
+                <span class="gh-sha">\(esc(detail.sha))</span> · \(esc(detail.author)) · \(ghShortDate(detail.dateISO))
+              </div>
+              \(bodyHTML)
+              <div class="gh-files-head">Files changed <span class="gh-files-count">\(detail.files.count)</span></div>
+              <div class="gh-files">\(filesHTML.isEmpty ? "<div class=\"empty-hint\">No file changes (merge or empty commit).</div>" : filesHTML)</div>
+            </div>
+          </div>
+        </div>
+        """
+    }
+
+    /// Compact display date for a git ISO-8601 timestamp (%aI).
+    private func ghShortDate(_ iso: String) -> String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        guard let date = f.date(from: iso) else { return iso }
+        let out = DateFormatter()
+        out.dateFormat = "MMM d, HH:mm"
+        return out.string(from: date)
+    }
+}
+
 // MARK: - Monochrome line-drawing icons
 
 /// Render a simple colorless line-drawing icon as inline SVG. Every glyph uses
@@ -3067,6 +3221,9 @@ func svgIcon(_ name: String, _ size: Int = 16) -> String {
     case "workspaces":
         fill = "none"; stroke = "currentColor"
         d = "<rect x='4' y='4' width='6' height='6' rx='1.2'/><rect x='14' y='4' width='6' height='6' rx='1.2'/><rect x='4' y='14' width='6' height='6' rx='1.2'/><rect x='14' y='14' width='6' height='6' rx='1.2'/>"
+    case "branch":
+        fill = "none"; stroke = "currentColor"
+        d = "<circle cx='7' cy='5' r='2.2'/><circle cx='7' cy='19' r='2.2'/><path d='M7 7.2v9.6'/><path d='M7 9.5c0 3 2.4 5.5 5.5 5.5H13.5'/><circle cx='17' cy='15' r='2.2'/>"
     case "kanban":
         fill = "none"; stroke = "currentColor"
         d = "<rect x='4.5' y='4' width='4' height='16' rx='1.2'/><rect x='10' y='4' width='4' height='11' rx='1.2'/><rect x='15.5' y='4' width='4' height='7' rx='1.2'/>"

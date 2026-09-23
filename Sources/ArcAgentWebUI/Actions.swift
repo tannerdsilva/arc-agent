@@ -123,13 +123,14 @@ extension AppState {
         }
         parts.append("Active configuration: model \(preset.model) via \(preset.provider.isEmpty ? "custom" : preset.provider).")
         parts.append("Working directory: \(workspacePath(for: sessionID))")
-        // Skills — per-profile override when the chat is bound to a profile,
-        // otherwise the global list (inherited by profiles without overrides).
+        // Skills — Hermes-parity mandatory section (framing + index), per-profile
+        // override when the chat is bound to a profile, otherwise the global
+        // list (inherited by profiles without overrides).
         let pname = profileName(for: sessionID)
         let disabledSkills = pname.flatMap { settings.profileSkills[$0] } ?? settings.disabledSkills
         var allowed: [Skill] = skills.filter { !disabledSkills.contains($0.name) }
         if !allowed.isEmpty {
-            parts.append("Available skills:\n" + buildSkillsIndex(allowed))
+            parts.append(SkillsPrompt.section(index: buildSkillsIndex(allowed)))
         }
         // Memory
         if let mem = memory {
@@ -199,7 +200,9 @@ extension AppState {
                     LogCollector.shared.append(level: .warning, text: "[cron] blocked critical command: \(trunc(command, 120))")
                     return "Error: command blocked by approval policy (classified critical; scheduled jobs cannot run destructive commands)."
                 }
-                return (try? await tool.handler(args)) ?? "Error: tool execution failed"
+                return (try? await WorkspacePath.$root.withValue(workspacePath(for: sessionID)) {
+                    try await tool.handler(args)
+                }) ?? "Error: tool execution failed"
             }
             decision = await manager.requestApproval(
                 command: command,
@@ -230,7 +233,9 @@ extension AppState {
             return await requestUserClarification(call: call, sessionID: sessionID, pusher: pusher)
         }
         do {
-            let result = try await tool.handler(args)
+            let result = try await WorkspacePath.$root.withValue(workspacePath(for: sessionID)) {
+                try await tool.handler(args)
+            }
             recordSkillToolUse(toolName: call.function.name, args: args)
             return result
         } catch {
@@ -1000,6 +1005,7 @@ final class Controller {
         wireProfiles(router)
         wireTools(router)
         wireWorkspaces(router)
+        wireGitHub(router)
         wireSettings(router)
         wirePlugins(router)
         wireToasts(router)
@@ -1017,8 +1023,30 @@ final class Controller {
         for v in ViewID.allCases {
             wire(router, id: "nav-\(v.rawValue)", events: ["click"]) { _ in
                 await self.app.switchView(v)
+                if v == .github {
+                    // First open inspects the workspace (git or not) + loads
+                    // the commit list; subsequent opens are instant.
+                    await self.app.githubEnsureLoaded()
+                }
                 return await self.app.refreshFragments(includeApp: true)
             }
+        }
+    }
+
+    // MARK: GitHub page
+
+    private func wireGitHub(_ router: EventRouter) {
+        // Refresh button: re-inspect the repo + reload commits.
+        wire(router, id: "gh-refresh", events: ["click"]) { _ in
+            await self.app.githubReload()
+            return await self.app.githubFragments()
+        }
+        // Commit rows: load the selected commit's message + file changes.
+        wire(router, id: "gh-commit", events: ["click"]) { event in
+            guard let tid = event.string("targetId"), tid.hasPrefix("gh-commit-") else { return [] }
+            let sha = String(tid.dropFirst("gh-commit-".count))
+            await self.app.githubSelect(sha: sha)
+            return await self.app.githubFragments()
         }
     }
 
@@ -2185,6 +2213,14 @@ final class Controller {
         }
         wire(router, id: "set-showtps", events: ["change"]) { event in
             await self.app.setShowTps(event.string("checked") == "true")
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "set-smart-approval", events: ["change"]) { event in
+            await self.app.setSmartApproval(event.string("checked") == "true")
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "set-smart-pickapath", events: ["change"]) { event in
+            await self.app.setSmartPickAPath(event.string("checked") == "true")
             return await self.app.refreshFragments()
         }
         wire(router, id: "set-pinlimit", events: ["change"]) { event in
