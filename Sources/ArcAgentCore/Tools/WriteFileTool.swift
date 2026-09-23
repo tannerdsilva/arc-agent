@@ -38,20 +38,21 @@ public enum WriteFileTool {
     // MARK: - Handler
 
     private static func writeFile(path: String, content: String) async throws -> String {
-        // Expand leading "~" (e.g. "~/Desktop/hello.txt") so models can use
-        // home-relative paths without knowing the absolute home directory.
-        let expanded = (path as NSString).expandingTildeInPath
+        // Hermes parity: anchor relative paths to the conversation workspace,
+        // and report the RESOLVED path so a wrong-cwd mismatch is visible in
+        // the response instead of silently routing the write elsewhere.
+        let (resolved, warning) = WorkspacePath.resolveChecked(path)
 
         // Hermes `file_safety.py`: refuse to overwrite protected paths
         // (config/state files, cross-profile areas).
-        if FileSafety.isWriteDenied(expanded) {
+        if FileSafety.isWriteDenied(resolved) {
             return "Error: Refusing to write to a protected path: \(path). Choose a different location."
         }
-        if let warning = FileSafety.sandboxMirrorWarning(expanded) {
-            return "Error: \(warning)"
+        if let w = FileSafety.sandboxMirrorWarning(resolved) {
+            return "Error: \(w)"
         }
 
-        let filePath = FilePath(expanded)
+        let filePath = FilePath(resolved)
 
         // Ensure the parent directory exists.
         try createParentDirectory(for: filePath)
@@ -84,7 +85,11 @@ public enum WriteFileTool {
         }
 
         let byteCount = data.count
-        return "Successfully wrote \(byteCount) byte(s) to '\(expanded)'."
+        var message = "Successfully wrote \(byteCount) byte(s) to '\(resolved)'."
+        if let warning {
+            message = warning + "\n" + message
+        }
+        return message
     }
 
     // MARK: - Helpers

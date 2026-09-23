@@ -9,13 +9,13 @@ struct AuxiliaryModelsTests {
     @Test("all Hermes auxiliary tasks exist with canonical keys, in Hermes order")
     func allTasks() {
         let expected = [
-            "vision", "compression", "web_extract", "approval", "mcp",
-            "title_generation", "memory_query_rewrite", "tts_audio_tags",
+            "vision", "compression", "web_extract", "approval", "clarify",
+            "mcp", "title_generation", "memory_query_rewrite", "tts_audio_tags",
             "skills_hub", "triage_specifier", "kanban_decomposer",
             "profile_describer", "curator",
         ]
         #expect(AuxiliaryTask.allCases.map(\.key) == expected)
-        #expect(AuxiliaryTask.allCases.count == 13)
+        #expect(AuxiliaryTask.allCases.count == 14)
         for task in AuxiliaryTask.allCases {
             #expect(!task.displayName.isEmpty)
             #expect(!task.detail.isEmpty)
@@ -92,6 +92,7 @@ struct AuxiliaryModelsTests {
 
         // makeClient builds clients for both overridden and inherited tasks
         let hc = HTTPClient(eventLoopGroupProvider: .createNew)
+        defer { try? hc.shutdown() }
         #expect(router.makeClient(task: .compression, httpClient: hc) != nil)
         #expect(router.makeClient(task: .titleGeneration, httpClient: hc) != nil)
         try hc.syncShutdown()

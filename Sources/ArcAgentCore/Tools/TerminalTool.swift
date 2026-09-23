@@ -24,14 +24,18 @@ public enum TerminalTool {
         name: "terminal",
         toolset: "terminal",
         description: "Execute a shell command and return its output. "
-            + "Use for builds, installs, git, scripts, and any command-line tool.",
+            + "Use for builds, installs, git, scripts, and any command-line tool. "
+            + "For long runs (test suites, builds, servers) set background=true to get a "
+            + "session_id back, work on other things, then collect with process(action=...) "
+            + "(poll/log/wait/kill) — do not burn the turn on a foreground timeout. "
+            + "Never use nohup/setsid/trailing '&' — use background=true so the agent tracks the process.",
         schema: .object(
             description: "Execute a shell command",
             properties: [
                 "command": .string(description: "The shell command to execute"),
                 "timeout": .integer(description: "Max seconds to wait", default: 180),
                 "workdir": .string(description: "Working directory (absolute path)"),
-                "background": .boolean(description: "Run in background", default: false),
+                "background": .boolean(description: "Run in background, returns a session_id", default: false),
             ],
             required: ["command"]
         ),
@@ -92,19 +96,18 @@ public enum TerminalTool {
         workdir: String?,
         background: Bool
     ) async throws -> String {
-        // Background mode: SwiftSlash has no detached-launch API (its run()
-        // always waits, then reaps), so this path keeps Foundation Process —
-        // documented exception alongside Tessera/storage internals.
+        // Background mode: detached launch via ProcessRegistry (Hermes
+        // `terminal(background=true)` parity — returns a session_id that the
+        // `process` tool collects with poll/log/wait/kill). Foundation
+        // Process is the documented background exception; SwiftSlash has no
+        // detached-launch API.
         if background {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/bash")
-            process.arguments = ["-c", command]
-            if let workdir {
-                process.currentDirectoryURL = URL(fileURLWithPath: workdir)
-            }
-            try process.run()
-            let pid = process.processIdentifier
-            return "Background process started with PID: \(pid)"
+            let id = try await ProcessRegistry.shared.start(
+                command: command,
+                workdir: workdir ?? WorkspacePath.root
+            )
+            return "Background process started (session_id: \(id)). "
+                + "Manage it with the process tool: process(action=\"poll\"/\"log\"/\"wait\"/\"kill\", session_id=\"\(id)\")."
         }
 
         // Foreground: SwiftSlash. Byte-exact capture (BYO pipes, drained
@@ -114,6 +117,10 @@ public enum TerminalTool {
         shellCommand.inheritCurrentEnvironment()
         if let workdir {
             shellCommand.workingDirectory = Path(workdir)
+        } else if let root = WorkspacePath.root {
+            // Hermes parity: terminal commands default to the conversation's
+            // workspace root (TERMINAL_CWD), not the server process cwd.
+            shellCommand.workingDirectory = Path(root)
         }
 
         let outcome = try await SubprocessRunner.runBytes(

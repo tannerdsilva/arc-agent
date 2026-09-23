@@ -56,6 +56,7 @@ struct PromptArchitectureTests {
 
     private func runOnce(_ config: ArcAgent.Configuration, box: ClientScripts) async throws -> String {
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
+        defer { try? httpClient.shutdown() }
         defer { try? httpClient.syncShutdown() }
         let agent = ArcAgent(config: config)
         await agent.setupClient(httpClient: httpClient)
@@ -254,6 +255,7 @@ struct PromptArchitectureTests {
         let box = ClientScripts(responses: [LLMResponse(content: "ok", finishReason: "stop")])
         let config = makeConfig(persistSessions: false, injectProjectContext: false)
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
+        defer { try? httpClient.shutdown() }
         defer { try? httpClient.syncShutdown() }
         let agent = ArcAgent(config: config)
         await agent.setupClient(httpClient: httpClient)
@@ -270,6 +272,7 @@ struct PromptArchitectureTests {
         let box = ClientScripts(responses: [LLMResponse(content: "never", finishReason: "stop")])
         let config = makeConfig(persistSessions: false, injectProjectContext: false)
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
+        defer { try? httpClient.shutdown() }
         defer { try? httpClient.syncShutdown() }
         let agent = ArcAgent(config: config)
         await agent.setupClient(httpClient: httpClient)

@@ -2033,13 +2033,9 @@ public actor ArcAgent: Service {
     static let contextFileBudgetChars = 16_000
 
     /// Hermes-parity mandatory skills framing that precedes the index.
-    static let skillsMandatoryFraming =
-        "Before replying, scan the skills below. If a skill matches or is even partially "
-        + "relevant to your task, you MUST load it with skill_view(name) and follow its "
-        + "instructions. Err on the side of loading — it is always better to have context "
-        + "you don't need than to miss critical steps, pitfalls, or established workflows. "
-        + "Skills contain specialized knowledge — API endpoints, tool-specific commands, "
-        + "and proven workflows that outperform general-purpose approaches."
+    /// Moved to ``SkillsPrompt`` so the CLI harness and the webui turn engine
+    /// share one block (the webui was drifting — bare list, no instruction).
+    static let skillsMandatoryFraming = SkillsPrompt.mandatoryFraming
     /// The outcome of parsing a single LLM turn.
     ///
     /// Tool calls always take precedence over content: some providers
@@ -2068,6 +2064,14 @@ public actor ArcAgent: Service {
         return .empty
     }
 
+    // MARK: Tool invocation
+    //
+    // Workspace anchoring (Hermes parity): every handler runs with
+    // `WorkspacePath.root` bound to the CLI's launch directory (the CLI has
+    // no per-conversation workspace registry — Hermes' CLI equivalent is
+    // `$TERMINAL_CWD`, also the launch cwd). The webui binds its per-session
+    // workspace instead. File tools anchor relative paths to this root and
+    // warn when one escapes it.
     private func dispatchToolCall(_ toolCall: ToolCall) async throws -> String {
         guard let entry = config.registry.lookup(name: toolCall.function.name) else {
             return "Error: Unknown tool '\(toolCall.function.name)'."
@@ -2122,7 +2126,9 @@ public actor ArcAgent: Service {
                 }
                 return try await self.dispatchAmbientTool(name: name, args: args)
             }
-            return try await entry.handler(args)
+            return try await WorkspacePath.$root.withValue(FileManager.default.currentDirectoryPath) {
+                try await entry.handler(args)
+            }
         } catch {
             return "Error executing tool '\(toolCall.function.name)': \(error.localizedDescription)"
         }
@@ -2177,20 +2183,22 @@ public actor ArcAgent: Service {
                 outcomes.append((call, await Self.launderToolResult(call, await runToolCall(call))))
                 continue
             }
-            let ordered = await withTaskGroup(of: (Int, String).self) { group in
-                for (index, call) in segment.enumerated() {
-                    group.addTask {
-                        let result = await self.runToolCall(call)
-                        return (index, await Self.launderToolResult(call, result))
-                    }
+            // Hermes concurrent-batch watchdog parity: capped concurrency
+            // (max 8) + a 420 s batch deadline. On deadline the batch is
+            // abandoned and still-running calls become explicit
+            // "timed out after 420.0s" results — a wedged swift test can no
+            // longer hang the turn for hours.
+            let batch = await ToolBatchExecutor.run(
+                segment,
+                nameOf: { $0.function.name },
+                body: { call in
+                    let result = await self.runToolCall(call)
+                    return await Self.launderToolResult(call, result)
                 }
-                var collected: [(Int, String)] = []
-                for await pair in group {
-                    collected.append(pair)
-                }
-                return collected
-            }
-            outcomes.append(contentsOf: ordered.sorted { $0.0 < $1.0 }.map { (segment[$0.0], $0.1) })
+            )
+            outcomes.append(contentsOf: zip(segment, batch).map { (call, outcome) in
+                (call, outcome.result)
+            })
         }
         return outcomes
     }

@@ -43,15 +43,15 @@ public enum PatchTool {
     // MARK: - Replace mode
 
     private static func replace(path: String, old: String, new: String, replaceAll: Bool) async throws -> String {
-        let expanded = (path as NSString).expandingTildeInPath
-        if FileSafety.isWriteDenied(expanded) {
+        let (resolved, warning) = WorkspacePath.resolveChecked(path)
+        if FileSafety.isWriteDenied(resolved) {
             return "Error: Refusing to patch a protected path: \(path). Choose a different location."
         }
-        guard FileManager.default.fileExists(atPath: expanded) else {
-            return "Error: File not found: \(expanded)."
+        guard FileManager.default.fileExists(atPath: resolved) else {
+            return "Error: File not found: \(resolved)."
         }
-        guard let original = try? String(contentsOfFile: expanded, encoding: .utf8) else {
-            return "Error: Could not read file as UTF-8: \(expanded)."
+        guard let original = try? String(contentsOfFile: resolved, encoding: .utf8) else {
+            return "Error: Could not read file as UTF-8: \(resolved)."
         }
 
         // Preserve the file's line-ending style (CRLF vs LF).
@@ -80,7 +80,7 @@ public enum PatchTool {
             return "Error: Could not encode patched content as UTF-8."
         }
 
-        let filePath = FilePath(expanded)
+        let filePath = FilePath(resolved)
         try createParentDirectory(for: filePath)
         let fd = try FileDescriptor.open(filePath, .writeOnly, options: [.create, .truncate], permissions: .ownerReadWrite)
         defer { try? fd.close() }
@@ -95,13 +95,16 @@ public enum PatchTool {
             }
         }
 
-        var message = "Successfully applied patch to '\(expanded)' (\(count) match\(count == 1 ? "" : "es")):"
+        var message = "Successfully applied patch to '\(resolved)' (\(count) match\(count == 1 ? "" : "es")):"
         if let strategy, strategy != "exact" {
             message += "\n(fuzzy matched with \(strategy) strategy)"
         }
-        var diff = unifiedDiff(old: content, new: result, oldPath: "a/\(expanded)", newPath: "b/\(expanded)")
+        var diff = unifiedDiff(old: content, new: result, oldPath: "a/\(resolved)", newPath: "b/\(resolved)")
         if diff.count > 4000 {
             diff = String(diff.prefix(4000)) + "\n... (diff truncated)"
+        }
+        if let warning {
+            message = warning + "\n" + message
         }
         return message + "\n" + diff
     }
@@ -116,11 +119,20 @@ public enum PatchTool {
         if operations.isEmpty {
             return "Error: No operations found in the patch (expected *** Begin Patch ... *** End Patch)."
         }
-        let outcome = V4APatch.applyV4AOperations(operations, fileOps: FileSystemV4AOps())
-        if !outcome.success {
-            return "Error: \(outcome.error ?? "Patch failed")"
-        }
+        let ops = FileSystemV4AOps()
+        let outcome = V4APatch.applyV4AOperations(operations, fileOps: ops)
+        // Workspace divergence warnings are surfaced even when the patch
+        // itself fails (Hermes always reports the divergence).
         var message = "Successfully applied V4A patch:"
+        if !outcome.success {
+            if ops.warnings.isEmpty {
+                return "Error: \(outcome.error ?? "Patch failed")"
+            }
+            return ops.warnings.joined(separator: "\n") + "\nError: \(outcome.error ?? "Patch failed")"
+        }
+        if !ops.warnings.isEmpty {
+            message = ops.warnings.joined(separator: "\n") + "\n" + message
+        }
         if !outcome.filesModified.isEmpty {
             message += "\nModified: \(outcome.filesModified.joined(separator: ", "))"
         }
@@ -157,29 +169,44 @@ public enum PatchTool {
     }
 }
 
-/// Filesystem-backed V4AFileOps with the same guards as WriteFileTool.
-struct FileSystemV4AOps: V4AFileOps {
+/// Filesystem-backed V4AFileOps with the same guards as WriteFileTool, plus
+/// Hermes' workspace anchoring: each path is resolved against the task root
+/// and divergences (relative paths escaping the workspace) are collected so
+/// the caller can surface them in the result instead of silently patching
+/// another checkout. Class (not struct) so warnings accumulate across ops.
+final class FileSystemV4AOps: V4AFileOps {
+    /// Workspace divergence warnings collected while applying the patch.
+    var warnings: [String] = []
+
+    private func resolve(_ path: String) -> String {
+        let (resolved, warning) = WorkspacePath.resolveChecked(path)
+        if let warning {
+            warnings.append(warning)
+        }
+        return resolved
+    }
+
     func readFileRaw(_ path: String) -> (String?, String?) {
-        let expanded = (path as NSString).expandingTildeInPath
-        if FileSafety.isWriteDenied(expanded) {
+        let resolved = resolve(path)
+        if FileSafety.isWriteDenied(resolved) {
             return (nil, "Refusing to access a protected path: \(path)")
         }
-        guard let content = try? String(contentsOfFile: expanded, encoding: .utf8) else {
-            return (nil, "file not found or not UTF-8: \(expanded)")
+        guard let content = try? String(contentsOfFile: resolved, encoding: .utf8) else {
+            return (nil, "file not found or not UTF-8: \(resolved)")
         }
         return (content, nil)
     }
 
     func writeFile(_ path: String, _ content: String) -> String? {
-        let expanded = (path as NSString).expandingTildeInPath
-        if FileSafety.isWriteDenied(expanded) {
+        let resolved = resolve(path)
+        if FileSafety.isWriteDenied(resolved) {
             return "Refusing to write to a protected path: \(path)"
         }
         let fm = FileManager.default
-        let parent = (expanded as NSString).deletingLastPathComponent
+        let parent = (resolved as NSString).deletingLastPathComponent
         do {
             try fm.createDirectory(atPath: parent, withIntermediateDirectories: true, attributes: nil)
-            try content.data(using: .utf8)?.write(to: URL(fileURLWithPath: expanded))
+            try content.data(using: .utf8)?.write(to: URL(fileURLWithPath: resolved))
             return nil
         } catch {
             return error.localizedDescription
@@ -187,12 +214,12 @@ struct FileSystemV4AOps: V4AFileOps {
     }
 
     func deleteFile(_ path: String) -> String? {
-        let expanded = (path as NSString).expandingTildeInPath
-        if FileSafety.isWriteDenied(expanded) {
+        let resolved = resolve(path)
+        if FileSafety.isWriteDenied(resolved) {
             return "Refusing to delete a protected path: \(path)"
         }
         do {
-            try FileManager.default.removeItem(atPath: expanded)
+            try FileManager.default.removeItem(atPath: resolved)
             return nil
         } catch {
             return error.localizedDescription
@@ -200,8 +227,8 @@ struct FileSystemV4AOps: V4AFileOps {
     }
 
     func moveFile(_ from: String, _ to: String) -> String? {
-        let f = (from as NSString).expandingTildeInPath
-        let t = (to as NSString).expandingTildeInPath
+        let f = resolve(from)
+        let t = resolve(to)
         if FileSafety.isWriteDenied(f) {
             return "Refusing to move a protected path: \(from)"
         }

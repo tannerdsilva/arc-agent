@@ -38,7 +38,11 @@ public enum ReadFileTool {
     // MARK: - Handler
 
     private static func readFile(path: String, offset: Int, limit: Int) async throws -> String {
-        let filePath = FilePath(path)
+        // Hermes `_resolve_path_for_task` parity: relative paths anchor to the
+        // conversation's workspace root; a relative path escaping the root is
+        // surfaced as a warning (never a silent read of another checkout).
+        let (resolved, warning) = WorkspacePath.resolveChecked(path)
+        let filePath = FilePath(resolved)
 
         // Open the file for reading only.
         let fd = try FileDescriptor.open(filePath, .readOnly)
@@ -49,7 +53,7 @@ public enum ReadFileTool {
         let data = try fd.readAll()
 
         guard let content = String(data: data, encoding: .utf8) else {
-            return "Error: File at '\(path)' is not valid UTF-8 text."
+            return "Error: File at '\(resolved)' is not valid UTF-8 text."
         }
 
         let lines = content.components(separatedBy: .newlines)
@@ -72,6 +76,10 @@ public enum ReadFileTool {
         if endIndex < totalLines {
             result += "\n-- Truncated: showing lines \(offset)-\(endIndex) of \(totalLines). "
                 + "Use offset=\(endIndex + 1) to continue reading."
+        }
+
+        if let warning {
+            result = warning + "\n" + result
         }
 
         return result

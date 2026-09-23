@@ -164,6 +164,8 @@ struct PromptHardeningTests {
         ]))
 
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
+
+        defer { try? httpClient.shutdown() }
         defer { try? httpClient.syncShutdown() }
         let box = ClientScripts(responses: [LLMResponse(content: "new answer", finishReason: "stop")])
         let agent = await makeAgent(
@@ -198,6 +200,8 @@ struct PromptHardeningTests {
         try await store.create(Session(id: sid, messages: [Message(role: .user, content: "old")]))
 
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
+
+        defer { try? httpClient.shutdown() }
         defer { try? httpClient.syncShutdown() }
         let box = ClientScripts(responses: [
             LLMResponse(content: "a", finishReason: "stop"),
@@ -226,6 +230,8 @@ struct PromptHardeningTests {
         let store = FailingGetStore(inner: FileSessionStore(directory: dir))
 
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
+
+        defer { try? httpClient.shutdown() }
         defer { try? httpClient.syncShutdown() }
         let box = ClientScripts(responses: [LLMResponse(content: "survived", finishReason: "stop")])
         let agent = await makeAgent(
@@ -267,6 +273,8 @@ struct PromptHardeningTests {
         ))
 
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
+
+        defer { try? httpClient.shutdown() }
         defer { try? httpClient.syncShutdown() }
         let box = ClientScripts(responses: [
             LLMResponse(content: nil, toolCalls: [
@@ -296,6 +304,8 @@ struct PromptHardeningTests {
         try registry.register(readFileEntry { _ in "content-1" })
 
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
+
+        defer { try? httpClient.shutdown() }
         defer { try? httpClient.syncShutdown() }
         let box = ClientScripts(responses: [
             LLMResponse(content: nil, toolCalls: [
@@ -317,6 +327,7 @@ struct PromptHardeningTests {
     @Test("finish_reason tool_calls with no calls nudges, then answers")
     func emptyToolCallsRecovers() async throws {
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
+        defer { try? httpClient.shutdown() }
         defer { try? httpClient.syncShutdown() }
         let box = ClientScripts(responses: [
             LLMResponse(content: nil, toolCalls: [], finishReason: "tool_calls"),
@@ -339,6 +350,7 @@ struct PromptHardeningTests {
     @Test("truncated output continues instead of being lost")
     func truncationContinues() async throws {
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
+        defer { try? httpClient.shutdown() }
         defer { try? httpClient.syncShutdown() }
         let box = ClientScripts(responses: [
             LLMResponse(content: "PART ONE ", finishReason: "length"),
@@ -367,6 +379,8 @@ struct PromptHardeningTests {
         try registry.register(readFileEntry { _ in "content-1" })
 
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
+
+        defer { try? httpClient.shutdown() }
         defer { try? httpClient.syncShutdown() }
         let box = ClientScripts(responses: [], streamScripts: [
             [LLMDelta(content: nil, toolCalls: [

@@ -3,6 +3,7 @@ import Hummingbird
 import HummingbirdRouter
 import NIOCore
 import ServiceLifecycle
+import Logging
 
 /// An HTTP server that exposes the agent's API endpoints and web UI.
 ///
@@ -107,7 +108,27 @@ public final class HTTPServerService: Service {
                 address: .hostname(config.host, port: config.port)
             )
         )
-        try await app.runService()
+        // `ServiceGroup.run()` is signal-driven and NOT task-cancellation
+        // aware: a `Task { try await server.run() }; task.cancel()` (as test
+        // teardown does) would leave the server and its NIO event-loop
+        // threads alive, so the test process could never exit. Wire task
+        // cancellation to the group's graceful shutdown — cancel now stops
+        // the server cleanly instead of leaking a MultiThreadedEventLoopGroup.
+        // Signal handling is unchanged from `runService()`.
+        let serviceGroup = ServiceGroup(
+            configuration: .init(
+                services: [app],
+                gracefulShutdownSignals: [.sigterm, .sigint],
+                logger: Logger(label: "arc-http-server")
+            )
+        )
+        try await withTaskCancellationHandler {
+            try await serviceGroup.run()
+        } onCancel: {
+            // onCancel is synchronous; the group coalesces racing triggers
+            // and `run()` returns once every service has shut down.
+            Task { await serviceGroup.triggerGracefulShutdown() }
+        }
     }
 }
 

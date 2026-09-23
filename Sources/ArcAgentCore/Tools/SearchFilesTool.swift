@@ -66,7 +66,9 @@ public enum SearchFilesTool {
         let clampedLimit = min(max(limit, 1), 500)
         let clampedOffset = max(offset, 0)
 
-        let expandedPath = (path as NSString).expandingTildeInPath
+        // Hermes parity: anchor the search root to the conversation workspace.
+        // An escape is surfaced as a warning, never a silent search elsewhere.
+        let (expandedPath, divergence) = WorkspacePath.resolveChecked(path)
         guard FileManager.default.fileExists(atPath: expandedPath) else {
             var hintParts = ["Path not found: \(path)"]
             let parent = (expandedPath as NSString).deletingLastPathComponent
@@ -123,6 +125,9 @@ public enum SearchFilesTool {
         var resultText = json(dict)
         if outcome.truncated {
             resultText += "\n\n[Hint: Results truncated. Use offset=\(clampedOffset + clampedLimit) to see more, or narrow with a more specific pattern or file_glob.]"
+        }
+        if let divergence {
+            resultText = divergence + "\n" + resultText
         }
         return resultText
     }
