@@ -146,7 +146,15 @@ public actor ApprovalManager {
         case .manual:
             return await detectDangerLevel(command) >= .dangerous
         case .smart:
-            return await smartLevel(command) >= .dangerous
+            // Hermes parity: hardline (critical) patterns are always caught
+            // by the built-in detector — a permissive classifier can never
+            // wave through a fork bomb or `rm -rf /`. Below critical the
+            // classifier arbitrates; anything it deems suspicious or worse
+            // goes to the user (Hermes: ESCALATE → prompt).
+            if await detectDangerLevel(command) >= .critical {
+                return true
+            }
+            return await smartLevel(command) >= .suspicious
         }
     }
 
@@ -170,13 +178,18 @@ public actor ApprovalManager {
             // In a CLI context, this would prompt the user.
             return .requiresReview
         case .smart:
-            // Smart mode uses the configured auxiliary "approval" LLM when
-            // available; the regex detector is the fallback.
+            // Hermes parity: critical/hardline is always denied by the
+            // detector before the classifier is consulted. Suspicious and
+            // dangerous both escalate to the user (Hermes: ESCALATE →
+            // prompt, DENY still prompts interactively).
+            if await detectDangerLevel(command) >= .critical {
+                return .denied
+            }
             let level = await smartLevel(command)
             if level >= .critical {
                 return .denied
             }
-            if level >= .dangerous {
+            if level >= .suspicious {
                 return .requiresReview
             }
             return .approved

@@ -244,6 +244,25 @@ extension AppState {
         saveSettings()
     }
 
+    /// Smart approval toggle. On: flagged commands go through the `approval`
+    /// auxiliary guardian (Hermes smart mode). Off: classic manual gate.
+    /// The manager is rebuilt so the change applies to the next turn.
+    func setSmartApproval(_ on: Bool) async {
+        guard settings.smartApproval != on else { return }
+        settings.smartApproval = on
+        saveSettings()
+        approvalManager = nil
+        await ensureRuntime()
+    }
+
+    /// Smart pick-a-path toggle. On: a clarify request that times out after
+    /// the 120 s panel is resolved by the `clarify` auxiliary model.
+    func setSmartPickAPath(_ on: Bool) {
+        guard settings.smartPickAPath != on else { return }
+        settings.smartPickAPath = on
+        saveSettings()
+    }
+
     func setShowTps(_ on: Bool) {
         guard settings.showTps != on else { return }
         settings.showTps = on

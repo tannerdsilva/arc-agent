@@ -12,6 +12,9 @@ public enum AuxiliaryTask: String, Codable, CaseIterable, Sendable, Identifiable
     case compression
     case webExtract = "web_extract"
     case approval
+    /// Pick-a-path smart fallback: resolves a timed-out clarify request
+    /// (after the 120 s panel) by choosing among the offered answers.
+    case clarify
     case mcp
     case titleGeneration = "title_generation"
     case memoryQueryRewrite = "memory_query_rewrite"
@@ -44,6 +47,7 @@ public enum AuxiliaryTask: String, Codable, CaseIterable, Sendable, Identifiable
         case .compression: return "Compression"
         case .webExtract: return "Web extract"
         case .approval: return "Approval"
+        case .clarify: return "Clarify"
         case .mcp: return "MCP"
         case .titleGeneration: return "Title generation"
         case .memoryQueryRewrite: return "Memory query rewrite"
@@ -63,6 +67,7 @@ public enum AuxiliaryTask: String, Codable, CaseIterable, Sendable, Identifiable
         case .compression: return "Context summarization"
         case .webExtract: return "Web page summarization"
         case .approval: return "Smart command approval"
+        case .clarify: return "Pick-a-path fallback decisions"
         case .mcp: return "MCP tool reasoning"
         case .titleGeneration: return "Session titles"
         case .memoryQueryRewrite: return "Memory retrieval queries"
