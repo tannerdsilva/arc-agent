@@ -719,6 +719,9 @@ actor AppState {
     /// Loaded detail for the selected commit.
     var githubDetail: GitHubDetail? = nil
 
+    /// Scheduled-tasks page: the job whose controls + chat are open in the main pane.
+    var tasksSelectedID: String? = nil
+
     /// Personal memory panel (phase: memory).
     var memoryDoc: String? = nil    // "memory" | "user" | "soul" | "context"
     var memoryEdit = false

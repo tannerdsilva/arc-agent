@@ -897,6 +897,7 @@ static let css: String = """
     .skill-row.disabled .skill-open { cursor: default; }
     .switch {
       position: relative; width: 34px; height: 20px; flex: 0 0 34px;
+      display: inline-block; vertical-align: middle; cursor: pointer;
     }
     .switch input { opacity: 0; width: 0; height: 0; }
     .switch .track {
@@ -1056,7 +1057,7 @@ static let css: String = """
     .side-tab-chip.drag-over { border-color: var(--accent-border); }
 
     /* ─── GitHub page ─────────────────────────────────────────────── */
-    .gh-panel-body { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
+    .gh-panel-body { display: flex; flex-direction: column; gap: 8px; padding: 4px 8px 12px; }
     .gh-summary {
       padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
       background: var(--surface-2); display: flex; flex-direction: column; gap: 4px;
@@ -1119,6 +1120,46 @@ static let css: String = """
     .gh-nums { display: flex; gap: 8px; font-size: 0.78em; flex-shrink: 0; }
     .gh-num-add { color: var(--success); }
     .gh-num-del { color: var(--danger); }
+
+    /* ─── Scheduled tasks (cron) page ─────────────────────────────── */
+    .task-list { display: flex; flex-direction: column; gap: 6px; }
+    .task-row { display: flex; align-items: flex-start; gap: 9px; text-align: left; width: 100%;
+      padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      background: var(--surface); color: var(--text); cursor: pointer; font-family: inherit;
+      font-size: 0.85em; transition: border-color .15s, background .15s; }
+    .task-row:hover { border-color: var(--border-strong); background: var(--surface-2); }
+    .task-row.active { border-color: var(--accent-border); background: var(--accent-soft); }
+    .task-dot { color: var(--muted); font-size: 0.7em; line-height: 1.6; flex: 0 0 auto; }
+    .task-dot.on { color: var(--success); }
+    .task-ri { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .task-rname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .task-rmeta { font-size: 0.76em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tasks-main-view { padding: 22px clamp(20px, 7vw, 88px) 12px; }
+    .tasks-main-wrap { width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; }
+    .task-ctrl-card { padding: 16px 18px; }
+    .task-ctrl-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    .task-ctrl-name { font-size: 1.05em; font-weight: 650; margin-bottom: 3px; display: flex; align-items: center; gap: 8px; }
+    .task-status { font-size: 0.72em; font-weight: 700; padding: 2px 9px; border-radius: 999px; }
+    .task-status.on { color: var(--success); background: color-mix(in srgb, var(--success) 15%, transparent); border: 1px solid color-mix(in srgb, var(--success) 40%, transparent); }
+    .task-status.off { color: var(--muted); background: var(--code-bg); border: 1px solid var(--border); }
+    .task-ctrl-meta { font-size: 0.8em; color: var(--muted); }
+    .task-ctrl-line { display: flex; gap: 10px; font-size: 0.82em; padding: 5px 0; border-top: 1px solid var(--border); }
+    .task-ctrl-key { flex: 0 0 84px; color: var(--muted); font-weight: 600; }
+    .task-ctrl-val { color: var(--text); word-break: break-word; }
+    .task-thread { flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
+    .task-thread .chat-scroll { height: 100%; overflow-y: auto; padding: 4px 0; }
+    .task-add { display: flex; flex-direction: column; gap: 12px; }
+    .task-add-row { display: flex; gap: 14px; flex-wrap: wrap; }
+    .task-field { display: flex; flex-direction: column; gap: 5px; font-size: 0.82em; color: var(--muted); font-weight: 600; flex: 1 1 220px; }
+    .task-field input, .task-field textarea, .task-field select {
+      background: var(--code-bg); color: var(--text); border: 1px solid var(--border);
+      border-radius: 6px; padding: 8px 10px; font-size: 13px; font-family: inherit; width: 100%;
+      box-sizing: border-box;
+    }
+    .task-every { display: flex; gap: 6px; }
+    .task-every input { width: 90px; flex: 0 0 90px; }
+    .task-every select { flex: 1; }
+    .ap-skills-scroll { max-height: 250px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 2px; padding-right: 6px; }
     .set-row .aux-right { display: flex; gap: 8px; flex-shrink: 0; }
     .aux-editing { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin: 6px 0; background: var(--surface-2); }
     .aux-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 10px; }
@@ -2827,13 +2868,14 @@ static let css: String = """
 
     /* ── Reply with selection (Hermes messages.js parity) ── */
     .selected-text-reply-btn { position: fixed; z-index: 1200; display: inline-flex; align-items: center;
-      gap: 6px; padding: 7px 11px; border: 2px solid var(--accent); border-radius: 999px;
-      background: var(--bg); color: var(--text);
-      box-shadow: 0 8px 24px rgba(0,0,0,.26), 0 0 0 1px var(--bg-subtle);
+      gap: 6px; padding: 8px 14px; border: 2px solid var(--accent-strong); border-radius: 999px;
+      background: var(--surface); color: var(--text);
+      box-shadow: 0 8px 24px rgba(0,0,0,.30), 0 0 0 1px var(--border);
       font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer; opacity: 0;
       pointer-events: none; transform: translateY(4px);
       transition: opacity .12s ease, transform .12s ease; user-select: none; }
     .selected-text-reply-btn.visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
+    .selected-text-reply-btn:hover { background: var(--surface-2); border-color: var(--accent); }
 
     /* ── Context chips (Hermes _renderSelectionChips parity) ── */
     .selection-chips-wrap { display: flex; flex-direction: column; gap: 8px; max-width: 100%;

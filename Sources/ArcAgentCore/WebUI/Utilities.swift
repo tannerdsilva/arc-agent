@@ -461,28 +461,42 @@ private func carveLinksAndImages(_ text: String, into rich: inout [String]) -> S
     while i < text.endIndex {
         let isImage = text[i] == "!"
         if isImage || text[i] == "[" {
-            let labelStart = isImage ? text.index(i, offsetBy: 2) : text.index(after: i)
-            if let close = text[labelStart...].firstIndex(of: "]"),
-               close < text.index(before: text.endIndex),
-               text[text.index(after: close)] == "(" {
-                let label = String(text[labelStart..<close])
-                let urlStart = text.index(close, offsetBy: 2)
-                if let urlEnd = text[urlStart...].firstIndex(of: ")") {
-                    let url = String(text[urlStart..<urlEnd])
-                    if isImage {
-                        if let safe = sanitizeImageURL(url), !label.isEmpty {
-                            rich.append("<img src=\"" + htmlEscape(safe) + "\" alt=\"" + htmlEscape(label) + "\" loading=\"lazy\">")
-                        } else {
-                            rich.append("![" + label + "](" + url + ")")
-                        }
-                    } else if let safe = sanitizeURL(url), !label.isEmpty {
-                        rich.append("<a href=\"" + htmlEscape(safe) + "\">" + label + "</a>")
-                    } else {
-                        rich.append("[" + label + "](" + url + ")")
-                    }
-                    result += "\u{3}\(rich.count - 1)\u{4}"
-                    i = text.index(after: urlEnd)
+            // Bounds-limited scans: never index past `endIndex`. Malformed
+            // markdown from the wire must render literally, never trap.
+            var labelStart: String.Index
+            if isImage {
+                let afterBang = text.index(after: i)
+                guard afterBang < text.endIndex, text[afterBang] == "[" else {
+                    result.append(text[i])
+                    i = text.index(after: i)
                     continue
+                }
+                labelStart = text.index(after: afterBang)
+            } else {
+                labelStart = text.index(after: i)
+            }
+            if let close = text[labelStart...].firstIndex(of: "]") {
+                let afterClose = text.index(after: close)
+                if afterClose < text.endIndex, text[afterClose] == "(" {
+                    let urlStart = text.index(after: afterClose)
+                    if let urlEnd = text[urlStart...].firstIndex(of: ")") {
+                        let label = String(text[labelStart..<close])
+                        let url = String(text[urlStart..<urlEnd])
+                        if isImage {
+                            if let safe = sanitizeImageURL(url), !label.isEmpty {
+                                rich.append("<img src=\"" + htmlEscape(safe) + "\" alt=\"" + htmlEscape(label) + "\" loading=\"lazy\">")
+                            } else {
+                                rich.append("![" + label + "](" + url + ")")
+                            }
+                        } else if let safe = sanitizeURL(url), !label.isEmpty {
+                            rich.append("<a href=\"" + htmlEscape(safe) + "\">" + label + "</a>")
+                        } else {
+                            rich.append("[" + label + "](" + url + ")")
+                        }
+                        result += "\u{3}\(rich.count - 1)\u{4}"
+                        i = text.index(after: urlEnd)
+                        continue
+                    }
                 }
             }
         }

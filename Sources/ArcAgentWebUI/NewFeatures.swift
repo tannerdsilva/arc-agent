@@ -161,7 +161,7 @@ extension AppState {
                 try? await store.create(session)
             }
             settings.sessionTitles[sid] = "Cron: \(job.name)"
-            await reloadSessions(selecting: sid)
+            await reloadSessions(selecting: nil)
         }
         session.updatedAt = now
 
@@ -215,7 +215,13 @@ extension AppState {
             let next = CronNext(expression: $0.schedule, from: now)
             $0.nextRunAt = next
         }
-        await reloadSessions(selecting: sid)
+        // Never yank the user's active chat: the job's session belongs to the
+        // scheduled-tasks area, not the main chat list.
+        await reloadSessions(selecting: nil)
+        // If this job's detail is open on the Tasks page, refresh its thread.
+        if tasksSelectedID == job.id {
+            await selectTaskJob(job.id)
+        }
     }
 
     func jobSessionID(_ job: CronJob) -> String { "Cron-\(job.id)" }
@@ -226,13 +232,15 @@ extension AppState {
         saveSettings()
     }
 
-    func addJob(name: String, schedule: String, prompt: String) {
+    func addJob(name: String, schedule: String, prompt: String, firstRun: Date? = nil) {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let s = schedule.trimmingCharacters(in: .whitespacesAndNewlines)
         let p = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !n.isEmpty, !s.isEmpty, !p.isEmpty else { return }
         var job = CronJob(name: n, schedule: s, prompt: p)
-        job.nextRunAt = CronNext(expression: job.schedule, from: Date())
+        // First run = the user's chosen start time (defaults to the next
+        // interval tick); subsequent runs are computed from the schedule.
+        job.nextRunAt = firstRun ?? CronNext(expression: job.schedule, from: Date())
         job.lastOutput = nil
         settings.scheduledJobs.append(job)
         saveSettings()
@@ -243,8 +251,41 @@ extension AppState {
         saveSettings()
     }
 
+    /// Delete a scheduled task AND its chat session (the chat is owned by the
+    /// task and is hidden from the main chat list).
+    func deleteJob(_ id: String) async {
+        guard let job = settings.scheduledJobs.first(where: { $0.id == id }) else { return }
+        let sid = jobSessionID(job)
+        settings.scheduledJobs.removeAll { $0.id == id }
+        if tasksSelectedID == id { tasksSelectedID = nil }
+        saveSettings()
+        await confirmDeleteSession(sid)
+        // confirmDeleteSession doesn't touch custom titles; drop the task's own
+        // chat title so nothing lingers after the task is gone.
+        settings.sessionTitles.removeValue(forKey: sid)
+        saveSettings()
+    }
+
+    /// Select/deselect a scheduled task in the Tasks page. The job's chat
+    /// session is materialized so the thread renders in the main pane.
+    func selectTaskJob(_ id: String?) async {
+        tasksSelectedID = id
+        if let jobID = id, let job = settings.scheduledJobs.first(where: { $0.id == jobID }) {
+            await ensureSessionMessages(jobSessionID(job))
+        }
+    }
+
     func toggleJob(_ id: String) {
-        updateJob(id) { $0.isActive.toggle() }
+        updateJob(id) { job in
+            job.isActive.toggle()
+            if job.isActive {
+                // Start = begin at the next start time (now + interval), then
+                // keep firing every interval.
+                if job.nextRunAt == nil || job.nextRunAt! <= Date() {
+                    job.nextRunAt = CronNext(expression: job.schedule, from: Date())
+                }
+            }
+        }
     }
 
     func runJobNow(_ id: String) {
@@ -376,36 +417,138 @@ extension AppState {
         """
     }
 
-    func cronPanelHTML() -> String {
-        let rows = settings.scheduledJobs.map { j in
-            let next = j.nextRunAt.map { fmtRel($0) } ?? "—"
-            let out = j.lastOutput.map { trunc($0, 60) } ?? "—"
-            return """
-            <div class="cron-row">
-              <button type="button" id="cron-toggle-\(j.id)" data-component-id="cron" class="cron-dot\(j.isActive ? " on" : "")" title="\(j.isActive ? "Pause" : "Resume")">\(j.isActive ? "●" : "○")</button>
-              <div class="cron-info">
-                <div class="cron-name">\(esc(j.name)) <span class="cron-sched">\(esc(j.schedule))</span>\(j.runCount > 0 ? " · \(j.runCount) runs" : "")</div>
-                <div class="cron-meta">next: \(next) · last: \(out)</div>
-              </div>
-              <button type="button" id="cron-now-\(j.id)" data-component-id="cron" class="icon-mini" title="Run now">\(svgIcon("play", 11))</button>
-              <button type="button" id="cron-del-\(j.id)" data-component-id="cron" class="icon-mini danger" title="Delete">\(svgIcon("x", 11))</button>
-            </div>
-            """
-        }.joined()
-        let empty = rows.isEmpty ? "<div class=\"todo-empty\">No scheduled jobs yet. Recurring prompts run headless in their own chat (critical commands are auto-blocked).</div>" : ""
+    /// Scheduled Tasks page — left panel: one chat row per scheduled task.
+    func tasksPanel() -> String {
+        let newBtn = btn("task-new", "tasks", "plus-btn", svgIcon("plus", 15), " title=\"New scheduled task\"")
+        let head = """
+        <div class="panel-head">
+          <span class="panel-title">Scheduled Tasks</span>
+          <div class="panel-actions">\(newBtn)</div>
+        </div>
+        """
+        let rows = settings.scheduledJobs.map { taskRowHTML($0) }.joined()
+        let body = rows.isEmpty
+            ? "<div class=\"panel-note\">No scheduled tasks yet. Create one to run a prompt on a schedule — each task gets its own chat (kept out of the main chat list).</div>"
+            : "<div class=\"task-list\">\(rows)</div>"
+        return head + "<div class=\"panel-body\">\(body)</div>"
+    }
+
+    private func taskRowHTML(_ j: CronJob) -> String {
+        let active = j.id == tasksSelectedID ? " active" : ""
+        let dot = j.isActive ? " on" : ""
+        let next = j.nextRunAt.map { fmtRel($0) } ?? "—"
+        let runs = j.runCount > 0 ? " · \(j.runCount) run\(j.runCount == 1 ? "" : "s")" : ""
         return """
-        <div id="main" class="cron-panel">
+        <button type="button" id="task-open-\(j.id)" data-component-id="tasks" class="task-row\(active)">
+          <span class="task-dot\(dot)">●</span>
+          <span class="task-ri">
+            <span class="task-rname">\(esc(j.name))</span>
+            <span class="task-rmeta">\(esc(j.schedule)) · next \(esc(next))\(runs)</span>
+          </span>
+        </button>
+        """
+    }
+
+    /// Scheduled Tasks page — main pane: selected task's controls + its chat,
+    /// or the create form when nothing is selected.
+    func tasksMain() -> String {
+        guard let sel = tasksSelectedID,
+              let job = settings.scheduledJobs.first(where: { $0.id == sel }) else {
+            return taskMainEmpty()
+        }
+        let sid = jobSessionID(job)
+        let msgs = sessions.first(where: { $0.id == sid })?.messages ?? []
+        let status = job.isActive ? "Active" : "Stopped"
+        let statusCls = job.isActive ? "on" : "off"
+        let next = job.nextRunAt.map { fmtRel($0) } ?? "—"
+        let last = job.lastRunAt.map { fmtRel($0) } ?? "never"
+        let out = job.lastOutput.map { trunc($0, 160) } ?? "—"
+        let toggleLabel = job.isActive ? "Stop" : "Start"
+        let ctrl = """
+        <div class="detail-card task-ctrl-card">
+          <div class="task-ctrl-head">
+            <div class="task-ctrl-main">
+              <div class="task-ctrl-name">\(esc(job.name)) <span class="task-status \(statusCls)">\(status)</span></div>
+              <div class="task-ctrl-meta">\(esc(job.schedule)) · next \(esc(next)) · last \(esc(last)) · \(job.runCount) run\(job.runCount == 1 ? "" : "s")</div>
+            </div>
+            <div class="row-actions-main" style="margin:0">
+              <button type="button" id="task-toggle-\(job.id)" data-component-id="tasks" class="ghost-btn">\(toggleLabel)</button>
+              <button type="button" id="task-now-\(job.id)" data-component-id="tasks" class="ghost-btn">Run now</button>
+              <button type="button" id="task-del-\(job.id)" data-component-id="tasks" class="icon-mini danger" title="Delete task and its chat">\(svgIcon("x", 11))</button>
+            </div>
+          </div>
+          <div class="task-ctrl-line"><span class="task-ctrl-key">Prompt</span><span class="task-ctrl-val">\(esc(job.prompt))</span></div>
+          <div class="task-ctrl-line"><span class="task-ctrl-key">Last output</span><span class="task-ctrl-val">\(esc(out))</span></div>
+        </div>
+        """
+        let thread = """
+        <div class="task-thread">
+          <div class="chat-scroll" id="task-chat-scroll" data-scroll-key="tasks-thread">
+            <div class="chat-inner">\(messagesHTML(msgs))</div>
+          </div>
+        </div>
+        """
+        return """
+        <div class="main-view tasks-main-view">
+          <div class="tasks-main-wrap">
+            \(ctrl)
+            \(thread)
+          </div>
+        </div>
+        """
+    }
+
+    private func taskMainEmpty() -> String {
+        return """
+        <div class="main-view"><div class="main-scroll" data-scroll-key="tasks-main">
           <h2 class="todo-title">Scheduled tasks</h2>
-          \(empty)
-          \(rows)
-          <form id="cron-add-form" data-component-id="cron" class="cron-add">
-            <input type="text" id="cron-name" data-component-id="cron" name="cron-name" placeholder="Name" autocomplete="off">
-            <input type="text" id="cron-schedule" data-component-id="cron" name="cron-schedule" placeholder="Schedule (e.g. 30m, every 2h, 0 9 * * *)" autocomplete="off">
-            <input type="text" id="cron-prompt" data-component-id="cron" name="cron-prompt" placeholder="Prompt to run" autocomplete="off">
-            <button type="submit" class="primary-btn">Schedule</button>
+          <p class="todo-sub">Recurring prompts run headless in their own chat, kept out of the main chat list. Select a task on the left to see its controls and chat, or create a new one below.</p>
+          \(taskFormHTML())
+        </div></div>
+        """
+    }
+
+    private func taskFormHTML() -> String {
+        return """
+        <div class="detail-card">
+          <h3 style="margin:0 0 10px">New scheduled task</h3>
+          <form id="task-add-form" data-component-id="tasks" class="task-add">
+            <label class="task-field">Title
+              <input type="text" id="task-title" name="task-title" placeholder="e.g. Morning digest" autocomplete="off">
+            </label>
+            <div class="task-add-row">
+              <label class="task-field">Start
+                <input type="datetime-local" id="task-start" name="task-start">
+              </label>
+              <label class="task-field">Every
+                <span class="task-every">
+                  <input type="number" id="task-every" name="task-every" min="1" step="1" value="15">
+                  <select id="task-unit" name="task-unit">
+                    <option value="m">minutes</option>
+                    <option value="h">hours</option>
+                    <option value="d">days</option>
+                  </select>
+                </span>
+              </label>
+            </div>
+            <label class="task-field">Prompt
+              <textarea id="task-prompt" name="task-prompt" rows="4" placeholder="What should the agent run?"></textarea>
+            </label>
+            <button type="submit" class="primary-btn">Schedule task</button>
           </form>
         </div>
         """
+    }
+
+    /// Parse a `<input type="datetime-local">` value ("yyyy-MM-dd'T'HH:mm") as
+    /// a local-time Date; nil when empty/unparseable.
+    func taskStartDate(_ raw: String) -> Date? {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return nil }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm"
+        return f.date(from: t)
     }
 
     func fmtRel(_ d: Date) -> String {
@@ -464,23 +607,30 @@ extension Controller {
     }
 
     func wireCron(_ router: EventRouter) {
-        wire(router, id: "cron", events: ["click", "submit"]) { event in
+        wire(router, id: "tasks", events: ["click", "submit"]) { event in
             if event.event == "submit" {
-                let name = event.string("cron-name") ?? ""
-                let sched = event.string("cron-schedule") ?? ""
-                let prompt = event.string("cron-prompt") ?? ""
-                await self.app.addJob(name: name, schedule: sched, prompt: prompt)
-                return [FragmentUpdate(id: "main", html: await self.app.cronPanelHTML())]
+                let title = event.string("task-title") ?? ""
+                let everyRaw = event.string("task-every") ?? ""
+                let unit = event.string("task-unit") ?? "m"
+                let prompt = event.string("task-prompt") ?? ""
+                let first = await self.app.taskStartDate(event.string("task-start") ?? "")
+                let n = max(1, Int(everyRaw) ?? 15)
+                await self.app.addJob(name: title, schedule: "every \(n)\(unit)", prompt: prompt, firstRun: first)
+                return await self.app.refreshFragments()
             }
             guard let tid = event.string("targetId") else { return [] }
-            if tid.hasPrefix("cron-toggle-") {
-                await self.app.toggleJob(String(tid.dropFirst("cron-toggle-".count)))
-            } else if tid.hasPrefix("cron-now-") {
-                await self.app.runJobNow(String(tid.dropFirst("cron-now-".count)))
-            } else if tid.hasPrefix("cron-del-") {
-                await self.app.removeJob(String(tid.dropFirst("cron-del-".count)))
+            if tid == "task-new" {
+                await self.app.selectTaskJob(nil)
+            } else if tid.hasPrefix("task-open-") {
+                await self.app.selectTaskJob(String(tid.dropFirst("task-open-".count)))
+            } else if tid.hasPrefix("task-toggle-") {
+                await self.app.toggleJob(String(tid.dropFirst("task-toggle-".count)))
+            } else if tid.hasPrefix("task-now-") {
+                await self.app.runJobNow(String(tid.dropFirst("task-now-".count)))
+            } else if tid.hasPrefix("task-del-") {
+                await self.app.deleteJob(String(tid.dropFirst("task-del-".count)))
             }
-            return [FragmentUpdate(id: "main", html: await self.app.cronPanelHTML())]
+            return await self.app.refreshFragments()
         }
     }
 

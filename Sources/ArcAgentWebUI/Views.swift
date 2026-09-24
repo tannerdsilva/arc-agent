@@ -255,7 +255,7 @@ extension AppState {
         case .logs:
             return "<div id=\"\(id)\">\(logsPanel())</div>"
         case .tasks:
-            return "<div id=\"\(id)\"><div class=\"panel-head\"><span class=\"panel-title\">Scheduled Tasks</span></div><div class=\"panel-note\">Recurring agent runs (cron). Each job gets its own chat.</div></div>"
+            return "<div id=\"\(id)\">\(tasksPanel())</div>"
         case .todos:
             return "<div id=\"\(id)\">\(chatPanel(todos: true))</div>"
         }
@@ -289,8 +289,8 @@ extension AppState {
         let bookmarks = settings.bookmarkedSessions
         // On the Todos page archived chats are never shown (no toggle exists).
         var visible = todos
-            ? sessions.filter { !isArchived($0.id) }
-            : sessions.filter { showArchived ? isArchived($0.id) : !isArchived($0.id) }
+            ? sessions.filter { !$0.id.hasPrefix("Cron-") && !isArchived($0.id) }
+            : sessions.filter { !$0.id.hasPrefix("Cron-") && (showArchived ? isArchived($0.id) : !isArchived($0.id)) }
         if activeCategory != "all" {
             visible = visible.filter { activeCategory == "unassigned" ? categoryID(for: $0.id) == nil : categoryID(for: $0.id) == activeCategory }
         }
@@ -758,7 +758,7 @@ extension AppState {
         case .logs:
             return "<div id=\"\(id)\">\(logsMain())</div>"
         case .tasks:
-            return "<div id=\"\(id)\">\(cronPanelHTML())</div>"
+            return "<div id=\"\(id)\">\(tasksMain())</div>"
         case .todos:
             return "<div id=\"\(id)\">\(todosPanelHTML())</div>"
         }
@@ -2252,7 +2252,7 @@ extension AppState {
         if skills.isEmpty {
             skillRows = "<div class=\"empty-hint\">No skills discovered yet.</div>"
         }
-        skillRows = "<div id=\"ap-skill-locks\" data-component-id=\"ap-skill-locks\" data-event=\"change\">" + skillRows + "</div>"
+        skillRows = "<div id=\"ap-skill-locks\" data-component-id=\"ap-skill-locks\" data-event=\"change\" class=\"ap-skills-scroll\">" + skillRows + "</div>"
         let profileFiles: [(String, String, String)] = [
             ("memory", "MEMORY.md", "the agent's persistent notes (memory tool, profile_edit)"),
             ("user", "USER.md", "the user profile"),
@@ -3119,6 +3119,9 @@ extension AppState {
         return head + "<div class=\"panel-body gh-panel-body\" id=\"gh-list-body\">\(body)</div>"
     }
 
+    /// Standard panel-body padding + spacing so the GitHub page sizes like
+    /// the Workspaces/Todos sections (width comes from `#panel`/`--panel-w`).
+
     private func githubCommitRow(_ c: GitHubCommit) -> String {
         let active = c.sha == githubSelectedSHA ? " active" : ""
         let unpushed = c.unpushed ? "<span class=\"gh-unpushed-badge\">↑ unpushed</span>" : ""
@@ -3170,7 +3173,7 @@ extension AppState {
             : "<div class=\"gh-body\">\(esc(detail.body))</div>"
         return """
         <div class="main-view">
-          <div class="main-scroll settings-wrap" data-scroll-key="main-scroll">
+          <div class="main-scroll" data-scroll-key="main-scroll">
             <div class="detail-card gh-detail">
               <div class="gh-detail-subject">\(esc(detail.subject))</div>
               <div class="gh-detail-meta">

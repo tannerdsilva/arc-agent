@@ -235,3 +235,63 @@ struct MarkdownImageURLPolicyTests {
         #expect(!out.contains("<img"))
     }
 }
+
+@Suite("Markdown Bounds Safety")
+struct MarkdownBoundsSafetyTests {
+    /// Malformed link/image fragments at the end of input used to trap the
+    /// process via unbounded `String.index(_:offsetBy:)`; every case must
+    /// render literally (parity with the parser's "leave as-is" fallback).
+    @Test("trailing bang renders literally")
+    func trailingBang() {
+        #expect(markdownToHTML("hi!") == "<p>hi!</p>")
+    }
+
+    @Test("bang plus one char renders literally")
+    func bangOneChar() {
+        #expect(markdownToHTML("!x") == "<p>!x</p>")
+    }
+
+    @Test("image marker without bracket renders literally")
+    func imageNoBracket() {
+        #expect(markdownToHTML("![alt") == "<p>![alt</p>")
+    }
+
+    @Test("link with unclosed paren renders literally")
+    func linkUnclosedParen() {
+        #expect(markdownToHTML("[a](") == "<p>[a](</p>")
+    }
+
+    @Test("link with close paren alone renders literally")
+    func linkParenOnly() {
+        #expect(markdownToHTML("[a]()") == "<p><a href=\"\">a</a></p>")
+    }
+
+    @Test("image with unclosed paren renders literally")
+    func imageUnclosedParen() {
+        #expect(markdownToHTML("![a](") == "<p>![a](</p>")
+    }
+
+    @Test("image with empty close does not trap")
+    func imageEmptyParen() {
+        // Mirrors current parser behavior (empty image URL allowed to carry
+        // through sanitization); the point is that it must not trap.
+        let out = markdownToHTML("![a]()")
+        #expect(out.contains("<img"))
+        #expect(!out.contains("&#"))  // no escaping explosion, no crash
+    }
+
+    @Test("bare close paren no link renders literally")
+    func bareCloseParen() {
+        #expect(markdownToHTML("](") == "<p>](</p>")
+    }
+
+    @Test("nested malformed chain does not trap")
+    func malformedChain() {
+        let md = "text ![a]( ![b](x) [c]("
+        let out = markdownToHTML(md)
+        #expect(out.contains("[c]("))
+        // Whatever the nesting does, it must render as markdown output —
+        // never an assertionFailure/crash.
+        #expect(!out.isEmpty)
+    }
+}

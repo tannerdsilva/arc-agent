@@ -8,7 +8,7 @@ extension AppState {
 
     // MARK: Navigation + mode flags
 
-    func switchView(_ v: ViewID) {
+    func switchView(_ v: ViewID) async {
         activeView = v
         createSkill = false
         skillEdit = false
@@ -17,6 +17,12 @@ extension AppState {
         pendingDelete = false
         filePopOpen = false
         confirmDeleteID = nil
+        // Materialize the selected scheduled task's chat when opening Tasks so
+        // the thread renders (messages are lazily loaded from the store).
+        if v == .tasks, let sel = tasksSelectedID,
+           let job = settings.scheduledJobs.first(where: { $0.id == sel }) {
+            await ensureSessionMessages(jobSessionID(job))
+        }
     }
 
     func setLogFilter(_ f: String) {
@@ -324,7 +330,9 @@ extension AppState {
         saveSettings()
         await reloadSessions()
         if activeSessionID == nil,
-           let newest = sessions.max(by: { $0.updatedAt < $1.updatedAt }) {
+           let newest = sessions
+               .filter({ !$0.id.hasPrefix("Cron-") })
+               .max(by: { $0.updatedAt < $1.updatedAt }) {
             await setActiveSession(newest.id)
         }
         _ = hint("Chat deleted.")
@@ -1104,7 +1112,12 @@ extension AppState {
     }
 
     func newestSessionID() -> String? {
-        sessions.sorted { $0.updatedAt > $1.updatedAt }.first?.id
+        // Scheduled-task chats (Cron-*) live in the Tasks page, not the main
+        // chat list — never auto-open one here.
+        sessions
+            .filter { !$0.id.hasPrefix("Cron-") }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .first?.id
     }
 
     // MARK: Live workspace panel

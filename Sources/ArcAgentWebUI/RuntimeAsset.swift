@@ -1634,7 +1634,10 @@ window.WebUIRuntime = (function () {
       var sel = window.getSelection && window.getSelection();
       if (sel && sel.removeAllRanges) sel.removeAllRanges();
     });
-    document.body.appendChild(selBtn);
+    // Theme tokens are declared on #app (data-theme/scheme scoped); the button
+    // must live INSIDE it to inherit --surface/--accent/--text (body level has
+    // no tokens — it rendered as bare black text before this fix).
+    (document.querySelector('#app') || document.body).appendChild(selBtn);
     return selBtn;
   }
   function inChatText(node) {
