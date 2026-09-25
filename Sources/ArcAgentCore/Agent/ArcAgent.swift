@@ -2,6 +2,7 @@ import Foundation
 import AsyncHTTPClient
 import Logging
 import ServiceLifecycle
+import SwiftSlash
 
 /// The central agent loop that drives one user turn through the agent.
 ///
@@ -139,7 +140,8 @@ public actor ArcAgent: Service {
             topP: Double? = nil,
             maxOutputTokens: Int? = nil,
             agentPowers: AgentPowersConfig = AgentPowersConfig(),
-            mcpServers: [String: MCPServerConfig] = [:]
+            mcpServers: [String: MCPServerConfig] = [:],
+            disabledToolsets: Set<String> = []
         ) {
             self.model = model
             self.provider = provider
@@ -171,10 +173,14 @@ public actor ArcAgent: Service {
             self.platformHint = platformHint
             self.moa = moa
             self.mcpServers = mcpServers
+            self.disabledToolsets = disabledToolsets
         }
 
         /// External MCP servers (Hermes `mcp_servers`).
         public var mcpServers: [String: MCPServerConfig]
+
+        /// Toolsets to disable for this agent run (Hermes `--toolsets`).
+        public var disabledToolsets: Set<String>
     }
 
     // MARK: - State
@@ -462,7 +468,8 @@ public actor ArcAgent: Service {
     private func runInteractive() async throws {
         print("⚡ ARC Agent — interactive mode")
         print("   Type your message, or /quit to exit.")
-        print("   Commands: /model, /retry, /help, /compress, /quit\n")
+        print("   Commands: /model, /retry, /help, /compress, /skills, /memory, /session, /tokens, /status, /clear, /tools, /profiles, /quit")
+        print("   Prefix with ! to run a shell command directly.\n")
         print("> ", terminator: "")
 
         for try await input in stdinHandle.bytes.lines {
@@ -476,10 +483,42 @@ public actor ArcAgent: Service {
                 }
             }
 
+            // Hermes `!` shell mode: run the rest as a shell command and show
+            // its output without involving the model.
+            if input.hasPrefix("!") {
+                await runShellPassthrough(String(input.dropFirst()).trimmingCharacters(in: .whitespaces))
+                print("> ", terminator: "")
+                continue
+            }
+
             let response = try await runConversation(message: input)
             print(response)
             print("")
             print("> ", terminator: "")
+        }
+    }
+
+    /// Execute a shell command via the sanctioned subprocess runner (Hermes
+    /// bang-shell mode: no model round-trip, output shown verbatim).
+    private func runShellPassthrough(_ command: String) async {
+        guard !command.isEmpty else {
+            print("(empty command)")
+            return
+        }
+        do {
+            let shell = Command(absolutePath: Path("/bin/bash"), arguments: ["-c", command])
+            let outcome = try await SubprocessRunner.runBytes(shell, timeout: 60)
+            if !outcome.stdout.isEmpty {
+                print(String(decoding: outcome.stdout, as: UTF8.self), terminator: "")
+            }
+            if !outcome.stderr.isEmpty {
+                print(String(decoding: outcome.stderr, as: UTF8.self), terminator: "")
+            }
+            if outcome.exitCode != 0 {
+                print("[exit \(outcome.exitCode ?? -1)]")
+            }
+        } catch {
+            print("shell error: \(error)")
         }
     }
 
@@ -496,11 +535,19 @@ public actor ArcAgent: Service {
         case "/help":
             print("""
             Available commands:
-              /help           — Show this help
-              /model <name>   — Switch model (e.g. /model gpt-4o)
-              /retry          — Retry the last message
-              /compress       — Compress conversation history
-              /quit           — Exit
+              /help            — Show this help
+              /model <name>    — Switch model (e.g. /model gpt-4o)
+              /retry           — Retry the last message
+              /compress [focus]— Compress conversation history
+              /skills          — List loaded skills
+              /memory          — Show the memory block
+              /session         — Show the current session ID
+              /tokens          — Show estimated token usage
+              /status          — Show agent status
+              /clear           — Clear conversation history
+              /tools           — List available tools
+              /profiles        — List agent profiles
+              /quit            — Exit
             """)
             print("")
             return true
@@ -544,10 +591,91 @@ public actor ArcAgent: Service {
             // Hermes `/compress [focus]`: run the compression engine with an
             // optional focus topic (prioritised detail) and force=True so a
             // manual request bypasses throttling and the summary cooldown.
-            let parts = command.split(separator: " ", maxSplits: 1).map(String.init)
+            let parts = input.split(separator: " ", maxSplits: 1).map(String.init)
             let focus = parts.count > 1 ? parts[1] : nil
             await autoCompressIfNeeded(focus: focus, force: true)
             print("Compressed: history now \(messageHistory.count) messages.")
+            print("")
+            return true
+
+        case "/skills":
+            if config.skills.isEmpty {
+                print("No skills loaded.")
+            } else {
+                print("Loaded skills:")
+                for skill in config.skills {
+                    print("  \(skill.name) — \(skill.description.prefix(90))")
+                }
+            }
+            print("")
+            return true
+
+        case "/memory":
+            do {
+                let content = try await config.memoryProvider?.readMemory() ?? ""
+                print(content.isEmpty ? "(memory empty)" : content)
+            } catch {
+                print("memory error: \(error)")
+            }
+            print("")
+            return true
+
+        case "/session":
+            print(config.sessionID ?? "(no session ID — a new one is created per run)")
+            print("")
+            return true
+
+        case "/tokens":
+            let historyTokens = tokenCounter.count(
+                messageHistory.compactMap(\.content).joined(separator: "\n"),
+                model: currentModelName
+            )
+            let schemas = toolSchemaTokens()
+            let systemTokens: Int
+            do {
+                systemTokens = tokenCounter.count(try await buildSystemPrompt(), model: currentModelName)
+            } catch {
+                systemTokens = 0
+            }
+            print("Context estimate: system \(systemTokens) + schemas \(schemas) + history \(historyTokens) tokens")
+            print("")
+            return true
+
+        case "/status":
+            print("Model: \(currentModelName) (\(config.provider))")
+            print("Session: \(config.sessionID ?? "(new)")")
+            print("Messages: \(messageHistory.count) (persisted: \(persistedMessageCount))")
+            print("Skills: \(config.skills.count) loaded")
+            print("Toolsets disabled: \(config.disabledToolsets.sorted().isEmpty ? "(none)" : config.disabledToolsets.sorted().joined(separator: ", "))")
+            print("")
+            return true
+
+        case "/clear":
+            messageHistory.removeAll()
+            print("Conversation history cleared.")
+            print("")
+            return true
+
+        case "/tools":
+            print(buildToolsIndex())
+            print("")
+            return true
+
+        case "/profiles":
+            do {
+                let manager = ProfileManager()
+                let profiles = try await manager.list()
+                if profiles.isEmpty {
+                    print("No profiles.")
+                } else {
+                    print("Profiles:")
+                    for p in profiles {
+                        print("  \(p.name) — \(p.model ?? "(default model)") [\(p.provider ?? "(default provider)")]")
+                    }
+                }
+            } catch {
+                print("profile error: \(error)")
+            }
             print("")
             return true
 
@@ -771,7 +899,7 @@ public actor ArcAgent: Service {
     /// Token estimate for the tool schemas, cached (schema set is static).
     private func toolSchemaTokens() -> Int {
         if let cached = toolSchemaTokenEstimate { return cached }
-        let schemas = config.registry.buildToolSchemas(enabled: [], disabled: [])
+        let schemas = config.registry.buildToolSchemas(enabled: [], disabled: config.disabledToolsets)
         guard let data = try? JSONSerialization.data(withJSONObject: schemas),
               let text = String(data: data, encoding: .utf8) else { return 0 }
         let estimate = tokenCounter.count(text, model: config.model)
@@ -1115,7 +1243,7 @@ public actor ArcAgent: Service {
             // 3. Build tool schemas
             let toolSchemas = config.registry.buildToolSchemas(
                 enabled: [],
-                disabled: []
+                disabled: config.disabledToolsets
             )
 
             // 3b. Mixture-of-Agents advisory context (Hermes moa_loop: the
@@ -1327,7 +1455,7 @@ public actor ArcAgent: Service {
 
             let toolSchemas = config.registry.buildToolSchemas(
                 enabled: [],
-                disabled: []
+                disabled: config.disabledToolsets
             )
 
             // MoA advisory context (Hermes moa_loop parity).

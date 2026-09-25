@@ -25,6 +25,13 @@ struct Arc: AsyncParsableCommand {
             Setup.self,
             Tools.self,
             Profile.self,
+            SessionsCmd.self,
+            MemoryCmd.self,
+            SkillsCmd.self,
+            KanbanCmd.self,
+            CronCmd.self,
+            ConfigCmd.self,
+            McpCmd.self,
             Version.self,
         ]
     )
@@ -54,11 +61,59 @@ struct Chat: AsyncParsableCommand {
     @Option(name: .long, help: "Resume a persisted session by ID.")
     var session: String?
 
+    @Option(name: .long, help: "Agent profile name (isolated config/memory/skills).")
+    var profile: String?
+
+    @Option(name: .long, help: "Comma-separated toolsets to disable (Hermes --toolsets).")
+    var toolsets: String?
+
+    @Option(name: .long, help: "Comma-separated skill names to load (Hermes --skills).")
+    var skills: String?
+
     @Flag(name: .shortAndLong, help: "Enable YOLO mode (no approval prompts).")
     var yolo: Bool = false
 
+    /// Parse a comma-separated flag value into a trimmed set.
+    static func parseList(_ value: String) -> Set<String> {
+        Set(value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
+    }
+
     func run() async throws {
-        let arcConfig = loadConfig()
+        var arcConfig = loadConfig()
+
+        // Web search backend: env override > config (Hermes `web.search_backend`).
+        let searchBackend = ProcessInfo.processInfo.environment["SEARCH_BACKEND"]
+            ?? arcConfig.web.effectiveSearchBackend
+        await SearchRegistry.shared.configure(backend: searchBackend)
+
+        // ── Profile isolation (Hermes --profile) ──────────────────────────
+        // Active profile overrides model/provider/context from
+        // ~/.arc/profiles/<name>/config.json and isolates memory + skills
+        // into the profile directory.
+        let profileName = profile ?? ProcessInfo.processInfo.environment["ARC_PROFILE"]
+        var profileDisabledToolsets: Set<String> = []
+        var profileEnabledToolsets: Set<String>? = nil
+        var memoryDir: URL? = nil
+        var skillsDir: URL? = nil
+        if let profileName {
+            let manager = ProfileManager()
+            guard let p = try await manager.get(name: profileName) else {
+                print("Error: Profile '\\(profileName)' not found. Run `arc profile list`.")
+                return
+            }
+            if let m = p.model { arcConfig.model.defaultModel = m }
+            if let pr = p.provider { arcConfig.model.provider = pr }
+            if let b = p.baseURL { arcConfig.model.baseURL = b }
+            if let ctx = p.context {
+                if let cl = ctx.contextLength { arcConfig.model.contextLength = cl }
+                if let mo = ctx.maxOutputTokens { arcConfig.model.maxOutputTokens = mo }
+                if let re = ctx.reasoningEffort { arcConfig.agent.reasoningEffort = re }
+            }
+            if let d = p.disabledToolsets { profileDisabledToolsets.formUnion(d) }
+            profileEnabledToolsets = p.enabledToolsets
+            memoryDir = ProfileManager.memoryURL(for: profileName)
+            skillsDir = ProfileManager.skillsURL(for: profileName)
+        }
 
         let resolvedModel = model ?? ProcessInfo.processInfo.environment["ARC_MODEL"]
             ?? arcConfig.model.defaultModel
@@ -84,6 +139,18 @@ struct Chat: AsyncParsableCommand {
 
         let registry = try await MutableToolRegistry.make(enabledPlugins: pluginAllowList())
 
+        // Toolset selection: `--toolsets` (Hermes semantics: disables the
+        // listed toolsets) + profile enabled/disabled sets.
+        var disabledToolsets: Set<String> = []
+        if let t = toolsets {
+            disabledToolsets.formUnion(Self.parseList(t))
+        }
+        if let profileName, let enabled = profileEnabledToolsets {
+            let all = Set(registry.allTools.map(\.toolset))
+            disabledToolsets.formUnion(all.subtracting(enabled))
+        }
+        disabledToolsets.formUnion(profileDisabledToolsets)
+
         // Storage: with a `tessera` configuration, sessions and memory are
         // persisted to the Tessera server as signed NOSTR events. If the
         // relay is unreachable (bounded handshake), fall back to file
@@ -104,11 +171,21 @@ struct Chat: AsyncParsableCommand {
             }
         } else {
             sessionStore = FileSessionStore()
-            memoryProvider = FileMemoryProvider()
+            memoryProvider = memoryDir.map { FileMemoryProvider(directory: $0) } ?? FileMemoryProvider()
         }
 
-        // Discover skills if enabled
-        let skills: [Skill] = arcConfig.agent.loadSkills ? discoverSkills() : []
+        // Discover skills if enabled (profile-isolated directory when active).
+        let skillsArg = skills
+        let skillNames: Set<String>? = skillsArg.map { Self.parseList($0) }
+        let discoveredSkills: [Skill]
+        if let skillsDir, FileManager.default.fileExists(atPath: skillsDir.path) {
+            discoveredSkills = discoverSkills(in: skillsDir)
+        } else {
+            discoveredSkills = arcConfig.agent.loadSkills ? discoverSkills() : []
+        }
+        let skills: [Skill] = skillNames.map { filter in
+            discoveredSkills.filter { filter.contains($0.name) }
+        } ?? discoveredSkills
 
         // Resolve approval mode
         let approvalMode: ApprovalMode = yolo ? .off
@@ -139,7 +216,8 @@ struct Chat: AsyncParsableCommand {
             reasoningEffort: arcConfig.agent.reasoningEffort,
             maxOutputTokens: arcConfig.model.maxOutputTokens,
             agentPowers: arcConfig.agentPowers,
-            mcpServers: arcConfig.mcpServers
+            mcpServers: arcConfig.mcpServers,
+            disabledToolsets: disabledToolsets
         )
 
         let agent = ArcAgent(config: agentConfig)
@@ -373,8 +451,50 @@ struct Profile: AsyncParsableCommand {
             ProfileCreate.self,
             ProfileDelete.self,
             ProfileShow.self,
+            ProfileExport.self,
+            ProfileImport.self,
         ]
     )
+}
+
+struct ProfileExport: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "export",
+        abstract: "Export a profile as a portable distribution archive (zip)."
+    )
+
+    @Argument(help: "Profile name.")
+    var name: String
+
+    @Option(name: .long, help: "Output archive path (default: ~/.arc/profiles/<name>-distribution.zip).")
+    var out: String?
+
+    func run() async throws {
+        let manager = ProfileManager()
+        let defaultOut = URL(fileURLWithPath: ProfileManager.profilesDir)
+            .appendingPathComponent("\(name)-distribution.zip")
+        let output = out.map { URL(fileURLWithPath: $0) } ?? defaultOut
+        let archive = try await manager.export(name: name, to: output)
+        print("✅ Profile '\(name)' exported to \(archive.path)")
+    }
+}
+
+struct ProfileImport: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "import",
+        abstract: "Import a profile from a distribution archive."
+    )
+
+    @Argument(help: "Archive path.")
+    var archive: String
+
+    func run() async throws {
+        let manager = ProfileManager()
+        let name = try await manager.importDistribution(from: URL(fileURLWithPath: archive))
+        print("✅ Profile '\(name)' imported.")
+    }
 }
 
 struct ProfileList: AsyncParsableCommand {

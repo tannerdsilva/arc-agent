@@ -187,12 +187,14 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
 // MARK: - Profile Validation
 
 /// Errors that can occur during profile operations.
-public enum ProfileError: Error, Sendable, CustomStringConvertible {
+public enum ProfileError: Error, Sendable, CustomStringConvertible, Equatable {
     case invalidName(String)
     case duplicateName(String)
     case notFound(String)
     case cannotDeleteDefault
     case storageError(String)
+    case exportFailed(String)
+    case importFailed(String)
 
     public var description: String {
         switch self {
@@ -206,6 +208,10 @@ public enum ProfileError: Error, Sendable, CustomStringConvertible {
             return "The default profile cannot be deleted."
         case .storageError(let message):
             return "Profile storage error: \(message)"
+        case .exportFailed(let detail):
+            return "Profile export failed: \(detail)"
+        case .importFailed(let detail):
+            return "Profile import failed: \(detail)"
         }
     }
 }

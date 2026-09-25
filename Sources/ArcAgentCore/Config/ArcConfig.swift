@@ -89,7 +89,39 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// External MCP servers (Hermes top-level `mcp_servers`): name → launch config.
     public var mcpServers: [String: MCPServerConfig]
 
+    /// Web capabilities (Hermes `web` block): search/extract backend selection.
+    public var web: WebConfig
+
+    /// Configuration for web search/extract backends (Hermes `web` block).
+    public struct WebConfig: Codable, Sendable, Equatable {
+        /// Backend used by `web_search` (Hermes `web.search_backend`).
+        public var searchBackend: String?
+        /// Backend used by `web_extract` (Hermes `web.extract_backend`).
+        public var extractBackend: String?
+        /// Legacy catch-all (Hermes `web.backend`).
+        public var backend: String?
+
+        public init(searchBackend: String? = nil, extractBackend: String? = nil, backend: String? = nil) {
+            self.searchBackend = searchBackend
+            self.extractBackend = extractBackend
+            self.backend = backend
+        }
+
+        /// Effective search backend: explicit > legacy.
+        public var effectiveSearchBackend: String? {
+            searchBackend ?? backend
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case searchBackend = "search_backend"
+            case extractBackend = "extract_backend"
+            case backend
+        }
+    }
+
     // MARK: - Coding keys
+
+    /// Explicit keys so the Herm...[truncated]
 
     /// Explicit keys so the Hermes-style `mcp_servers` underscore key can be
     /// decoded alongside the camelCase property names.
@@ -109,6 +141,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         case profileRouting
         case agentPowers
         case mcpServers = "mcp_servers"
+        case web
     }
 
     // MARK: - Init
@@ -128,7 +161,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         plugins: PluginsConfig = PluginsConfig(),
         profileRouting: ProfileRoutingConfig = ProfileRoutingConfig(),
         agentPowers: AgentPowersConfig = AgentPowersConfig(),
-        mcpServers: [String: MCPServerConfig] = [:]
+        mcpServers: [String: MCPServerConfig] = [:],
+        web: WebConfig = WebConfig()
     ) {
         self.model = model
         self.agent = agent
@@ -145,6 +179,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.profileRouting = profileRouting
         self.agentPowers = agentPowers
         self.mcpServers = mcpServers
+        self.web = web
     }
 
     /// Decode each section independently, defaulting any that are absent.
@@ -166,6 +201,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.agentPowers = try container.decodeIfPresent(AgentPowersConfig.self, forKey: .agentPowers) ?? AgentPowersConfig()
         // Hermes top-level `mcp_servers` (underscored key → ``CodingKeys/mcpServers``).
         self.mcpServers = try container.decodeIfPresent([String: MCPServerConfig].self, forKey: .mcpServers) ?? [:]
+        self.web = try container.decodeIfPresent(WebConfig.self, forKey: .web) ?? WebConfig()
     }
 }
 

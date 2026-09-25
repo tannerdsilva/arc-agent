@@ -1,4 +1,5 @@
 import Foundation
+import SwiftSlash
 
 // MARK: - ProfileManager
 
@@ -23,9 +24,14 @@ public actor ProfileManager {
 
     /// Base URL for profile storage (~/.arc/profiles/).
     public static var profilesDir: String {
-        FileManager.default.homeDirectoryForCurrentUser
+        if let override = testProfilesRoot, !override.isEmpty { return override }
+        return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".arc/profiles", isDirectory: true).path
     }
+
+    /// Test seam: when set, overrides the profile storage root so tests never
+    /// touch the real `~/.arc/profiles` directory.
+    public static var testProfilesRoot: String?
 
     /// Path to the index file used when Tessera storage is not configured.
     public static var indexFilePath: String {
@@ -33,13 +39,28 @@ public actor ProfileManager {
     }
 
     /// Path to a profile's sessions directory.
-    public static func sessionsDir(for profile: String) -> String {
+    public static func sessionsDirectory(for profile: String) -> String {
         "\(profilesDir)/\(profile)/sessions"
     }
 
-    /// Path to a profile's config overrides file.
+    /// Path to a profile's schema/config file.
     public static func configPath(for profile: String) -> String {
         "\(profilesDir)/\(profile)/config.json"
+    }
+
+    /// Per-profile memory file (Hermes profiles: each profile has its own
+    /// MEMORY.md / USER.md; `nil` until created, since providers create on
+    /// write).
+    public static func memoryURL(for profile: String) -> URL? {
+        let dir = URL(fileURLWithPath: profilesDir).appendingPathComponent(profile, isDirectory: true)
+        return dir
+    }
+
+    /// Per-profile skills directory (Hermes `~/.hermes/profiles/<name>/skills`).
+    public static func skillsURL(for profile: String) -> URL? {
+        let dir = URL(fileURLWithPath: profilesDir).appendingPathComponent(profile, isDirectory: true)
+            .appendingPathComponent("skills", isDirectory: true)
+        return dir
     }
 
     /// Path to a profile's .env file (API key overrides).
@@ -97,7 +118,7 @@ public actor ProfileManager {
             withIntermediateDirectories: true
         )
         try FileManager.default.createDirectory(
-            at: URL(fileURLWithPath: Self.sessionsDir(for: name)),
+            at: URL(fileURLWithPath: Self.sessionsDirectory(for: name)),
             withIntermediateDirectories: true
         )
 
@@ -111,6 +132,76 @@ public actor ProfileManager {
     }
 
     /// Get a profile by name.
+    /// Export a profile as a distribution archive (Hermes
+    /// `profile_distribution.py`): zip of the profile directory rooted at
+    /// `<name>/`. Returns the archive path.
+    public func export(name: String, to outputURL: URL) async throws -> URL {
+        guard profileSaved(name: name) else {
+            throw ProfileError.notFound(name)
+        }
+        let profilesRoot = URL(fileURLWithPath: Self.profilesDir)
+        let archive = outputURL
+        let command = Command(
+            absolutePath: Path("/bin/bash"),
+            arguments: ["-c",
+                "cd \(shellQuote(profilesRoot.path)) && rm -f \(shellQuote(archive.path)) && zip -qr \(shellQuote(archive.path)) \(shellQuote(name))"]
+        )
+        let outcome = try await SubprocessRunner.runBytes(command, timeout: 60)
+        guard outcome.exitCode == 0 else {
+            throw ProfileError.exportFailed(String(decoding: outcome.stderr, as: UTF8.self))
+        }
+        return archive
+    }
+
+    /// Import a profile distribution archive produced by ``export(name:to:)``:
+    /// unzips into the profiles root, extracting the `<name>/` directory.
+    /// Returns the imported profile name.
+    public func importDistribution(from archiveURL: URL) async throws -> String {
+        let profilesRoot = URL(fileURLWithPath: Self.profilesDir)
+        let command = Command(
+            absolutePath: Path("/bin/bash"),
+            arguments: ["-c",
+                "cd \(shellQuote(profilesRoot.path)) && unzip -qo \(shellQuote(archiveURL.path))"]
+        )
+        let outcome = try await SubprocessRunner.runBytes(command, timeout: 60)
+        guard outcome.exitCode == 0 else {
+            throw ProfileError.importFailed(String(decoding: outcome.stderr, as: UTF8.self))
+        }
+        // The archive root names the profile: find a directory whose
+        // config.json parses as a Profile (parse-first, not alphabetical).
+        let entries = try FileManager.default.contentsOfDirectory(
+            at: profilesRoot, includingPropertiesForKeys: nil
+        )
+        var importedName: String?
+        var importedProfile: Profile?
+        for dir in entries {
+            let configURL = dir.appendingPathComponent("config.json")
+            guard let data = try? Data(contentsOf: configURL),
+                  let profile = try? JSONDecoder().decode(Profile.self, from: data) else { continue }
+            importedName = dir.lastPathComponent
+            importedProfile = profile
+            break
+        }
+        guard let name = importedName else {
+            throw ProfileError.importFailed("archive contains no valid profile config.json")
+        }
+
+        // Sync the index + cache with the imported record.
+        if let profile = importedProfile {
+            try await persistProfile(profile)
+            cache[profile.name] = profile
+        }
+        return name
+    }
+
+    private func profileSaved(name: String) -> Bool {
+        FileManager.default.fileExists(atPath: Self.configPath(for: name))
+    }
+
+    private func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     public func get(name: String) async throws -> Profile? {
         try await seedCache()
         return cache[name]
@@ -288,6 +379,9 @@ public actor ProfileManager {
     /// When the tunnel is configured but unavailable, the JSON index takes
     /// over — the write must not hang or fail just because the relay is down.
     private func persistProfile(_ profile: Profile) async throws {
+        // Keep the profile directory self-contained in every mode (Hermes
+        // profile distributions rely on `profiles/<name>/config.json`).
+        try writeProfileConfig(profile)
         if await TesseraConnection.shared.isConfigured {
             do {
                 let conn = TesseraConnection.shared
@@ -307,6 +401,14 @@ public actor ProfileManager {
         var index = loadProfilesFromIndexFile()
         index[profile.name] = profile
         try writeIndexFile(index)
+    }
+
+    /// Write the profile record to `profiles/<name>/config.json`.
+    private func writeProfileConfig(_ profile: Profile) throws {
+        let dir = URL(fileURLWithPath: Self.profilesDir).appendingPathComponent(profile.name, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(profile)
+        try data.write(to: dir.appendingPathComponent("config.json"), options: .atomic)
     }
 }
 
