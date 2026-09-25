@@ -138,7 +138,8 @@ struct Chat: AsyncParsableCommand {
             moa: arcConfig.moa,
             reasoningEffort: arcConfig.agent.reasoningEffort,
             maxOutputTokens: arcConfig.model.maxOutputTokens,
-            agentPowers: arcConfig.agentPowers
+            agentPowers: arcConfig.agentPowers,
+            mcpServers: arcConfig.mcpServers
         )
 
         let agent = ArcAgent(config: agentConfig)
@@ -211,7 +212,8 @@ struct Serve: AsyncParsableCommand {
             tessera: arcConfig.tessera,
             persistSessions: arcConfig.agent.persistSessions,
             maxIterations: arcConfig.effectiveMaxTurns(),
-            toolLoopCap: arcConfig.effectiveToolLoopCap()
+            toolLoopCap: arcConfig.effectiveToolLoopCap(),
+            mcpServers: arcConfig.mcpServers
         )
 
         // Load gateway config (per-platform blocks; env var overrides).

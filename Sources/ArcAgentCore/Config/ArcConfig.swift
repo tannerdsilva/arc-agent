@@ -86,6 +86,30 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// OFF (agent may create/edit); enabling any of them makes the dedicated
     /// tools refuse. See ``AgentPowersConfig``.
     public var agentPowers: AgentPowersConfig
+    /// External MCP servers (Hermes top-level `mcp_servers`): name → launch config.
+    public var mcpServers: [String: MCPServerConfig]
+
+    // MARK: - Coding keys
+
+    /// Explicit keys so the Hermes-style `mcp_servers` underscore key can be
+    /// decoded alongside the camelCase property names.
+    private enum CodingKeys: String, CodingKey {
+        case model
+        case agent
+        case max_turns
+        case guardrails
+        case terminal
+        case delegation
+        case memory
+        case security
+        case tessera
+        case moa
+        case auxiliary
+        case plugins
+        case profileRouting
+        case agentPowers
+        case mcpServers = "mcp_servers"
+    }
 
     // MARK: - Init
 
@@ -103,7 +127,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         auxiliary: AuxiliaryModelSet = AuxiliaryModelSet(),
         plugins: PluginsConfig = PluginsConfig(),
         profileRouting: ProfileRoutingConfig = ProfileRoutingConfig(),
-        agentPowers: AgentPowersConfig = AgentPowersConfig()
+        agentPowers: AgentPowersConfig = AgentPowersConfig(),
+        mcpServers: [String: MCPServerConfig] = [:]
     ) {
         self.model = model
         self.agent = agent
@@ -119,6 +144,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.plugins = plugins
         self.profileRouting = profileRouting
         self.agentPowers = agentPowers
+        self.mcpServers = mcpServers
     }
 
     /// Decode each section independently, defaulting any that are absent.
@@ -138,6 +164,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.plugins = try container.decodeIfPresent(PluginsConfig.self, forKey: .plugins) ?? PluginsConfig()
         self.profileRouting = try container.decodeIfPresent(ProfileRoutingConfig.self, forKey: .profileRouting) ?? ProfileRoutingConfig()
         self.agentPowers = try container.decodeIfPresent(AgentPowersConfig.self, forKey: .agentPowers) ?? AgentPowersConfig()
+        // Hermes top-level `mcp_servers` (underscored key → ``CodingKeys/mcpServers``).
+        self.mcpServers = try container.decodeIfPresent([String: MCPServerConfig].self, forKey: .mcpServers) ?? [:]
     }
 }
 

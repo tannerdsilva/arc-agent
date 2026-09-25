@@ -138,7 +138,8 @@ public actor ArcAgent: Service {
             temperature: Double? = nil,
             topP: Double? = nil,
             maxOutputTokens: Int? = nil,
-            agentPowers: AgentPowersConfig = AgentPowersConfig()
+            agentPowers: AgentPowersConfig = AgentPowersConfig(),
+            mcpServers: [String: MCPServerConfig] = [:]
         ) {
             self.model = model
             self.provider = provider
@@ -169,7 +170,11 @@ public actor ArcAgent: Service {
             self.contextDirectory = contextDirectory
             self.platformHint = platformHint
             self.moa = moa
+            self.mcpServers = mcpServers
         }
+
+        /// External MCP servers (Hermes `mcp_servers`).
+        public var mcpServers: [String: MCPServerConfig]
     }
 
     // MARK: - State
@@ -435,6 +440,7 @@ public actor ArcAgent: Service {
     }
 
     public func run() async throws {
+        await MCPClientManager.shared.configure(config.mcpServers)
         try await prime()
 
         if let q = config.query {
@@ -535,15 +541,13 @@ public actor ArcAgent: Service {
             return true
 
         case "/compress":
-            let maxMessages = 20
-            if messageHistory.count > maxMessages {
-                let systemMessages = messageHistory.filter { $0.role == .system }
-                let recentMessages = messageHistory.suffix(maxMessages - systemMessages.count)
-                messageHistory = Array(systemMessages) + Array(recentMessages)
-                print("Compressed: keeping last \(messageHistory.count) messages.")
-            } else {
-                print("History is already compact (\(messageHistory.count) messages).")
-            }
+            // Hermes `/compress [focus]`: run the compression engine with an
+            // optional focus topic (prioritised detail) and force=True so a
+            // manual request bypasses throttling and the summary cooldown.
+            let parts = command.split(separator: " ", maxSplits: 1).map(String.init)
+            let focus = parts.count > 1 ? parts[1] : nil
+            await autoCompressIfNeeded(focus: focus, force: true)
+            print("Compressed: history now \(messageHistory.count) messages.")
             print("")
             return true
 
@@ -659,7 +663,8 @@ public actor ArcAgent: Service {
 
         await restoreSessionIfNeeded()
         resetTurnState()
-        messageHistory.append(Message(role: .user, content: message))
+        let composed = await self.composeUserContent(message)
+        messageHistory.append(Message(role: .user, content: composed))
 
         let response = try await runTurnLoop(client: llmClient)
 
@@ -675,6 +680,21 @@ public actor ArcAgent: Service {
         Task { await self.maybeGenerateTitle() }
 
         return response
+    }
+
+    /// Compose the API-bound user content for a turn: the clean message plus
+    /// optional memory-provider recall (Hermes `turn_context` external-memory
+    /// prefetch). Trivial prompts are skipped; recall is wrapped in the
+    /// fenced `<memory-context>` block with the system note. Best-effort —
+    /// a missing/stuck provider never blocks the turn.
+    private func composeUserContent(_ message: String) async -> String {
+        guard !MemoryRecall.isTrivialPrompt(message) else { return message }
+        guard let provider = config.memoryProvider else { return message }
+        let raw = await MemoryRecall.prefetchWithTimeout {
+            try await provider.prefetch(query: message)
+        }
+        guard let block = MemoryManager.recallBlock(raw) else { return message }
+        return message + "\n\n" + block
     }
 
     /// Persist any messages not yet stored for this session.
@@ -766,11 +786,11 @@ public actor ArcAgent: Service {
     /// summarized), token-budget tail (~20K), iterative summary updates,
     /// summary-model cool-down after rate limits, and anti-thrash that
     /// suspends compression after two consecutive low-savings rounds.
-    private func autoCompressIfNeeded() async {
-        guard !compressionThrottled else { return }
+    private func autoCompressIfNeeded(focus: String? = nil, force: Bool = false) async {
+        if !force { guard !compressionThrottled else { return } }
         let limit = effectiveContextLimit()
         let estimated = await estimateRequestTokens()
-        guard estimated > limit else { return }
+        guard force || estimated > limit else { return }
 
         // Pluggable context engines (Hermes context_engine): the
         // prune-tool-results variant trims tool output only; everything else
@@ -786,52 +806,75 @@ public actor ArcAgent: Service {
         let systemMessages = messageHistory.filter { $0.role == .system }
         let nonSystem = messageHistory.filter { $0.role != .system }
 
-        // Head protection: never summarize the first exchange.
-        let head = Array(nonSystem.prefix(min(2, nonSystem.count)))
-        let middle = Array(nonSystem.dropFirst(head.count))
-
-        // Tail protection: token budget (~20K, at least the last 4 messages).
+        // Head protection: never summarize the first exchange. Tail
+        // protection: token budget (~20K, at least the last 4 messages) —
+        // Hermes compress() steps 2-4, extracted for testability.
         let tailBudget = min(20_000, limit / 3)
-        var tailTokens = 0
-        var tailCount = 0
-        for msg in middle.reversed() {
-            tailTokens += tokenCounter.count(msg.content ?? "", model: config.model) + 4
-            tailCount += 1
-            if tailTokens >= tailBudget && tailCount >= 4 { break }
-        }
-        let tail = Array(middle.suffix(tailCount))
-        let compressible = Array(middle.prefix(max(0, middle.count - tailCount)))
+        let window = ContextCompression.window(
+            nonSystem,
+            tailBudget: tailBudget,
+            countTokens: { [config] text in tokenCounter.count(text, model: config.model) }
+        )
+        var head = window.head
+        var middle = window.middle
+        let tail = window.tail
 
-        guard !compressible.isEmpty else {
+        // Cheap pre-pass (Hermes Phase 1): prune old tool results before any
+        // summary decision, so an aborted compression still returns the win.
+        middle = ContextCompression.pruneToolResults(middle)
+
+        guard !middle.isEmpty else {
             // Even the protected window alone exceeds the budget.
             messageHistory = systemMessages + Array(nonSystem.suffix(min(8, nonSystem.count)))
+            messageHistory = ContextCompression.orphanCleanup(messageHistory)
             return
         }
 
         let beforeTokens = tokenCounter.count(messages: messageHistory, model: config.model)
 
         // Iterative: fold the existing summary into the material so a
-        // re-compression updates the summary instead of starting over.
-        var material: [Message] = compressible
-        if let existing = systemMessages.first(where: { ($0.content ?? "").hasPrefix(Self.compressionSummaryPrefix) }),
-           let summaryBody = existing.content {
-            material.insert(Message(role: .system, content: summaryBody), at: 0)
+        // re-compression updates the summary instead of starting over
+        // (Hermes: previous summary + new turns, bounded).
+        var existingSummary: String?
+        for msg in systemMessages where (msg.content ?? "").hasPrefix(Self.compressionSummaryPrefix) {
+            existingSummary = msg.content
+            break
+        }
+        let memoryContext = (try? await config.memoryProvider?.readMemory()) ?? ""
+
+        let prompt: ContextCompression.SummaryPrompt?
+        if let existing = existingSummary {
+            let body = String(existing.dropFirst(Self.compressionSummaryPrefix.count))
+            prompt = ContextCompression.updateSummaryPrompt(
+                previousSummary: body,
+                newTurns: middle,
+                focus: focus,
+                memoryContext: memoryContext
+            )
+        } else {
+            prompt = ContextCompression.firstSummaryPrompt(
+                material: middle,
+                focus: focus,
+                memoryContext: memoryContext
+            )
         }
 
         let summaryText: String
-        if let summarized = await summarizeForCompression(material) {
+        if let prompt, let summarized = await summarizeForCompression(prompt.userContent) {
             summaryText = summarized
         } else {
-            summaryText = Self.compressedRecord(material)
+            summaryText = ContextCompression.compressedRecord(middle)
             logger.warning("compression: aux summary unavailable; using extractive record")
         }
 
         let newSystem = systemMessages.filter { !($0.content ?? "").hasPrefix(Self.compressionSummaryPrefix) }
         let summaryMessage = Message(
             role: .system,
-            content: "\(Self.compressionSummaryPrefix) Key information, decisions, and facts from these exchanges are preserved below:\n\n\(summaryText)"
+            content: "\(Self.compressionSummaryPrefix)\n\n\(summaryText)"
         )
-        messageHistory = newSystem + [summaryMessage] + head + tail
+        messageHistory = ContextCompression.orphanCleanup(
+            newSystem + [summaryMessage] + head + tail
+        )
 
         // Anti-thrash: two consecutive compressions that each saved less than
         // 10% of the limit suspend compression for the rest of the turn.
@@ -849,27 +892,19 @@ public actor ArcAgent: Service {
         invalidateSystemPrompt()
     }
 
-    /// Attempt an LLM summarization of older messages using the `compression`
-    /// auxiliary model. Returns nil when no override is configured, when the
-    /// summary model is in cool-down, or when the call fails — callers fall
-    /// back to the extractive record.
-    private func summarizeForCompression(_ messages: [Message]) async -> String? {
+    /// Attempt an LLM summarization using the `compression` auxiliary model
+    /// with the given Hermes-structured prompt. Returns nil when no override
+    /// is configured, when the summary model is in cool-down, or when the
+    /// call fails — callers fall back to the extractive record.
+    private func summarizeForCompression(_ userContent: String) async -> String? {
         // Cool-down after the summary model was rate-limited (Hermes parity).
         if let until = compressionCooldownUntil, Date() < until { return nil }
         guard let router = auxRouter, router.hasOverride(.compression) else { return nil }
         guard let hc = httpClient,
               let client = router.makeClient(task: .compression, httpClient: hc) else { return nil }
-        let record = Self.compressedRecord(messages)
-        let prompt = """
-        You are the context compressor for a long agent conversation. Produce a dense summary
-        of the conversation excerpts below. Preserve every decision, fact, path, tool result,
-        and instruction verbatim where practical. Target 150-400 words.
-
-        \(record)
-        """
         do {
             let resp = try await client.complete(
-                messages: [Message(role: .user, content: prompt)],
+                messages: [Message(role: .user, content: userContent)],
                 tools: nil,
                 reasoningEffort: nil
             )
@@ -2028,6 +2063,22 @@ public actor ArcAgent: Service {
     /// find and fold the previous summary on re-compression).
     static let compressionSummaryPrefix =
         "The following is a compressed record of earlier conversation context."
+
+    /// Keep the system messages plus the most recent `maxMessages - systems`
+    /// non-system messages (the `/compress` REPL window).
+    ///
+    /// The count is clamped to `>= 0` so a history whose system messages
+    /// alone exceed the cap degrades to "system messages only" instead of
+    /// trapping (`Array.suffix(_:)` raises "Can't take a suffix of negative
+    /// length" for a negative argument — a process crash).
+    static func compressWindow(
+        history: [Message],
+        systemMessages: [Message],
+        maxMessages: Int
+    ) -> [Message] {
+        let limit = max(0, maxMessages - systemMessages.count)
+        return systemMessages + Array(history.suffix(limit))
+    }
 
     /// Floor cap for injected project context files (chars).
     static let contextFileBudgetChars = 16_000

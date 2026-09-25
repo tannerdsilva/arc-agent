@@ -124,7 +124,8 @@ public actor SessionAgent: Service {
                 reasoningEffort: resolvedContext?.reasoningEffort,
                 temperature: resolvedContext?.temperature,
                 topP: resolvedContext?.topP,
-                maxOutputTokens: resolvedContext?.maxOutputTokens
+                maxOutputTokens: resolvedContext?.maxOutputTokens,
+                mcpServers: agentConfig.mcpServers
             ))
             logger.info("step: setting up client")
             await agent.setupClient(httpClient: httpClient)

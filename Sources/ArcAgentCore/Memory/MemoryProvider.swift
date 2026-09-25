@@ -41,6 +41,63 @@ public protocol MemoryProvider: Sendable {
 
     /// Replace text in USER.md (find-and-replace).
     func replaceUser(old: String, new: String) async throws
+
+    /// Overwrite USER.md with the given full text.
+    func writeUser(_ text: String) async throws
+}
+
+// MARK: - Recall (Hermes memory-provider prefetch)
+
+extension MemoryProvider {
+    /// Semantic recall hook (Hermes `prefetch`): external memory providers
+    /// override this to return context relevant to `query`; the built-in
+    /// file provider needs no recall because its full memory block is
+    /// already injected into the system prompt. Default: no recall.
+    public func prefetch(query: String) async throws -> String { "" }
+}
+
+/// Trivial-prompt detection for memory recall (Hermes
+/// `memory_provider.is_trivial_prompt`): empty text, slash commands, and
+/// bare greetings/acknowledgements carry no semantic signal, so the
+/// prefetch round-trip is skipped.
+public enum MemoryRecall {
+    /// Hermes `TRIVIAL_PROMPT_RE` port (case-insensitive).
+    private static let trivialRegex = try? NSRegularExpression(
+        pattern: #"^(yes|no|ok|okay|sure|thanks|thank you|y|n|yep|nope|yeah|nah|hi|hey|hello|yo|sup|continue|go ahead|do it|proceed|got it|cool|nice|great|done|next|lgtm|k)[\s!?.:;,"'~‘’“”—–…()\[\]{}<>*&^%$#@!+=` ]*$"#,
+        options: [.caseInsensitive]
+    )
+
+    public static func isTrivialPrompt(_ text: String?) -> Bool {
+        guard let text else { return true }
+        let stripped = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if stripped.isEmpty { return true }
+        if stripped.hasPrefix("/") { return true }
+        return trivialRegex?.firstMatch(
+            in: stripped,
+            range: NSRange(stripped.startIndex..., in: stripped)
+        ) != nil
+    }
+
+    /// Run prefetch with a bounded timeout; a stuck provider must never
+    /// stall the turn (Hermes: join(timeout), non-fatal).
+    public static func prefetchWithTimeout(
+        timeout: Duration = .seconds(2),
+        _ op: @escaping () async throws -> String
+    ) async -> String {
+        do {
+            return try await withThrowingTaskGroup(of: String.self) { group in
+                group.addTask { try await op() }
+                group.addTask {
+                    try await Task.sleep(for: timeout)
+                    throw CancellationError()
+                }
+                defer { group.cancelAll() }
+                return try await group.next() ?? ""
+            }
+        } catch {
+            return ""
+        }
+    }
 }
 
 /// A file-based memory provider that stores memories as markdown files.
@@ -101,6 +158,10 @@ public struct FileMemoryProvider: MemoryProvider {
 
     public func replaceUser(old: String, new: String) async throws {
         try await replaceInFile(at: userPath, old: old, new: new)
+    }
+
+    public func writeUser(_ text: String) async throws {
+        try text.write(to: userPath, atomically: true, encoding: .utf8)
     }
 
     // MARK: - File Operations

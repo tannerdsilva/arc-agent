@@ -65,6 +65,8 @@ public actor SessionRegistry {
         public let toolLoopCap: Int?
         /// Mixture-of-Agents configuration (Hermes `moa` config block).
         public let moa: MoAConfig
+        /// External MCP servers (Hermes top-level `mcp_servers`).
+        public let mcpServers: [String: MCPServerConfig]
 
         public init(
             model: String,
@@ -75,7 +77,8 @@ public actor SessionRegistry {
             persistSessions: Bool = true,
             moa: MoAConfig = MoAConfig(),
             maxIterations: Int? = nil,
-            toolLoopCap: Int? = nil
+            toolLoopCap: Int? = nil,
+            mcpServers: [String: MCPServerConfig] = [:]
         ) {
             self.model = model
             self.provider = provider
@@ -86,6 +89,7 @@ public actor SessionRegistry {
             self.moa = moa
             self.maxIterations = maxIterations
             self.toolLoopCap = toolLoopCap
+            self.mcpServers = mcpServers
         }
     }
 

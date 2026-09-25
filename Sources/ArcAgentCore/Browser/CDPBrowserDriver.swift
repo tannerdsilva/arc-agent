@@ -43,6 +43,9 @@ public final class CDPCommandChannel: @unchecked Sendable {
     private var readerTask: Task<Void, Never>?
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<[String: Any], Error>] = [:]
+    private let events = CDPEventLog()
+    /// Runtime/Page domains enabled for event capture (idempotent).
+    private var domainsEnabled = false
 
     public init() {}
 
@@ -78,6 +81,26 @@ public final class CDPCommandChannel: @unchecked Sendable {
         }
     }
 
+    /// Enable Runtime.page console/dialog event capture (Hermes:
+    /// console messages + JS dialogs are captured while the browser runs).
+    public func enableEventCapture() async throws {
+        if !domainsEnabled {
+            _ = try await send(method: "Runtime.enable", params: [:])
+            _ = try await send(method: "Page.enable", params: [:])
+            domainsEnabled = true
+        }
+    }
+
+    /// Drain buffered console messages; `clear` empties the buffer.
+    public func drainConsole(clear: Bool) async -> [String] {
+        await events.drainConsole(clear: clear)
+    }
+
+    /// Buffered native JS dialogs (alert/confirm/prompt/beforeunload).
+    public func pendingDialogs() async -> [[String: Any]] {
+        await events.dialogs()
+    }
+
     /// Poll the socket for matching responses (loop-tap style: drain
     /// continuously in a task).
     public func startReader() {
@@ -88,8 +111,15 @@ public final class CDPCommandChannel: @unchecked Sendable {
                     let message = try await socket.receive()
                     guard case .string(let text) = message,
                           let data = text.data(using: .utf8),
-                          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                          let id = json["id"] as? Int else { continue }
+                          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+                    // Event notifications carry a method and no id — route to
+                    // the console/dialog buffers (CDP internals exception:
+                    // @unchecked Sendable + actor buffering).
+                    if let method = json["method"] as? String, json["id"] == nil {
+                        await self?.routeEvent(method: method, json: json)
+                        continue
+                    }
+                    guard let id = json["id"] as? Int else { continue }
                     if let cont = self?.pending.removeValue(forKey: id) {
                         if let error = json["error"] as? [String: Any] {
                             cont.resume(throwing: CDPError.commandFailed(error["message"] as? String ?? "unknown"))
@@ -107,6 +137,70 @@ public final class CDPCommandChannel: @unchecked Sendable {
             }
         }
     }
+
+    private func routeEvent(method: String, json: [String: Any]) async {
+        let params = json["params"] as? [String: Any] ?? [:]
+        switch method {
+        case "Runtime.consoleAPICalled":
+            let type = params["type"] as? String ?? "log"
+            let args = params["args"] as? [[String: Any]] ?? []
+            let text = args.compactMap { arg -> String? in
+                if let v = arg["value"] { return String(describing: v) }
+                if let d = arg["description"] as? String { return d }
+                return nil
+            }.joined(separator: " ")
+            await events.appendConsole(type: type, text: text)
+
+        case "Runtime.exceptionThrown":
+            let details = params["exceptionDetails"] as? [String: Any] ?? [:]
+            let text = details["text"] as? String ?? "uncaught exception"
+            let exception = details["exception"] as? [String: Any] ?? [:]
+            let desc = exception["description"] as? String ?? ""
+            let value = exception["value"] as? String ?? ""
+            await events.appendConsole(type: "error", text: desc.isEmpty ? (value.isEmpty ? text : "\(text): \(value)") : desc)
+
+        case "Page.javascriptDialogOpening":
+            await events.appendDialog(params: [
+                "type": params["type"] as? String ?? "alert",
+                "message": params["message"] as? String ?? "",
+                "url": params["url"] as? String ?? "",
+            ])
+
+        case "Runtime.executionContextsCleared":
+            await events.clearConsole()
+
+        default:
+            break
+        }
+    }
+}
+
+/// Actor-buffered console/dialog events (CDP internals exception: the
+/// reader task appends; tools drain).
+actor CDPEventLog {
+    private var consoleBuffer: [(type: String, text: String)] = []
+    private var dialogBuffer: [[String: Any]] = []
+
+    func appendConsole(type: String, text: String) {
+        guard !text.isEmpty else { return }
+        consoleBuffer.append((type, text))
+        if consoleBuffer.count > 1_000 { consoleBuffer.removeFirst(consoleBuffer.count - 1_000) }
+    }
+
+    func appendDialog(params: [String: Any]) {
+        dialogBuffer.append(params)
+        if dialogBuffer.count > 20 { dialogBuffer.removeFirst(dialogBuffer.count - 20) }
+    }
+
+    func clearConsole() { consoleBuffer.removeAll() }
+
+    func drainConsole(clear: Bool) -> [String] {
+        let lines = consoleBuffer.map { "[\($0.type)] \($0.text)" }
+        if clear { consoleBuffer.removeAll() }
+        return lines
+    }
+
+    func dialogs() -> [[String: Any]] { dialogBuffer }
 }
 
 public enum CDPError: Error, CustomStringConvertible {
@@ -158,6 +252,8 @@ public final class CDPBrowserProvider: BrowserProvider, @unchecked Sendable {
 
     private func attach(id: String) async throws {
         _ = try await channel.send(method: "Target.attachToTarget", params: ["targetId": id, "flatten": true])
+        // Console/dialog capture (Hermes: always-on while connected).
+        try await channel.enableEventCapture()
     }
 
     public func navigate(url: String) async throws -> String {
@@ -241,6 +337,100 @@ public final class CDPBrowserProvider: BrowserProvider, @unchecked Sendable {
             return "\"\""
         }
         return String(data: data, encoding: .utf8) ?? "\"\""
+    }
+
+    // MARK: - Extended CDP capabilities (Hermes browser_* family)
+
+    /// Evaluate a JS expression in the page context; results are serialized
+    /// to JSON (Hermes browser_console `expression` path).
+    public func evaluate(expression: String) async throws -> String {
+        let id = try await ensureAttached()
+        try await attach(id: id)
+        let result = try await channel.send(method: "Runtime.evaluate", params: [
+            "expression": expression,
+            "returnByValue": true,
+            "awaitPromise": true,
+        ])
+        guard let remote = result["result"] as? [String: Any] else { return "undefined" }
+        if let value = remote["value"] as? String { return value }
+        if remote["value"] != nil {
+            let data = try JSONSerialization.data(withJSONObject: remote["value"] as Any, options: [.fragmentsAllowed])
+            return String(data: data, encoding: .utf8) ?? "undefined"
+        }
+        return remote["description"] as? String ?? "undefined"
+    }
+
+    /// Read console output + JS errors (Hermes browser_console).
+    public func consoleMessages(clear: Bool) async throws -> String {
+        let id = try await ensureAttached()
+        try await attach(id: id)
+        let lines = await channel.drainConsole(clear: clear)
+        return lines.isEmpty ? "(no console messages)" : lines.joined(separator: "\n")
+    }
+
+    /// List images on the page with URLs and alt text (Hermes browser_get_images).
+    public func listImages() async throws -> String {
+        let js = """
+        JSON.stringify(Array.from(document.images).map(i => ({
+          src: i.currentSrc || i.src || '',
+          alt: i.alt || ''
+        })))
+        """
+        let raw = try await evaluate(expression: js)
+        guard let data = raw.data(using: .utf8),
+              let items = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return "(no images)"
+        }
+        if items.isEmpty { return "(no images)" }
+        return items.map { "\($0["alt"] as? String ?? "") — \($0["src"] as? String ?? "")" }
+            .joined(separator: "\n")
+    }
+
+    /// Capture a screenshot of the page, save as PNG, return the path
+    /// (Hermes browser_vision screenshot half).
+    public func screenshot() async throws -> String {
+        let id = try await ensureAttached()
+        try await attach(id: id)
+        let result = try await channel.send(method: "Page.captureScreenshot", params: [
+            "format": "png",
+            "fromSurface": true,
+        ])
+        guard let base64 = result["data"] as? String,
+              let data = Data(base64Encoded: base64, options: [.ignoreUnknownCharacters]) else {
+            throw CDPError.commandFailed("no screenshot data returned")
+        }
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("arc-browser-shots", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let path = dir.appendingPathComponent("shot-\(Int(Date().timeIntervalSince1970)).png")
+        try data.write(to: path)
+        return path.path
+    }
+
+    /// Buffered native JS dialogs (Hermes snapshot `pending_dialogs`).
+    public func dialogs() async throws -> [[String: Any]] {
+        let id = try await ensureAttached()
+        try await attach(id: id)
+        return await channel.pendingDialogs()
+    }
+
+    /// Respond to a blocking native dialog (Hermes browser_dialog).
+    public func handleDialog(accept: Bool, promptText: String) async throws -> String {
+        let id = try await ensureAttached()
+        try await attach(id: id)
+        var params: [String: Any] = ["accept": accept]
+        if accept, !promptText.isEmpty { params["promptText"] = promptText }
+        _ = try await channel.send(method: "Page.handleJavaScriptDialog", params: params)
+        return accept ? "Dialog accepted\(promptText.isEmpty ? "" : ": \"\(promptText)\"")" : "Dialog dismissed"
+    }
+
+    /// Raw CDP passthrough (Hermes browser_cdp escape hatch).
+    public func rawCDP(method: String, params: [String: Any]) async throws -> String {
+        let id = try await ensureAttached()
+        try await attach(id: id)
+        let result = try await channel.send(method: method, params: params)
+        let data = try JSONSerialization.data(withJSONObject: result as Any, options: [.prettyPrinted, .fragmentsAllowed])
+        return String(data: data, encoding: .utf8) ?? "{}"
     }
 }
 
@@ -345,5 +535,113 @@ public enum BrowserTools {
             return try await provider.back()
         },
         emoji: "↩️"
+    )
+
+    static func requireCDP() async throws -> CDPBrowserProvider {
+        let provider = try await requireProvider()
+        guard let cdp = provider as? CDPBrowserProvider else {
+            throw CDPError.commandFailed("this operation requires the CDP browser provider")
+        }
+        return cdp
+    }
+
+    public static let console = ToolEntry(
+        name: "browser_console",
+        toolset: "browser",
+        description: "Get browser console output and JavaScript errors from the current page. "
+            + "Returns console.log/warn/error/info messages and uncaught JS exceptions. Use this "
+            + "to detect silent JavaScript errors, failed API calls, and application warnings. "
+            + "Requires browser_navigate to be called first. When 'expression' is provided, "
+            + "evaluates JavaScript in the page context and returns the result — use this for "
+            + "DOM inspection, reading page state, or extracting data programmatically.",
+        schema: .object(properties: [
+            "clear": .boolean(description: "If true, clear the message buffers after reading"),
+            "expression": .string(description: "JavaScript expression to evaluate in the page context. "
+                + "Runs in the browser like DevTools console — full access to DOM, window, document. "
+                + "Return values are serialized to JSON. Example: 'document.title' or "
+                + "'document.querySelectorAll(\"a\").length'"),
+        ]),
+        handler: { args in
+            let cdp = try await requireCDP()
+            if let expr = args["expression"] as? String, !expr.isEmpty {
+                return try await cdp.evaluate(expression: expr)
+            }
+            let clear = (args["clear"] as? Bool) ?? false
+            return try await cdp.consoleMessages(clear: clear)
+        },
+        emoji: "🖥️"
+    )
+
+    public static let getImages = ToolEntry(
+        name: "browser_get_images",
+        toolset: "browser",
+        description: "Get a list of all images on the current page with their URLs and alt text. "
+            + "Useful for finding images to analyze with the vision tool. Requires browser_navigate "
+            + "to be called first.",
+        schema: .object(properties: [:]),
+        handler: { _ in
+            let cdp = try await requireCDP()
+            return try await cdp.listImages()
+        },
+        emoji: "🖼️"
+    )
+
+    public static let vision = ToolEntry(
+        name: "browser_vision",
+        toolset: "browser",
+        description: "Take a screenshot of the current page so you can inspect it visually (CDP "
+            + "provider). Returns a screenshot_path you can share with the user by including "
+            + "MEDIA:<screenshot_path> in your response. Requires browser_navigate to be called first.",
+        schema: .object(properties: [
+            "question": .string(description: "What you want to know about the page visually. "
+                + "Be specific about what you're looking for."),
+        ], required: ["question"]),
+        handler: { _ in
+            let cdp = try await requireCDP()
+            return try await cdp.screenshot()
+        },
+        emoji: "📸"
+    )
+
+    public static let dialog = ToolEntry(
+        name: "browser_dialog",
+        toolset: "browser",
+        description: "Respond to a native JavaScript dialog (alert / confirm / prompt / "
+            + "beforeunload) that is currently blocking the page. Call browser_snapshot first — if "
+            + "a dialog is open, it appears in the output. Then call this tool with action='accept' "
+            + "or action='dismiss'. For prompt dialogs pass prompt_text to supply the response "
+            + "string; ignored for alert/confirm/beforeunload (CDP provider).",
+        schema: .object(properties: [
+            "action": .enum(description: "accept or dismiss", values: ["accept", "dismiss"]),
+            "prompt_text": .string(description: "Response string for prompt dialogs"),
+        ], required: ["action"]),
+        handler: { args in
+            let cdp = try await requireCDP()
+            let action: String = try MediaTools.required(args, key: "action")
+            let text: String = (args["prompt_text"] as? String) ?? ""
+            return try await cdp.handleDialog(accept: action == "accept", promptText: text)
+        },
+        emoji: "🗔"
+    )
+
+    public static let cdp = ToolEntry(
+        name: "browser_cdp",
+        toolset: "browser",
+        description: "Send a raw Chrome DevTools Protocol (CDP) command. Escape hatch for browser "
+            + "operations not covered by browser_navigate, browser_click, browser_console, etc. "
+            + "Examples: method='Target.getTargets'; method='Network.getAllCookies'; "
+            + "method='Page.handleJavaScriptDialog' with {'accept': true}; method='Runtime.evaluate' "
+            + "with {'expression': '...', 'returnByValue': true}. Requires a reachable CDP endpoint.",
+        schema: .object(properties: [
+            "method": .string(description: "CDP method, e.g. 'Target.getTargets'"),
+            "params": .object(description: "CDP params object", properties: [:]),
+        ], required: ["method"]),
+        handler: { args in
+            let cdp = try await requireCDP()
+            let method: String = try MediaTools.required(args, key: "method")
+            let params = args["params"] as? [String: Any] ?? [:]
+            return try await cdp.rawCDP(method: method, params: params)
+        },
+        emoji: "🔧"
     )
 }

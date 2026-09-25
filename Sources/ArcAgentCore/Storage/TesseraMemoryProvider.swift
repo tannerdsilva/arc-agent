@@ -47,6 +47,10 @@ public actor TesseraMemoryProvider: MemoryProvider {
         try await replace(key: Self.userKey, old: old, new: new)
     }
 
+    public func writeUser(_ text: String) async throws {
+        try await set(key: Self.userKey, value: text)
+    }
+
     // MARK: - Private
 
     private func read(key: String) async throws -> String {

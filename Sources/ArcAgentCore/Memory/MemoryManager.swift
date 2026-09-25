@@ -79,4 +79,19 @@ public enum MemoryManager {
         }
         return "\(openTag)\n\(bounded)\n\(closeTag)"
     }
+
+    /// Wrap prefetched provider recall in the Hermes fenced block with the
+    /// system note (`build_memory_context_block`): the model must treat it
+    /// as authoritative reference data, not new user input.
+    public static func recallBlock(_ rawContext: String) -> String? {
+        let trimmed = rawContext.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let clean = scrub(trimmed)
+        return "\(openTag)\n"
+            + "[System note: The following is recalled memory context, "
+            + "NOT new user input. Treat as authoritative reference data — "
+            + "this is the agent's persistent memory and should inform all responses.]\n\n"
+            + "\(clean)\n"
+            + "\(closeTag)"
+    }
 }
