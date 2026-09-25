@@ -35,13 +35,53 @@ public actor DeliveryManager {
     /// the response has already been (or will be) delivered to the caller via
     /// its own channel (HTTP response / WS frame), so no push delivery is
     /// needed.
-    public func send(message: OutgoingMessage, to target: ChatTarget) async throws {
+    @discardableResult
+    public func send(message: OutgoingMessage, to target: ChatTarget) async throws -> SendResult {
         // Local request/response platforms need no push delivery.
-        guard !localPlatforms.contains(target.platform) else { return }
+        guard !localPlatforms.contains(target.platform) else {
+            return SendResult(messageID: nil)
+        }
         guard let adapter = adapters[target.platform] else {
             throw GatewayError.unknownPlatform(target.platform)
         }
-        try await adapter.send(message: message, to: target)
+        return try await adapter.send(message: message, to: target)
+    }
+
+    /// Whether the adapter for `target.platform` supports in-place edits
+    /// (the live-streaming path).
+    public func canEdit(to target: ChatTarget) -> Bool {
+        guard !localPlatforms.contains(target.platform),
+              let adapter = adapters[target.platform] else { return false }
+        return adapter.canEditMessages
+    }
+
+    /// Replace a previously streamed message in place.
+    public func update(
+        messageID: String,
+        text: String,
+        parseMode: String?,
+        to target: ChatTarget
+    ) async throws {
+        guard let adapter = adapters[target.platform] else {
+            throw GatewayError.unknownPlatform(target.platform)
+        }
+        try await adapter.sendUpdate(messageID: messageID, text: text, parseMode: parseMode, to: target)
+    }
+
+    /// Show the platform's typing indicator in `target`. No-op for local
+    /// platforms and adapters without a typing API.
+    public func sendTyping(to target: ChatTarget) async throws {
+        guard !localPlatforms.contains(target.platform),
+              let adapter = adapters[target.platform] else { return }
+        try await adapter.sendTyping(to: target)
+    }
+
+    /// Delete a previously sent message through the adapter.
+    public func delete(messageID: String, to target: ChatTarget) async throws {
+        guard let adapter = adapters[target.platform] else {
+            throw GatewayError.unknownPlatform(target.platform)
+        }
+        try await adapter.deleteMessage(messageID: messageID, to: target)
     }
 
     /// Send a progress update (partial message) to a chat target.
@@ -57,6 +97,7 @@ public enum GatewayError: Error, Sendable, CustomStringConvertible {
     case adapterNotRunning(String)
     case agentCreationFailed(String)
     case sessionNotFound(String)
+    case unsupportedOperation(String)
 
     public var description: String {
         switch self {
@@ -64,6 +105,7 @@ public enum GatewayError: Error, Sendable, CustomStringConvertible {
         case .adapterNotRunning(let p): return "Adapter not running: \(p)"
         case .agentCreationFailed(let s): return "Agent creation failed: \(s)"
         case .sessionNotFound(let s): return "Session not found: \(s)"
+        case .unsupportedOperation(let s): return "Unsupported operation: \(s)"
         }
     }
 }

@@ -54,6 +54,8 @@ public struct IncomingMessage: Sendable {
     public let isReply: Bool
     /// The message ID this is replying to, if applicable.
     public let replyToID: String?
+    /// Whether the message @-mentions the bot (used by mention gating).
+    public let isMention: Bool
     /// Raw platform-specific metadata.
     public let raw: [String: AnySendable]?
 
@@ -65,6 +67,7 @@ public struct IncomingMessage: Sendable {
         senderName: String? = nil,
         isReply: Bool = false,
         replyToID: String? = nil,
+        isMention: Bool = false,
         raw: [String: AnySendable]? = nil
     ) {
         self.id = id
@@ -74,6 +77,7 @@ public struct IncomingMessage: Sendable {
         self.senderName = senderName
         self.isReply = isReply
         self.replyToID = replyToID
+        self.isMention = isMention
         self.raw = raw
     }
 }
@@ -88,6 +92,8 @@ public struct OutgoingMessage: Sendable {
     public let isPartial: Bool
     /// Optional attachments (file URLs or data references).
     public let attachments: [Attachment]?
+    /// Free-form metadata carried with the send (e.g. email reply threading).
+    public let metadata: [String: String]?
 
     public struct Attachment: Sendable {
         public let filename: String
@@ -105,12 +111,14 @@ public struct OutgoingMessage: Sendable {
         text: String,
         parseMode: String? = "markdown",
         isPartial: Bool = false,
-        attachments: [Attachment]? = nil
+        attachments: [Attachment]? = nil,
+        metadata: [String: String]? = nil
     ) {
         self.text = text
         self.parseMode = parseMode
         self.isPartial = isPartial
         self.attachments = attachments
+        self.metadata = metadata
     }
 }
 

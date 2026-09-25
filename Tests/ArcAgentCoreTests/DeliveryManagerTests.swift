@@ -41,8 +41,9 @@ final class StubAdapter: PlatformAdapter, @unchecked Sendable {
         _sentCount += 1
     }
 
-    func send(message: OutgoingMessage, to target: ChatTarget) async throws {
+    func send(message: OutgoingMessage, to target: ChatTarget) async throws -> SendResult {
         record()
+        return SendResult(messageID: nil)
     }
 
     var incomingMessages: AsyncStream<IncomingMessage> {

@@ -139,14 +139,82 @@ public actor SessionAgent: Service {
             logger.info("step: entering message loop")
             for try await message in incomingMessages {
                 logger.info("step: running conversation")
-                let response = try await agent.runConversation(message: message.text)
-                let outgoing = OutgoingMessage(text: response)
+                let chat = message.chat
+
+                // Live streaming delivery (Hermes parity): typing indicator +
+                // in-place edits while the agent streams, final edit/send at end.
+                var editable = await deliveryManager.canEdit(to: chat)
+                var buffer = ""
+                var latestID: String? = nil
+                var lastEditAt = Date.distantPast
+                let typingTask = Task {
+                    while !Task.isCancelled {
+                        try? await deliveryManager.sendTyping(to: chat)
+                        try? await Task.sleep(for: .seconds(3.5))
+                    }
+                }
+                var streamError: Error? = nil
+                do {
+                    let stream = agent.streamConversation(message: message.text)
+                    for try await delta in stream {
+                        buffer += delta
+                        if editable, let id = latestID,
+                           Date().timeIntervalSince(lastEditAt) > 0.8 {
+                            do {
+                                try await deliveryManager.update(
+                                    messageID: id, text: buffer, parseMode: nil, to: chat
+                                )
+                                lastEditAt = Date()
+                            } catch {
+                                // Adapter rejects in-place edits (too long,
+                                // unsupported) — drop the partial and fall
+                                // back to send-once at the end.
+                                logger.notice("gateway: edit fell back: \(error)")
+                                if let id = latestID {
+                                    try? await deliveryManager.delete(messageID: id, to: chat)
+                                }
+                                latestID = nil
+                                editable = false
+                            }
+                        } else if editable, latestID == nil {
+                            // First delta becomes the initial message to edit.
+                            let result = try await deliveryManager.send(
+                                message: OutgoingMessage(text: buffer, isPartial: true), to: chat
+                            )
+                            latestID = result.messageID
+                            lastEditAt = Date()
+                        }
+                    }
+                } catch {
+                    streamError = error
+                }
+                typingTask.cancel()
+
+                let finalText = buffer
+                do {
+                    if let error = streamError { throw error }
+                    if editable, let id = latestID, finalText.count <= 4096 {
+                        try await deliveryManager.update(
+                            messageID: id, text: finalText, parseMode: nil, to: chat
+                        )
+                    } else {
+                        // Email threading metadata from the inbound message
+                        // (subject / In-Reply-To / References) rides along on
+                        // final delivery so replies continue the thread.
+                        let meta = emailMetadata(for: message)
+                        let result = try await deliveryManager.send(
+                            message: OutgoingMessage(text: finalText, metadata: meta), to: chat
+                        )
+                        latestID = result.messageID
+                    }
+                } catch {
+                    logger.error("gateway: delivery failed for \(chat.platform): \(error)")
+                }
 
                 // Send response through BOTH channels:
                 // 1. Response continuation (for HTTP API callers awaiting the result)
-                responseContinuation.yield(response)
+                responseContinuation.yield(finalText)
                 // 2. Delivery manager (for platform adapters like Telegram)
-                try await deliveryManager.send(message: outgoing, to: message.chat)
 
                 // Report activity for the \"active now\" strip
                 if let messaging = await registry.messagingService {
@@ -166,5 +234,17 @@ public actor SessionAgent: Service {
         try? await httpClient.shutdown()
         responseContinuation.finish()
         await registry.removeIfCurrent(sessionID: sessionID, agent: self)
+    }
+
+    /// Extract email reply-threading metadata carried on the inbound message.
+    private nonisolated func emailMetadata(for message: IncomingMessage) -> [String: String]? {
+        guard message.chat.platform == "email",
+              let raw = message.raw,
+              let subject = raw["emailSubject"]?.value as? String else { return nil }
+        return [
+            "subject": subject,
+            "inReplyTo": (raw["emailMessageID"]?.value as? String) ?? "",
+            "references": (raw["emailReferences"]?.value as? String) ?? "",
+        ]
     }
 }

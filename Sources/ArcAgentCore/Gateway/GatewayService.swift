@@ -2,6 +2,7 @@ import Foundation
 import AsyncHTTPClient
 import ServiceLifecycle
 import Logging
+import NIO
 
 /// The top-level gateway service that manages the HTTP server, platform
 /// adapters, session registry, and message routing.
@@ -20,7 +21,7 @@ public struct GatewayService: Service {
 
     private let httpServer: HTTPServerService
     private let wsServer: WebSocketServerService
-    private let telegramAdapter: TelegramAdapter?
+    private let platformAdapters: [any PlatformAdapter]
     private let registry: SessionRegistry
     private let deliveryManager: DeliveryManager
     private let botMessaging: BotMessagingService
@@ -34,6 +35,7 @@ public struct GatewayService: Service {
         host: String = "127.0.0.1",
         port: Int = 8080,
         telegramToken: String? = nil,
+        gatewayConfig: GatewayConfig? = nil,
         agentConfig: SessionRegistry.AgentConfig,
         profileRouting: ProfileRoutingConfig = ProfileRoutingConfig()
     ) {
@@ -101,15 +103,47 @@ public struct GatewayService: Service {
             onUI: nil
         )
 
-        // Set up Telegram adapter if token is provided
-        if let token = telegramToken {
-            self.telegramAdapter = TelegramAdapter(
-                botToken: token,
-                httpClient: HTTPClient(eventLoopGroupProvider: .singleton)
-            )
-        } else {
-            self.telegramAdapter = nil
+        // Build platform adapters from gateway config (or legacy token flag).
+        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+        var adapters: [any PlatformAdapter] = []
+        if let config = gatewayConfig {
+            if config.telegram.enabled, !config.telegram.botToken.isEmpty {
+                let adapter = TelegramAdapter(
+                    botToken: config.telegram.botToken,
+                    allowedUsers: config.telegram.allowedUsers,
+                    allowAllUsers: config.telegram.allowAllUsers,
+                    homeChannel: config.telegram.homeChannel,
+                    typingIndicator: config.telegram.typingIndicator,
+                    replyToMode: config.telegram.replyToMode,
+                    requireMention: config.telegram.requireMention,
+                    pollInterval: .seconds(config.telegram.pollIntervalSeconds),
+                    httpClient: httpClient
+                )
+                adapters.append(adapter)
+            }
+            if config.email.enabled, !config.email.address.isEmpty, !config.email.password.isEmpty {
+                let adapter = EmailAdapter(config: config.email)
+                adapters.append(adapter)
+            }
+            if config.slack.enabled, !config.slack.botToken.isEmpty, !config.slack.appToken.isEmpty {
+                let adapter = SlackAdapter(
+                    botToken: config.slack.botToken,
+                    appToken: config.slack.appToken,
+                    allowedUsers: config.slack.allowedUsers,
+                    allowAllUsers: config.slack.allowAllUsers,
+                    homeChannel: config.slack.homeChannel,
+                    replyToMode: config.slack.replyToMode,
+                    requireMention: config.slack.requireMention,
+                    httpClient: httpClient,
+                    eventLoopGroup: MultiThreadedEventLoopGroup.singleton
+                )
+                adapters.append(adapter)
+            }
+        } else if let token = telegramToken {
+            let adapter = TelegramAdapter(botToken: token, httpClient: httpClient)
+            adapters.append(adapter)
         }
+        self.platformAdapters = adapters
     }
 
     // MARK: - Service
@@ -118,15 +152,16 @@ public struct GatewayService: Service {
         logger.info("Starting ARC Agent Gateway (Bot Mode)...")
 
         var services: [any Service] = [httpServer, wsServer, botMessaging]
-        if let telegram = telegramAdapter {
-            services.append(telegram)
-            // Ingest platform messages into sessions, routing each to the
-            // profile its route table specifies (default when unmatched).
-            // Same consumption pattern as the HTTP path; the task's lifetime
-            // is bounded by the adapter's AsyncStream (see
-            // TelegramAdapter.incomingMessages).
+
+        // Register adapters for delivery, then ingest their messages into
+        // sessions — routing each chat to the profile its route table
+        // specifies (default when unmatched). The consumption tasks' lifetime
+        // is bounded by each adapter's AsyncStream.
+        for adapter in platformAdapters {
+            await deliveryManager.register(adapter: adapter)
+            services.append(adapter)
             Task {
-                for await incoming in telegram.incomingMessages {
+                for await incoming in adapter.incomingMessages {
                     let profile = ProfileRouteResolver.profile(
                         for: incoming.chat,
                         routes: self.profileRoutes,

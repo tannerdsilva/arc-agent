@@ -39,6 +39,10 @@ let package = Package(
             from: "2.100.0"
         ),
         .package(
+            url: "https://github.com/apple/swift-nio-ssl.git",
+            from: "2.37.0"
+        ),
+        .package(
             url: "https://github.com/apple/swift-nio-extras.git",
             from: "1.26.0"
         ),
@@ -84,6 +88,7 @@ let package = Package(
                 .product(name: "MCP", package: "swift-mcp"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOWebSocket", package: "swift-nio"),
+                .product(name: "NIOSSL", package: "swift-nio-ssl"),
                 .product(name: "NIOHTTP1", package: "swift-nio"),
                 .product(name: "NIOHTTPTypes", package: "swift-nio-extras"),
                 .product(name: "HTTPTypes", package: "swift-http-types"),

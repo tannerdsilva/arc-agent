@@ -214,18 +214,35 @@ struct Serve: AsyncParsableCommand {
             toolLoopCap: arcConfig.effectiveToolLoopCap()
         )
 
+        // Load gateway config (per-platform blocks; env var overrides).
+        // ~/.arc/gateway.json (sits next to config.json), Hermes-style env
+        // overrides on top.
+        let arcHome = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".arc", isDirectory: true)
+        let gatewayConfig = GatewayConfig.load(
+            home: arcHome,
+            environment: ProcessInfo.processInfo.environment
+        )
+
         let gateway = GatewayService(
             host: host,
             port: port,
             telegramToken: telegramToken ?? ProcessInfo.processInfo.environment["TELEGRAM_BOT_TOKEN"],
+            gatewayConfig: gatewayConfig,
             agentConfig: agentConfig
         )
 
         print("⚡ ARC Agent Gateway")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("HTTP server: http://\(host):\(port)")
-        if telegramToken != nil || ProcessInfo.processInfo.environment["TELEGRAM_BOT_TOKEN"] != nil {
+        if gatewayConfig.telegram.enabled || telegramToken != nil || ProcessInfo.processInfo.environment["TELEGRAM_BOT_TOKEN"] != nil {
             print("Telegram: enabled")
+        }
+        if gatewayConfig.email.enabled {
+            print("Email: enabled")
+        }
+        if gatewayConfig.slack.enabled {
+            print("Slack: enabled")
         }
         print("")
 
