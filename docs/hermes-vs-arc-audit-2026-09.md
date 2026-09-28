@@ -50,6 +50,15 @@ learning graph/journey CLI, OSV audit CLI, approvals suggest.
 | S4 | Retry/backoff + reasoning-timeout nuance | `error_classifier.py` (1,841 lines, per-error backoff table), `reasoning_timeouts.py`, `chat_completion_helpers` patience budgets/watchdogs | Arc `RetryHandler`/`CircuitBreaker`/`StalenessPolicy` exist | Low. Verify backoff-equation parity per error class; port gap if any. |
 | S5 | Ops/tuning CLIs | `hermes prompt-size`, `hermes doctor`, `hermes status`, `hermes backup`, `hermes logs` | Arc has none of these as commands | Low but high-usefulness: `prompt-size` (token breakdown per section) makes S1/S3 tunable; `doctor`/`status` speed ops. |
 
+> **Shipped (Sep 28 2026):** S1 + S5 implemented. `arc prompt-size` measures
+> **−1,815 tokens/prompt** (8,196 → 6,381; 55 → 38 schemas; manifest 318 tok)
+> on the built-in registry. Bridge trio `tool_search`/`tool_describe`/
+> `tool_call` (Hermes tiered disclosure), `tool_search` config
+> (`threshold_pct` / `listing_max_tokens` / `listing` / `deferred_toolsets`),
+> and `prompt-size [--json]` / `doctor` / `status` are live. CLI-level bridge
+> E2E pending credentials (key lives in user env; dispatch path shares the
+> tested `dispatchToolCall`).
+
 ### B. Response-quality levers
 
 | # | Gap | Hermes mechanism | Arc state | Impact |
