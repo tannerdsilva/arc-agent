@@ -136,9 +136,26 @@ public actor SessionAgent: Service {
                 await agent.injectSystemMessage(soul)
             }
 
-            // Process incoming messages
+            // Process incoming messages (with session-heartbeat injection:
+            // an idle session fires its `/heartbeat` prompt as a user turn).
             logger.info("step: entering message loop")
-            for try await message in incomingMessages {
+            let heartbeatStore = try HeartbeatStore()
+            let goalStore = try GoalStore()
+            let mergedMessages = HeartbeatInjector.merged(
+                over: incomingMessages,
+                sessionID: sessionID,
+                store: heartbeatStore
+            )
+            for try await firstMessage in mergedMessages {
+                var currentMessage: IncomingMessage? = firstMessage
+                while let message = currentMessage {
+                currentMessage = nil
+                if message.senderID == "heartbeat" {
+                    logger.info("step: heartbeat fired for session \(sessionID)")
+                } else {
+                    // Gateway learns the delivery chat for CLI-set heartbeats.
+                    await heartbeatStore.adoptChat(sessionID: sessionID, chat: message.chat)
+                }
                 logger.info("step: running conversation")
                 let chat = message.chat
 
@@ -191,7 +208,12 @@ public actor SessionAgent: Service {
                 }
                 typingTask.cancel()
 
-                let finalText = buffer
+                let mutableFinal = buffer
+                var finalText = mutableFinal
+                if agentConfig.verifyOnStop,
+                   let verification = await agent.runVerificationCheck(lastResponse: finalText) {
+                    finalText += "\n\n" + verification
+                }
                 do {
                     if let error = streamError { throw error }
                     if editable, let id = latestID, finalText.count <= 4096 {
@@ -203,8 +225,15 @@ public actor SessionAgent: Service {
                         // (subject / In-Reply-To / References) rides along on
                         // final delivery so replies continue the thread.
                         let meta = emailMetadata(for: message)
+                        // Deliverable mode (Hermes deliverable-mode.md):
+                        // ship generated files as native attachments and
+                        // strip the paths from the visible message.
+                        let (cleanText, paths) = DeliverableExtractor.extract(finalText)
+                        let attachments: [OutgoingMessage.Attachment]? = paths.isEmpty ? nil : paths.map {
+                            OutgoingMessage.Attachment(filename: ($0 as NSString).lastPathComponent, url: $0)
+                        }
                         let result = try await deliveryManager.send(
-                            message: OutgoingMessage(text: finalText, metadata: meta), to: chat
+                            message: OutgoingMessage(text: cleanText, attachments: attachments, metadata: meta), to: chat
                         )
                         latestID = result.messageID
                     }
@@ -217,9 +246,44 @@ public actor SessionAgent: Service {
                 responseContinuation.yield(finalText)
                 // 2. Delivery manager (for platform adapters like Telegram)
 
-                // Report activity for the \"active now\" strip
+                // Report activity for the "active now" strip
                 if let messaging = await registry.messagingService {
                     await messaging.reportActivity(profile: profile, kind: .turnCompleted)
+                }
+
+                // ── Standing-goal loop (Hermes `/goal`): judge after the turn
+                // and feed a continuation turn back into this session. ──
+                let outcome = await GoalLoop.afterTurn(
+                    sessionID: sessionID,
+                    store: goalStore,
+                    finalResponse: finalText,
+                    judge: { goal, last in
+                        await agent.runGoalJudge(goal: goal, lastResponse: last)
+                    },
+                    gateRunner: GoalLoop.defaultGateRunner(workdir: nil),
+                    workspaceRoot: WorkspacePath.root
+                )
+                switch outcome {
+                case .continueTurn(let continuationText):
+                    logger.info("goal: continuing turn for session \(sessionID)")
+                    currentMessage = IncomingMessage(
+                        id: "goal-\(Int(Date().timeIntervalSince1970))",
+                        chat: chat,
+                        text: continuationText,
+                        senderID: "goal",
+                        senderName: nil,
+                        isReply: false,
+                        replyToID: nil,
+                        isMention: false,
+                        raw: nil
+                    )
+                case .stopped(let stopMessage):
+                    try? await deliveryManager.send(
+                        message: OutgoingMessage(text: stopMessage), to: chat
+                    )
+                case .idle:
+                    break
+                }
                 }
             }
         } catch {

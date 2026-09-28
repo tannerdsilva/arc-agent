@@ -92,6 +92,9 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// Web capabilities (Hermes `web` block): search/extract backend selection.
     public var web: WebConfig
 
+    /// Standing-goal loop configuration (Hermes `goals.max_turns`).
+    public var goals: GoalsConfig
+
     /// Configuration for web search/extract backends (Hermes `web` block).
     public struct WebConfig: Codable, Sendable, Equatable {
         /// Backend used by `web_search` (Hermes `web.search_backend`).
@@ -140,6 +143,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         case plugins
         case profileRouting
         case agentPowers
+        case goals
         case mcpServers = "mcp_servers"
         case web
     }
@@ -162,7 +166,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         profileRouting: ProfileRoutingConfig = ProfileRoutingConfig(),
         agentPowers: AgentPowersConfig = AgentPowersConfig(),
         mcpServers: [String: MCPServerConfig] = [:],
-        web: WebConfig = WebConfig()
+        web: WebConfig = WebConfig(),
+        goals: GoalsConfig = GoalsConfig()
     ) {
         self.model = model
         self.agent = agent
@@ -180,6 +185,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.agentPowers = agentPowers
         self.mcpServers = mcpServers
         self.web = web
+        self.goals = goals
     }
 
     /// Decode each section independently, defaulting any that are absent.
@@ -188,6 +194,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.model = try container.decodeIfPresent(ModelConfig.self, forKey: .model) ?? ModelConfig()
         self.agent = try container.decodeIfPresent(AgentConfig.self, forKey: .agent) ?? AgentConfig()
         self.max_turns = try container.decodeIfPresent(Int.self, forKey: .max_turns)
+        self.goals = try container.decodeIfPresent(GoalsConfig.self, forKey: .goals) ?? GoalsConfig()
         self.guardrails = try container.decodeIfPresent(GuardrailsConfig.self, forKey: .guardrails) ?? GuardrailsConfig()
         self.terminal = try container.decodeIfPresent(TerminalConfig.self, forKey: .terminal) ?? TerminalConfig()
         self.delegation = try container.decodeIfPresent(DelegationConfig.self, forKey: .delegation) ?? DelegationConfig()
@@ -314,6 +321,16 @@ public struct AgentConfig: Codable, Sendable, Equatable {
     /// Rolling-summary size that triggers a defrag pass (Hermes
     /// `compression.micro_compact_defrag_threshold_tokens`).
     public var microCompactDefragThresholdTokens: Int
+    /// Personality overlay (`/personality <name>`): extra system-prompt text
+    /// appended to the base prompt (Hermes `agent.system_prompt`). Empty =
+    /// no overlay.
+    public var systemPrompt: String
+    /// Named personality overlays (Hermes `agent.personalities`): each entry
+    /// is either a plain string or `{description, system_prompt, tone, style}`.
+    public var personalities: [String: PersonalityOverlay]
+    /// Verify work at turn end (Hermes `verify_on_stop`): an aux verification
+    /// pass is appended when enabled.
+    public var verifyOnStop: Bool
 
     public init(
         maxIterations: Int = 25,
@@ -323,7 +340,10 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         reasoningEffort: String? = nil,
         microCompactEnabled: Bool = false,
         microCompactEveryNTurns: Int = 1,
-        microCompactDefragThresholdTokens: Int = 2000
+        microCompactDefragThresholdTokens: Int = 2000,
+        systemPrompt: String = "",
+        personalities: [String: PersonalityOverlay] = [:],
+        verifyOnStop: Bool = false
     ) {
         self.maxIterations = maxIterations
         self.max_turns = max_turns
@@ -333,6 +353,9 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         self.microCompactEnabled = microCompactEnabled
         self.microCompactEveryNTurns = microCompactEveryNTurns
         self.microCompactDefragThresholdTokens = microCompactDefragThresholdTokens
+        self.systemPrompt = systemPrompt
+        self.personalities = personalities
+        self.verifyOnStop = verifyOnStop
     }
 
     /// Decode each field independently, defaulting any that are absent.
@@ -346,6 +369,9 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         self.microCompactEnabled = try container.decodeIfPresent(Bool.self, forKey: .microCompactEnabled) ?? AgentConfig().microCompactEnabled
         self.microCompactEveryNTurns = try container.decodeIfPresent(Int.self, forKey: .microCompactEveryNTurns) ?? AgentConfig().microCompactEveryNTurns
         self.microCompactDefragThresholdTokens = try container.decodeIfPresent(Int.self, forKey: .microCompactDefragThresholdTokens) ?? AgentConfig().microCompactDefragThresholdTokens
+        self.systemPrompt = try container.decodeIfPresent(String.self, forKey: .systemPrompt) ?? ""
+        self.personalities = try container.decodeIfPresent([String: PersonalityOverlay].self, forKey: .personalities) ?? [:]
+        self.verifyOnStop = try container.decodeIfPresent(Bool.self, forKey: .verifyOnStop) ?? false
     }
 }
 
@@ -406,6 +432,22 @@ public struct DelegationConfig: Codable, Sendable, Equatable {
     }
 }
 
+/// Standing-goal configuration (Hermes `goals.max_turns`).
+public struct GoalsConfig: Codable, Sendable, Equatable {
+    /// Max continuation turns before auto-pause. Default 20.
+    public var maxTurns: Int
+
+    public init(maxTurns: Int = 20) {
+        self.maxTurns = maxTurns
+    }
+
+    /// Decode each field independently, defaulting any that are absent.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.maxTurns = try container.decodeIfPresent(Int.self, forKey: .maxTurns) ?? GoalsConfig().maxTurns
+    }
+}
+
 /// Memory system configuration.
 public struct MemoryConfig: Codable, Sendable, Equatable {
     /// Whether memory is enabled.
@@ -435,11 +477,16 @@ public struct SecurityConfig: Codable, Sendable, Equatable {
     /// Commands pre-exempted from approval ("Always allow" choices).
     /// Matched by exact, trimmed command string.
     public var alwaysAllowedCommands: [String]
+    /// Tool gateway policy (Hermes `tool_gateway`): ordered allow/deny rules
+    /// over tool invocations, enforced before dispatch.
+    public var toolGateway: ToolGatewayConfig
 
-    public init(approvalMode: String = "manual", yoloMode: Bool = false, alwaysAllowedCommands: [String] = []) {
+    public init(approvalMode: String = "manual", yoloMode: Bool = false,
+                alwaysAllowedCommands: [String] = [], toolGateway: ToolGatewayConfig = ToolGatewayConfig()) {
         self.approvalMode = approvalMode
         self.yoloMode = yoloMode
         self.alwaysAllowedCommands = alwaysAllowedCommands
+        self.toolGateway = toolGateway
     }
 
     /// Decode each field independently, defaulting any that are absent.
@@ -448,6 +495,7 @@ public struct SecurityConfig: Codable, Sendable, Equatable {
         self.approvalMode = try container.decodeIfPresent(String.self, forKey: .approvalMode) ?? SecurityConfig().approvalMode
         self.yoloMode = try container.decodeIfPresent(Bool.self, forKey: .yoloMode) ?? SecurityConfig().yoloMode
         self.alwaysAllowedCommands = try container.decodeIfPresent([String].self, forKey: .alwaysAllowedCommands) ?? SecurityConfig().alwaysAllowedCommands
+        self.toolGateway = try container.decodeIfPresent(ToolGatewayConfig.self, forKey: .toolGateway) ?? ToolGatewayConfig()
     }
 }
 

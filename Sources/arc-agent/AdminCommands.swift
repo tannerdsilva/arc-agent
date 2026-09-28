@@ -163,7 +163,10 @@ struct SkillsCmd: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "skills",
         abstract: "Inspect the skills directory.",
-        subcommands: [SkillsList.self]
+        subcommands: [
+            SkillsList.self, SkillsAudit.self, SkillsUsage.self,
+            SkillsProvenance.self, SkillsSync.self,
+        ]
     )
 }
 

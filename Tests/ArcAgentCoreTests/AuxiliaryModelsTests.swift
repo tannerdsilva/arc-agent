@@ -9,13 +9,14 @@ struct AuxiliaryModelsTests {
     @Test("all Hermes auxiliary tasks exist with canonical keys, in Hermes order")
     func allTasks() {
         let expected = [
-            "vision", "compression", "web_extract", "approval", "clarify",
+            "vision", "compression", "web_extract", "approval", "goal_judge",
+            "verification", "clarify",
             "mcp", "title_generation", "memory_query_rewrite", "tts_audio_tags",
             "skills_hub", "triage_specifier", "kanban_decomposer",
             "profile_describer", "curator",
         ]
         #expect(AuxiliaryTask.allCases.map(\.key) == expected)
-        #expect(AuxiliaryTask.allCases.count == 14)
+        #expect(AuxiliaryTask.allCases.count == 16)
         for task in AuxiliaryTask.allCases {
             #expect(!task.displayName.isEmpty)
             #expect(!task.detail.isEmpty)

@@ -154,4 +154,20 @@ struct MCPClientTests {
         #expect(out.contains("unknown MCP server"))
         #expect(out.contains("nope"))
     }
+
+    @Test("mcp_tool action='list' reports configured servers (empty here)")
+    func toolListAction() async {
+        let out = await MCPProxy.runSuppressingErrors {
+            try await MCPClientTool.entry.handler(["action": "list"])
+        }
+        #expect(out.contains("No MCP servers configured"))
+    }
+
+    @Test("mcp_tool rejects unknown actions")
+    func toolUnknownAction() async {
+        let out = await MCPProxy.runSuppressingErrors {
+            try await MCPClientTool.entry.handler(["action": "explode"])
+        }
+        #expect(out.contains("unknown action"))
+    }
 }

@@ -61,6 +61,10 @@ public actor ArcAgent: Service {
         /// for smart approval, LLM compression, and task routing.
         public var auxiliary: AuxiliaryModelSet
 
+        /// Personality overlay text (`/personality <name>`), appended to the
+        /// system prompt as a `## Personality` section. Empty = no overlay.
+        public var personalityPrompt: String = ""
+
         /// Hermes micro-compaction (docs/micro-compaction.md): after each
         /// completed turn, absorb one exchange into a rolling summary. Off by
         /// default; enabled via `compression.micro_compact`.
@@ -73,6 +77,8 @@ public actor ArcAgent: Service {
 
         /// Mixture-of-Agents configuration (Hermes `moa` config block).
         public var moa: MoAConfig
+        /// Tool-gateway policy (Hermes `tool_gateway`), enforced at dispatch.
+        public var gateway: ToolGatewayConfig = ToolGatewayConfig()
 
         /// The session ID to restore persisted history from. `nil` starts a
         /// fresh session with a new UUID.
@@ -127,6 +133,7 @@ public actor ArcAgent: Service {
             query: String? = nil,
             maxContextTokens: Int = 64_000,
             auxiliary: AuxiliaryModelSet = AuxiliaryModelSet(),
+            personalityPrompt: String = "",
             microCompact: MicroCompactConfig = MicroCompactConfig(),
             sessionID: String? = nil,
             contextLength: Int? = nil,
@@ -159,6 +166,7 @@ public actor ArcAgent: Service {
             self.query = query
             self.maxContextTokens = maxContextTokens
             self.auxiliary = auxiliary
+            self.personalityPrompt = personalityPrompt
             self.microCompact = microCompact
             self.agentPowers = agentPowers
             self.sessionID = sessionID
@@ -322,6 +330,52 @@ public actor ArcAgent: Service {
             if low.contains("danger") { return .dangerous }
             if low.contains("suspicious") { return .suspicious }
             return .safe
+        } catch {
+            return nil
+        }
+    }
+
+    /// End-of-turn verification (Hermes `verify_on_stop`): an aux pass that
+    /// checks whether the work is actually complete/consistent. Fail-open.
+    public func runVerificationCheck(lastResponse: String) async -> String? {
+        guard let router = auxRouter, let hc = httpClient,
+              let client = router.makeClient(task: .verification, httpClient: hc) else {
+            return nil
+        }
+        do {
+            let prompt = """
+            The assistant just finished responding to the user. Independently verify \
+            the work: is anything claimed but missing, broken, or unverified? \
+            If all is well reply "verified". If something needs attention, say \
+            exactly what (max 3 sentences).\n\nResponse:\n\(lastResponse)
+            """
+            let resp = try await client.complete(
+                messages: [Message(role: .user, content: prompt)],
+                tools: nil,
+                reasoningEffort: nil
+            )
+            let content = (resp.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !content.isEmpty, content.lowercased() != "verified" else { return nil }
+            return "⚠️ Verify-on-stop: \(content)"
+        } catch {
+            return nil
+        }
+    }
+
+    /// Run the standing-goal judge (Hermes `goal_judge` auxiliary task).
+    /// Fail-open: returns nil on any error (caller treats as `continue`).
+    public func runGoalJudge(goal: GoalState, lastResponse: String) async -> GoalJudgeResult? {
+        guard let router = auxRouter, let hc = httpClient,
+              let client = router.makeClient(task: .goalJudge, httpClient: hc) else {
+            return nil
+        }
+        do {
+            let resp = try await client.complete(
+                messages: [Message(role: .user, content: GoalLoop.judgePrompt(goal: goal, finalResponse: lastResponse))],
+                tools: nil,
+                reasoningEffort: nil
+            )
+            return GoalJudgeResult.parse(resp.content ?? "")
         } catch {
             return nil
         }
@@ -2256,6 +2310,22 @@ public actor ArcAgent: Service {
             return "Error: Unknown tool '\(toolCall.function.name)'."
         }
 
+        // ── Tool gateway (Hermes `tool_gateway` / managed scope): policy is
+        // evaluated before any approval/danger logic and before execution. ──
+        let gate = ToolGateway.decide(
+            toolName: toolCall.function.name,
+            toolset: entry.toolset,
+            config: config.gateway
+        )
+        switch gate.action {
+        case .deny:
+            return "[BLOCKED by tool gateway: \(toolCall.function.name) is not permitted\(gate.reason.map { " — \($0)" } ?? "")]"
+        case .requireApproval:
+            return "[REQUIRES APPROVAL (tool gateway): \(toolCall.function.name)\(gate.reason.map { " — \($0)" } ?? "") — enable the rule's scope or switch the rule to deny/allow]"
+        case .allow:
+            break
+        }
+
         guard let data = toolCall.function.arguments.data(using: .utf8) else {
             return "Error: Invalid arguments JSON for tool '\(toolCall.function.name)'."
         }
@@ -2471,6 +2541,11 @@ public actor ArcAgent: Service {
             - Working directory for tools (relative paths resolve here): \(FileManager.default.currentDirectoryPath)
             - Use ~/... paths (or absolute paths) for user-visible locations; the `terminal` tool's shell expands `~`, and `write_file` accepts paths relative to the working directory.
             """
+
+        // ── Personality overlay (Hermes `/personality`, `agent.system_prompt`) ──
+        if !config.personalityPrompt.isEmpty {
+            stable += "\n\n## Personality\n\n\(config.personalityPrompt)"
+        }
 
         // ── Context tier ──
         var context = ""

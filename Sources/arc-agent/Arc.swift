@@ -26,6 +26,15 @@ struct Arc: AsyncParsableCommand {
             Tools.self,
             Profile.self,
             SessionsCmd.self,
+            ApprovalsCmd.self,
+            HeartbeatCmd.self,
+            PersonalityCmd.self,
+            GoalCmd.self,
+            SubgoalCmd.self,
+            CheckpointsCmd.self,
+            BlueprintCmd.self,
+            SecurityCmd.self,
+            LearningCmd.self,
             MemoryCmd.self,
             SkillsCmd.self,
             KanbanCmd.self,
@@ -205,6 +214,7 @@ struct Chat: AsyncParsableCommand {
             persistSessions: arcConfig.agent.persistSessions,
             approvalMode: approvalMode,
             query: query,
+            personalityPrompt: arcConfig.agent.systemPrompt,
             microCompact: MicroCompactConfig(
                 enabled: arcConfig.agent.microCompactEnabled,
                 everyNTurns: arcConfig.agent.microCompactEveryNTurns,
@@ -226,7 +236,15 @@ struct Chat: AsyncParsableCommand {
             // Single-query mode: stream the reply like Hermes — visible
             // tokens and tool activity instead of a silent wait.
             do {
-                for try await chunk in agent.streamConversation(message: query) {
+                // Context references: expand @file/@folder/@diff/@staged/@git/@url
+                // inline (CLI feature — Hermes context-references.md).
+                let root = FileManager.default.currentDirectoryPath
+                let expanded = await ContextReferenceExpander.expand(
+                    query, workspaceRoot: root,
+                    fetcher: ContextReferenceExpander.defaultFetcher(workspaceRoot: root)
+                )
+                for warning in expanded.warnings { print("[context] \(warning)") }
+                for try await chunk in agent.streamConversation(message: expanded.text) {
                     print(chunk, terminator: "")
                     // fflush is safe on TTYs and pipes; synchronizeFile would
                     // raise NSFileHandleOperationException on a pipe.

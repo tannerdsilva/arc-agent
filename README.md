@@ -49,7 +49,7 @@ arc-agent-webui (executable)                     — web UI on :8890
 └── Generated/KaTeXAssets.swift   (KaTeX CSS/JS/fonts, generated)
 ```
 
-**43 registered tools** across ~9 toolsets: `core`, `file`, `terminal`, `web`, `delegation`, `kanban`, `profile`, `media`, `webhooks`, `skills`.
+**55 registered tools** across ~13 toolsets: `core`, `file`, `terminal`, `web`, `delegation`, `kanban`, `profile`, `media`, `webhooks`, `skills`, `mcp`, `project`, `tools`, `messaging` (Hermes-parity: `project_*`, unified `skill_manage` + `skills_list`, `tool_search`, `send_message`).
 
 ## Quick Start
 

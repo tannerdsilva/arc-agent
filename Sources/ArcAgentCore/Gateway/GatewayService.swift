@@ -41,6 +41,7 @@ public struct GatewayService: Service {
     ) {
         let pm = ProfileManager()
         let dm = DeliveryManager()
+        SendMessageTool.delivery = dm
         let bm = BotMessagingService(profileManager: pm)
         let gcm = GroupChatManager(profileManager: pm)
         let reg = SessionRegistry(

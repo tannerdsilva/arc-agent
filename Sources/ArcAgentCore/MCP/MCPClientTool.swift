@@ -45,22 +45,57 @@ public enum MCPClientTool {
             + "for tools that take no input.\n\n"
             + "If a server or tool is not found, an error lists the available ones.",
         schema: .object(properties: [
+            "action": .string(description: "One of: 'call' (default) or 'list'. 'list' returns the configured servers and the tools each one exposes (without calling tool)."),
             "server": .string(description: "Name of the configured MCP server"),
             "tool_name": .string(description: "Name of the tool on that server"),
             "arguments": .object(description: "Tool input arguments", properties: [:]),
-        ], required: ["server", "tool_name"]),
+        ], required: []),
         handler: { args in
-            let server: String = try MediaTools.required(args, key: "server")
-            let toolName: String = try MediaTools.required(args, key: "tool_name")
-            let arguments = args["arguments"] as? [String: Any] ?? [:]
-            let client = try await MCPClientManager.shared.client(named: server)
-            let tools = try await client.tools()
-            guard tools.contains(where: { ($0["name"] as? String) == toolName }) else {
-                let names = tools.compactMap { $0["name"] as? String }
-                return "Error: MCP server '\(server)' has no tool '\(toolName)'. Available: "
-                    + (names.isEmpty ? "(none)" : names.joined(separator: ", "))
+            let action = (args["action"] as? String) ?? "call"
+            switch action {
+            case "list":
+                // List configured servers and (cheaply, from schema cache) their tools.
+                let manager = MCPClientManager.shared
+                let servers = await manager.configuredNames()
+                if servers.isEmpty {
+                    return "No MCP servers configured. Add an `mcp_servers` block to config.json to connect external tools."
+                }
+                var lines: [String] = ["Configured MCP servers:"]
+                for server in servers.sorted() {
+                    lines.append("")
+                    lines.append("🔌 \(server)")
+                    do {
+                        let client = try await manager.client(named: server)
+                        let tools = try await client.tools()
+                        if tools.isEmpty {
+                            lines.append("  (no tools discovered)")
+                        } else {
+                            for tool in tools {
+                                let name = tool["name"] as? String ?? "?"
+                                let desc = (tool["description"] as? String)?.prefix(70) ?? ""
+                                lines.append("  \(name) — \(desc)")
+                            }
+                        }
+                    } catch {
+                        lines.append("  (unavailable: \(String(describing: error).prefix(80)))")
+                    }
+                }
+                return lines.joined(separator: "\n")
+            case "call":
+                let server: String = try MediaTools.required(args, key: "server")
+                let toolName: String = try MediaTools.required(args, key: "tool_name")
+                let arguments = args["arguments"] as? [String: Any] ?? [:]
+                let client = try await MCPClientManager.shared.client(named: server)
+                let tools = try await client.tools()
+                guard tools.contains(where: { ($0["name"] as? String) == toolName }) else {
+                    let names = tools.compactMap { $0["name"] as? String }
+                    return "Error: MCP server '\(server)' has no tool '\(toolName)'. Available: "
+                        + (names.isEmpty ? "(none)" : names.joined(separator: ", "))
+                }
+                return try await client.callTool(toolName, arguments: arguments)
+            default:
+                return "Error: unknown action '\(action)'. Valid actions: call, list"
             }
-            return try await client.callTool(toolName, arguments: arguments)
         },
         emoji: "🔌"
     )

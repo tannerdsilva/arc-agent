@@ -15,6 +15,12 @@ public actor DeliveryManager {
         adapters[adapter.name] = adapter
     }
 
+    /// Names of the platforms with a registered adapter (for `send_message`
+    /// action='list').
+    public func adapterNames() -> [String] {
+        Array(adapters.keys)
+    }
+
     /// Platforms that are **local, request/response** — their answers travel
     /// over the caller's own response channel (HTTP body, WebSocket frame)
     /// rather than through a push adapter. These are never "unknown" and never

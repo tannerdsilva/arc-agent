@@ -12,6 +12,8 @@ public enum AuxiliaryTask: String, Codable, CaseIterable, Sendable, Identifiable
     case compression
     case webExtract = "web_extract"
     case approval
+    case goalJudge = "goal_judge"
+    case verification
     /// Pick-a-path smart fallback: resolves a timed-out clarify request
     /// (after the 120 s panel) by choosing among the offered answers.
     case clarify
@@ -52,6 +54,8 @@ public enum AuxiliaryTask: String, Codable, CaseIterable, Sendable, Identifiable
         case .titleGeneration: return "Title generation"
         case .memoryQueryRewrite: return "Memory query rewrite"
         case .ttsAudioTags: return "TTS audio tags"
+        case .goalJudge: return "Goal judge"
+        case .verification: return "Verify-on-stop"
         case .skillsHub: return "Skills hub"
         case .triageSpecifier: return "Triage specifier"
         case .kanbanDecomposer: return "Kanban decomposer"
@@ -72,6 +76,8 @@ public enum AuxiliaryTask: String, Codable, CaseIterable, Sendable, Identifiable
         case .titleGeneration: return "Session titles"
         case .memoryQueryRewrite: return "Memory retrieval queries"
         case .ttsAudioTags: return "Gemini TTS tag insertion"
+        case .goalJudge: return "Standing-goal continuation judging"
+        case .verification: return "End-of-turn work verification"
         case .skillsHub: return "Skills search and install"
         case .triageSpecifier: return "Issue and task triage specs"
         case .kanbanDecomposer: return "Task decomposition"

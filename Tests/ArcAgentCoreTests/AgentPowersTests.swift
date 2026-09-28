@@ -42,15 +42,19 @@ struct AgentPowersTests {
         MemoryTool.provider = nil
     }
 
-    // MARK: skill_creation
+    // MARK: skill_manage (unified Hermes-parity tool)
 
-    @Test("skill_creation writes a SKILL.md with frontmatter")
+    private func fullSkill(_ name: String, desc: String, body: String) -> String {
+        "---\nname: \(name)\ndescription: \(desc)\n---\n\n\(body)\n"
+    }
+
+    @Test("skill_manage create writes a SKILL.md with frontmatter")
     func createSkill() async throws {
         try await install()
         defer { restore() }
-        let result = try await SkillCreationTool.entry.handler([
-            "name": "demo-skill", "description": "A demo. Use when demoing.",
-            "content": "## Body\n\nDo the thing."
+        let result = try await SkillManageTool.entry.handler([
+            "action": "create", "name": "demo-skill",
+            "content": fullSkill("demo-skill", desc: "A demo. Use when demoing.", body: "## Body\n\nDo the thing."),
         ])
         #expect(result.contains("Created skill 'demo-skill'"))
         let url = AgentPowers.skillsDirectory
@@ -59,15 +63,29 @@ struct AgentPowersTests {
         #expect(content.hasPrefix("---\nname: demo-skill\n"))
         #expect(content.contains("description: A demo. Use when demoing."))
         #expect(content.contains("## Body"))
-        #expect(content.contains("---"))
     }
 
-    @Test("skill_creation refuses when the global skills lock is on")
+    @Test("skill_manage create accepts a category into frontmatter")
+    func createCategory() async throws {
+        try await install()
+        defer { restore() }
+        let result = try await SkillManageTool.entry.handler([
+            "action": "create", "name": "categorised", "category": "devops",
+            "content": fullSkill("categorised", desc: "d", body: "b"),
+        ])
+        #expect(result.contains("Created skill"))
+        let url = AgentPowers.skillsDirectory.appendingPathComponent("categorised/SKILL.md")
+        let content = try String(contentsOf: url, encoding: .utf8)
+        #expect(content.contains("category: devops"))
+    }
+
+    @Test("skill_manage create refuses when the global skills lock is on")
     func createSkillGlobalLock() async throws {
         try await install(skills: AgentPowersConfig(skillsManage: false))
         defer { restore() }
-        let result = try await SkillCreationTool.entry.handler([
-            "name": "demo-skill", "description": "d", "content": "c"
+        let result = try await SkillManageTool.entry.handler([
+            "action": "create", "name": "demo-skill",
+            "content": fullSkill("demo-skill", desc: "d", body: "c"),
         ])
         #expect(result.contains("Refused"))
         #expect(result.contains("locked"))
@@ -76,97 +94,173 @@ struct AgentPowersTests {
                 .appendingPathComponent("demo-skill").path))
     }
 
-    @Test("skill_creation refuses an existing name and points at skill_edit")
+    @Test("skill_manage create refuses an existing name and points at patch/edit")
     func createExisting() async throws {
         try await install()
         defer { restore() }
-        _ = try await SkillCreationTool.entry.handler([
-            "name": "demo-skill", "description": "d", "content": "c"
+        _ = try await SkillManageTool.entry.handler([
+            "action": "create", "name": "demo-skill",
+            "content": fullSkill("demo-skill", desc: "d", body: "c"),
         ])
-        let result = try await SkillCreationTool.entry.handler([
-            "name": "demo-skill", "description": "d2", "content": "c2"
+        let result = try await SkillManageTool.entry.handler([
+            "action": "create", "name": "demo-skill",
+            "content": fullSkill("demo-skill", desc: "d2", body: "c2"),
         ])
         #expect(result.contains("already exists"))
-        #expect(result.contains("skill_edit"))
+        #expect(result.contains("patch"))
     }
 
-    @Test("skill_creation refuses a per-skill locked name")
+    @Test("skill_manage create refuses a per-skill locked name")
     func createLockedName() async throws {
         try await install(skills: AgentPowersConfig(lockedSkills: ["demo-skill"]))
         defer { restore() }
-        let result = try await SkillCreationTool.entry.handler([
-            "name": "demo-skill", "description": "d", "content": "c"
+        let result = try await SkillManageTool.entry.handler([
+            "action": "create", "name": "demo-skill",
+            "content": fullSkill("demo-skill", desc: "d", body: "c"),
         ])
         #expect(result.contains("Refused"))
     }
 
-    @Test("skill_creation validates the name")
-    func createInvalidName() async throws {
+    @Test("skill_manage create validates the name and frontmatter")
+    func createInvalid() async throws {
         try await install()
         defer { restore() }
-        let result = try await SkillCreationTool.entry.handler([
-            "name": "Bad Name!", "description": "d", "content": "c"
+        let badName = try await SkillManageTool.entry.handler([
+            "action": "create", "name": "Bad Name!", "content": fullSkill("x", desc: "d", body: "c"),
         ])
-        #expect(result.contains("invalid skill name"))
+        #expect(badName.contains("invalid skill name"))
+        let badFront = try await SkillManageTool.entry.handler([
+            "action": "create", "name": "ok-name", "content": "no frontmatter here",
+        ])
+        #expect(badFront.contains("frontmatter"))
+        let missingDesc = try await SkillManageTool.entry.handler([
+            "action": "create", "name": "ok-name-2", "content": "---\nname: ok-name-2\n---\nbody\n",
+        ])
+        #expect(missingDesc.contains("description"))
     }
 
-    // MARK: skill_edit
+    // MARK: skill_manage patch / edit / delete / file ops
 
-    @Test("skill_edit rewrites the body and preserves unknown frontmatter")
+    @Test("skill_manage patch finds and replaces text (replace_all)")
+    func patchSkill() async throws {
+        try await install()
+        defer { restore() }
+        _ = try await SkillManageTool.entry.handler([
+            "action": "create", "name": "demo-skill",
+            "content": fullSkill("demo-skill", desc: "d", body: "old text here"),
+        ])
+        let result = try await SkillManageTool.entry.handler([
+            "action": "patch", "name": "demo-skill",
+            "old_string": "old text", "new_string": "new text",
+        ])
+        #expect(result.contains("Patched skill 'demo-skill'"))
+        let url = AgentPowers.skillsDirectory.appendingPathComponent("demo-skill/SKILL.md")
+        let after = try String(contentsOf: url, encoding: .utf8)
+        #expect(after.contains("new text here"))
+        #expect(!after.contains("old text here"))
+
+        let missing = try await SkillManageTool.entry.handler([
+            "action": "patch", "name": "demo-skill",
+            "old_string": "zzz", "new_string": "q",
+        ])
+        #expect(missing.contains("not found"))
+    }
+
+    @Test("skill_manage edit rewrites the whole SKILL.md")
     func editSkill() async throws {
         try await install()
         defer { restore() }
-        _ = try await SkillCreationTool.entry.handler([
-            "name": "demo-skill", "description": "d", "content": "old body"
+        _ = try await SkillManageTool.entry.handler([
+            "action": "create", "name": "demo-skill",
+            "content": fullSkill("demo-skill", desc: "d", body: "old body"),
         ])
-        // Bake an extra frontmatter key in (as the file may carry category etc.)
-        let url = AgentPowers.skillsDirectory
-            .appendingPathComponent("demo-skill/SKILL.md")
-        var content = try String(contentsOf: url, encoding: .utf8)
-        content = content.replacingOccurrences(of: "description: d\n", with: "description: d\ncategory: devops\n")
-        try content.write(to: url, atomically: true, encoding: .utf8)
-
-        let result = try await SkillEditTool.entry.handler([
-            "name": "demo-skill", "description": "new desc", "content": "new body"
+        let result = try await SkillManageTool.entry.handler([
+            "action": "edit", "name": "demo-skill",
+            "content": fullSkill("demo-skill", desc: "new desc", body: "new body"),
         ])
         #expect(result.contains("Updated skill 'demo-skill'"))
+        let url = AgentPowers.skillsDirectory.appendingPathComponent("demo-skill/SKILL.md")
         let after = try String(contentsOf: url, encoding: .utf8)
-        #expect(after.contains("name: demo-skill"))
         #expect(after.contains("description: new desc"))
-        #expect(after.contains("category: devops"))
         #expect(after.contains("new body"))
         #expect(!after.contains("old body"))
     }
 
-    @Test("skill_edit refuses a per-skill locked name")
+    @Test("skill_manage refuses edit/delete on locked names")
     func editLocked() async throws {
         try await install(skills: AgentPowersConfig(lockedSkills: ["demo-skill"]))
         defer { restore() }
-        let result = try await SkillEditTool.entry.handler([
-            "name": "demo-skill", "content": "x"
+        let result = try await SkillManageTool.entry.handler([
+            "action": "edit", "name": "demo-skill",
+            "content": fullSkill("demo-skill", desc: "d", body: "x"),
         ])
         #expect(result.contains("Refused"))
-    }
-
-    @Test("skill_edit refuses when the global skills lock is on")
-    func editGlobalLock() async throws {
-        try await install(skills: AgentPowersConfig(skillsManage: false))
-        defer { restore() }
-        let result = try await SkillEditTool.entry.handler([
-            "name": "demo-skill", "content": "x"
+        let del = try await SkillManageTool.entry.handler([
+            "action": "delete", "name": "demo-skill",
         ])
-        #expect(result.contains("Refused"))
+        #expect(del.contains("Refused"))
     }
 
-    @Test("skill_edit reports a missing skill")
+    @Test("skill_manage reports a missing skill on edit/delete")
     func editMissing() async throws {
         try await install()
         defer { restore() }
-        let result = try await SkillEditTool.entry.handler([
-            "name": "ghost-skill", "content": "x"
+        let result = try await SkillManageTool.entry.handler([
+            "action": "edit", "name": "ghost-skill",
+            "content": fullSkill("ghost-skill", desc: "d", body: "x"),
         ])
         #expect(result.contains("not found"))
-        #expect(result.contains("skill_creation"))
+        let del = try await SkillManageTool.entry.handler([
+            "action": "delete", "name": "ghost-skill",
+        ])
+        #expect(del.contains("not found"))
+    }
+
+    @Test("skill_manage delete removes the skill and reports absorbed_into")
+    func deleteSkill() async throws {
+        try await install()
+        defer { restore() }
+        _ = try await SkillManageTool.entry.handler([
+            "action": "create", "name": "doomed",
+            "content": fullSkill("doomed", desc: "d", body: "c"),
+        ])
+        let result = try await SkillManageTool.entry.handler([
+            "action": "delete", "name": "doomed", "absorbed_into": "umbrella",
+        ])
+        #expect(result.contains("Deleted skill 'doomed'"))
+        #expect(result.contains("merged into 'umbrella'"))
+        #expect(!FileManager.default.fileExists(
+            atPath: AgentPowers.skillsDirectory.appendingPathComponent("doomed").path))
+    }
+
+    @Test("skill_manage write_file/remove_file stay inside the skill dir")
+    func fileOps() async throws {
+        try await install()
+        defer { restore() }
+        _ = try await SkillManageTool.entry.handler([
+            "action": "create", "name": "fileskill",
+            "content": fullSkill("fileskill", desc: "d", body: "c"),
+        ])
+        let wrote = try await SkillManageTool.entry.handler([
+            "action": "write_file", "name": "fileskill",
+            "file_path": "references/api.md", "file_content": "# API\n",
+        ])
+        #expect(wrote.contains("Wrote references/api.md"))
+        let fileURL = AgentPowers.skillsDirectory
+            .appendingPathComponent("fileskill/references/api.md")
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
+
+        let traversal = try await SkillManageTool.entry.handler([
+            "action": "write_file", "name": "fileskill",
+            "file_path": "../../escape.md", "file_content": "x",
+        ])
+        #expect(traversal.contains("relative path"))
+
+        let removed = try await SkillManageTool.entry.handler([
+            "action": "remove_file", "name": "fileskill", "file_path": "references/api.md",
+        ])
+        #expect(removed.contains("Removed references/api.md"))
+        #expect(!FileManager.default.fileExists(atPath: fileURL.path))
     }
 
     // MARK: profile_edit

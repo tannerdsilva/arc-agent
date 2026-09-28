@@ -65,6 +65,8 @@ public actor SessionRegistry {
         public let toolLoopCap: Int?
         /// Mixture-of-Agents configuration (Hermes `moa` config block).
         public let moa: MoAConfig
+        /// Verify work at turn end (Hermes `verify_on_stop`).
+        public let verifyOnStop: Bool
         /// External MCP servers (Hermes top-level `mcp_servers`).
         public let mcpServers: [String: MCPServerConfig]
 
@@ -78,8 +80,9 @@ public actor SessionRegistry {
             moa: MoAConfig = MoAConfig(),
             maxIterations: Int? = nil,
             toolLoopCap: Int? = nil,
-            mcpServers: [String: MCPServerConfig] = [:]
-        ) {
+            mcpServers: [String: MCPServerConfig] = [:],
+            verifyOnStop: Bool = false
+            ) {
             self.model = model
             self.provider = provider
             self.baseURL = baseURL
@@ -87,6 +90,7 @@ public actor SessionRegistry {
             self.tessera = tessera
             self.persistSessions = persistSessions
             self.moa = moa
+            self.verifyOnStop = verifyOnStop
             self.maxIterations = maxIterations
             self.toolLoopCap = toolLoopCap
             self.mcpServers = mcpServers
