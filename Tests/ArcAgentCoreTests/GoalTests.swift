@@ -53,20 +53,20 @@ struct GoalTests {
     func storeLifecycle() async throws {
         let store = try tempStore()
         var state = GoalState(text: "Write report", maxTurns: 3)
-        await store.set(sessionID: "s1", state: state)
-        #expect(await store.get(sessionID: "s1")?.text == "Write report")
-        await store.update(sessionID: "s1") { $0.addSubgoal("add appendix") }
-        #expect(await store.get(sessionID: "s1")?.subgoals == ["add appendix"])
-        await store.clear(sessionID: "s1")
-        #expect(await store.get(sessionID: "s1") == nil)
+        try await store.set(sessionID: "s1", state: state)
+        #expect(try await store.get(sessionID: "s1")?.text == "Write report")
+        try await store.update(sessionID: "s1") { $0.addSubgoal("add appendix") }
+        #expect(try await store.get(sessionID: "s1")?.subgoals == ["add appendix"])
+        try await store.clear(sessionID: "s1")
+        #expect(try await store.get(sessionID: "s1") == nil)
     }
 
     @Test("continue verdicts feed a continuation turn and advance budget")
     func continueFlow() async throws {
         let store = try tempStore()
-        await store.set(sessionID: "s1", state: GoalState(text: "Create 3 files", maxTurns: 20))
+        try await store.set(sessionID: "s1", state: GoalState(text: "Create 3 files", maxTurns: 20))
         let judge: GoalLoop.Judge = { _, _ in GoalJudgeResult(kind: .continue, reason: "2 of 3 remain") }
-        let outcome = await GoalLoop.afterTurn(
+        let outcome = try await GoalLoop.afterTurn(
             sessionID: "s1", store: store, finalResponse: "made one",
             judge: judge,
             gateRunner: { _, _ in (0, "") },
@@ -76,15 +76,15 @@ struct GoalTests {
             Issue.record("expected continueTurn, got \(outcome)"); return
         }
         #expect(cont.contains("2 of 3 remain"))
-        #expect(await store.get(sessionID: "s1")?.turnsUsed == 1)
+        #expect(try await store.get(sessionID: "s1")?.turnsUsed == 1)
     }
 
     @Test("done stops the loop; budget pause messages the user")
     func doneAndBudget() async throws {
         let store = try tempStore()
-        await store.set(sessionID: "s1", state: GoalState(text: "Make 3 files", maxTurns: 2))
+        try await store.set(sessionID: "s1", state: GoalState(text: "Make 3 files", maxTurns: 2))
         let doneJudge: GoalLoop.Judge = { _, _ in GoalJudgeResult(kind: .done, reason: "all made") }
-        let done = await GoalLoop.afterTurn(
+        let done = try await GoalLoop.afterTurn(
             sessionID: "s1", store: store, finalResponse: "all three made",
             judge: doneJudge, gateRunner: { _, _ in (0, "") }, workspaceRoot: nil
         )
@@ -92,11 +92,11 @@ struct GoalTests {
             Issue.record("expected stopped, got \(done)"); return
         }
         #expect(msg.contains("Goal achieved"))
-        #expect(await store.get(sessionID: "s1")?.status == .done)
+        #expect(try await store.get(sessionID: "s1")?.status == .done)
 
-        await store.set(sessionID: "s1", state: GoalState(text: "Iterate forever", maxTurns: 1))
+        try await store.set(sessionID: "s1", state: GoalState(text: "Iterate forever", maxTurns: 1))
         let contJudge: GoalLoop.Judge = { _, _ in GoalJudgeResult(kind: .continue, reason: "more") }
-        let paused = await GoalLoop.afterTurn(
+        let paused = try await GoalLoop.afterTurn(
             sessionID: "s1", store: store, finalResponse: "x",
             judge: contJudge, gateRunner: { _, _ in (0, "") }, workspaceRoot: nil
         )
@@ -104,7 +104,7 @@ struct GoalTests {
             Issue.record("expected pause, got \(paused)"); return
         }
         #expect(pauseMsg.contains("paused"))
-        #expect(await store.get(sessionID: "s1")?.status == .paused)
+        #expect(try await store.get(sessionID: "s1")?.status == .paused)
     }
 
     @Test("a red gate is deterministic: judge is skipped and reason carries output")
@@ -112,10 +112,10 @@ struct GoalTests {
         let store = try tempStore()
         var state = GoalState(text: "Fix tests", maxTurns: 20)
         state.gates = [QualityGate(command: "pytest tests")]
-        await store.set(sessionID: "s1", state: state)
+        try await store.set(sessionID: "s1", state: state)
         var judged = false
         let judge: GoalLoop.Judge = { _, _ in judged = true; return GoalJudgeResult(kind: .done, reason: "never called") }
-        let outcome = await GoalLoop.afterTurn(
+        let outcome = try await GoalLoop.afterTurn(
             sessionID: "s1", store: store, finalResponse: "fixed?",
             judge: judge,
             gateRunner: { _, _ in (1, "FAIL: 3 tests failed") },
@@ -131,9 +131,9 @@ struct GoalTests {
     @Test("judge error is fail-open (treated as continue)")
     func failOpen() async throws {
         let store = try tempStore()
-        await store.set(sessionID: "s1", state: GoalState(text: "Do the thing", maxTurns: 5))
+        try await store.set(sessionID: "s1", state: GoalState(text: "Do the thing", maxTurns: 5))
         let judge: GoalLoop.Judge = { _, _ in nil }
-        let outcome = await GoalLoop.afterTurn(
+        let outcome = try await GoalLoop.afterTurn(
             sessionID: "s1", store: store, finalResponse: "x",
             judge: judge, gateRunner: { _, _ in (0, "") }, workspaceRoot: nil
         )

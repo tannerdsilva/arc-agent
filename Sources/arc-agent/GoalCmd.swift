@@ -18,8 +18,11 @@ struct GoalCmd: AsyncParsableCommand {
     )
 }
 
-func goalStoreForCLI() throws -> GoalStore {
-    try GoalStore()
+func goalStoreForCLI() async throws -> any GoalStoring {
+    if await TesseraAvailability.shared.isTesseraActive() {
+        return TesseraGoalStore()
+    }
+    return try GoalStore()
 }
 
 struct GoalSet: AsyncParsableCommand {
@@ -37,8 +40,8 @@ struct GoalSet: AsyncParsableCommand {
         let config = loadConfig()
         var state = GoalState(text: parsed.headline, maxTurns: config.goals.maxTurns)
         state.contract = parsed.contract
-        let store = try goalStoreForCLI()
-        await store.set(sessionID: session, state: state)
+        let store = try await goalStoreForCLI()
+        try await store.set(sessionID: session, state: state)
         try await store.save()
         print("⊙ Goal set (\(state.maxTurns)-turn budget): \(state.text)")
         if state.contract != nil {
@@ -64,8 +67,8 @@ struct GoalDraft: AsyncParsableCommand {
         if let drafted = await draftContract(objective: objective, config: config) {
             state.contract = drafted
         }
-        let store = try goalStoreForCLI()
-        await store.set(sessionID: session, state: state)
+        let store = try await goalStoreForCLI()
+        try await store.set(sessionID: session, state: state)
         try await store.save()
         print("⊙ Goal set (\(state.maxTurns)-turn budget): \(state.text)")
         if let c = state.contract {
@@ -124,8 +127,8 @@ struct GoalShow: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "show", abstract: "Print the active goal's completion contract.")
     @Argument var session: String
     func run() async throws {
-        let store = try goalStoreForCLI()
-        guard let goal = await store.get(sessionID: session) else {
+        let store = try await goalStoreForCLI()
+        guard let goal = try await store.get(sessionID: session) else {
             print("No goal set for session \(session)."); return
         }
         print("Goal: \(goal.text)")
@@ -156,9 +159,9 @@ struct GoalStatus: AsyncParsableCommand {
     @Argument(help: "Session ID (omit for all).")
     var session: String?
     func run() async throws {
-        let store = try goalStoreForCLI()
+        let store = try await goalStoreForCLI()
         if let session {
-            guard let goal = await store.get(sessionID: session) else {
+            guard let goal = try await store.get(sessionID: session) else {
                 print("No goal set for session \(session)."); return
             }
             print("Session: \(session)")
@@ -171,7 +174,7 @@ struct GoalStatus: AsyncParsableCommand {
             }
             if let r = goal.lastJudgeReason { print("  Last:   \(r)") }
         } else {
-            let all = await store.all()
+            let all = try await store.all()
             if all.isEmpty { print("No goals set."); return }
             for key in all.keys.sorted() {
                 let g = all[key]!
@@ -185,8 +188,8 @@ struct GoalPause: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "pause", abstract: "Stop the auto-continuation loop without clearing the goal.")
     @Argument var session: String
     func run() async throws {
-        let store = try goalStoreForCLI()
-        await store.update(sessionID: session) { $0.status = .paused }
+        let store = try await goalStoreForCLI()
+        try await store.update(sessionID: session) { $0.status = .paused }
         try await store.save()
         print("⏸ Goal paused for \(session). Use `arc goal resume` to keep going.")
     }
@@ -196,8 +199,8 @@ struct GoalResume: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "resume", abstract: "Resume the loop (resets the turn counter).")
     @Argument var session: String
     func run() async throws {
-        let store = try goalStoreForCLI()
-        await store.update(sessionID: session) {
+        let store = try await goalStoreForCLI()
+        try await store.update(sessionID: session) {
             $0.status = .active
             $0.turnsUsed = 0
             $0.waitBarrier = nil
@@ -211,8 +214,8 @@ struct GoalClear: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "clear", abstract: "Drop the goal entirely.")
     @Argument var session: String
     func run() async throws {
-        let store = try goalStoreForCLI()
-        await store.clear(sessionID: session)
+        let store = try await goalStoreForCLI()
+        try await store.clear(sessionID: session)
         try await store.save()
         print("⊙ Goal cleared for \(session).")
     }
@@ -224,8 +227,8 @@ struct GoalWait: AsyncParsableCommand {
     @Argument var pid: Int
     @Argument(help: "Optional reason.") var reason: String?
     func run() async throws {
-        let store = try goalStoreForCLI()
-        await store.update(sessionID: session) {
+        let store = try await goalStoreForCLI()
+        try await store.update(sessionID: session) {
             $0.waitBarrier = GoalWaitBarrier(pid: pid, reason: reason)
         }
         try await store.save()
@@ -237,8 +240,8 @@ struct GoalUnwait: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "unwait", abstract: "Drop the wait barrier and resume immediately.")
     @Argument var session: String
     func run() async throws {
-        let store = try goalStoreForCLI()
-        await store.update(sessionID: session) { $0.waitBarrier = nil }
+        let store = try await goalStoreForCLI()
+        try await store.update(sessionID: session) { $0.waitBarrier = nil }
         try await store.save()
         print("⊙ Wait barrier cleared for \(session).")
     }
@@ -256,11 +259,11 @@ struct GoalGateAdd: AsyncParsableCommand {
     @Argument var session: String
     @Argument var command: [String]
     func run() async throws {
-        let store = try goalStoreForCLI()
-        guard await store.get(sessionID: session) != nil else {
+        let store = try await goalStoreForCLI()
+        guard try await store.get(sessionID: session) != nil else {
             print("No goal set for session \(session)."); return
         }
-        await store.update(sessionID: session) { $0.gates.append(QualityGate(command: command.joined(separator: " "))) }
+        try await store.update(sessionID: session) { $0.gates.append(QualityGate(command: command.joined(separator: " "))) }
         try await store.save()
         print("➕ Gate added for \(session): \(command.joined(separator: " "))")
     }
@@ -270,8 +273,8 @@ struct GoalGateList: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "list", abstract: "List the goal's gates.")
     @Argument var session: String
     func run() async throws {
-        let store = try goalStoreForCLI()
-        guard let goal = await store.get(sessionID: session) else {
+        let store = try await goalStoreForCLI()
+        guard let goal = try await store.get(sessionID: session) else {
             print("No goal set for session \(session)."); return
         }
         if goal.gates.isEmpty { print("No gates for \(session)."); return }
@@ -286,8 +289,8 @@ struct GoalGateRemove: AsyncParsableCommand {
     @Argument var session: String
     @Argument var index: Int
     func run() async throws {
-        let store = try goalStoreForCLI()
-        await store.update(sessionID: session) { state in
+        let store = try await goalStoreForCLI()
+        try await store.update(sessionID: session) { state in
             guard state.gates.indices.contains(index - 1) else { return }
             state.gates.remove(at: index - 1)
         }
@@ -300,8 +303,8 @@ struct GoalGateClear: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "clear", abstract: "Remove all gates.")
     @Argument var session: String
     func run() async throws {
-        let store = try goalStoreForCLI()
-        await store.update(sessionID: session) { $0.gates = [] }
+        let store = try await goalStoreForCLI()
+        try await store.update(sessionID: session) { $0.gates = [] }
         try await store.save()
         print("🧹 All gates removed for \(session).")
     }
@@ -322,11 +325,11 @@ struct SubgoalAdd: AsyncParsableCommand {
     @Argument var session: String
     @Argument var text: [String]
     func run() async throws {
-        let store = try goalStoreForCLI()
-        guard await store.get(sessionID: session) != nil else {
+        let store = try await goalStoreForCLI()
+        guard try await store.get(sessionID: session) != nil else {
             print("No active goal for session \(session). Use `arc goal set` first."); return
         }
-        await store.update(sessionID: session) { $0.addSubgoal(text.joined(separator: " ")) }
+        try await store.update(sessionID: session) { $0.addSubgoal(text.joined(separator: " ")) }
         try await store.save()
         print("⊕ Subgoal added for \(session).")
     }
@@ -336,8 +339,8 @@ struct SubgoalShow: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "show", abstract: "Show the numbered subgoal list.")
     @Argument var session: String
     func run() async throws {
-        let store = try goalStoreForCLI()
-        guard let goal = await store.get(sessionID: session) else {
+        let store = try await goalStoreForCLI()
+        guard let goal = try await store.get(sessionID: session) else {
             print("No goal set for session \(session)."); return
         }
         if goal.subgoals.isEmpty { print("No subgoals for \(session)."); return }
@@ -350,8 +353,8 @@ struct SubgoalRemove: AsyncParsableCommand {
     @Argument var session: String
     @Argument var index: Int
     func run() async throws {
-        let store = try goalStoreForCLI()
-        await store.update(sessionID: session) { state in
+        let store = try await goalStoreForCLI()
+        try await store.update(sessionID: session) { state in
             guard state.subgoals.indices.contains(index - 1) else { return }
             state.subgoals.remove(at: index - 1)
         }
@@ -364,8 +367,8 @@ struct SubgoalClear: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "clear", abstract: "Drop every subgoal but keep the goal.")
     @Argument var session: String
     func run() async throws {
-        let store = try goalStoreForCLI()
-        await store.update(sessionID: session) { $0.subgoals = [] }
+        let store = try await goalStoreForCLI()
+        try await store.update(sessionID: session) { $0.subgoals = [] }
         try await store.save()
         print("🧹 Subgoals cleared for \(session).")
     }

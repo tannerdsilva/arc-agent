@@ -158,7 +158,7 @@ public struct GatewayService: Service {
         // session under the default profile; the first response lands in
         // the job's `lastOutput` (capped by the scheduler).
         let cron = CronScheduler(
-            store: FileCronStore(),
+            store: RuntimeCronStore(),
             pollIntervalSeconds: 30,
             jobRunner: { job in
                 let sessionID = "cron-\(job.id)"

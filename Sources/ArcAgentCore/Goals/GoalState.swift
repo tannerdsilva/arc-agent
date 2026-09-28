@@ -127,7 +127,23 @@ public struct GoalState: Codable, Sendable, Equatable {
 }
 
 /// Durable per-session goal store (`~/.arc/goals.json`).
-public actor GoalStore {
+///
+/// The shared abstraction for everything that runs the Ralph loop: the file
+/// implementation (default, local) and ``TesseraGoalStore`` (signed NOSTR
+/// events when Tessera storage is active). Both backends keep the same
+/// per-session ``GoalState`` semantics.
+public protocol GoalStoring: Sendable {
+    /// Set or replace the session's goal (subgoals/gates reset — Hermes).
+    func set(sessionID: String, state: GoalState) async throws
+    func get(sessionID: String) async throws -> GoalState?
+    func update(sessionID: String, _ mutate: @Sendable (inout GoalState) -> Void) async throws
+    func clear(sessionID: String) async throws
+    func all() async throws -> [String: GoalState]
+    /// Flush any buffered writes (no-op for write-through backends).
+    func save() async throws
+}
+
+public actor GoalStore: GoalStoring {
 
     private static var storageURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".arc/goals.json")
@@ -149,33 +165,33 @@ public actor GoalStore {
     }
 
     /// Set or replace the session's goal (subgoals/gates reset — Hermes).
-    public func set(sessionID: String, state: GoalState) {
+    public func set(sessionID: String, state: GoalState) async throws {
         var s = state
         s.createdAt = Date()
         s.updatedAt = Date()
         goals[sessionID] = s
     }
 
-    public func get(sessionID: String) -> GoalState? {
+    public func get(sessionID: String) async throws -> GoalState? {
         goals[sessionID]
     }
 
-    public func update(sessionID: String, _ mutate: (inout GoalState) -> Void) {
+    public func update(sessionID: String, _ mutate: @Sendable (inout GoalState) -> Void) async throws {
         guard var g = goals[sessionID] else { return }
         mutate(&g)
         g.updatedAt = Date()
         goals[sessionID] = g
     }
 
-    public func clear(sessionID: String) {
+    public func clear(sessionID: String) async throws {
         goals[sessionID] = nil
     }
 
-    public func all() -> [String: GoalState] {
+    public func all() async throws -> [String: GoalState] {
         goals
     }
 
-    public func save() throws {
+    public func save() async throws {
         let target = Self.storageURL
         try FileManager.default.createDirectory(
             at: target.deletingLastPathComponent(), withIntermediateDirectories: true

@@ -146,7 +146,11 @@ public actor SessionAgent: Service {
             // an idle session fires its `/heartbeat` prompt as a user turn).
             logger.info("step: entering message loop")
             let heartbeatStore = try HeartbeatStore()
-            let goalStore = try GoalStore()
+            // Standing goals: Tessera-backed when active, file otherwise —
+            // same gate as sessions/memory.
+            let goalStore: any GoalStoring = await TesseraAvailability.shared.isTesseraActive()
+                ? TesseraGoalStore()
+                : GoalStore()
             let mergedMessages = HeartbeatInjector.merged(
                 over: incomingMessages,
                 sessionID: sessionID,
@@ -259,7 +263,7 @@ public actor SessionAgent: Service {
 
                 // ── Standing-goal loop (Hermes `/goal`): judge after the turn
                 // and feed a continuation turn back into this session. ──
-                let outcome = await GoalLoop.afterTurn(
+                let outcome = try await GoalLoop.afterTurn(
                     sessionID: sessionID,
                     store: goalStore,
                     finalResponse: finalText,

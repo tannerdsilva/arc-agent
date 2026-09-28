@@ -62,6 +62,8 @@ struct SessionRecoveryTests {
 
     @Test("crash reported for a superseded agent leaves the successor untouched")
     func supersededCrashIsIgnored() async {
+        // Unit tests must never read the real tessera config or probe the network.
+        await TesseraAvailability.shared.force(false)
         let registry = makeRegistry()
         _ = await registry.getOrCreate(sessionID: "recovery-superseded")
 
@@ -85,6 +87,8 @@ struct SessionRecoveryTests {
 
     @Test("crash of the current agent removes it and records an attempt")
     func currentCrashIsHandled() async {
+        // Unit tests must never read the real tessera config or probe the network.
+        await TesseraAvailability.shared.force(false)
         // A long restart delay keeps the (unstructured) respawn sleeping so
         // this test observes the removal/counting without the restart racing.
         let registry = makeRegistry(restartDelay: 3_600_000_000_000)
@@ -105,6 +109,8 @@ struct SessionRecoveryTests {
 
     @Test("respawn fills a vacant session with a fresh generation")
     func respawnFillsVacancy() async {
+        // Unit tests must never read the real tessera config or probe the network.
+        await TesseraAvailability.shared.force(false)
         let registry = makeRegistry(restartDelay: 0)
         let handle = await registry.getOrCreate(sessionID: "recovery-restart")
 
@@ -137,6 +143,8 @@ struct SessionRecoveryTests {
 
     @Test("racing getOrCreate calls serialize into one coherent generation")
     func concurrentGetOrCreateSerializes() async {
+        // Unit tests must never read the real tessera config or probe the network.
+        await TesseraAvailability.shared.force(false)
         let registry = makeRegistry()
 
         await withTaskGroup(of: Void.self) { group in

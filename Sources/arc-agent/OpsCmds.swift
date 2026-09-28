@@ -153,7 +153,7 @@ struct StatusCmd: AsyncParsableCommand {
         }
         print("skills:    \(discoverSkills().count) installed")
         do {
-            let jobs = try await FileCronStore().listAll()
+            let jobs = try await RuntimeCronStore().listAll()
             print("cron:      \(jobs.count) job(s)")
         } catch {
             print("cron:      ⚠️ \(error)")

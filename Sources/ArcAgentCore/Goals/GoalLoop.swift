@@ -84,7 +84,7 @@ public struct GoalLoop {
     /// What to do after a completed turn (Hermes post-turn hook).
     public static func afterTurn(
         sessionID: String,
-        store: GoalStore,
+        store: any GoalStoring,
         finalResponse: String,
         judge: Judge,
         gateRunner: GateRunner,
@@ -96,8 +96,8 @@ public struct GoalLoop {
             let outcome = try? await SubprocessRunner.runBytes(shell, timeout: 3)
             return outcome?.exitCodeValue == 0
         }
-    ) async -> GoalLoopOutcome {
-        guard var goal = await store.get(sessionID: sessionID) else { return .idle }
+    ) async throws -> GoalLoopOutcome {
+        guard var goal = try await store.get(sessionID: sessionID) else { return .idle }
         guard goal.status == .active else { return .idle }
 
         // ── Wait barrier? Parked loops stay quiet until the barrier clears. ──
@@ -112,7 +112,7 @@ public struct GoalLoop {
             }
             if !cleared { return .idle }
             goal.waitBarrier = nil
-            await store.update(sessionID: sessionID) { $0.waitBarrier = nil }
+            try await store.update(sessionID: sessionID) { $0.waitBarrier = nil }
         }
 
         // ── Quality gates run before the judge (deterministic evidence). ──
@@ -138,31 +138,31 @@ public struct GoalLoop {
                     goal.gates[index] = gate
                 }
             }
-            await store.update(sessionID: sessionID) { $0.gates = goal.gates }
+            try await store.update(sessionID: sessionID) { $0.gates = goal.gates }
             if let red = goal.gates.first(where: { $0.passed == false }) {
                 let reason = "Quality gate failed: \(red.command)\n\(red.lastOutput ?? "")"
-                return await continueTurn(goal: await store.get(sessionID: sessionID) ?? goal,
-                                          reason: reason, store: store, sessionID: sessionID)
+                return try await continueTurn(goal: try await store.get(sessionID: sessionID) ?? goal,
+                                              reason: reason, store: store, sessionID: sessionID)
             }
         }
 
         // ── Judge (fail-open: any judge error = continue). ──
         let judged = await judge(goal, finalResponse)
         guard judged != nil else {
-            return await continueTurn(goal: goal, reason: "Judge unavailable — continuing.",
-                                      store: store, sessionID: sessionID)
+            return try await continueTurn(goal: goal, reason: "Judge unavailable — continuing.",
+                                          store: store, sessionID: sessionID)
         }
         let result = judged!
         switch result.kind {
         case .done:
-            await store.update(sessionID: sessionID) {
+            try await store.update(sessionID: sessionID) {
                 $0.status = .done
                 $0.lastJudgeReason = result.reason
                 $0.waitBarrier = nil
             }
             return .stopped("✓ Goal achieved: \(result.reason)")
         case .wait:
-            await store.update(sessionID: sessionID) {
+            try await store.update(sessionID: sessionID) {
                 $0.waitBarrier = GoalWaitBarrier(
                     pid: result.waitOnPID,
                     deadline: result.waitForSeconds.map { Date().addingTimeInterval(TimeInterval($0)) },
@@ -172,24 +172,24 @@ public struct GoalLoop {
             }
             return .idle
         case .continue:
-            return await continueTurn(goal: goal, reason: result.reason, store: store, sessionID: sessionID)
+            return try await continueTurn(goal: goal, reason: result.reason, store: store, sessionID: sessionID)
         }
     }
 
     private static func continueTurn(
-        goal: GoalState, reason: String, store: GoalStore, sessionID: String
-    ) async -> GoalLoopOutcome {
+        goal: GoalState, reason: String, store: any GoalStoring, sessionID: String
+    ) async throws -> GoalLoopOutcome {
         // Turn budget is the real backstop.
         let used = goal.turnsUsed + 1
         if used >= goal.maxTurns {
-            await store.update(sessionID: sessionID) {
+            try await store.update(sessionID: sessionID) {
                 $0.status = .paused
                 $0.turnsUsed = used
                 $0.lastJudgeReason = reason
             }
             return .stopped("⏸ Goal paused — \(used)/\(goal.maxTurns) turns used. Use /goal resume to keep going, or /goal clear to stop.")
         }
-        await store.update(sessionID: sessionID) { $0.turnsUsed = used }
+        try await store.update(sessionID: sessionID) { $0.turnsUsed = used }
         return .continueTurn("[Continuing toward your standing goal]\n\(reason)")
     }
 

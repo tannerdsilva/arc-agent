@@ -102,6 +102,8 @@ private struct PendingRecord {
 /// kind 3002  arc/m/<key>/<seq>          memory records (key = agent|user)
 /// kind 3003  arc/meta/<sessionID>/<seq> session metadata
 /// kind 3004  arc/p/<name>/<seq>         profile records
+/// kind 3005  arc/cron/<jobID>/<seq>     cron jobs
+/// kind 3006  arc/goals/<sessionID>/<seq> standing goals
 /// ```
 public actor TesseraConnection {
 
@@ -132,6 +134,11 @@ public actor TesseraConnection {
     private var nostrPrivateKey: MemoryGuarded<RAW_ed25519.PrivateKey>?
     private var eoseTracker: EOSETracker?
     private var isStarted = false
+
+    /// Whether the connection is currently up (probe-free snapshot for
+    /// store selection; never shuts the connection down).
+    public var isStartedNow: Bool { isStarted }
+
     /// The next global sequence number to hand out.
     private var nextSeq = 0
     /// Events this client has published whose echo has not yet arrived.
