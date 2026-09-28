@@ -92,6 +92,9 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// Web capabilities (Hermes `web` block): search/extract backend selection.
     public var web: WebConfig
 
+    /// Progressive tool disclosure (Hermes `tools.tool_search`).
+    public var toolSearch: ToolSearchConfig
+
     /// Standing-goal loop configuration (Hermes `goals.max_turns`).
     public var goals: GoalsConfig
 
@@ -146,6 +149,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         case goals
         case mcpServers = "mcp_servers"
         case web
+        case toolSearch = "tool_search"
     }
 
     // MARK: - Init
@@ -167,6 +171,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         agentPowers: AgentPowersConfig = AgentPowersConfig(),
         mcpServers: [String: MCPServerConfig] = [:],
         web: WebConfig = WebConfig(),
+        toolSearch: ToolSearchConfig = ToolSearchConfig(),
         goals: GoalsConfig = GoalsConfig()
     ) {
         self.model = model
@@ -185,6 +190,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.agentPowers = agentPowers
         self.mcpServers = mcpServers
         self.web = web
+        self.toolSearch = toolSearch
         self.goals = goals
     }
 
@@ -209,6 +215,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         // Hermes top-level `mcp_servers` (underscored key → ``CodingKeys/mcpServers``).
         self.mcpServers = try container.decodeIfPresent([String: MCPServerConfig].self, forKey: .mcpServers) ?? [:]
         self.web = try container.decodeIfPresent(WebConfig.self, forKey: .web) ?? WebConfig()
+        self.toolSearch = try container.decodeIfPresent(ToolSearchConfig.self, forKey: .toolSearch) ?? ToolSearchConfig()
     }
 }
 

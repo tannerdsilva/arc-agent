@@ -79,6 +79,9 @@ public actor ArcAgent: Service {
         public var moa: MoAConfig
         /// Tool-gateway policy (Hermes `tool_gateway`), enforced at dispatch.
         public var gateway: ToolGatewayConfig = ToolGatewayConfig()
+        /// Progressive tool disclosure (Hermes `tools.tool_search`): which
+        /// tools are deferred behind tool_search/tool_describe/tool_call.
+        public var toolSearch: ToolSearchConfig = ToolSearchConfig()
 
         /// The session ID to restore persisted history from. `nil` starts a
         /// fresh session with a new UUID.
@@ -142,6 +145,7 @@ public actor ArcAgent: Service {
             contextDirectory: URL? = nil,
             platformHint: String = "cli",
             moa: MoAConfig = MoAConfig(),
+            toolSearch: ToolSearchConfig = ToolSearchConfig(),
             reasoningEffort: String? = nil,
             temperature: Double? = nil,
             topP: Double? = nil,
@@ -180,6 +184,7 @@ public actor ArcAgent: Service {
             self.contextDirectory = contextDirectory
             self.platformHint = platformHint
             self.moa = moa
+            self.toolSearch = toolSearch
             self.mcpServers = mcpServers
             self.disabledToolsets = disabledToolsets
         }
@@ -953,7 +958,12 @@ public actor ArcAgent: Service {
     /// Token estimate for the tool schemas, cached (schema set is static).
     private func toolSchemaTokens() -> Int {
         if let cached = toolSchemaTokenEstimate { return cached }
-        let schemas = config.registry.buildToolSchemas(enabled: [], disabled: config.disabledToolsets)
+        let schemas = ProgressiveToolDisclosure.buildPromptSchemas(
+            registry: config.registry,
+            disabled: config.disabledToolsets,
+            config: config.toolSearch,
+            contextLength: config.maxContextTokens
+        )
         guard let data = try? JSONSerialization.data(withJSONObject: schemas),
               let text = String(data: data, encoding: .utf8) else { return 0 }
         let estimate = tokenCounter.count(text, model: config.model)
@@ -1294,10 +1304,13 @@ public actor ArcAgent: Service {
             var messages: [Message] = [Message(role: .system, content: systemPrompt)]
             messages.append(contentsOf: Self.sanitizeMessages(messageHistory))
 
-            // 3. Build tool schemas
-            let toolSchemas = config.registry.buildToolSchemas(
-                enabled: [],
-                disabled: config.disabledToolsets
+            // 3. Build tool schemas (progressive disclosure: deferred tools
+            // appear as tool_search/tool_describe/tool_call + manifest).
+            let toolSchemas = ProgressiveToolDisclosure.buildPromptSchemas(
+                registry: config.registry,
+                disabled: config.disabledToolsets,
+                config: config.toolSearch,
+                contextLength: config.maxContextTokens
             )
 
             // 3b. Mixture-of-Agents advisory context (Hermes moa_loop: the
@@ -1507,9 +1520,11 @@ public actor ArcAgent: Service {
             var messages: [Message] = [Message(role: .system, content: systemPrompt)]
             messages.append(contentsOf: Self.sanitizeMessages(messageHistory))
 
-            let toolSchemas = config.registry.buildToolSchemas(
-                enabled: [],
-                disabled: config.disabledToolsets
+            let toolSchemas = ProgressiveToolDisclosure.buildPromptSchemas(
+                registry: config.registry,
+                disabled: config.disabledToolsets,
+                config: config.toolSearch,
+                contextLength: config.maxContextTokens
             )
 
             // MoA advisory context (Hermes moa_loop parity).
@@ -2297,6 +2312,50 @@ public actor ArcAgent: Service {
         return .empty
     }
 
+    /// Bridge translation for tool_describe / tool_call (Hermes parity).
+    private func handleBridgeCall(name: String, argumentsJSON: String) async -> String {
+        guard let data = argumentsJSON.data(using: .utf8),
+              let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return "Error: Invalid arguments for '\(name)'."
+        }
+        guard let tool = args["tool"] as? String, !tool.isEmpty else {
+            return "Error: 'tool' (string) is required."
+        }
+        if name == "tool_describe" {
+            guard let entry = config.registry.lookup(name: tool) else {
+                return "Error: Unknown tool '\(tool)'."
+            }
+            let schema = ProgressiveToolDisclosure.schema(for: entry)
+            guard let pretty = try? JSONSerialization.data(withJSONObject: schema, options: [.prettyPrinted, .sortedKeys]),
+                  let text = String(data: pretty, encoding: .utf8) else {
+                return "Error: could not serialize schema for '\(tool)'."
+            }
+            return "## \(tool)\n\n\(text)"
+        }
+        // tool_call
+        guard tool != "tool_call", tool != "tool_describe", tool != "tool_search" else {
+            return "Error: cannot invoke bridge tool '\(tool)' through tool_call."
+        }
+        guard config.registry.lookup(name: tool) != nil else {
+            return "Error: Unknown tool '\(tool)'."
+        }
+        let inner: String
+        if let innerArgs = args["arguments"] as? [String: Any] {
+            guard let d = try? JSONSerialization.data(withJSONObject: innerArgs) else {
+                return "Error: invalid 'arguments' for '\(tool)'."
+            }
+            inner = String(data: d, encoding: .utf8) ?? "{}"
+        } else if let raw = args["arguments"] as? String, !raw.isEmpty {
+            inner = raw
+        } else {
+            inner = "{}"
+        }
+        return (try? await dispatchToolCall(ToolCall(
+            id: "bridge-\(UUID().uuidString)",
+            function: ToolCallFunction(name: tool, arguments: inner)
+        ))) ?? "Error: bridge dispatch failed for '\(tool)'."
+    }
+
     // MARK: Tool invocation
     //
     // Workspace anchoring (Hermes parity): every handler runs with
@@ -2306,6 +2365,14 @@ public actor ArcAgent: Service {
     // workspace instead. File tools anchor relative paths to this root and
     // warn when one escapes it.
     private func dispatchToolCall(_ toolCall: ToolCall) async throws -> String {
+        // ── Progressive tool disclosure bridge (Hermes `tools/tool_search.py`):
+        // tool_describe/tool_call are not registered tools; the bridge
+        // translates them and routes the target through THIS dispatch, so
+        // guardrails, approvals, and the tool gateway all fire normally.
+        if toolCall.function.name == "tool_describe" || toolCall.function.name == "tool_call" {
+            return await handleBridgeCall(name: toolCall.function.name, argumentsJSON: toolCall.function.arguments)
+        }
+
         guard let entry = config.registry.lookup(name: toolCall.function.name) else {
             return "Error: Unknown tool '\(toolCall.function.name)'."
         }
