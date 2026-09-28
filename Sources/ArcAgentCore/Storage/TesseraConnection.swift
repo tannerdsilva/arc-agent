@@ -120,10 +120,14 @@ public actor TesseraConnection {
     public static let metadataKind: UInt32 = 3_003
     /// Profile record events.
     public static let profileKind: UInt32 = 3_004
+    /// Cron job events (TesseraCronStore).
+    public static let cronKind: UInt32 = 3_005
+    /// Standing goal events (TesseraGoalStore).
+    public static let goalKind: UInt32 = 3_006
     /// The prefix on every `d` tag value.
     public static let dTagPrefix = "arc/"
-    /// One subscription per kind; the model receives all four.
-    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles"]
+    /// One subscription per kind; the model receives all six.
+    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles", "arc-cron", "arc-goals"]
 
     // MARK: - State
 
@@ -293,7 +297,7 @@ public actor TesseraConnection {
         // the losing task stays blocked inside the client's own pool — a
         // bounded leak beats an unbounded caller freeze.
         try await Self.boundedOp(seconds: Self.writeTimeoutSeconds) {
-            for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind]) {
+            for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind]) {
                 try await session.subscribe(subscriptionID: sub, filters: [Filter(applications: [config.application], kinds: [kind])])
             }
         }

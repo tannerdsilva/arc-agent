@@ -30,6 +30,10 @@ public struct GatewayService: Service {
     private let logger: Logger
     private let profileRoutes: [ProfileRoute]
     private let multiplexProfiles: Bool
+    /// Shared adapter HTTP client (nil when no adapter needs one); shut down
+    /// explicitly in `run()` on both success and failure — an unshutdown
+    /// AsyncHTTPClient traps on deinit.
+    private let httpClient: HTTPClient?
     /// Chat→session binding (Hermes `session_router` parity): resolves every
     /// incoming chat to its deterministic session ID.
     private let sessionRouter: SessionRouter
@@ -112,10 +116,16 @@ public struct GatewayService: Service {
         )
 
         // Build platform adapters from gateway config (or legacy token flag).
-        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+        // The AsyncHTTPClient is created ONLY when an adapter consumes it and
+        // is retained: a discarded client deinits with a fatal ("Client not
+        // shut down before the deinit"), and with no adapters configured the
+        // old unretained local trapped the gateway at init.
+        var httpClient: HTTPClient?
         var adapters: [any PlatformAdapter] = []
         if let config = gatewayConfig {
             if config.telegram.enabled, !config.telegram.botToken.isEmpty {
+                let client = HTTPClient(eventLoopGroupProvider: .singleton)
+                httpClient = client
                 let adapter = TelegramAdapter(
                     botToken: config.telegram.botToken,
                     allowedUsers: config.telegram.allowedUsers,
@@ -125,7 +135,7 @@ public struct GatewayService: Service {
                     replyToMode: config.telegram.replyToMode,
                     requireMention: config.telegram.requireMention,
                     pollInterval: .seconds(config.telegram.pollIntervalSeconds),
-                    httpClient: httpClient
+                    httpClient: client
                 )
                 adapters.append(adapter)
             }
@@ -134,6 +144,8 @@ public struct GatewayService: Service {
                 adapters.append(adapter)
             }
             if config.slack.enabled, !config.slack.botToken.isEmpty, !config.slack.appToken.isEmpty {
+                let client = HTTPClient(eventLoopGroupProvider: .singleton)
+                httpClient = client
                 let adapter = SlackAdapter(
                     botToken: config.slack.botToken,
                     appToken: config.slack.appToken,
@@ -142,15 +154,18 @@ public struct GatewayService: Service {
                     homeChannel: config.slack.homeChannel,
                     replyToMode: config.slack.replyToMode,
                     requireMention: config.slack.requireMention,
-                    httpClient: httpClient,
+                    httpClient: client,
                     eventLoopGroup: MultiThreadedEventLoopGroup.singleton
                 )
                 adapters.append(adapter)
             }
         } else if let token = telegramToken {
-            let adapter = TelegramAdapter(botToken: token, httpClient: httpClient)
+            let client = HTTPClient(eventLoopGroupProvider: .singleton)
+            httpClient = client
+            let adapter = TelegramAdapter(botToken: token, httpClient: client)
             adapters.append(adapter)
         }
+        self.httpClient = httpClient
         self.platformAdapters = adapters
         self.sessionRouter = SessionRouter()
 
@@ -221,12 +236,15 @@ public struct GatewayService: Service {
             try await serviceGroup.run()
         } catch {
             // Release the shared Tessera connection (WireGuard tunnel) at
-            // teardown.
+            // teardown, and the adapter HTTP client — an unshutdown
+            // AsyncHTTPClient traps on deinit.
+            if let httpClient { try? await httpClient.shutdown() }
             await TesseraConnection.shared.shutdown()
             throw error
         }
         // Release the shared Tessera connection (WireGuard tunnel) at
         // teardown.
+        if let httpClient { try? await httpClient.shutdown() }
         await TesseraConnection.shared.shutdown()
     }
 }
