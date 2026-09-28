@@ -38,7 +38,18 @@ struct SkillViewTool {
             let found = findSkillFile(named: name, in: skillsDir)
             if let url = found {
                 let content = try String(contentsOf: url, encoding: .utf8)
-                return content
+                // Live skills (Hermes `skill_preprocessing`): `${...}`
+                // templates are always expanded at load; inline `!`cmd``
+                // blocks run only when the owning turn permits it
+                // (`agent.skill_inline_commands`, TaskLocal-scoped so
+                // concurrent gateway sessions can't cross-trigger).
+                let expanded = try await SkillPreprocessing.preprocess(
+                    content,
+                    skillDir: url.deletingLastPathComponent(),
+                    sessionID: SkillContext.sessionID ?? "",
+                    allowInlineCommands: SkillContext.allowInlineCommands
+                )
+                return expanded
             }
 
             return "Error: Skill '\(name)' not found. Available skills are listed in the Available Skills section."

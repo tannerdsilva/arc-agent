@@ -121,6 +121,12 @@ public actor SessionAgent: Service {
                 contextLength: resolvedContext?.contextLength,
                 platformHint: "gateway",
                 moa: agentConfig.moa,
+                skillInlineCommands: agentConfig.skillInlineCommands,
+                backgroundReview: BackgroundReview.Settings(
+                    afterToolCalls: agentConfig.backgroundReviewAfter,
+                    window: agentConfig.backgroundReviewWindow
+                ),
+                verifyOnStop: agentConfig.verifyOnStop,
                 reasoningEffort: resolvedContext?.reasoningEffort,
                 temperature: resolvedContext?.temperature,
                 topP: resolvedContext?.topP,

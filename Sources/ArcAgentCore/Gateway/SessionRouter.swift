@@ -11,16 +11,18 @@ public actor SessionRouter {
 
     public init() {}
 
-    /// Resolve a chat target to a session ID, creating one if needed.
+    /// Resolve a chat target to a **deterministic** session ID: the routing
+    /// key itself (`platform:chatID:threadID`). Deterministic means a chat
+    /// always maps to the same session across restarts (the gateway derives
+    /// session IDs this way); the key stays the durable binding and the
+    /// reverse map is maintained for ``chatTarget(for:)``.
     public func resolve(chat: ChatTarget) -> String {
         let key = routingKey(for: chat)
-        if let existing = chatToSession[key] {
-            return existing
+        if chatToSession[key] == nil {
+            chatToSession[key] = key
+            sessionToChat[key] = chat
         }
-        let sessionID = UUID().uuidString
-        chatToSession[key] = sessionID
-        sessionToChat[sessionID] = chat
-        return sessionID
+        return key
     }
 
     /// Get the chat target for a session, if known.

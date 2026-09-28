@@ -30,6 +30,13 @@ public struct GatewayService: Service {
     private let logger: Logger
     private let profileRoutes: [ProfileRoute]
     private let multiplexProfiles: Bool
+    /// Chat→session binding (Hermes `session_router` parity): resolves every
+    /// incoming chat to its deterministic session ID.
+    private let sessionRouter: SessionRouter
+    /// Scheduled job runner (Hermes `cron` service parity): registered as a
+    /// Service; the injected runner executes each due job as a one-shot agent
+    /// session.
+    private let cronScheduler: CronScheduler
 
     public init(
         host: String = "127.0.0.1",
@@ -145,6 +152,34 @@ public struct GatewayService: Service {
             adapters.append(adapter)
         }
         self.platformAdapters = adapters
+        self.sessionRouter = SessionRouter()
+
+        // Cron execution harness: each due job becomes a one-shot agent
+        // session under the default profile; the first response lands in
+        // the job's `lastOutput` (capped by the scheduler).
+        let cron = CronScheduler(
+            store: FileCronStore(),
+            pollIntervalSeconds: 30,
+            jobRunner: { job in
+                let sessionID = "cron-\(job.id)"
+                let handle = await reg.getOrCreate(sessionID: sessionID, profile: "default")
+                let incoming = IncomingMessage(
+                    id: UUID().uuidString,
+                    chat: ChatTarget(platform: "cron", chatID: job.id),
+                    text: job.prompt,
+                    senderID: "cron"
+                )
+                handle.inputContinuation.yield(incoming)
+                var output = ""
+                for await response in handle.responses {
+                    output = response
+                    break // First response is the job result.
+                }
+                await reg.remove(sessionID: sessionID)
+                return output.isEmpty ? "Job processed (no response)." : output
+            }
+        )
+        self.cronScheduler = cron
     }
 
     // MARK: - Service
@@ -152,7 +187,7 @@ public struct GatewayService: Service {
     public func run() async throws {
         logger.info("Starting ARC Agent Gateway (Bot Mode)...")
 
-        var services: [any Service] = [httpServer, wsServer, botMessaging]
+        var services: [any Service] = [httpServer, wsServer, botMessaging, cronScheduler]
 
         // Register adapters for delivery, then ingest their messages into
         // sessions — routing each chat to the profile its route table
@@ -168,7 +203,7 @@ public struct GatewayService: Service {
                         routes: self.profileRoutes,
                         multiplexProfiles: self.multiplexProfiles
                     ) ?? "default"
-                    let sessionID = "\(incoming.chat.platform):\(incoming.chat.chatID):\(incoming.chat.threadID ?? "")"
+                    let sessionID = await self.sessionRouter.resolve(chat: incoming.chat)
                     let handle = await self.registry.getOrCreate(sessionID: sessionID, profile: profile)
                     handle.inputContinuation.yield(incoming)
                 }

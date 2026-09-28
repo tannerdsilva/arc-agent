@@ -21,11 +21,21 @@ public actor CronScheduler: Service {
 
     private let store: any CronStore
     private let pollInterval: UInt64
-        private let logger = Logger(label: "com.arc-agent.cron-scheduler")
+    /// Executes a due job. When non-nil, the job's output becomes
+    /// `lastOutput` (capped at 4 KB); when nil (tests/standalone), the
+    /// scheduler bookkeeps without running anything. The gateway injects a
+    /// runner that turns the job into a one-shot agent session.
+    private let jobRunner: (@Sendable (CronJob) async throws -> String)?
+    private let logger = Logger(label: "com.arc-agent.cron-scheduler")
 
-    public init(store: any CronStore, pollIntervalSeconds: UInt64 = 30) {
+    public init(
+        store: any CronStore,
+        pollIntervalSeconds: UInt64 = 30,
+        jobRunner: (@Sendable (CronJob) async throws -> String)? = nil
+    ) {
         self.store = store
         self.pollInterval = pollIntervalSeconds * 1_000_000_000
+        self.jobRunner = jobRunner
     }
 
     public func run() async throws {
@@ -33,26 +43,7 @@ public actor CronScheduler: Service {
 
         while !Task.isCancelled {
             do {
-                let activeJobs = try await store.listActive()
-                let now = Date()
-
-                for var job in activeJobs {
-                    guard let nextRun = job.nextRunAt ?? computeNextRun(for: job) else {
-                        // First run — compute and store
-                        job.nextRunAt = computeNextRun(for: job)
-                        try await store.save(job)
-                        continue
-                    }
-
-                    if now >= nextRun {
-                        logger.info("Running job: \(job.name)")
-                        job.lastRunAt = now
-                        job.runCount += 1
-                        job.lastOutput = "Executed at \(now)"
-                        job.nextRunAt = computeNextRun(for: job)
-                        try await store.save(job)
-                    }
-                }
+                try await runDueJobs()
             } catch {
                 // Log and continue on transient errors
             }
@@ -61,6 +52,45 @@ public actor CronScheduler: Service {
         }
 
         logger.info("Cron scheduler stopped.")
+    }
+
+    /// One poll pass: run every active job whose next run has arrived.
+    /// Extracted from ``run()`` so tests can drive a single pass.
+    func runDueJobs(now: Date = Date()) async throws {
+        let activeJobs = try await store.listActive()
+
+        for var job in activeJobs {
+            guard let nextRun = job.nextRunAt ?? computeNextRun(for: job) else {
+                // First run — compute and store
+                job.nextRunAt = computeNextRun(for: job)
+                try await store.save(job)
+                continue
+            }
+
+            if now >= nextRun {
+                logger.info("Running job: \(job.name)")
+                do {
+                    if let runner = jobRunner {
+                        let output = try await runner(job)
+                        job.lastOutput = String(output.prefix(4000))
+                    } else {
+                        // Bookkeeping-only mode (tests / no runner).
+                        job.lastOutput = "Executed at \(now)"
+                    }
+                    job.lastRunAt = now
+                    job.runCount += 1
+                    job.nextRunAt = computeNextRun(for: job)
+                    try await store.save(job)
+                } catch {
+                    job.lastRunAt = now
+                    job.runCount += 1
+                    job.lastOutput = "Error: \(error)"
+                    job.nextRunAt = computeNextRun(for: job)
+                    try await store.save(job)
+                    logger.error("Cron job \(job.name) failed: \(error)")
+                }
+            }
+        }
     }
 }
 

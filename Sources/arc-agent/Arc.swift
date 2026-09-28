@@ -42,6 +42,7 @@ struct Arc: AsyncParsableCommand {
             SkillsCmd.self,
             KanbanCmd.self,
             CronCmd.self,
+            CuratorCmd.self,
             ConfigCmd.self,
             McpCmd.self,
             Version.self,
@@ -226,6 +227,12 @@ struct Chat: AsyncParsableCommand {
             sessionID: session,
             contextLength: arcConfig.model.contextLength,
             moa: arcConfig.moa,
+            skillInlineCommands: arcConfig.agent.skillInlineCommands,
+            backgroundReview: BackgroundReview.Settings(
+                afterToolCalls: arcConfig.agent.backgroundReviewAfter,
+                window: arcConfig.agent.backgroundReviewWindow
+            ),
+            verifyOnStop: arcConfig.agent.verifyOnStop,
             reasoningEffort: arcConfig.agent.reasoningEffort,
             maxOutputTokens: arcConfig.model.maxOutputTokens,
             agentPowers: arcConfig.agentPowers,

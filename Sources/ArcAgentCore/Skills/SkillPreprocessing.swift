@@ -73,18 +73,36 @@ public enum SkillPreprocessing {
             timeout: inlineCommandTimeoutSeconds,
             captureCap: maxInlineOutputBytes)
         if outcome.timedOut {
-            throw CuratorError.backupFailed("inline command timed out: \(command.prefix(80))")
+            throw SkillPreprocessingError.inlineCommandFailed("timed out: \(command.prefix(80))")
         }
         return String(data: outcome.stdout, encoding: .utf8) ?? ""
     }
 
     /// Full preprocessing pipeline: templates, then inline commands.
+    ///
+    /// Template expansion always runs; inline `!`cmd`` execution only when
+    /// ``allowInlineCommands`` (default true — skills are trusted, Hermes
+    /// runs them at load; the agent turn gates it via config
+    /// `agent.skill_inline_commands`, default off outside a turn).
     public static func preprocess(
         _ content: String,
         skillDir: URL?,
-        sessionID: String
+        sessionID: String,
+        allowInlineCommands: Bool = true
     ) async throws -> String {
         let expanded = expandTemplates(content, skillDir: skillDir, sessionID: sessionID)
+        guard allowInlineCommands else { return expanded }
         return try await runInlineCommands(expanded)
+    }
+}
+
+/// Errors from the skill preprocessing pipeline (inline-command half).
+public enum SkillPreprocessingError: Error, CustomStringConvertible {
+    case inlineCommandFailed(String)
+
+    public var description: String {
+        switch self {
+        case .inlineCommandFailed(let message): return "Skill inline command failed: \(message)"
+        }
     }
 }

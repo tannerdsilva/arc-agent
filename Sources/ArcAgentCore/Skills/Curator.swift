@@ -59,6 +59,11 @@ public struct CuratorTransition: Sendable, Equatable {
 public struct CuratorInput: Sendable {
     public let name: String
     public let lastModified: Date
+
+    public init(name: String, lastModified: Date) {
+        self.name = name
+        self.lastModified = lastModified
+    }
 }
 
 /// The curator engine. Scheduling + decisions are pure functions so they are

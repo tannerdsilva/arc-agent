@@ -83,6 +83,20 @@ public actor ArcAgent: Service {
         /// tools are deferred behind tool_search/tool_describe/tool_call.
         public var toolSearch: ToolSearchConfig = ToolSearchConfig()
 
+        /// Run inline `!`cmd`` blocks in skill content at load time (Hermes
+        /// `skill_preprocessing.py`). Templates are always expanded; this
+        /// gates the shell-execution half. Default ON (skills are trusted).
+        public var skillInlineCommands: Bool = true
+
+        /// Periodic background review of recent tool calls by an auxiliary
+        /// model (Hermes `background_review`). Default off
+        /// (`afterToolCalls: 0` = disabled).
+        public var backgroundReview: BackgroundReview.Settings = BackgroundReview.Settings()
+
+        /// Verify work at turn end (Hermes `verify_on_stop`): evidence nudge
+        /// plus an aux verification pass appended to the response.
+        public var verifyOnStop: Bool = false
+
         /// The session ID to restore persisted history from. `nil` starts a
         /// fresh session with a new UUID.
         public var sessionID: String?
@@ -146,6 +160,9 @@ public actor ArcAgent: Service {
             platformHint: String = "cli",
             moa: MoAConfig = MoAConfig(),
             toolSearch: ToolSearchConfig = ToolSearchConfig(),
+            skillInlineCommands: Bool = true,
+            backgroundReview: BackgroundReview.Settings = BackgroundReview.Settings(),
+            verifyOnStop: Bool = false,
             reasoningEffort: String? = nil,
             temperature: Double? = nil,
             topP: Double? = nil,
@@ -185,6 +202,9 @@ public actor ArcAgent: Service {
             self.platformHint = platformHint
             self.moa = moa
             self.toolSearch = toolSearch
+            self.skillInlineCommands = skillInlineCommands
+            self.backgroundReview = backgroundReview
+            self.verifyOnStop = verifyOnStop
             self.mcpServers = mcpServers
             self.disabledToolsets = disabledToolsets
         }
@@ -223,6 +243,14 @@ public actor ArcAgent: Service {
 
     /// Per-turn recovery counters (Hermes conversation-loop parity).
     private var turnRecoveryState = TurnRecoveryState()
+    /// Changed paths observed from terminal-tool evidence during the current
+    /// turn (feeds the verify-on-stop nudge).
+    private var turnChangedPaths: [String] = []
+    /// Tool calls issued in the current turn (background-review cadence).
+    private var toolCallsThisTurn = 0
+    /// Guidance from a background review, injected at the start of the next
+    /// user turn (Hermes `background_review`: reviews inject only on issues).
+    private var pendingBackgroundGuidance: String?
     /// Rate-limit buckets per route (Hermes rate_limit_tracker parity).
     private let rateLimitTracker = RateLimitTracker()
     /// Consecutive stale-stream giveups (Hermes staleness watchdog parity).
@@ -348,7 +376,10 @@ public actor ArcAgent: Service {
             return nil
         }
         do {
-            let prompt = """
+            // Changed-file evidence (Hermes filter_non_code_change_paths +
+            // verify_on_stop nudge) frames the aux verification pass.
+            let nudge = Verification.verifyNudge(changedPaths: turnChangedPaths)
+            let prompt = (nudge.isEmpty ? "" : nudge + "\n\n") + """
             The assistant just finished responding to the user. Independently verify \
             the work: is anything claimed but missing, broken, or unverified? \
             If all is well reply "verified". If something needs attention, say \
@@ -778,6 +809,8 @@ public actor ArcAgent: Service {
         compressionThrottled = false
         lastTwoCompressionSavings = []
         turnRecoveryState = TurnRecoveryState()
+        turnChangedPaths = []
+        toolCallsThisTurn = 0
     }
 
     private func appendUserMessage(_ message: Message) {
@@ -837,36 +870,65 @@ public actor ArcAgent: Service {
 
     /// Run a single conversation turn with the given user message.
     func runConversation(message: String) async throws -> String {
-        guard let llmClient else {
-            return "Error: Agent not started. Call run() first."
+        try await withSkillContext {
+            guard let llmClient else {
+                return "Error: Agent not started. Call run() first."
+            }
+
+            // Sticky interrupt: a queued interrupt cancels this turn before any
+            // work (including restore) happens.
+            if turnInterrupted {
+                turnInterrupted = false
+                return "Interrupted by user."
+            }
+
+            await restoreSessionIfNeeded()
+            resetTurnState()
+            let composed = await self.composeUserContent(self.effectiveUserText(message))
+            messageHistory.append(Message(role: .user, content: composed))
+
+            let response = try await runTurnLoop(client: llmClient)
+
+            await persistConversationIfNeeded()
+
+            // Hermes parity (docs/micro-compaction.md): after each completed turn,
+            // absorb the oldest un-absorbed exchange into the rolling summary.
+            // Best-effort — a failure leaves the transcript unchanged and the
+            // turn standing; the user's messages are never touched.
+            await maybeMicroCompact()
+
+            // Hermes parity: background title generation via the auxiliary router.
+            Task { await self.maybeGenerateTitle() }
+
+            // Verify-on-stop (Hermes `verify_on_stop`): evidence nudge first,
+            // then the aux verification pass; both appended when enabled.
+            if config.verifyOnStop,
+               let verification = await runVerificationCheck(lastResponse: response) {
+                return response + "\n\n" + verification
+            }
+
+            return response
         }
+    }
 
-        // Sticky interrupt: a queued interrupt cancels this turn before any
-        // work (including restore) happens.
-        if turnInterrupted {
-            turnInterrupted = false
-            return "Interrupted by user."
+    /// Prepend pending background-review guidance to the next user turn
+    /// (consumed once; reviews inject only when they found an issue).
+    private func effectiveUserText(_ message: String) -> String {
+        guard let guidance = pendingBackgroundGuidance else { return message }
+        pendingBackgroundGuidance = nil
+        return guidance + "\n\n" + message
+    }
+
+    /// Run `body` with the skill-context TaskLocals anchored to this agent's
+    /// session (Hermes skill_preprocessing needs the session for `${HERMES_SESSION_ID}`).
+    private nonisolated func withSkillContext<T>(
+        _ body: () async throws -> T
+    ) async rethrows -> T {
+        try await SkillContext.$sessionID.withValue(config.sessionID ?? "") {
+            try await SkillContext.$allowInlineCommands.withValue(config.skillInlineCommands) {
+                try await body()
+            }
         }
-
-        await restoreSessionIfNeeded()
-        resetTurnState()
-        let composed = await self.composeUserContent(message)
-        messageHistory.append(Message(role: .user, content: composed))
-
-        let response = try await runTurnLoop(client: llmClient)
-
-        await persistConversationIfNeeded()
-
-        // Hermes parity (docs/micro-compaction.md): after each completed turn,
-        // absorb the oldest un-absorbed exchange into the rolling summary.
-        // Best-effort — a failure leaves the transcript unchanged and the
-        // turn standing; the user's messages are never touched.
-        await maybeMicroCompact()
-
-        // Hermes parity: background title generation via the auxiliary router.
-        Task { await self.maybeGenerateTitle() }
-
-        return response
     }
 
     /// Compose the API-bound user content for a turn: the clean message plus
@@ -1467,11 +1529,13 @@ public actor ArcAgent: Service {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    try await prime()
-                    await restoreSessionIfNeeded()
-                    await resetTurnState()
-                    await self.appendUserMessage(Message(role: .user, content: message))
-                    try await runStreamingTurnLoop(continuation: continuation)
+                    try await withSkillContext {
+                        try await prime()
+                        await restoreSessionIfNeeded()
+                        await resetTurnState()
+                        await self.appendUserMessage(Message(role: .user, content: self.effectiveUserText(message)))
+                        try await runStreamingTurnLoop(continuation: continuation)
+                    }
                 } catch {
                     continuation.finish(throwing: error)
                 }
@@ -2493,6 +2557,7 @@ public actor ArcAgent: Service {
     /// side effects stay ordered. Results are returned in emission order.
     private func executeToolCalls(_ toolCalls: [ToolCall]) async -> [(ToolCall, String)] {
         var outcomes: [(ToolCall, String)] = []
+        toolCallsThisTurn += toolCalls.count
         for segment in Self.planToolBatch(toolCalls) {
             if segment.count == 1 {
                 let call = segment[0]
@@ -2516,7 +2581,54 @@ public actor ArcAgent: Service {
                 (call, outcome.result)
             })
         }
+        // Verification evidence (Hermes `verification_evidence`): collect the
+        // changed paths terminal tools attached, for the verify-on-stop nudge.
+        for (_, result) in outcomes {
+            turnChangedPaths.append(contentsOf: Self.parseEvidencePaths(result))
+        }
+        await maybeRunBackgroundReview(recentCalls: toolCalls.map { $0.function.name })
         return outcomes
+    }
+
+    /// Parse `[evidence] changed paths (N): a, b, …` out of a tool result.
+    private static func parseEvidencePaths(_ result: String) -> [String] {
+        guard let marker = result.range(of: "[evidence] changed paths ("),
+              let close = result.range(of: "): ", range: marker.upperBound..<result.endIndex) else {
+            return []
+        }
+        let tail = result[close.upperBound...]
+        let line = tail.prefix(while: { $0 != "\n" })
+        return line.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Hermes `background_review` cadence: every `afterToolCalls` tool calls,
+    /// an auxiliary model reviews the recent calls for loops/wasted work and
+    /// its guidance (when not "OK") is injected into the next user turn.
+    private func maybeRunBackgroundReview(recentCalls: [String]) async {
+        let settings = config.backgroundReview
+        guard settings.afterToolCalls > 0 else { return }
+        guard toolCallsThisTurn > 0, toolCallsThisTurn % settings.afterToolCalls == 0 else { return }
+        guard let router = auxRouter, let hc = httpClient,
+              // Review uses the verification aux lane; the canonical 16-task
+              // auxiliary set stays Hermes-identical (parity test guard).
+              let client = router.makeClient(task: .verification, httpClient: hc) else { return }
+        let windowCalls = Array(recentCalls.suffix(settings.window))
+        guard !windowCalls.isEmpty else { return }
+        let prompt = BackgroundReview.reviewPrompt(toolCalls: windowCalls)
+        do {
+            let resp = try await client.complete(
+                messages: [Message(role: .user, content: prompt)],
+                tools: nil,
+                reasoningEffort: nil
+            )
+            if let guidance = BackgroundReview.guidanceBlock(resp.content ?? "") {
+                pendingBackgroundGuidance = guidance
+            }
+        } catch {
+            // Fail-open: no guidance.
+        }
     }
 
     /// Run one tool call end to end: terminal approval gate, dispatch, and

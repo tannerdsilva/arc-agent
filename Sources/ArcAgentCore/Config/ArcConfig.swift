@@ -339,6 +339,17 @@ public struct AgentConfig: Codable, Sendable, Equatable {
     /// pass is appended when enabled.
     public var verifyOnStop: Bool
 
+    /// Run inline `!`cmd`` blocks in skills at load time (Hermes
+    /// `skill_preprocessing`). Default ON.
+    public var skillInlineCommands: Bool
+
+    /// Background-review cadence: run an aux review every N tool calls
+    /// (Hermes `background_review.after_tool_calls`). 0 = off.
+    public var backgroundReviewAfter: Int
+
+    /// Background-review call window (Hermes `background_review.window`).
+    public var backgroundReviewWindow: Int
+
     public init(
         maxIterations: Int = 25,
         max_turns: Int? = nil,
@@ -350,7 +361,10 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         microCompactDefragThresholdTokens: Int = 2000,
         systemPrompt: String = "",
         personalities: [String: PersonalityOverlay] = [:],
-        verifyOnStop: Bool = false
+        verifyOnStop: Bool = false,
+        skillInlineCommands: Bool = true,
+        backgroundReviewAfter: Int = 0,
+        backgroundReviewWindow: Int = 8
     ) {
         self.maxIterations = maxIterations
         self.max_turns = max_turns
@@ -363,6 +377,9 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         self.systemPrompt = systemPrompt
         self.personalities = personalities
         self.verifyOnStop = verifyOnStop
+        self.skillInlineCommands = skillInlineCommands
+        self.backgroundReviewAfter = backgroundReviewAfter
+        self.backgroundReviewWindow = backgroundReviewWindow
     }
 
     /// Decode each field independently, defaulting any that are absent.
@@ -378,7 +395,13 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         self.microCompactDefragThresholdTokens = try container.decodeIfPresent(Int.self, forKey: .microCompactDefragThresholdTokens) ?? AgentConfig().microCompactDefragThresholdTokens
         self.systemPrompt = try container.decodeIfPresent(String.self, forKey: .systemPrompt) ?? ""
         self.personalities = try container.decodeIfPresent([String: PersonalityOverlay].self, forKey: .personalities) ?? [:]
+
+        // Note: `CodingKeys` is synthesized from property names; use the
+        // camelCase names that match the property declarations.
         self.verifyOnStop = try container.decodeIfPresent(Bool.self, forKey: .verifyOnStop) ?? false
+        self.skillInlineCommands = try container.decodeIfPresent(Bool.self, forKey: .skillInlineCommands) ?? true
+        self.backgroundReviewAfter = try container.decodeIfPresent(Int.self, forKey: .backgroundReviewAfter) ?? 0
+        self.backgroundReviewWindow = try container.decodeIfPresent(Int.self, forKey: .backgroundReviewWindow) ?? 8
     }
 }
 

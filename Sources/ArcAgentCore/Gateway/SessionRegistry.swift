@@ -67,6 +67,13 @@ public actor SessionRegistry {
         public let moa: MoAConfig
         /// Verify work at turn end (Hermes `verify_on_stop`).
         public let verifyOnStop: Bool
+        /// Run inline `!`cmd`` blocks in skills at load time (Hermes
+        /// `skill_preprocessing`). Default ON.
+        public let skillInlineCommands: Bool
+        /// Background-review cadence: aux review every N tool calls (0 = off).
+        public let backgroundReviewAfter: Int
+        /// Background-review call window.
+        public let backgroundReviewWindow: Int
         /// External MCP servers (Hermes top-level `mcp_servers`).
         public let mcpServers: [String: MCPServerConfig]
 
@@ -81,7 +88,10 @@ public actor SessionRegistry {
             maxIterations: Int? = nil,
             toolLoopCap: Int? = nil,
             mcpServers: [String: MCPServerConfig] = [:],
-            verifyOnStop: Bool = false
+            verifyOnStop: Bool = false,
+            skillInlineCommands: Bool = true,
+            backgroundReviewAfter: Int = 0,
+            backgroundReviewWindow: Int = 8
             ) {
             self.model = model
             self.provider = provider
@@ -91,6 +101,9 @@ public actor SessionRegistry {
             self.persistSessions = persistSessions
             self.moa = moa
             self.verifyOnStop = verifyOnStop
+            self.skillInlineCommands = skillInlineCommands
+            self.backgroundReviewAfter = backgroundReviewAfter
+            self.backgroundReviewWindow = backgroundReviewWindow
             self.maxIterations = maxIterations
             self.toolLoopCap = toolLoopCap
             self.mcpServers = mcpServers

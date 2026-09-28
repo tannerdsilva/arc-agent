@@ -1,4 +1,5 @@
 import Foundation
+import SwiftSlash
 
 // MARK: - Verification evidence (Hermes `verification_evidence.py`)
 
@@ -71,6 +72,34 @@ public enum Verification {
         let list = worthy.prefix(12).joined(separator: ", ")
         return "Verification: \(worthy.count) files changed (\(list), ...). " +
                "Run tests or inspect the diff before declaring the task complete."
+    }
+
+    /// Changed paths in a workspace via `git status` (bounded, fail-open).
+    ///
+    /// Returns `[]` when `cwd` is not inside a git repo, git is unavailable,
+    /// or the probe exceeds the 2-second cap. Used by the terminal tools to
+    /// attach ``ToolEvidence`` (Hermes `filter_non_code_change_paths` input).
+    public static func changedPaths(in cwd: String, limit: Int = 50) async -> [String] {
+        let gitFlag = cwd + "/.git"
+        guard FileManager.default.fileExists(atPath: gitFlag) else { return [] }
+        var cmd = Command(
+            absolutePath: Path("/usr/bin/git"),
+            arguments: ["-C", cwd, "status", "--porcelain", "--untracked-files=all"]
+        )
+        cmd.workingDirectory = Path(cwd)
+        cmd.inheritCurrentEnvironment()
+        guard let outcome = try? await SubprocessRunner.runBytes(cmd, timeout: 2.0),
+              outcome.exitCode == 0 else { return [] }
+        let text = String(data: outcome.stdout, encoding: .utf8) ?? ""
+        // `git status --porcelain` prefixes every line with a 2-char status
+        // code + space; strip it so we hand out plain paths.
+        return text.split(separator: "\n").prefix(limit)
+            .map { line -> String in
+                let s = String(line)
+                return s.count > 3 ? String(s.dropFirst(3)) : s
+            }
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
 }
 

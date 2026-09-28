@@ -138,7 +138,19 @@ public enum TerminalTool {
         if !stderr.isEmpty { parts.append("stderr:\n\(stderr)") }
         parts.append("exit_code: \(exitCodeInt)")
 
-        return parts.joined(separator: "\n")
+        // Verification evidence (Hermes `verification_evidence`): command,
+        // cwd, exit, truncation, and git-reported changed paths ride on the
+        // result so the agent (and verify-on-stop) can check its own work.
+        let cwdResolved = workdir ?? WorkspacePath.root ?? FileManager.default.currentDirectoryPath
+        let changed = await Verification.changedPaths(in: cwdResolved)
+        let evidence = ToolEvidence(
+            command: command,
+            cwd: cwdResolved,
+            exitCode: Int32(exitCodeInt),
+            truncated: outcome.timedOut,
+            changedPaths: changed
+        )
+        return evidence.attach(to: parts.joined(separator: "\n"))
     }
 
     // MARK: - Helpers
