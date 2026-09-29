@@ -261,8 +261,164 @@ struct ArcAgentWebUI: AsyncParsableCommand {
           function nearBottom(s) { return s.scrollHeight - s.scrollTop - s.clientHeight < SCROLL_PAD; }
           var stick = true;
           var seenChatScroll = null;
+          // ---- Server-rendered math + table enhancement (arc-specific).
+          // Lived in the forked runtime until that fork was deleted; it belongs in the
+          // overlay and is driven from the mutation observer below.
+          // Mirrors arc-webui ui.js `renderKatexBlocks` + messages.js table
+            // enhancement: server-rendered <equation-inline>/<equation-block> elements
+            // are typeset with KaTeX (lazy-loaded, rendered-source cached), and pipe
+            // tables get per-column sort + a filter input.
+            var _katexState = { loading: false, ready: false, cache: {} };
+
+            function _katexPending(el, root) {
+              // An equation that is the last descendant of the live body may still be
+              // receiving TeX while streaming — skip it until the parser settles.
+              var tag = (el && el.tagName || '').toLowerCase();
+              if (tag !== 'equation-block' && tag !== 'equation-inline') return false;
+              var node = el;
+              while (node && node !== root) {
+                if (node.nextSibling) return false;
+                node = node.parentNode;
+              }
+              return node === root;
+            }
+
+            function renderKatexBlocks(container, opts) {
+              var root = container || document;
+              var streaming = !!(opts && opts.streaming);
+              var blocks = root.querySelectorAll(
+                '.katex-block:not([data-rendered]),.katex-inline:not([data-rendered]),' +
+                'equation-block:not([data-rendered]),equation-inline:not([data-rendered])'
+              );
+              if (!blocks.length) return;
+              if (!_katexState.ready) {
+                if (!_katexState.loading) {
+                  _katexState.loading = true;
+                  var script = document.createElement('script');
+                  script.src = '/ui/vendor/katex/katex.min.js';
+                  script.onload = function () {
+                    if (typeof katex !== 'undefined') {
+                      _katexState.ready = true;
+                      renderKatexBlocks();
+                    }
+                  };
+                  document.head.appendChild(script);
+                }
+                return;
+              }
+              for (var i = 0; i < blocks.length; i++) {
+                var el = blocks[i];
+                if (streaming && _katexPending(el, root)) continue;
+                var src = el.textContent || '';
+                var tag = (el.tagName || '').toLowerCase();
+                var displayMode = el.getAttribute('data-katex') === 'display' || tag === 'equation-block';
+                var key = (displayMode ? 'd|' : 'i|') + src;
+                el.setAttribute('data-rendered', 'true');
+                if (_katexState.cache[key]) {
+                  el.innerHTML = _katexState.cache[key];
+                  continue;
+                }
+                try {
+                  katex.render(src, el, {
+                    displayMode: displayMode,
+                    throwOnError: false,
+                    trust: false,
+                    strict: 'ignore'
+                  });
+                  _katexState.cache[key] = el.innerHTML;
+                } catch (e) {
+                  // Leave the raw source as a code span on failure (arc parity).
+                  var code = document.createElement('code');
+                  code.textContent = src;
+                  if (el.parentNode) el.parentNode.replaceChild(code, el);
+                }
+              }
+            }
+
+            function enhanceMarkdownTables(scope) {
+              var tables = scope.querySelectorAll('.msg-body table:not([data-markdown-table-enhanced])');
+              for (var t = 0; t < tables.length; t++) {
+                (function (table) {
+                table.setAttribute('data-markdown-table-enhanced', '1');
+                var tbody = table.querySelector('tbody');
+                var theadRow = table.querySelector('thead tr');
+                if (!tbody || !theadRow) return;
+                var bodyRows = tbody.querySelectorAll('tr');
+                for (var r = 0; r < bodyRows.length; r++) {
+                  bodyRows[r].setAttribute('data-orig', String(r));
+                }
+                var headerCells = theadRow.querySelectorAll('th');
+                for (var c = 0; c < headerCells.length; c++) {
+                  var th = headerCells[c];
+                  var headWrapper = document.createElement('div');
+                  headWrapper.className = 'markdown-table-head';
+                  var label = document.createElement('span');
+                  label.className = 'markdown-table-sort-label';
+                  label.textContent = th.textContent;
+                  var sort = document.createElement('button');
+                  sort.type = 'button';
+                  sort.className = 'markdown-table-sort';
+                  sort.title = 'Sort column';
+                  sort.textContent = '\\u21C5';
+                  sort.addEventListener('click', (function (tbl, colIdx) {
+                    return function () {
+                      var asc = tbl.getAttribute('data-sort-col') === String(colIdx) &&
+                        tbl.getAttribute('data-sort-dir') === 'asc';
+                      var dir = asc ? 'desc' : 'asc';
+                      tbl.setAttribute('data-sort-col', String(colIdx));
+                      tbl.setAttribute('data-sort-dir', dir);
+                      var body = tbl.querySelector('tbody');
+                      if (!body) return;
+                      var rows = Array.prototype.slice.call(body.querySelectorAll('tr'));
+                      rows.sort(function (a, b) {
+                        var av = a.cells[colIdx] ? (a.cells[colIdx].textContent || '').toLowerCase() : '';
+                        var bv = b.cells[colIdx] ? (b.cells[colIdx].textContent || '').toLowerCase() : '';
+                        if (av < bv) return dir === 'asc' ? -1 : 1;
+                        if (av > bv) return dir === 'asc' ? 1 : -1;
+                        return Number(a.getAttribute('data-orig') || 0) - Number(b.getAttribute('data-orig') || 0);
+                      });
+                      for (var i = 0; i < rows.length; i++) body.appendChild(rows[i]);
+                      var sels = tbl.querySelectorAll('.markdown-table-sort');
+                      for (var s = 0; s < sels.length; s++) {
+                        sels[s].textContent = s === colIdx ? (dir === 'asc' ? '\\u25B2' : '\\u25BC') : '\\u21C5';
+                      }
+                    };
+                  })(table, c));
+                  headWrapper.appendChild(label);
+                  headWrapper.appendChild(sort);
+                  th.textContent = '';
+                  th.appendChild(headWrapper);
+                }
+                var filter = document.createElement('input');
+                filter.type = 'text';
+                filter.className = 'markdown-table-filter';
+                filter.placeholder = 'Filter table';
+                // Delegated on the table so the handler survives any re-render that
+                // replaces the input element.
+                table.addEventListener('input', function (ev) {
+                  var inp = ev && ev.target;
+                  if (!inp || !inp.classList || !inp.classList.contains('markdown-table-filter')) return;
+                  var q = inp.value.toLowerCase();
+                  var rows = table.querySelectorAll('tbody tr');
+                  for (var r = 0; r < rows.length; r++) {
+                    rows[r].hidden = !!q && (rows[r].textContent || '').toLowerCase().indexOf(q) === -1;
+                  }
+                });
+                var frow = document.createElement('tr');
+                frow.className = 'markdown-table-filter-row';
+                var fcell = document.createElement('th');
+                fcell.colSpan = headerCells.length;
+                fcell.appendChild(filter);
+                frow.appendChild(fcell);
+                theadRow.parentNode.insertBefore(frow, theadRow.nextSibling);
+                })(tables[t]);
+              }
+            }
+
           new MutationObserver(function () {
             resizeComposerIfNew();
+            renderKatexBlocks(document);
+            enhanceMarkdownTables(document);
             var s = chatScroller();
             if (!s) return;
             if (!s.__bound) {
@@ -291,6 +447,8 @@ struct ArcAgentWebUI: AsyncParsableCommand {
               s.scrollTop = s.scrollHeight;
             }
           }).observe(document, { childList: true, subtree: true });
+          renderKatexBlocks(document);
+          enhanceMarkdownTables(document);
 
           // ---- Jump-to-latest circle button (arc parity): appears when the
           // user has scrolled away from the bottom; click returns to the end.
