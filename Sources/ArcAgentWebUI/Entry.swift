@@ -126,11 +126,9 @@ struct ArcAgentWebUI: AsyncParsableCommand {
                 head: """
                 <link rel="stylesheet" href="/ui/style.css?v=47">
                 <link rel="stylesheet" href="/ui/vendor/katex/katex.min.css">
-                <script src="/ui/runtime.js?v=41"></script>
                 <script src="/ui/init.js?v=30"></script>
                 """,
                 devMode: false,
-                includeRuntime: false,
                 contentSecurityPolicy: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; connect-src 'self' ws: wss:; font-src 'self' data:"
             )
         }
@@ -145,19 +143,14 @@ struct ArcAgentWebUI: AsyncParsableCommand {
             return makeDocument(shell).render()
         }
 
-        // Patched runtime (embedded Swift asset generated from Assets/runtime.js).
-        let runtimeJS = RuntimeAsset.patchedRuntimeJS
-
         let initJS = """
-        WebUIRuntime.init({
-          wsUrl: (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws',
-          wsReconnect: true,
-          wsMaxReconnectDelay: 8000,
-          wsPingInterval: 25000,
-          debounceInputMs: 80,
-          debounceMaxWaitMs: 350,
-          logLevel: 'warn'
-        });
+        // The client is no-webui's ENGINE: HTMLDocument emits the
+        // `webui-config` meta and the engine script itself, so this page no
+        // longer boots or serves the legacy WebUIRuntime. What remains below is
+        // only the arc-specific overlay (composer, KaTeX, tables, slash menu,
+        // selection, outline, worklog) — everything it used to rely on the
+        // runtime for (transport, event dispatch, fragment patching, scroll and
+        // form-state restore, HTML sanitising) is the engine's job now.
 
         (function () {
           try {
@@ -886,7 +879,6 @@ struct ArcAgentWebUI: AsyncParsableCommand {
                 pagePath: "/",
                 assets: [
                     .text("/ui/style.css", Theme.css + Theme.schemeCSS, contentType: "text/css; charset=utf-8"),
-                    .text("/ui/runtime.js", runtimeJS, contentType: "text/javascript; charset=utf-8"),
                     .text("/ui/init.js", initJS, contentType: "text/javascript; charset=utf-8"),
                     .text("/ui/vendor/katex/katex.min.css", KaTeXAssets.css, contentType: "text/css; charset=utf-8"),
                     .text("/ui/vendor/katex/katex.min.js", KaTeXAssets.js, contentType: "text/javascript; charset=utf-8"),
