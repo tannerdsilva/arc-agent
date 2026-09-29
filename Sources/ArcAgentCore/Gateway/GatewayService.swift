@@ -8,19 +8,24 @@ import NIO
 /// adapters, session registry, and message routing.
 ///
 /// ``GatewayService`` is a ``Service`` that composes:
-/// - ``HTTPServerService`` — REST API endpoints + web UI
-/// - ``WebSocketServerService`` — real-time WebSocket for the web UI
+/// - ``HTTPServerService`` — REST API (`/health`, `POST /v1/chat`)
 /// - ``TelegramAdapter`` — Telegram Bot API long polling
 /// - ``SessionRegistry`` — active session agents (no cache, LMDB is source of truth)
 /// - ``DeliveryManager`` — routes responses to the correct platform
 /// - ``BotMessagingService`` — inter-agent messaging
 /// - ``GroupChatManager`` — multi-agent coordination rooms
 ///
+/// The web UI is NOT hosted here: it is the standalone `arc-agent-webui`
+/// binary, which runs on no-webui's `WebUIServer`. The gateway used to carry a
+/// second, hand-rolled UI surface (three `/ui` pages behind an `onUI` closure
+/// that was never configured, plus a NIO WebSocket server on `port + 1` whose
+/// only purpose was to talk to those pages). That duplicate is gone; `arc serve`
+/// is the API and the platform adapters.
+///
 /// All components are managed by a ``ServiceGroup``.
 public struct GatewayService: Service {
 
     private let httpServer: HTTPServerService
-    private let wsServer: WebSocketServerService
     private let platformAdapters: [any PlatformAdapter]
     private let registry: SessionRegistry
     private let deliveryManager: DeliveryManager
@@ -77,18 +82,8 @@ public struct GatewayService: Service {
             await gcm.setMessagingService(bm)
         }
 
-        // Create the WebSocket server on the next port
-        let wsPort = port + 1
-        self.wsServer = WebSocketServerService(
-            host: host,
-            port: wsPort,
-            registry: reg,
-            handlerFactory: { sessionID, registry in
-                WebSocketHandler(sessionID: sessionID, registry: registry)
-            }
-        )
-
-        // Build the HTTP server with bot-mode web UI
+        // Build the HTTP server. REST only: the web UI is the standalone
+        // `arc-agent-webui` binary, which runs on no-webui's `WebUIServer`.
         self.httpServer = HTTPServerService(
             config: .init(host: host, port: port),
             onChat: { [reg, routes = profileRouting.sortedRoutes, multiplex = profileRouting.multiplexProfiles] sessionID, message in
@@ -111,8 +106,7 @@ public struct GatewayService: Service {
                     break  // Take the first response
                 }
                 return responseText.isEmpty ? "Message received" : responseText
-            },
-            onUI: nil
+            }
         )
 
         // Build platform adapters from gateway config (or legacy token flag).
@@ -202,7 +196,7 @@ public struct GatewayService: Service {
     public func run() async throws {
         logger.info("Starting ARC Agent Gateway (Bot Mode)...")
 
-        var services: [any Service] = [httpServer, wsServer, botMessaging, cronScheduler]
+        var services: [any Service] = [httpServer, botMessaging, cronScheduler]
 
         // Register adapters for delivery, then ingest their messages into
         // sessions — routing each chat to the profile its route table
