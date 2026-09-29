@@ -2,10 +2,10 @@ import Foundation
 import AsyncHTTPClient
 import NIO
 
-/// Web search/extract backend registry (Hermes `agent/web_search_provider.py`
+/// Web search/extract backend registry (reference `agent/web_search_provider.py`
 /// + `agent/web_search_registry.py` port).
 ///
-/// Contract mirrored from Hermes:
+/// Contract mirrored from reference:
 /// - A provider advertises a stable lowercase `name`, a cheap `isAvailable()`
 ///   check (no network), and either/both of `search` / `extract` capabilities.
 /// - The active provider is chosen by config (`web.search_backend`,
@@ -28,7 +28,7 @@ public extension SearchProvider {
     var displayName: String { name }
 }
 
-/// A single normalized search result (Hermes response-shape contract).
+/// A single normalized search result (reference response-shape contract).
 public struct SearchResult: Sendable, Equatable {
     public let title: String
     public let url: String
@@ -63,7 +63,7 @@ public enum SearchError: Error, CustomStringConvertible {
     }
 }
 
-/// Registry of search providers (Hermes `web_search_registry.py`).
+/// Registry of search providers (reference `web_search_registry.py`).
 public actor SearchRegistry {
     public static let shared = SearchRegistry()
 
@@ -88,14 +88,14 @@ public actor SearchRegistry {
         providers
     }
 
-    /// Reset registry state (tests, Hermes `_reset_for_tests`).
+    /// Reset registry state (tests, reference `_reset_for_tests`).
     public func reset() {
         providers = []
         configuredBackend = nil
     }
 
     /// Resolve the active search provider: explicit config match first, then
-    /// first available provider (Hermes `_resolve` semantics).
+    /// first available provider (reference `_resolve` semantics).
     public func resolve() -> SearchProvider? {
         let candidates = providers.filter { $0.isAvailable() }
         if let backend = configuredBackend, !backend.isEmpty {
@@ -111,7 +111,7 @@ public actor SearchRegistry {
     }
 
     /// Resolve and run a search; throws `noProviderConfigured`/`providerUnavailable`
-    /// with Hermes-style messages when no provider can service the call.
+    /// with arc-style messages when no provider can service the call.
     public func perform(query: String, limit: Int) async throws -> [SearchResult] {
         guard let provider = resolve() else {
             throw SearchError.noProviderConfigured
@@ -123,11 +123,11 @@ public actor SearchRegistry {
     }
 }
 
-// MARK: - Environment helper (Hermes `get_provider_env`)
+// MARK: - Environment helper (reference `get_provider_env`)
 
 public enum SearchEnv {
     /// Config-aware env lookup: `os.environ` first, then `~/.arc/.env`
-    /// (parsed KEY=VALUE lines), then empty. Mirrors Hermes.
+    /// (parsed KEY=VALUE lines), then empty. mirrors the reference client.
     public static func get(_ name: String) -> String {
         if let v = ProcessInfo.processInfo.environment[name], !v.isEmpty {
             return v.trimmingCharacters(in: .whitespacesAndNewlines)

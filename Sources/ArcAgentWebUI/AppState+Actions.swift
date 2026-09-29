@@ -118,7 +118,7 @@ extension AppState {
         formValues[key] = value
     }
 
-    /// Per-chat composer draft (Hermes parity). Persisted with a 1.5 s
+    /// Per-chat composer draft (arc parity). Persisted with a 1.5 s
     /// debounce so keystrokes don't hammer the settings file.
     func storeComposerDraft(_ text: String, sessionID: String) {
         settings.composerDrafts[sessionID] = text
@@ -141,7 +141,7 @@ extension AppState {
         filePopOpen.toggle()
     }
 
-    // MARK: Composer dropdowns (Hermes parity)
+    // MARK: Composer dropdowns (arc parity)
 
     /// Close every composer dropdown (openers close their siblings) and
     /// reset the live-search filters so the next open is fresh.
@@ -217,7 +217,7 @@ extension AppState {
         if settings.bookmarkedSessions.contains(id) {
             settings.bookmarkedSessions.removeAll { $0 == id }
         } else {
-            // Hermes parity: cap the number of pinned conversations. Count
+            // arc parity: cap the number of pinned conversations. Count
             // only non-archived pins; reaching the limit blocks the pin next.
             let limit = max(1, settings.pinnedSessionsLimit)
             let pinnedCount = settings.bookmarkedSessions.filter { !settings.archivedSessions.contains($0) }.count
@@ -230,7 +230,7 @@ extension AppState {
         saveSettings()
     }
 
-    // MARK: Chat preferences (Hermes parity)
+    // MARK: Chat preferences (arc parity)
 
     /// Toggle input/output token usage below assistant replies (/usage command).
     func toggleShowTokenUsage() {
@@ -251,7 +251,7 @@ extension AppState {
     }
 
     /// Smart approval toggle. On: flagged commands go through the `approval`
-    /// auxiliary guardian (Hermes smart mode). Off: classic manual gate.
+    /// auxiliary guardian (reference smart mode). Off: classic manual gate.
     /// The manager is rebuilt so the change applies to the next turn.
     func setSmartApproval(_ on: Bool) async {
         guard settings.smartApproval != on else { return }
@@ -916,8 +916,8 @@ extension AppState {
     func workspacePath(for sessionID: String?) -> String {
         let name = workspaceName(for: sessionID)
         let path = workspaceEntry(named: name)?.path ?? WorkspaceEntry.defaultPath(for: name)
-        // Hermes parity: the default workspace is created on first use
-        // (`~/workspace` et al.) — best effort, like Hermes' resolve step.
+        // arc parity: the default workspace is created on first use
+        // (`~/workspace` et al.) — best effort, like reference' resolve step.
         try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
         return path
     }
@@ -979,7 +979,7 @@ extension AppState {
         activeTurns[sessionID] != nil
     }
 
-    /// Deliver mid-run user guidance (Hermes /steer) to the turn in the SAME
+    /// Deliver mid-run user guidance (reference /steer) to the turn in the SAME
     /// session only. A message typed in a different chat must never steer
     /// another chat's run — it starts its own turn instead.
     func submitSteer(_ text: String, sessionID: String) {
@@ -1162,7 +1162,7 @@ extension AppState {
     }
 
     /// Persist one auxiliary task's override to `~/.arc/config.json`
-    /// (Hermes `auxiliary.<task>` shape). All-empty fields (or a bare "auto"
+    /// (reference `auxiliary.<task>` shape). All-empty fields (or a bare "auto"
     /// provider) remove the override and route the task back to the main model.
     func setAuxOverride(
         task: AuxiliaryTask,

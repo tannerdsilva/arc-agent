@@ -38,7 +38,7 @@ public enum ReadFileTool {
     // MARK: - Handler
 
     private static func readFile(path: String, offset: Int, limit: Int) async throws -> String {
-        // Hermes `_resolve_path_for_task` parity: relative paths anchor to the
+        // reference `_resolve_path_for_task` parity: relative paths anchor to the
         // conversation's workspace root; a relative path escaping the root is
         // surfaced as a warning (never a silent read of another checkout).
         let (resolved, warning) = WorkspacePath.resolveChecked(path)

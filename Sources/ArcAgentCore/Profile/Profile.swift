@@ -42,13 +42,13 @@ public struct AvatarConfig: Codable, Sendable, Equatable {
 /// - Each profile has a filesystem directory under `~/.arc/profiles/<name>/`
 ///   (e.g. its canonical bot-chat id in `canonical_chat.txt`).
 /// - The `"default"` profile is the backward-compatible primary agent.
-/// Per-profile model context parameters (Hermes per-profile config parity).
+/// Per-profile model context parameters (reference per-profile config parity).
 /// Every field is optional: `nil` inherits the session's model config or the
 /// provider default, so a profile can override just the window size.
 public struct ProfileContextConfig: Codable, Sendable, Equatable {
-    /// Model context window in tokens (Hermes `context_length`).
+    /// Model context window in tokens (reference `context_length`).
     public var contextLength: Int?
-    /// Explicit generation budget (Hermes `max_tokens` override).
+    /// Explicit generation budget (reference `max_tokens` override).
     public var maxOutputTokens: Int?
     /// Reasoning effort: "minimal"/"low"/"medium"/"high"/"max".
     public var reasoningEffort: String?

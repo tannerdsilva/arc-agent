@@ -2,7 +2,7 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 
-/// Session heartbeats (Hermes `features/heartbeat.md`).
+/// Session heartbeats (reference `features/heartbeat.md`).
 @Suite("Heartbeat", .serialized)
 struct HeartbeatTests {
 
@@ -18,7 +18,7 @@ struct HeartbeatTests {
         return store
     }
 
-    @Test("interval parser accepts Hermes forms and rejects sub-minute")
+    @Test("interval parser accepts reference forms and rejects sub-minute")
     func intervalParsing() {
         #expect(HeartbeatInterval.parse("90s") == 90)
         #expect(HeartbeatInterval.parse("10m") == 600)

@@ -1,4 +1,4 @@
-# Arc-Agent vs Hermes — Empirical A/B Analysis (2026-09-10/11)
+# Arc-Agent vs reference — Empirical A/B Analysis (2026-09-10/11)
 
 ## Methodology
 
@@ -10,7 +10,7 @@ instrumented proxy (`/tmp/ab/proxy.py`, part of the harness, not the repo):
   finish reasons, stream flag, and a wire-shape fingerprint
   (max_tokens, reasoning_effort, system-prompt size, tool count).
 - Fault injection: HTTP 429 / 500 / empty 200 on a chosen request index.
-- Hermes ran from an isolated `HERMES_HOME` (same config, base_url repointed
+- reference ran from an isolated `reference_HOME` (same config, base_url repointed
   at the proxy; real skills copied). arc ran its real config; for the parity
   runs both were pinned to `reasoning_effort: max` and `max_tokens: 512000`.
 
@@ -18,7 +18,7 @@ instrumented proxy (`/tmp/ab/proxy.py`, part of the harness, not the repo):
 
 ### Cycle 1 — production configs as-is
 
-| cell | Hermes | arc | wall Δ |
+| cell | reference | arc | wall Δ |
 |---|---|---|---|
 | planning | **TIMEOUT (600s)** — skill-driven tool loop, `plan` skill + terminal | 252s | arc 2.4× faster |
 | longctx | 29.2s | 19.2s | arc 1.5× faster |
@@ -29,7 +29,7 @@ instrumented proxy (`/tmp/ab/proxy.py`, part of the harness, not the repo):
 
 ### Cycle 2 — parity configs (`effort=max`, `max_tokens=512000`, fixed binary)
 
-| cell | Hermes | arc | notes |
+| cell | reference | arc | notes |
 |---|---|---|---|
 | planning | 476.4s / 110,470 tok / 62,690 chars | **218.6s / 40,238 tok / 35,182 chars** | arc 2.2× faster, ~2.7× fewer tokens |
 | toolheavy | 30.4s / 70,976 tok | 32.2s / 29,057 tok | equal wall; arc 2.4× fewer tokens |
@@ -40,7 +40,7 @@ verified on disk; longctx answers list all five findings).
 
 ### Wire shape (identical prompt, "ok" smoke)
 
-| field | Hermes | arc (after fixes) |
+| field | reference | arc (after fixes) |
 |---|---|---|
 | `stream` | true | true |
 | `max_tokens` | 512,000 | 512,000 |
@@ -51,30 +51,30 @@ verified on disk; longctx answers list all five findings).
 
 ## Root-cause inventory (what causes the differences)
 
-1. **Skill library size** — Hermes indexes ~90 skills (incl. `plan`,
+1. **Skill library size** — reference indexes ~90 skills (incl. `plan`,
    `web_search`, `github-*`); arc indexes 5 (its own `~/.arc/skills`). This
-   is the dominant cause: it makes Hermes' planning run a skill-driven tool
+   is the dominant cause: it makes reference' planning run a skill-driven tool
    loop (skill_view + terminal writing a plan file) and inflates the system
    prompt by ~13K chars/request (17.1K vs 5.4K prompt tokens). Arc's library
    is purposeful, not a defect.
-2. **reasoning_effort** — Hermes sent `max`; arc sent nothing (provider
+2. **reasoning_effort** — reference sent `max`; arc sent nothing (provider
    default). Fixed: configurable `agent.reasoningEffort` (cycle 2) +
    existential-dispatch bug (cycle 2b) so it actually reaches the wire.
 3. **max_tokens** — arc sent nothing (silent vLLM default ~4K cap risk);
-   Hermes sends 512,000. Fixed: metadata-driven default + `model.maxOutputTokens`
+   reference sends 512,000. Fixed: metadata-driven default + `model.maxOutputTokens`
    override (cycle 1/2).
-4. **CLI streaming** — Hermes streams; arc CLI waited for the full response.
+4. **CLI streaming** — reference streams; arc CLI waited for the full response.
    Fixed: `prime()` + `streamConversation` in the `-q` path (cycle 2).
 5. **Empty-response handling** — arc classified "missing choices" as
-   `.permanent` and died instantly; Hermes retries with a storm guard.
+   `.permanent` and died instantly; reference retries with a storm guard.
    Fixed (cycle 1): `LLMError.emptyResponse`, retryable + storm cap.
 6. **Tessera relay wedge** — bounded-handshake gap + missing teardown caused
    a reproducible SIGTRAP (`AsyncHTTPClient` deinit). Fixed (cycle 1):
    25s connect bound, `healthCheck()`, file-store fallback, explicit teardown.
-7. **Parallel-tool-call guidance** — Hermes injects batching guidance into
+7. **Parallel-tool-call guidance** — reference injects batching guidance into
    the system prompt; arc's prompt does not. Behavioral effect observed
-   (Hermes batches more per turn); candidate prompt-parity improvement.
-8. **Tool-aware guidance blocks** — Hermes injects memory/session-search
+   (reference batches more per turn); candidate prompt-parity improvement.
+8. **Tool-aware guidance blocks** — reference injects memory/session-search
    guidance per loaded tool; arc does not. Same category as 7.
 
 ## Changes shipped per cycle
@@ -92,13 +92,13 @@ verified on disk; longctx answers list all five findings).
   suite serialized (global tool-store race).
 
 **Tests: 270/270 green (19 suites).** CLI `arc chat -q` now streams with
-visible tool activity, survives piped stdout, and honors Hermes parity knobs.
+visible tool activity, survives piped stdout, and honors arc parity knobs.
 
 ## Recommended next steps (not yet implemented)
 
-- Populate `~/.arc/skills` with high-value Hermes skills (`plan`,
+- Populate `~/.arc/skills` with high-value arc skills (`plan`,
   `test-driven-development`, `technical-documentation`, `github-*`) — user
-  decision; would move planning behavior toward Hermes' shape.
+  decision; would move planning behavior toward reference' shape.
 - Prompt parity: add `PARALLEL_TOOL_CALL_GUIDANCE` + per-tool guidance
   blocks to the stable tier.
 - `serve` path: same health-check fallback as `chat` when Tessera is down.

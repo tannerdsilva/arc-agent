@@ -1,10 +1,10 @@
 import Foundation
 
-// MARK: - Personalities (Hermes `features/personality.md`, `/personality`)
+// MARK: - Personalities (reference `features/personality.md`, `/personality`)
 
 /// A named personality overlay from `agent.personalities` in config.
 ///
-/// Two shapes are supported (Hermes parity):
+/// Two shapes are supported (arc parity):
 /// - a plain string — the overlay IS the system-prompt text;
 /// - a dict `{description?, system_prompt?, tone?, style?}` — composed as
 ///   the system prompt plus `Tone:` / `Style:` lines.
@@ -29,7 +29,7 @@ public enum PersonalityOverlay: Codable, Sendable, Equatable {
         }
     }
 
-    /// Compose the effective overlay text (Hermes `_resolve_personality_prompt`).
+    /// Compose the effective overlay text (reference `_resolve_personality_prompt`).
     public func resolve() -> String {
         switch self {
         case .text(let text):

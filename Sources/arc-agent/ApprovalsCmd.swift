@@ -4,7 +4,7 @@ import Foundation
 
 // MARK: - Approvals
 
-/// `arc approvals` — approval posture helpers (Hermes `hermes approvals`
+/// `arc approvals` — approval posture helpers (reference `reference approvals`
 /// CLI surface).
 struct ApprovalsCmd: AsyncParsableCommand {
 

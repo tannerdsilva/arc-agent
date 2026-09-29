@@ -3,14 +3,14 @@ import Foundation
 @testable import ArcAgentCore
 
 /// Tests for skill curation, backups, bundles, preprocessing, memory manager,
-/// and skill commands (Hermes curator/skill_bundles/skill_preprocessing/
+/// and skill commands (reference curator/skill_bundles/skill_preprocessing/
 /// memory_manager/skill_commands parity).
 @Suite("Skill curation & memory")
 struct CuratorTests {
 
     // MARK: - Curator scheduling
 
-    @Test("curator due logic: never-run, interval, pause, idle (Hermes maybe_run_curator)")
+    @Test("curator due logic: never-run, interval, pause, idle (reference maybe_run_curator)")
     func dueLogic() {
         let now = Date()
         #expect(Curator.isDue(state: CuratorState()).due) // never run
@@ -85,7 +85,7 @@ struct CuratorTests {
 
     // MARK: - Bundles
 
-    @Test("bundle slugify, save/load/list/delete (Hermes skill_bundles)")
+    @Test("bundle slugify, save/load/list/delete (reference skill_bundles)")
     func bundleStore() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("bundles-\(UUID().uuidString)")
         #expect(SkillBundle.slugify("Coding Onboarding!") == "coding-onboarding")
@@ -112,9 +112,9 @@ struct CuratorTests {
 
     // MARK: - Preprocessing
 
-    @Test("template expansion: skill dir, session id, env (Hermes ${HERMES_*})")
+    @Test("template expansion: skill dir, session id, env (placeholders ${ARC_*})")
     func templateExpansion() {
-        let content = "DIR=${HERMES_SKILL_DIR} SID=${HERMES_SESSION_ID} HOME=${HOME}"
+        let content = "DIR=${ARC_SKILL_DIR} SID=${ARC_SESSION_ID} HOME=${HOME}"
         let expanded = SkillPreprocessing.expandTemplates(
             content, skillDir: URL(fileURLWithPath: "/tmp/skills"), sessionID: "sess-1")
         #expect(expanded.contains("DIR=/tmp/skills"))
@@ -145,7 +145,7 @@ struct CuratorTests {
         #expect(clean == "aredz")
     }
 
-    @Test("memory context bounds via head+tail with truncation marker (Hermes 4000/1500/6000)")
+    @Test("memory context bounds via head+tail with truncation marker (reference 4000/1500/6000)")
     func memoryBounds() {
         let big = String(repeating: "A", count: 10_000)
         let block = MemoryManager.buildContext(entries: [(1.0, big)])!
@@ -165,7 +165,7 @@ struct CuratorTests {
 
     // MARK: - Skill commands
 
-    @Test("command frontmatter parsing and invocation message (Hermes skill_commands)")
+    @Test("command frontmatter parsing and invocation message (reference skill_commands)")
     func commandParsing() {
         let fm = "name: test\ndescription: d\ncommand: tst\n"
         #expect(SkillCommands.commandName(fromFrontmatter: fm) == "tst")

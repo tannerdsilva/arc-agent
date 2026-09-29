@@ -8,14 +8,14 @@ import Logging
 
 /// A platform adapter for Slack using Socket Mode (WebSocket) + Web API.
 ///
-/// Hermes slack parity (text transport):
+/// reference slack parity (text transport):
 /// - Socket Mode: `apps.connections.open` → WSS link → event envelope
 ///   handling (`events_api`, `slash_commands`), envelope acks, auto-reconnect
 /// - `chat.postMessage` / `chat.update` sends + in-place edits
 /// - mrkdwn conversion, threads (`thread_ts`), mention gating in channels
 /// - per-user authz via the shared ``AuthzPolicy``
 ///
-/// Slack has no Web API typing indicator (Hermes uses the Assistant
+/// Slack has no Web API typing indicator (reference uses the Assistant
 /// `assistant.threads.setStatus` surface); typing is a no-op here.
 public final class SlackAdapter: PlatformAdapter {
 

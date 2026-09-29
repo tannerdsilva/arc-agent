@@ -57,7 +57,7 @@ public actor ArcAgent: Service {
         public var query: String?
         /// Approximate max context tokens before auto-compression.
         public var maxContextTokens: Int
-        /// Hermes-parity auxiliary-model overrides (`auxiliary.<task>`), used
+        /// arc-parity auxiliary-model overrides (`auxiliary.<task>`), used
         /// for smart approval, LLM compression, and task routing.
         public var auxiliary: AuxiliaryModelSet
 
@@ -65,7 +65,7 @@ public actor ArcAgent: Service {
         /// system prompt as a `## Personality` section. Empty = no overlay.
         public var personalityPrompt: String = ""
 
-        /// Hermes micro-compaction (docs/micro-compaction.md): after each
+        /// reference micro-compaction (docs/micro-compaction.md): after each
         /// completed turn, absorb one exchange into a rolling summary. Off by
         /// default; enabled via `compression.micro_compact`.
         public var microCompact: MicroCompactConfig = MicroCompactConfig()
@@ -75,25 +75,25 @@ public actor ArcAgent: Service {
         /// ``AgentPowers`` at init so tools refuse locked surfaces.
         public var agentPowers: AgentPowersConfig = AgentPowersConfig()
 
-        /// Mixture-of-Agents configuration (Hermes `moa` config block).
+        /// Mixture-of-Agents configuration (reference `moa` config block).
         public var moa: MoAConfig
-        /// Tool-gateway policy (Hermes `tool_gateway`), enforced at dispatch.
+        /// Tool-gateway policy (reference `tool_gateway`), enforced at dispatch.
         public var gateway: ToolGatewayConfig = ToolGatewayConfig()
-        /// Progressive tool disclosure (Hermes `tools.tool_search`): which
+        /// Progressive tool disclosure (reference `tools.tool_search`): which
         /// tools are deferred behind tool_search/tool_describe/tool_call.
         public var toolSearch: ToolSearchConfig = ToolSearchConfig()
 
-        /// Run inline `!`cmd`` blocks in skill content at load time (Hermes
+        /// Run inline `!`cmd`` blocks in skill content at load time (reference
         /// `skill_preprocessing.py`). Templates are always expanded; this
         /// gates the shell-execution half. Default ON (skills are trusted).
         public var skillInlineCommands: Bool = true
 
         /// Periodic background review of recent tool calls by an auxiliary
-        /// model (Hermes `background_review`). Default off
+        /// model (reference `background_review`). Default off
         /// (`afterToolCalls: 0` = disabled).
         public var backgroundReview: BackgroundReview.Settings = BackgroundReview.Settings()
 
-        /// Verify work at turn end (Hermes `verify_on_stop`): evidence nudge
+        /// Verify work at turn end (reference `verify_on_stop`): evidence nudge
         /// plus an aux verification pass appended to the response.
         public var verifyOnStop: Bool = false
 
@@ -101,7 +101,7 @@ public actor ArcAgent: Service {
         /// fresh session with a new UUID.
         public var sessionID: String?
 
-        /// Reasoning effort sent to the provider (Hermes `reasoning_effort`).
+        /// Reasoning effort sent to the provider (reference `reasoning_effort`).
         public var reasoningEffort: String?
 
         /// Sampling temperature (0.0 - 2.0) sent to the provider.
@@ -114,7 +114,7 @@ public actor ArcAgent: Service {
         public var maxOutputTokens: Int?
 
         /// The model's context length in tokens (used to derive the
-        /// compression threshold; Hermes parity: threshold = context / 2).
+        /// compression threshold; arc parity: threshold = context / 2).
         /// `nil` falls back to ``maxContextTokens``.
         public var contextLength: Int?
 
@@ -122,7 +122,7 @@ public actor ArcAgent: Service {
         /// key returns 401 (CredentialPool rotation).
         public var fallbackAPIKeys: [String]
 
-        /// Inject project context files (AGENTS.md, .hermes.md, CLAUDE.md,
+        /// Inject project context files (AGENTS.md, .arc.md, CLAUDE.md,
         /// .cursorrules) from the working directory into the system prompt.
         public var injectProjectContext: Bool
 
@@ -130,7 +130,7 @@ public actor ArcAgent: Service {
         /// working directory (the default for the CLI).
         public var contextDirectory: URL?
 
-        /// Platform label for the prompt's session line (Hermes parity).
+        /// Platform label for the prompt's session line (arc parity).
         public var platformHint: String
 
         public init(
@@ -209,10 +209,10 @@ public actor ArcAgent: Service {
             self.disabledToolsets = disabledToolsets
         }
 
-        /// External MCP servers (Hermes `mcp_servers`).
+        /// External MCP servers (reference `mcp_servers`).
         public var mcpServers: [String: MCPServerConfig]
 
-        /// Toolsets to disable for this agent run (Hermes `--toolsets`).
+        /// Toolsets to disable for this agent run (reference `--toolsets`).
         public var disabledToolsets: Set<String>
     }
 
@@ -236,12 +236,12 @@ public actor ArcAgent: Service {
     /// Circuit breaker for the primary LLM endpoint.
     private let circuitBreaker = CircuitBreaker(label: "primary-llm", threshold: 3, resetTimeout: 30)
 
-    /// Local usage ledger (Hermes usage_pricing/credits parity).
+    /// Local usage ledger (reference usage_pricing/credits parity).
     private let usageLedger = UsageLedger()
-    /// Pluggable context engine (Hermes context_engine; ARC_CONTEXT_ENGINE).
+    /// Pluggable context engine (reference context_engine; ARC_CONTEXT_ENGINE).
     private let contextEngine: any ContextEngine = ContextEngineRouter.resolve()
 
-    /// Per-turn recovery counters (Hermes conversation-loop parity).
+    /// Per-turn recovery counters (reference conversation-loop parity).
     private var turnRecoveryState = TurnRecoveryState()
     /// Changed paths observed from terminal-tool evidence during the current
     /// turn (feeds the verify-on-stop nudge).
@@ -249,16 +249,16 @@ public actor ArcAgent: Service {
     /// Tool calls issued in the current turn (background-review cadence).
     private var toolCallsThisTurn = 0
     /// Guidance from a background review, injected at the start of the next
-    /// user turn (Hermes `background_review`: reviews inject only on issues).
+    /// user turn (reference `background_review`: reviews inject only on issues).
     private var pendingBackgroundGuidance: String?
-    /// Rate-limit buckets per route (Hermes rate_limit_tracker parity).
+    /// Rate-limit buckets per route (reference rate_limit_tracker parity).
     private let rateLimitTracker = RateLimitTracker()
-    /// Consecutive stale-stream giveups (Hermes staleness watchdog parity).
+    /// Consecutive stale-stream giveups (reference staleness watchdog parity).
     private let staleTracker = StaleStreakTracker()
-    /// Per-turn tool loop caps + repeat/synthetic results (Hermes
+    /// Per-turn tool loop caps + repeat/synthetic results (reference
     /// tool_guardrails parity).
     private let toolGuardrails: ToolGuardrails
-    /// Mixture-of-Agents service (Hermes moa_loop parity; built from config).
+    /// Mixture-of-Agents service (reference moa_loop parity; built from config).
     private lazy var moaService: MoAService = {
         let baseProfile = BundledProviders.resolve(config.provider)
         return MoAService(config: config.moa, aggregatorModelName: currentModelName) { [weak self] role, apiKey in
@@ -288,7 +288,7 @@ public actor ArcAgent: Service {
     private var currentAPIKey: String = ""
     /// The model the current client targets (tracks /model + fallback swaps).
     private var currentModelName: String = ""
-    /// Effective reasoning effort for this run (Hermes `reasoning_effort`).
+    /// Effective reasoning effort for this run (reference `reasoning_effort`).
     private var currentReasoningEffort: String?
     /// Cached token estimate for the tool schemas (static per agent).
     private var toolSchemaTokenEstimate: Int?
@@ -368,7 +368,7 @@ public actor ArcAgent: Service {
         }
     }
 
-    /// End-of-turn verification (Hermes `verify_on_stop`): an aux pass that
+    /// End-of-turn verification (reference `verify_on_stop`): an aux pass that
     /// checks whether the work is actually complete/consistent. Fail-open.
     public func runVerificationCheck(lastResponse: String) async -> String? {
         guard let router = auxRouter, let hc = httpClient,
@@ -376,7 +376,7 @@ public actor ArcAgent: Service {
             return nil
         }
         do {
-            // Changed-file evidence (Hermes filter_non_code_change_paths +
+            // Changed-file evidence (reference filter_non_code_change_paths +
             // verify_on_stop nudge) frames the aux verification pass.
             let nudge = Verification.verifyNudge(changedPaths: turnChangedPaths)
             let prompt = (nudge.isEmpty ? "" : nudge + "\n\n") + """
@@ -398,7 +398,7 @@ public actor ArcAgent: Service {
         }
     }
 
-    /// Run the standing-goal judge (Hermes `goal_judge` auxiliary task).
+    /// Run the standing-goal judge (reference `goal_judge` auxiliary task).
     /// Fail-open: returns nil on any error (caller treats as `continue`).
     public func runGoalJudge(goal: GoalState, lastResponse: String) async -> GoalJudgeResult? {
         guard let router = auxRouter, let hc = httpClient,
@@ -503,7 +503,7 @@ public actor ArcAgent: Service {
             apiKey: resolvedKey,
             model: config.model,
             httpClient: httpClient,
-            // Hermes parity: always declare a generation budget. Without an
+            // arc parity: always declare a generation budget. Without an
             // explicit max_tokens some OpenAI-compatible servers silently
             // cap output at their default (often 4096), truncating long
             // answers with finish_reason == "length" and no error.
@@ -573,7 +573,7 @@ public actor ArcAgent: Service {
                 }
             }
 
-            // Hermes `!` shell mode: run the rest as a shell command and show
+            // reference `!` shell mode: run the rest as a shell command and show
             // its output without involving the model.
             if input.hasPrefix("!") {
                 await runShellPassthrough(String(input.dropFirst()).trimmingCharacters(in: .whitespaces))
@@ -588,7 +588,7 @@ public actor ArcAgent: Service {
         }
     }
 
-    /// Execute a shell command via the sanctioned subprocess runner (Hermes
+    /// Execute a shell command via the sanctioned subprocess runner (reference
     /// bang-shell mode: no model round-trip, output shown verbatim).
     private func runShellPassthrough(_ command: String) async {
         guard !command.isEmpty else {
@@ -678,7 +678,7 @@ public actor ArcAgent: Service {
             return true
 
         case "/compress":
-            // Hermes `/compress [focus]`: run the compression engine with an
+            // reference `/compress [focus]`: run the compression engine with an
             // optional focus topic (prioritised detail) and force=True so a
             // manual request bypasses throttling and the summary cooldown.
             let parts = input.split(separator: " ", maxSplits: 1).map(String.init)
@@ -818,7 +818,7 @@ public actor ArcAgent: Service {
     }
 
     /// Inject a mid-turn steering instruction. Drained before the next LLM
-    /// request so the model sees it on this iteration (Hermes `/steer`
+    /// request so the model sees it on this iteration (reference `/steer`
     /// parity). Rendered as a distinct `[steer: …]` user turn.
     func steer(_ message: String) {
         pendingSteers.append(message)
@@ -841,7 +841,7 @@ public actor ArcAgent: Service {
     }
 
     /// Generate a session title in the background via the `title_generation`
-    /// auxiliary model (Hermes parity). No-op when no override is configured
+    /// auxiliary model (arc parity). No-op when no override is configured
     /// or persistence is off; best-effort by design.
     private func maybeGenerateTitle() async {
         guard config.persistSessions, sessionCreatedInStore else { return }
@@ -891,16 +891,16 @@ public actor ArcAgent: Service {
 
             await persistConversationIfNeeded()
 
-            // Hermes parity (docs/micro-compaction.md): after each completed turn,
+            // arc parity (docs/micro-compaction.md): after each completed turn,
             // absorb the oldest un-absorbed exchange into the rolling summary.
             // Best-effort — a failure leaves the transcript unchanged and the
             // turn standing; the user's messages are never touched.
             await maybeMicroCompact()
 
-            // Hermes parity: background title generation via the auxiliary router.
+            // arc parity: background title generation via the auxiliary router.
             Task { await self.maybeGenerateTitle() }
 
-            // Verify-on-stop (Hermes `verify_on_stop`): evidence nudge first,
+            // Verify-on-stop (reference `verify_on_stop`): evidence nudge first,
             // then the aux verification pass; both appended when enabled.
             if config.verifyOnStop,
                let verification = await runVerificationCheck(lastResponse: response) {
@@ -920,7 +920,7 @@ public actor ArcAgent: Service {
     }
 
     /// Run `body` with the skill-context TaskLocals anchored to this agent's
-    /// session (Hermes skill_preprocessing needs the session for `${HERMES_SESSION_ID}`).
+    /// session (reference skill_preprocessing needs the session for `${ARC_SESSION_ID}`).
     private nonisolated func withSkillContext<T>(
         _ body: () async throws -> T
     ) async rethrows -> T {
@@ -932,7 +932,7 @@ public actor ArcAgent: Service {
     }
 
     /// Compose the API-bound user content for a turn: the clean message plus
-    /// optional memory-provider recall (Hermes `turn_context` external-memory
+    /// optional memory-provider recall (reference `turn_context` external-memory
     /// prefetch). Trivial prompts are skipped; recall is wrapped in the
     /// fenced `<memory-context>` block with the system note. Best-effort —
     /// a missing/stuck provider never blocks the turn.
@@ -1009,7 +1009,7 @@ public actor ArcAgent: Service {
     }
 
     /// Effective compression threshold: 50% of the model context length when
-    /// known (Hermes parity), otherwise the configured ``maxContextTokens``.
+    /// known (arc parity), otherwise the configured ``maxContextTokens``.
     nonisolated func effectiveContextLimit() -> Int {
         if let ctx = config.contextLength, ctx > 0 {
             return ctx / 2
@@ -1036,7 +1036,7 @@ public actor ArcAgent: Service {
     /// Auto-compress history if the FULL estimated request (system prompt +
     /// history + tool schemas) exceeds the effective context limit.
     ///
-    /// Hermes-parity guards: head protection (first exchange is never
+    /// arc-parity guards: head protection (first exchange is never
     /// summarized), token-budget tail (~20K), iterative summary updates,
     /// summary-model cool-down after rate limits, and anti-thrash that
     /// suspends compression after two consecutive low-savings rounds.
@@ -1046,7 +1046,7 @@ public actor ArcAgent: Service {
         let estimated = await estimateRequestTokens()
         guard force || estimated > limit else { return }
 
-        // Pluggable context engines (Hermes context_engine): the
+        // Pluggable context engines (reference context_engine): the
         // prune-tool-results variant trims tool output only; everything else
         // uses the default summarize-and-window engine below.
         if contextEngine.name == "prune_tool_results" {
@@ -1062,7 +1062,7 @@ public actor ArcAgent: Service {
 
         // Head protection: never summarize the first exchange. Tail
         // protection: token budget (~20K, at least the last 4 messages) —
-        // Hermes compress() steps 2-4, extracted for testability.
+        // reference compress() steps 2-4, extracted for testability.
         let tailBudget = min(20_000, limit / 3)
         let window = ContextCompression.window(
             nonSystem,
@@ -1073,7 +1073,7 @@ public actor ArcAgent: Service {
         var middle = window.middle
         let tail = window.tail
 
-        // Cheap pre-pass (Hermes Phase 1): prune old tool results before any
+        // Cheap pre-pass (reference Phase 1): prune old tool results before any
         // summary decision, so an aborted compression still returns the win.
         middle = ContextCompression.pruneToolResults(middle)
 
@@ -1088,7 +1088,7 @@ public actor ArcAgent: Service {
 
         // Iterative: fold the existing summary into the material so a
         // re-compression updates the summary instead of starting over
-        // (Hermes: previous summary + new turns, bounded).
+        // (reference: previous summary + new turns, bounded).
         var existingSummary: String?
         for msg in systemMessages where (msg.content ?? "").hasPrefix(Self.compressionSummaryPrefix) {
             existingSummary = msg.content
@@ -1142,16 +1142,16 @@ public actor ArcAgent: Service {
             logger.warning("compression throttled: last two compressions saved <10% each")
         }
 
-        // Rebuild the system prompt with fresh memory/skills (Hermes parity).
+        // Rebuild the system prompt with fresh memory/skills (arc parity).
         invalidateSystemPrompt()
     }
 
     /// Attempt an LLM summarization using the `compression` auxiliary model
-    /// with the given Hermes-structured prompt. Returns nil when no override
+    /// with the given reference-structured prompt. Returns nil when no override
     /// is configured, when the summary model is in cool-down, or when the
     /// call fails — callers fall back to the extractive record.
     private func summarizeForCompression(_ userContent: String) async -> String? {
-        // Cool-down after the summary model was rate-limited (Hermes parity).
+        // Cool-down after the summary model was rate-limited (arc parity).
         if let until = compressionCooldownUntil, Date() < until { return nil }
         guard let router = auxRouter, router.hasOverride(.compression) else { return nil }
         guard let hc = httpClient,
@@ -1175,7 +1175,7 @@ public actor ArcAgent: Service {
         }
     }
 
-    // MARK: - Micro-compaction (Hermes docs/micro-compaction.md)
+    // MARK: - Micro-compaction (reference docs/micro-compaction.md)
 
     /// Run one micro-compaction pass after a completed turn. Best-effort by
     /// contract: every failure path keeps the conversation unchanged and the
@@ -1186,7 +1186,7 @@ public actor ArcAgent: Service {
               let router = auxRouter,
               router.hasOverride(.compression),
               let client = router.makeClient(task: .compression, httpClient: hc) else {
-            // No compression aux model: passes cannot run (batch-only, Hermes
+            // No compression aux model: passes cannot run (batch-only, reference
             // parity — micro-compaction uses `auxiliary.compression`).
             return
         }
@@ -1219,7 +1219,7 @@ public actor ArcAgent: Service {
         emitMicroTelemetry(run, limit: limit)
     }
 
-    /// Hermes `_build_micro_summary_prompt`: merge one exchange into the
+    /// reference `_build_micro_summary_prompt`: merge one exchange into the
     /// running summary. The same builder serves defrag (empty base + the
     /// baggy summary as the "exchange").
     private func microSummaryPrompt(existing: String, exchange: String) -> [Message] {
@@ -1256,7 +1256,7 @@ public actor ArcAgent: Service {
     }
 
     /// Rewrite the persisted session after a splice/defrag so a resume does
-    /// not double-load the summary AND the exchanges it replaced (Hermes
+    /// not double-load the summary AND the exchanges it replaced (reference
     /// `archive_and_compact` equivalent). Mirror of the append-only flush:
     /// soft failure only — the transcript stays consistent in memory and the
     /// next batch compaction cleans up the double-load on resume.
@@ -1375,7 +1375,7 @@ public actor ArcAgent: Service {
                 contextLength: config.maxContextTokens
             )
 
-            // 3b. Mixture-of-Agents advisory context (Hermes moa_loop: the
+            // 3b. Mixture-of-Agents advisory context (reference moa_loop: the
             // acting model sees synthesized reference advice before it acts).
             if config.moa.enabled {
                 let moaResult = await moaService.aggregate(
@@ -1501,7 +1501,7 @@ public actor ArcAgent: Service {
                     emptyAfterToolsNudges += 1
                     continue
                 }
-                // Empty-response storm guard (Hermes bounded empty responses):
+                // Empty-response storm guard (reference bounded empty responses):
                 // after N consecutive empty replies, stop re-prompting.
                 turnRecoveryState.emptyStormStreak += 1
                 if turnRecoveryState.emptyStormStreak >= TurnRecoveryState.emptyStormThreshold {
@@ -1591,7 +1591,7 @@ public actor ArcAgent: Service {
                 contextLength: config.maxContextTokens
             )
 
-            // MoA advisory context (Hermes moa_loop parity).
+            // MoA advisory context (reference moa_loop parity).
             if config.moa.enabled {
                 let moaResult = await moaService.aggregate(
                     userPrompt: messageHistory.last(where: { $0.role == .user })?.content ?? "",
@@ -1661,7 +1661,7 @@ public actor ArcAgent: Service {
             } catch {
                 let errorClass = classifyError(error)
 
-                // Stale-stream recovery (Hermes staleness watchdog with
+                // Stale-stream recovery (reference staleness watchdog with
                 // patience budget + give-up streak): reconnect once per turn,
                 // then give up after the streak threshold.
                 if error is StaleStreamError {
@@ -1778,7 +1778,7 @@ public actor ArcAgent: Service {
                     continue
                 }
                 // Whitespace-only prefix — keep the loop going, but bounded by
-                // the empty-response storm guard (Hermes).
+                // the empty-response storm guard (reference).
                 turnRecoveryState.emptyStormStreak += 1
                 if turnRecoveryState.emptyStormStreak >= TurnRecoveryState.emptyStormThreshold {
                     continuation.yield(RecoveryNudges.emptyStormExhaustedMessage)
@@ -1903,7 +1903,7 @@ public actor ArcAgent: Service {
                 await Metrics.shared.recordError("\(errorClass)")
                 let failure = ErrorClassifier.classify(error)
 
-                // Rate-limit backoff honoring Retry-After (Hermes).
+                // Rate-limit backoff honoring Retry-After (reference).
                 if case LLMError.rateLimited(let retryAfter) = error {
                     await rateLimitTracker.recordThrottle(route: rateLimitRoute(), retryAfter: retryAfter)
                     let delay = FailureBackoff.delay(for: .rateLimit, attempt: attempt, retryAfter: retryAfter)
@@ -1911,7 +1911,7 @@ public actor ArcAgent: Service {
                     continue
                 }
 
-                // Empty-response storm guard (Hermes `_check_empty_storm`):
+                // Empty-response storm guard (reference `_check_empty_storm`):
                 // empty 200s retry, but a streak means the provider is stuck —
                 // stop with a visible reason instead of looping.
                 if case LLMError.emptyResponse = error {
@@ -1923,7 +1923,7 @@ public actor ArcAgent: Service {
                 }
 
                 // Primary transport recovery: rebuild the connection once per
-                // turn on transport-level failures (Hermes
+                // turn on transport-level failures (reference
                 // `_try_recover_primary_transport`).
                 if !turnRecoveryState.primaryRecoveryAttempted,
                    failure.reason == .timeout || failure.reason == .tls {
@@ -1988,7 +1988,7 @@ public actor ArcAgent: Service {
             toolsData = nil
         }
 
-        // Staleness patience for this request (Hermes stream stale watchdog).
+        // Staleness patience for this request (reference stream stale watchdog).
         let patience = streamPatience(for: messages)
 
         for attempt in 0..<retryHandler.maxRetries {
@@ -2010,7 +2010,7 @@ public actor ArcAgent: Service {
                 await circuitBreaker.reset()
                 await rateLimitTracker.recordSuccess(route: rateLimitRoute())
                 turnRecoveryState.markProviderSuccess()
-                // Apply the per-provider stale watchdog (Hermes
+                // Apply the per-provider stale watchdog (reference
                 // stream-stale patience budget).
                 return IdleTimeoutStream(stream, idleSeconds: patience)
             } catch {
@@ -2018,7 +2018,7 @@ public actor ArcAgent: Service {
                 let errorClass = classifyError(error)
                 let failure = ErrorClassifier.classify(error)
 
-                // Rate-limit backoff honoring Retry-After (Hermes).
+                // Rate-limit backoff honoring Retry-After (reference).
                 if case LLMError.rateLimited(let retryAfter) = error {
                     await rateLimitTracker.recordThrottle(route: rateLimitRoute(), retryAfter: retryAfter)
                     let delay = FailureBackoff.delay(for: .rateLimit, attempt: attempt, retryAfter: retryAfter)
@@ -2026,7 +2026,7 @@ public actor ArcAgent: Service {
                     continue
                 }
 
-                // Empty-response storm guard (Hermes `_check_empty_storm`).
+                // Empty-response storm guard (reference `_check_empty_storm`).
                 if case LLMError.emptyResponse = error {
                     turnRecoveryState.emptyStormStreak += 1
                     logger.warning("empty response \(turnRecoveryState.emptyStormStreak)/\(TurnRecoveryState.emptyStormThreshold) from provider (stream)")
@@ -2086,7 +2086,7 @@ public actor ArcAgent: Service {
         )
     }
 
-    /// Record a turn's usage into the local ledger (Hermes usage_pricing +
+    /// Record a turn's usage into the local ledger (reference usage_pricing +
     /// credits_tracker parity; local JSON — usage is not session data).
     private func recordUsage(_ usage: Usage?) async {
         guard let usage else { return }
@@ -2108,7 +2108,7 @@ public actor ArcAgent: Service {
         )
     }
 
-    /// Rebuild the primary transport client from current state (Hermes
+    /// Rebuild the primary transport client from current state (reference
     /// `_try_recover_primary_transport`: fresh connection, fresh credentials
     /// — once per turn). Used when the transport itself went bad (timeout,
     /// TLS, reset) rather than the model or key.
@@ -2122,13 +2122,13 @@ public actor ArcAgent: Service {
         )
     }
 
-    /// Route label for rate-limit tracking (provider/model), matching Hermes'
+    /// Route label for rate-limit tracking (provider/model), matching reference'
     /// per-route buckets.
     private func rateLimitRoute() -> String {
         "\(config.provider)/\(currentModelName)"
     }
 
-    /// Stream patience for the current model (Hermes staleness watchdog).
+    /// Stream patience for the current model (reference staleness watchdog).
     private func streamPatience(for messages: [Message]) -> Double {
         let estimated = messages.reduce(0) { $0 + self.tokenCounter.count($1.content ?? "") }
         let meta = ModelMetadataRegistry.shared.metadata(for: currentModelName, provider: config.provider)
@@ -2158,7 +2158,7 @@ public actor ArcAgent: Service {
         return result
     }
 
-    /// Convert `[Message]` to the wire API form (Hermes api_messages shape)
+    /// Convert `[Message]` to the wire API form (reference api_messages shape)
     /// so MoA advisory views can preserve tool calls and results.
     static func apiForm(_ messages: [Message]) -> [[String: Any]] {
         messages.map { message in
@@ -2180,7 +2180,7 @@ public actor ArcAgent: Service {
         }
     }
 
-    /// Post-execution laundering (Hermes `redact.py` parity): terminal tool
+    /// Post-execution laundering (reference `redact.py` parity): terminal tool
     /// output is scrubbed for secret shapes before it is shown to the model.
     static func launderToolResult(_ call: ToolCall, _ result: String) async -> String {
         if call.function.name == "terminal" {
@@ -2210,7 +2210,7 @@ public actor ArcAgent: Service {
     }
 
     /// Launder a message array before sending it to the provider or before
-    /// restoring it into history (Hermes api_messages parity):
+    /// restoring it into history (reference api_messages parity):
     /// - drop orphaned tool results (no matching preceding assistant call);
     /// - add missing stubs so every assistant tool call has a result;
     /// - drop thinking-only assistant turns, merging a user message that
@@ -2288,7 +2288,7 @@ public actor ArcAgent: Service {
                 ))
             }
         }
-        // Pass 3: Hermes message sanitization — unicode/control cleanup and
+        // Pass 3: reference message sanitization — unicode/control cleanup and
         // interrupted tool-sequence closing (synthetic results for unpaired
         // trailing calls; a no-op for well-formed transcripts).
         return MessageSanitizer.sanitize(withStubs)
@@ -2344,7 +2344,7 @@ public actor ArcAgent: Service {
     /// Floor cap for injected project context files (chars).
     static let contextFileBudgetChars = 16_000
 
-    /// Hermes-parity mandatory skills framing that precedes the index.
+    /// arc-parity mandatory skills framing that precedes the index.
     /// Moved to ``SkillsPrompt`` so the CLI harness and the webui turn engine
     /// share one block (the webui was drifting — bare list, no instruction).
     static let skillsMandatoryFraming = SkillsPrompt.mandatoryFraming
@@ -2376,7 +2376,7 @@ public actor ArcAgent: Service {
         return .empty
     }
 
-    /// Bridge translation for tool_describe / tool_call (Hermes parity).
+    /// Bridge translation for tool_describe / tool_call (arc parity).
     private func handleBridgeCall(name: String, argumentsJSON: String) async -> String {
         guard let data = argumentsJSON.data(using: .utf8),
               let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -2422,14 +2422,14 @@ public actor ArcAgent: Service {
 
     // MARK: Tool invocation
     //
-    // Workspace anchoring (Hermes parity): every handler runs with
+    // Workspace anchoring (arc parity): every handler runs with
     // `WorkspacePath.root` bound to the CLI's launch directory (the CLI has
-    // no per-conversation workspace registry — Hermes' CLI equivalent is
+    // no per-conversation workspace registry — reference' CLI equivalent is
     // `$TERMINAL_CWD`, also the launch cwd). The webui binds its per-session
     // workspace instead. File tools anchor relative paths to this root and
     // warn when one escapes it.
     private func dispatchToolCall(_ toolCall: ToolCall) async throws -> String {
-        // ── Progressive tool disclosure bridge (Hermes `tools/tool_search.py`):
+        // ── Progressive tool disclosure bridge (reference `tools/tool_search.py`):
         // tool_describe/tool_call are not registered tools; the bridge
         // translates them and routes the target through THIS dispatch, so
         // guardrails, approvals, and the tool gateway all fire normally.
@@ -2441,7 +2441,7 @@ public actor ArcAgent: Service {
             return "Error: Unknown tool '\(toolCall.function.name)'."
         }
 
-        // ── Tool gateway (Hermes `tool_gateway` / managed scope): policy is
+        // ── Tool gateway (reference `tool_gateway` / managed scope): policy is
         // evaluated before any approval/danger logic and before execution. ──
         let gate = ToolGateway.decide(
             toolName: toolCall.function.name,
@@ -2464,7 +2464,7 @@ public actor ArcAgent: Service {
         do {
             args = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         } catch {
-            // Hermes `repair_tool_call_arguments`: recover corrupted JSON
+            // reference `repair_tool_call_arguments`: recover corrupted JSON
             // (unescaped newlines/quotes, bare keys) before failing.
             let rawArgs = String(data: data, encoding: .utf8) ?? ""
             let repair = MessageSanitizer.repairToolCallArguments(rawArgs)
@@ -2473,7 +2473,7 @@ public actor ArcAgent: Service {
                    with: Data(repair.json.utf8)) as? [String: Any] {
                 args = repairedArgs
             } else {
-                // Invalid-JSON recovery (Hermes `_invalid_json_retries`): feed
+                // Invalid-JSON recovery (reference `_invalid_json_retries`): feed
                 // the parse failure back as a tool result and let the model
                 // retry — bounded per turn so a broken model cannot loop.
                 turnRecoveryState.invalidJSONRetries += 1
@@ -2487,7 +2487,7 @@ public actor ArcAgent: Service {
             }
         }
 
-        // Tool guardrails (Hermes tool_guardrails): loop caps, per-turn
+        // Tool guardrails (reference tool_guardrails): loop caps, per-turn
         // budgets, and repeated-call synthetic results.
         switch await toolGuardrails.decide(toolName: toolCall.function.name, args: args) {
         case .synthetic(let message):
@@ -2564,7 +2564,7 @@ public actor ArcAgent: Service {
                 outcomes.append((call, await Self.launderToolResult(call, await runToolCall(call))))
                 continue
             }
-            // Hermes concurrent-batch watchdog parity: capped concurrency
+            // reference concurrent-batch watchdog parity: capped concurrency
             // (max 8) + a 420 s batch deadline. On deadline the batch is
             // abandoned and still-running calls become explicit
             // "timed out after 420.0s" results — a wedged swift test can no
@@ -2581,7 +2581,7 @@ public actor ArcAgent: Service {
                 (call, outcome.result)
             })
         }
-        // Verification evidence (Hermes `verification_evidence`): collect the
+        // Verification evidence (reference `verification_evidence`): collect the
         // changed paths terminal tools attached, for the verify-on-stop nudge.
         for (_, result) in outcomes {
             turnChangedPaths.append(contentsOf: Self.parseEvidencePaths(result))
@@ -2603,7 +2603,7 @@ public actor ArcAgent: Service {
             .filter { !$0.isEmpty }
     }
 
-    /// Hermes `background_review` cadence: every `afterToolCalls` tool calls,
+    /// reference `background_review` cadence: every `afterToolCalls` tool calls,
     /// an auxiliary model reviews the recent calls for loops/wasted work and
     /// its guidance (when not "OK") is injected into the next user turn.
     private func maybeRunBackgroundReview(recentCalls: [String]) async {
@@ -2612,7 +2612,7 @@ public actor ArcAgent: Service {
         guard toolCallsThisTurn > 0, toolCallsThisTurn % settings.afterToolCalls == 0 else { return }
         guard let router = auxRouter, let hc = httpClient,
               // Review uses the verification aux lane; the canonical 16-task
-              // auxiliary set stays Hermes-identical (parity test guard).
+              // auxiliary set stays reference-identical (parity test guard).
               let client = router.makeClient(task: .verification, httpClient: hc) else { return }
         let windowCalls = Array(recentCalls.suffix(settings.window))
         guard !windowCalls.isEmpty else { return }
@@ -2663,7 +2663,7 @@ public actor ArcAgent: Service {
 
     // MARK: - Prompt Building
 
-    /// Build the system prompt as three ordered cache tiers (Hermes parity):
+    /// Build the system prompt as three ordered cache tiers (arc parity):
     /// - **stable**: identity, rules, tool index, environment hints — never
     ///   changes within a session, so provider prefix caches stay warm;
     /// - **context**: workspace project context files (AGENTS.md etc.);
@@ -2721,7 +2721,7 @@ public actor ArcAgent: Service {
             - Use ~/... paths (or absolute paths) for user-visible locations; the `terminal` tool's shell expands `~`, and `write_file` accepts paths relative to the working directory.
             """
 
-        // ── Personality overlay (Hermes `/personality`, `agent.system_prompt`) ──
+        // ── Personality overlay (reference `/personality`, `agent.system_prompt`) ──
         if !config.personalityPrompt.isEmpty {
             stable += "\n\n## Personality\n\n\(config.personalityPrompt)"
         }
@@ -2766,7 +2766,7 @@ public actor ArcAgent: Service {
         return prompt
     }
 
-    /// Discover and cache project context files (AGENTS.md, .hermes.md,
+    /// Discover and cache project context files (AGENTS.md, .arc.md,
     /// CLAUDE.md, .cursorrules) from the working directory, floor-capped by
     /// the context window so they never crowd out the conversation.
     private func loadContextFiles() async -> [(name: String, content: String)] {
@@ -2774,7 +2774,7 @@ public actor ArcAgent: Service {
         var result: [(name: String, content: String)] = []
         let fm = FileManager.default
         let base = config.contextDirectory ?? URL(fileURLWithPath: fm.currentDirectoryPath)
-        let names = ["AGENTS.md", ".hermes.md", "CLAUDE.md", ".cursorrules"]
+        let names = ["AGENTS.md", ".arc.md", "CLAUDE.md", ".cursorrules"]
         var budget = min(Self.contextFileBudgetChars, max(4_000, effectiveContextLimit() / 4))
         for name in names {
             let url = base.appendingPathComponent(name)
@@ -2802,7 +2802,7 @@ public actor ArcAgent: Service {
     }
 
     /// Force a system-prompt rebuild on the next turn (used by compression so
-    /// memory/skills are reloaded — Hermes `invalidate_system_prompt`).
+    /// memory/skills are reloaded — reference `invalidate_system_prompt`).
     private func invalidateSystemPrompt() {
         cachedSystemPrompt = nil
         systemPromptVersion += 1

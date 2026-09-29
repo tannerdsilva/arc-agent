@@ -123,7 +123,7 @@ extension AppState {
         }
         parts.append("Active configuration: model \(preset.model) via \(preset.provider.isEmpty ? "custom" : preset.provider).")
         parts.append("Working directory: \(workspacePath(for: sessionID))")
-        // Skills — Hermes-parity mandatory section (framing + index), per-profile
+        // Skills — arc-parity mandatory section (framing + index), per-profile
         // override when the chat is bound to a profile, otherwise the global
         // list (inherited by profiles without overrides).
         let pname = profileName(for: sessionID)
@@ -145,7 +145,7 @@ extension AppState {
     }
 
     /// Execute one tool call and return its result string. Terminal commands
-    /// are gated by ApprovalManager (Hermes smart approval): dangerous ones
+    /// are gated by ApprovalManager (reference smart approval): dangerous ones
     /// pause on a permission card until the user approves or denies.
     func runTool(_ call: ToolCall, sessionID: String, pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void, headless: Bool = false) async -> String {
         // Ambient dispatcher for execute_code: child Python processes dispatch
@@ -172,7 +172,7 @@ extension AppState {
            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             args = obj
         }
-        // Tool guardrails (Hermes tool_guardrails parity): per-turn budgets,
+        // Tool guardrails (reference tool_guardrails parity): per-turn budgets,
         // repeated-call detection, and synthetic results.
         switch await guardrails.decide(toolName: call.function.name, args: args) {
         case .synthetic(let message):
@@ -180,7 +180,7 @@ extension AppState {
         case .allow:
             break
         }
-        // Hermes-parity approval gate for the terminal tool.
+        // arc-parity approval gate for the terminal tool.
         if tool.name == "terminal",
            let command = args["command"] as? String,
            !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -226,7 +226,7 @@ extension AppState {
                 break
             }
         }
-        // Hermes-parity clarify tool: the webui intercepts the tool call and
+        // arc-parity clarify tool: the webui intercepts the tool call and
         // renders the "Clarification needed" card above the composer. The
         // answer (or the 120 s best-judgement fallback) becomes the tool result.
         if tool.name == "clarify" {
@@ -260,7 +260,7 @@ extension AppState {
         return false
     }
 
-    /// Hermes-parity clarify request: the agent's `clarify` tool pauses the
+    /// arc-parity clarify request: the agent's `clarify` tool pauses the
     /// turn and the webui renders the "Clarification needed" card above the
     /// composer with a 120 s countdown. The answer (or the best-judgement
     /// timeout notice) is returned as the tool result.
@@ -289,7 +289,7 @@ extension AppState {
         await pusher(await liveFragments())
 
         // 120 s deadline: on timeout, finish the request with the
-        // best-judgement notice (Hermes smart-mode fallback).
+        // best-judgement notice (reference smart-mode fallback).
         let expiresAt = now.addingTimeInterval(timeout)
         clarifyTimerTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(timeout))
@@ -309,7 +309,7 @@ extension AppState {
         return answer
     }
 
-    /// Clarify timeout in seconds (Hermes default: 120). Overridable via the
+    /// Clarify timeout in seconds (reference default: 120). Overridable via the
     /// `ARC_CLARIFY_TIMEOUT` environment variable for tests.
     static func clarifyTimeoutSeconds() -> Double {
         if let raw = ProcessInfo.processInfo.environment["ARC_CLARIFY_TIMEOUT"],
@@ -319,7 +319,7 @@ extension AppState {
         return 120
     }
 
-    // MARK: Context compression (Hermes parity)
+    // MARK: Context compression (arc parity)
 
     /// Rough token estimate for a message list (chars/4 + overhead).
     func estimateTokens(_ msgs: [Message]) -> Int {
@@ -365,7 +365,7 @@ extension AppState {
         return systemMessages + [summaryMessage] + recent
     }
 
-    /// Hermes-parity context compression. When the token estimate exceeds the
+    /// arc-parity context compression. When the token estimate exceeds the
     /// budget, the `compression` auxiliary model (Qwen3.6 in the default
     /// config) summarizes the older tail and a recent window replaces it in
     /// the model-facing history. The durable session transcript stays intact;
@@ -414,14 +414,14 @@ extension AppState {
 
     /// Run a full agent turn (streaming) for the active chat and push updates
     /// to the originating client throughout.
-    // MARK: - Core-service integrations (Hermes parity)
+    // MARK: - Core-service integrations (arc parity)
 
     private static let rateLimits = RateLimitTracker()
     private static let usageLedger = UsageLedger()
 
     /// Per-turn tool guardrails, rebuilt from `~/.arc/config.json` at the
     /// start of every turn so `guardrails.toolLoopCap` edits apply without a
-    /// restart (Hermes reads config per request too).
+    /// restart (reference reads config per request too).
     private static func freshGuardrails() -> ToolGuardrails {
         ToolGuardrails(limits: .init(loopCap: Self.rawArcConfig().effectiveToolLoopCap()))
     }
@@ -431,7 +431,7 @@ extension AppState {
         "The previous turn ended without any response content. Using the tool results above, provide your answer now."
 
     /// Record a finished round in the durable usage ledger (~/.arc-agent/usage.json),
-    /// the same file the CLI and gateway write (Hermes usage_pricing parity).
+    /// the same file the CLI and gateway write (reference usage_pricing parity).
     static func recordUsage(_ usage: Usage, preset: ModelConfigPreset) async {
         await usageLedger.record(
             route: BillingRoute(provider: preset.provider, model: preset.model, baseURL: preset.baseURL),
@@ -447,7 +447,7 @@ extension AppState {
         await usageLedger.save()
     }
 
-    /// Mixture-of-Agents advisory pass (Hermes moa_loop parity): run the
+    /// Mixture-of-Agents advisory pass (reference moa_loop parity): run the
     /// reference fan-out and prepend the joined advisory to the context.
     private func appendMoAAdvisory(to messages: inout [Message], preset: ModelConfigPreset, userText: String) async {
         var cfg = arcConfig.moa
@@ -466,14 +466,14 @@ extension AppState {
         )
     }
 
-    // MARK: - Tool-iteration budget (Hermes `max_turns` parity)
+    // MARK: - Tool-iteration budget (reference `max_turns` parity)
 
-    /// Hermes `AIAgent` default tool-calling iterations (agent_init.py:470).
+    /// reference `AIAgent` default tool-calling iterations (agent_init.py:470).
     static let defaultMaxTurns = 90
 
     /// The tool-iteration budget for a turn, read per-turn from
-    /// `~/.arc/config.json` so edits apply without a restart (Hermes reads the
-    /// config per request too). Key precedence matches Hermes
+    /// `~/.arc/config.json` so edits apply without a restart (reference reads the
+    /// config per request too). Key precedence matches reference
     /// (`api/streaming.py`): `agent.max_turns` → legacy root `max_turns` →
     /// `agent.maxIterations` (arc-agent's own key) → default 90. A value of
     /// `0`/negative means **unlimited** (the turn runs until the prompt
@@ -482,8 +482,8 @@ extension AppState {
         Self.rawArcConfig().effectiveMaxTurns()
     }
 
-    /// Hermes parity: when the tool-iteration budget is exhausted, append the
-    /// same nudge Hermes uses (`chat_completion_helpers.py`), take ONE final
+    /// arc parity: when the tool-iteration budget is exhausted, append the
+    /// same nudge reference uses (`chat_completion_helpers.py`), take ONE final
     /// no-tools call for the closing summary, and mark the reply with
     /// `terminalReason = "max_iterations"` so the UI shows the status card.
     /// Persist a message to the store, surfacing failures to the Logs panel.
@@ -526,7 +526,7 @@ extension AppState {
         await flush()
 
         // One final no-tool call: the model cannot emit tool calls, so the
-        // result is either a summary or empty → graceful fallback (Hermes
+        // result is either a summary or empty → graceful fallback (reference
         // `final_response` fallback text).
         var summary = ""
         var reasoning = ""
@@ -552,7 +552,7 @@ extension AppState {
                 await throttle()
             }
         } catch {
-            // Provider fault during the final call: no retry (Hermes returns
+            // Provider fault during the final call: no retry (reference returns
             // the graceful fallback in this case); keep any partial text.
         }
         let elapsed = max(0.2, Date().timeIntervalSince(started))
@@ -598,7 +598,7 @@ extension AppState {
         let atts = attachments
         var userContent = raw
         if !atts.isEmpty {
-            // Hermes parity: image attachments are described by the active
+            // arc parity: image attachments are described by the active
             // vision model and injected into the turn as a description.
             var lines: [String] = []
             for a in atts {
@@ -647,7 +647,7 @@ extension AppState {
             await persistMessage(userMsg, sessionID: sessionID, store: store)
         }
 
-        // Hermes-parity: when a title_gen auxiliary model is assigned, name the
+        // arc-parity: when a title_gen auxiliary model is assigned, name the
         // chat with it (best-effort + fire-and-forget so streaming is never
         // delayed; without an assignment the first-message auto title stays).
         if settings.sessionTitles[sessionID] == nil,
@@ -678,7 +678,7 @@ extension AppState {
         }
 
         var history = session.messages
-        // Hermes-parity context compression: when the estimate exceeds the
+        // arc-parity context compression: when the estimate exceeds the
         // budget, the `compression` auxiliary model (Qwen3.6) summarizes the
         // older tail and a recent window replaces it for the model-facing
         // request. The stored transcript stays intact. Applies at most once
@@ -704,7 +704,7 @@ extension AppState {
             var messages = [Message(role: .system, content: sys)]
             messages.append(contentsOf: history)
 
-            // Mixture-of-Agents advisory (Hermes moa_loop parity): when enabled
+            // Mixture-of-Agents advisory (reference moa_loop parity): when enabled
             // in Settings and reference models are configured in
             // ~/.arc/config.json, fan out reference calls first and prepend the
             // joined advisory to the model-facing context.
@@ -755,14 +755,14 @@ extension AppState {
                     }
                     activeTurns[sessionID]?.assistantText = assistantText
                     activeTurns[sessionID]?.status = contentAccum.isEmpty && !toolAccum.isEmpty ? "tool" : "running"
-                    // Hermes parity: live tokens-per-second estimate while streaming.
+                    // arc parity: live tokens-per-second estimate while streaming.
                     let roundElapsed = max(0.2, Date().timeIntervalSince(roundStart))
                     activeTurns[sessionID]?.tps = roundContentChars > 0 ? (Double(roundContentChars) / 4.0) / roundElapsed : nil
                     await throttle()
                 }
                     break
                 } catch {
-                    // Provider fault recovery (Hermes parity): retry transient
+                    // Provider fault recovery (arc parity): retry transient
                     // failures (429/5xx/timeouts/empty) with rate-limit-aware
                     // backoff — but only before any output was emitted, so the
                     // user never sees duplicate text.
@@ -794,7 +794,7 @@ extension AppState {
             }
             if activeTurns[sessionID]?.stopped == true { break }
 
-            // Empty-round storm guard (Hermes bounded empty responses): a full
+            // Empty-round storm guard (reference bounded empty responses): a full
             // round that yields nothing is retried with a nudge, at most
             // `TurnRecoveryState.emptyStormThreshold` times.
             if streamError == nil, activeTurns[sessionID]?.stopped != true,
@@ -809,7 +809,7 @@ extension AppState {
 
             if calls.isEmpty {
                 // Final assistant turn.
-                // Hermes parity: final TPS = real output tokens / wall-clock
+                // arc parity: final TPS = real output tokens / wall-clock
                 // duration (matches the round's usage report when available).
                 let finalElapsed = max(0.2, Date().timeIntervalSince(roundStart))
                 let finalTps: Double? = roundUsage.flatMap { u in
@@ -854,7 +854,7 @@ extension AppState {
                     await persistMessage(toolMsg, sessionID: sessionID, store: store)
                 }
             }
-            // Steer injection at the tool-result boundary (Hermes parity):
+            // Steer injection at the tool-result boundary (arc parity):
             // pending user guidance is appended to the last tool result so the
             // model sees it on its next iteration. The stream is not
             // interrupted; steer is a live-run artifact and is not persisted.
@@ -874,15 +874,40 @@ extension AppState {
 
         // Finalize: drop the live bubble, resync from the store, rebuild.
         // Capture any unconsumed steer BEFORE clearing the live turn so it can
-        // drain as the next normal turn (Hermes: leftover steer → queue).
+        // drain as the next normal turn (reference: leftover steer → queue).
         let leftoverSteer = activeTurns[sessionID]?.steerText
         let wasStopped = activeTurns[sessionID]?.stopped == true
 
-        // Hermes parity: when the budget is exhausted cleanly (no error, no
+        // Interrupted turns (user stop or provider disconnect) still leave a
+        // real assistant reply + status card in the transcript, so the turn's
+        // dropdown ("Processed Xm Ys"), any partial output, and the
+        // interruption reason survive reloads exactly like a normal turn.
+        if !turnCompleted, wasStopped || finalError != nil {
+            let reason = wasStopped ? "user_stopped" : "disconnected"
+            let partial = assistantText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let notice = wasStopped
+                ? "Turn interrupted — stopped by the user."
+                : "Turn interrupted — the connection to the model was lost."
+            let interrupt = Message(
+                role: .assistant,
+                content: partial.isEmpty ? notice : partial,
+                createdAt: Date(),
+                reasoning: activeTurns[sessionID]?.thinking,
+                terminalReason: reason,
+                turnDuration: max(0, Date().timeIntervalSince(turn.startedAt))
+            )
+            history.append(interrupt)
+            if let store {
+                await persistMessage(interrupt, sessionID: sessionID, store: store)
+            }
+            turnCompleted = true
+        }
+
+        // arc parity: when the budget is exhausted cleanly (no error, no
         // user stop, no final answer yet), append the iteration-limit nudge,
         // take one final no-tool call for the summary, and mark it so the UI
         // can render the "Tool iteration limit reached" status card
-        // (Hermes `handle_max_iterations` + webui fallback injection).
+        // (reference `handle_max_iterations` + webui fallback injection).
         if !turnCompleted, finalError == nil, !wasStopped {
             await handleIterationLimit(
                 history: &history,
@@ -936,7 +961,12 @@ extension AppState {
         let session = activeSession()
         let scroll = messagesHTML(session?.messages ?? [])
         return [
-            FragmentUpdate(id: "chat-scroll", html: "<div class=\"chat-scroll\" id=\"chat-scroll\" data-scroll-key=\"chat\"><div class=\"chat-inner\">\(scroll)</div></div>"),
+            // Stream into #chat-inner, not #chat-scroll: replacing the scroll
+            // container every ~90 ms destroys the user's scroll position and
+            // wheel state mid-turn (the scrollbar "stutters"). The container
+            // keeps its identity; the client follows the bottom only while
+            // the user is already there.
+            FragmentUpdate(id: "chat-inner", html: "<div class=\"chat-inner\" id=\"chat-inner\">\(scroll)</div>"),
             FragmentUpdate(id: "composer-flyout", html: "<div id=\"composer-flyout\">" + composerFlyoutHTML() + "</div>"),
         ]
     }
@@ -1103,7 +1133,7 @@ final class Controller {
         }
         wire(router, id: "selection-context-add", events: ["click"]) { event in
             // "Reply with selection" button: the selected chat text rides in
-            // `payload` (dynamic button, Hermes `_addNamedContextBlock`).
+            // `payload` (dynamic button, reference `_addNamedContextBlock`).
             guard let sel = event.string("payload"), !sel.isEmpty else { return [] }
             await self.app.addPendingContext(sel)
             return await self.app.chatFragments()
@@ -1140,7 +1170,7 @@ final class Controller {
             return []
         }
         wire(router, id: "approval-yolo", events: ["click"]) { _ in
-            // "Skip all this session" (Hermes /api/session/yolo): enable the
+            // "Skip all this session" (reference /api/session/yolo): enable the
             // session bypass and grant the current command.
             let sid = await self.app.activeSessionID ?? ""
             await self.app.setYolo(sid, true)
@@ -1195,7 +1225,7 @@ final class Controller {
             await self.app.toggleBookmarkActive()
             return await self.app.refreshFragments()
         }
-        // Composer dropdown panels (Hermes parity): trigger toggles, live
+        // Composer dropdown panels (arc parity): trigger toggles, live
         // search filters, row picks, and footer actions.
         wire(router, id: "dd-dismiss", events: ["click"]) { _ in
             // Fired by the runtime when a click lands outside an open
@@ -1448,9 +1478,14 @@ final class Controller {
 
     func submitChat(text raw: String) async -> [FragmentUpdate] {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [] }
+        // Context-only turns: an empty prompt is allowed when context blocks
+        // are attached ("Reply with selection" chips) — the inlined contexts
+        // become the message the agent receives (send contexts alone).
+        if trimmed.isEmpty {
+            if await app.pendingContexts.isEmpty { return [] }
+        }
 
-        // Builtin slash commands are resolved locally (Hermes webui
+        // Builtin slash commands are resolved locally (arc agent webui
         // COMMANDS) before anything else, including while a turn is running.
         if trimmed.hasPrefix("/") {
             if let updates = await handleBuiltinSlashCommand(trimmed) {
@@ -1458,10 +1493,10 @@ final class Controller {
             }
         }
 
-        // Hermes `agent/skill_commands.py`: `/skill-name [instruction]` (and
+        // reference `agent/skill_commands.py`: `/skill-name [instruction]` (and
         // stacked `/skill-a /skill-b do X`) expands into the model-facing
         // user message that embeds the full skill bodies. The transcript
-        // shows the typed line via `displayText` (Hermes
+        // shows the typed line via `displayText` (reference
         // `_slashDisplayTextOverride` pattern).
         var displayOverride: String? = nil
         var dispatchText = trimmed
@@ -1471,13 +1506,13 @@ final class Controller {
             await recordSlashSkillUse(trimmed)
         }
 
-        // "Reply with selection" context blocks (Hermes
+        // "Reply with selection" context blocks (reference
         // `_composerTextWithPendingSelections`): inline them as
         // `**Context N:**` + blockquote sections, then clear the chips.
         let withContexts = await app.composeWithPendingContexts(dispatchText)
         await app.clearPendingContexts()
 
-        // Hermes parity: while a turn in THIS chat is running, a submitted
+        // arc parity: while a turn in THIS chat is running, a submitted
         // message is STEER — mid-run guidance injected at the next tool
         // boundary. A message typed in a different chat is NOT a steer: it
         // starts its own concurrent turn (the two runs are independent).
@@ -1498,7 +1533,7 @@ final class Controller {
     }
 
     /// Resolve the skill a typed invocation refers to and bump its usage
-    /// counter (Hermes `tools.skill_usage.bump_use`).
+    /// counter (reference `tools.skill_usage.bump_use`).
     private func recordSlashSkillUse(_ typed: String) async {
         let tokens = typed.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
         guard let first = tokens.first,
@@ -1538,7 +1573,7 @@ final class Controller {
         let builtins = AppState.slashBuiltins.map { $0.name }
         guard builtins.contains(name) else { return nil }
 
-        // /usage — existing Hermes-parity toggle, kept verbatim.
+        // /usage — existing arc-parity toggle, kept verbatim.
         if name == "usage" {
             await app.toggleShowTokenUsage()
             let on = await app.settings.showTokenUsage

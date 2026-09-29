@@ -1,7 +1,7 @@
 import Foundation
 import AsyncHTTPClient
 
-/// Anthropic Messages API client — wire translator mirroring Hermes
+/// Anthropic Messages API client — wire translator mirroring the reference client
 /// `anthropic_adapter.py`: OpenAI-format messages in, Anthropic
 /// content blocks out, with `cache_control` markers, adaptive-thinking
 /// `output_config.effort`, tool-result blocks, and stream event mapping.
@@ -291,7 +291,7 @@ public struct AnthropicMessagesClient: LLMClient {
         return url
     }
 
-    /// Anthropic requires tool ids to match `^[a-zA-Z0-9_-]{1,64}$`; Hermes
+    /// Anthropic requires tool ids to match `^[a-zA-Z0-9_-]{1,64}$`; reference
     /// `_sanitize_tool_id` takes the last `~`-separated segment, then strips
     /// invalid characters.
     static func sanitizeToolID(_ id: String) -> String {
@@ -304,7 +304,7 @@ public struct AnthropicMessagesClient: LLMClient {
     }
 
     /// Convert OpenAI tool schema to Anthropic `input_schema` (with
-    /// `cache_control` forwarded on the last tool, Hermes
+    /// `cache_control` forwarded on the last tool, reference
     /// `convert_tools_to_anthropic`).
     func convertTools(_ tools: [[String: Any]], cacheTTL: String) -> [[String: Any]] {
         var out: [[String: Any]] = []
@@ -323,7 +323,7 @@ public struct AnthropicMessagesClient: LLMClient {
             }
             out.append(t)
         }
-        // Hermes forwards cache_control on the LAST tool to cache the schema.
+        // reference forwards cache_control on the LAST tool to cache the schema.
         if !out.isEmpty, let cc = out.last?["cache_control"] {
             var last = out[out.count - 1]
             last["cache_control"] = cc
@@ -333,7 +333,7 @@ public struct AnthropicMessagesClient: LLMClient {
     }
 
     /// Normalize an OpenAI JSON-schema to Anthropic-friendly input_schema
-    /// (Hermes `_normalize_tool_input_schema`): wrap bare `type`-less
+    /// (reference `_normalize_tool_input_schema`): wrap bare `type`-less
     /// objects, ensure `type: object`, and strip `additionalProperties`
     /// quirks Anthropic rejects.
     func normalizedInputSchema(_ params: [String: Any]) -> [String: Any] {

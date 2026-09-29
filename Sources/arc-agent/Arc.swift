@@ -77,10 +77,10 @@ struct Chat: AsyncParsableCommand {
     @Option(name: .long, help: "Agent profile name (isolated config/memory/skills).")
     var profile: String?
 
-    @Option(name: .long, help: "Comma-separated toolsets to disable (Hermes --toolsets).")
+    @Option(name: .long, help: "Comma-separated toolsets to disable (reference --toolsets).")
     var toolsets: String?
 
-    @Option(name: .long, help: "Comma-separated skill names to load (Hermes --skills).")
+    @Option(name: .long, help: "Comma-separated skill names to load (reference --skills).")
     var skills: String?
 
     @Flag(name: .shortAndLong, help: "Enable YOLO mode (no approval prompts).")
@@ -94,12 +94,12 @@ struct Chat: AsyncParsableCommand {
     func run() async throws {
         var arcConfig = loadConfig()
 
-        // Web search backend: env override > config (Hermes `web.search_backend`).
+        // Web search backend: env override > config (reference `web.search_backend`).
         let searchBackend = ProcessInfo.processInfo.environment["SEARCH_BACKEND"]
             ?? arcConfig.web.effectiveSearchBackend
         await SearchRegistry.shared.configure(backend: searchBackend)
 
-        // ── Profile isolation (Hermes --profile) ──────────────────────────
+        // ── Profile isolation (reference --profile) ──────────────────────────
         // Active profile overrides model/provider/context from
         // ~/.arc/profiles/<name>/config.json and isolates memory + skills
         // into the profile directory.
@@ -152,7 +152,7 @@ struct Chat: AsyncParsableCommand {
 
         let registry = try await MutableToolRegistry.make(enabledPlugins: pluginAllowList())
 
-        // Toolset selection: `--toolsets` (Hermes semantics: disables the
+        // Toolset selection: `--toolsets` (reference semantics: disables the
         // listed toolsets) + profile enabled/disabled sets.
         var disabledToolsets: Set<String> = []
         if let t = toolsets {
@@ -243,11 +243,11 @@ struct Chat: AsyncParsableCommand {
         let agent = ArcAgent(config: agentConfig)
 
         if let query {
-            // Single-query mode: stream the reply like Hermes — visible
+            // Single-query mode: stream the reply like reference — visible
             // tokens and tool activity instead of a silent wait.
             do {
                 // Context references: expand @file/@folder/@diff/@staged/@git/@url
-                // inline (CLI feature — Hermes context-references.md).
+                // inline (CLI feature — reference context-references.md).
                 let root = FileManager.default.currentDirectoryPath
                 let expanded = await ContextReferenceExpander.expand(
                     query, workspaceRoot: root,
@@ -323,7 +323,7 @@ struct Serve: AsyncParsableCommand {
         )
 
         // Load gateway config (per-platform blocks; env var overrides).
-        // ~/.arc/gateway.json (sits next to config.json), Hermes-style env
+        // ~/.arc/gateway.json (sits next to config.json), arc-style env
         // overrides on top.
         let arcHome = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".arc", isDirectory: true)
@@ -570,7 +570,7 @@ struct ProfileCreate: AsyncParsableCommand {
     @Option(name: .long, help: "Clone from an existing profile.")
     var cloneFrom: String?
 
-    @Option(name: .long, help: "Context window size in tokens (Hermes context_length).")
+    @Option(name: .long, help: "Context window size in tokens (reference context_length).")
     var contextLength: Int?
 
     @Option(name: .long, help: "Max output tokens.")

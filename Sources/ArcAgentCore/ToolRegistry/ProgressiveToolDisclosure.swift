@@ -1,8 +1,8 @@
 import Foundation
 
-// MARK: - Progressive tool disclosure (Hermes `tools/tool_search.py`)
+// MARK: - Progressive tool disclosure (reference `tools/tool_search.py`)
 
-/// Config for the deferred tool registry (Hermes `tools.tool_search`).
+/// Config for the deferred tool registry (reference `tools.tool_search`).
 ///
 /// When active, non-core tools are removed from the model-visible tools array
 /// and replaced by three bridge tools (`tool_search`, `tool_describe`,
@@ -54,7 +54,7 @@ public struct ToolSearchConfig: Codable, Sendable, Equatable {
     }
 
     /// Accept `true`/`false` booleans for string enums (user configs often
-    /// write `enabled: true`; Hermes tolerates both shapes).
+    /// write `enabled: true`; reference tolerates both shapes).
     private static func decodeFlexibleString(
         _ c: KeyedDecodingContainer<CodingKeys>,
         forKey key: CodingKeys
@@ -87,19 +87,19 @@ public struct ToolSearchConfig: Codable, Sendable, Equatable {
 
 /// Classification policy: which tools defer and which never do.
 ///
-/// Faithful to Hermes: core tools are never deferred; project/kanban/media
+/// Faithful to reference: core tools are never deferred; project/kanban/media
 /// (non-core) surfaces defer. A tool defers iff its toolset is not a core
 /// toolset AND its name is not in `coreToolNames` (per-tool exceptions, e.g.
-/// image/video generation stay eager like Hermes) AND it is not a bridge tool.
+/// image/video generation stay eager like reference) AND it is not a bridge tool.
 public enum DeferredToolPolicy {
 
-    /// Toolsets that are always eager (Hermes `_HERMES_CORE_TOOLS` grouping).
+    /// Toolsets that are always eager (the core-toolset grouping).
     public static let defaultCoreToolsets: Set<String> = [
         "core", "browser", "delegation", "file", "sandbox", "code_execution",
         "skills", "terminal", "tools", "web",
     ]
 
-    /// Toolsets that defer by default (non-core in Hermes: project, kanban,
+    /// Toolsets that defer by default (non-core in reference: project, kanban,
     /// media-adjacent, MCP/plugin surfaces).
     public static let defaultDeferredToolsets: Set<String> = [
         "kanban", "media", "mcp", "profile", "project", "webhooks", "weather",
@@ -107,7 +107,7 @@ public enum DeferredToolPolicy {
     ]
 
     /// Per-tool exceptions that stay eager even inside a deferred toolset
-    /// (Hermes keeps image/video/text-to-speech in the core list).
+    /// (reference keeps image/video/text-to-speech in the core list).
     public static let coreToolNames: Set<String> = [
         "image_generate", "video_generate", "text_to_speech",
     ]
@@ -133,7 +133,7 @@ public enum DeferredToolPolicy {
     }
 
     /// Split entries into (visible, deferred), mirroring
-    /// `classify_tools` in Hermes. Availability checks are applied first so a
+    /// `classify_tools` in reference. Availability checks are applied first so a
     /// tool whose requirements are unmet never reaches either list.
     public static func plan(
         entries: [ToolEntry],
@@ -153,10 +153,10 @@ public enum DeferredToolPolicy {
     }
 }
 
-/// Manifest rendering + prompt-schema assembly (Hermes tiered disclosure).
+/// Manifest rendering + prompt-schema assembly (reference tiered disclosure).
 public enum ProgressiveToolDisclosure {
 
-    /// Cheap chars/4 token estimate (Hermes `CHARS_PER_TOKEN = 4.0`).
+    /// Cheap chars/4 token estimate (reference `CHARS_PER_TOKEN = 4.0`).
     public static func estimateTokens(schemas: [[String: Any]]) -> Int {
         let count = schemas.reduce(0) { partial, schema in
             guard let data = try? JSONSerialization.data(withJSONObject: schema, options: []) else {
@@ -168,7 +168,7 @@ public enum ProgressiveToolDisclosure {
     }
 
     /// Effective manifest budget: min(listingMaxTokens, thresholdPct% of
-    /// context). Without a known window Hermes falls back to 5% of 200K.
+    /// context). Without a known window reference falls back to 5% of 200K.
     public static func manifestBudget(config: ToolSearchConfig, contextLength: Int?) -> Int {
         let pctLeg = (contextLength ?? 200_000) > 0
             ? Int(Double(contextLength ?? 200_000) * (config.thresholdPct / 100.0))
@@ -194,7 +194,7 @@ public enum ProgressiveToolDisclosure {
         return head + "…"
     }
 
-    /// Grouped name + short-description listing (Hermes skills-style).
+    /// Grouped name + short-description listing (arc skills-style).
     public static func renderListing(_ deferred: [ToolEntry]) -> String {
         var lines: [String] = ["Deferred tools (load a schema with tool_describe, call with tool_call):\n"]
         let groups = Dictionary(grouping: deferred, by: { $0.toolset })
@@ -238,7 +238,7 @@ public enum ProgressiveToolDisclosure {
 
     /// Build the full model-visible tools array with deferral applied.
     ///
-    /// Mirrors Hermes: core tools stay, deferrable tools are replaced by the
+    /// mirrors the reference client: core tools stay, deferrable tools are replaced by the
     /// bridge trio, and the manifest rides in the `tool_search` description.
     /// When nothing is deferrable (or the feature is off) the result is
     /// byte-identical to the eager layout.

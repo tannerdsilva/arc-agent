@@ -3,7 +3,7 @@ import Foundation
 /// Splits long messages into platform-sized chunks while trying to keep
 /// markdown structures (``` fences) intact.
 ///
-/// Hermes `truncate_message` parity: prefer to break at line boundaries,
+/// reference `truncate_message` parity: prefer to break at line boundaries,
 /// never mid-code-fence, and apply an `ellipsis` marker to non-final chunks.
 public enum PlatformChunker {
     /// Split `text` into chunks of at most `maxLength` characters.
@@ -95,7 +95,7 @@ public enum PlatformChunker {
     }
 }
 
-/// Telegram MarkdownV2 renderer (Hermes `format_message` parity).
+/// Telegram MarkdownV2 renderer (reference `format_message` parity).
 ///
 /// 17 special characters must be backslash-escaped *outside* of code spans
 /// and ``` fences; inside them they are literal.
@@ -154,7 +154,7 @@ public enum TelegramFormat {
     }
 }
 
-/// Slack mrkdwn renderer (Hermes slack-bolt rendering parity).
+/// Slack mrkdwn renderer (reference slack-bolt rendering parity).
 public enum SlackFormat {
     public static func format(_ text: String) -> String {
         var out: [String] = []

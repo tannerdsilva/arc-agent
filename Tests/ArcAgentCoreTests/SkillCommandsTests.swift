@@ -142,7 +142,7 @@ struct SkillCommandsTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let msg = SkillCommands.expandSlashCommand("/alpha-helper /missing run", directory: dir)
         let text = try #require(msg)
-        // Hermes parity: split_stacked_skill_commands only consumes KNOWN
+        // arc parity: split_stacked_skill_commands only consumes KNOWN
         // skill tokens; the unknown token falls through to the instruction.
         #expect(!text.contains("stacked skill bundle"))
         #expect(text.contains("The user has provided the following instruction alongside the skill invocation: /missing run"))

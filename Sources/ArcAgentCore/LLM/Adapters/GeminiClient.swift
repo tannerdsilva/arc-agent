@@ -1,7 +1,7 @@
 import Foundation
 import AsyncHTTPClient
 
-/// Google Gemini native API client (Hermes `gemini_native_adapter.py`):
+/// Google Gemini native API client (reference `gemini_native_adapter.py`):
 /// `contents` / `systemInstruction` / `generationConfig` request shape,
 /// `functionDeclarations` tools, `functionCall`/`functionResponse` parts, and
 /// streamed `data:` SSE events with `usageMetadata`.
@@ -71,7 +71,7 @@ public struct GeminiClient: LLMClient {
         }
     }
 
-    // MARK: - Request building (Hermes build_gemini_request)
+    // MARK: - Request building (reference build_gemini_request)
 
     func buildRequest(messages: [Message], tools: [[String: Any]]?, stream: Bool) throws -> Data {
         var body: [String: Any] = [:]
@@ -193,7 +193,7 @@ public struct GeminiClient: LLMClient {
         ["Content-Type": "application/json"]
     }
 
-    // MARK: - Parsing (Hermes translate_gemini_response / translate_stream_event)
+    // MARK: - Parsing (reference translate_gemini_response / translate_stream_event)
 
     func parseResponse(_ json: [String: Any]) throws -> LLMResponse {
         var content = ""
@@ -315,7 +315,7 @@ public struct GeminiClient: LLMClient {
     }
 
     func toolResultName(from message: Message) -> String {
-        // Gemini functionResponse reuses the CALL name; Hermes tracks it by
+        // Gemini functionResponse reuses the CALL name; reference tracks it by
         // matching the previous functionCall. Best-effort: fall back to the
         // tool name given in the message name field.
         return message.name ?? "unknown_tool"

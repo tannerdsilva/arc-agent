@@ -5,9 +5,9 @@ import NIO
 import NIOPosix
 
 /// The `execute_code` tool: run a Python script that calls arc tools
-/// programmatically. Faithful port of Hermes `execute_code` (local backend).
+/// programmatically. Faithful port of reference `execute_code` (local backend).
 ///
-/// Architecture: parent generates a `hermes_tools.py` stub, starts a loopback
+/// Architecture: parent generates a `arc_tools.py` stub, starts a loopback
 /// TCP RPC listener, spawns `python3 script.py`, and tool calls travel over
 /// the RPC socket back to the parent for dispatch. Only stdout returns to the
 /// LLM; intermediate tool results never enter the context window.
@@ -40,7 +40,7 @@ public enum ExecuteCodeTool {
             + "conditional branching, or loops (N pages/files, retry on failure). "
             + "Use normal tool calls for single calls, results you must reason "
             + "over in full, or anything needing user interaction. "
-            + "Available via `from hermes_tools import ...`: read_file, write_file, "
+            + "Available via `from arc_tools import ...`: read_file, write_file, "
             + "patch, search_files, terminal, web_search, web_extract. "
             + "Limits: 5-minute timeout, 50KB stdout cap, max 50 tool calls per script. "
             + "terminal() is foreground-only (no background or pty). "
@@ -51,7 +51,7 @@ public enum ExecuteCodeTool {
             + "shell_quote(s) — shlex.quote for dynamic shell args; "
             + "retry(fn, max_attempts=3, delay=2) — exponential backoff for transient failures.",
         schema: .object(properties: [
-            "code": .string(description: "Python code to execute. Import tools with `from hermes_tools import ...` and print your final result to stdout."),
+            "code": .string(description: "Python code to execute. Import tools with `from arc_tools import ...` and print your final result to stdout."),
         ], required: ["code"]),
         handler: { args in
             let code: String = try Self.required(args, key: "code")
@@ -111,7 +111,7 @@ public enum ExecuteCodeTool {
 
         do {
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            let stubURL = tempDir.appendingPathComponent("hermes_tools.py")
+            let stubURL = tempDir.appendingPathComponent("arc_tools.py")
             let scriptURL = tempDir.appendingPathComponent("script.py")
             let stub = Self.pythonStub(maxStdoutBytes: maxStdoutBytes)
             try stub.write(to: stubURL, atomically: true, encoding: .utf8)
@@ -130,8 +130,8 @@ public enum ExecuteCodeTool {
             // 2) Spawn python3 via SwiftSlash (posix_spawn; process-group kill
             //    + full reap on timeout — no polling loops, no detached reads).
             var env = ProcessInfo.processInfo.environment
-            env["HERMES_TOOLS_RPC"] = "127.0.0.1:\(port)"
-            env["HERMES_TOOLS_TOKEN"] = token
+            env["ARC_TOOLS_RPC"] = "127.0.0.1:\(port)"
+            env["ARC_TOOLS_TOKEN"] = token
             env["PYTHONPATH"] = tempDir.path
             env["PYTHONIOENCODING"] = "utf-8"
             env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
@@ -219,8 +219,8 @@ public enum ExecuteCodeTool {
     }
 
     static func failureHint(stderr: String) -> String? {
-        if stderr.contains("ModuleNotFoundError: No module named 'hermes_tools'") {
-            return "hermes_tools was not on PYTHONPATH — the stub module is generated in the script's temp dir; re-run without stdin override."
+        if stderr.contains("ModuleNotFoundError: No module named 'arc_tools'") {
+            return "arc_tools was not on PYTHONPATH — the stub module is generated in the script's temp dir; re-run without stdin override."
         }
         if stderr.contains("SyntaxError") {
             return "The script has a Python SyntaxError — check the indentation of the `code` parameter."
@@ -257,8 +257,8 @@ import shlex as _shlex
 import time as _time
 import functools as _functools
 
-_RPC = _os.environ.get("HERMES_TOOLS_RPC", "")
-_TOKEN = _os.environ.get("HERMES_TOOLS_TOKEN", "")
+_RPC = _os.environ.get("ARC_TOOLS_RPC", "")
+_TOKEN = _os.environ.get("ARC_TOOLS_TOKEN", "")
 _TOOLS = {"read_file", "write_file", "patch", "search_files", "terminal", "web_search", "web_extract"}
 
 class ToolError(Exception):

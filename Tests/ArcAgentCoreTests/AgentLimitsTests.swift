@@ -11,7 +11,7 @@ struct AgentLimitsConfigTests {
         try JSONDecoder().decode(ArcConfig.self, from: Data(json.utf8))
     }
 
-    @Test("agent.max_turns takes precedence (Hermes precedence)")
+    @Test("agent.max_turns takes precedence (reference precedence)")
     func agentMaxTurnsWins() throws {
         let cfg = try decode(#"{"agent": {"max_turns": 120, "maxIterations": 10}}"#)
         #expect(cfg.effectiveMaxTurns() == 120)

@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - Slash-command skill invocation (Hermes parity: agent/skill_commands.py)
+// MARK: - Slash-command skill invocation (arc parity: agent/skill_commands.py)
 
 /// Metadata for a skill registered as a slash command.
 public struct SkillCommandInfo: Sendable, Equatable {
@@ -25,11 +25,11 @@ public struct SkillCommandInfo: Sendable, Equatable {
 ///
 /// A `/skill-name` (optionally stacked: `/skill-a /skill-b do XYZ`) typed at a
 /// chat prompt is expanded into a model-facing user message that embeds the
-/// full skill bodies plus scaffolding, mirroring Hermes' `agent/skill_commands.py`.
+/// full skill bodies plus scaffolding, mirroring the reference client' `agent/skill_commands.py`.
 public enum SkillCommands {
 
     /// Maximum number of leading skills loaded by a stacked invocation
-    /// (Hermes `_MAX_STACKED_SKILLS`).
+    /// (reference `_MAX_STACKED_SKILLS`).
     public static let maxStackedSkills = 5
     public static let maxStack = maxStackedSkills
 
@@ -39,14 +39,14 @@ public enum SkillCommands {
 
     /// Slash commands that are built into the arc webui; a skill whose
     /// generated `/slug` collides with one is not auto-registered as a
-    /// command (Hermes skips such skills the same way).
+    /// command (reference skips such skills the same way).
     static let reservedCommandNames: Set<String> = [
         "help", "new", "usage", "theme", "skills", "use", "stop",
         "title", "workspace", "model", "clear", "compress", "compact",
     ]
 
     /// Normalize a skill name into a hyphen-separated slug, stripping
-    /// non-alphanumeric characters (Hermes `_SKILL_INVALID_CHARS` /
+    /// non-alphanumeric characters (reference `_SKILL_INVALID_CHARS` /
     /// `_SKILL_MULTI_HYPHEN`).
     public static func sanitizeSlug(_ name: String) -> String {
         var s = name.lowercased().replacingOccurrences(of: " ", with: "-")
@@ -83,7 +83,7 @@ public enum SkillCommands {
     }
 
     /// Resolve a user-typed `/command` to its canonical `/slug` key.
-    /// Hyphens and underscores are treated interchangeably (Hermes
+    /// Hyphens and underscores are treated interchangeably (reference
     /// `resolve_skill_command_key`).
     public static func resolveSkillCommandKey(_ command: String, directory: URL? = nil) -> String? {
         guard !command.isEmpty else { return nil }
@@ -94,7 +94,7 @@ public enum SkillCommands {
 
     /// Build the user-message payload for a stacked multi-skill invocation.
     /// Returns `(message, loadedNames, missingNames)` or `nil` when no skill
-    /// could be loaded at all (Hermes `build_stacked_skill_invocation_message`).
+    /// could be loaded at all (reference `build_stacked_skill_invocation_message`).
     public static func buildStackedSkillInvocationMessage(
         _ cmdKeys: [String],
         userInstruction: String = "",
@@ -138,7 +138,7 @@ public enum SkillCommands {
     }
 
     /// Build the user-message payload for a single `/skill-name` invocation.
-    /// Returns `nil` when the skill is unknown (Hermes
+    /// Returns `nil` when the skill is unknown (reference
     /// `build_skill_invocation_message`).
     public static func buildSkillInvocationMessage(
         _ cmdKey: String,
@@ -161,7 +161,7 @@ public enum SkillCommands {
         )
     }
 
-    /// Format a loaded skill into a user-message payload (Hermes
+    /// Format a loaded skill into a user-message payload (reference
     /// `_build_skill_message`).
     private static func buildSkillMessage(
         info: SkillCommandInfo,

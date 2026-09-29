@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ArcAgentCore
 
-/// `Message.terminalReason` — Hermes `_terminal_reason` parity for
+/// `Message.terminalReason` — reference `_terminal_reason` parity for
 /// terminal-state status cards (e.g. "max_iterations").
 @Suite("Message terminal reason")
 struct MessageTerminalReasonTests {

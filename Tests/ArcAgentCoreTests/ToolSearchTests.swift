@@ -2,7 +2,7 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 
-/// `tool_search` catalog search tests (Hermes `tools/tool_search.py` parity).
+/// `tool_search` catalog search tests (reference `tools/tool_search.py` parity).
 @Suite("Tool search")
 struct ToolSearchTests {
 

@@ -169,7 +169,7 @@ public actor SessionAgent: Service {
                 logger.info("step: running conversation")
                 let chat = message.chat
 
-                // Live streaming delivery (Hermes parity): typing indicator +
+                // Live streaming delivery (arc parity): typing indicator +
                 // in-place edits while the agent streams, final edit/send at end.
                 var editable = await deliveryManager.canEdit(to: chat)
                 var buffer = ""
@@ -235,7 +235,7 @@ public actor SessionAgent: Service {
                         // (subject / In-Reply-To / References) rides along on
                         // final delivery so replies continue the thread.
                         let meta = emailMetadata(for: message)
-                        // Deliverable mode (Hermes deliverable-mode.md):
+                        // Deliverable mode (reference deliverable-mode.md):
                         // ship generated files as native attachments and
                         // strip the paths from the visible message.
                         let (cleanText, paths) = DeliverableExtractor.extract(finalText)
@@ -261,7 +261,7 @@ public actor SessionAgent: Service {
                     await messaging.reportActivity(profile: profile, kind: .turnCompleted)
                 }
 
-                // ── Standing-goal loop (Hermes `/goal`): judge after the turn
+                // ── Standing-goal loop (reference `/goal`): judge after the turn
                 // and feed a continuation turn back into this session. ──
                 let outcome = try await GoalLoop.afterTurn(
                     sessionID: sessionID,

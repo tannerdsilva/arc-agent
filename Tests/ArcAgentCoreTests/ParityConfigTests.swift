@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import ArcAgentCore
 
-/// Config plumbing for the Hermes-parity knobs (A/B cycle 2).
+/// Config plumbing for the arc-parity knobs (A/B cycle 2).
 @Suite("Parity config decode")
 struct ParityConfigTests {
 

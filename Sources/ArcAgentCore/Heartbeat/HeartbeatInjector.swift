@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-// MARK: - Heartbeat injection (Hermes `features/heartbeat.md`)
+// MARK: - Heartbeat injection (reference `features/heartbeat.md`)
 
 /// Merges a session's heartbeat into its incoming-message stream.
 ///

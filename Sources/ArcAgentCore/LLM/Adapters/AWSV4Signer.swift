@@ -20,7 +20,7 @@ public struct AWSV4Signer: Sendable {
         self.service = service
     }
 
-    /// Resolve credentials from the environment (Hermes
+    /// Resolve credentials from the environment (reference
     /// `resolve_aws_auth_env_var` chain mirrors the shared credentials file
     /// lookup; env is the portable subset).
     public static func fromEnvironment() -> AWSV4Signer? {

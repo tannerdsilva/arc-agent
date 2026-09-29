@@ -2,7 +2,7 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 
-/// Profile isolation + distribution tests (Hermes `profiles.py` /
+/// Profile isolation + distribution tests (reference `profiles.py` /
 /// `profile_distribution.py` parity).
 @Suite("Profile distributions", .serialized)
 struct ProfileDistributionTests {

@@ -3,7 +3,7 @@ import Testing
 import Foundation
 import AsyncHTTPClient
 
-/// Hermes-parity prompt architecture tests: token-budget completeness,
+/// arc-parity prompt architecture tests: token-budget completeness,
 /// cache-tiered system prompt, project context injection, skills framing,
 /// compression guards, wire laundering, steer/interrupt, and session_search.
 @Suite("Prompt Architecture", .serialized)
@@ -172,7 +172,7 @@ struct PromptArchitectureTests {
         #expect(skillsIdx < tsIdx, "session line must be last")
     }
 
-    @Test("skills index is category-grouped (Hermes parity)")
+    @Test("skills index is category-grouped (arc parity)")
     func skillsIndexGrouped() {
         let skills = [
             Skill(name: "alpha", description: "first skill description", content: "c", category: "dev", path: URL(fileURLWithPath: "/tmp")),

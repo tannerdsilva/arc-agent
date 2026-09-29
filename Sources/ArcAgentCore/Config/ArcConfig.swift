@@ -39,11 +39,11 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// Agent behavior configuration.
     public var agent: AgentConfig
 
-    /// Legacy root-level tool-iteration limit (Hermes `max_turns` in flat
+    /// Legacy root-level tool-iteration limit (reference `max_turns` in flat
     /// configs). `agent.max_turns` takes precedence; `0`/negative = unlimited.
     public var max_turns: Int?
 
-    /// Guardrail loop limits (Hermes tool-loop caps).
+    /// Guardrail loop limits (arc tool-loop caps).
     public var guardrails: GuardrailsConfig
 
     /// Terminal tool configuration.
@@ -62,21 +62,21 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// profile index are persisted as signed NOSTR events to a Tessera
     /// server instead of local files.
     public var tessera: TesseraConfig?
-    /// Mixture-of-Agents configuration (Hermes `moa` config block).
+    /// Mixture-of-Agents configuration (reference `moa` config block).
     public var moa: MoAConfig
 
-    /// Hermes-parity auxiliary-model overrides (`auxiliary.<task>`), routing
+    /// arc-parity auxiliary-model overrides (`auxiliary.<task>`), routing
     /// secondary tasks (vision, web extract, compression, approval, titles, …)
     /// to dedicated model configurations. Tasks without an override use the
     /// main model.
     public var auxiliary: AuxiliaryModelSet
 
-    /// Tool-plugin enablement (Hermes `plugins.enabled` parity). `nil` = the
+    /// Tool-plugin enablement (reference `plugins.enabled` parity). `nil` = the
     /// key is absent (grandfathered: all discovered plugins are enabled);
     /// `[]` = explicitly none; a list = allow-list of plugin names.
     public var plugins: PluginsConfig
 
-    /// Profile-based inbound routing (Hermes `profile_routes` /
+    /// Profile-based inbound routing (reference `profile_routes` /
     /// `gateway.multiplex_profiles`): routes inbound platform messages by
     /// platform/guild/channel/thread to a dedicated profile. Ignored unless
     /// `multiplexProfiles` is true.
@@ -86,25 +86,25 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// OFF (agent may create/edit); enabling any of them makes the dedicated
     /// tools refuse. See ``AgentPowersConfig``.
     public var agentPowers: AgentPowersConfig
-    /// External MCP servers (Hermes top-level `mcp_servers`): name → launch config.
+    /// External MCP servers (reference top-level `mcp_servers`): name → launch config.
     public var mcpServers: [String: MCPServerConfig]
 
-    /// Web capabilities (Hermes `web` block): search/extract backend selection.
+    /// Web capabilities (reference `web` block): search/extract backend selection.
     public var web: WebConfig
 
-    /// Progressive tool disclosure (Hermes `tools.tool_search`).
+    /// Progressive tool disclosure (reference `tools.tool_search`).
     public var toolSearch: ToolSearchConfig
 
-    /// Standing-goal loop configuration (Hermes `goals.max_turns`).
+    /// Standing-goal loop configuration (reference `goals.max_turns`).
     public var goals: GoalsConfig
 
-    /// Configuration for web search/extract backends (Hermes `web` block).
+    /// Configuration for web search/extract backends (reference `web` block).
     public struct WebConfig: Codable, Sendable, Equatable {
-        /// Backend used by `web_search` (Hermes `web.search_backend`).
+        /// Backend used by `web_search` (reference `web.search_backend`).
         public var searchBackend: String?
-        /// Backend used by `web_extract` (Hermes `web.extract_backend`).
+        /// Backend used by `web_extract` (reference `web.extract_backend`).
         public var extractBackend: String?
-        /// Legacy catch-all (Hermes `web.backend`).
+        /// Legacy catch-all (reference `web.backend`).
         public var backend: String?
 
         public init(searchBackend: String? = nil, extractBackend: String? = nil, backend: String? = nil) {
@@ -129,7 +129,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
 
     /// Explicit keys so the Herm...[truncated]
 
-    /// Explicit keys so the Hermes-style `mcp_servers` underscore key can be
+    /// Explicit keys so the arc-style `mcp_servers` underscore key can be
     /// decoded alongside the camelCase property names.
     private enum CodingKeys: String, CodingKey {
         case model
@@ -212,7 +212,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.plugins = try container.decodeIfPresent(PluginsConfig.self, forKey: .plugins) ?? PluginsConfig()
         self.profileRouting = try container.decodeIfPresent(ProfileRoutingConfig.self, forKey: .profileRouting) ?? ProfileRoutingConfig()
         self.agentPowers = try container.decodeIfPresent(AgentPowersConfig.self, forKey: .agentPowers) ?? AgentPowersConfig()
-        // Hermes top-level `mcp_servers` (underscored key → ``CodingKeys/mcpServers``).
+        // reference top-level `mcp_servers` (underscored key → ``CodingKeys/mcpServers``).
         self.mcpServers = try container.decodeIfPresent([String: MCPServerConfig].self, forKey: .mcpServers) ?? [:]
         self.web = try container.decodeIfPresent(WebConfig.self, forKey: .web) ?? WebConfig()
         self.toolSearch = try container.decodeIfPresent(ToolSearchConfig.self, forKey: .toolSearch) ?? ToolSearchConfig()
@@ -221,7 +221,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
 
 // MARK: - Sub-Configs
 
-/// Tool-plugin enablement (Hermes `plugins.enabled` parity). See
+/// Tool-plugin enablement (reference `plugins.enabled` parity). See
 /// ``ArcConfig/plugins`` for the `nil` vs `[]` vs allow-list semantics.
 public struct PluginsConfig: Codable, Sendable, Equatable {
     /// Allow-list of enabled plugin names. `nil` (key absent) means all
@@ -249,7 +249,7 @@ public struct ModelConfig: Codable, Sendable, Equatable {
     public var baseURL: String?
     /// Context length for the default model.
     public var contextLength: Int?
-    /// Explicit generation budget (Hermes `max_tokens` override). nil = use
+    /// Explicit generation budget (reference `max_tokens` override). nil = use
     /// the registry's per-model max output.
     public var maxOutputTokens: Int?
 
@@ -278,13 +278,13 @@ public struct ModelConfig: Codable, Sendable, Equatable {
     }
 }
 
-// MARK: - Effective limits (Hermes `max_turns` precedence)
+// MARK: - Effective limits (reference `max_turns` precedence)
 
 extension ArcConfig {
 
-    /// Effective tool-iteration budget. Precedence (Hermes `api/streaming.py`):
+    /// Effective tool-iteration budget. Precedence (reference `api/streaming.py`):
     /// `agent.max_turns` → legacy root `max_turns` → `agent.maxIterations` →
-    /// 90 (Hermes `AIAgent` default). A value of 0 or negative means
+    /// 90 (reference `AIAgent` default). A value of 0 or negative means
     /// **unlimited** — the agent runs until the prompt finishes.
     public func effectiveMaxTurns() -> Int {
         if let n = agent.max_turns ?? max_turns {
@@ -308,46 +308,46 @@ extension ArcConfig {
 public struct AgentConfig: Codable, Sendable, Equatable {
     /// Maximum iterations per conversation.
     public var maxIterations: Int
-    /// Hermes `agent.max_turns` — tool-iteration budget override. Takes
+    /// reference `agent.max_turns` — tool-iteration budget override. Takes
     /// precedence over `maxIterations`; `0`/negative = unlimited.
     public var max_turns: Int?
     /// Whether to persist sessions.
     public var persistSessions: Bool
     /// Whether to load skills on startup.
     public var loadSkills: Bool
-    /// Reasoning effort passed to the provider (Hermes `agent.reasoning_effort`:
+    /// Reasoning effort passed to the provider (reference `agent.reasoning_effort`:
     /// "minimal"/"low"/"medium"/"high"/"max"). nil = provider default.
     public var reasoningEffort: String?
-    /// Micro-compaction on/off (Hermes `compression.micro_compact`). Off by
+    /// Micro-compaction on/off (reference `compression.micro_compact`). Off by
     /// default; when on, one exchange is absorbed into a rolling summary after
     /// every completed turn (or every N turns, see ``microCompactEveryNTurns``).
     public var microCompactEnabled: Bool
-    /// Micro-compaction cadence: one pass every N turns (Hermes
+    /// Micro-compaction cadence: one pass every N turns (reference
     /// `compression.micro_compact_every_n_turns`).
     public var microCompactEveryNTurns: Int
-    /// Rolling-summary size that triggers a defrag pass (Hermes
+    /// Rolling-summary size that triggers a defrag pass (reference
     /// `compression.micro_compact_defrag_threshold_tokens`).
     public var microCompactDefragThresholdTokens: Int
     /// Personality overlay (`/personality <name>`): extra system-prompt text
-    /// appended to the base prompt (Hermes `agent.system_prompt`). Empty =
+    /// appended to the base prompt (reference `agent.system_prompt`). Empty =
     /// no overlay.
     public var systemPrompt: String
-    /// Named personality overlays (Hermes `agent.personalities`): each entry
+    /// Named personality overlays (reference `agent.personalities`): each entry
     /// is either a plain string or `{description, system_prompt, tone, style}`.
     public var personalities: [String: PersonalityOverlay]
-    /// Verify work at turn end (Hermes `verify_on_stop`): an aux verification
+    /// Verify work at turn end (reference `verify_on_stop`): an aux verification
     /// pass is appended when enabled.
     public var verifyOnStop: Bool
 
-    /// Run inline `!`cmd`` blocks in skills at load time (Hermes
+    /// Run inline `!`cmd`` blocks in skills at load time (reference
     /// `skill_preprocessing`). Default ON.
     public var skillInlineCommands: Bool
 
     /// Background-review cadence: run an aux review every N tool calls
-    /// (Hermes `background_review.after_tool_calls`). 0 = off.
+    /// (reference `background_review.after_tool_calls`). 0 = off.
     public var backgroundReviewAfter: Int
 
-    /// Background-review call window (Hermes `background_review.window`).
+    /// Background-review call window (reference `background_review.window`).
     public var backgroundReviewWindow: Int
 
     public init(
@@ -462,7 +462,7 @@ public struct DelegationConfig: Codable, Sendable, Equatable {
     }
 }
 
-/// Standing-goal configuration (Hermes `goals.max_turns`).
+/// Standing-goal configuration (reference `goals.max_turns`).
 public struct GoalsConfig: Codable, Sendable, Equatable {
     /// Max continuation turns before auto-pause. Default 20.
     public var maxTurns: Int
@@ -507,7 +507,7 @@ public struct SecurityConfig: Codable, Sendable, Equatable {
     /// Commands pre-exempted from approval ("Always allow" choices).
     /// Matched by exact, trimmed command string.
     public var alwaysAllowedCommands: [String]
-    /// Tool gateway policy (Hermes `tool_gateway`): ordered allow/deny rules
+    /// Tool gateway policy (reference `tool_gateway`): ordered allow/deny rules
     /// over tool invocations, enforced before dispatch.
     public var toolGateway: ToolGatewayConfig
 
@@ -635,7 +635,7 @@ public func saveConfig(_ config: ArcConfig, to configURL: URL? = nil) throws {
     try data.write(to: resolvedURL, options: .atomic)
 }
 
-/// Resolve the plugin allow-list from `~/.arc/config.json` (Hermes
+/// Resolve the plugin allow-list from `~/.arc/config.json` (reference
 /// `plugins.enabled` parity).
 ///
 /// - Returns: `nil` when the `plugins.enabled` key is absent — callers treat

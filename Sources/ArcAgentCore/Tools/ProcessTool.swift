@@ -1,7 +1,7 @@
 import Foundation
 
 /// The `process` tool: collect surface for background `terminal` runs
-/// (Hermes `process` parity).
+/// (reference `process` parity).
 ///
 /// Start a long run with `terminal(command:..., background:true)`, keep
 /// working (editing, reading, other calls), then collect with this tool:

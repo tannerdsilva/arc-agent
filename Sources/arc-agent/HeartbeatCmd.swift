@@ -2,7 +2,7 @@ import ArgumentParser
 import ArcAgentCore
 import Foundation
 
-// MARK: - Heartbeat CLI (Hermes `/heartbeat`, `features/heartbeat.md`)
+// MARK: - Heartbeat CLI (reference `/heartbeat`, `features/heartbeat.md`)
 
 /// `arc heartbeat` — manage per-session recurring instructions that fire as
 /// user turns while the session is idle.

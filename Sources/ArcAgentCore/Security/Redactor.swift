@@ -1,14 +1,14 @@
 import Foundation
 
-// MARK: - Redaction (Hermes `redact.py` + `secret_scope.py`)
+// MARK: - Redaction (reference `redact.py` + `secret_scope.py`)
 
-/// Secret detection + redaction, faithful to Hermes' pattern set:
+/// Secret detection + redaction, faithful to reference' pattern set:
 /// known prefix patterns, key names in config/env/JSON/YAML, URL query and
 /// userinfo components, JWTs, private keys, database connection strings, and
 /// terminal output (env dumps).
 public enum Redactor {
 
-    /// Prefix patterns (Hermes `PREFIX_PATTERNS`): exact prefixes with
+    /// Prefix patterns (reference `PREFIX_PATTERNS`): exact prefixes with
     /// plausible lengths (secrets are matched by their characteristic
     /// leading run).
     static let prefixPatterns: [(prefix: String, minLen: Int)] = [
@@ -20,7 +20,7 @@ public enum Redactor {
         ("eyJ", 20), // JWT header
     ]
 
-    /// Key names whose VALUES are always secrets (Hermes
+    /// Key names whose VALUES are always secrets (reference
     /// `is_known_secret_key`): when a config/env/JSON/YAML line contains
     /// `key: value` and the key matches, redact the value.
     static let knownSecretKeys: Set<String> = [
@@ -37,7 +37,7 @@ public enum Redactor {
         "credential", "credentials", "oauth_token", "id_token", "jwt", "sas_token",
     ]
 
-    /// Substrings that indicate a value is a secret (Hermes
+    /// Substrings that indicate a value is a secret (reference
     /// `is_probably_secret_value`).
     static let secretValueMarkers = [
         "-----BEGIN", "PRIVATE KEY", "AKIA", "ASIA",
@@ -235,13 +235,13 @@ public enum Redactor {
     }
 }
 
-// MARK: - Secret scope (Hermes `secret_scope.py`)
+// MARK: - Secret scope (reference `secret_scope.py`)
 
 /// Per-profile secret scoping: which environment variable names are treated
 /// as secrets globally vs per profile, and prefix rules.
 public struct SecretScope: Sendable {
     public let profile: String
-    /// Exact env names considered secrets (Hermes global env key list).
+    /// Exact env names considered secrets (reference global env key list).
     public let globalEnvSecrets: [String]
     /// Prefix rules: env names starting with these are secrets.
     public let globalEnvPrefixes: [String]
@@ -259,13 +259,13 @@ public struct SecretScope: Sendable {
         return globalEnvPrefixes.contains { name.hasPrefix($0) }
     }
 
-    /// The scope label used in redaction logs (Hermes leaks the profile name
+    /// The scope label used in redaction logs (reference leaks the profile name
     /// into the scope header).
     public var scopeLabel: String { "profile:\(profile)" }
 }
 
 extension Redactor {
-    /// Env var names always treated as secrets (Hermes global secrets list).
+    /// Env var names always treated as secrets (reference global secrets list).
     public static let defaultGlobalEnvSecrets: [String] = [
         "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
         "OPENROUTER_API_KEY", "DEEPSEEK_API_KEY", "XAI_API_KEY", "MISTRAL_API_KEY",

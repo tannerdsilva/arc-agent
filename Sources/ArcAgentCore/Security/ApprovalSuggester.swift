@@ -1,18 +1,18 @@
 import Foundation
 
-// MARK: - Approval suggestions (Hermes `hermes_cli/approvals_suggest.py`)
+// MARK: - Approval suggestions (reference `arc_cli/approvals_suggest.py`)
 
 /// Mines session history for terminal commands that were *approved* (or
 /// implicitly allowed) and proposes safety-allowlist entries.
 ///
-/// Mirrors Hermes `hermes approvals suggest`:
+/// mirrors the reference client `reference approvals suggest`:
 /// - only repeatedly used commands qualify (default threshold: 3),
 /// - already-allowed, unsafe-class and hardline-critical commands are never
 ///   proposed,
 /// - nothing is applied until the user runs `--apply`.
 public enum ApprovalSuggester {
 
-    /// Commands whose use implies something Hermes declines to auto-allow:
+    /// Commands whose use implies something reference declines to auto-allow:
     /// destructive ops, privilege escalation, remote execution, process
     /// control and system mutation. Conservative — when in doubt, exclude.
     static let unsafeClassPatterns: [String] = [
@@ -116,7 +116,7 @@ public enum ApprovalSuggester {
         }
     }
 
-    /// Render the proposal table (Hermes-style, but plain).
+    /// Render the proposal table (arc-style, but plain).
     public static func render(_ proposals: [Proposal]) -> String {
         guard !proposals.isEmpty else {
             return "No approval-worthy command patterns found.\n"

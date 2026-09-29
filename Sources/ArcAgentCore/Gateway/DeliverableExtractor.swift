@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - Deliverable mode (Hermes `features/deliverable-mode.md`)
+// MARK: - Deliverable mode (reference `features/deliverable-mode.md`)
 
 /// Scans agent responses for absolute file paths with supported extensions
 /// (outside code fences / inline code), so the gateway can ship them as

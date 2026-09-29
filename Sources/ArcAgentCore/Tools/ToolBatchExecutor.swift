@@ -1,8 +1,8 @@
 import Foundation
 
-/// Hermes `agent/tool_executor.py` concurrent-batch watchdog parity.
+/// reference `agent/tool_executor.py` concurrent-batch watchdog parity.
 ///
-/// Hermes runs up to ``ToolBatchLimits/maxWorkers`` tool calls concurrently
+/// reference runs up to ``ToolBatchLimits/maxWorkers`` tool calls concurrently
 /// with a per-batch deadline (`_DEFAULT_CONCURRENT_TOOL_TIMEOUT_S` = 420 s,
 /// env-overridable). When the deadline fires the batch is **abandoned**:
 /// still-running calls are reported to the model as
@@ -10,9 +10,9 @@ import Foundation
 /// continues — instead of hanging for hours on a wedged `swift test` (the
 /// freeze that motivated this port).
 ///
-/// Deliberate differences from Hermes' thread-pool implementation:
+/// Deliberate differences from reference' thread-pool implementation:
 ///
-/// 1. **No start-order gate.** Hermes needs `_begin_in_order` because one
+/// 1. **No start-order gate.** reference needs `_begin_in_order` because one
 ///    worker's wedged dispatch parks a pooled *thread*; Swift `TaskGroup`
 ///    children don't share a pool, so a wedged dispatch cannot starve
 ///    siblings. The gate's purpose (anti-starvation) is inherent here.
@@ -20,19 +20,19 @@ import Foundation
 ///    every arc tool is bounded (terminal/subprocess have hard timeouts,
 ///    file ops are quick), so cancelled children finish promptly. A child
 ///    that ignored cancellation would still hold the group scope — same
-///    tradeoff Hermes accepts (its wedged threads are left detached).
+///    tradeoff reference accepts (its wedged threads are left detached).
 ///
 /// Results are returned in input order; a real result that lands after the
-/// deadline wins over the timeout placeholder (Hermes does the same).
+/// deadline wins over the timeout placeholder (reference does the same).
 public enum ToolBatchLimits {
-    /// Hermes `_MAX_TOOL_WORKERS`.
+    /// reference `_MAX_TOOL_WORKERS`.
     public static let maxWorkers = 8
-    /// Hermes `_DEFAULT_CONCURRENT_TOOL_TIMEOUT_S` — kept above the stock
+    /// reference `_DEFAULT_CONCURRENT_TOOL_TIMEOUT_S` — kept above the stock
     /// web_extract-style timeout so the guard never preempts slow-but-valid
     /// work.
     public static let defaultBatchTimeout: Double = 420.0
-    /// Env override (Hermes `HERMES_CONCURRENT_TOOL_TIMEOUT_S` parity, arc
-    /// naming): `ARC_CONCURRENT_TOOL_TIMEOUT_S`. Empty → default, `≤0` →
+    /// Env override (upstream parity, arc naming): `ARC_CONCURRENT_TOOL_TIMEOUT_S`.
+    /// Empty → default, `≤0` →
     /// deadline disabled.
     public static func batchTimeoutFromEnv(_ env: [String: String] = ProcessInfo.processInfo.environment) -> Double? {
         parseTimeout(env["ARC_CONCURRENT_TOOL_TIMEOUT_S"])
@@ -94,7 +94,7 @@ public enum ToolBatchExecutor {
                 }
             }
 
-            // Windowed dispatch: at most `cap` children in flight (Hermes
+            // Windowed dispatch: at most `cap` children in flight (reference
             // `_MAX_TOOL_WORKERS`); a completed child refills the window.
             for _ in 0..<cap {
                 startNext()
@@ -114,7 +114,7 @@ public enum ToolBatchExecutor {
                     // Batch deadline fired: abandon. Cancel in-flight work and
                     // keep draining — any child that still produces a real
                     // result (it was bounded, just late) is preferred over a
-                    // fabricated timeout (Hermes-parity).
+                    // fabricated timeout (arc-parity).
                     abandoned = true
                     group.cancelAll()
                     continue
@@ -135,7 +135,7 @@ public enum ToolBatchExecutor {
         }
 
         // Synthesize the outcome array in input order. Real results win;
-        // abandoned slots get Hermes' exact timeout message.
+        // abandoned slots get reference' exact timeout message.
         var outcomes = [ToolBatchOutcome?](repeating: nil, count: count)
         for item in items where item.index >= 0 && item.index < count {
             outcomes[item.index] = ToolBatchOutcome(result: item.result, timedOut: false)

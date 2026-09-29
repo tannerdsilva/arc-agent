@@ -71,7 +71,7 @@ public func sanitizeImageURL(_ url: String) -> String? {
 
 // MARK: - Markdown Rendering
 
-/// Hermes-parity markdown renderer (mirrors the Hermes WebUI's streaming `smd`
+/// arc-parity markdown renderer (mirrors the arc agent webui's streaming `smd`
 /// feature set): ATX headings, paragraphs, soft/hard line breaks, horizontal
 /// rules, nested blockquotes, ordered/unordered lists with nesting, task-list
 /// checkboxes, pipe tables, and inline **bold**, __bold__, *emphasis*,
@@ -84,7 +84,7 @@ public func sanitizeImageURL(_ url: String) -> String? {
 /// `sanitizeURL`. Math emits `<equation-inline>` / `<equation-block>` elements
 /// holding the TeX source (HTML-escaped for transport; the client reads
 /// `textContent`, which the browser decodes) that the WebUI runtime hands to
-/// KaTeX — the same pattern as Hermes' smd + `renderKatexBlocks`.
+/// KaTeX — the same pattern as reference' smd + `renderKatexBlocks`.
 public func markdownToHTML(_ markdown: String) -> String {
     var parser = MarkdownBlockParser(lines: markdown.components(separatedBy: "\n"))
     return parser.parseBlocks().joined(separator: "\n")

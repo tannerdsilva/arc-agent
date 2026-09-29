@@ -1,6 +1,6 @@
 import Foundation
 
-/// Per-model, per-provider quirk metadata (Hermes `model_metadata` +
+/// Per-model, per-provider quirk metadata (reference `model_metadata` +
 /// `usage_pricing` − runtime discovery). The registry is consulted before
 /// every request to decide wire shapes, cache markers, thinking fields,
 /// token budgets, and patience floors — so pointing arc-agent at Anthropic,
@@ -25,7 +25,7 @@ public struct ModelMetadata: Sendable, Equatable {
     public let cacheStyle: CacheStyle
     /// Tool schema dialect to emit.
     public let toolSchemaStyle: ToolSchemaStyle
-    /// Willing levels for reasoning effort (Hermes vocabulary), `nil` = provider default.
+    /// Willing levels for reasoning effort (reference vocabulary), `nil` = provider default.
     public let reasoningEffortLevels: [String]?
     /// Minimum staleness patience (seconds) for this model family (reasoning floor).
     public let staleTimeoutFloor: Double?
@@ -93,7 +93,7 @@ public enum ToolSchemaStyle: String, Sendable, Equatable {
     case bedrock
 }
 
-/// USD pricing per million tokens (Hermes `PricingEntry`).
+/// USD pricing per million tokens (reference `PricingEntry`).
 public struct ModelPricing: Sendable, Equatable {
     public let inputPerMillion: Double?
     public let outputPerMillion: Double?
@@ -132,7 +132,7 @@ public struct ModelMetadataRegistry: Sendable {
 
     /// Resolve metadata for a model (exact → family prefix → provider
     /// family default → safe default). `contextLength` from configuration
-    /// always wins (Hermes: config overrides discovery).
+    /// always wins (reference: config overrides discovery).
     public func metadata(
         for model: String,
         provider: String? = nil,
@@ -181,7 +181,7 @@ public struct ModelMetadataRegistry: Sendable {
         )
     }
 
-    /// Hermes effort → provider-specific thinking payload.
+    /// reference effort → provider-specific thinking payload.
     public func thinkingPayload(effort: String?, metadata: ModelMetadata) -> [String: Any]? {
         guard let effort = effort, !effort.isEmpty, !effort.isEmpty else { return nil }
         switch metadata.thinkingField {
@@ -189,7 +189,7 @@ public struct ModelMetadataRegistry: Sendable {
             return ["reasoning_effort": effort]
         case .anthropicAdaptive:
             // 4.7+ expose low/medium/high/xhigh/max; pre-4.7 accept
-            // low/medium/high/max. Hermes downgrades xhigh → max on
+            // low/medium/high/max. reference downgrades xhigh → max on
             // pre-4.7 (mirrored here).
             let levels = metadata.reasoningEffortLevels ?? ["low", "medium", "high", "max"]
             var e = effort
@@ -210,7 +210,7 @@ public struct ModelMetadataRegistry: Sendable {
         }
     }
 
-    // MARK: - Built-in table (subset of Hermes' official pricing + model
+    // MARK: - Built-in table (subset of reference' official pricing + model
     // families; context lengths are the provider-declared windows).
 
     public static let builtInEntries: [ModelMetadata] = [
@@ -278,7 +278,7 @@ public struct ModelMetadataRegistry: Sendable {
     ]
 }
 
-/// Hermes effort vocabulary persistence: `none|minimal|low|medium|high|xhigh|max|ultra`.
+/// reference effort vocabulary persistence: `none|minimal|low|medium|high|xhigh|max|ultra`.
 public enum ReasoningEffort: String, Sendable, CaseIterable {
     case off = "off"
     case minimal, low, medium, high, xhigh, max, ultra

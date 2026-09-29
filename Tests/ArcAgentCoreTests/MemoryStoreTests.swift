@@ -2,7 +2,7 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 
-/// Hermes-parity tests for the memory entry store and memory tool.
+/// arc-parity tests for the memory entry store and memory tool.
 @Suite("Memory store")
 struct MemoryStoreTests {
 

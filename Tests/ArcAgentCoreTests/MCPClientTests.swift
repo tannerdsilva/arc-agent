@@ -2,7 +2,7 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 
-/// MCP client parity tests (Hermes `tools/mcp_tool.py`): real stdio
+/// MCP client parity tests (reference `tools/mcp_tool.py`): real stdio
 /// handshake against an in-test fake server, tools/list discovery,
 /// tools/call dispatch, schema cache, and env sanitization.
 @Suite("MCP client")
@@ -108,13 +108,13 @@ struct MCPClientTests {
             "PATH": "/usr/bin",
             "OPENAI_API_KEY": "sk-test",
             "ARC_API_KEY": "arc-test",
-            "HERMES_ANTHROPIC_API_KEY": "hm",
+            "ARC_ANTHROPIC_API_KEY": "hm",
             "HOME": "/Users/test",
         ]
         let sanitized = MCPSchemaCache.sanitizedEnvironment(["MY_VAR": "1"], base: base)
         #expect(sanitized["OPENAI_API_KEY"] == nil)
         #expect(sanitized["ARC_API_KEY"] == nil)
-        #expect(sanitized["HERMES_ANTHROPIC_API_KEY"] == nil)
+        #expect(sanitized["ARC_ANTHROPIC_API_KEY"] == nil)
         #expect(sanitized["PATH"] == "/usr/bin")
         #expect(sanitized["HOME"] == "/Users/test")
         #expect(sanitized["MY_VAR"] == "1")

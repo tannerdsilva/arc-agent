@@ -2,10 +2,10 @@ import Foundation
 import SwiftSlash
 import AsyncHTTPClient
 
-// MARK: - Context references (Hermes `features/context-references.md`)
+// MARK: - Context references (reference `features/context-references.md`)
 // and context-file security scanning (`features/context-files.md`)
 
-/// Scans context-file content for prompt-injection patterns (Hermes
+/// Scans context-file content for prompt-injection patterns (reference
 /// context-files security section).
 public enum ContextFileScanner {
 
@@ -45,7 +45,7 @@ public enum ContextFileScanner {
         return nil
     }
 
-    /// Hermes truncation: 70% head, 20% tail, marker in the middle.
+    /// reference truncation: 70% head, 20% tail, marker in the middle.
     public static func truncate(_ content: String, maxChars: Int) -> String {
         guard content.count > maxChars, maxChars > 0 else { return content }
         let head = Int(Double(maxChars) * 0.70)
@@ -59,7 +59,7 @@ public enum ContextFileScanner {
 
 /// Expands `@file:`/`@folder:`/`@diff`/`@staged`/`@git:`/`@url:` references
 /// inline, appending content under an `--- Attached Context ---` section
-/// (Hermes `context-references.md`).
+/// (reference `context-references.md`).
 public struct ContextReferenceExpander {
 
     public struct Limits {

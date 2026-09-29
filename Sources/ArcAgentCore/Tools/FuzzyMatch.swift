@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Fuzzy matching engine
 //
-// Faithful Swift port of Hermes `tools/fuzzy_match.py` (multi-strategy find-
+// Faithful Swift port of reference `tools/fuzzy_match.py` (multi-strategy find-
 // and-replace, 9 strategies, unicode/escape/indent normalization, similarity
 // fallbacks). Pure functions over strings — no I/O.
 //
@@ -116,7 +116,7 @@ enum FuzzyMatch {
     }
 
     /// True when the requested edit is already present in the file (re-send
-    /// of an edit that already landed). Conservative, per Hermes semantics.
+    /// of an edit that already landed). Conservative, per reference semantics.
     static func isAlreadyApplied(content: String, old: String, new: String) -> Bool {
         if new.isEmpty || new.trimmingCharacters(in: .whitespacesAndNewlines).count < 8 {
             return false

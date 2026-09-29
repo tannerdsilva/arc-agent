@@ -2,7 +2,7 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 
-/// Hermes context-compressor parity tests: window selection, pruning,
+/// reference context-compressor parity tests: window selection, pruning,
 /// orphan cleanup, structured summary template (Resolved/Pending), and
 /// memory recall (trivial-prompt guard + fenced block).
 @Suite("Context compression parity")
@@ -71,7 +71,7 @@ struct CompressionParityTests {
         #expect(!cleaned.contains { $0.toolCallID == "gone" })
     }
 
-    @Test("first summary prompt uses the Hermes structured template")
+    @Test("first summary prompt uses the reference structured template")
     func firstPromptStructure() {
         let material = [msg(.user, "build a parser"), msg(.tool, "output", name: "terminal")]
         let p = ContextCompression.firstSummaryPrompt(material: material, focus: "parsing", memoryContext: "user loves Swift")

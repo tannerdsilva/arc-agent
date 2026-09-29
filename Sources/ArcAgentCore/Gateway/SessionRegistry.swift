@@ -63,18 +63,18 @@ public actor SessionRegistry {
         /// Per-tool call cap for gateway sessions (nil = default 25;
         /// 0/negative = unlimited).
         public let toolLoopCap: Int?
-        /// Mixture-of-Agents configuration (Hermes `moa` config block).
+        /// Mixture-of-Agents configuration (reference `moa` config block).
         public let moa: MoAConfig
-        /// Verify work at turn end (Hermes `verify_on_stop`).
+        /// Verify work at turn end (reference `verify_on_stop`).
         public let verifyOnStop: Bool
-        /// Run inline `!`cmd`` blocks in skills at load time (Hermes
+        /// Run inline `!`cmd`` blocks in skills at load time (reference
         /// `skill_preprocessing`). Default ON.
         public let skillInlineCommands: Bool
         /// Background-review cadence: aux review every N tool calls (0 = off).
         public let backgroundReviewAfter: Int
         /// Background-review call window.
         public let backgroundReviewWindow: Int
-        /// External MCP servers (Hermes top-level `mcp_servers`).
+        /// External MCP servers (reference top-level `mcp_servers`).
         public let mcpServers: [String: MCPServerConfig]
 
         public init(

@@ -2,7 +2,7 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 
-/// Approval suggestion miner (Hermes `hermes approvals suggest` parity).
+/// Approval suggestion miner (reference `reference approvals suggest` parity).
 @Suite("Approval suggester")
 struct ApprovalSuggesterTests {
 

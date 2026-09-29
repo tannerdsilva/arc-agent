@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import ArcAgentCore
 
-/// Empty-response recovery (Hermes `_check_empty_storm` parity).
+/// Empty-response recovery (reference `_check_empty_storm` parity).
 @Suite("Empty response recovery")
 struct EmptyResponseTests {
 

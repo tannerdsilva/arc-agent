@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import ArcAgentCore
 
-/// Tests for the Hermes-parity guardrails: tool guardrails, redaction,
+/// Tests for the arc-parity guardrails: tool guardrails, redaction,
 /// secret scope, file safety, message sanitization, think scrubber,
 /// verification evidence, and background review.
 @Suite("Guardrails")
@@ -22,7 +22,7 @@ struct GuardrailsTests {
         #expect(s1.count == 32) // 16-byte hex prefix
     }
 
-    @Test("loop cap yields synthetic result after the cap (Hermes default 25)")
+    @Test("loop cap yields synthetic result after the cap (reference default 25)")
     func loopCap() async {
         let guardrails = ToolGuardrails()
         var sawSynthetic = false
@@ -42,7 +42,7 @@ struct GuardrailsTests {
         }
     }
 
-    @Test("repeated-identical-call detection (Hermes signature repeats)")
+    @Test("repeated-identical-call detection (reference signature repeats)")
     func repeatDetection() async {
         let guardrails = ToolGuardrails()
         for _ in 0..<10 {
@@ -99,7 +99,7 @@ struct GuardrailsTests {
 
     // MARK: - Redactor
 
-    @Test("prefix patterns: sk-ant, ghp_, AIza (Hermes PREFIX_PATTERNS)")
+    @Test("prefix patterns: sk-ant, ghp_, AIza (reference PREFIX_PATTERNS)")
     func prefixRedaction() {
         let out = Redactor.redact("key sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUV0123456789 and ghp_abcdefghijklmnopqrstuvwxyz0123456789 and AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
         #expect(!out.contains("sk-ant-api03"))
@@ -134,7 +134,7 @@ struct GuardrailsTests {
         #expect(red.contains("gpt-4o"))
     }
 
-    @Test("URL query secrets and userinfo redact (Hermes URL rules)")
+    @Test("URL query secrets and userinfo redact (reference URL rules)")
     func urlRedaction() {
         let q = "https://api.example.com/v1?api_key=supersecret1234567890&q=hello"
         let out = Redactor.redact(q)
@@ -162,7 +162,7 @@ struct GuardrailsTests {
     @Test("file safety denies protected paths and warns on sandbox mirrors")
     func fileSafety() {
         #expect(FileSafety.isWriteDenied("~/.arc-agent/config.json"))
-        #expect(FileSafety.isWriteDenied("~/.hermes/profiles/default/skills/x.md"))
+        #expect(FileSafety.isWriteDenied("~/.reference/profiles/default/skills/x.md"))
         #expect(!FileSafety.isWriteDenied("/Users/brockwyma/Documents/x.txt"))
         #expect(FileSafety.sandboxMirrorWarning("/var/sandbox/one.txt") != nil)
         #expect(FileSafety.sandboxMirrorWarning("/Users/brockwyma/x.txt") == nil)
@@ -179,7 +179,7 @@ struct GuardrailsTests {
         #expect(out.contains("\n"))
     }
 
-    @Test("tool-call argument JSON repair (Hermes repair_tool_call_arguments)")
+    @Test("tool-call argument JSON repair (reference repair_tool_call_arguments)")
     func argRepair() {
         let broken = "{\"command\": \"echo a\nb\", \"path\": \"/tmp/x\"}"
         let repair = MessageSanitizer.repairToolCallArguments(broken)
@@ -245,7 +245,7 @@ struct GuardrailsTests {
 
     // MARK: - Verification evidence
 
-    @Test("verify-worthy path filtering and nudge threshold (Hermes max 8)")
+    @Test("verify-worthy path filtering and nudge threshold (reference max 8)")
     func verification() {
         let paths = (0..<10).map { "Sources/x\($0).swift" } + ["/repo/.build/x.o", "/repo/Package.resolved"]
         let worthy = Verification.verifyWorthyPaths(paths)

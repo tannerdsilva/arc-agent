@@ -1,6 +1,6 @@
 import Foundation
 
-/// Hermes-parity skills injection into the system prompt.
+/// arc-parity skills injection into the system prompt.
 ///
 /// Both the CLI harness (`ArcAgent`) and the webui turn engine build their
 /// system prompt from this single block: the mandatory framing that tells the
@@ -11,7 +11,7 @@ import Foundation
 /// re-derived conventions instead of pulling the matching audit skill.
 public enum SkillsPrompt {
 
-    /// Mandatory framing (Hermes `SKILLS_GUIDANCE` parity): scan, match, load.
+    /// Mandatory framing (reference `SKILLS_GUIDANCE` parity): scan, match, load.
     public static let mandatoryFraming =
         "Before replying, scan the skills below. If a skill matches or is even partially "
         + "relevant to your task, you MUST load it with skill_view(name) and follow its "

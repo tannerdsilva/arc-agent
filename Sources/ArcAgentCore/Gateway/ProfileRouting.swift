@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Profile-based inbound routing
 //
-// Faithful port of Hermes `gateway/profile_routing.py` (docs/profile-routing.md):
+// Faithful port of reference `gateway/profile_routing.py` (docs/profile-routing.md):
 // a single gateway routes per-platform / guild / channel / thread inbound
 // messages to a dedicated profile, each with its own model, tools, memory, and
 // persona. Matching is conjunctive (every declared discriminator must hold),
@@ -11,7 +11,7 @@ import Foundation
 // multiple matches: thread 8 > chat 4 > guild 2 > platform-only 0.
 //
 // Wired into ``GatewayService``: when `multiplexProfiles` is off the routes are
-// ignored entirely (Hermes parity — behavior is byte-identical to the
+// ignored entirely (arc parity — behavior is byte-identical to the
 // single-profile gateway).
 
 /// One routing rule mapping a platform scope to a profile.
@@ -49,7 +49,7 @@ public struct ProfileRoute: Codable, Sendable, Equatable, Hashable {
         self.enabled = enabled
     }
 
-    /// Higher = more specific match (Hermes tables: thread 8, chat 4, guild 2,
+    /// Higher = more specific match (reference tables: thread 8, chat 4, guild 2,
     /// platform-only 0).
     public var specificity: Int {
         (guildID != nil ? 2 : 0) + (chatID != nil ? 4 : 0) + (threadID != nil ? 8 : 0)
@@ -60,7 +60,7 @@ public struct ProfileRoute: Codable, Sendable, Equatable, Hashable {
     /// (`chatID == route.chatID`) or a thread/post whose parent channel is the
     /// route's chat (`parentChatID == route.chatID`). A route declaring both
     /// `guildID` and `chatID` requires both to hold — a channel match alone
-    /// does not satisfy a guild constraint (intentional and tested in Hermes).
+    /// does not satisfy a guild constraint (intentional and tested in reference).
     public func matches(
         platform sourcePlatform: String,
         guildID sourceGuildID: String? = nil,
@@ -89,7 +89,7 @@ public struct ProfileRoutingConfig: Codable, Sendable, Equatable {
         self.multiplexProfiles = multiplexProfiles
     }
 
-    /// Routes sorted most-specific-first, exactly like Hermes'
+    /// Routes sorted most-specific-first, exactly like reference'
     /// `parse_profile_routes` so the first-match walk is deterministic.
     public var sortedRoutes: [ProfileRoute] {
         routes.sorted { lhs, rhs in
@@ -110,7 +110,7 @@ public struct ProfileRoutingConfig: Codable, Sendable, Equatable {
 public enum ProfileRouteResolver {
 
     /// Best-matching route for a source, or nil when no route matches.
-    /// Hermes `match_profile_route` returns the FIRST match over the sorted
+    /// reference `match_profile_route` returns the FIRST match over the sorted
     /// (most-specific-first) list; the same result here: highest specificity,
     /// ties broken by declaration order.
     public static func resolve(
@@ -121,7 +121,7 @@ public enum ProfileRouteResolver {
         threadID: String? = nil,
         parentChatID: String? = nil
     ) -> ProfileRoute? {
-        // Hermes `parse_profile_routes` sorts most-specific-first and
+        // reference `parse_profile_routes` sorts most-specific-first and
         // `match_profile_route` returns the first match. Same net result here:
         // iterate highest specificity first, declaration order among ties.
         let ordered = routes.sorted { lhs, rhs in
@@ -144,7 +144,7 @@ public enum ProfileRouteResolver {
 
     /// The profile an inbound message should run under, or nil for the
     /// default. With `multiplexProfiles` off the route table is ignored
-    /// entirely (Hermes parity).
+    /// entirely (arc parity).
     public static func profile(
         for chat: ChatTarget,
         routes: [ProfileRoute],

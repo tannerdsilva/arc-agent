@@ -1,9 +1,9 @@
 import Foundation
 import CryptoKit
 
-// MARK: - Skill curator (Hermes `curator.py` + `curator_backup.py`)
+// MARK: - Skill curator (reference `curator.py` + `curator_backup.py`)
 
-/// Curator schedule/state semantics (Hermes `maybe_run_curator` defaults).
+/// Curator schedule/state semantics (reference `maybe_run_curator` defaults).
 public enum CuratorPolicy {
     /// Minimum time between runs.
     public static let intervalHours = 168          // 7 days
@@ -13,13 +13,13 @@ public enum CuratorPolicy {
     public static let reviewWorthyDays = 30
     /// Skills untouched for this long are archived (moved out of the index).
     public static let archiveDays = 90
-    /// Curation runs in dry-run mode by default (Hermes CURATOR_DRY_RUN).
+    /// Curation runs in dry-run mode by default (reference CURATOR_DRY_RUN).
     public static let defaultDryRun = true
-    /// Backups to keep (Hermes curator_backup keeps the 5 newest).
+    /// Backups to keep (reference curator_backup keeps the 5 newest).
     public static let backupKeep = 5
 }
 
-/// Persistent curator state (mirrors Hermes' curator state file).
+/// Persistent curator state (mirrors the reference client' curator state file).
 public struct CuratorState: Codable, Sendable, Equatable {
     public var lastRunAt: Date?
     public var paused: Bool
@@ -46,7 +46,7 @@ public struct CuratorState: Codable, Sendable, Equatable {
     }
 }
 
-/// One curator decision (Hermes returns a report of transitions).
+/// One curator decision (reference returns a report of transitions).
 public struct CuratorTransition: Sendable, Equatable {
     public enum Kind: String, Sendable { case reviewWorthy, archive, consolidate, rename }
     public let skill: String
@@ -70,7 +70,7 @@ public struct CuratorInput: Sendable {
 /// testable; the filesystem side effects are injected.
 public enum Curator {
 
-    /// Whether the curator is due to run now (Hermes `maybe_run_curator`:
+    /// Whether the curator is due to run now (reference `maybe_run_curator`:
     /// interval + minimum idle + not paused).
     public static func isDue(
         state: CuratorState,
@@ -90,10 +90,10 @@ public enum Curator {
         return (true, "interval elapsed")
     }
 
-    /// Compute automatic transitions (Hermes `apply_automatic_transitions`):
+    /// Compute automatic transitions (reference `apply_automatic_transitions`):
     /// skills older than `archiveDays` are archived; older than
     /// `reviewWorthyDays` are review-worthy. Skills referenced by cron jobs
-    /// are never archived (Hermes protects cron-referenced skills).
+    /// are never archived (reference protects cron-referenced skills).
     public static func transitions(
         skills: [CuratorInput],
         now: Date = Date(),
@@ -113,7 +113,7 @@ public enum Curator {
         }
     }
 
-    /// LLM review prompt for the curated batch (Hermes review prompt: asks an
+    /// LLM review prompt for the curated batch (reference review prompt: asks an
     /// AUXILIARY model to judge quality: consolidate/improve/archive).
     public static func reviewPrompt(skills: [String]) -> String {
         """
@@ -130,7 +130,7 @@ public enum Curator {
     }
 
     /// Read cron-referenced skill names from a cron-jobs JSON file so the
-    /// curator never archives something a scheduled job depends on (Hermes
+    /// curator never archives something a scheduled job depends on (reference
     /// `get_cron_referenced_skills`).
     public static func cronReferencedSkills(from url: URL) -> Set<String> {
         guard let data = try? Data(contentsOf: url),
@@ -152,7 +152,7 @@ public enum Curator {
     }
 }
 
-// MARK: - Backups (Hermes `curator_backup.py`)
+// MARK: - Backups (reference `curator_backup.py`)
 
 /// One backup snapshot: UTC-id, creation time, and hashed skill files.
 public struct CuratorBackup: Codable, Sendable, Equatable {
@@ -175,7 +175,7 @@ public struct CuratorBackup: Codable, Sendable, Equatable {
 public enum CuratorBackupStore {
     public static let keep = CuratorPolicy.backupKeep
 
-    /// UTC timestamp id (Hermes uses UTC microsecond ids).
+    /// UTC timestamp id (reference uses UTC microsecond ids).
     static func newID(now: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -228,7 +228,7 @@ public enum CuratorBackupStore {
         return backup
     }
 
-    /// Keep only the newest `keep` backups (Hermes keeps 5).
+    /// Keep only the newest `keep` backups (reference keeps 5).
     public static func prune(directory: URL, keep: Int = CuratorBackupStore.keep) throws {
         let fm = FileManager.default
         let entries = try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.creationDateKey])

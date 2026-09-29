@@ -2,7 +2,7 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 
-/// Web search provider registry tests (Hermes `web_search_registry.py` +
+/// Web search provider registry tests (reference `web_search_registry.py` +
 /// `web_search_provider.py` parity): config decoding, resolve semantics,
 /// response normalization (no network).
 @Suite("Web search providers", .serialized)

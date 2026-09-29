@@ -1,6 +1,6 @@
 import Foundation
 
-/// Registry of MCP server clients (Hermes `mcp_servers` config).
+/// Registry of MCP server clients (reference `mcp_servers` config).
 public actor MCPClientManager {
     public static let shared = MCPClientManager()
 
@@ -27,7 +27,7 @@ public actor MCPClientManager {
 }
 
 /// The `mcp_tool` entry: calls tools exposed by external MCP servers
-/// (Hermes `tools/mcp_tool.py`). Server selection and tool names are
+/// (reference `tools/mcp_tool.py`). Server selection and tool names are
 /// resolved at call time against the configured servers (`mcp_servers` in
 /// `~/.arc/config.json`) and their discovered tool lists.
 public enum MCPClientTool {

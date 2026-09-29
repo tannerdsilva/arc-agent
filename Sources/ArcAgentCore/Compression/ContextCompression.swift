@@ -1,6 +1,6 @@
 import Foundation
 
-/// Hermes `context_compressor` port — the pieces of the big (threshold)
+/// reference `context_compressor` port — the pieces of the big (threshold)
 /// compression that live outside the agent loop, kept pure and testable:
 /// the structured summary template (with Resolved/Pending tracking), the
 /// head/middle/tail window, the cheap tool-result pruning pre-pass, and
@@ -10,7 +10,7 @@ public enum ContextCompression {
     public static let historicalHeading = "## Historical Task Snapshot"
     public static let noUserTaskSentinel = "None. This session contains no user-authored turns."
 
-    // MARK: - Window selection (Hermes compress() steps 2-4)
+    // MARK: - Window selection (reference compress() steps 2-4)
 
     /// Split non-system messages into protected head, compressible middle,
     /// and protected tail. Head = the first exchange (2 messages). Tail =
@@ -35,10 +35,10 @@ public enum ContextCompression {
         return (head, compressible, tail)
     }
 
-    // MARK: - Cheap pre-pass: prune old tool results (Hermes Phase 1)
+    // MARK: - Cheap pre-pass: prune old tool results (reference Phase 1)
 
     /// Replace very large tool-result contents in the compressible region
-    /// with the Hermes placeholder. The assistant tool-call row is kept.
+    /// with the reference placeholder. The assistant tool-call row is kept.
     public static func pruneToolResults(_ messages: [Message], maxChars: Int = 3_000) -> [Message] {
         messages.map { msg in
             guard msg.role == .tool, let content = msg.content, content.count > maxChars else { return msg }
@@ -54,7 +54,7 @@ public enum ContextCompression {
     // MARK: - Post-pass: orphaned tool_call/tool_result cleanup
 
     /// Remove tool-result rows whose tool-call id has no surviving assistant
-    /// tool call in the list (Hermes: "orphaned tool_call / tool_result pairs
+    /// tool call in the list (reference: "orphaned tool_call / tool_result pairs
     /// are cleaned up so the API never receives mismatched IDs").
     public static func orphanCleanup(_ messages: [Message]) -> [Message] {
         var callIDs = Set<String>()
@@ -69,7 +69,7 @@ public enum ContextCompression {
         }
     }
 
-    // MARK: - Summary prompt templates (Hermes _template_sections)
+    // MARK: - Summary prompt templates (reference _template_sections)
 
     private static func resolvedQuestionsInstruction(hasUserTurns: Bool) -> String {
         hasUserTurns
@@ -264,7 +264,7 @@ public enum ContextCompression {
         return SummaryPrompt(userContent: content, hasUserTurns: hasUser)
     }
 
-    /// Bound the previous-summary block (Hermes `_bound_summary_input`): a
+    /// Bound the previous-summary block (reference `_bound_summary_input`): a
     /// pathological persisted summary must not blow the prompt budget.
     public static func boundSummaryInput(_ summary: String, budget: Int) -> String {
         let chars = budget * 4

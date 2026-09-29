@@ -77,7 +77,7 @@ struct GatewayConfigTests {
         #expect(config.slack.requireMention)
     }
 
-    @Test("Env overrides JSON (Hermes parity)")
+    @Test("Env overrides JSON (arc parity)")
     func envOverrides() throws {
         let dir = try tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

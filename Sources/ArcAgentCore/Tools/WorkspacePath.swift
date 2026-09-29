@@ -1,15 +1,15 @@
 import Foundation
 
-/// Hermes `_resolve_path_for_task` / `_path_resolution_warning` parity.
+/// reference `_resolve_path_for_task` / `_path_resolution_warning` parity.
 ///
 /// Relative paths passed to file tools anchor to the **conversation's
 /// configured workspace root** (the webui binds the session's workspace; the
-/// CLI binds its launch cwd — the equivalent of Hermes' `TERMINAL_CWD`).
+/// CLI binds its launch cwd — the equivalent of reference' `TERMINAL_CWD`).
 /// Absolute paths are resolved but never anchored.
 ///
 /// A relative path that resolves OUTSIDE that root is surfaced as a warning
 /// in the tool result instead of silently reading or editing a different
-/// checkout — the worktree-cwd divergence bug Hermes guards against (a
+/// checkout — the worktree-cwd divergence bug reference guards against (a
 /// future audit could read the wrong codebase and nobody would know).
 ///
 /// Binding is `@TaskLocal`: the turn engine sets the root around every tool
@@ -32,7 +32,7 @@ public enum WorkspacePath {
 
     /// Resolve `path` (supports `~`, relative and absolute forms) against the
     /// bound workspace root. Symlinks are resolved so escape detection and
-    /// I/O operate on the same real file (Hermes `.resolve()` parity).
+    /// I/O operate on the same real file (reference `.resolve()` parity).
     public static func resolve(_ path: String) -> String {
         let e = expanded(path)
         let url: URL
@@ -46,7 +46,7 @@ public enum WorkspacePath {
         return url.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
-    /// Hermes `_path_resolution_warning` parity: warns when the ORIGINAL path
+    /// reference `_path_resolution_warning` parity: warns when the ORIGINAL path
     /// was relative and RESOLVED outside the bound workspace root.
     ///
     /// - Returns: `nil` when the path is absolute, when no root is bound, or

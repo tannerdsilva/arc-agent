@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import ArcAgentCore
 
-/// Tests for the usage/pricing/insights/trace layer (Hermes usage_pricing,
+/// Tests for the usage/pricing/insights/trace layer (reference usage_pricing,
 /// credits_tracker, insights, trace_upload parity).
 @Suite("Usage & pricing")
 struct UsageTests {
@@ -55,7 +55,7 @@ struct UsageTests {
         #expect(result.cost == 2.50 + 1.25)
     }
 
-    @Test("compact token format (Hermes format_token_count_compact)")
+    @Test("compact token format (reference format_token_count_compact)")
     func compact() {
         #expect(UsagePricing.formatCompact(999) == "999")
         #expect(UsagePricing.formatCompact(1_200) == "1.2K")

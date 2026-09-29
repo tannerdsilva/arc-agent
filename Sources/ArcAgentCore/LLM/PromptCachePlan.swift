@@ -1,6 +1,6 @@
 import Foundation
 
-/// Anthropic prompt-caching plan (Hermes `prompt_caching.py`).
+/// Anthropic prompt-caching plan (reference `prompt_caching.py`).
 ///
 /// Default layout uses 4 `cache_control` breakpoints: the static system
 /// prefix, the end of the system prompt, and the last 2 non-system
@@ -21,7 +21,7 @@ public enum PromptCachePlan {
     }
 
     /// Add `cache_control` to a single message dict.
-    /// Mirrors Hermes `_apply_cache_marker` handling all shape variations:
+    /// mirrors the reference client `_apply_cache_marker` handling all shape variations:
     /// - Native Anthropic layout: top-level `cache_control` (adapter moves it
     ///   inside the tool_result block).
     /// - Empty tool message with `role: tool` on non-native routes: skipped
@@ -48,7 +48,7 @@ public enum PromptCachePlan {
         }
     }
 
-    /// Strip all `cache_control` markers from messages (Hermes
+    /// Strip all `cache_control` markers from messages (reference
     /// `strip_anthropic_cache_control`) — used for providers/copies where
     /// markers must not leak.
     public static func stripMarkers(from messages: [[String: Any]]) -> [[String: Any]] {
@@ -67,7 +67,7 @@ public enum PromptCachePlan {
         }
     }
 
-    /// Strip markers from a tool-schemas array (Hermes
+    /// Strip markers from a tool-schemas array (reference
     /// `strip_anthropic_tool_cache_control`).
     public static func stripToolMarkers(from tools: [[String: Any]]) -> [[String: Any]] {
         tools.map { t in
@@ -83,7 +83,7 @@ public enum PromptCachePlan {
     /// Apply the 4-breakpoint plan to OpenAI-format `apiMessages`.
     /// `staticSystemPrefix` is the byte-stable first tier of the system prompt;
     /// when present it is split at the boundary so the prefix gets its own
-    /// cache breakpoint (Hermes `apply_anthropic_cache_control` +
+    /// cache breakpoint (reference `apply_anthropic_cache_control` +
     /// `build_prompt_cache_plan`).
     public static func plan(
         messages: [[String: Any]],

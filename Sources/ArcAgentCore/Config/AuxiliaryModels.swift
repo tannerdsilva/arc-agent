@@ -1,10 +1,10 @@
 import AsyncHTTPClient
 import Foundation
 
-/// Hermes-parity auxiliary tasks: secondary agent duties that can be routed
-/// to a dedicated model configuration (Hermes `auxiliary.<task>` block).
+/// arc-parity auxiliary tasks: secondary agent duties that can be routed
+/// to a dedicated model configuration (reference `auxiliary.<task>` block).
 ///
-/// Task keys match Hermes exactly (`auxiliary.title_generation`, …) so the
+/// Task keys match reference exactly (`auxiliary.title_generation`, …) so the
 /// same `~/.arc/config.json` drives both agents. Legacy arc-agent names
 /// (`title_gen`, `triage`) are accepted on decode.
 public enum AuxiliaryTask: String, Codable, CaseIterable, Sendable, Identifiable, Equatable {
@@ -29,11 +29,11 @@ public enum AuxiliaryTask: String, Codable, CaseIterable, Sendable, Identifiable
 
     public var id: String { rawValue }
 
-    /// Canonical config key (`auxiliary.<key>`), mirroring Hermes naming.
+    /// Canonical config key (`auxiliary.<key>`), mirroring the reference client naming.
     public var key: String { rawValue }
 
     /// Tolerant lookup: legacy arc-agent keys (`title_gen`, `triage`) map to
-    /// their Hermes-canonical counterparts so old configs keep working.
+    /// their reference-canonical counterparts so old configs keep working.
     public init?(configKey key: String) {
         switch key {
         case "title_gen": self = .titleGeneration
@@ -42,7 +42,7 @@ public enum AuxiliaryTask: String, Codable, CaseIterable, Sendable, Identifiable
         }
     }
 
-    /// Human-readable label for UIs (Hermes display names).
+    /// Human-readable label for UIs (reference display names).
     public var displayName: String {
         switch self {
         case .vision: return "Vision"
@@ -64,7 +64,7 @@ public enum AuxiliaryTask: String, Codable, CaseIterable, Sendable, Identifiable
         }
     }
 
-    /// One-line description of the task (Hermes descriptions).
+    /// One-line description of the task (reference descriptions).
     public var detail: String {
         switch self {
         case .vision: return "Image and screenshot analysis"
@@ -89,9 +89,9 @@ public enum AuxiliaryTask: String, Codable, CaseIterable, Sendable, Identifiable
 
 /// An optional per-task model override (value of `auxiliary.<task>`).
 ///
-/// Fields match Hermes (`provider`, `model`, `base_url`, `api_key`). Empty
+/// Fields match reference (`provider`, `model`, `base_url`, `api_key`). Empty
 /// fields mean "inherit the main model configuration"; a task with no override
-/// at all resolves to the main model. A `provider` of `"auto"` (Hermes
+/// at all resolves to the main model. A `provider` of `"auto"` (reference
 /// default) also means inherit the main provider.
 public struct AuxiliaryOverride: Codable, Equatable, Sendable {
     public var provider: String
@@ -171,7 +171,7 @@ public struct AuxiliaryModelSet: Codable, Equatable, Sendable {
     }
 
     /// Merge over the main model config: override fields win when non-empty,
-    /// everything else inherits from the main model (Hermes behavior). A
+    /// everything else inherits from the main model (reference behavior). A
     /// provider of `"auto"` is treated like "inherit the main provider".
     public func resolved(for task: AuxiliaryTask, over main: ModelConfig, apiKey: String = "") -> AuxResolvedModel {
         let o = byTask[task]
@@ -184,7 +184,7 @@ public struct AuxiliaryModelSet: Codable, Equatable, Sendable {
     }
 
     /// Tolerant decode: missing block/tasks/fields all fall back to defaults.
-    /// The block is a flat map of task-key → override (Hermes shape), e.g.
+    /// The block is a flat map of task-key → override (reference shape), e.g.
     /// `{"vision": {"model": "…"}, "title_generation": {"provider": "…"}}`.
     /// Legacy keys (`title_gen`, `triage`) are mapped to their canonical task.
     public init(from decoder: Decoder) throws {
@@ -207,7 +207,7 @@ public struct AuxiliaryModelSet: Codable, Equatable, Sendable {
     }
 }
 
-/// Resolves and builds LLM clients for auxiliary tasks, mirroring Hermes
+/// Resolves and builds LLM clients for auxiliary tasks, mirroring the reference client
 /// `auxiliary.<task>` routing. Consumers ask for a task; if an override is
 /// configured the client targets the override endpoint, otherwise the client
 /// targets the main model endpoint.

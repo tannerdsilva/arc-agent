@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ArcAgentCore
 
-/// V4A patch parser/validator/applier (Hermes parity): operations, hunks,
+/// V4A patch parser/validator/applier (arc parity): operations, hunks,
 /// context hints, addition-only hunks, already-applied skips, and the
 /// two-phase validate-then-apply contract.
 @Suite("V4APatch")

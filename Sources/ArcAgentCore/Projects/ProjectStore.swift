@@ -1,8 +1,8 @@
 import Foundation
 
-// MARK: - Projects (Hermes `tools/project_tools.py` + `hermes_cli/projects_db.py`)
+// MARK: - Projects (reference `tools/project_tools.py` + `arc_cli/projects_db.py`)
 
-/// A named workspace (Hermes "Project"): the intentional way to group work
+/// A named workspace (reference "Project"): the intentional way to group work
 /// in a repo/folder. The agent's handle on workspaces — never a side effect
 /// of a terminal `cd`.
 public struct ArcProject: Codable, Sendable, Equatable {
@@ -21,7 +21,7 @@ public struct ArcProject: Codable, Sendable, Equatable {
     }
 }
 
-/// Persistence + active-selection for Projects (Hermes `projects.db` analog,
+/// Persistence + active-selection for Projects (reference `projects.db` analog,
 /// stored as `~/.arc/projects.json`). An actor: all mutation is serialized.
 public actor ProjectStore {
 
@@ -67,7 +67,7 @@ public actor ProjectStore {
         try data.write(to: url, options: .atomic)
     }
 
-    /// All non-archived projects (Hermes `list_projects`).
+    /// All non-archived projects (reference `list_projects`).
     public func list() throws -> [ArcProject] {
         try loadLocked()
         return projects
@@ -79,7 +79,7 @@ public actor ProjectStore {
         return projects.first { $0.id == activeID }
     }
 
-    /// Create a project and activate it (Hermes `create_project` then
+    /// Create a project and activate it (reference `create_project` then
     /// `set_active`). `path` is expanded + absolutized.
     @discardableResult
     public func create(name: String, path: String?) async throws -> ArcProject {
@@ -146,7 +146,7 @@ private struct ProjectsFile: Codable {
     var activeID: String?
 }
 
-/// Errors surfaced by the project tools (Hermes `{"success": false, ...}`).
+/// Errors surfaced by the project tools (reference `{"success": false, ...}`).
 public enum ProjectError: Error, Equatable, CustomStringConvertible {
     case invalidName(String)
     case notFound(String)

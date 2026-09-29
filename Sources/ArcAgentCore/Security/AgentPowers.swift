@@ -101,7 +101,7 @@ public enum AgentPowers {
             return profileWriteRefusal(file: "user")
         case "SOUL.md":
             return profileWriteRefusal(file: "soul")
-        case "AGENTS.md", ".hermes.md", "CLAUDE.md", ".cursorrules":
+        case "AGENTS.md", ".reference.md", "CLAUDE.md", ".cursorrules":
             return profileWriteRefusal(file: "agents")
         default:
             return nil

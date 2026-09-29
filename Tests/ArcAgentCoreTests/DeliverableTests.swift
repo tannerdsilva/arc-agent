@@ -2,7 +2,7 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 
-/// Deliverable mode (Hermes `features/deliverable-mode.md`).
+/// Deliverable mode (reference `features/deliverable-mode.md`).
 @Suite("Deliverable")
 struct DeliverableTests {
 

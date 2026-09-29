@@ -46,22 +46,22 @@ public protocol MemoryProvider: Sendable {
     func writeUser(_ text: String) async throws
 }
 
-// MARK: - Recall (Hermes memory-provider prefetch)
+// MARK: - Recall (arc memory-provider prefetch)
 
 extension MemoryProvider {
-    /// Semantic recall hook (Hermes `prefetch`): external memory providers
+    /// Semantic recall hook (reference `prefetch`): external memory providers
     /// override this to return context relevant to `query`; the built-in
     /// file provider needs no recall because its full memory block is
     /// already injected into the system prompt. Default: no recall.
     public func prefetch(query: String) async throws -> String { "" }
 }
 
-/// Trivial-prompt detection for memory recall (Hermes
+/// Trivial-prompt detection for memory recall (reference
 /// `memory_provider.is_trivial_prompt`): empty text, slash commands, and
 /// bare greetings/acknowledgements carry no semantic signal, so the
 /// prefetch round-trip is skipped.
 public enum MemoryRecall {
-    /// Hermes `TRIVIAL_PROMPT_RE` port (case-insensitive).
+    /// reference `TRIVIAL_PROMPT_RE` port (case-insensitive).
     private static let trivialRegex = try? NSRegularExpression(
         pattern: #"^(yes|no|ok|okay|sure|thanks|thank you|y|n|yep|nope|yeah|nah|hi|hey|hello|yo|sup|continue|go ahead|do it|proceed|got it|cool|nice|great|done|next|lgtm|k)[\s!?.:;,"'~‘’“”—–…()\[\]{}<>*&^%$#@!+=` ]*$"#,
         options: [.caseInsensitive]
@@ -79,7 +79,7 @@ public enum MemoryRecall {
     }
 
     /// Run prefetch with a bounded timeout; a stuck provider must never
-    /// stall the turn (Hermes: join(timeout), non-fatal).
+    /// stall the turn (reference: join(timeout), non-fatal).
     public static func prefetchWithTimeout(
         timeout: Duration = .seconds(2),
         _ op: @escaping () async throws -> String

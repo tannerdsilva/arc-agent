@@ -38,7 +38,7 @@ def main() -> None:
 import Foundation
 
 /// KaTeX (typesets $..$ / $$..$$ math in message bodies) vendored from the
-/// Hermes WebUI (vendor/katex/0.16.22), embedded base64 so the release binary
+/// Arc Agent WebUI (vendor/katex/0.16.22), embedded base64 so the release binary
 /// remains single-file and no string escaping can corrupt the payloads.
 public enum KaTeXAssets {{
     public static let jsURL = "/ui/vendor/katex/katex.min.js"

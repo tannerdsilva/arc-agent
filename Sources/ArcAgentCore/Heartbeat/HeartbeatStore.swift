@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - Session heartbeats (Hermes `features/heartbeat.md`)
+// MARK: - Session heartbeats (reference `features/heartbeat.md`)
 
 /// A session heartbeat is one recurring instruction that re-enters the
 /// session as a plain user turn whenever the session is idle and the
@@ -33,7 +33,7 @@ public struct Heartbeat: Sendable, Codable, Equatable {
     }
 }
 
-/// Parses Hermes heartbeat intervals: `90s`, `10m`, `2h`, `1d`.
+/// Parses reference heartbeat intervals: `90s`, `10m`, `2h`, `1d`.
 /// Returns nil for malformed or sub-minute intervals (spec minimum 60s).
 public enum HeartbeatInterval {
     public static func parse(_ raw: String) -> Int? {
@@ -57,7 +57,7 @@ public enum HeartbeatInterval {
     }
 }
 
-/// Durable per-session heartbeat state (Hermes `SessionDB.state_meta`
+/// Durable per-session heartbeat state (reference `SessionDB.state_meta`
 /// keyed by `heartbeat:<session_id>`).
 public actor HeartbeatStore {
 

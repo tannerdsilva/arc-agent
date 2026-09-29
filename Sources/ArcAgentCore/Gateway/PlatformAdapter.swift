@@ -92,7 +92,7 @@ public struct SendResult: Sendable {
     }
 }
 
-/// Lightweight chat metadata (Hermes `get_chat_info` parity).
+/// Lightweight chat metadata (reference `get_chat_info` parity).
 public struct ChatInfo: Sendable {
     public let name: String?
     public let type: String // "dm", "group", "channel"

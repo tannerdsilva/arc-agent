@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ArcAgentCore
 
-/// Fuzzy match engine (Hermes parity): all 9 strategies, replace_all gating,
+/// Fuzzy match engine (arc parity): all 9 strategies, replace_all gating,
 /// already-applied detection, and no-match hints.
 ///
 /// Newlines and unicode chars are built from scalars so the file itself
@@ -185,7 +185,7 @@ struct FuzzyMatchTests {
     func unicodeExpansionMapping() {
         // em-dash expands to two chars in normalized space; positions must map
         // back to the original single Character. The replacement keeps the
-        // original em-dash in equal old/new regions (Hermes parity).
+        // original em-dash in equal old/new regions (arc parity).
         let content = "a" + emd + "b"
         let (result, count, strategy, _) = FuzzyMatch.fuzzyFindAndReplace(
             content: content, old: "a--b", new: "a---b", replaceAll: false)

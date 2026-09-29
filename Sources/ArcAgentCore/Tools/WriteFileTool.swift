@@ -38,12 +38,12 @@ public enum WriteFileTool {
     // MARK: - Handler
 
     private static func writeFile(path: String, content: String) async throws -> String {
-        // Hermes parity: anchor relative paths to the conversation workspace,
+        // arc parity: anchor relative paths to the conversation workspace,
         // and report the RESOLVED path so a wrong-cwd mismatch is visible in
         // the response instead of silently routing the write elsewhere.
         let (resolved, warning) = WorkspacePath.resolveChecked(path)
 
-        // Hermes `file_safety.py`: refuse to overwrite protected paths
+        // reference `file_safety.py`: refuse to overwrite protected paths
         // (config/state files, cross-profile areas).
         if FileSafety.isWriteDenied(resolved) {
             return "Error: Refusing to write to a protected path: \(path). Choose a different location."

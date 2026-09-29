@@ -1,11 +1,11 @@
 import Foundation
 
-// MARK: - Skill bundles (Hermes `skill_bundles.py`)
+// MARK: - Skill bundles (reference `skill_bundles.py`)
 
 /// A portable skill bundle: one JSON file holding several skills (and their
 /// reference files), plus the invocation messages that activate them.
-/// Bundles live in `~/.arc/skill-bundles/` (Hermes keeps them in
-/// HERMES_HOME/skill-bundles).
+/// Bundles live in `~/.arc/skill-bundles/` (upstream keeps them under the
+/// upstream CLI's home dir).
 public struct SkillBundle: Codable, Sendable, Equatable {
     public struct Entry: Codable, Sendable, Equatable {
         public let name: String
@@ -20,7 +20,7 @@ public struct SkillBundle: Codable, Sendable, Equatable {
     public let createdAt: Date
     /// Skill names activated with this bundle.
     public let skills: [Entry]
-    /// Invocation messages (Hermes `invocation_messages`): the text that
+    /// Invocation messages (reference `invocation_messages`): the text that
     /// tells the agent the user invoked the bundle.
     public let invocationMessages: [String]
 
@@ -34,7 +34,7 @@ public struct SkillBundle: Codable, Sendable, Equatable {
         self.invocationMessages = invocationMessages
     }
 
-    /// Slugify a display name (Hermes `slugify`-style: lowercase, alphanumerics,
+    /// Slugify a display name (reference `slugify`-style: lowercase, alphanumerics,
     /// dashes).
     public static func slugify(_ name: String) -> String {
         let lower = name.lowercased()
@@ -48,7 +48,7 @@ public struct SkillBundle: Codable, Sendable, Equatable {
         return result.isEmpty ? "bundle" : result
     }
 
-    /// Invocation fence for the bundle (Hermes invocation format).
+    /// Invocation fence for the bundle (reference invocation format).
     public static func invocationMessage(for bundleName: String, skillNames: [String]) -> String {
         let base = "[IMPORTANT: The user has invoked the \"\(bundleName)\" skill bundle."
         let skills = skillNames.isEmpty ? "" : " The following skills are preloaded: \(skillNames.joined(separator: ", "))."
@@ -90,7 +90,7 @@ public enum SkillBundleStore {
         return try decoder.decode(SkillBundle.self, from: data)
     }
 
-    /// All bundles, newest first (Hermes lists with mtime cache).
+    /// All bundles, newest first (reference lists with mtime cache).
     public static func list(directory: URL = SkillBundleStore.defaultDirectory()) throws -> [SkillBundle] {
         let fm = FileManager.default
         let urls = (try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []

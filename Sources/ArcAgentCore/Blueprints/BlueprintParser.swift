@@ -1,9 +1,9 @@
 import Foundation
 
-// MARK: - Blueprints (Hermes `tools/blueprints.py`, `hermes blueprint`)
+// MARK: - Blueprints (reference `tools/blueprints.py`, `reference blueprint`)
 
 /// A skill becomes a blueprint when its SKILL.md frontmatter carries
-/// `metadata.hermes.blueprint` with a non-empty `schedule`. Running the
+/// `metadata.reference.blueprint` with a non-empty `schedule`. Running the
 /// blueprint registers a cron job that runs the skill's prompt.
 public struct BlueprintSpec: Sendable, Equatable {
     public let skillName: String
@@ -40,7 +40,7 @@ public enum BlueprintError: Error, CustomStringConvertible, Equatable {
 public enum BlueprintParser {
 
     /// Parse a SKILL.md string. Returns nil when not a blueprint; throws on
-    /// a structurally invalid blueprint block (Hermes: typo must surface).
+    /// a structurally invalid blueprint block (reference: typo must surface).
     public static func parse(_ skillText: String, fallbackName: String = "") throws -> BlueprintSpec? {
         let fm = flatFrontmatter(skillText)
         guard !fm.isEmpty else { return nil }
@@ -53,10 +53,10 @@ public enum BlueprintParser {
             }
             return out
         }
-        let blueprint = section("metadata.hermes.blueprint")
+        let blueprint = section("metadata.reference.blueprint")
         guard !blueprint.isEmpty else { return nil }
         guard let schedule = blueprint["schedule"], !schedule.trimmingCharacters(in: .whitespaces).isEmpty else {
-            throw BlueprintError.invalid("metadata.hermes.blueprint.schedule is required and must be non-empty")
+            throw BlueprintError.invalid("metadata.reference.blueprint.schedule is required and must be non-empty")
         }
         var model: String? = nil
         var provider: String? = nil

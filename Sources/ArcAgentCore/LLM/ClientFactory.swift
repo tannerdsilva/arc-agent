@@ -2,7 +2,7 @@ import Foundation
 import AsyncHTTPClient
 
 /// Builds the right `LLMClient` for a provider profile + model — the
-/// per-provider quirk router (Hermes `agent_init` provider selection + the
+/// per-provider quirk router (reference `agent_init` provider selection + the
 /// per-provider adapter files). `APIMode` on the profile selects the wire
 /// dialect; `ModelMetadata` supplies thinking fields, cache styles, tool
 /// schema dialects, and output caps.
@@ -38,7 +38,7 @@ public enum ClientFactory {
 
     /// Create a client for the given profile/model. Returns a client that
     /// speaks the profile's API mode. `reasoningEffort` is translated per
-    /// provider (Hermes vocabulary preserved verbatim).
+    /// provider (reference vocabulary preserved verbatim).
     public static func makeClient(
         profile: ProviderProfile,
         model: String,
@@ -104,7 +104,7 @@ public enum ClientFactory {
     }
 
     /// Vertex AI: the OpenAI-compatible endpoint on `aiplatform.googleapis.com`
-    /// with a live service-account bearer token (Hermes `vertex_adapter.py`).
+    /// with a live service-account bearer token (reference `vertex_adapter.py`).
     public static func makeVertexClient(
         profile: ProviderProfile,
         model: String,

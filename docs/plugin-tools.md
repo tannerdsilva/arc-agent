@@ -1,10 +1,10 @@
 # Tool plugins
 
 Custom tools written in **Python** or **Swift** (or any executable) integrate
-with ARC Agent through tool plugins, mirroring Hermes' user-plugin structure
-(`~/.hermes/plugins/<name>/` + `plugin.yaml` + `__init__.py` + `register(ctx)`).
+with ARC Agent through tool plugins, mirroring the reference client' user-plugin structure
+(`~/.reference/plugins/<name>/` + `plugin.yaml` + `__init__.py` + `register(ctx)`).
 
-In a static binary there is no in-process Python host, so the Hermes contract
+In a static binary there is no in-process Python host, so the reference contract
 maps to runtime-discoverable JSON manifests: each plugin is a directory under
 `~/.arc/plugins/<name>/` containing a `manifest.json` and one or more
 executables. Tools are invoked once per call with the request on stdin and the
@@ -14,7 +14,7 @@ result on stdout.
 
 ```
 ~/.arc/plugins/<name>/
-├── manifest.json     # plugin + tool definitions (Hermes plugin.yaml form)
+├── manifest.json     # plugin + tool definitions (arc plugin.yaml form)
 └── tool.py           # Python script (or a compiled Swift binary `tool`, or ./run.sh)
 ```
 
@@ -56,8 +56,8 @@ result on stdout.
 | `entry` | Optional script path (relative to the plugin dir) passed to `command` as its first argument. |
 | `args` | Optional static arguments appended after `entry`. |
 | `toolset` | Grouping shown in the Tools page and the enabled-toolsets switches (default `plugins`). |
-| `requires_env` | Hermes `requires_env` parity: the tool is **not installed** while any listed variable is unset. |
-| `schema` | OpenAI function parameters object shown to the model. The full `{"type": "function", "function": {...}}` shape (Hermes `register_tool(schema:)`) is also accepted. |
+| `requires_env` | reference `requires_env` parity: the tool is **not installed** while any listed variable is unset. |
+| `schema` | OpenAI function parameters object shown to the model. The full `{"type": "function", "function": {...}}` shape (reference `register_tool(schema:)`) is also accepted. |
 
 ## Tool contract
 
@@ -110,7 +110,7 @@ Manifest for the binary: `"command": "./tool"` (relative to the plugin dir).
 ## Enablement
 
 Plugins are governed by the `plugins.enabled` allow-list in
-`~/.arc/config.json` (Hermes `plugins.enabled` parity):
+`~/.arc/config.json` (reference `plugins.enabled` parity):
 
 - **Key absent** — all discovered plugins are enabled (grandfathered).
 - **`[]`** — no plugins enabled.
@@ -125,5 +125,5 @@ enabled-toolsets switches and on the Tools page, with full parameter details.
 `PluginRegistry` scans `~/.arc/plugins/` on agent startup; `MutableToolRegistry`
 layers enabled plugin tools over the compile-time registry (built-ins always
 win on name collisions). Tools with unmet `requires_env` are skipped
-(Hermes `check_fn` parity). The Settings page rescan button re-reads the
+(reference `check_fn` parity). The Settings page rescan button re-reads the
 directory without restarting the agent.

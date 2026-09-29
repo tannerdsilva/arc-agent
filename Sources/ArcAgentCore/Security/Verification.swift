@@ -1,11 +1,11 @@
 import Foundation
 import SwiftSlash
 
-// MARK: - Verification evidence (Hermes `verification_evidence.py`)
+// MARK: - Verification evidence (reference `verification_evidence.py`)
 
 /// Evidence attached to terminal-tool results so the agent can verify its own
 /// work: command, cwd, exit code, truncation flag, and changed paths. Also
-/// builds the Hermes "verify on stop" nudge when many files changed.
+/// builds the reference "verify on stop" nudge when many files changed.
 public struct ToolEvidence: Sendable, Equatable, Codable {
     public let command: String
     public let cwd: String
@@ -21,7 +21,7 @@ public struct ToolEvidence: Sendable, Equatable, Codable {
         self.changedPaths = changedPaths
     }
 
-    /// Attach the evidence block to a terminal tool result (Hermes appends
+    /// Attach the evidence block to a terminal tool result (reference appends
     /// evidence to the tool result JSON).
     public func attach(to result: String) -> String {
         var lines = [result]
@@ -43,7 +43,7 @@ public struct ToolEvidence: Sendable, Equatable, Codable {
 }
 
 public enum Verification {
-    /// Hermes verify-on-stop threshold: nudge the model when more than this
+    /// reference verify-on-stop threshold: nudge the model when more than this
     /// many paths changed (it should re-run tests / inspect the diff).
     public static let maxChangedPaths = 8
     /// Changed paths that are not worth verifying (build artifacts, lockfiles).
@@ -53,7 +53,7 @@ public enum Verification {
         #"\.o$"#, #"\.a$"#, #"\.dylib$"#, #"\.xctest"#,
     ]
 
-    /// Filter changed paths to the ones worth verifying (Hermes
+    /// Filter changed paths to the ones worth verifying (reference
     /// `filter_non_code_change_paths`).
     public static func verifyWorthyPaths(_ paths: [String]) -> [String] {
         paths.filter { path in
@@ -65,7 +65,7 @@ public enum Verification {
     }
 
     /// Build the verify nudge appended to the turn when the threshold is hit
-    /// (Hermes `verify_on_stop` message).
+    /// (reference `verify_on_stop` message).
     public static func verifyNudge(changedPaths: [String]) -> String {
         let worthy = verifyWorthyPaths(changedPaths)
         guard worthy.count > maxChangedPaths else { return "" }
@@ -78,7 +78,7 @@ public enum Verification {
     ///
     /// Returns `[]` when `cwd` is not inside a git repo, git is unavailable,
     /// or the probe exceeds the 2-second cap. Used by the terminal tools to
-    /// attach ``ToolEvidence`` (Hermes `filter_non_code_change_paths` input).
+    /// attach ``ToolEvidence`` (reference `filter_non_code_change_paths` input).
     public static func changedPaths(in cwd: String, limit: Int = 50) async -> [String] {
         let gitFlag = cwd + "/.git"
         guard FileManager.default.fileExists(atPath: gitFlag) else { return [] }
@@ -103,7 +103,7 @@ public enum Verification {
     }
 }
 
-// MARK: - Background review (Hermes `background_review.py`)
+// MARK: - Background review (reference `background_review.py`)
 
 /// Periodic background review of recent tool calls by an auxiliary model:
 /// detects loops, wasted work, and policy slips, then injects guidance into
@@ -122,7 +122,7 @@ public struct BackgroundReview { // swiftlint:disable:this type_name
 
     public static let maxReviewBatch = 12
 
-    /// The review prompt (Hermes background review: ask for concise,
+    /// The review prompt (reference background review: ask for concise,
     /// actionable observations — no fluff).
     public static func reviewPrompt(toolCalls: [String]) -> String {
         """
@@ -136,7 +136,7 @@ public struct BackgroundReview { // swiftlint:disable:this type_name
     }
 
     /// Decision: whether a review is due given the running tool-call count
-    /// (Hermes cadence check).
+    /// (reference cadence check).
     public static func isDue(settings: Settings, totalToolCalls: Int) -> Bool {
         guard settings.afterToolCalls > 0 else { return false }
         return totalToolCalls > 0 && totalToolCalls % settings.afterToolCalls == 0

@@ -1,14 +1,14 @@
 import Foundation
 
-// MARK: - Provider registries (Hermes web_search/image_gen registries)
+// MARK: - Provider registries (reference web_search/image_gen registries)
 
-/// A pluggable web-search backend (Hermes WebSearchProvider protocol).
+/// A pluggable web-search backend (reference WebSearchProvider protocol).
 public protocol WebSearchProvider: Sendable {
     var name: String { get }
     func search(query: String, maxResults: Int) async throws -> [String]
 }
 
-/// Name → provider registry with an active provider (Hermes
+/// Name → provider registry with an active provider (reference
 /// `web_search_registry.get_active_provider`; selection via
 /// `WEB_SEARCH_PROVIDER`, default "default").
 public actor WebSearchRegistry {
@@ -26,7 +26,7 @@ public actor WebSearchRegistry {
     }
 }
 
-/// A pluggable image-generation backend (Hermes image_gen_registry).
+/// A pluggable image-generation backend (reference image_gen_registry).
 public protocol ImageGenProvider: Sendable {
     var name: String { get }
     func generate(prompt: String) async throws -> Data
@@ -47,9 +47,9 @@ public actor ImageGenRegistry {
     }
 }
 
-// MARK: - Context engines (Hermes `context_engine.py`)
+// MARK: - Context engines (reference `context_engine.py`)
 
-/// Pluggable context selection/compression engines (Hermes ContextEngine
+/// Pluggable context selection/compression engines (reference ContextEngine
 /// ABC: `should_compress`, `select_context`, `prune_tool_results_only`).
 public protocol ContextEngine: Sendable {
     var name: String { get }
@@ -62,7 +62,7 @@ public protocol ContextEngine: Sendable {
     func pruneToolResultsOnly(messages: [Message], maxBytes: Int) -> [Message]
 }
 
-/// Hermes defaults: compress at threshold (typically context/2), protect the
+/// reference defaults: compress at threshold (typically context/2), protect the
 /// first N messages (identity), keep tool results bounded.
 public struct DefaultContextEngine: ContextEngine {
     public let name = "default"
@@ -105,7 +105,7 @@ public struct DefaultContextEngine: ContextEngine {
 }
 
 /// Engine router: resolves the configured engine name to an implementation
-/// (Hermes `agent_init` context engine selection; `ARC_CONTEXT_ENGINE` env).
+/// (reference `agent_init` context engine selection; `ARC_CONTEXT_ENGINE` env).
 public enum ContextEngineRouter {
     public static func resolve(environment: [String: String] = ProcessInfo.processInfo.environment) -> any ContextEngine {
         switch environment["ARC_CONTEXT_ENGINE"] {

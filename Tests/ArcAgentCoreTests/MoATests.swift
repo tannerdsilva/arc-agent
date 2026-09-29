@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import ArcAgentCore
 
-/// Tests for the MoA service, config, and trace (Hermes moa_loop parity).
+/// Tests for the MoA service, config, and trace (reference moa_loop parity).
 @Suite("Mixture of Agents")
 struct MoATests {
 
@@ -28,7 +28,7 @@ struct MoATests {
 
     // MARK: - Config
 
-    @Test("moa config decodes Hermes snake_case keys")
+    @Test("moa config decodes reference snake_case keys")
     func configDecode() throws {
         let json = """
         {"moa": {"enabled": true, "reference_models": [{"model": "claude-sonnet-4-5", "provider": "anthropic", "temperature": 0.3}],
@@ -61,7 +61,7 @@ struct MoATests {
 
     // MARK: - Advisory view
 
-    @Test("advisory view appends instruction after assistant turns (Hermes _ADVISORY_INSTRUCTION)")
+    @Test("advisory view appends instruction after assistant turns (reference _ADVISORY_INSTRUCTION)")
     func advisoryAppend() {
         let messages: [[String: Any]] = [
             ["role": "user", "content": "help"],
@@ -124,7 +124,7 @@ struct MoATests {
         #expect(result.trace.aggregatorModel == nil)
     }
 
-    @Test("failed references become loud notes instead of aborting (Hermes degraded policy)")
+    @Test("failed references become loud notes instead of aborting (reference degraded policy)")
     func aggregateFailureNotes() async {
         let config = MoAConfig(
             enabled: true,

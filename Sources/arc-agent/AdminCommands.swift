@@ -4,7 +4,7 @@ import Foundation
 
 // MARK: - Sessions
 
-/// `arc sessions` — inspect the session store (Hermes `hermes sessions`
+/// `arc sessions` — inspect the session store (reference `reference sessions`
 /// CLI surface, subset: list / show / delete).
 
 struct SessionsCmd: AsyncParsableCommand {

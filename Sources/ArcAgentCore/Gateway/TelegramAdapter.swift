@@ -5,7 +5,7 @@ import Logging
 
 /// A platform adapter for Telegram using the Bot API with long polling.
 ///
-/// Feature surface (Hermes telegram parity, text transport):
+/// Feature surface (reference telegram parity, text transport):
 /// - long-poll `getUpdates` with persisted offset
 /// - `sendMessage` with MarkdownV2 escaping, reply threading, forum topics
 /// - streaming in-place edits via `editMessageText`

@@ -1,8 +1,8 @@
 import Foundation
 
-// MARK: - MoA config (Hermes `moa` config block)
+// MARK: - MoA config (reference `moa` config block)
 
-/// Mixture-of-Agents configuration. Mirrors Hermes' `moa` config block:
+/// Mixture-of-Agents configuration. mirrors the reference client' `moa` config block:
 /// reference models (advisors), the aggregator (the acting model), per-role
 /// temperature, output caps, and the degraded-reference policy.
 public struct MoAConfig: Sendable, Equatable, Codable {
@@ -109,7 +109,7 @@ public struct MoAConfig: Sendable, Equatable, Codable {
 
 // MARK: - Trace
 
-/// One reference run outcome (Hermes `moa_trace.py` fields).
+/// One reference run outcome (reference `moa_trace.py` fields).
 public struct MoAReferenceResult: Sendable, Equatable {
     public let label: String
     public let model: String

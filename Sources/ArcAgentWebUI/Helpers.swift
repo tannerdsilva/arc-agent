@@ -40,14 +40,14 @@ func shortTime(_ date: Date) -> String {
     return f.string(from: date)
 }
 
-/// Format a token count with thousands separators (Hermes: `1,234 in · 567 out`).
+/// Format a token count with thousands separators (reference: `1,234 in · 567 out`).
 func fmtTokens(_ n: Int) -> String {
     let f = NumberFormatter()
     f.numberStyle = .decimal
     return f.string(from: NSNumber(value: n)) ?? "\(n)"
 }
 
-/// Format tokens-per-second (Hermes: ≥100 rounds + groups, below shows 1dp).
+/// Format tokens-per-second (reference: ≥100 rounds + groups, below shows 1dp).
 func fmtTps(_ v: Double) -> String {
     guard v.isFinite, v > 0 else { return "" }
     if v >= 100 { return "\(fmtTokens(Int(v.rounded()))) t/s" }

@@ -1,7 +1,7 @@
 import Foundation
 import SwiftSlash
 
-/// Agent Client Protocol (ACP) host client (Hermes `copilot_acp_client.py`):
+/// Agent Client Protocol (ACP) host client (reference `copilot_acp_client.py`):
 /// spawns a `copilot` ACP subprocess and speaks JSON-RPC 2.0 over stdio —
 /// `initialize`, `session/new`, `session/prompt`. Used for the `copilot`
 /// auth type. Pure `Process` + `AsyncBytes` (no threads, no queues).
@@ -45,7 +45,7 @@ public actor ACPClient {
         self.config = config
     }
 
-    // MARK: - Lifecycle (Hermes initialize / session/new)
+    // MARK: - Lifecycle (reference initialize / session/new)
 
     /// Start the ACP process and run `initialize`; returns the server info.
     public func start() async throws -> [String: Any] {
@@ -74,7 +74,7 @@ public actor ACPClient {
         ])
     }
 
-    /// Create a session (Hermes `session/new`).
+    /// Create a session (reference `session/new`).
     public func newSession(instruction: String) async throws -> String {
         let result = try await rpc(method: "session/new", params: [
             "cwd": config.workingDirectory ?? FileManager.default.currentDirectoryPath,
@@ -93,7 +93,7 @@ public actor ACPClient {
         throw LLMError.decodingError("ACP session/new response has no session id")
     }
 
-    /// Send a user prompt and await the model reply (Hermes `session/prompt`).
+    /// Send a user prompt and await the model reply (reference `session/prompt`).
     public func prompt(sessionID: String, content: String) async throws -> [String: Any] {
         try await rpc(method: "session/prompt", params: [
             "sessionId": sessionID,
@@ -165,7 +165,7 @@ public actor ACPClient {
 }
 
 /// Bridges an ACP session to the `LLMClient` shape for a single prompt round
-/// (Hermes codex_acp path; the ACP protocol is prompt-oriented, so
+/// (reference codex_acp path; the ACP protocol is prompt-oriented, so
 /// `complete` maps messages → one prompt and returns the final message).
 public struct ACPChatAdapter: LLMClient {
     let client: ACPClient

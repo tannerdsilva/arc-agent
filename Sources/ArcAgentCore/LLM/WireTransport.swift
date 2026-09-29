@@ -6,7 +6,7 @@ import NIO
 /// executes, collects the body, and classifies non-2xx failures into
 /// `LLMError`s — including provider-specific status codes (429/529/503…)
 /// and body-pattern detection (Anthropic error objects, Google quota,
-/// AWS throttling). Also captures rate-limit headers (Hermes
+/// AWS throttling). Also captures rate-limit headers (reference
 /// rate_limit_tracker input; the capture point lives with the network
 /// boundary).
 public struct WireTransport: Sendable {
@@ -89,7 +89,7 @@ public struct WireTransport: Sendable {
         )
     }
 
-    // MARK: - Error classification (Hermes error_classifier family mapping)
+    // MARK: - Error classification (reference error_classifier family mapping)
 
     public static func classifyError(
         status: Int,
@@ -141,7 +141,7 @@ public struct WireTransport: Sendable {
         }
     }
 
-    /// Parse `Retry-After` (seconds or HTTP-date) — Hermes
+    /// Parse `Retry-After` (seconds or HTTP-date) — reference
     /// `parse_retry_after_seconds`.
     public static func parseRetryAfter(_ value: String?) -> Int? {
         guard let value = value, !value.isEmpty else { return nil }

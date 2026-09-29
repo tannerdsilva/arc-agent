@@ -4,7 +4,7 @@ import Logging
 
 /// A platform adapter for email (IMAP inbound polling + SMTP outbound).
 ///
-/// Hermes email parity (text transport):
+/// reference email parity (text transport):
 /// - polls the INBOX (IMAP) on an interval, parses RFC 822 messages
 /// - delivers to the gateway per-sender "chat"; authz = sender allowlist
 /// - replies over SMTP with `In-Reply-To`/`References` threading

@@ -6,7 +6,7 @@ import AsyncHTTPClient
 @Suite("Auxiliary models")
 struct AuxiliaryModelsTests {
 
-    @Test("all Hermes auxiliary tasks exist with canonical keys, in Hermes order")
+    @Test("all reference auxiliary tasks exist with canonical keys, in reference order")
     func allTasks() {
         let expected = [
             "vision", "compression", "web_extract", "approval", "goal_judge",
@@ -23,7 +23,7 @@ struct AuxiliaryModelsTests {
         }
     }
 
-    @Test("legacy arc-agent keys map to their Hermes-canonical tasks")
+    @Test("legacy arc-agent keys map to their reference-canonical tasks")
     func legacyAliases() {
         #expect(AuxiliaryTask(configKey: "title_gen") == .titleGeneration)
         #expect(AuxiliaryTask(configKey: "triage") == .triageSpecifier)
@@ -31,8 +31,8 @@ struct AuxiliaryModelsTests {
         #expect(AuxiliaryTask(configKey: "triage_specifier") == .triageSpecifier)
     }
 
-    @Test("overrides encode with Hermes field names (base_url/api_key)")
-    func hermessFieldCoding() throws {
+    @Test("overrides encode with snake_case field names (base_url/api_key)")
+    func fieldCoding() throws {
         let ov = AuxiliaryOverride(provider: "custom", model: "qwen-vl", baseURL: "http://x/v1", apiKey: "k")
         let data = try JSONEncoder().encode(ov)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: String]
@@ -66,7 +66,7 @@ struct AuxiliaryModelsTests {
         #expect(set.resolved(for: .titleGeneration, over: main).model == "gpt-4o")
         #expect(set.resolved(for: .titleGeneration, over: main).apiKey == "")
 
-        // provider "auto" means "inherit the main provider" (Hermes behavior)
+        // provider "auto" means "inherit the main provider" (reference behavior)
         set.byTask[.mcp] = AuxiliaryOverride(provider: "auto", model: "mcp-1")
         #expect(set.resolved(for: .mcp, over: main).provider == "openai")
     }
@@ -99,7 +99,7 @@ struct AuxiliaryModelsTests {
         try hc.syncShutdown()
     }
 
-    @Test("decodes a Hermes-shaped auxiliary block tolerantly and round-trips")
+    @Test("decodes a reference-shaped auxiliary block tolerantly and round-trips")
     func tolerantDecode() throws {
         let json = """
         {"vision":{"model":"qwen-vl","base_url":"http://x/v1"},
@@ -132,8 +132,8 @@ struct AuxiliaryModelsTests {
         #expect(cfg.auxiliary.resolved(for: .triageSpecifier, over: cfg.model).model == "x")
     }
 
-    @Test("the live ~/.arc/config.json maps aux tasks to the Hermes oMLX layout")
-    func liveConfigMirrorsHermes() throws {
+    @Test("the live ~/.arc/config.json maps aux tasks to the reference oMLX layout")
+    func liveConfigMirrorsreference() throws {
         let url = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".arc/config.json")
         guard FileManager.default.fileExists(atPath: url.path),
@@ -147,7 +147,7 @@ struct AuxiliaryModelsTests {
         let comp = cfg.auxiliary.resolved(for: .compression, over: main)
         #expect(comp.model == "Qwen3.6-35B-A3B-OptiQ-4bit")
 
-        // everything else Hermes routes to LFM2
+        // everything else reference routes to LFM2
         for task in [AuxiliaryTask.webExtract, .approval, .mcp, .titleGeneration,
                      .ttsAudioTags, .triageSpecifier, .kanbanDecomposer,
                      .profileDescriber, .curator, .skillsHub] {

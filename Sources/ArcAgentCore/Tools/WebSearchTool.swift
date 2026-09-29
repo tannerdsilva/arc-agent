@@ -1,11 +1,11 @@
 import Foundation
 
 /// The `web_search` tool: searches the web via the configured search backend
-/// (Hermes `web.search_backend` semantics — pluggable provider registry).
+/// (reference `web.search_backend` semantics — pluggable provider registry).
 ///
 /// Providers: SearXNG (legacy default), Brave, Tavily, DuckDuckGo (key-less
 /// fallback). The active engine is selected by config; a missing key or
-/// unavailable engine degrades with a Hermes-style error rather than
+/// unavailable engine degrades with a arc-style error rather than
 /// producing nothing.
 public enum WebSearchTool {
 

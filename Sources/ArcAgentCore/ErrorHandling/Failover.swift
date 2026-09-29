@@ -1,8 +1,8 @@
 import Foundation
 
-// MARK: - Failure taxonomy (Hermes `error_classifier.py` FailoverReason)
+// MARK: - Failure taxonomy (reference `error_classifier.py` FailoverReason)
 
-/// The Hermes failure-taxonomy. Each class maps to a recovery strategy:
+/// The reference failure-taxonomy. Each class maps to a recovery strategy:
 /// retry/backoff, credential rotation, fallback model, compression, or abort.
 public enum FailoverReason: String, Sendable, Equatable, CaseIterable {
     case auth                  // expired/invalid key → rotate credentials
@@ -43,7 +43,7 @@ public enum FailoverReason: String, Sendable, Equatable, CaseIterable {
     }
 }
 
-/// Hermes `TLSReason` family: which transport-level drift occurred.
+/// reference `TLSReason` family: which transport-level drift occurred.
 public enum TLSReason: String, Sendable, Equatable {
     case certificateExpired
     case certificateUntrusted
@@ -72,14 +72,14 @@ public struct ClassifiedFailure: Sendable, Equatable {
 }
 
 /// Classify an `LLMError` (or any Error) into the FailoverReason taxonomy.
-/// Mirrors Hermes' `classify_api_error`: status-first, then body-pattern
+/// mirrors the reference client' `classify_api_error`: status-first, then body-pattern
 /// detection, then transport exceptions.
 public enum ErrorClassifier {
 
     public static func classify(_ error: Error) -> ClassifiedFailure {
         if let llm = error as? LLMError { return classifyLLM(llm) }
         let description = String(describing: error).lowercased()
-        // NIO / Foundation transport exceptions (Hermes TLS + connect classes).
+        // NIO / Foundation transport exceptions (reference TLS + connect classes).
         if description.contains("tls") || description.contains("certificate")
             || description.contains("ssl") || description.contains("handshake") {
             return ClassifiedFailure(reason: .tls, tlsReason: tlsReason(from: description))
@@ -116,7 +116,7 @@ public enum ErrorClassifier {
         }
     }
 
-    /// Status + body-pattern classification (Hermes
+    /// Status + body-pattern classification (reference
     /// `classify_api_error` body-pattern detection).
     static func classifyAPI(status: Int, message: String) -> ClassifiedFailure {
         let lower = message.lowercased()
@@ -166,7 +166,7 @@ public enum ErrorClassifier {
     }
 }
 
-/// Backoff for a classified failure (Hermes retry policy: rate limits honor
+/// Backoff for a classified failure (reference retry policy: rate limits honor
 /// retry-after; overload/server errors use exponential with provider-specific
 /// ladders; the rest use the standard ladder with jitter).
 public enum FailureBackoff {
@@ -175,7 +175,7 @@ public enum FailureBackoff {
         case .rateLimit, .upstreamRateLimit:
             return Double(retryAfter ?? Int(Self.boundedExp(attempt, base: 5, cap: 60)))
         case .overloaded:
-            // Hermes ZAI coding overload ladder: 30, 60, 90, 120
+            // reference ZAI coding overload ladder: 30, 60, 90, 120
             let ladder = [30.0, 60.0, 90.0, 120.0]
             return ladder[min(attempt, ladder.count - 1)]
         case .serverError:

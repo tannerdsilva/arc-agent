@@ -1,6 +1,6 @@
 import Foundation
 
-/// Rate-limit tracking (Hermes `rate_limit_tracker.py`): captures bucket
+/// Rate-limit tracking (reference `rate_limit_tracker.py`): captures bucket
 /// state from provider headers, computes backoff honoring `Retry-After`,
 /// and reports usage percentages for the next retry decision.
 public actor RateLimitTracker {
@@ -14,9 +14,9 @@ public actor RateLimitTracker {
         public let capturedAt: Date
     }
 
-    /// In-memory buckets per provider/model (Hermes keeps a per-route dict).
+    /// In-memory buckets per provider/model (reference keeps a per-route dict).
     private var buckets: [String: Bucket] = [:]
-    /// Consecutive 429s seen per route (Hermes counts for backoff growth).
+    /// Consecutive 429s seen per route (reference counts for backoff growth).
     private var consecutiveThrottles: [String: Int] = [:]
     public static let maxBackoffSeconds = 120.0
 
@@ -63,7 +63,7 @@ public actor RateLimitTracker {
 
     /// Backoff to wait before the next request on this route:
     /// retry-after when present (jittered, capped), else exponential growth
-    /// from the 429 streak (Hermes `parse_retry_after_seconds` + growth).
+    /// from the 429 streak (reference `parse_retry_after_seconds` + growth).
     public func backoffSeconds(route: String) -> Double {
         guard let bucket = buckets[route],
               let resetSeconds = bucket.resetSeconds else {
@@ -90,7 +90,7 @@ public actor RateLimitTracker {
     }
 }
 
-/// Human-readable usage line for the report surface (Hermes
+/// Human-readable usage line for the report surface (reference
 /// `render_rate_limit_status` style).
 public enum RateLimitRenderer {
     public static func statusLine(tracker: RateLimitTracker, route: String) async -> String {

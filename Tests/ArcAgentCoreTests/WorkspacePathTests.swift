@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ArcAgentCore
 
-/// Hermes `_resolve_path_for_task` / `_path_resolution_warning` parity:
+/// reference `_resolve_path_for_task` / `_path_resolution_warning` parity:
 /// relative tool paths anchor to the conversation's workspace root, and a
 /// relative path that escapes it is surfaced as a warning — never a silent
 /// read/edit of a different checkout.

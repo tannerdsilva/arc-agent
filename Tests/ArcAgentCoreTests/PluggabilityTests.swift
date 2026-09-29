@@ -118,7 +118,7 @@ struct PluggabilityTests {
         #expect(result.contains("got:"))
     }
 
-    @Test("mutable registry layers plugin tools over built-ins (Hermes bundling)")
+    @Test("mutable registry layers plugin tools over built-ins (reference bundling)")
     func mutableRegistry() async throws {
         let builtIn = try ArcAgentCore.buildDefaultRegistry()
         let registry = MutableToolRegistry(builtIn: builtIn)

@@ -22,7 +22,7 @@ final class MCPLineAccumulator: @unchecked Sendable {
     }
 }
 
-/// MCP server configuration (Hermes `mcp_servers.<name>` entry).
+/// MCP server configuration (reference `mcp_servers.<name>` entry).
 public struct MCPServerConfig: Codable, Sendable, Equatable {
     /// The command to launch (resolved through PATH via `/usr/bin/env`).
     public var command: String
@@ -30,9 +30,9 @@ public struct MCPServerConfig: Codable, Sendable, Equatable {
     public var args: [String]
     /// Extra environment variables merged over the sanitized process env.
     public var env: [String: String]
-    /// Per-tool-call timeout in seconds (Hermes default 300).
+    /// Per-tool-call timeout in seconds (reference default 300).
     public var timeout: Double
-    /// Initial connection timeout in seconds (Hermes default 60).
+    /// Initial connection timeout in seconds (reference default 60).
     public var connectTimeout: Double
 
     public init(
@@ -63,13 +63,13 @@ public struct MCPServerConfig: Codable, Sendable, Equatable {
     }
 }
 
-/// A stdio-transport MCP client (Hermes `tools/mcp_tool.py` core).
+/// A stdio-transport MCP client (reference `tools/mcp_tool.py` core).
 ///
 /// Spawns the configured server process, performs the MCP initialize
 /// handshake, discovers tools via `tools/list`, and dispatches `tools/call`
 /// requests. JSON-RPC 2.0 framed as newline-delimited JSON over stdio (the
 /// MCP stdio transport). A watchdog restarts a crashed server with jittered
-/// backoff (Hermes `_wrap_command_with_watchdog`).
+/// backoff (reference `_wrap_command_with_watchdog`).
 ///
 /// Subprocess exception (documented in AGENTS.md): server processes are
 /// real OS processes via Foundation `Process` with async byte-stream reads
@@ -114,7 +114,7 @@ public actor StdioMCPClient {
         return toolsCache
     }
 
-    /// Call an MCP tool and return the text content (Hermes tools/call).
+    /// Call an MCP tool and return the text content (arc tools/call).
     public func callTool(_ toolName: String, arguments: [String: Any]) async throws -> String {
         try await ensureStarted()
         let result = try await request(
@@ -143,7 +143,7 @@ public actor StdioMCPClient {
     // MARK: - Process lifecycle
 
     private func startProcess() async throws {
-        // Sanitize the environment (Hermes `_build_safe_env`): never hand the
+        // Sanitize the environment (reference `_build_safe_env`): never hand the
         // agent's own API keys/credentials to an external MCP server.
         let environment = MCPSchemaCache.sanitizedEnvironment(config.env)
 
@@ -225,7 +225,7 @@ public actor StdioMCPClient {
         stdinHandle = nil
         process = nil
         guard started && !shuttingDown else { return }
-        // Watchdog: restart with backoff (Hermes watchdog).
+        // Watchdog: restart with backoff (reference watchdog).
         if restartAttempts < 3 {
             restartAttempts += 1
             let delay = Double(1 << (restartAttempts - 1)) // 1s, 2s, 4s
@@ -319,7 +319,7 @@ public actor StdioMCPClient {
     }
 }
 
-/// Client-side errors (mirrors Hermes MCP client error taxonomy).
+/// Client-side errors (mirrors the reference client MCP client error taxonomy).
 public enum MCPClientError: Error, CustomStringConvertible {
     case connectionLost
     case shutdown
@@ -336,7 +336,7 @@ public enum MCPClientError: Error, CustomStringConvertible {
     }
 }
 
-/// Disk cache of discovered tool schemas (Hermes `mcp_schema_cache.py`):
+/// Disk cache of discovered tool schemas (reference `mcp_schema_cache.py`):
 /// avoids re-listing every server on each agent start.
 public struct MCPSchemaCache: Sendable {
     public static let shared = MCPSchemaCache()
@@ -365,7 +365,7 @@ public struct MCPSchemaCache: Sendable {
         }
     }
 
-    /// Environment sanitization (Hermes `_build_safe_env`): strip the agent's
+    /// Environment sanitization (reference `_build_safe_env`): strip the agent's
     /// own credential variables before launching an external MCP server.
     /// `base` defaults to the process environment (injectable for tests).
     public static func sanitizedEnvironment(
@@ -375,7 +375,7 @@ public struct MCPSchemaCache: Sendable {
         var result: [String: String] = [:]
         for (key, value) in base {
             let upper = key.uppercased()
-            if upper.hasPrefix("HERMES_") || upper.hasPrefix("ARC_") || upper.hasPrefix("OPENAI_")
+            if upper.hasPrefix("reference_") || upper.hasPrefix("ARC_") || upper.hasPrefix("OPENAI_")
                 || upper.hasPrefix("ANTHROPIC_") || upper.hasPrefix("GEMINI_") || upper.hasPrefix("XAI_")
                 || upper.hasPrefix("AZURE_") || upper.hasPrefix("AWS_") {
                 continue

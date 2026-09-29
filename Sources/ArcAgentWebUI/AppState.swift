@@ -75,7 +75,7 @@ enum ViewID: String, CaseIterable {
     }
 }
 
-/// A user-created chat category (name + dot color), mirroring the Hermes chat
+/// A user-created chat category (name + dot color), mirroring the reference chat
 /// left panel: chips above the session list, and a matching color dot on each
 /// conversation row next to its "⋮" menu.
 struct ChatCategory: Codable, Equatable, Identifiable {
@@ -182,9 +182,9 @@ struct WorkspaceEntry: Codable, Equatable {
 
     /// The legacy default data directory for a named workspace.
     ///
-    /// Hermes parity: the default ("main") workspace is `~/workspace`
+    /// arc parity: the default ("main") workspace is `~/workspace`
     /// (e.g. `/Users/<me>/workspace`) — home folder + `/workspace`, matching
-    /// Hermes' default workspace discovery. Side workspaces live under
+    /// reference' default workspace discovery. Side workspaces live under
     /// `~/.arc/workspaces/<name>`.
     static func defaultPath(for name: String) -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser
@@ -203,7 +203,7 @@ struct AppSettings: Codable, Equatable {
     var colorScheme: String = "cappuccino"
     var thinkingLevel: String = "medium"
     /// How supporting activity (thinking, tool calls) is shown in chats.
-    /// Mirrors Hermes: compact_worklog | transparent_stream | hide_all_activity.
+    /// mirrors the reference client: compact_worklog | transparent_stream | hide_all_activity.
     var activityDisplay: String = "compact_worklog"
 
     var modelConfigs: [ModelConfigPreset] = []
@@ -226,7 +226,7 @@ struct AppSettings: Codable, Equatable {
     /// Mixture-of-Agents advisory passes, when reference models are configured.
     var moaEnabled: Bool = false
     /// Smart approval: when on, flagged commands are assessed by the
-    /// `approval` auxiliary model (Hermes `approvals.mode: smart` default):
+    /// `approval` auxiliary model (reference `approvals.mode: smart` default):
     /// low risk auto-approves, high risk is denied, uncertainty prompts.
     /// When off, the classic manual gate prompts for every flagged command.
     var smartApproval: Bool = true
@@ -244,10 +244,10 @@ struct AppSettings: Codable, Equatable {
     var sessionThinking: [String: String] = [:]
     /// Custom display names (keyed by session id); empty = auto title.
     var sessionTitles: [String: String] = [:]
-    /// Durable per-session context-compression summaries (Hermes parity). The
+    /// Durable per-session context-compression summaries (arc parity). The
     /// stored transcript stays intact; compression applies at request time.
     var sessionCompressions: [String: String] = [:]
-    /// Per-chat Hermes-parity todo list (keyed by session id; the "" key is
+    /// Per-chat arc-parity todo list (keyed by session id; the "" key is
     /// a legacy bucket that is migrated into the active chat on first view).
     var todos: [String: [TodoItem]] = [:]
     /// Run queue: todo tasks (from any chat) in the order the user chose.
@@ -258,7 +258,7 @@ struct AppSettings: Codable, Equatable {
     var queueLoopEnabled: Bool = false
     /// Total passes of a looped sequential run (1 = no loop).
     var queueLoopCount: Int = 2
-    /// Hermes-parity scheduled tasks (cron jobs).
+    /// arc-parity scheduled tasks (cron jobs).
     var scheduledJobs: [CronJob] = []
     /// Archived chats are hidden from the default list but restorable.
     var archivedSessions: [String] = []
@@ -273,28 +273,28 @@ struct AppSettings: Codable, Equatable {
 
     /// Filesystem root for the right-hand workspace panel (default: launch dir).
     /// Legacy single-workspace path (superseded by `workspaces`); kept for
-    /// settings-file compatibility. Default: `~/workspace` (Hermes parity).
+    /// settings-file compatibility. Default: `~/workspace` (arc parity).
     var workspaceRoot: String = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("workspace").path
 
     /// Per-profile enabled skills (profile name -> list of skill names).
     var profileSkills: [String: [String]] = [:]
-    /// Per-chat composer drafts keyed by session id (Hermes parity: each chat
+    /// Per-chat composer drafts keyed by session id (arc parity: each chat
     /// keeps the text you typed but didn't send).
     var composerDrafts: [String: String] = [:]
     /// Daily-token graph range for the Insights view (7/30/90/365).
     var insightsRangeDays: Int = 30
 
-    /// Show input/output token usage below each assistant reply (Hermes:
+    /// Show input/output token usage below each assistant reply (reference:
     /// show_token_usage; also toggled with /usage).
     var showTokenUsage: Bool = false
     /// Show tokens-per-second in assistant message headers while streaming
-    /// and after a response completes (Hermes: show_tps). Off by default.
+    /// and after a response completes (reference: show_tps). Off by default.
     var showTps: Bool = false
     /// Maximum active conversations that can be pinned in the sidebar
-    /// (Hermes: pinned_sessions_limit). Default 3.
+    /// (reference: pinned_sessions_limit). Default 3.
     var pinnedSessionsLimit: Int = 3
-    /// Floating "conversation outline" button in the chat view (Hermes
+    /// Floating "conversation outline" button in the chat view (reference
     /// `show_conversation_outline` parity). Lists sent messages; click to jump.
     var showConversationOutline: Bool = true
     /// Canonical order of every rail tab (view keys; chat + settings are
@@ -304,7 +304,7 @@ struct AppSettings: Codable, Equatable {
     var sidebarTabs: [String] = AppSettings.defaultSidebarTabs
     /// Tabs currently hidden from the rail (subset of sidebarTabs).
     var hiddenSidebarTabs: [String] = []
-    /// Sessions where approvals are skipped (Hermes "/api/session/yolo" parity):
+    /// Sessions where approvals are skipped (reference "/api/session/yolo" parity):
     /// the user tapped "Skip all this session" in an approval card.
     var yoloSessions: [String] = []
     static let defaultSidebarTabs = ["skills", "profiles", "tools", "workspaces", "github", "kanban", "memory", "insights", "logs", "tasks", "todos"]
@@ -361,7 +361,7 @@ struct AppSettings: Codable, Equatable {
         textSize = try c.decodeIfPresent(String.self, forKey: .textSize) ?? "md"
         accent = try c.decodeIfPresent(String.self, forKey: .accent) ?? "#B8860B"
         colorScheme = try c.decodeIfPresent(String.self, forKey: .colorScheme) ?? "default"
-        // Scheme migration: the old gold scheme id was renamed to Hermes' "default".
+        // Scheme migration: the old gold scheme id was renamed to reference' "default".
         if colorScheme == "cappuccino" { colorScheme = "default" }
         thinkingLevel = try c.decodeIfPresent(String.self, forKey: .thinkingLevel) ?? "medium"
         activityDisplay = try c.decodeIfPresent(String.self, forKey: .activityDisplay) ?? "compact_worklog"
@@ -447,14 +447,14 @@ struct LiveTurn {
     var turnToken = 0
     /// Live tokens-per-second estimate for the streaming reply (showTps).
     var tps: Double? = nil
-    /// Pending mid-run user guidance (Hermes /steer). Injected into the last
+    /// Pending mid-run user guidance (reference /steer). Injected into the last
     /// tool result at the next tool boundary; drained as the next turn if the
     /// run ends before consuming it (leftover steer).
     var steerText: String? = nil
 }
 
-/// A pending user-approval request (Hermes-style permission card in the chat).
-/// A named context block attached to the composer (Hermes webui parity:
+/// A pending user-approval request (arc-style permission card in the chat).
+/// A named context block attached to the composer (arc agent webui parity:
 /// `_pendingSelections`, rendered as "Context N" chips above the input).
 struct PendingContext: Codable, Equatable, Sendable {
     let id: String
@@ -469,10 +469,10 @@ struct PendingApproval {
     let continuation: AsyncStream<Bool>.Continuation
 }
 
-/// Hermes-parity clarification request: the agent's `clarify` tool is waiting
+/// arc-parity clarification request: the agent's `clarify` tool is waiting
 /// for an answer. Choices are up to 4 (numbered); the user may also type a
 /// free-form answer. Expires after 120 s — on timeout the turn continues with
-/// a best-judgement notice (same effect as Hermes' smart-approval fallback).
+/// a best-judgement notice (same effect as reference' smart-approval fallback).
 struct PendingClarify {
     let question: String
     let choices: [String]
@@ -481,13 +481,13 @@ struct PendingClarify {
     let expiresAt: Date
 }
 
-/// How the user answered a pending approval (Hermes parity: once / session /
+/// How the user answered a pending approval (arc parity: once / session /
 /// always / deny).
 enum ApprovalChoice {
     case once, session, always, deny
 }
 
-/// Hermes-parity: the preset answer used when the user picks "Other" and
+/// arc-parity: the preset answer used when the user picks "Other" and
 /// submits free-form text.
 
 struct Toast: Identifiable {
@@ -591,7 +591,7 @@ actor AppState {
     var draftSaveTask: Task<Void, Never>?
     var attachments: [String] = []
     /// Context blocks attached to the composer via "Reply with selection"
-    /// (Hermes `_pendingSelections`). In-memory only (not persisted).
+    /// (reference `_pendingSelections`). In-memory only (not persisted).
     var pendingContexts: [PendingContext] = []
     private var contextCounter = 0
 
@@ -599,7 +599,7 @@ actor AppState {
     /// "Context N").
     func addPendingContext(_ text: String) -> PendingContext {
         contextCounter += 1
-        // Hermes parity: chip names are positional ("Context 1", "Context 2",
+        // arc parity: chip names are positional ("Context 1", "Context 2",
         // ...) at add time, not monotonic.
         let block = PendingContext(id: "ctx-\(contextCounter)",
                                    name: "Context \(pendingContexts.count + 1)",
@@ -620,7 +620,7 @@ actor AppState {
         contextCounter = 0
     }
 
-    /// Truncated preview (Hermes `_selectedContextPreview`: 360 chars + …).
+    /// Truncated preview (reference `_selectedContextPreview`: 360 chars + …).
     static func contextPreview(_ text: String, limit: Int = 360) -> String {
         let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
@@ -630,7 +630,7 @@ actor AppState {
         return collapsed.count > limit ? String(collapsed.prefix(limit)).trimmingCharacters(in: .whitespaces) + "…" : collapsed
     }
 
-    /// Markdown for one context block (Hermes `_composerTextWithPendingSelections`):
+    /// Markdown for one context block (reference `_composerTextWithPendingSelections`):
     /// `**Context N:**` + blockquote lines. Long content is truncated (…)
     /// so it never overtakes the sent message (user requirement).
     static func contextBlockMarkdown(_ block: PendingContext, contentLimit: Int = 600) -> String {
@@ -645,7 +645,7 @@ actor AppState {
         return "**\(block.name):**\n\(quoted)"
     }
 
-    /// Final composer text with pending contexts inlined (Hermes
+    /// Final composer text with pending contexts inlined (reference
     /// `_composerTextWithPendingSelections`).
     func composeWithPendingContexts(_ raw: String) -> String {
         guard !pendingContexts.isEmpty else { return raw }
@@ -662,7 +662,7 @@ actor AppState {
     var pendingDelete = false
     var filePopOpen = false
 
-    /// Composer dropdown state (Hermes-parity custom selectors: workspace,
+    /// Composer dropdown state (arc-parity custom selectors: workspace,
     /// profile, model, thinking). UI-only — never persisted.
     var wsSelectOpen = false
     var wsSelectQuery = ""
@@ -742,11 +742,11 @@ actor AppState {
     /// Active turns keyed by sessionID — different chats may run concurrently.
     /// Steering and Stop are scoped to the turn's own session.
     var activeTurns: [String: LiveTurn] = [:]
-    /// Hermes-style approval gate for the webui tool loop: the terminal tool
+    /// arc-style approval gate for the webui tool loop: the terminal tool
     /// is checked against ApprovalManager, and dangerous commands pause the
     /// turn on a permission card until the user approves or denies.
     var approvalManager: ApprovalManager?
-    /// Hermes-parity: the notice returned to the agent when a clarify request
+    /// arc-parity: the notice returned to the agent when a clarify request
     /// times out (the user did not answer within 120 s). The agent then
     /// proceeds on its own judgment — the "smart mode" fallback.
     static let clarifyTimeoutText = "The user did not provide a response within the time limit. Use your best judgement to make the choice and proceed."
@@ -792,7 +792,7 @@ actor AppState {
 
     /// Discovered tool plugins (`~/.arc/plugins/<name>/manifest.json`),
     /// refreshed by ``refreshPlugins()`` — the Settings → Tool plugins view
-    /// data source (Hermes plugin metadata parity).
+    /// data source (arc plugin metadata parity).
     var pluginManifests: [String: PluginManifest] = [:]
 
     // MARK: Runtime pieces (rebuilt when workspace / tessera mode changes)
@@ -839,7 +839,7 @@ actor AppState {
     }
 
     /// Rescan `~/.arc/plugins/` and rebuild the runtime registry with built-in
-    /// + enabled plugin tools (Hermes agent-init plugin bundling parity).
+    /// + enabled plugin tools (the reference agent-init plugin bundling parity).
     func refreshPlugins() async {
         try? await PluginRegistry.shared.loadAll()
         self.pluginManifests = await PluginRegistry.shared.plugins()
@@ -851,7 +851,7 @@ actor AppState {
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
     }
 
-    /// Enable/disable a tool plugin (Hermes `plugins.enabled` parity). Writes
+    /// Enable/disable a tool plugin (reference `plugins.enabled` parity). Writes
     /// `~/.arc/config.json` so the CLI/gateway honor the same allow-list.
     func setPluginEnabled(_ name: String, enabled: Bool) {
         var raw = Self.rawArcConfig()
@@ -901,7 +901,7 @@ actor AppState {
     }
 
     /// Persist an "Always allow" command into `~/.arc/config.json` so the CLI
-    /// and gateway honor the same allowlist (Hermes approval patterns parity).
+    /// and gateway honor the same allowlist (reference approval patterns parity).
     func persistAlwaysAllowed(_ command: String) async {
         var raw = Self.rawArcConfig()
         var list = raw.security.alwaysAllowedCommands
@@ -924,7 +924,7 @@ actor AppState {
         return ArcConfig()
     }
 
-    /// Hermes parity: migrate the legacy default workspace (home folder) to
+    /// arc parity: migrate the legacy default workspace (home folder) to
     /// `~/workspace`. Returns true when the persisted "main" entry was
     /// repointed (or restored to the new default path).
     static func migrateWorkspaceDefaults(into settings: inout AppSettings) -> Bool {
@@ -1062,7 +1062,7 @@ actor AppState {
             httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
         }
 
-        // Approval gate (Hermes smart approval): the effective mode follows
+        // Approval gate (reference smart approval): the effective mode follows
         // ~/.arc/config.json (off | manual | smart) combined with the webui
         // "smart approval" toggle — config `off` always wins (YOLO), the
         // toggle picks smart (aux-LLM guardian for flagged commands) vs
@@ -1134,7 +1134,7 @@ actor AppState {
 
     /// Resolve the client for an auxiliary task from the `auxiliary` block of
     /// ~/.arc/config.json (edited in Preferences), falling back to the chat's
-    /// (or active) main config. Mirrors Hermes `auxiliary.<task>` routing.
+    /// (or active) main config. mirrors the reference client `auxiliary.<task>` routing.
     func makeAuxClient(for task: AuxiliaryTask, sessionID: String?) -> OpenAICompatibleClient? {
         guard let hc = httpClient else { return nil }
         let preset = settings.modelConfig(named: configName(for: sessionID))
@@ -1151,7 +1151,7 @@ actor AppState {
         return router.makeClient(task: task, httpClient: hc)
     }
 
-    // MARK: Approval gating (Hermes smart command approval)
+    // MARK: Approval gating (reference smart command approval)
 
     /// Smart-approval risk classification via the `approval` auxiliary model.
     /// Mirror of the harness `ArcAgent.classifyApprovalRisk`; returns nil when
@@ -1191,11 +1191,11 @@ actor AppState {
         case .once:
             granted = true
         case .session:
-            // Hermes "Allow session": pre-approve the rest of the session.
+            // reference "Allow session": pre-approve the rest of the session.
             await approvalManager?.preApproveSession(pa.sessionID)
             granted = true
         case .always:
-            // Hermes "Always allow": persist the command to the allowlist.
+            // reference "Always allow": persist the command to the allowlist.
             await approvalManager?.alwaysAllow(command: pa.command)
             granted = true
         case .deny:
@@ -1205,7 +1205,7 @@ actor AppState {
         pa.continuation.finish()
     }
 
-    // MARK: Clarification (Hermes parity)
+    // MARK: Clarification (arc parity)
 
     /// Resolve a pending clarification with the user's answer.
     func respondClarify(_ answer: String) async {
@@ -1218,7 +1218,7 @@ actor AppState {
     }
 
     /// Timeout path for a clarification: the user did not answer in time.
-    /// The turn continues with a best-judgement notice (Hermes smart-mode
+    /// The turn continues with a best-judgement notice (reference smart-mode
     /// fallback for clarify timeouts).
     func finishClarifyTimeout(sessionID: String, expiresAt: Date) async {
         guard let pc = pendingClarify, pc.sessionID == sessionID, pc.expiresAt == expiresAt else { return }
@@ -1227,7 +1227,7 @@ actor AppState {
         var answer = Self.clarifyTimeoutText
         // Smart pick-a-path: when the setting is on, the `clarify`
         // auxiliary model resolves the timeout by choosing among the
-        // offered answers (Hermes guardian style). Falls back to the
+        // offered answers (reference guardian style). Falls back to the
         // best-judgement notice when the model is unavailable.
         if settings.smartPickAPath {
             if let smart = await smartClarifyChoice(question: pc.question, choices: pc.choices) {
@@ -1238,7 +1238,7 @@ actor AppState {
         pc.continuation.finish()
     }
 
-    /// Hermes-guardian-style resolution of a timed-out clarify request:
+    /// reference-guardian-style resolution of a timed-out clarify request:
     /// the `clarify` auxiliary model picks the best offered answer (or a
     /// short free-form answer for open-ended questions). Returns nil when
     /// the client is unavailable, the call fails, or the answer is empty —
@@ -1285,7 +1285,7 @@ actor AppState {
         }
     }
 
-    // MARK: Approval skip-all (Hermes "/api/session/yolo" parity)
+    // MARK: Approval skip-all (reference "/api/session/yolo" parity)
 
     /// Whether approvals are skipped for the given session ("Skip all this
     /// session" was tapped). Critical commands still require approval.

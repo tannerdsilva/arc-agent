@@ -1,15 +1,15 @@
 import Foundation
 
-/// Hermes-parity smart-gate helpers shared by the webui settings and the
+/// arc-parity smart-gate helpers shared by the webui settings and the
 /// agent harness.
 ///
-/// Hermes decides smart behaviors from configuration and a gate (the
+/// reference decides smart behaviors from configuration and a gate (the
 /// auxiliary-LLM "guardian"). arc-agent mirrors that with two toggles:
 ///
 /// - **Smart approval** (`settings.smartApproval`): when on, flagged
 ///   dangerous commands are assessed by the `approval` auxiliary model
 ///   (auto-approve low risk, deny high risk, prompt when uncertain) —
-///   the exact semantics of Hermes `approvals.mode: smart`
+///   the exact semantics of reference `approvals.mode: smart`
 ///   (default). When off, the classic manual gate prompts for every
 ///   flagged command.
 /// - **Smart pick-a-path** (`settings.smartPickAPath`): when on, a clarify
@@ -24,7 +24,7 @@ public enum SmartGate {
     /// - `configMode == "off"` always wins (YOLO semantics: no approval
     ///   prompts at all, frozen at process start).
     /// - Otherwise the toggle picks smart (aux-LLM guardian) vs manual
-    ///   (always prompt). This mirrors Hermes: `approvals.mode: smart`
+    ///   (always prompt). This mirrors the reference client: `approvals.mode: smart`
     ///   is the default runtime choice, and turning it off means manual.
     public static func effectiveApprovalMode(configMode: String, smartApproval: Bool) -> ApprovalMode {
         if configMode == "off" { return .off }

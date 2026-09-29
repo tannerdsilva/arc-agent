@@ -22,7 +22,7 @@ extension AppState {
         for (index, part) in parts.enumerated() {
             if index % 2 == 1 {
                 // Code block — optional language tag on the first line becomes
-                // `class="language-…"` on the code element (Hermes smd sets the
+                // `class="language-…"` on the code element (reference smd sets the
                 // same class from the fence label).
                 var code = part
                 var lang = ""
@@ -40,7 +40,7 @@ extension AppState {
                 let langAttr = lang.isEmpty ? "" : " class=\"language-\(esc(lang))\""
                 out += "<div class=\"code-wrap\"><button type=\"button\" class=\"copy-code\" data-copy=\"\(esc(clean))\" title=\"Copy code\">Copy</button><pre><code\(langAttr)>\(esc(clean))</code></pre></div>"
             } else {
-                // Hermes-parity renderer (ArcAgentCore/WebUI): headings,
+                // arc-parity renderer (ArcAgentCore/WebUI): headings,
                 // tables, blockquotes, nested lists, task checkboxes, math
                 // elements, sanitized images/autolinks — identical to the
                 // tested parity output, engine-independent.
@@ -80,7 +80,7 @@ extension AppState {
         """
     }
 
-    /// Thin full-width bar across the top of the screen (Hermes-style): a
+    /// Thin full-width bar across the top of the screen (arc-style): a
     /// colorless lightning mark centred with the current chat's name beside it.
     func topbarHTML() -> String {
         let name = esc(topbarLabel())
@@ -303,7 +303,7 @@ extension AppState {
             if ab != bb { return ab }
             return a.updatedAt > b.updatedAt
         }
-        // Hermes parity: chats are bucketed into Today / Last Week / Older
+        // arc parity: chats are bucketed into Today / Last Week / Older
         // (youngest first within each bucket); each bucket is collapsible.
         let buckets: [(String, String)] = [("today", "Today"), ("week", "Last Week"), ("older", "Older")]
         var grouped: [String: [Session]] = [:]
@@ -401,7 +401,7 @@ extension AppState {
         return "<div class=\"empty-hint\">\(label)</div>"
     }
 
-    /// Hermes-parity relative time: 1m / 12m / 3h / 4d / Aug 28 (+year if older
+    /// arc-parity relative time: 1m / 12m / 3h / 4d / Aug 28 (+year if older
     /// than this year). Mirrors the client-side ladder in init.js.
     func relTimeLabel(_ d: Date) -> String {
         let now = Date()
@@ -472,7 +472,7 @@ extension AppState {
         let catColor = categoryColor(for: catID)
         let catDot = catColor.isEmpty ? "" : "<span class=\"cat-dot cat-rowdot\" style=\"background:\(catColor)\" title=\"\(esc(categoryName(for: catID)))\"></span>"
         // Category picker inside the "⋮" menu: a hover flyout submenu to the
-        // right of "Set category" (Hermes parity), keeping category option
+        // right of "Set category" (arc parity), keeping category option
         // button ids so the existing chat-menu wire handles them unchanged.
         let noneCls = catID == nil ? " menu-sel" : ""
         var catSub = "<button type=\"button\" id=\"sm-uncat-\(encID)\" data-component-id=\"chat-menu\" class=\"" + noneCls.trimmingCharacters(in: .whitespaces) + "\">No Project" + (catID == nil ? " " + svgIcon("check", 12) : "") + "</button>"
@@ -487,6 +487,8 @@ extension AppState {
         }
         // "Move to Category" swaps this menu's items for a category panel
         // (client-side panel swap; the category buttons keep their wire ids).
+        // The panel must be a SIBLING of .chat-menu-items: when JS hides the
+        // items container, a nested panel would be hidden with it.
         let catPanel = """
         <div class="chat-menu-panel" id="catpanel-\(encID)" hidden>
           <div class="cat-panel-head">
@@ -500,7 +502,6 @@ extension AppState {
         <button type="button" id="sm-catmenu-\(encID)" data-component-id="chat-menu" class="menu-item-head catmenu-head">
           <span>Move to Category</span><span class="menu-arrow">\(svgIcon("chevron-right", 12))</span>
         </button>
-        \(catPanel)
         """
         let rowDotContent: String
         if activeTurns[s.id] != nil {
@@ -522,6 +523,7 @@ extension AppState {
             <button type="button" id="sm-dup-\(encID)" data-component-id="chat-menu" data-sid="\(s.id)">Duplicate conversation</button>
             <button type="button" id="sm-del-\(encID)" data-component-id="chat-menu" class="danger" data-sid="\(s.id)">Delete conversation</button>
             </div>
+            \(catPanel)
           </div>
         </div>
         """
@@ -583,7 +585,7 @@ extension AppState {
     }
 
     /// One skill row for the sidebar: toggle pill on the left, then bold name
-    /// and a truncated one-line description (Hermes-style skill list).
+    /// and a truncated one-line description (arc-style skill list).
     func skillRowHTML(_ skill: Skill) -> String {
         let encName = enc(skill.name)
         let active = skill.name == selectedSkill ? " active" : ""
@@ -807,7 +809,7 @@ extension AppState {
         let scroll = """
         <div class="chat-scroll-wrap">
           <div class="chat-scroll" id="chat-scroll" data-scroll-key="chat"\(follow)>
-            <div class="chat-inner">
+            <div class="chat-inner" id="chat-inner">
               \(messagesHTML(session?.messages ?? []))
             </div>
           </div>
@@ -820,7 +822,7 @@ extension AppState {
         return header + scroll + composer
     }
 
-    /// Floating "Conversation outline" button (Hermes #2124 parity); hidden
+    /// Floating "Conversation outline" button (reference #2124 parity); hidden
     /// entirely when the appearance setting is off.
     var outlineToggleHTML: String {
         guard settings.showConversationOutline else { return "" }
@@ -855,7 +857,7 @@ extension AppState {
             // This assistant segment runs until the next user message. Once a
             // turn has completed, all of its thinking + tool rounds collapse
             // behind one turn-level dropdown with a "Processed Xm Ys" label
-            // and a chevron (Hermes webui parity). `transparent_stream` keeps
+            // and a chevron (arc agent webui parity). `transparent_stream` keeps
             // the same block but pre-opened; `hide_all_activity` keeps the
             // legacy final-answer-only rendering.
             var j = i
@@ -870,7 +872,7 @@ extension AppState {
         }
         // Live turn + steer bubble belong to their owning session only.
         if let live = activeTurns[activeSessionID ?? ""] {
-            // A pending steer renders as a Hermes-style steer indicator: a
+            // A pending steer renders as a arc-style steer indicator: a
             // transient italic banner with the uppercase STEER badge, below
             // the messages (never persisted as a message).
             if let steer = live.steerText, !steer.isEmpty {
@@ -890,7 +892,7 @@ extension AppState {
     }
 
     /// The role header for an assistant reply: sparkle icon + "ARC Agent" +
-    /// the tokens-per-second chip when TPS display is on (Hermes parity).
+    /// the tokens-per-second chip when TPS display is on (arc parity).
     func assistantRoleHeaderHTML(_ m: Message) -> String {
         let tp = m.tps ?? 0
         let tpsChip = settings.showTps && tp > 0
@@ -906,13 +908,13 @@ extension AppState {
         return "<div class=\"msg-body\">\(mdBox(content))</div>" + chips
     }
 
-    /// Hermes parity: input/output token usage line below a reply.
+    /// arc parity: input/output token usage line below a reply.
     func usageFootHTML(_ m: Message) -> String {
         guard settings.showTokenUsage, let u = m.usage else { return "" }
         return "<div class=\"msg-foot-inline\"><span class=\"msg-usage-inline\">\(fmtTokens(u.promptTokens)) in · \(fmtTokens(u.completionTokens)) out</span></div>"
     }
 
-    /// Hermes `_formatTurnDuration`: <60s → "Ns"; else "Xh Ym" / "Xm Ys".
+    /// reference `_formatTurnDuration`: <60s → "Ns"; else "Xh Ym" / "Xm Ys".
     func formatTurnDuration(_ seconds: Double) -> String {
         let n = Int(max(0, seconds.rounded()))
         if n < 60 { return "\(n)s" }
@@ -923,7 +925,7 @@ extension AppState {
         return "\(m)m \(s)s"
     }
 
-    /// Hermes-parity turn dropdown. Wraps a completed turn's supporting
+    /// arc-parity turn dropdown. Wraps a completed turn's supporting
     /// activity behind one `Processed Xm Ys` summary; only the final reply
     /// stays visible until the user opens it. `transparent_stream` renders the
     /// same block pre-opened (full cards visible). Returns nil for modes that
@@ -958,7 +960,7 @@ extension AppState {
         var rows: [String] = []
         if mode == "compact_worklog" {
             // One aggregated "Thinking" row + one "Ran N commands/tools" row
-            // per tool round with a copy button (Hermes worklog look).
+            // per tool round with a copy button (reference worklog look).
             let allReasoning = reasons.filter { !$0.isEmpty }.joined(separator: "\n\n")
             if !allReasoning.isEmpty {
                 rows.append("<details class=\"thinking-row\"><summary>" + svgIcon("pencil", 13) + "<span>Thinking</span></summary><div class=\"tc-detail\">" + esc(allReasoning) + "</div></details>")
@@ -997,7 +999,7 @@ extension AppState {
         }
 
         let label = finalMsg.turnDuration.map { "Processed " + formatTurnDuration($0) } ?? "Turn activity"
-        let limitCard = finalMsg.terminalReason == "max_iterations" ? limitCardHTML() : ""
+        let terminalCard = finalMsg.terminalReason.map { terminalCardHTML(for: $0) } ?? ""
         return """
         <div class="assistant-turn" data-turn-duration="\(String(format: "%.0f", finalMsg.turnDuration ?? 0))">
           \(assistantRoleHeaderHTML(finalMsg))
@@ -1016,7 +1018,7 @@ extension AppState {
             <div style="max-width:100%;width:100%">
               \(assistantBodyHTML(finalMsg))
               \(usageFootHTML(finalMsg))
-              \(limitCard)
+              \(terminalCard)
               \(msgFootHTML(finalMsg))
             </div>
           </div>
@@ -1105,16 +1107,17 @@ extension AppState {
             </div>
             """
         case .assistant:
-            // Hermes parity: terminal-state status card (e.g. tool iteration
-            // limit reached) rendered under the reply that ended the turn.
-            let limitCard = m.terminalReason == "max_iterations" ? limitCardHTML() : ""
+            // Terminal-state status card (e.g. tool iteration limit reached,
+            // turn stopped, model connection lost) under the reply that ended
+            // the turn.
+            let terminalCard = m.terminalReason.map { terminalCardHTML(for: $0) } ?? ""
             return """
             <div class="msg assistant">
               <div style="max-width:100%;width:100%">
                 \(assistantRoleHeaderHTML(m))
                 \(assistantBodyHTML(m))
                 \(usageFootHTML(m))
-                \(limitCard)
+                \(terminalCard)
                 \(msgFootHTML(m))
               </div>
             </div>
@@ -1131,9 +1134,29 @@ extension AppState {
         }
     }
 
-    /// Hermes-parity terminal-state card (webui `_statusCard` for
-    /// `_terminal_reason == 'max_iterations'`): shown under the final reply
-    /// when the tool-iteration budget was exhausted.
+    /// Arc-parity terminal-state card: rendered under the reply that ended a
+    /// turn abnormally. Covers the tool-iteration limit (the classic case)
+    /// and interrupted turns — user stop or model connection loss — so the
+    /// UI always explains WHY the turn ended the way it did.
+    func terminalCardHTML(for reason: String) -> String {
+        switch reason {
+        case "user_stopped":
+            return interruptionCardHTML(
+                icon: "stop-solid", title: "Turn stopped",
+                sub: "Stopped by the user before the reply finished.",
+                state: "Stopped by user", next: "Start a new turn to continue.")
+        case "disconnected":
+            return interruptionCardHTML(
+                icon: "warning", title: "Model connection lost",
+                sub: "The connection to the model was lost, so the turn was interrupted.",
+                state: "Disconnected", next: "Start a new turn to continue.")
+        default:
+            return limitCardHTML()
+        }
+    }
+
+    /// The tool-iteration-limit status card (shown under the final reply when
+    /// the tool-iteration budget was exhausted).
     func limitCardHTML() -> String {
         return """
         <div class="limit-card">
@@ -1145,6 +1168,24 @@ extension AppState {
           <div class="limit-rows">
             <div class="limit-row"><span class="limit-k">State</span><span class="limit-v">Limit reached</span></div>
             <div class="limit-row"><span class="limit-k">Next step</span><span class="limit-v">Start a new turn to continue.</span></div>
+          </div>
+        </div>
+        """
+    }
+
+    /// Shared shell for interruption status cards (same look as the limit
+    /// card, distinct icon/colors per terminal reason).
+    func interruptionCardHTML(icon: String, title: String, sub: String, state: String, next: String) -> String {
+        return """
+        <div class="limit-card">
+          <div class="limit-head">
+            <span class="limit-ico">\(svgIcon(icon, 13))</span>
+            <span class="limit-title">\(esc(title))</span>
+          </div>
+          <div class="limit-sub">\(esc(sub))</div>
+          <div class="limit-rows">
+            <div class="limit-row"><span class="limit-k">State</span><span class="limit-v">\(esc(state))</span></div>
+            <div class="limit-row"><span class="limit-k">Next step</span><span class="limit-v">\(esc(next))</span></div>
           </div>
         </div>
         """
@@ -1187,7 +1228,7 @@ extension AppState {
         let body = liveText == " " && live.status == "running"
             ? "<div class=\"msg-body\"><span class=\"stream-cursor\"></span></div>"
             : "<div class=\"msg-body\" style=\"white-space:pre-wrap\">" + liveText + cursor + "</div>"
-        // Hermes parity: live tokens-per-second chip in the streaming header.
+        // arc parity: live tokens-per-second chip in the streaming header.
         let liveTps = live.tps ?? 0
         let tpsChip = settings.showTps && liveTps > 0
             ? "<span class=\"msg-tps-inline\" title=\"Tokens per second\">\(esc(fmtTps(liveTps)))</span>" : ""
@@ -1204,9 +1245,9 @@ extension AppState {
         """
     }
 
-    // MARK: Composer flyout (Hermes parity: approval + clarification cards)
+    // MARK: Composer flyout (arc parity: approval + clarification cards)
 
-    /// The Hermes-style flyout cards attached to the composer (approval /
+    /// The arc-style flyout cards attached to the composer (approval /
     /// clarification / yolo pill). Rendered above the composer input. The
     /// session ownership check keeps prompts from leaking across chats.
     func composerFlyoutHTML() -> String {
@@ -1223,7 +1264,7 @@ extension AppState {
         return ""
     }
 
-    /// Hermes-style approval card: attached to the composer, orange header,
+    /// arc-style approval card: attached to the composer, orange header,
     /// command code block, Allow once / session / always / deny + skip-all.
     func approvalCardHTML(command: String, description: String) -> String {
         let desc = description.isEmpty ? "" : "<div class=\"approval-desc\">\(esc(description))</div>"
@@ -1251,7 +1292,7 @@ extension AppState {
         """
     }
 
-    /// Hermes-style clarification card: question, numbered choices (up to 4),
+    /// arc-style clarification card: question, numbered choices (up to 4),
     /// free-form response row and a 120 s countdown, attached to the composer.
     func clarifyCardHTML(_ pc: PendingClarify) -> String {
         let expiryMs = Int(pc.expiresAt.timeIntervalSince1970 * 1000)
@@ -1287,7 +1328,7 @@ extension AppState {
         """
     }
 
-    /// Session-level "approvals skipped" pill (Hermes yolo indicator) with a
+    /// Session-level "approvals skipped" pill (reference yolo indicator) with a
     /// restore control.
     func yoloPillHTML() -> String {
         """
@@ -1300,7 +1341,7 @@ extension AppState {
     }
         // MARK: Composer
 
-    // MARK: - Message hover footer (Hermes parity)
+    // MARK: - Message hover footer (arc parity)
 
     /// "8:31 AM" for today; "Sep 7, 6:20 PM" for earlier days.
     func fmtMessageTime(_ d: Date?) -> String {
@@ -1326,7 +1367,7 @@ extension AppState {
         """
     }
 
-    // MARK: - Context window indicator (Hermes parity)
+    // MARK: - Context window indicator (arc parity)
 
     struct CtxSnapshot {
         var usedTokens: Int
@@ -1378,14 +1419,14 @@ extension AppState {
         )
     }
 
-    /// Hermes-style token formatter: 254.7k / 1.0M.
+    /// arc-style token formatter: 254.7k / 1.0M.
     func fmtTokens(_ n: Int) -> String {
         if n >= 1_000_000 { return String(format: "%.1fM", Double(n) / 1_000_000) }
         if n >= 1_000 { return String(format: "%.1fk", Double(n) / 1_000) }
         return String(n)
     }
 
-    /// Composer ring + hover tooltip, mirroring Hermes's ctx indicator.
+    /// Composer ring + hover tooltip, mirroring the reference client's ctx indicator.
     func ctxIndicatorHTML(_ s: Session) -> String {
         guard !s.messages.isEmpty else { return "" }
         let snap = ctxSnapshot(for: s)
@@ -1420,9 +1461,9 @@ extension AppState {
         """
     }
 
-    // MARK: Slash autocomplete + selection context (Hermes parity)
+    // MARK: Slash autocomplete + selection context (arc parity)
 
-    /// Slash commands available from the composer (Hermes webui COMMANDS
+    /// Slash commands available from the composer (arc agent webui COMMANDS
     /// subset that arc implements). Shared by the autocomplete payload and
     /// `submitChat` dispatch.
     static let slashBuiltins: [(name: String, desc: String, arg: String?)] = [
@@ -1438,7 +1479,7 @@ extension AppState {
         ("model", "Switch model configuration", "<name>"),
     ]
 
-    /// JSON payload for the client-side slash autocomplete (Hermes
+    /// JSON payload for the client-side slash autocomplete (reference
     /// `/api/skills` + COMMANDS merged into one list).
     func slashDataJSON() -> String {
         func jstr(_ v: String) -> String {
@@ -1466,7 +1507,7 @@ extension AppState {
         return "{\"items\":[\n      " + items.joined(separator: ",\n      ") + "\n    ]}"
     }
 
-    /// "Context N" chips above the composer (Hermes `_renderSelectionChips`).
+    /// "Context N" chips above the composer (reference `_renderSelectionChips`).
     func selectionChipsHTML() -> String {
         guard !pendingContexts.isEmpty else { return "" }
         var cards = ""
@@ -1502,7 +1543,7 @@ extension AppState {
         let isBooked = activeSessionID.map { isBookmarked($0) } ?? false
         let bookLabel = isBooked ? svgIcon("star-solid", 14) : svgIcon("star", 14)
 
-        // Hermes-parity composer dropdowns (workspace / profile / model /
+        // arc-parity composer dropdowns (workspace / profile / model /
         // thinking) — custom panels rendered by the server, replacing the
         // native <select> elements.
         let selectors = composerSelectorsHTML()
@@ -1557,11 +1598,11 @@ extension AppState {
         """
     }
 
-    // MARK: Composer dropdown selectors (Hermes parity)
+    // MARK: Composer dropdown selectors (arc parity)
 
     /// Renders the four composer dropdown widgets (workspace, profile,
     /// model, thinking) as trigger buttons with server-rendered popovers,
-    /// matching the Hermes WebUI look.
+    /// matching the arc agent webui look.
     func composerSelectorsHTML() -> String {
         let ws = (workspaceName(for: activeSessionID) ?? "")
         let profile = (profileName(for: activeSessionID) ?? "")
@@ -1713,7 +1754,7 @@ extension AppState {
         """
     }
 
-    /// Thinking-level dropdown (Hermes-style pill trigger + level list).
+    /// Thinking-level dropdown (arc-style pill trigger + level list).
     func thDropdown(trigger: String) -> String {
         let vis = thinkSelectOpen ? "" : " hidden"
         let current = thinkingLevel(for: activeSessionID)
@@ -1738,7 +1779,7 @@ extension AppState {
     // MARK: Skills main
 
     /// The markdown body of a skill file with its YAML frontmatter stripped
-    /// (the metadata is for the editor, not the reader — Hermes parity).
+    /// (the metadata is for the editor, not the reader — arc parity).
     func skillBodyOnly(_ content: String) -> String {
         guard let fm = skillFrontmatterRange(content) else { return content }
         let lines = content.components(separatedBy: .newlines)
@@ -1818,7 +1859,7 @@ extension AppState {
         """
     }
 
-    /// Hermes metadata box: a rounded monospace panel with the raw YAML
+    /// reference metadata box: a rounded monospace panel with the raw YAML
     /// frontmatter. Shown only in the skill EDITOR (never in the reader).
     func skillMetadataHTML(_ skill: Skill) -> String {
         let lines = skill.content.components(separatedBy: .newlines)
@@ -1980,7 +2021,7 @@ extension AppState {
         }.joined()
     }
 
-    /// Hermes-parity profile card: PROFILE eyebrow + key/value rows with
+    /// arc-parity profile card: PROFILE eyebrow + key/value rows with
     /// badges (ACTIVE / (default) / Gateway running / code-block model).
     func profileCardHTML(_ p: Profile) -> String {
         let activeProfile = profileName(for: activeSessionID) ?? ""
@@ -2182,7 +2223,7 @@ extension AppState {
     /// locked surfaces.
 
     /// Settings: editable tool-iteration limit and per-tool call cap
-    /// (`agent.max_turns` + `guardrails.toolLoopCap`, Hermes parity). Values
+    /// (`agent.max_turns` + `guardrails.toolLoopCap`, arc parity). Values
     /// of 0/negative mean unlimited; the UI writes -1 for that state.
     func agentLimitsSection() -> String {
         let rawMax: Int? = arcConfig.agent.max_turns ?? arcConfig.max_turns
@@ -2202,7 +2243,7 @@ extension AppState {
           <h2>Agent limits</h2>
           <div class="detail-card">
             <div class="set-row">
-              <div class="set-label">Tool iteration limit<small>Tool-calling iterations allowed per turn before the agent is asked to wrap up (Hermes max_turns, default 90).</small></div>
+              <div class="set-label">Tool iteration limit<small>Tool-calling iterations allowed per turn before the agent is asked to wrap up (reference max_turns, default 90).</small></div>
               <div id="al-max-turns-wrap" data-component-id="al-max-turns" data-event="change">
                 <input type="number" id="al-max-turns" min="1" step="1" value="\(maxValue)" \(maxUnlimited ? "disabled" : "") style="\(numStyle)">
               </div>
@@ -2321,7 +2362,7 @@ extension AppState {
             """
         }.joined()
 
-        // Activity display (segmented choice; mirrors Hermes webui).
+        // Activity display (segmented choice; mirrors arc agent webui).
         let actOpts = [
             ("compact_worklog", "Compact Worklog"),
             ("transparent_stream", "Transparent Stream"),
@@ -2331,7 +2372,7 @@ extension AppState {
             return "<button type=\"button\" id=\"actdisp-\(mode)\" data-component-id=\"activity-display\" class=\"bubble-opt\(active)\">\(label)</button>"
         }.joined()
 
-        // Sidebar tabs (Hermes-style chips; Chat + Settings are always visible)
+        // Sidebar tabs (arc-style chips; Chat + Settings are always visible)
         let tabDefs: [(key: String, label: String)] = [
             ("skills", "Skills"), ("profiles", "Profiles"), ("tools", "Tools"),
             ("workspaces", "Workspace"), ("github", "GitHub"), ("kanban", "Kanban"), ("memory", "Memory"),
@@ -2373,7 +2414,7 @@ extension AppState {
         }.joined()
 
 
-        // Auxiliary models (Hermes auxiliary.<task>, edited into ~/.arc/config.json)
+        // Auxiliary models (reference auxiliary.<task>, edited into ~/.arc/config.json)
         let auxRows = AuxiliaryTask.allCases.map { task -> String in
             let ov = arcConfig.auxiliary.override(for: task)
             let has = ov?.isSet == true
@@ -2526,7 +2567,7 @@ extension AppState {
               <h2>Assistance &amp; approvals</h2>
               <div class="detail-card">
                 <div class="set-row">
-                  <div class="set-label">Smart approval<small>Flagged commands are assessed by the <code>approval</code> auxiliary model (Hermes smart mode): low risk auto-approves, high risk is denied, uncertainty still prompts. Off = classic prompt for every flagged command. <code>approvals: off</code> in ~/.arc/config.json always wins.</small></div>
+                  <div class="set-label">Smart approval<small>Flagged commands are assessed by the <code>approval</code> auxiliary model (reference smart mode): low risk auto-approves, high risk is denied, uncertainty still prompts. Off = classic prompt for every flagged command. <code>approvals: off</code> in ~/.arc/config.json always wins.</small></div>
                   <label class="switch">
                     <input type="checkbox" id="set-smart-approval" data-component-id="set-smart-approval" data-event="change" data-no-restore \(settings.smartApproval ? "checked" : "")>
                     <span class="track"></span><span class="knob"></span>
@@ -2570,7 +2611,7 @@ extension AppState {
               <h2>Tool plugins</h2>
               <div class="detail-card">
                 <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
-                  <div class="set-label">Integrate tools<small>Tools written as Python scripts or Swift executables, discovered from <code>~/.arc/plugins/</code> (Hermes plugin parity). Enablement is stored in the <code>plugins.enabled</code> allow-list of <code>~/.arc/config.json</code>.</small></div>
+                  <div class="set-label">Integrate tools<small>Tools written as Python scripts or Swift executables, discovered from <code>~/.arc/plugins/</code> (arc plugin parity). Enablement is stored in the <code>plugins.enabled</code> allow-list of <code>~/.arc/config.json</code>.</small></div>
                 </div>
                 \(pluginSettingsHTML())
               </div>
@@ -2653,7 +2694,7 @@ extension AppState {
         """
     }
 
-    /// Board: one scrollable row of columns with their cards (Hermes-style).
+    /// Board: one scrollable row of columns with their cards (arc-style).
     func kanbanMain() -> String {
         guard !settings.kanbanColumns.isEmpty else {
             return """

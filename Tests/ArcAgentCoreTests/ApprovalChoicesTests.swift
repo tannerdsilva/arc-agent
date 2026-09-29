@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ArcAgentCore
 
-/// Approval choices (Hermes parity): always-allow allowlist, allow-session,
+/// Approval choices (arc parity): always-allow allowlist, allow-session,
 /// and yolo/skip-all — all bypass dangerous commands but critical commands
 /// always require approval.
 @Suite("Approval choices")

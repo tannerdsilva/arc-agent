@@ -1,10 +1,10 @@
 import Foundation
 
-// MARK: - tool_search (Hermes `tools/tool_search.py` catalog bridge)
+// MARK: - tool_search (reference `tools/tool_search.py` catalog bridge)
 
 /// The `tool_search` tool: discover tools in the current catalog by keyword.
 ///
-/// Hermes keeps a deferred-tool catalog (BM25-scored) so the model can find
+/// reference keeps a deferred-tool catalog (BM25-scored) so the model can find
 /// capabilities whose schemas were held out of the prompt. Arc always loads
 /// its full static toolset, so this tool serves the same purpose — a
 /// discoverable, keyword-searchable index of the toolset the agent has —
@@ -72,7 +72,7 @@ public enum ToolSearchTool {
         let toolset: String
     }
 
-    /// Token-overlap scoring (Hermes BM25-order-of-magnitude: name terms weigh
+    /// Token-overlap scoring (reference BM25-order-of-magnitude: name terms weigh
     /// more than description terms; longer matches rank higher).
     static func search(_ catalog: [CatalogEntry], query: String, limit: Int) -> [CatalogEntry] {
         let terms = tokenize(query)
@@ -118,7 +118,7 @@ public enum ToolSearchTool {
         case "mixed":
             let lines = results.map { "\($0.name): \(shortDesc($0.description))" }
             return lines.joined(separator: "\n")
-        default: // listing — grouped by toolset, Hermes style
+        default: // listing — grouped by toolset, reference style
             var groups: [(String, [CatalogEntry])] = []
             for entry in results {
                 if let idx = groups.firstIndex(where: { $0.0 == entry.toolset }) {

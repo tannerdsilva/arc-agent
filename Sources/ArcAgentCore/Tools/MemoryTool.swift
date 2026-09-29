@@ -1,11 +1,11 @@
 import Foundation
 
-/// The `memory` tool: save durable facts to persistent memory (Hermes parity).
+/// The `memory` tool: save durable facts to persistent memory (arc parity).
 ///
-/// Hermes-shaped schema: `action` (add/replace/remove, single-op shape),
+/// reference-shaped schema: `action` (add/replace/remove, single-op shape),
 /// `target` (memory/user), `content`, `old_text`, and `operations` (batch
 /// shape — preferred; applied atomically against the final char budget).
-/// Reads happen via system-prompt injection, not the tool — matching Hermes.
+/// Reads happen via system-prompt injection, not the tool — matching reference.
 struct MemoryTool {
 
     /// The memory provider wired by the agent at startup.
@@ -84,7 +84,7 @@ struct MemoryTool {
             let content = args["content"] as? String
             let oldText = args["old_text"] as? String
 
-            // Batch shape wins when present (Hermes precedence).
+            // Batch shape wins when present (reference precedence).
             let operations = args["operations"] as? [[String: Any]]
             if let operations, !operations.isEmpty {
                 if let refusal = AgentPowers.profileWriteRefusal(file: target) {
@@ -117,7 +117,7 @@ struct MemoryTool {
         emoji: "🧠"
     )
 
-    /// Render the Hermes-shaped result dict as a tool-result string.
+    /// Render the reference-shaped result dict as a tool-result string.
     private static func render(_ result: [String: Any]) -> String {
         if let error = result["error"] as? String {
             var out = "Error: \(error)"

@@ -48,7 +48,7 @@ public actor ProfileManager {
         "\(profilesDir)/\(profile)/config.json"
     }
 
-    /// Per-profile memory file (Hermes profiles: each profile has its own
+    /// Per-profile memory file (arc profiles: each profile has its own
     /// MEMORY.md / USER.md; `nil` until created, since providers create on
     /// write).
     public static func memoryURL(for profile: String) -> URL? {
@@ -56,7 +56,7 @@ public actor ProfileManager {
         return dir
     }
 
-    /// Per-profile skills directory (Hermes `~/.hermes/profiles/<name>/skills`).
+    /// Per-profile skills directory (reference `~/.reference/profiles/<name>/skills`).
     public static func skillsURL(for profile: String) -> URL? {
         let dir = URL(fileURLWithPath: profilesDir).appendingPathComponent(profile, isDirectory: true)
             .appendingPathComponent("skills", isDirectory: true)
@@ -132,7 +132,7 @@ public actor ProfileManager {
     }
 
     /// Get a profile by name.
-    /// Export a profile as a distribution archive (Hermes
+    /// Export a profile as a distribution archive (reference
     /// `profile_distribution.py`): zip of the profile directory rooted at
     /// `<name>/`. Returns the archive path.
     public func export(name: String, to outputURL: URL) async throws -> URL {
@@ -379,7 +379,7 @@ public actor ProfileManager {
     /// When the tunnel is configured but unavailable, the JSON index takes
     /// over — the write must not hang or fail just because the relay is down.
     private func persistProfile(_ profile: Profile) async throws {
-        // Keep the profile directory self-contained in every mode (Hermes
+        // Keep the profile directory self-contained in every mode (reference
         // profile distributions rely on `profiles/<name>/config.json`).
         try writeProfileConfig(profile)
         if await TesseraConnection.shared.isConfigured {

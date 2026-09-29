@@ -3,7 +3,7 @@
 The Arc Agent gateway (`arc-agent serve`) connects the agent core to
 messaging platforms. Configuration lives in `gateway.json` in the user's
 home directory (`~/gateway.json`), with environment-variable overrides
-(environment values always win — the same convention Hermes uses). Secrets
+(environment values always win — the same convention reference uses). Secrets
 belong in environment variables, not in checked-in JSON.
 
 Enabling a platform requires nothing more than its credentials: a platform

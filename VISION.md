@@ -4,7 +4,7 @@
 
 ## Elevator Pitch
 
-A precompiled, Swift-native AI agent harness — architecturally inspired by Hermes Agent, but built from the ground up for Swift's concurrency model, type system, and distribution story. Single binary, zero interpreter overhead, no npm dependency chain, instant startup.
+A precompiled, Swift-native AI agent harness — architecturally inspired by the reference agent, but built from the ground up for Swift's concurrency model, type system, and distribution story. Single binary, zero interpreter overhead, no npm dependency chain, instant startup.
 
 ## Guiding Principles
 
@@ -18,7 +18,7 @@ A precompiled, Swift-native AI agent harness — architecturally inspired by Her
 
 5. **No npm.** Browser automation is optional and uses a native CDP client or a shelled-out headless browser CLI, not Playwright. Messaging platforms use their HTTP APIs directly, not JavaScript bridges.
 
-6. **Hermes-compatible at the concept level, not the code level.** Same architectural patterns (tool registry, toolset intersection, credential pooling, delegation, kanban), but implemented in idiomatic Swift. No line-for-line translation.
+6. **reference-compatible at the concept level, not the code level.** Same architectural patterns (tool registry, toolset intersection, credential pooling, delegation, kanban), but implemented in idiomatic Swift. No line-for-line translation.
 
 7. **Protocols first, macros last.** Every abstraction starts as a protocol. Concrete types conform to protocols; protocols never depend on concrete types. Only after the protocol proves unwieldy in practice do we introduce a macro to compress the syntax. This ordering is not optional — macros that paper over a bad protocol design hide the problem, not fix it.
 
@@ -913,7 +913,7 @@ Web UI (compiled Swift DSL — no npm, no JS framework)
 
 #### 1. A bot IS a profile
 
-The foundational insight from Hermes Bot Mode, adapted for ARC Agent. Each bot is a `Profile` struct with isolated config, memory, sessions, and SOUL.md. The `ProfileManager` actor manages the profile index in `global.mdb` (database: `profiles`).
+The foundational insight from arc bot mode, adapted for ARC Agent. Each bot is a `Profile` struct with isolated config, memory, sessions, and SOUL.md. The `ProfileManager` actor manages the profile index in `global.mdb` (database: `profiles`).
 
 #### 2. Per-profile LMDB isolation
 
@@ -930,17 +930,17 @@ The foundational insight from Hermes Bot Mode, adapted for ARC Agent. Each bot i
 
 This follows the existing per-session `.mdb` pattern exactly — same LMDB wrapper, same MVCC guarantees, same isolation properties.
 
-#### 3. Direct actor-to-actor messaging (improvement over Hermes)
+#### 3. Direct actor-to-actor messaging (improvement over reference)
 
-Where Hermes Bot Mode shells out to `hermes -p <target> chat ...` for bot-to-bot delivery, ARC Agent uses **direct actor method calls** through `BotMessagingService`. The message is routed into the recipient's canonical session via `SessionRegistry.getOrCreate()`. No CLI composition, no polling, no background process coordination.
+Where arc bot mode shells out to `reference -p <target> chat ...` for bot-to-bot delivery, ARC Agent uses **direct actor method calls** through `BotMessagingService`. The message is routed into the recipient's canonical session via `SessionRegistry.getOrCreate()`. No CLI composition, no polling, no background process coordination.
 
-#### 4. Push-based group chat (improvement over Hermes)
+#### 4. Push-based group chat (improvement over reference)
 
-Where Hermes Bot Mode uses a 2-second poll loop with epoch-based superseding, ARC Agent's `GroupChatRoom` uses push-based delivery through `AsyncThrowingStream`. Each member turn is a direct `SessionRegistry.route()` call with an async stream for the response. Swift's cooperative timeout handles stuck members.
+Where arc bot mode uses a 2-second poll loop with epoch-based superseding, ARC Agent's `GroupChatRoom` uses push-based delivery through `AsyncThrowingStream`. Each member turn is a direct `SessionRegistry.route()` call with an async stream for the response. Swift's cooperative timeout handles stuck members.
 
-#### 5. Compiled web UI (improvement over Hermes)
+#### 5. Compiled web UI (improvement over reference)
 
-Where Hermes Bot Mode is a 6,461-line JS/React plugin, ARC Agent's bot UI is compiled Swift using the existing `View` protocol DSL. No React, no JSX, no npm, no `package.json`. The avatar system generates SVG inline from Swift structs.
+Where arc bot mode is a 6,461-line JS/React plugin, ARC Agent's bot UI is compiled Swift using the existing `View` protocol DSL. No React, no JSX, no npm, no `package.json`. The avatar system generates SVG inline from Swift structs.
 
 ### Files
 
@@ -955,18 +955,18 @@ Where Hermes Bot Mode is a 6,461-line JS/React plugin, ARC Agent's bot UI is com
 | `WebUI/BotStyles.swift` | CSS rules for the bot mode UI |
 | `WebUI/BotScripts.swift` | Extended JS runtime for bot interactions |
 
-### Improvements Over Hermes Bot Mode
+### Improvements Over arc bot mode
 
-| Dimension | Hermes Bot Mode | ARC Agent |
+| Dimension | arc bot mode | ARC Agent |
 |-----------|----------------|-----------|
-| **Bot-to-bot delivery** | CLI invocation (`hermes -p ...`) | Direct actor method call |
+| **Bot-to-bot delivery** | CLI invocation (`reference -p ...`) | Direct actor method call |
 | **Reply waiting** | Async via `notify_on_complete` | `AsyncThrowingStream` — inline await |
 | **Group chat polling** | 2-second poll loop | Push-based via `SessionRegistry.route()` |
 | **Avatar rendering** | JS `requestAnimationFrame` | Compiled Swift SVG DSL |
 | **Storage** | Plugin storage + `ui_meta` RPC | LMDB (single source of truth) |
 | **Profile isolation** | Filesystem directories | LMDB environments + Service Lifecycle |
 | **Type safety** | None (JS) | Compile-time (Swift) |
-| **Dependencies** | Hermes Desktop + plugin SDK | Single binary, zero new deps |
+| **Dependencies** | reference Desktop + plugin SDK | Single binary, zero new deps |
 | **Web UI** | React plugin (6,461 lines JS) | Compiled Swift View DSL |
 
 ---

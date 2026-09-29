@@ -4,7 +4,7 @@ import Testing
 
 /// The `## Skills (mandatory)` block shared by the CLI harness and the webui
 /// turn engine — identical framing keeps automatic skill loading consistent
-/// on both surfaces (Hermes `SKILLS_GUIDANCE` parity).
+/// on both surfaces (reference `SKILLS_GUIDANCE` parity).
 @Suite("Skills prompt section")
 struct SkillsPromptTests {
 
@@ -18,7 +18,7 @@ struct SkillsPromptTests {
         #expect(section.contains("- `demo`: test"))
     }
 
-    @Test("framing text matches the Hermes contract")
+    @Test("framing text matches the reference contract")
     func framingContract() {
         let f = SkillsPrompt.mandatoryFraming
         #expect(f.contains("scan the skills below"))

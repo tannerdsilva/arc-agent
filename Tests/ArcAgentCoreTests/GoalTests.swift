@@ -2,7 +2,7 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 
-/// Standing goals (Hermes `features/goals.md` Ralph loop).
+/// Standing goals (reference `features/goals.md` Ralph loop).
 @Suite("Goals", .serialized)
 struct GoalTests {
 

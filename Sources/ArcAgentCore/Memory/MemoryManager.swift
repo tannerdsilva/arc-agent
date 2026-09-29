@@ -1,9 +1,9 @@
 import Foundation
 
-// MARK: - Memory manager (Hermes `memory_manager.py`)
+// MARK: - Memory manager (reference `memory_manager.py`)
 
 /// Builds the memory-context block injected into prompts with fence tags and
-/// bounded head/tail trimming (Hermes: 6000-char cap, 4000 head, 1500 tail,
+/// bounded head/tail trimming (reference: 6000-char cap, 4000 head, 1500 tail,
 /// truncation marker), plus scrubber rules and the provider-tools block.
 public enum MemoryManager {
 
@@ -12,13 +12,13 @@ public enum MemoryManager {
     public static let tailChars = 1_500
     public static let truncationMarker = "\n...[memory provider context truncated]...\n"
 
-    /// Fence tags (Hermes memory-context tags; the agent must not confuse
+    /// Fence tags (arc memory-context tags; the agent must not confuse
     /// memory text with the live conversation).
     public static let openTag = "<memory-context>"
     public static let closeTag = "</memory-context>"
 
     /// Scrub dangerous content out of memory entries before they enter the
-    /// context (Hermes scrubber): drop zero-width/control characters and
+    /// context (reference scrubber): drop zero-width/control characters and
     /// strip ANSI escape sequences.
     public static func scrub(_ text: String) -> String {
         var result = text
@@ -38,7 +38,7 @@ public enum MemoryManager {
     }
 
     /// Render the memory context block: newest entries first, head+tail
-    /// trimming, fenced with the tags (Hermes memory_context build).
+    /// trimming, fenced with the tags (reference memory_context build).
     public static func buildContext(entries: [(priority: Double, text: String)]) -> String? {
         guard !entries.isEmpty else { return nil }
         let ordered = entries.sorted { $0.priority > $1.priority }
@@ -55,7 +55,7 @@ public enum MemoryManager {
         return "\(openTag)\n\(bounded)\n\(closeTag)"
     }
 
-    /// Provider-tools injection block (Hermes memory provider tools context):
+    /// Provider-tools injection block (arc memory provider tools context):
     /// tells the agent which memory operations are available.
     public static func providerToolsBlock(providerName: String, hasSearch: Bool, hasWrite: Bool) -> String {
         var block = "<memory-provider name=\"\(providerName)\">"
@@ -80,7 +80,7 @@ public enum MemoryManager {
         return "\(openTag)\n\(bounded)\n\(closeTag)"
     }
 
-    /// Wrap prefetched provider recall in the Hermes fenced block with the
+    /// Wrap prefetched provider recall in the reference fenced block with the
     /// system note (`build_memory_context_block`): the model must treat it
     /// as authoritative reference data, not new user input.
     public static func recallBlock(_ rawContext: String) -> String? {

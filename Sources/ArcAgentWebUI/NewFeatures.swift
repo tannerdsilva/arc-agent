@@ -5,9 +5,9 @@ import Logging
 import NIO
 import WebUI
 
-// MARK: - Hermes-parity panels: Tasks (cron) + Todos, plus regenerate & vision.
+// MARK: - arc-parity panels: Tasks (cron) + Todos, plus regenerate & vision.
 
-/// A simple todo entry, mirrored from the Hermes WebUI todos panel.
+/// A simple todo entry, mirrored from the arc agent webui todos panel.
 struct TodoItem: Codable, Equatable, Identifiable {
     var id: String = UUID().uuidString
     var text: String
@@ -484,7 +484,7 @@ extension AppState {
         let thread = """
         <div class="task-thread">
           <div class="chat-scroll" id="task-chat-scroll" data-scroll-key="tasks-thread">
-            <div class="chat-inner">\(messagesHTML(msgs))</div>
+            <div class="chat-inner" id="task-chat-inner">\(messagesHTML(msgs))</div>
           </div>
         </div>
         """

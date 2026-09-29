@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-// MARK: - Message sanitization (Hermes `message_sanitization.py`)
+// MARK: - Message sanitization (reference `message_sanitization.py`)
 
 /// Laundering rules beyond the core `sanitizeMessages` pass: surrogate and
 /// control cleanup, JSON argument repair, interrupted tool sequences,
@@ -9,7 +9,7 @@ import CryptoKit
 public enum MessageSanitizer {
 
     /// Replace unpaired surrogates and control characters with U+FFFD
-    /// (Hermes `sanitize_unicode`).
+    /// (reference `sanitize_unicode`).
     public static func sanitizeUnicode(_ text: String) -> String {
         let scalars = text.unicodeScalars.map { scalar -> Unicode.Scalar in
             if (0xD800...0xDFFF).contains(scalar.value) {
@@ -25,7 +25,7 @@ public enum MessageSanitizer {
 
     /// Repair corrupted tool-call argument JSON: unescaped newlines and
     /// quotes inside strings. Try the raw payload first; on failure, apply
-    /// the standard recoveries in order and re-validate (Hermes
+    /// the standard recoveries in order and re-validate (reference
     /// `repair_tool_call_arguments`).
     public static func repairToolCallArguments(_ raw: String) -> (json: String, repaired: Bool) {
         if parse(raw) != nil { return (raw, false) }
@@ -38,7 +38,7 @@ public enum MessageSanitizer {
         return (raw, false)
     }
 
-    /// Deterministic tool call ids for calls that lack one (Hermes
+    /// Deterministic tool call ids for calls that lack one (reference
     /// `make_deterministic_tool_call_ids`: stable hash-based ids so repeated
     /// turns don't drift).
     public static func deterministicToolCallID(index: Int, name: String) -> String {
@@ -48,7 +48,7 @@ public enum MessageSanitizer {
 
     /// Close an interrupted tool sequence: when the transcript ends with
     /// assistant tool_calls that have NO results (user interrupted), inject
-    /// a synthetic tool result per unpaired call (Hermes
+    /// a synthetic tool result per unpaired call (reference
     /// `close_interrupted_tool_sequence`).
     public static func closeInterruptedToolSequence(_ messages: [Message]) -> [Message] {
         var result = messages
@@ -74,7 +74,7 @@ public enum MessageSanitizer {
     }
 
     /// Drop reasoning-echo families: assistant content that merely repeats the
-    /// system prompt's opening (Hermes reason-echo prevention).
+    /// system prompt's opening (reference reason-echo prevention).
     public static func stripReasoningEcho(_ content: String, systemPrefix: String) -> String {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count > systemPrefix.count / 2 else { return content }
@@ -85,7 +85,7 @@ public enum MessageSanitizer {
     }
 
     /// Strip inline image references (data: URLs and markdown images) from
-    /// content passed to text-only models (Hermes `strip_images`).
+    /// content passed to text-only models (reference `strip_images`).
     public static func stripImages(_ content: String) -> String {
         var result = content
         let dataPattern = #"data:image/[a-z+]+;base64,[A-Za-z0-9+/=]+"#
@@ -94,7 +94,7 @@ public enum MessageSanitizer {
         return result
     }
 
-    /// Optionally restrict content to ASCII (Hermes `sanitize_non_ascii`).
+    /// Optionally restrict content to ASCII (reference `sanitize_non_ascii`).
     public static func stripNonASCII(_ content: String) -> String {
         String(content.unicodeScalars.filter { $0.value < 0x80 || $0.value == 0x0A || $0.value == 0x09 })
     }
@@ -170,12 +170,12 @@ public enum MessageSanitizer {
     struct GroupMatch { let groups: [String] }
 }
 
-// MARK: - Think scrubber (Hermes `think_scrubber.py`)
+// MARK: - Think scrubber (reference `think_scrubber.py`)
 
 /// Strip leaked reasoning text from assistant output before it reaches the
 /// user: leading "thinking" preambles and fenced thinking blocks.
 public enum ThinkScrubber {
-    /// Preamble markers (Hermes strips reasoning preambles that models
+    /// Preamble markers (reference strips reasoning preambles that models
     /// sometimes emit as literal text).
     static let preambleMarkers = ["thinking:", "thought:", "reasoning:", "analysis:"]
 

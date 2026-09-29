@@ -1,8 +1,8 @@
 import Foundation
 
-// MARK: - Standing goals (Hermes `features/goals.md`, Ralph loop)
+// MARK: - Standing goals (reference `features/goals.md`, Ralph loop)
 
-/// Optional completion contract (Hermes `/goal draft` five-field shape).
+/// Optional completion contract (reference `/goal draft` five-field shape).
 public struct GoalContract: Codable, Sendable, Equatable {
     public var outcome: String?
     public var verification: String?
@@ -22,7 +22,7 @@ public struct GoalContract: Codable, Sendable, Equatable {
 }
 
 /// A quality gate: a deterministic shell command that must exit 0 before the
-/// goal may be judged done (Hermes `/goal gate add <command>`).
+/// goal may be judged done (reference `/goal gate add <command>`).
 public struct QualityGate: Codable, Sendable, Equatable {
     public var command: String
     /// Tracks whether the last run passed (nil = not run yet).
@@ -41,7 +41,7 @@ public struct QualityGate: Codable, Sendable, Equatable {
     }
 }
 
-/// A wait barrier parks the loop (Hermes `/goal wait`, judge `wait` verdicts).
+/// A wait barrier parks the loop (reference `/goal wait`, judge `wait` verdicts).
 public struct GoalWaitBarrier: Codable, Sendable, Equatable {
     public var pid: Int?
     public var deadline: Date?
@@ -54,7 +54,7 @@ public struct GoalWaitBarrier: Codable, Sendable, Equatable {
     }
 }
 
-/// Per-session standing goal state (Hermes `SessionDB.state_meta` keyed
+/// Per-session standing goal state (reference `SessionDB.state_meta` keyed
 /// `goal:<session_id>`).
 public struct GoalState: Codable, Sendable, Equatable {
     public enum Status: String, Codable, Sendable {
@@ -78,12 +78,12 @@ public struct GoalState: Codable, Sendable, Equatable {
         self.maxTurns = maxTurns
     }
 
-    /// Hermes `/subgoal`: append one numbered criterion.
+    /// reference `/subgoal`: append one numbered criterion.
     public mutating func addSubgoal(_ criterion: String) {
         subgoals.append(criterion)
     }
 
-    /// Parse Hermes' inline contract fields (known prefixes only; a bare
+    /// Parse reference' inline contract fields (known prefixes only; a bare
     /// incidental colon never mangles the headline).
     public static func parse(text: String) -> (headline: String, contract: GoalContract?) {
         var headline = ""
@@ -133,7 +133,7 @@ public struct GoalState: Codable, Sendable, Equatable {
 /// events when Tessera storage is active). Both backends keep the same
 /// per-session ``GoalState`` semantics.
 public protocol GoalStoring: Sendable {
-    /// Set or replace the session's goal (subgoals/gates reset — Hermes).
+    /// Set or replace the session's goal (subgoals/gates reset — reference).
     func set(sessionID: String, state: GoalState) async throws
     func get(sessionID: String) async throws -> GoalState?
     func update(sessionID: String, _ mutate: @Sendable (inout GoalState) -> Void) async throws
@@ -164,7 +164,7 @@ public actor GoalStore: GoalStoring {
         }
     }
 
-    /// Set or replace the session's goal (subgoals/gates reset — Hermes).
+    /// Set or replace the session's goal (subgoals/gates reset — reference).
     public func set(sessionID: String, state: GoalState) async throws {
         var s = state
         s.createdAt = Date()

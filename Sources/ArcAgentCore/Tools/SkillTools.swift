@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Skill file helpers
 //
 // The ONLY sanctioned agent path for creating and editing skills while the
-// lockdown is active is ``SkillManageTool`` (the unified Hermes-parity tool
+// lockdown is active is ``SkillManageTool`` (the unified arc-parity tool
 // with create/patch/edit/delete/write_file/remove_file). These helpers are
 // shared by that tool; they refuse when the global skills lock is on or the
 // named skill is individually locked, and edit integrations (write_file,

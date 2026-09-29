@@ -26,7 +26,7 @@ Sources/ArcAgentWebUI/
 
 ## Rendering pipeline
 
-1. **Server-side**: message content is rendered to HTML by the shared Hermes-parity
+1. **Server-side**: message content is rendered to HTML by the shared arc-parity
    renderer in `Sources/ArcAgentCore/WebUI/Utilities.swift`
    (`markdownToHTML` / `MarkdownRenderer`) — ATX headings, pipe tables, nested
    blockquotes, task checkboxes, KaTeX math elements, sanitized images, autolinks.
@@ -45,7 +45,7 @@ Sources/ArcAgentWebUI/
 ## Shared renderers (ArcAgentCore/WebUI)
 
 Only three files remain in `Sources/ArcAgentCore/WebUI/`:
-- `Utilities.swift` — Hermes-parity `markdownToHTML`, `MarkdownRenderer`, `htmlEscape`, `sanitizeImageURL`
+- `Utilities.swift` — arc-parity `markdownToHTML`, `MarkdownRenderer`, `htmlEscape`, `sanitizeImageURL`
 - `WebSocketHandler.swift` / `WebSocketServer.swift` — gateway WebSocket session channel
 
 The original Swift-DSL view subsystem (View/ViewBuilder/HTMLDocument/CSSRule/…)

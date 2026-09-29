@@ -2,11 +2,11 @@ import Foundation
 import SwiftSlash
 import CryptoKit
 
-// MARK: - Media tools (Hermes image_gen/tts/transcription/video provider
+// MARK: - Media tools (reference image_gen/tts/transcription/video provider
 // registry, HTTP-only providers — no heavyweight SDKs)
 
 /// Generic HTTP media provider configuration, read from environment with
-/// per-tool defaults (Hermes provider registry equivalents):
+/// per-tool defaults (reference provider registry equivalents):
 ///   MEDIA_BASE_URL / MEDIA_API_KEY / MEDIA_IMAGE_MODEL / MEDIA_TTS_MODEL
 ///   MEDIA_TRANSCRIPTION_MODEL / MEDIA_VIDEO_MODEL
 public struct MediaConfig: Sendable {
@@ -207,7 +207,7 @@ public enum MediaError: Error, CustomStringConvertible {
     }
 }
 
-// MARK: - Outbound webhooks (Hermes `outbound_webhooks.py`)
+// MARK: - Outbound webhooks (reference `outbound_webhooks.py`)
 
 /// Fire-and-forget webhook delivery: HMAC-SHA256 signed POST to configured
 /// URLs (env `WEBHOOK_URLS` comma-separated, signature via `WEBHOOK_SECRET`).
@@ -290,7 +290,7 @@ public enum WebhookTools {
     )
 }
 
-// MARK: - Shell hooks (Hermes `shell_hooks.py`)
+// MARK: - Shell hooks (reference `shell_hooks.py`)
 
 /// Pre/post command hooks keyed by tool name, loaded from
 /// `~/.arc-agent/hooks.json`:
@@ -346,7 +346,7 @@ public actor ShellHooks {
     }
 }
 
-// MARK: - Code execution (Hermes `code_execution_tool`)
+// MARK: - Code execution (reference `code_execution_tool`)
 
 /// Runs Python (or another interpreter) via SwiftSlash with a hard timeout
 /// and output cap. Local execution, no sandbox — the result text says so.

@@ -1,6 +1,6 @@
 import Foundation
 
-/// A memory entry store with Hermes-parity semantics.
+/// A memory entry store with arc-parity semantics.
 ///
 /// Mirrors `tools/memory_tool.py` (the `MemoryStore` inside it):
 /// - Entries are §-delimited (`\n§\n`) — multiline entries allowed, one
@@ -37,7 +37,7 @@ public struct MemoryStore: Sendable {
         Self.charLimit(for: target)
     }
 
-    // MARK: - Operations (Hermes semantics)
+    // MARK: - Operations (reference semantics)
 
     /// Append a new entry. Returns an error dict if it would exceed the char limit.
     public func add(_ target: String, _ content: String) async throws -> [String: Any] {
@@ -307,7 +307,7 @@ public struct MemoryStore: Sendable {
         return "\(pct)% — \(current.formatted())/\(limit.formatted()) chars"
     }
 
-    // MARK: - Response builders (Hermes key shapes)
+    // MARK: - Response builders (reference key shapes)
 
     private func success(_ target: String, _ message: String) async -> [String: Any] {
         [
@@ -361,7 +361,7 @@ public struct MemoryStore: Sendable {
 
 /// Lightweight injection/exfiltration scanner for memory writes.
 ///
-/// Port of the strict-scope patterns from Hermes `tools/threat_patterns.py`
+/// Port of the strict-scope patterns from reference `tools/threat_patterns.py`
 /// (single source of truth for promptware scanning): persistence (SSH
 /// backdoors, authorized_keys), exfiltration URLs/context dumps, secret
 /// injection, and agent-config modification instructions.
@@ -395,8 +395,8 @@ public enum MemoryContentScanner {
             message: "Content references SSH private key locations — blocked."
         ),
         Pattern(
-            regex: #"\$HOME/\.hermes/\.env|\~?/\.hermes/\.env|\.arc/\.env"#,
-            id: "hermes_env",
+            regex: #"\$HOME/\.arc/\.env|\~?/\.arc/\.env"#,
+            id: "agent_env",
             message: "Content references the agent's .env secrets — blocked."
         ),
         Pattern(
@@ -405,8 +405,8 @@ public enum MemoryContentScanner {
             message: "Content instructs modification of agent config files — blocked."
         ),
         Pattern(
-            regex: #"(update|modify|edit|write|change|append|add\s+to)\s+[^\n]{0,2048}(?:\.hermes|\.arc)/(config\.yaml|SOUL\.md)"#,
-            id: "hermes_config_mod",
+            regex: #"(update|modify|edit|write|change|append|add\s+to)\s+[^\n]{0,2048}\.arc/(config\.yaml|SOUL\.md)"#,
+            id: "arc_config_mod",
             message: "Content instructs modification of agent config — blocked."
         ),
         Pattern(

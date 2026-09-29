@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Micro-compaction
 //
-// Faithful port of Hermes `agent/context_compressor.py` micro-compaction
+// Faithful port of reference `agent/context_compressor.py` micro-compaction
 // (docs/micro-compaction.md): after every completed turn, absorb ONE full
 // assistant exchange into a single rolling summary marker. User messages are
 // never absorbed, the head (system + first exchange) and a token-budgeted tail
@@ -15,7 +15,7 @@ import Foundation
 // so the machinery is unit-testable without a provider.
 
 public struct MicroCompactConfig: Sendable, Equatable {
-    /// `compression.micro_compact` — off by default (Hermes parity).
+    /// `compression.micro_compact` — off by default (arc parity).
     public var enabled: Bool
     /// `compression.micro_compact_every_n_turns` — cadence of passes.
     public var everyNTurns: Int
@@ -29,7 +29,7 @@ public struct MicroCompactConfig: Sendable, Equatable {
         self.defragThresholdTokens = defragThresholdTokens
     }
 
-    /// Hermes clamps values below 1 to 1 rather than silently disabling.
+    /// reference clamps values below 1 to 1 rather than silently disabling.
     public var clampedEveryNTurns: Int { max(1, everyNTurns) }
 }
 
@@ -90,7 +90,7 @@ public struct MicroCompactRun: Sendable {
 
 public enum MicroCompactor {
 
-    // MARK: Marker scaffolding (Hermes SUMMARY_PREFIX / HISTORICAL_TASK_HEADING
+    // MARK: Marker scaffolding (reference SUMMARY_PREFIX / HISTORICAL_TASK_HEADING
     // / _SUMMARY_END_MARKER — same constants the batch path uses so the two
     // interoperate; micro markers are ASSISTANT-role so alternation stays
     // valid: user → marker → user).
@@ -198,7 +198,7 @@ public enum MicroCompactor {
 
         if idx <= exchangeStart { return nil }
         if idx >= n { return nil }
-        // Splice-boundary guard (Hermes): a same-role boundary (assistant/tool,
+        // Splice-boundary guard (reference): a same-role boundary (assistant/tool,
         // including an assistant-role marker) would break role alternation.
         let boundary = messages[idx]
         if boundary.role == .assistant || boundary.role == .tool { return nil }
@@ -245,7 +245,7 @@ public enum MicroCompactor {
     /// With `supersede` (the rolling summary was non-empty going into the
     /// pass) every earlier MICRO marker is dropped — the new marker already
     /// contains everything they held — and adjacent plain-text user turns left
-    /// by that drop are merged, exactly like Hermes' repair pass.
+    /// by that drop are merged, exactly like reference' repair pass.
     public static func splice(
         _ messages: [Message],
         start: Int,
@@ -268,7 +268,7 @@ public enum MicroCompactor {
         return result
     }
 
-    /// Merge consecutive plain-text real user turns (Hermes
+    /// Merge consecutive plain-text real user turns (reference
     /// `_merge_adjacent_user_turns`) — restores alternation deliberately after
     /// a superseded marker is dropped.
     static func mergeAdjacentUserTurns(_ messages: [Message]) -> [Message] {
@@ -306,7 +306,7 @@ public enum MicroCompactor {
     /// One exchange, serialized for the micro-summarizer: role + content per
     /// message, per-message truncation cap, reasoning/thinking stripped,
     /// credential-bearing lines are instructed to be replaced by the prompt
-    /// (the prompt itself carries the [REDACTED] directive, Hermes parity).
+    /// (the prompt itself carries the [REDACTED] directive, arc parity).
     public static func exchangeText(_ exchange: [Message], maxCharsPerMessage: Int = 4000) -> String {
         var out: [String] = []
         for m in exchange {
@@ -350,7 +350,7 @@ public enum MicroCompactor {
 
         guard config.enabled else { return noop(.disabled) }
 
-        // Cadence gate (Hermes): counted per invocation — a turn with nothing
+        // Cadence gate (reference): counted per invocation — a turn with nothing
         // to absorb still advances the cadence and cannot wedge it.
         let everyN = config.clampedEveryNTurns
         if everyN > 1 {
@@ -366,7 +366,7 @@ public enum MicroCompactor {
         let tail = tailStart(messages, from: headEnd, limit: limit, countTokens: countTokens)
 
         // Defrag runs before the window guard: rewriting the rolling summary
-        // marker in place needs no compressible window (Hermes checks
+        // marker in place needs no compressible window (reference checks
         // `_needs_defrag` before exchange discovery and never gates it on the
         // tail budget — a fresh conversation with no middle yet can still
         // defrag a baggy summary).

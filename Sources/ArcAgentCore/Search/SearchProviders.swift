@@ -2,12 +2,12 @@ import Foundation
 import AsyncHTTPClient
 import NIO
 
-/// Built-in web search backends (Hermes `plugins/web/*`, in-tree).
+/// Built-in web search backends (reference `plugins/web/*`, in-tree).
 ///
 /// Banner: the pluggable engines that make `web.search_backend` meaningful —
 /// SearXNG (self-hosted JSON API), Brave (X-Subscription-Token),
 /// Tavily (POST API), and DuckDuckGo (key-less HTML). Each normalizes to the
-/// Hermes response-shape contract. Parsers are exposed as internal statics so
+/// reference response-shape contract. Parsers are exposed as internal statics so
 /// they can be unit-tested without network access.
 
 // MARK: - SearXNG (legacy default, compatible with the old single-API path)
@@ -282,7 +282,7 @@ enum HTTPTransport {
 // MARK: - Built-in registration
 
 public enum BuiltinSearchProviders {
-    /// All built-in providers, in Hermes-banner order (SearXNG first as the
+    /// All built-in providers, in reference-banner order (SearXNG first as the
     /// legacy default; ddgs last as the key-less fallback).
     public static func all() -> [SearchProvider] {
         var providers: [SearchProvider] = []

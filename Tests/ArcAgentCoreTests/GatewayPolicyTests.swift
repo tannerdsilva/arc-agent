@@ -2,7 +2,7 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 
-/// Tool gateway, blueprints, checkpoints (Hermes parity).
+/// Tool gateway, blueprints, checkpoints (arc parity).
 @Suite("GatewayPolicies")
 struct GatewayPolicyTests {
 
@@ -38,7 +38,7 @@ struct BlueprintTests {
     name: nightly-report
     description: Generate the nightly report
     metadata:
-      hermes:
+      reference:
         blueprint:
           schedule: "0 9 * * *"
           deliver: origin
@@ -65,7 +65,7 @@ struct BlueprintTests {
         ---
         name: x
         metadata:
-          hermes:
+          reference:
             blueprint:
               prompt: hi
         ---

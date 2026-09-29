@@ -1,6 +1,6 @@
 import Foundation
 
-/// Moonshot (Kimi) tool-schema subset repair (Hermes `moonshot_schema.py`).
+/// Moonshot (Kimi) tool-schema subset repair (reference `moonshot_schema.py`).
 /// Moonshot rejects a stricter subset of JSON Schema than OpenAI; the repair
 /// makes OpenAI-format schemas acceptable: strip unsupported keywords,
 /// ensure `type`, and force `required: []` to be omitted when empty.

@@ -182,10 +182,10 @@ func parseSkillFile(content: String, path: URL) -> Skill? {
 // MARK: - Prompt Index
 
 /// Build a compact, category-grouped skills index for inclusion in the
-/// system prompt (Hermes parity: category headers + one line per skill).
+/// system prompt (arc parity: category headers + one line per skill).
 ///
 /// Each skill is shown as a single line with its name and truncated
-/// description (first 57 characters), matching the Hermes Agent format.
+/// description (first 57 characters), matching the the reference agent format.
 ///
 /// - Parameter skills: The skills to include.
 /// - Returns: A formatted string for the system prompt.

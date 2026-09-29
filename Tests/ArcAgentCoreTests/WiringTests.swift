@@ -97,7 +97,7 @@ struct SkillPreprocessingGatingTests {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let content = "dir=${HERMES_SKILL_DIR} session=${HERMES_SESSION_ID}"
+        let content = "dir=${ARC_SKILL_DIR} session=${ARC_SESSION_ID}"
         let result = try await SkillPreprocessing.preprocess(
             content, skillDir: dir, sessionID: "sess-1", allowInlineCommands: false)
         #expect(result == "dir=\(dir.path) session=sess-1")

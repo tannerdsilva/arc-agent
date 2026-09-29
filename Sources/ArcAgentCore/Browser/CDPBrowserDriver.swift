@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - Browser provider registry + CDP driver (Hermes browser_registry)
+// MARK: - Browser provider registry + CDP driver (reference browser_registry)
 
 /// A browser provider drives a browser; implementations are HTTP/WebSocket
 /// based so a static Swift binary can ship them.
@@ -15,7 +15,7 @@ public protocol BrowserProvider: Sendable {
     func back() async throws -> String
 }
 
-/// Name → provider registry (Hermes browser_registry): providers register,
+/// Name → provider registry (reference browser_registry): providers register,
 /// exactly one is active (configured via `BROWSER_PROVIDER`, default "cdp").
 /// An actor per the First Law.
 public actor BrowserRegistry {
@@ -81,7 +81,7 @@ public final class CDPCommandChannel: @unchecked Sendable {
         }
     }
 
-    /// Enable Runtime.page console/dialog event capture (Hermes:
+    /// Enable Runtime.page console/dialog event capture (reference:
     /// console messages + JS dialogs are captured while the browser runs).
     public func enableEventCapture() async throws {
         if !domainsEnabled {
@@ -215,7 +215,7 @@ public enum CDPError: Error, CustomStringConvertible {
     }
 }
 
-/// Chromium CDP-over-WebSocket browser provider (Hermes' CDP-based browser
+/// Chromium CDP-over-WebSocket browser provider (reference' CDP-based browser
 /// provider; no Playwright/Node needed — talks raw CDP via Foundation
 /// WebSocket). Configure via `BROWSER_CDP_URL` (default
 /// `ws://localhost:9222/devtools/browser`).
@@ -252,7 +252,7 @@ public final class CDPBrowserProvider: BrowserProvider, @unchecked Sendable {
 
     private func attach(id: String) async throws {
         _ = try await channel.send(method: "Target.attachToTarget", params: ["targetId": id, "flatten": true])
-        // Console/dialog capture (Hermes: always-on while connected).
+        // Console/dialog capture (reference: always-on while connected).
         try await channel.enableEventCapture()
     }
 
@@ -339,10 +339,10 @@ public final class CDPBrowserProvider: BrowserProvider, @unchecked Sendable {
         return String(data: data, encoding: .utf8) ?? "\"\""
     }
 
-    // MARK: - Extended CDP capabilities (Hermes browser_* family)
+    // MARK: - Extended CDP capabilities (reference browser_* family)
 
     /// Evaluate a JS expression in the page context; results are serialized
-    /// to JSON (Hermes browser_console `expression` path).
+    /// to JSON (reference browser_console `expression` path).
     public func evaluate(expression: String) async throws -> String {
         let id = try await ensureAttached()
         try await attach(id: id)
@@ -360,7 +360,7 @@ public final class CDPBrowserProvider: BrowserProvider, @unchecked Sendable {
         return remote["description"] as? String ?? "undefined"
     }
 
-    /// Read console output + JS errors (Hermes browser_console).
+    /// Read console output + JS errors (reference browser_console).
     public func consoleMessages(clear: Bool) async throws -> String {
         let id = try await ensureAttached()
         try await attach(id: id)
@@ -368,7 +368,7 @@ public final class CDPBrowserProvider: BrowserProvider, @unchecked Sendable {
         return lines.isEmpty ? "(no console messages)" : lines.joined(separator: "\n")
     }
 
-    /// List images on the page with URLs and alt text (Hermes browser_get_images).
+    /// List images on the page with URLs and alt text (reference browser_get_images).
     public func listImages() async throws -> String {
         let js = """
         JSON.stringify(Array.from(document.images).map(i => ({
@@ -387,7 +387,7 @@ public final class CDPBrowserProvider: BrowserProvider, @unchecked Sendable {
     }
 
     /// Capture a screenshot of the page, save as PNG, return the path
-    /// (Hermes browser_vision screenshot half).
+    /// (reference browser_vision screenshot half).
     public func screenshot() async throws -> String {
         let id = try await ensureAttached()
         try await attach(id: id)
@@ -407,14 +407,14 @@ public final class CDPBrowserProvider: BrowserProvider, @unchecked Sendable {
         return path.path
     }
 
-    /// Buffered native JS dialogs (Hermes snapshot `pending_dialogs`).
+    /// Buffered native JS dialogs (reference snapshot `pending_dialogs`).
     public func dialogs() async throws -> [[String: Any]] {
         let id = try await ensureAttached()
         try await attach(id: id)
         return await channel.pendingDialogs()
     }
 
-    /// Respond to a blocking native dialog (Hermes browser_dialog).
+    /// Respond to a blocking native dialog (reference browser_dialog).
     public func handleDialog(accept: Bool, promptText: String) async throws -> String {
         let id = try await ensureAttached()
         try await attach(id: id)
@@ -424,7 +424,7 @@ public final class CDPBrowserProvider: BrowserProvider, @unchecked Sendable {
         return accept ? "Dialog accepted\(promptText.isEmpty ? "" : ": \"\(promptText)\"")" : "Dialog dismissed"
     }
 
-    /// Raw CDP passthrough (Hermes browser_cdp escape hatch).
+    /// Raw CDP passthrough (reference browser_cdp escape hatch).
     public func rawCDP(method: String, params: [String: Any]) async throws -> String {
         let id = try await ensureAttached()
         try await attach(id: id)
@@ -434,7 +434,7 @@ public final class CDPBrowserProvider: BrowserProvider, @unchecked Sendable {
     }
 }
 
-// MARK: - Browser tools (Hermes browser_* tool family)
+// MARK: - Browser tools (reference browser_* tool family)
 
 public enum BrowserTools {
     static func requireProvider() async throws -> any BrowserProvider {

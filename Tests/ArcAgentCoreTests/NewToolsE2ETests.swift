@@ -282,7 +282,7 @@ struct NewToolsE2ETests {
         }
         defer { ExecuteCodeTool.timeoutOverride = nil }
         let result = try await ExecuteCodeTool.entry.handler([
-            "code": "from hermes_tools import read_file\n"
+            "code": "from arc_tools import read_file\n"
                 + "print(read_file('/tmp/fake.txt'))",
         ])
         #expect(await capture.get() == "read_file|/tmp/fake.txt")
@@ -323,7 +323,7 @@ struct NewToolsE2ETests {
         let calls = (0..<51).map { _ in "read_file('/tmp/x\(UUID().uuidString)')" }
             .joined(separator: "\n")
         let result = try await ExecuteCodeTool.entry.handler([
-            "code": "from hermes_tools import read_file\n" + calls,
+            "code": "from arc_tools import read_file\n" + calls,
         ])
         #expect(result.contains("Tool-call budget exceeded"))
     }

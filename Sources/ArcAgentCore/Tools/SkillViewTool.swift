@@ -38,7 +38,7 @@ struct SkillViewTool {
             let found = findSkillFile(named: name, in: skillsDir)
             if let url = found {
                 let content = try String(contentsOf: url, encoding: .utf8)
-                // Live skills (Hermes `skill_preprocessing`): `${...}`
+                // Live skills (reference `skill_preprocessing`): `${...}`
                 // templates are always expanded at load; inline `!`cmd``
                 // blocks run only when the owning turn permits it
                 // (`agent.skill_inline_commands`, TaskLocal-scoped so

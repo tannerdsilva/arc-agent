@@ -3,7 +3,7 @@ import ArcAgentCore
 import AsyncHTTPClient
 import Foundation
 
-// MARK: - Goal CLI (Hermes `/goal`, `features/goals.md`)
+// MARK: - Goal CLI (reference `/goal`, `features/goals.md`)
 
 /// `arc goal` — the Ralph loop: a standing objective that survives turns.
 struct GoalCmd: AsyncParsableCommand {
@@ -310,7 +310,7 @@ struct GoalGateClear: AsyncParsableCommand {
     }
 }
 
-// MARK: - Subgoals (Hermes `/subgoal`)
+// MARK: - Subgoals (reference `/subgoal`)
 
 struct SubgoalCmd: AsyncParsableCommand {
     static let configuration = CommandConfiguration(

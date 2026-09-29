@@ -2,7 +2,7 @@ import Foundation
 import SwiftSlash
 
 /// The `search_files` tool: ripgrep-backed content/file search.
-/// Faithful port of Hermes `search_files` (rg flags, output modes, zero-match
+/// Faithful port of reference `search_files` (rg flags, output modes, zero-match
 /// probes, densified match rendering).
 public enum SearchFilesTool {
 
@@ -66,7 +66,7 @@ public enum SearchFilesTool {
         let clampedLimit = min(max(limit, 1), 500)
         let clampedOffset = max(offset, 0)
 
-        // Hermes parity: anchor the search root to the conversation workspace.
+        // arc parity: anchor the search root to the conversation workspace.
         // An escape is surfaced as a warning, never a silent search elsewhere.
         let (expandedPath, divergence) = WorkspacePath.resolveChecked(path)
         guard FileManager.default.fileExists(atPath: expandedPath) else {
@@ -99,7 +99,7 @@ public enum SearchFilesTool {
                 context: context, backslash: bs)
         }
 
-        // Zero-match steering probes (Hermes parity).
+        // Zero-match steering probes (arc parity).
         if outcome.error == nil && outcome.totalCount == 0
             && outcome.matches.isEmpty && outcome.files.isEmpty && outcome.counts.isEmpty {
             if let hint = await zeroMatchProbe(pattern: pattern, path: expandedPath, fileGlob: fileGlob, backslash: bs) {
@@ -263,7 +263,7 @@ public enum SearchFilesTool {
         return result
     }
 
-    // MARK: - Zero-match probes (Hermes parity)
+    // MARK: - Zero-match probes (arc parity)
 
     static func zeroMatchProbe(pattern: String, path: String, fileGlob: String?, backslash: String) async -> String? {
         var globArgs: [String] = []

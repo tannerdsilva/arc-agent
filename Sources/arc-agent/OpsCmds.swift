@@ -2,7 +2,7 @@ import ArgumentParser
 import ArcAgentCore
 import Foundation
 
-// MARK: - Ops CLIs (Hermes `prompt-size`, `doctor`, `status`)
+// MARK: - Ops CLIs (reference `prompt-size`, `doctor`, `status`)
 
 /// `arc prompt-size` — token breakdown of the model-visible prompt surface.
 struct PromptSizeCmd: AsyncParsableCommand {

@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - V4A patch format (faithful port of Hermes tools/patch_parser.py)
+// MARK: - V4A patch format (faithful port of arc tools/patch_parser.py)
 //
 // Parses and applies the V4A patch format used by codex, cline, and other
 // coding agents: *** Begin Patch / *** Update File / *** Add File /

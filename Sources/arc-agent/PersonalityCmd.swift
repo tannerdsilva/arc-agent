@@ -2,7 +2,7 @@ import ArgumentParser
 import ArcAgentCore
 import Foundation
 
-// MARK: - Personality CLI (Hermes `/personality`, `features/personality.md`)
+// MARK: - Personality CLI (reference `/personality`, `features/personality.md`)
 
 /// `arc personality` — set, list, or clear named personality overlays.
 struct PersonalityCmd: AsyncParsableCommand {

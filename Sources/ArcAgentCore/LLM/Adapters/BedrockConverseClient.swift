@@ -1,7 +1,7 @@
 import Foundation
 import AsyncHTTPClient
 
-/// AWS Bedrock Converse API client (Hermes `bedrock_adapter.py`):
+/// AWS Bedrock Converse API client (reference `bedrock_adapter.py`):
 /// `messages` with `content` blocks (`text`/`toolUse`/`toolResult`),
 /// `system`, `inferenceConfig {maxTokens, temperature}`, and
 /// `toolConfig.tools[].toolSpec {name, description, inputSchema}`.
@@ -85,7 +85,7 @@ public struct BedrockConverseClient: LLMClient {
         }
     }
 
-    // MARK: - Wire translation (Hermes convert_messages_to_converse,
+    // MARK: - Wire translation (reference convert_messages_to_converse,
     // convert_tools_to_converse)
 
     func buildConverseRequest(messages: [Message], tools: [[String: Any]]?) throws -> Data {

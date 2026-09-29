@@ -1,6 +1,6 @@
 import Foundation
 
-/// A parsed inbound email message (RFC 822 subset Hermes email parity needs).
+/// A parsed inbound email message (RFC 822 subset reference email parity needs).
 public struct ParsedEmail: Sendable {
     public let from: String
     public let to: String

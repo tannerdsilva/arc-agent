@@ -2,7 +2,7 @@ import System
 import Foundation
 
 /// The `patch` tool: targeted find-and-replace edits (replace mode) or a V4A
-/// diff patch for multi-file edits (patch mode). Faithful port of Hermes
+/// diff patch for multi-file edits (patch mode). Faithful port of reference
 /// `patch` with the full 9-strategy fuzzy matcher.
 public enum PatchTool {
 
@@ -122,7 +122,7 @@ public enum PatchTool {
         let ops = FileSystemV4AOps()
         let outcome = V4APatch.applyV4AOperations(operations, fileOps: ops)
         // Workspace divergence warnings are surfaced even when the patch
-        // itself fails (Hermes always reports the divergence).
+        // itself fails (reference always reports the divergence).
         var message = "Successfully applied V4A patch:"
         if !outcome.success {
             if ops.warnings.isEmpty {
@@ -170,7 +170,7 @@ public enum PatchTool {
 }
 
 /// Filesystem-backed V4AFileOps with the same guards as WriteFileTool, plus
-/// Hermes' workspace anchoring: each path is resolved against the task root
+/// reference' workspace anchoring: each path is resolved against the task root
 /// and divergences (relative paths escaping the workspace) are collected so
 /// the caller can surface them in the result instead of silently patching
 /// another checkout. Class (not struct) so warnings accumulate across ops.

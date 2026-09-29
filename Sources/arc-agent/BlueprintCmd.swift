@@ -2,7 +2,7 @@ import ArgumentParser
 import ArcAgentCore
 import Foundation
 
-// MARK: - Blueprints CLI (Hermes `hermes blueprint`)
+// MARK: - Blueprints CLI (reference `reference blueprint`)
 
 /// `arc blueprint` — register a skill's embedded blueprint as a cron job.
 /// (Parser lives in ArcAgentCore: `BlueprintParser`.)
@@ -62,7 +62,7 @@ struct BlueprintShow: AsyncParsableCommand {
 struct BlueprintRun: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "run", abstract: "Register a blueprint skill as a cron job.")
     @Argument var skill: String
-    @Option(name: .long, help: "Style: curl, cron, rfc (default curl / Hermes style).")
+    @Option(name: .long, help: "Style: curl, cron, rfc (default curl / reference style).")
     var style: String = "curl"
     func run() async throws {
         guard let s = blueprintSkills().first(where: { $0.name == skill }) else {

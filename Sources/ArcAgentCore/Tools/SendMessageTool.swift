@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - send_message (Hermes `tools/send_message_tool.py`)
+// MARK: - send_message (reference `tools/send_message_tool.py`)
 
 /// Tool: `send_message` — send a message to a connected messaging platform,
 /// or list available targets.
@@ -52,7 +52,7 @@ public enum SendMessageTool {
                 return try await handleSend(args)
             case "react", "unreact":
                 return "Not supported: none of the connected platform adapters implement reactions. "
-                    + "(Hermes supports this on iMessage/Photon only; Arc has no such adapter yet.)"
+                    + "(the reference implementation supports this on iMessage/Photon only; Arc has no such adapter yet.)"
             default:
                 return "Error: unknown action '\(action)'. Valid actions: send, list, react, unreact"
             }

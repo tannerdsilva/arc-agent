@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ArcAgentCore
 
-// MARK: - Progressive tool disclosure (S1 — Hermes `tools/tool_search` parity)
+// MARK: - Progressive tool disclosure (S1 — reference `tools/tool_search` parity)
 
 @Suite("ProgressiveToolDisclosure")
 struct ProgressiveToolDisclosureTests {
@@ -77,7 +77,7 @@ struct ProgressiveToolDisclosureTests {
         #expect(c.listing == "off")
     }
 
-    @Test func configParsesHermesShapes() throws {
+    @Test func configParsesSnakeCaseShapes() throws {
         let json = """
         {"enabled": true, "threshold_pct": 3}
         """

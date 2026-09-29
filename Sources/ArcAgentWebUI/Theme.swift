@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Themes
 
-/// Hermes-style cream/sepia light theme + a dark theme, driven by CSS custom
+/// arc-style cream/sepia light theme + a dark theme, driven by CSS custom
 /// properties on the `#app` root so theme, accent and text-size changes can be
 /// re-rendered as a single fragment.
 /// Full color schemes. Each scheme defines a complete palette for both light
@@ -131,7 +131,7 @@ struct ColorScheme {
         lightO: ["bg": "#FFFFFF", "sidebar": "#F3F3F3", "surface": "#FFFFFF", "surface-2": "#F1F1F1", "border": "#E0E0E0", "border-strong": "#C8C8C8", "border-subtle": "#E8E8E8", "text": "#252523", "muted": "#6A6A68", "accent": "#2E7A60", "accent-strong": "#1D6850", "accent-soft": "rgba(46,122,96,0.08)", "accent-border": "rgba(46,122,96,0.16)", "code-bg": "#F3F3F3", "code-inline-bg": "rgba(0,0,0,0.06)", "code-text": "#252523", "input-bg": "#FFFFFF", "hover-bg": "rgba(0,0,0,0.04)", "danger": "#D92D20", "success": "#2E7A60", "warning": "#B87916", "link": "#4D8DFF", "user-bubble": "#EBEBEB"],
         darkO: ["bg": "#151614", "sidebar": "#242624", "surface": "#1B1C1A", "surface-2": "#20211F", "border": "#343631", "border-strong": "#4B4D47", "border-subtle": "#2A2C28", "text": "#ECEBE4", "muted": "#A7A79D", "accent": "#72B39A", "accent-strong": "#84BEA8", "accent-soft": "rgba(114,179,154,0.10)", "accent-border": "rgba(114,179,154,0.18)", "code-bg": "#111210", "code-inline-bg": "rgba(255,255,255,0.08)", "code-text": "#F1F0EA", "input-bg": "#1E1F1D", "hover-bg": "rgba(255,255,255,0.06)", "danger": "#FF6B6B", "success": "#72B39A", "warning": "#E6B15C", "link": "#C9C8C0", "user-bubble": "#2E302D"])
 
-    /// Hermes WebUI dark + Sisyphus (violet) — mirrors the Hermes chat UI.
+    /// arc agent webui dark + Sisyphus (violet) — mirrors the reference chat UI.
     static let sisyphus = ColorScheme(id: "sisyphus", label: "Sisyphus", accentHex: "#A78BFA", dots: ["#C4B5FD", "#8B5CF6", "#5B21B6"],
         light: ["bg": "#FEFCF7", "surface": "#FFFFFF", "surface-2": "#F3EEE3", "sidebar": "#FAF7F0",
                 "border": "#E0D8C8", "border-strong": "#D0C8B8", "text": "#1A1610", "muted": "#5C5344",
@@ -150,7 +150,7 @@ struct ColorScheme {
                "input-bg": "rgba(255, 255, 255, 0.04)", "hover-bg": "rgba(255, 255, 255, 0.06)",
                "border-subtle": "rgba(255, 255, 255, 0.075)", "scroll-thumb": "#2A2A45"])
 
-    // MARK: Generated palettes (Hermes Skin grid — 3-dot accent swatches)
+    // MARK: Generated palettes (reference Skin grid — 3-dot accent swatches)
 
     /// Build a scheme from an accent trio; light/dark variants are derived
     /// from the accent plus a neutral base so all 27 Skin entries stay
@@ -273,7 +273,7 @@ enum ThemeSize: String, CaseIterable {
         case .xl: return "Extra Large"
         }
     }
-    /// "Aa" preview size inside the picker card (mirrors Hermes webui).
+    /// "Aa" preview size inside the picker card (mirrors arc agent webui).
     var previewPx: String {
         switch self {
         case .sm: return "10px"
@@ -341,7 +341,7 @@ static let css: String = """
       --scroll-thumb: #D8D0BE;
     }
 
-    /* ─── Dark theme (Hermes dark + Sisyphus violet) ───────────── */
+    /* ─── Dark theme (reference dark + Sisyphus violet) ───────────── */
     #app[data-theme="dark"] {
       --bg: #0D0D1A;
       --surface: #1A1A2E;
@@ -433,7 +433,7 @@ static let css: String = """
       min-height: 0;
     }
 
-    /* Full-width top bar (Hermes-style): thin strip, centred bolt + chat name */
+    /* Full-width top bar (arc-style): thin strip, centred bolt + chat name */
     #topbar {
       display: flex;
       align-items: center;
@@ -692,7 +692,7 @@ static let css: String = """
     }
     .empty-hint { color: var(--muted); font-size: 0.85em; padding: 12px 10px; }
 
-    /* Filter (Hermes sidebar-search look) */
+    /* Filter (reference sidebar-search look) */
     .filter-bar { position: relative; padding: 8px 12px; }
     .filter-ico {
       position: absolute; left: 21px; top: 50%; transform: translateY(-50%);
@@ -832,7 +832,7 @@ static let css: String = """
       cursor: pointer; padding: 0;
     }
     .cat-panel-back:hover { background: var(--surface-2); color: var(--text); }
-    .cat-panel-list { display: flex; flex-direction: column; }
+    .cat-panel-list { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; }
     .chat-menu-panel button {
       width: 100%; text-align: left;
       display: flex; align-items: center; gap: 7px;
@@ -840,7 +840,7 @@ static let css: String = """
     .chat-menu-panel button.menu-sel { color: var(--accent-strong); }
     .chat-menu button > .cat-dot + span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-    /* ─── Skill metadata box (editor only, Hermes look) ───────── */
+    /* ─── Skill metadata box (editor only, reference look) ───────── */
     .skill-meta-box {
       margin: 10px 0 14px;
       background: var(--surface-2);
@@ -1228,7 +1228,7 @@ static let css: String = """
       padding: 0;
     }
     .swatch.active { border-color: var(--text); box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent); }
-    /* ─── Text size picker (Hermes-style cards) ─────────────────── */
+    /* ─── Text size picker (arc-style cards) ─────────────────── */
     .fsz-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
     .font-size-pick-btn {
       border: 1px solid var(--border); border-radius: 10px; padding: 10px 8px;
@@ -1248,7 +1248,7 @@ static let css: String = """
       border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
     }
     .font-size-pick-btn.active .fsz-preview { border-color: var(--accent-border); color: var(--text); }
-    /* ─── Theme picker (Hermes-style cards) ────────────────────── */
+    /* ─── Theme picker (arc-style cards) ────────────────────── */
     .thm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
     .theme-pick-btn {
       border: 1px solid var(--border); border-radius: 10px; padding: 8px;
@@ -1301,7 +1301,7 @@ static let css: String = """
     .mc-row .mc-model { color: var(--muted); font-size: 0.82em; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .mc-badge { font-size: 0.68em; padding: 2px 7px; border-radius: 20px; background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
 
-    /* ─── Chat main (Hermes look: centered column, rails, bubbles) ── */
+    /* ─── Chat main (reference look: centered column, rails, bubbles) ── */
     .chat-main { flex: 1; display: flex; flex-direction: column; min-height: 0; position: relative; }
     .chat-header {
       display: flex; align-items: center; justify-content: space-between;
@@ -1332,7 +1332,7 @@ static let css: String = """
     .msg { display: flex; padding: 10px 0; }
     .msg.user { justify-content: flex-end; }
     .msg.assistant { justify-content: flex-start; }
-    /* Hermes parity: assistant responses are plain formatted text (no
+    /* arc parity: assistant responses are plain formatted text (no
        bubble card); user messages keep a subtue tinted bubble. */
     .msg-body {
       max-width: 680px;
@@ -1354,7 +1354,7 @@ static let css: String = """
       white-space: pre-wrap;
     }
     .msg.assistant .msg-body { text-align: left; max-width: 100%; }
-    /* Role header: avatar rail + name, Hermes msg-role style */
+    /* Role header: avatar rail + name, reference msg-role style */
     .msg-meta {
       font-size: 12px; font-weight: 500; color: var(--muted);
       margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
@@ -1367,7 +1367,7 @@ static let css: String = """
     }
     .role-icon.assistant { background: var(--accent-strong); color: #fff; }
     .role-icon svg { width: 11px; height: 11px; }
-    /* Hermes-parity chips: TPS pill in the role header, token usage foot */
+    /* arc-parity chips: TPS pill in the role header, token usage foot */
     .msg-tps-inline {
       display: inline-flex; align-items: center;
       margin-left: 6px; padding: 1px 6px;
@@ -1382,7 +1382,7 @@ static let css: String = """
       font-size: 11px; color: var(--muted); opacity: .7;
       font-variant-numeric: tabular-nums;
     }
-    /* ── Conversation outline (Hermes #2124 parity) ───────────── */
+    /* ── Conversation outline (reference #2124 parity) ───────────── */
     #outline-toggle {
       position: absolute; bottom: 60px; right: 20px; z-index: 12;
       width: 38px; height: 38px; border-radius: 50%;
@@ -1446,7 +1446,7 @@ static let css: String = """
     }
     .outline-jump-flash { animation: outline-flash 1.2s ease-out forwards; }
 
-    /* Steer indicator: transient banner below messages (Hermes parity).
+    /* Steer indicator: transient banner below messages (arc parity).
        Badge + italic steer body, accent-tinted. */
     .steer-indicator {
       display: flex; align-items: baseline; gap: 8px;
@@ -1469,7 +1469,7 @@ static let css: String = """
     }
     .msg-foot-inline { margin-top: 6px; }
 
-    /* Message body markdown scaling (Hermes msg-body rules) */
+    /* Message body markdown scaling (reference msg-body rules) */
     .msg-body p { margin: 0 0 10px; }
     .msg-body p:last-child { margin-bottom: 0; }
     .msg-body ul, .msg-body ol { margin: 6px 0 10px 20px; }
@@ -1510,7 +1510,7 @@ static let css: String = """
     .tool-card summary::-webkit-details-marker,
     .worklog-summary summary::-webkit-details-marker { display: none; }
     .thinking-row summary svg, .tool-card summary svg, .worklog-summary summary svg { flex: 0 0 auto; opacity: 0.8; }
-    /* --- Turn dropdown (Hermes parity: "Processed Xm Ys" worklog) --- */
+    /* --- Turn dropdown (arc parity: "Processed Xm Ys" worklog) --- */
     .assistant-turn { display: block; }
     .assistant-turn > .msg-meta { margin: 14px 0 2px; }
     .turn-worklog {
@@ -1675,7 +1675,7 @@ static let css: String = """
     }
     details.thinking .think-body { padding: 4px 12px 10px; color: var(--muted); white-space: pre-wrap; }
 
-    /* ── Message hover footer: produced-at time + copy (Hermes parity) ── */
+    /* ── Message hover footer: produced-at time + copy (arc parity) ── */
     .msg-foot { display: flex; align-items: center; gap: 8px; margin-top: 5px; opacity: 0; transition: opacity 0.15s; }
     .msg:hover .msg-foot { opacity: 1; }
     .msg-time { font-size: 0.72em; color: var(--muted); opacity: 0.9; }
@@ -1696,7 +1696,7 @@ static let css: String = """
     }
     .tool-chip .tc-name { color: var(--accent-strong); font-weight: 600; }
     .tool-pills { display: flex; flex-wrap: wrap; margin: 6px 0 2px; }
-    /* Hermes parity: tool call rows are bubble-like pills. */
+    /* arc parity: tool call rows are bubble-like pills. */
     .tool-card {
       display: block; max-width: 100%; margin: 6px 0;
       background: var(--surface-2);
@@ -1708,7 +1708,7 @@ static let css: String = """
       background: transparent;
       border-radius: 12px;
     }
-    /* Jump-to-latest circle button (Hermes .scroll-to-bottom-btn mirror). */
+    /* Jump-to-latest circle button (reference .scroll-to-bottom-btn mirror). */
     .scroll-to-bottom-btn {
       position: absolute; right: 18px; bottom: 14px;
       width: 32px; height: 32px;
@@ -1739,7 +1739,7 @@ static let css: String = """
 
     .live-status { font-size: 0.78em; color: var(--muted); margin: -8px 0 12px; display: flex; gap: 8px; align-items: center; }
 
-    /* ─── Permission card (Hermes approval) ─────────────────────── */
+    /* ─── Permission card (reference approval) ─────────────────────── */
     .perm-card {
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
@@ -1767,7 +1767,7 @@ static let css: String = """
     .perm-btn.allow { background: var(--accent); border-color: var(--accent); color: #fff; }
     .perm-btn.deny { background: transparent; color: var(--danger); border-color: var(--danger); }
 
-    /* ── Composer flyout: Hermes-parity approval card ── */
+    /* ── Composer flyout: arc-parity approval card ── */
     .composer-flyout { width: 100%; }
     .approval-card, .clarify-card { margin-bottom: 10px; animation: flyout-in .28s cubic-bezier(.32,.72,.16,1); }
     @keyframes flyout-in { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -1831,7 +1831,7 @@ static let css: String = """
     .approval-btn svg, .approval-ico svg, .clarify-ico svg, .clarify-collapse svg, .approval-collapse svg, .approval-dismiss svg,
     .clarify-badge-svg { display: block; }
 
-    /* ── Composer flyout: Hermes-parity clarification card ── */
+    /* ── Composer flyout: arc-parity clarification card ── */
     .clarify-inner {
       background: var(--surface);
       border: 1px solid var(--accent-border);
@@ -2189,7 +2189,7 @@ static let css: String = """
     .limit-k { color: var(--muted); }
     .limit-v { color: var(--text); }
 
-    /* ─── Composer (Hermes composer-box sizing) ────────────────── */
+    /* ─── Composer (reference composer-box sizing) ────────────────── */
     .composer-wrap { padding: 12px 12px 16px; }
     .composer-bar {
       max-width: 100%;
@@ -2248,7 +2248,7 @@ static let css: String = """
     }
     .composer-toolbar select:hover { color: var(--text); }
     .composer-toolbar .spacer { flex: 1; }
-    /* ── Context window indicator (Hermes parity) ── */
+    /* ── Context window indicator (arc parity) ── */
     .ctx-indicator-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .ctx-indicator { width: 26px; height: 26px; padding: 0; border: none; background: none; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; transition: opacity 0.15s, transform 0.15s; }
     .ctx-indicator:hover { opacity: 0.88; transform: translateY(-1px); }
@@ -2335,7 +2335,7 @@ static let css: String = """
     }
     .fp-recent:hover { text-decoration: underline; }
 
-    /* ── Composer dropdown selectors (Hermes parity) ─────────────────── */
+    /* ── Composer dropdown selectors (arc parity) ─────────────────── */
     .dd { position: relative; display: inline-flex; align-items: center; flex-shrink: 0; min-width: 0; }
     .dd-trigger {
       display: inline-flex; align-items: center; gap: 5px;
@@ -2411,7 +2411,7 @@ static let css: String = """
     .ghost-btn.danger { color: var(--danger); border-color: var(--danger); }
     .ghost-btn.danger:hover { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
 
-    /* ── Hermes-style profile card (Profile Box) ─────────────────────── */
+    /* ── arc-style profile card (Profile Box) ─────────────────────── */
     .pl-card { margin: 14px 0 4px; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: var(--surface); }
     .pl-eyebrow { font-size: 0.66em; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
     .pl-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--border); }
@@ -2509,7 +2509,7 @@ static let css: String = """
       cursor: pointer; white-space: nowrap;
     }
 
-    /* ── Chat menu: "Set category" hover flyout submenu (Hermes parity) ── */
+    /* ── Chat menu: "Set category" hover flyout submenu (arc parity) ── */
     .menu-item.has-sub { position: relative; display: flex; }
     /* The submenu is positioned and shown by runtime.js (fixed coordinates so
        it escapes .panel-body's overflow:auto clip) — CSS hover is deliberately
@@ -2541,7 +2541,7 @@ static let css: String = """
     .menu-sub button { width: 100%; box-sizing: border-box; }
     .menu-sub button.menu-sel { background: var(--accent-soft); color: var(--accent-strong); }
 
-    /* ── Settings → Color scheme: 3-dot palette tile grid (Hermes Skin) ── */
+    /* ── Settings → Color scheme: 3-dot palette tile grid (reference Skin) ── */
     .scheme-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
@@ -2849,7 +2849,7 @@ static let css: String = """
     }
     .blank .big { font-size: 2.2em; }
 
-    /* ── Slash autocomplete (Hermes commands.js parity) ── */
+    /* ── Slash autocomplete (reference commands.js parity) ── */
     .cmd-dropdown { display: none; position: fixed; width: min(560px, calc(100vw - 24px));
       background: var(--bg); border: 1px solid var(--border-strong); border-radius: 10px;
       box-shadow: 0 -8px 24px rgba(0,0,0,.4); z-index: 200; max-height: 240px; overflow-y: auto; }
@@ -2866,7 +2866,7 @@ static let css: String = """
       border: 1px solid var(--border-strong); color: var(--muted); background: var(--hover-bg); vertical-align: 1px; }
     .cmd-item-badge-skill { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-strong); }
 
-    /* ── Reply with selection (Hermes messages.js parity) ── */
+    /* ── Reply with selection (reference messages.js parity) ── */
     .selected-text-reply-btn { position: fixed; z-index: 1200; display: inline-flex; align-items: center;
       gap: 6px; padding: 8px 14px; border: 2px solid var(--accent-strong); border-radius: 999px;
       background: var(--surface); color: var(--text);
@@ -2877,7 +2877,7 @@ static let css: String = """
     .selected-text-reply-btn.visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
     .selected-text-reply-btn:hover { background: var(--surface-2); border-color: var(--accent); }
 
-    /* ── Context chips (Hermes _renderSelectionChips parity) ── */
+    /* ── Context chips (reference _renderSelectionChips parity) ── */
     .selection-chips-wrap { display: flex; flex-direction: column; gap: 8px; max-width: 100%;
       box-sizing: border-box; margin: 0 auto; padding: 8px 0 0; min-height: 0;
       max-height: min(32vh, 280px); overflow-y: auto; scrollbar-gutter: stable; }

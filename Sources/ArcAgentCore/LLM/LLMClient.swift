@@ -42,7 +42,7 @@ public protocol LLMClient: Sendable {
         tools: [[String: Any]]?
     ) -> AsyncThrowingStream<LLMDelta, Error>
 
-    /// Send messages with a reasoning-effort request (Hermes-style levels:
+    /// Send messages with a reasoning-effort request (arc-style levels:
     /// low / medium / high / max). Implementations that support effort send
     /// it; conformers that don't ignore the parameter (default impl).
     func complete(
@@ -105,7 +105,7 @@ public enum LLMError: Error, Sendable, CustomStringConvertible {
     case decodingError(String)
 
     /// The provider returned an empty response (no choices / no content /
-    /// no tool calls). Transient by nature — Hermes treats this as retryable
+    /// no tool calls). Transient by nature — reference treats this as retryable
     /// with a storm guard, not as a permanent failure.
     case emptyResponse
 

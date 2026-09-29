@@ -60,7 +60,7 @@ public enum ArcAgentCore {
         try registry.register(DeleteProfileTool.entry)
         try registry.register(SendGroupChatTool.entry)
 
-        // Media / integration tools (Hermes image_gen, tts, transcription,
+        // Media / integration tools (reference image_gen, tts, transcription,
         // video, outbound webhooks, code_execution, shell hooks)
         try registry.register(MediaTools.imageGenerate)
         try registry.register(MediaTools.tts)

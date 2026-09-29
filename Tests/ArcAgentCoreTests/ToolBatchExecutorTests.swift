@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ArcAgentCore
 
-/// Hermes `_MAX_TOOL_WORKERS` / `_DEFAULT_CONCURRENT_TOOL_TIMEOUT_S` parity:
+/// reference `_MAX_TOOL_WORKERS` / `_DEFAULT_CONCURRENT_TOOL_TIMEOUT_S` parity:
 /// capped concurrency plus a batch deadline so a wedged `swift test` can no
 /// longer hang the turn (the 9-hour freeze that motivated the port).
 @Suite("Tool batch executor")
@@ -44,8 +44,8 @@ struct ToolBatchExecutorTests {
         #expect(maxActive <= 2, "exceeded maxParallel: \(maxActive) concurrent")
     }
 
-    @Test("defaults match Hermes: 8 workers, 420 s deadline")
-    func hermeseDefaults() {
+    @Test("defaults match reference limits: 8 workers, 420 s deadline")
+    func batchDefaults() {
         #expect(ToolBatchLimits.maxWorkers == 8)
         #expect(ToolBatchLimits.defaultBatchTimeout == 420.0)
     }
@@ -137,7 +137,7 @@ struct ToolBatchExecutorTests {
         #expect(elapsed < .seconds(30), "batch should return promptly, took \(elapsed)")
     }
 
-    @Test("placeholder formatting matches Hermes wording")
+    @Test("placeholder formatting matches reference wording")
     func placeholderWording() {
         let label = String(format: "%.1fs", 420.0)
         #expect(label == "420.0s")

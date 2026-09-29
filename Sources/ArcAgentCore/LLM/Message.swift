@@ -50,19 +50,19 @@ public struct Message: Sendable, Codable, Equatable {
     /// Terminal-state reason for assistant replies that ended the turn
     /// abnormally (e.g. `"max_iterations"` when the tool-iteration budget was
     /// exhausted). nil for normal replies and legacy stored messages.
-    /// Mirrors Hermes `_terminal_reason` so UIs can surface a status card.
+    /// mirrors the reference client `_terminal_reason` so UIs can surface a status card.
     public let terminalReason: String?
 
     /// Optional short text shown in the UI transcript instead of ``content``.
     /// Used by slash-command rewrites that expand a `/cmd` into a large
     /// model-facing payload (e.g. skill invocation scaffolding): the model
-    /// sees ``content``, the user sees ``displayText``. Mirrors Hermes'
+    /// sees ``content``, the user sees ``displayText``. mirrors the reference client'
     /// webui `_slashDisplayTextOverride`. nil for normal messages.
     public let displayText: String?
 
     /// Wall-clock duration of the whole turn (user prompt → this final reply),
     /// in seconds. Set on the assistant reply that ends a turn so the UI can
-    /// render Hermes' "Processed Xm Ys" label on the turn's activity dropdown.
+    /// render reference' "Processed Xm Ys" label on the turn's activity dropdown.
     /// nil for legacy messages and replies that did not end a turn.
     public let turnDuration: Double?
 

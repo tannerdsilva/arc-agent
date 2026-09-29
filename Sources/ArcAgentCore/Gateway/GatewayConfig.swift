@@ -1,9 +1,9 @@
 import Foundation
 
-/// Gateway-level configuration for messaging platforms (Hermes parity).
+/// Gateway-level configuration for messaging platforms (arc parity).
 ///
 /// Loaded from `<home>/gateway.json` with environment-variable overrides
-/// (Hermes convention: settings in the config file, secrets in env).
+/// (reference convention: settings in the config file, secrets in env).
 /// Example:
 ///
 /// ```json
@@ -124,7 +124,7 @@ public struct TelegramGatewayConfig: Sendable {
 
     init(dict: [String: Any]?, env: [String: String]) {
         let d = dict ?? [:]
-        // Env always wins over the JSON file (Hermes convention).
+        // Env always wins over the JSON file (reference convention).
         self.botToken = env["TELEGRAM_BOT_TOKEN"]
             ?? (d["bot_token"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             ?? ""
@@ -192,7 +192,7 @@ public struct EmailGatewayConfig: Sendable {
 
     init(dict: [String: Any]?, env: [String: String]) {
         let d = dict ?? [:]
-        // Env always wins over the JSON file (Hermes convention).
+        // Env always wins over the JSON file (reference convention).
         self.address = env["EMAIL_ADDRESS"] ?? (d["address"] as? String) ?? ""
         self.password = env["EMAIL_PASSWORD"] ?? (d["password"] as? String) ?? ""
         self.imapHost = env["EMAIL_IMAP_HOST"] ?? (d["imap_host"] as? String) ?? ""
@@ -251,7 +251,7 @@ public struct SlackGatewayConfig: Sendable {
 
     init(dict: [String: Any]?, env: [String: String]) {
         let d = dict ?? [:]
-        // Env always wins over the JSON file (Hermes convention).
+        // Env always wins over the JSON file (reference convention).
         self.botToken = env["SLACK_BOT_TOKEN"]
             ?? (d["bot_token"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             ?? ""

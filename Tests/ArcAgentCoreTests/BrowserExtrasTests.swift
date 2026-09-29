@@ -2,7 +2,7 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 
-/// Browser extra-tool tests (Hermes browser_console/get_images/vision/
+/// Browser extra-tool tests (reference browser_console/get_images/vision/
 /// dialog/cdp): event-log semantics (no live CDP required) + registry
 /// surface.
 @Suite("Browser extras")
@@ -36,7 +36,7 @@ struct BrowserExtrasTests {
         #expect(drained.isEmpty)
     }
 
-    @Test("browser tool family is registered with Hermes names")
+    @Test("browser tool family is registered with reference names")
     func registeredSurface() throws {
         let registry = try ArcAgentCore.buildDefaultRegistry()
         for name in ["browser_navigate", "browser_snapshot", "browser_console", "browser_get_images",
@@ -52,7 +52,7 @@ struct BrowserExtrasTests {
     @Test("browser_vision errors cleanly without a provider")
     func visionToolErrorsWithoutProvider() async {
         // No provider registered in this test process → must throw a
-        // clean error, not crash (Hermes same wording family).
+        // clean error, not crash (reference same wording family).
         let out = await MCPProxy.runSuppressingErrors {
             try await BrowserTools.vision.handler(["question": "what is shown?"])
         }

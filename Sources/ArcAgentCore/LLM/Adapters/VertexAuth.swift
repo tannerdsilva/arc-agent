@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-/// Google Cloud service-account → OAuth2 bearer token (Hermes
+/// Google Cloud service-account → OAuth2 bearer token (reference
 /// `vertex_adapter.py` auth path): build an RS256 JWT assertion, exchange it
 /// at `token_uri`, and return the access token. Pure Foundation + Security.
 public struct VertexAuth: Sendable {
@@ -60,7 +60,7 @@ public struct VertexAuth: Sendable {
         return token
     }
 
-    // MARK: - JWT assertion (RS256, Hermes `_build_jwt_assertion`)
+    // MARK: - JWT assertion (RS256, reference `_build_jwt_assertion`)
 
     func buildAssertion() throws -> String {
         let now = Date()

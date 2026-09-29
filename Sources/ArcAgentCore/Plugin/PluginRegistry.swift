@@ -4,7 +4,7 @@ import SwiftSlash
 // MARK: - Plugin JSON value (arbitrary JSON for tool schemas)
 
 /// A JSON value that can live inside ``PluginManifest`` (Codable). Used for
-/// per-tool OpenAI-format `schema` objects — the Hermes `plugin.yaml` +
+/// per-tool OpenAI-format `schema` objects — the reference `plugin.yaml` +
 /// `register(ctx)` tool contract, adapted to runtime-discoverable JSON
 /// manifests in a static binary.
 public enum PluginJSON: Codable, Sendable, Equatable {
@@ -59,7 +59,7 @@ public enum PluginJSON: Codable, Sendable, Equatable {
     }
 }
 
-// MARK: - Plugin manifest (Hermes plugin.yaml structure, JSON form)
+// MARK: - Plugin manifest (arc plugin.yaml structure, JSON form)
 
 /// A plugin is a directory under `~/.arc/plugins/<name>/` containing a
 /// `manifest.json`:
@@ -91,7 +91,7 @@ public enum PluginJSON: Codable, Sendable, Equatable {
 /// with `{"tool": name, "args": {...}}` on stdin and `{"result": "…"}` on
 /// stdout. `command` may be an absolute path, a path relative to the plugin
 /// directory, or a bare name resolved via `PATH` (e.g. `python3`), which is
-/// how Python and Swift-built tools are integrated — mirroring Hermes'
+/// how Python and Swift-built tools are integrated — mirroring the reference client'
 /// Python tool plugins without an in-process Python host.
 public struct PluginManifest: Codable, Sendable, Equatable {
     public struct Tool: Codable, Sendable, Equatable {
@@ -102,16 +102,16 @@ public struct PluginManifest: Codable, Sendable, Equatable {
         /// Script (or executable) path relative to the plugin directory,
         /// passed to `command` as its first argument (e.g. `tool.py`).
         public var entry: String?
-        /// Toolset grouping (Hermes `register_tool(toolset:)`); defaults to
+        /// Toolset grouping (reference `register_tool(toolset:)`); defaults to
         /// "plugins" when absent.
         public var toolset: String?
-        /// Environment variables required at runtime (Hermes `requires_env`
+        /// Environment variables required at runtime (reference `requires_env`
         /// parity): when any are unset the tool is not installed.
         public var requiresEnv: [String]?
         /// OpenAI function-call parameters object (`type`/`properties`/
         /// `required`/…) shown to the model. May also be the full
         /// `{"type": "function", "function": {"name", "description",
-        /// "parameters"}}` shape (Hermes `register_tool(schema:)` parity).
+        /// "parameters"}}` shape (reference `register_tool(schema:)` parity).
         public var schema: [String: PluginJSON]?
 
         public init(
@@ -292,7 +292,7 @@ public struct PluginTool: Sendable {
 // MARK: - Plugin registry (discovery)
 
 /// Discovers plugins under `~/.arc/plugins/` and exposes their tools/LLMs
-/// (Hermes `get_all_toolsets`/`_get_plugin_toolset_names` equivalents).
+/// (reference `get_all_toolsets`/`_get_plugin_toolset_names` equivalents).
 public actor PluginRegistry {
     public static let shared = PluginRegistry()
 
@@ -306,7 +306,7 @@ public actor PluginRegistry {
             .appendingPathComponent(".arc/plugins", isDirectory: true)
     }
 
-    /// Rescan the plugins directory (Hermes scans every agent init).
+    /// Rescan the plugins directory (reference scans every agent init).
     public func loadAll() throws {
         manifests = [:]
         toolCache = []
@@ -346,7 +346,7 @@ public actor PluginRegistry {
 // MARK: - Mutable registry (compile-time registry + plugin tools at runtime)
 
 /// The runtime layer on top of the compile-time registry: plugin tools sit
-/// beside the built-ins without touching them (Hermes bundles non-core tools
+/// beside the built-ins without touching them (reference bundles non-core tools
 /// at runtime). Built once by ``make`` and immutable thereafter, so it is a
 /// value type conforming to ``ToolRegistry`` (``lookup`` prefers built-ins,
 /// then plugins).
@@ -377,7 +377,7 @@ public struct MutableToolRegistry: ToolRegistry {
     }
 
     /// Normalize the manifest `schema` into an OpenAI `parameters` dict.
-    /// Accepts the raw parameters object, a `"function"` wrapper (Hermes
+    /// Accepts the raw parameters object, a `"function"` wrapper (reference
     /// `register_tool(schema:)` shape), or `{"parameters": …}`.
     static func parameters(from schema: [String: PluginJSON]?) -> [String: Any]? {
         guard let raw = schema else { return nil }
@@ -392,7 +392,7 @@ public struct MutableToolRegistry: ToolRegistry {
     }
 
     /// Install a plugin tool. Returns `false` (and skips the tool) when its
-    /// `requires_env` requirements are unmet — Hermes `check_fn`/`requires_env`
+    /// `requires_env` requirements are unmet — reference `check_fn`/`requires_env`
     /// parity: the tool disappears until the environment provides the vars.
     @discardableResult
     public mutating func install(pluginTool: PluginTool) -> Bool {
@@ -442,9 +442,9 @@ public struct MutableToolRegistry: ToolRegistry {
     }
 
     /// Build the full registry used by the agent: built-ins + discovered
-    /// plugins (Hermes agent_init plugin toolset bundling). When
+    /// plugins (reference agent_init plugin toolset bundling). When
     /// `enabledPlugins` is non-nil only plugins in the allow-list install
-    /// (Hermes `plugins.enabled` semantics).
+    /// (reference `plugins.enabled` semantics).
     public static func make(
         pluginRegistry: PluginRegistry? = nil,
         enabledPlugins: Set<String>? = nil

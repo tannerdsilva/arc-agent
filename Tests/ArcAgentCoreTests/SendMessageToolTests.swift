@@ -3,7 +3,7 @@ import Testing
 import Foundation
 import ServiceLifecycle
 
-/// `send_message` tool tests (Hermes `tools/send_message_tool.py` parity)
+/// `send_message` tool tests (reference `tools/send_message_tool.py` parity)
 /// against a mock platform adapter — no network, no bot token.
 @Suite("Send message tool", .serialized)
 struct SendMessageToolTests {

@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-// MARK: - Tool guardrails (Hermes `tool_guardrails.py`)
+// MARK: - Tool guardrails (reference `tool_guardrails.py`)
 
 /// Loop caps + per-turn budgets for tool calls, with canonical-signature
 /// repeat detection and synthetic results.
@@ -9,7 +9,7 @@ public actor ToolGuardrails {
 
     public static let maxWebSearchesPerTurn = 50
     public static let maxSubagentSpawnsPerTurn = 50
-    /// Default per-tool loop cap (Hermes default_loop_cap; retry-aware).
+    /// Default per-tool loop cap (reference default_loop_cap; retry-aware).
     public static let defaultLoopCap = 25
 
     /// Tool names counted as web searches (loop cap group).
@@ -56,7 +56,7 @@ public actor ToolGuardrails {
     }
 
     /// Canonical, normalized JSON of tool arguments: sorted keys, compact
-    /// encoding (Hermes `canonical_tool_args` for signature hashing).
+    /// encoding (reference `canonical_tool_args` for signature hashing).
     public static func canonicalArgs(_ args: [String: Any]) -> String {
         func flatten(_ value: Any) -> Any {
             if let dict = value as? [String: Any] {
@@ -71,7 +71,7 @@ public actor ToolGuardrails {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
-    /// Short signature for a call (SHA-256 prefix; Hermes hashes signatures).
+    /// Short signature for a call (SHA-256 prefix; reference hashes signatures).
     public static func signature(tool: String, args: [String: Any]) -> String {
         let canonical = canonicalArgs(args)
         let digest = SHA256.hash(data: Data("\(tool):\(canonical)".utf8))
@@ -79,7 +79,7 @@ public actor ToolGuardrails {
     }
 
     /// Decide whether a tool call may run. Increments counters; returns a
-    /// synthetic result when a cap is hit (Hermes returns synthetic results
+    /// synthetic result when a cap is hit (reference returns synthetic results
     /// for repeated calls instead of executing again).
     public func decide(toolName: String, args: [String: Any]) -> Decision {
         counts[toolName, default: 0] += 1
@@ -126,7 +126,7 @@ public actor ToolGuardrails {
         subagentSpawns = 0
     }
 
-    /// Append Hermes-style guidance to a tool result so the model knows what
+    /// Append arc-style guidance to a tool result so the model knows what
     /// went wrong and how to recover (`classify_tool_failure` + recovery
     /// hints).
     public static func classifiedResult(rawResult: String, toolName: String) -> String {
@@ -138,26 +138,26 @@ public actor ToolGuardrails {
     }
 }
 
-// MARK: - File safety (Hermes `file_safety.py`)
+// MARK: - File safety (reference `file_safety.py`)
 
 /// Write-denied paths, cross-profile protection, and symlink confinement.
 public enum FileSafety {
 
     /// Paths that may never be overwritten by the `write_file` tool — the
-    /// agent's own config/state files (Hermes write-denied paths + prefixes).
+    /// agent's own config/state files (reference write-denied paths + prefixes).
     public static let writeDeniedExact: [String] = [
         "~/.arc-agent/config.json",
         "~/.arc-agent/settings.json",
         "~/.arc/config.json",
-        "~/.hermes/config.yaml",
-        "~/.hermes/config.yml",
-        "~/.hermes/config.json",
+        "~/.reference/config.yaml",
+        "~/.reference/config.yml",
+        "~/.reference/config.json",
     ]
 
-    /// Path prefixes that are always protected (Hermes cross-profile areas:
+    /// Path prefixes that are always protected (reference cross-profile areas:
     /// skills, plugins, cron, memories live under profiles).
     public static let writeDeniedPrefixes: [String] = [
-        "~/.hermes/profiles/",
+        "~/.reference/profiles/",
         "~/.arc/",
         "~/.arc-agent/profiles/",
         "~/.arc-agent/skills/",
@@ -166,7 +166,7 @@ public enum FileSafety {
         "~/.arc-agent/memories/",
     ]
 
-    /// Whether the given absolute path is write-denied (Hermes
+    /// Whether the given absolute path is write-denied (reference
     /// `is_denied_for_write`). Resolves `~` and real paths.
     public static func isWriteDenied(_ path: String) -> Bool {
         let expanded = expandHome(path)
@@ -177,7 +177,7 @@ public enum FileSafety {
         return prefixes.contains { resolved.hasPrefix($0) || expanded.hasPrefix($0) }
     }
 
-    /// Sandbox/container mirror warning (Hermes warns when a write target is
+    /// Sandbox/container mirror warning (reference warns when a write target is
     /// a sandbox mirror of a protected file).
     public static func sandboxMirrorWarning(_ path: String) -> String? {
         let expanded = expandHome(path)
@@ -195,7 +195,7 @@ public enum FileSafety {
     }
 
     /// Resolve a target path for reads/writes, rejecting escapes above the
-    /// working directory (Hermes root confinement) when requested.
+    /// working directory (reference root confinement) when requested.
     public static func confined(_ path: String, root: String) -> String? {
         let resolved = (path as NSString).standardizingPath
         if resolved.hasPrefix(root + "/") || resolved == root { return resolved }

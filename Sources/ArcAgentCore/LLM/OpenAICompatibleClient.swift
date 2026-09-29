@@ -173,7 +173,7 @@ public struct OpenAICompatibleClient: LLMClient {
         if let stop = defaultParameters.stop { body["stop"] = stop }
         if let presencePenalty = defaultParameters.presencePenalty { body["presence_penalty"] = presencePenalty }
         if let frequencyPenalty = defaultParameters.frequencyPenalty { body["frequency_penalty"] = frequencyPenalty }
-        // Reasoning effort (Hermes parity: off omits the field; low/medium/
+        // Reasoning effort (arc parity: off omits the field; low/medium/
         // high/max are sent through for providers that honor reasoning_effort).
         if let effort = reasoningEffort, !effort.isEmpty {
             body["reasoning_effort"] = effort

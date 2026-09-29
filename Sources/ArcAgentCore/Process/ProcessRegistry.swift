@@ -1,8 +1,8 @@
 import Foundation
 
-/// Hermes-parity background process registry for the `terminal` tool.
+/// arc-parity background process registry for the `terminal` tool.
 ///
-/// Hermes' `terminal(background=true)` returns a stable `session_id` that the
+/// reference' `terminal(background=true)` returns a stable `session_id` that the
 /// agent manages with `process(action: poll|log|wait|kill)`. This actor is the
 /// arc-agent equivalent: it owns detached `Process` instances, captures their
 /// output to a per-session log file, tracks exit state, and serves the same
@@ -12,7 +12,7 @@ import Foundation
 /// Long runs (`swift test` on a big suite, builds, servers) used to burn the
 /// whole 180–300 s foreground budget and stall the turn loop. With background
 /// + collect the agent starts the run, keeps working (editing, reading, other
-/// calls), and only collects when it needs the result — exactly the Hermes
+/// calls), and only collects when it needs the result — exactly the reference
 /// pattern.
 ///
 /// ## Concurrency
@@ -64,7 +64,7 @@ public actor ProcessRegistry {
     // MARK: - Start
 
     /// Start `command` detached, capturing combined stdout/stderr to a temp
-    /// log. Returns the Hermes-style `session_id` for ``poll``/``log``/``wait``/
+    /// log. Returns the arc-style `session_id` for ``poll``/``log``/``wait``/
     /// ``kill``.
     @discardableResult
     public func start(command: String, workdir: String? = nil) throws -> String {
@@ -100,7 +100,7 @@ public actor ProcessRegistry {
         return id
     }
 
-    // MARK: - Collect surface (Hermes `process` tool parity)
+    // MARK: - Collect surface (reference `process` tool parity)
 
     public struct Snapshot: Sendable {
         public let sessionID: String
@@ -146,7 +146,7 @@ public actor ProcessRegistry {
         snapshot(id: id)
     }
 
-    /// Full output for `log` (offset/limit semantics, Hermes parity).
+    /// Full output for `log` (offset/limit semantics, arc parity).
     public func log(id: String, offset: Int = 0, limit: Int = 200) -> Snapshot? {
         guard let entry = entries[id] else { return nil }
         let raw = readLog(id: id) ?? ""

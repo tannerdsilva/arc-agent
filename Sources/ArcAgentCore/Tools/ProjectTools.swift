@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - Project tools (Hermes `tools/project_tools.py`)
+// MARK: - Project tools (reference `tools/project_tools.py`)
 
 /// Tool: `project_list` — list projects and the active one.
 public enum ProjectListTool {

@@ -1,7 +1,7 @@
 import Foundation
 import SwiftSlash
 
-// MARK: - Checkpoints & rollback (Hermes `tools/checkpoint_manager.py`, `hermes checkpoints`)
+// MARK: - Checkpoints & rollback (reference `tools/checkpoint_manager.py`, `reference checkpoints`)
 
 /// One snapshot of a project's working tree (a git commit + metadata).
 public struct Checkpoint: Codable, Sendable, Equatable {

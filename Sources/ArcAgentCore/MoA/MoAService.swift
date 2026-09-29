@@ -1,9 +1,9 @@
 import Foundation
 
-// MARK: - Mixture of Agents (Hermes `moa_loop.py`)
+// MARK: - Mixture of Agents (reference `moa_loop.py`)
 
 /// Advisory reference prompt — references are NOT the acting agent, cannot
-/// call tools, and must never claim actions (Hermes `_REFERENCE_SYSTEM_PROMPT`).
+/// call tools, and must never claim actions (reference `_REFERENCE_SYSTEM_PROMPT`).
 public enum MoAPrompts {
     public static let referenceSystemPrompt = """
     You are a reference advisor in a Mixture of Agents (MoA) process. You are \
@@ -27,7 +27,7 @@ public enum MoAPrompts {
 
     /// Trailing marker appended when the advisory view ends on an assistant
     /// turn (every tool iteration after the first), so references respond to
-    /// the current state (Hermes `_ADVISORY_INSTRUCTION`).
+    /// the current state (reference `_ADVISORY_INSTRUCTION`).
     public static let advisoryInstruction = """
     [The conversation above is the current state of the task. Give your \
     most intelligent judgement: what is going on, what should happen next, \
@@ -37,7 +37,7 @@ public enum MoAPrompts {
 
 /// Runs the reference fan-out and synthesizes an advisory context block.
 /// Every failure is turned into a model-specific note instead of aborting
-/// the turn (Hermes `aggregate_moa_context`): the main model can still act
+/// the turn (reference `aggregate_moa_context`): the main model can still act
 /// with partial context.
 public actor MoAService {
 
@@ -77,7 +77,7 @@ public actor MoAService {
     }
 
     /// Run all references, join their advice, and produce the advisory block
-    /// appended to the acting model's context (Hermes joins each advisor as
+    /// appended to the acting model's context (reference joins each advisor as
     /// `Reference N — label:`). Failure notes are always included so the main
     /// model sees what could not be consulted.
     public func aggregate(
@@ -134,7 +134,7 @@ public actor MoAService {
         return "Note: some reference advisors could not be consulted:\n\(notes.joined(separator: "\n"))"
     }
 
-    // MARK: - Reference fan-out (Hermes `_run_references_parallel`)
+    // MARK: - Reference fan-out (upstream `_run_references_parallel`)
 
     func runReferencesParallel(userPrompt: String, apiMessages: [[String: Any]]) async -> [MoAReferenceResult] {
         // Slots = configured references, capped at the concurrent limit.
@@ -159,7 +159,7 @@ public actor MoAService {
     func runOneReference(slot: MoAConfig.Role, messages: [[String: Any]]) async -> MoAReferenceResult {
         let started = Date()
         let label = slot.model
-        let apiKey = referenceAPIKey(for: slot)
+        let apiKey = arcAPIKey(for: slot)
         do {
             guard let client = try await makeClient(slot, apiKey) else {
                 return MoAReferenceResult(label: label, model: slot.model, status: "failed",
@@ -195,24 +195,24 @@ public actor MoAService {
         }
     }
 
-    func referenceAPIKey(for slot: MoAConfig.Role) -> String {
+    func arcAPIKey(for slot: MoAConfig.Role) -> String {
         // Key resolution is delegated to the caller's client factory in the
         // port; a placeholder is passed through so factories can ignore it.
         ""
     }
 
-    /// Advisory view of the conversation (Hermes `_reference_messages`): keep
+    /// Advisory view of the conversation (reference `_reference_messages`): keep
     /// the agent's tool calls and results, trim for the reference's smaller
     /// window (reserving output headroom + 10% safety), and append the
     /// advisory instruction when the view ends on an assistant turn.
     func trimmed(_ messages: [[String: Any]], model: String) -> [[String: Any]] {
         var view = messages
-        // Reserve output headroom (Hermes `_REFERENCE_DEFAULT_OUTPUT_RESERVE`).
+        // Reserve output headroom (reference `_REFERENCE_DEFAULT_OUTPUT_RESERVE`).
         let meta = ModelMetadataRegistry.shared.metadata(for: model, provider: nil)
         let window = meta.contextLength
         let reserve = config.referenceMaxTokens ?? Self.referenceDefaultOutputReserve
         let budget = Int(Double(window) * (1 - Self.referenceTrimSafetyFraction)) - reserve
-        // Rough char→token estimate (chars/4, Hermes estimate_messages_tokens_rough).
+        // Rough char→token estimate (chars/4, reference estimate_messages_tokens_rough).
         var used = 0
         var kept: [[String: Any]] = []
         for msg in view.reversed() {
@@ -236,14 +236,14 @@ public actor MoAService {
         return view
     }
 
-    /// Build the advisory message list (Hermes `_reference_messages` +
+    /// Build the advisory message list (reference `_reference_messages` +
     /// system prompt prepend) as plain `[user/assistant]` turns.
     public static func advisoryMessages(apiMessages: [[String: Any]], userPrompt: String) -> [[String: Any]] {
         var view: [[String: Any]] = []
         for msg in apiMessages {
             let role = (msg["role"] as? String) ?? "user"
             // Preserve tool calls and tool results so references see what the
-            // agent actually did (Hermes keeps both sides).
+            // agent actually did (reference keeps both sides).
             if role == "tool" {
                 view.append(["role": "user", "content": "[tool result] \(msg["content"] as? String ?? "")"])
                 continue

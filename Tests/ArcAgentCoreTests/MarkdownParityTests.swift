@@ -2,11 +2,11 @@ import Foundation
 import Testing
 @testable import ArcAgentCore
 
-// Hermes-parity markdown coverage: mirrors the Hermes WebUI's smd feature set
+// arc-parity markdown coverage: mirrors the arc agent webui's smd feature set
 // (tables, blockquotes, nested lists, task checkboxes, strike, images,
 // autolinks, math) plus the baseline behavior (headings, lists, emphasis,
 // code spans, links, raw-HTML escaping, paragraphs).
-@Suite("Markdown Hermes Parity")
+@Suite("Markdown arc parity")
 struct MarkdownParityTests {
 
     // MARK: Baseline (pre-existing behavior, locked in)
@@ -61,7 +61,7 @@ struct MarkdownParityTests {
         #expect(markdownToHTML("one\n\ntwo") == "<p>one</p>\n<p>two</p>")
     }
 
-    // MARK: Hermes parity additions
+    // MARK: arc parity additions
 
     @Test("pipe tables render header + body")
     func tables() {

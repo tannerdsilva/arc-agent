@@ -166,7 +166,7 @@ struct ArcAgentWebUI: AsyncParsableCommand {
             }
           });
 
-          // ---- Image paste (Hermes parity): pasting an image (or image file)
+          // ---- Image paste (arc parity): pasting an image (or image file)
           // into the composer uploads it and attaches it via the existing
           // attach wire, so it flows through describeImage on send. Text
           // pastes are untouched.
@@ -231,7 +231,7 @@ struct ArcAgentWebUI: AsyncParsableCommand {
             });
           });
 
-          // ---- Composer autogrow (Hermes parity): the textarea expands with
+          // ---- Composer autogrow (arc parity): the textarea expands with
           // content up to 7 visible lines, then scrolls internally.
           function resizeComposer() {
             var t = document.getElementById('composer-input');
@@ -294,7 +294,7 @@ struct ArcAgentWebUI: AsyncParsableCommand {
             }
           }).observe(document, { childList: true, subtree: true });
 
-          // ---- Jump-to-latest circle button (Hermes parity): appears when the
+          // ---- Jump-to-latest circle button (arc parity): appears when the
           // user has scrolled away from the bottom; click returns to the end.
           function updateJumpBtn(s) {
             var b = document.getElementById('scroll-to-bottom');
@@ -379,7 +379,7 @@ struct ArcAgentWebUI: AsyncParsableCommand {
             if (src) src.classList.remove('drag-src');
           });
 
-          // ---- Relative session times: refresh every 60s (Hermes parity).
+          // ---- Relative session times: refresh every 60s (arc parity).
           function relLabel(ms) {
             if (!ms) return '';
             var d = new Date(ms), now = new Date();

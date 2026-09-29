@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ArcAgentCore
 
-/// Hermes `terminal(background=true)` + `process` collect parity: start a
+/// reference `terminal(background=true)` + `process` collect parity: start a
 /// detached run, work around it, then poll/log/wait/kill.
 @Suite("Background process registry")
 struct BackgroundProcessTests {

@@ -2,7 +2,7 @@ import ArgumentParser
 import ArcAgentCore
 import Foundation
 
-// MARK: - Checkpoints CLI (Hermes `hermes checkpoints`)
+// MARK: - Checkpoints CLI (reference `reference checkpoints`)
 
 /// `arc checkpoints` — git-backed workspace snapshots with rollback.
 struct CheckpointsCmd: AsyncParsableCommand {

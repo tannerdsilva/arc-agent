@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import ArcAgentCore
 
-/// Tests for the Hermes-parity integration tools: media, webhooks, shell
+/// Tests for the arc-parity integration tools: media, webhooks, shell
 /// hooks, code execution, and the browser registry.
 @Suite("Integration tools")
 struct IntegrationToolsTests {

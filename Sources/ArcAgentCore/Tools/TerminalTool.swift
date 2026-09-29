@@ -96,7 +96,7 @@ public enum TerminalTool {
         workdir: String?,
         background: Bool
     ) async throws -> String {
-        // Background mode: detached launch via ProcessRegistry (Hermes
+        // Background mode: detached launch via ProcessRegistry (reference
         // `terminal(background=true)` parity — returns a session_id that the
         // `process` tool collects with poll/log/wait/kill). Foundation
         // Process is the documented background exception; SwiftSlash has no
@@ -118,7 +118,7 @@ public enum TerminalTool {
         if let workdir {
             shellCommand.workingDirectory = Path(workdir)
         } else if let root = WorkspacePath.root {
-            // Hermes parity: terminal commands default to the conversation's
+            // arc parity: terminal commands default to the conversation's
             // workspace root (TERMINAL_CWD), not the server process cwd.
             shellCommand.workingDirectory = Path(root)
         }
@@ -138,7 +138,7 @@ public enum TerminalTool {
         if !stderr.isEmpty { parts.append("stderr:\n\(stderr)") }
         parts.append("exit_code: \(exitCodeInt)")
 
-        // Verification evidence (Hermes `verification_evidence`): command,
+        // Verification evidence (reference `verification_evidence`): command,
         // cwd, exit, truncation, and git-reported changed paths ride on the
         // result so the agent (and verify-on-stop) can check its own work.
         let cwdResolved = workdir ?? WorkspacePath.root ?? FileManager.default.currentDirectoryPath

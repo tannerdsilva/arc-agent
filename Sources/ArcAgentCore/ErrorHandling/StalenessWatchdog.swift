@@ -1,26 +1,26 @@
 import Foundation
 
-// MARK: - Staleness policy + streak tracker (Hermes per-vendor stale-detection
+// MARK: - Staleness policy + streak tracker (reference per-vendor stale-detection
 // watchdogs with patience budgets, and `_check_stale_giveup`).
 
 /// Compute per-request patience budgets: request timeout, stream stale
-/// timeout, and the reasoning-model floor (Hermes `get_provider_request_timeout`,
+/// timeout, and the reasoning-model floor (reference `get_provider_request_timeout`,
 /// `get_provider_stale_timeout`, stream stale scaling by token estimate, and
 /// `get_reasoning_stale_timeout_floor`).
 public enum StalenessPolicy {
 
-    /// Default stream stale timeout in seconds (Hermes
-    /// `HERMES_STREAM_STALE_TIMEOUT` default).
+    /// Default stream stale timeout in seconds (upstream
+    /// stream-stale default).
     public static let defaultStreamStaleTimeout: Double = 180
 
-    /// Consecutive stale giveups before aborting (Hermes
-    /// `HERMES_STREAM_STALE_GIVEUP` default).
+    /// Consecutive stale giveups before aborting (upstream
+    /// stale-giveup default).
     public static let staleGiveupThreshold = 5
 
-    /// Non-stream request timeout default (Hermes provider request timeout).
+    /// Non-stream request timeout default (reference provider request timeout).
     public static let defaultRequestTimeout: Double = 120
 
-    /// Token estimates that raise the floor (Hermes: >50K → ≥240s, >100K → ≥300s).
+    /// Token estimates that raise the floor (reference: >50K → ≥240s, >100K → ≥300s).
     public static func staleTimeout(base: Double? = nil, estimatedTokens: Int) -> Double {
         var timeout = base ?? defaultStreamStaleTimeout
         if estimatedTokens > 50_000 { timeout = max(timeout, 240) }
@@ -29,7 +29,7 @@ public enum StalenessPolicy {
     }
 
     /// Reasoning stale floor: the minimum patience while a thinking model is
-    /// producing its first token (Hermes reasoning_timeouts table, longest
+    /// producing its first token (reference reasoning_timeouts table, longest
     /// slug match wins).
     public static func reasoningFloor(metadata: ModelMetadata?) -> Double? {
         metadata?.staleTimeoutFloor
@@ -67,7 +67,7 @@ public actor StaleStreakTracker {
         return streak
     }
 
-    /// A stream made progress; reset the streak (Hermes resets on success).
+    /// A stream made progress; reset the streak (reference resets on success).
     public func reset() { streak = 0 }
 
     public var shouldGiveUp: Bool { streak >= threshold }
@@ -125,7 +125,7 @@ public struct IdleTimeoutStream<Base: AsyncSequence>: AsyncSequence {
         return Iterator(inner: inner.makeAsyncIterator(), stream: inner)
     }
 
-    /// Race `operation` against an idle deadline (Hermes stale watchdog).
+    /// Race `operation` against an idle deadline (reference stale watchdog).
     static func wait<T>(timeout: Double, operation: @escaping () async throws -> T?) async throws -> T? {
         if timeout <= 0 { return try await operation() }
         return try await withThrowingTaskGroup(of: T?.self) { group in

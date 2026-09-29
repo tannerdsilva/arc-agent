@@ -42,7 +42,7 @@ struct AgentPowersTests {
         MemoryTool.provider = nil
     }
 
-    // MARK: skill_manage (unified Hermes-parity tool)
+    // MARK: skill_manage (unified arc-parity tool)
 
     private func fullSkill(_ name: String, desc: String, body: String) -> String {
         "---\nname: \(name)\ndescription: \(desc)\n---\n\n\(body)\n"

@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - Tool gateway / managed scope (Hermes `managed_tool_gateway.py`, `tool-gateway.md`)
+// MARK: - Tool gateway / managed scope (reference `managed_tool_gateway.py`, `tool-gateway.md`)
 
 /// What the gateway says about a tool invocation.
 public enum GatewayAction: String, Codable, Sendable {
@@ -24,7 +24,7 @@ public struct ToolGatewayRule: Codable, Sendable, Equatable {
     }
 }
 
-/// Gateway configuration (Hermes `tool_gateway` config block).
+/// Gateway configuration (reference `tool_gateway` config block).
 public struct ToolGatewayConfig: Codable, Sendable, Equatable {
     public var enabled: Bool
     public var rules: [ToolGatewayRule]
@@ -42,7 +42,7 @@ public struct ToolGatewayConfig: Codable, Sendable, Equatable {
 }
 
 /// Evaluates the rule list. Later rules override earlier ones (recent wins),
-/// matching Hermes' ordered-scope semantics.
+/// matching reference' ordered-scope semantics.
 public enum ToolGateway {
 
     public struct Decision: Sendable {

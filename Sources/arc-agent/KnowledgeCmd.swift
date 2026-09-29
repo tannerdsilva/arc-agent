@@ -4,7 +4,7 @@ import AsyncHTTPClient
 import Foundation
 import NIOCore
 
-// MARK: - Security & knowledge CLI batch (Hermes `hermes security`, `skills_*`, `learning_graph.py`)
+// MARK: - Security & knowledge CLI batch (reference `reference security`, `skills_*`, `learning_graph.py`)
 
 /// `arc security osv` — OSV supply-chain audit of Package.resolved pins.
 struct SecurityCmd: AsyncParsableCommand {
@@ -255,7 +255,7 @@ private func skillsDir() throws -> URL {
     return base
 }
 
-/// `arc learning` — knowledge derivation (`hermes learning/memory-graph`),
+/// `arc learning` — knowledge derivation (`reference learning/memory-graph`),
 /// `arc journey` — the history of your sessions as a timeline.
 struct LearningCmd: AsyncParsableCommand {
     static let configuration = CommandConfiguration(

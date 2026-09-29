@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import ArcAgentCore
 
-/// Tests for the Hermes-parity failure-mode breadth: taxonomy, backoff,
+/// Tests for the arc-parity failure-mode breadth: taxonomy, backoff,
 /// staleness watchdogs, rate-limit tracking, and bounded recovery state.
 @Suite("Failure modes")
 struct FailureModeTests {
@@ -58,7 +58,7 @@ struct FailureModeTests {
 
     @Test("backoff ladders: overload, server, rate-limit")
     func backoffLadders() {
-        // Hermes ZAI overload ladder 30/60/90/120.
+        // reference ZAI overload ladder 30/60/90/120.
         #expect(FailureBackoff.delay(for: .overloaded, attempt: 0) == 30)
         #expect(FailureBackoff.delay(for: .overloaded, attempt: 1) == 60)
         #expect(FailureBackoff.delay(for: .overloaded, attempt: 3) == 120)
@@ -75,14 +75,14 @@ struct FailureModeTests {
 
     // MARK: - StalenessPolicy
 
-    @Test("stream patience scales with token estimate (@Hermes >50K → ≥240s, >100K → ≥300s)")
+    @Test("stream patience scales with token estimate (@reference >50K → ≥240s, >100K → ≥300s)")
     func patienceScaling() {
         #expect(StalenessPolicy.streamPatience(estimatedTokens: 1_000, metadata: nil) == 180)
         #expect(StalenessPolicy.streamPatience(estimatedTokens: 60_000, metadata: nil) >= 240)
         #expect(StalenessPolicy.streamPatience(estimatedTokens: 120_000, metadata: nil) >= 300)
     }
 
-    @Test("reasoning floor raises patience (Hermes reasoning_timeouts)")
+    @Test("reasoning floor raises patience (reference reasoning_timeouts)")
     func reasoningFloor() {
         let meta = ModelMetadataRegistry.shared.metadata(for: "o3", provider: "openai")
         #expect(meta.staleTimeoutFloor == 300)
@@ -181,7 +181,7 @@ struct FailureModeTests {
         #expect(await tracker.throttleStreak(route: "openai/gpt-5") == 0)
     }
 
-    @Test("retry-after parsing: seconds and HTTP-date (Hermes parse_retry_after_seconds)")
+    @Test("retry-after parsing: seconds and HTTP-date (reference parse_retry_after_seconds)")
     func retryAfterParsing() {
         #expect(WireTransport.parseRetryAfter("7") == 7)
         #expect(WireTransport.parseRetryAfter("garbage") == nil)
@@ -216,7 +216,7 @@ struct FailureModeTests {
         #expect(state.emptyStormStreak >= TurnRecoveryState.emptyStormThreshold)
     }
 
-    @Test("recovery nudge texts carry Hermes semantics")
+    @Test("recovery nudge texts carry reference semantics")
     func nudgeTexts() {
         let invalid = RecoveryNudges.invalidJSONToolResult(toolName: "read_file", error: "bad json")
         #expect(invalid.contains("Invalid JSON arguments"))

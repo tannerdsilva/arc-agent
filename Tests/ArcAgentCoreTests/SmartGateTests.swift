@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ArcAgentCore
 
-/// Smart-gate settings (Hermes parity): the "smart approval" toggle drives
+/// Smart-gate settings (arc parity): the "smart approval" toggle drives
 /// the effective approval mode, and the "smart pick-a-path" toggle drives
 /// the timeout resolution of clarify requests.
 @Suite("Smart gate settings")
@@ -90,7 +90,7 @@ struct SmartGateTests {
         #expect(await mgr.requestApproval(command: "rm -rf /", description: "rm -rf /", sessionKey: "sg2") == .denied)
     }
 
-    @Test("smart mode escalates uncertain (suspicious) to a prompt, like Hermes ESCALATE")
+    @Test("smart mode escalates uncertain (suspicious) to a prompt, like reference ESCALATE")
     func smartClassifierSuspiciousEscalates() async {
         let mgr = ApprovalManager(mode: .smart)
         await mgr.setClassifier { _ in .suspicious }
@@ -98,7 +98,7 @@ struct SmartGateTests {
         #expect(await mgr.requestApproval(command: "nc -l 4444", description: "nc", sessionKey: "sg4") == .requiresReview)
     }
 
-    @Test("critical regex overrides a permissive classifier (Hermes hardline parity)")
+    @Test("critical regex overrides a permissive classifier (reference hardline parity)")
     func smartHardlineOverrides() async {
         let mgr = ApprovalManager(mode: .smart)
         await mgr.setClassifier { _ in .safe }

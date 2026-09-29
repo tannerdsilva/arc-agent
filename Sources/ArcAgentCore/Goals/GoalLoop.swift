@@ -1,7 +1,7 @@
 import Foundation
 import SwiftSlash
 
-// MARK: - Goal loop engine (Hermes `features/goals.md` — Ralph loop)
+// MARK: - Goal loop engine (reference `features/goals.md` — Ralph loop)
 
 /// The judge's verdict for a standing-goal continuation.
 public struct GoalJudgeResult: Sendable, Equatable {
@@ -10,7 +10,7 @@ public struct GoalJudgeResult: Sendable, Equatable {
     }
     public let kind: Kind
     public let reason: String
-    /// Judge-provided wait hints (Hermes `wait_on_pid` / `wait_for_seconds`).
+    /// Judge-provided wait hints (reference `wait_on_pid` / `wait_for_seconds`).
     public let waitOnPID: Int?
     public let waitForSeconds: Int?
 
@@ -81,7 +81,7 @@ public struct GoalLoop {
         }
     }
 
-    /// What to do after a completed turn (Hermes post-turn hook).
+    /// What to do after a completed turn (reference post-turn hook).
     public static func afterTurn(
         sessionID: String,
         store: any GoalStoring,
@@ -118,7 +118,7 @@ public struct GoalLoop {
         // ── Quality gates run before the judge (deterministic evidence). ──
         if !goal.gates.isEmpty {
             // Replay-only-if-changed: a red gate with an unchanged workspace
-            // fingerprint is not re-run (Hermes).
+            // fingerprint is not re-run (reference).
             for index in goal.gates.indices {
                 var gate = goal.gates[index]
                 if gate.passed == true { continue }

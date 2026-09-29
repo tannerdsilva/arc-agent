@@ -1,7 +1,7 @@
 import Foundation
 import AsyncHTTPClient
 
-/// OpenAI Responses API client (Hermes `codex_responses_adapter.py`): the
+/// OpenAI Responses API client (reference `codex_responses_adapter.py`): the
 /// `responses` endpoint used for Codex/GPT-5.x models — `instructions` +
 /// `input` item arrays, typed function tools, and event-based streaming.
 public struct CodexResponsesClient: LLMClient {
@@ -81,7 +81,7 @@ public struct CodexResponsesClient: LLMClient {
         }
     }
 
-    // MARK: - Request building (Hermes _chat_messages_to_responses_input)
+    // MARK: - Request building (reference _chat_messages_to_responses_input)
 
     func buildRequest(messages: [Message], tools: [[String: Any]]?, stream: Bool) throws -> Data {
         var body: [String: Any] = [
@@ -92,7 +92,7 @@ public struct CodexResponsesClient: LLMClient {
         if let temperature { body["temperature"] = temperature }
         if let reasoningPayload { body.merge(reasoningPayload) { _, new in new } }
 
-        // instructions = last system message (Hermes: instructions carries the
+        // instructions = last system message (reference: instructions carries the
         // system prompt; input holds the conversation).
         var input: [[String: Any]] = []
         var instructions: String?

@@ -1,9 +1,9 @@
 import Foundation
 
-// MARK: - Usage ledger (Hermes `usage_pricing.py` + `credits_tracker.py` +
+// MARK: - Usage ledger (reference `usage_pricing.py` + `credits_tracker.py` +
 // `account_usage.py`), local-JSON persistence.
 
-/// Canonical per-request usage (Hermes `CanonicalUsage`).
+/// Canonical per-request usage (reference `CanonicalUsage`).
 public struct CanonicalUsage: Sendable, Equatable, Codable {
     public var inputTokens: Int
     public var outputTokens: Int
@@ -38,7 +38,7 @@ public struct CanonicalUsage: Sendable, Equatable, Codable {
 }
 
 /// A route identifies how a request was billed: provider + model + base URL
-/// (Hermes `BillingRoute`).
+/// (reference `BillingRoute`).
 public struct BillingRoute: Sendable, Equatable, Hashable, Codable {
     public let provider: String
     public let model: String
@@ -53,7 +53,7 @@ public struct BillingRoute: Sendable, Equatable, Hashable, Codable {
     }
 }
 
-/// Pricing per million tokens (Hermes `PricingEntry`).
+/// Pricing per million tokens (reference `PricingEntry`).
 public struct PricingEntry: Sendable, Equatable, Codable {
     public let provider: String
     public let model: String
@@ -79,7 +79,7 @@ public struct PricingEntry: Sendable, Equatable, Codable {
     }
 }
 
-/// Cost result (Hermes `CostResult`).
+/// Cost result (reference `CostResult`).
 public struct CostResult: Sendable, Equatable {
     public let cost: Double
     public let matchedModel: String?
@@ -93,7 +93,7 @@ public struct CostResult: Sendable, Equatable {
 }
 
 /// Official pricing table (provider, model) → entry. Representative subset
-/// of Hermes' table keyed the same way; `source` = "official".
+/// of reference' table keyed the same way; `source` = "official".
 public struct PricingTable {
     public static let entries: [PricingEntry] = [
         // OpenAI
@@ -122,7 +122,7 @@ public struct PricingTable {
                      cacheReadPerMillion: 0.14, source: "official"),
     ]
 
-    /// Find the exact or best prefix match for a model name (Hermes looks up
+    /// Find the exact or best prefix match for a model name (reference looks up
     /// exact match, then the longest slug-prefix match).
     public static func lookup(provider: String, model: String) -> PricingEntry? {
         let lower = model.lowercased()
@@ -136,7 +136,7 @@ public struct PricingTable {
 }
 
 public enum UsagePricing {
-    /// Estimate the cost of a request (Hermes `estimate_usage_cost`):
+    /// Estimate the cost of a request (reference `estimate_usage_cost`):
     /// input + output + cache read/write + per-request, all per-million.
     public static func estimate(route: BillingRoute, usage: CanonicalUsage) -> CostResult {
         guard let entry = PricingTable.lookup(provider: route.provider, model: route.model) else {
@@ -157,7 +157,7 @@ public enum UsagePricing {
         return CostResult(cost: cost, matchedModel: entry.model, source: entry.source)
     }
 
-    /// Compact human format (Hermes `format_token_count_compact`): 1.2K/3.4M.
+    /// Compact human format (reference `format_token_count_compact`): 1.2K/3.4M.
     public static func formatCompact(_ count: Int) -> String {
         if count >= 1_000_000 {
             let v = Double(count) / 1_000_000
@@ -173,7 +173,7 @@ public enum UsagePricing {
 
 // MARK: - Ledger persistence
 
-/// One day of usage (Hermes daily aggregation windows).
+/// One day of usage (reference daily aggregation windows).
 public struct UsageDay: Codable, Sendable, Equatable {
     public let date: String                 // yyyy-MM-dd
     public var usage: CanonicalUsage
@@ -208,7 +208,7 @@ public actor UsageLedger {
         }
     }
 
-    /// Record one turn's usage (Hermes records per-response; aggrégation by
+    /// Record one turn's usage (reference records per-response; aggrégation by
     /// day happens lazily here).
     public func record(route: BillingRoute, usage: CanonicalUsage) {
         let key = Self.dayString(Date())
@@ -248,7 +248,7 @@ public actor UsageLedger {
     }
 }
 
-// MARK: - Insights (Hermes `insights.py`)
+// MARK: - Insights (reference `insights.py`)
 
 /// Daily aggregation + cost estimate for UI views.
 public enum InsightsEngine {
@@ -274,7 +274,7 @@ public enum InsightsEngine {
         }
     }
 
-    /// Top models by tokens (Hermes insights model ranking).
+    /// Top models by tokens (reference insights model ranking).
     public static func topModels(_ days: [UsageDay], limit: Int = 5) -> [(route: String, usage: CanonicalUsage)] {
         var merged: [String: CanonicalUsage] = [:]
         for day in days {
@@ -288,10 +288,10 @@ public enum InsightsEngine {
     }
 }
 
-// MARK: - Trace upload (Hermes `trace_upload.py`)
+// MARK: - Trace upload (reference `trace_upload.py`)
 
 /// Builds Claude-Code-format JSONL trace lines and uploads them to a
-/// configured endpoint (Hermes uploads traces for agent telemetry).
+/// configured endpoint (reference uploads traces for agent telemetry).
 public enum TraceUpload {
     /// One JSONL line (Claude-Code trace-record shape).
     public static func traceLine(

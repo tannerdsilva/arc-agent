@@ -1,15 +1,15 @@
 import Foundation
 
-/// Hermes-parity `clarify` tool.
+/// arc-parity `clarify` tool.
 ///
 /// Asks the user a question (optionally with up to 4 choices) and returns
 /// their response as the tool result. The WebUI intercepts this tool before
-/// dispatch and renders the Hermes-style "Clarification needed" card attached
+/// dispatch and renders the arc-style "Clarification needed" card attached
 /// to the composer; the answer (or a best-judgement timeout notice after 120 s)
 /// is returned to the model as the tool result.
 ///
 /// In execution contexts without a UI (CLI TUI, gateway, headless), invoking
-/// this tool returns an error — matching Hermes' clarify tool behaviour when
+/// this tool returns an error — matching reference' clarify tool behaviour when
 /// no platform callback is injected.
 public enum ClarifyTool {
 

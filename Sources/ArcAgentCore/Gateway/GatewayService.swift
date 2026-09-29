@@ -34,10 +34,10 @@ public struct GatewayService: Service {
     /// explicitly in `run()` on both success and failure — an unshutdown
     /// AsyncHTTPClient traps on deinit.
     private let httpClient: HTTPClient?
-    /// Chat→session binding (Hermes `session_router` parity): resolves every
+    /// Chat→session binding (reference `session_router` parity): resolves every
     /// incoming chat to its deterministic session ID.
     private let sessionRouter: SessionRouter
-    /// Scheduled job runner (Hermes `cron` service parity): registered as a
+    /// Scheduled job runner (reference `cron` service parity): registered as a
     /// Service; the injected runner executes each due job as a one-shot agent
     /// session.
     private let cronScheduler: CronScheduler

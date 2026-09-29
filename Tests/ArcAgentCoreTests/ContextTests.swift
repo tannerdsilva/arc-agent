@@ -2,7 +2,7 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 
-/// Context files + context references (Hermes features).
+/// Context files + context references (reference features).
 @Suite("Context")
 struct ContextTests {
 

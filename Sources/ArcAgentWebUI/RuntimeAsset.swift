@@ -239,7 +239,7 @@ window.WebUIRuntime = (function () {
     }
 
     function handleEvent(event) {
-      // Hermes parity (Sep 2026): a click anywhere outside an open composer
+      // arc parity (Sep 2026): a click anywhere outside an open composer
       // dropdown (.dd-pop) dismisses it — including clicks on other
       // components. The server closes the popover via the dd-dismiss wire.
       if (event.type === 'click') {
@@ -323,7 +323,7 @@ window.WebUIRuntime = (function () {
         data: eventData,
       });
 
-      // Hermes parity: sending empties the composer immediately (the server
+      // arc parity: sending empties the composer immediately (the server
       // also clears the per-chat draft). Doing it here, before the fragment
       // re-render, keeps the input-state restore from putting the sent text
       // back into the same chat.
@@ -525,8 +525,8 @@ window.WebUIRuntime = (function () {
     return { mount: mount, unmount: unmount, reset: reset };
   }
 
-  // ── Hermes-parity markdown post-render: KaTeX + enhanced tables ──────────
-  // Mirrors hermes-webui ui.js `renderKatexBlocks` + messages.js table
+  // ── arc-parity markdown post-render: KaTeX + enhanced tables ──────────
+  // Mirrors arc-webui ui.js `renderKatexBlocks` + messages.js table
   // enhancement: server-rendered <equation-inline>/<equation-block> elements
   // are typeset with KaTeX (lazy-loaded, rendered-source cached), and pipe
   // tables get per-column sort + a filter input.
@@ -589,7 +589,7 @@ window.WebUIRuntime = (function () {
         });
         _katexState.cache[key] = el.innerHTML;
       } catch (e) {
-        // Leave the raw source as a code span on failure (Hermes parity).
+        // Leave the raw source as a code span on failure (arc parity).
         var code = document.createElement('code');
         code.textContent = src;
         if (el.parentNode) el.parentNode.replaceChild(code, el);
@@ -719,7 +719,7 @@ window.WebUIRuntime = (function () {
 
       restoreScrollState(scrollState);
 
-      // Hermes parity: typeset math and add table controls after every patch.
+      // arc parity: typeset math and add table controls after every patch.
       enhanceMarkdownTables(document);
       renderKatexBlocks(document, { streaming: true });
       applyTurnWorklogStates(document);
@@ -1132,7 +1132,7 @@ window.WebUIRuntime = (function () {
 
     eventDelegator.mount();
 
-    // Hermes parity: the boot page renders markdown server-side, so run the
+    // arc parity: the boot page renders markdown server-side, so run the
     // math/table post-render once on the initial document too (fragment
     // patches already trigger it inside createFragmentPatcher). The runtime
     // loads in <head>, so wait for the body to exist.
@@ -1245,7 +1245,7 @@ window.WebUIRuntime = (function () {
   };
 })();
 
-/* ── Composer flyout helpers (Hermes parity: approval + clarify cards) ── */
+/* ── Composer flyout helpers (arc parity: approval + clarify cards) ── */
 (function () {
   var COLLAPSE_JS = true;
   var countdownTimer = setInterval(function () {
@@ -1299,7 +1299,7 @@ window.WebUIRuntime = (function () {
   });
 
   // Focus the "Allow once" button when an approval card appears (Enter =
-  // approve once, mirroring Hermes' keyboard shortcut).
+  // approve once, mirroring the reference client' keyboard shortcut).
 
       /* ── Run queue: drag-and-drop reordering ── */
   var queueSrcQid = null;
@@ -1463,7 +1463,7 @@ window.WebUIRuntime = (function () {
     }
   });
 
-  /* ── Slash autocomplete (Hermes commands.js parity) ──────────────────── */
+  /* ── Slash autocomplete (reference commands.js parity) ──────────────────── */
   var slashDataCache = null;
   function slashEsc(v) {
     return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -1477,7 +1477,7 @@ window.WebUIRuntime = (function () {
     return slashDataCache;
   }
   function slashIndexOf(text) {
-    // Token-initial "/" at line start or after whitespace (Hermes
+    // Token-initial "/" at line start or after whitespace (reference
     // _activeSlashCommandOffset). Single-line commands only.
     if (!text || text.indexOf('\n') !== -1) return -1;
     for (var i = 0; i < text.length; i++) {
@@ -1565,7 +1565,7 @@ window.WebUIRuntime = (function () {
     var text = String(ta.value || '');
     var sidx = slashIndexOf(text);
     if (sidx < 0) return;
-    // Replace from the slash token to the end (Hermes: prefix + /name).
+    // Replace from the slash token to the end (reference: prefix + /name).
     ta.value = text.slice(0, sidx) + insert;
     ta.focus();
     try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {}
@@ -1576,7 +1576,7 @@ window.WebUIRuntime = (function () {
   var slashPauseUntil = 0;
   function updateSlashDropdown() {
     // After a pick we re-dispatch `input` to persist the draft; suppress the
-    // immediate re-open (Hermes hides after skill selection).
+    // immediate re-open (reference hides after skill selection).
     if (Date.now() < slashPauseUntil) return;
     var ta = document.getElementById('composer-input');
     if (!ta) return;
@@ -1598,7 +1598,7 @@ window.WebUIRuntime = (function () {
     if (!ta || ta.id !== 'composer-input') return;
     var dd = document.getElementById('cmd-dropdown');
     if (!dd || !dd.classList.contains('open')) return;
-    // Hermes: Tab picks the top item, arrows navigate, Esc closes, Enter picks
+    // reference: Tab picks the top item, arrows navigate, Esc closes, Enter picks
     // the highlighted item.
     if (e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); slashSelect(0); return; }
     if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); slashArrow(1); return; }
@@ -1615,7 +1615,7 @@ window.WebUIRuntime = (function () {
     slashSelect(parseInt(it.getAttribute('data-idx'), 10) || 0);
   });
 
-  /* ── Reply with selection (Hermes messages.js parity) ────────────────── */
+  /* ── Reply with selection (reference messages.js parity) ────────────────── */
   var selBtn = null;
   function getSelBtn() {
     if (selBtn && document.body.contains(selBtn)) return selBtn;
@@ -1647,7 +1647,7 @@ window.WebUIRuntime = (function () {
     if (el.closest && el.closest('textarea, input, [contenteditable="true"]')) return false;
     // Message text AND tool-call groups live inside #chat-scroll (members
     // aren't all wrapped in .msg) — root the check at the scroll container,
-    // mirroring Hermes (which checks the messages container).
+    // mirroring the reference client (which checks the messages container).
     return !!(el.closest && (el.closest('#chat-scroll') || el.closest('.chat-scroll')));
   }
   function selectionInfo() {

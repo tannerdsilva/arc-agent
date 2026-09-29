@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - Unified skill management (Hermes `tools/skill_manager_tool.py` +
+// MARK: - Unified skill management (reference `tools/skill_manager_tool.py` +
 // `tools/skills_tool.py` skills_list parity)
 
 /// Tool: `skill_manage` — unified create/patch/edit/delete/write_file/remove_file

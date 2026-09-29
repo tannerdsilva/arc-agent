@@ -2,7 +2,7 @@ import ArgumentParser
 import ArcAgentCore
 import Foundation
 
-/// `arc curator` — skill-library hygiene (Hermes `curator.py`).
+/// `arc curator` — skill-library hygiene (reference `curator.py`).
 ///
 /// Computes automatic transitions (review-worthy after 30 days unused,
 /// archive after 90), respects the skill edit locks in `agent_powers`

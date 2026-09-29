@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ArcAgentCore
 
-// MARK: - Micro-compaction (Hermes docs/micro-compaction.md) parity tests
+// MARK: - Micro-compaction (reference docs/micro-compaction.md) parity tests
 
 @Suite("Micro-compaction")
 struct MicroCompactionTests {

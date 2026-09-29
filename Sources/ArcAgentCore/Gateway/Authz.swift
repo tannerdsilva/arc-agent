@@ -1,6 +1,6 @@
 import Foundation
 
-/// Authorization policy for one platform (Hermes allowlist parity).
+/// Authorization policy for one platform (reference allowlist parity).
 ///
 /// Semantics:
 /// - `allowAllUsers == true` → any sender may talk to the bot.
@@ -12,7 +12,7 @@ import Foundation
 public struct AuthzPolicy: Sendable, Equatable {
     /// Comma-separable list of permitted senders (platform user ids).
     public var allowedUsers: Set<String>
-    /// Allow any user (dev convenience; Hermes ALLOW_ALL_USERS parity).
+    /// Allow any user (dev convenience; reference ALLOW_ALL_USERS parity).
     public var allowAllUsers: Bool
     /// Chat ids permitted; `nil` = every chat (plugin default: per-user).
     public var allowedChats: Set<String>?
@@ -34,7 +34,7 @@ public struct AuthzPolicy: Sendable, Equatable {
     /// The policy that allows everything (default when no gate configured).
     public static let permissive = AuthzPolicy(allowAllUsers: true)
 
-    /// Parse a comma-separated id list (Hermes `<PLATFORM>_ALLOWED_USERS`).
+    /// Parse a comma-separated id list (reference `<PLATFORM>_ALLOWED_USERS`).
     public static func parseIds(_ raw: String?) -> Set<String> {
         Set((raw ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
     }

@@ -24,7 +24,7 @@ import Logging
 /// 6. `(pass)` = silence; a full round of passes = conversation settled
 /// 7. Hard caps: 10 messages per turn, 3 rounds max
 ///
-/// ## Improvements Over Hermes Bot Mode
+/// ## Improvements Over arc bot mode
 ///
 /// - **No polling**: Each member turn is a direct ``SessionRegistry`` route
 ///   with ``AsyncThrowingStream`` for the response, not a 2-second poll loop

@@ -2,7 +2,7 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 
-/// Project store + tools (Hermes `tools/project_tools.py` parity).
+/// Project store + tools (reference `tools/project_tools.py` parity).
 @Suite("Project tools", .serialized)
 struct ProjectToolsTests {
 
@@ -45,7 +45,7 @@ struct ProjectToolsTests {
             let out = try await ProjectListTool.entry.handler([:])
             #expect(out.contains("\"name\":\"Alpha\""))
             #expect(out.contains("\"name\":\"Beta\""))
-            // Hermes format uses snake_case keys
+            // reference format uses snake_case keys
             #expect(out.contains("\"active_id\""))
             #expect(out.contains("\"primary_path\""))
         }
@@ -78,7 +78,7 @@ struct ProjectToolsTests {
         }
     }
 
-    @Test("empty name errors as the Hermes contract")
+    @Test("empty name errors as the reference contract")
     func createInvalid() async throws {
         try await withTempStore { _ in
             let out = try await ProjectCreateTool.entry.handler(["name": "  "])
