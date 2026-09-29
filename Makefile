@@ -2,9 +2,11 @@
 # ────────────────────────────────────────────────────────────
 #   make          — debug build
 #   make release  — optimized release build
-#   make assets   — regenerate KaTeX assets (Gen/katex_assets.py)
 #   make install  — release + copy binaries to ~/.local/bin
-#   make update   — assets + release + install (full cycle)
+#   make update   — release + install (full cycle)
+#
+# KaTeX assets are not a make step: ArcAssetPlugin regenerates them on
+# every build from Sources/ArcAgentWebUI/Assets/vendor/katex/.
 #   make dev      — debug build + web UI
 #   make test     — run tests
 #   make clean    — clean build artifacts
@@ -18,14 +20,11 @@ BUILD_DIR  := .build
 
 INSTALL_DIR ?= $(HOME)/.local/bin
 
-GEN_KATEX := Scripts/gen_katex_assets.py
-KATEX_OUT := Sources/ArcAgentWebUI/Generated/KaTeXAssets.swift
-
 VERSION    := $(shell git describe --tags --always 2>/dev/null || echo "dev")
 DIST_DIR   := dist
 DIST_NAME  := arc-agent-$(VERSION)-macos-arm64
 
-.PHONY: all build release assets install update dev test clean dist uninstall
+.PHONY: all build release install update dev test clean dist uninstall
 
 # ── Default: debug build ──────────────────────────────────
 all: build
@@ -37,12 +36,6 @@ build:
 release:
 	$(SWIFT) build -c release
 
-# ── Regenerate KaTeX assets (embedded Swift strings) ──────
-assets:
-	@echo "  Regenerating KaTeX assets..."
-	python3 $(GEN_KATEX)
-	@echo "  → $(KATEX_OUT)"
-
 # ── Install: build release and copy binaries ──────────────
 install: release
 	@mkdir -p $(INSTALL_DIR)
@@ -51,13 +44,13 @@ install: release
 	@echo "  Installed $(BINARY) + $(WEBUI) → $(INSTALL_DIR)"
 
 # ── Update: full cycle — assets, release, install ─────────
-update: assets release install
+update: release install
 	@echo "  ✅ Update complete: $(BINARY) v$(VERSION)"
 
 # ── Dev: build debug and run the web UI ───────────────────
 dev: build
 	@echo "  Starting web UI (http://127.0.0.1:8890)..."
-	$(BUILD_DIR)/debug/$(WEBUI)
+	$(SWIFT) run $(WEBUI)
 
 # ── Test ──────────────────────────────────────────────────
 test:

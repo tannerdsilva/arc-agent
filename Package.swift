@@ -126,13 +126,35 @@ let package = Package(
             ],
             path: "Sources/ArcAgentWebUI",
             exclude: [
-                // Canonical source for the patched runtime; RuntimeAsset.swift
-                // is a generated Swift embedding of it. KaTeXAssets.swift
-                // is generated separately under Generated/.
+                // Vendored KaTeX and the canonical client runtime live here as
+                // plain files: the runtime is embedded by RuntimeAsset.swift,
+                // and KaTeXAssets.swift is a build product of the plugin below.
                 "Assets",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
+            ],
+            plugins: [
+                "ArcAssetPlugin",
+            ]
+        ),
+
+        // ── Asset codegen (build tool + plugin) ───────────────────
+        // No shell script and no checked-in generated file: the tool is Swift
+        // and the plugin runs it before every build of the web UI target, so
+        // the embedded KaTeX asset is a build product of its input and cannot
+        // drift from Assets/vendor/katex/.
+        .executableTarget(
+            name: "ArcAssetTool",
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+        .plugin(
+            name: "ArcAssetPlugin",
+            capability: .buildTool(),
+            dependencies: [
+                .target(name: "ArcAssetTool"),
             ]
         ),
 
