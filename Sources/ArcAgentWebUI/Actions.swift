@@ -10,55 +10,6 @@ enum TaskEnv {
     @TaskLocal static var clientID: Int?
 }
 
-// MARK: - Client hub
-
-/// Serializes outbound WebSocket writes per connection. Concurrent pushes from
-/// a streaming turn plus UI handlers must never interleave two frame writes.
-actor ClientHub {
-    private struct Client {
-        let writer: NIOAsyncChannelOutboundWriter<WebSocketFrame>
-    }
-    private var clients: [Int: Client] = [:]
-    private var seq = 0
-
-    func nextID() -> Int {
-        seq += 1
-        return seq
-    }
-
-    func register(_ id: Int, _ writer: NIOAsyncChannelOutboundWriter<WebSocketFrame>) {
-        clients[id] = Client(writer: writer)
-    }
-
-    func unregister(_ id: Int) {
-        clients.removeValue(forKey: id)
-    }
-
-    func push(clientID: Int, updates: [FragmentUpdate]) async {
-        guard let client = clients[clientID], !updates.isEmpty else { return }
-        let out = WSOutgoing.update(fragments: updates)
-        guard let data = try? JSONEncoder().encode(out) else { return }
-        var buf = ByteBuffer()
-        buf.writeBytes(data)
-        let frame = WebSocketFrame(fin: true, opcode: .text, data: buf)
-        try? await client.writer.write(frame)
-    }
-
-    /// Push the same updates to every connected client (used by the live log
-    /// stream, which is shared across the single server-side app state).
-    func broadcast(_ updates: [FragmentUpdate]) async {
-        guard !clients.isEmpty, !updates.isEmpty else { return }
-        let out = WSOutgoing.update(fragments: updates)
-        guard let data = try? JSONEncoder().encode(out) else { return }
-        var buf = ByteBuffer()
-        buf.writeBytes(data)
-        let frame = WebSocketFrame(fin: true, opcode: .text, data: buf)
-        for client in clients.values {
-            try? await client.writer.write(frame)
-        }
-    }
-}
-
 // MARK: - AppState extensions (turn engine)
 
 extension AppState {
@@ -999,11 +950,18 @@ extension AppState {
 final class Controller {
 
     let app: AppState
-    let hub: ClientHub
 
-    init(app: AppState, hub: ClientHub) {
+    /// Pushes fragment updates to every connected page.
+    ///
+    /// arc keeps a single server-side `AppState`, so every connected page
+    /// renders the same state: a push therefore fans out to all of them rather
+    /// than to the originating connection. That also keeps multiple tabs in
+    /// sync, which per-connection targeting did not.
+    let push: @Sendable ([FragmentUpdate]) async -> Void
+
+    init(app: AppState, push: @escaping @Sendable ([FragmentUpdate]) async -> Void) {
         self.app = app
-        self.hub = hub
+        self.push = push
     }
 
     // Register a fixed-id component with event-type filtering (see the
@@ -1020,11 +978,10 @@ final class Controller {
         }, for: ComponentID(id))
     }
 
-    /// A pusher bound to the originating client of the current event.
-    func pusher(forClientID cid: Int) -> @Sendable ([FragmentUpdate]) async -> Void {
-        { [hub] updates in
-            await hub.push(clientID: cid, updates: updates)
-        }
+    /// The push for the origin of the current event. The connection id is
+    /// accepted and ignored — see `push`.
+    func pusher(forClientID _: Int) -> @Sendable ([FragmentUpdate]) async -> Void {
+        push
     }
 
     func wireAll(_ router: EventRouter) {

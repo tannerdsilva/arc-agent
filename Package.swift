@@ -59,10 +59,11 @@ let package = Package(
             url: "https://github.com/apple/swift-log.git",
             from: "1.6.0"
         ),
-        .package(
-            url: "https://github.com/tannerdsilva/no-webui.git",
-            branch: "dev"
-        ),
+        // local co-development pin: the ../no-webui checkout carries the server
+        // seams this migration needs (WebUIServerService, host assets, a
+        // request-aware render, and server-initiated broadcast). swap back to
+        // the remote pin once those land.
+        .package(path: "../no-webui"),
     ],
 
     targets: [
@@ -112,6 +113,7 @@ let package = Package(
             dependencies: [
                 .target(name: "ArcAgentCore"),
                 .product(name: "WebUI", package: "no-webui"),
+                .product(name: "WebUIServer", package: "no-webui"),
                 .product(name: "SwiftSlash", package: "SwiftSlash"),
                 .product(name: "AsyncHTTPClient", package: "async-http-client"),
                 .product(name: "NIOCore", package: "swift-nio"),

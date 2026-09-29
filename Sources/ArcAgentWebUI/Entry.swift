@@ -2,7 +2,9 @@ import ArcAgentCore
 import ArgumentParser
 import Foundation
 import Logging
+import ServiceLifecycle
 import WebUI
+import WebUIServer
 
 // MARK: - Entry point
 
@@ -38,7 +40,6 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         let logger = Logger(label: "arc-agent.webui")
         logger.info("starting (pid \(ProcessInfo.processInfo.processIdentifier))")
 
-        let hub = ClientHub()
         let app = try AppState()
         if tesseraOff {
             await app.overrideTesseraOff(true)
@@ -109,10 +110,9 @@ struct ArcAgentWebUI: AsyncParsableCommand {
             }
         }
 
-        // Wire the router (hand-written fixed component ids).
+        // Wire the router (hand-written fixed component ids). The controller is
+        // created further down, once the server that carries its pushes exists.
         let router = EventRouter()
-        let controller = Controller(app: app, hub: hub)
-        controller.wireAll(router)
 
         // Assemble the page (external /ui/* assets keep each response small).
         // The document template wraps whatever body the app currently renders,
@@ -862,45 +862,77 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         })();
         """
 
-        let server = WebServer(
-            logger: logger,
+        // Vendored KaTeX fonts are binary: register each as a byte asset so the
+        // served page fetches them from this server instead of a second one.
+        let fontAssets: [WebUIServerAsset] = KaTeXAssets.fontsBase64.compactMap { name, encoded in
+            guard let data = Data(base64Encoded: encoded) else { return nil }
+            return .bytes(
+                "/ui/vendor/katex/fonts/\(name)",
+                [UInt8](data),
+                contentType: "font/woff2",
+                cacheSeconds: 31_536_000
+            )
+        }
+
+        let server = WebUIServer(
+            requestRender: { request in
+                // ?s=<id> opens that conversation directly (copy-link flow).
+                await pageProvider(request.value("s"))
+            },
             router: router,
-            hub: hub,
-            bootPage: bootPage,
-            pageProvider: pageProvider,
-            runtimeJS: runtimeJS,
-            initJS: initJS,
-            styleCSS: Theme.css + Theme.schemeCSS
+            config: WebUIServerConfig(
+                host: host,
+                port: port,
+                pagePath: "/",
+                assets: [
+                    .text("/ui/style.css", Theme.css + Theme.schemeCSS, contentType: "text/css; charset=utf-8"),
+                    .text("/ui/runtime.js", runtimeJS, contentType: "text/javascript; charset=utf-8"),
+                    .text("/ui/init.js", initJS, contentType: "text/javascript; charset=utf-8"),
+                    .text("/ui/vendor/katex/katex.min.css", KaTeXAssets.css, contentType: "text/css; charset=utf-8"),
+                    .text("/ui/vendor/katex/katex.min.js", KaTeXAssets.js, contentType: "text/javascript; charset=utf-8"),
+                ] + fontAssets
+            ),
+            logger: logger
         )
+
+        let controller = Controller(app: app, push: { updates in
+            await server.broadcast(updates)
+        })
+        controller.wireAll(router)
 
         logger.info("serving http://\(host):\(port) (page \(bootPage.utf8.count) bytes)")
         await app.startCronEngine()
 
-        // Live log stream: drain the ring buffer and broadcast the log box to
+        // Live log stream: drain the ring buffer and push the log box to
         // connected clients while the server runs.
-        let logStreamer = Task { [hub, app] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 400_000_000)
-                guard !LogCollector.shared.drainNew().isEmpty else { continue }
-                guard await app.isLogsView() else { continue }
-                await hub.broadcast(await app.liveLogFragments())
-            }
+        let logStreamer = IntervalService(name: "log-stream", interval: .milliseconds(400)) { [app] in
+            guard !LogCollector.shared.drainNew().isEmpty else { return }
+            guard await app.isLogsView() else { return }
+            await server.broadcast(await app.liveLogFragments())
         }
         // Live workspace tree: while the right-hand panel is open, re-scan on a
         // slow cadence and push a fragment only when the listing changed.
-        let wsStreamer = Task { [hub, app] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                guard await app.isWorkspaceOpen() else { continue }
-                guard await app.scanWorkspaceTree() else { continue }
-                await hub.broadcast(await app.liveWorkspaceFragments())
-            }
+        let wsStreamer = IntervalService(name: "workspace-tree", interval: .seconds(3)) { [app] in
+            guard await app.isWorkspaceOpen() else { return }
+            guard await app.scanWorkspaceTree() else { return }
+            await server.broadcast(await app.liveWorkspaceFragments())
         }
+
         // The UI is only reachable once the server binds; record it so the
         // profile card can show the "Gateway running" badge truthfully.
         await app.markGatewayUp()
-        try await server.serve(host: host, port: port)
-        logStreamer.cancel()
-        wsStreamer.cancel()
+
+        // Second Law: the server and both streamers are Services in one group,
+        // so startup is ordered and shutdown is graceful — cancellation stops
+        // the loops and the listener together instead of leaving ad-hoc Tasks.
+        let group = ServiceGroup(
+            services: [
+                WebUIServerService(server: server, logger: logger),
+                logStreamer,
+                wsStreamer,
+            ],
+            logger: logger
+        )
+        try await group.run()
     }
 }
