@@ -29,6 +29,7 @@ public enum ArcAgentCore {
         try registry.register(WebExtractTool.entry)
         try registry.register(MemoryTool.entry)
         try registry.register(SessionSearchTool.entry)
+        try registry.register(TodoTool.entry)
         try registry.register(SkillViewTool.entry)
         try registry.register(SkillManageTool.entry)
         try registry.register(SkillsListTool.entry)

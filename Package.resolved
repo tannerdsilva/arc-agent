@@ -1,5 +1,5 @@
 {
-  "originHash" : "0829f7840a77b2c359680e309ec369b4fdc70234bc3d58156a3a366a418f44b0",
+  "originHash" : "5288d06d779ebf5a5eff4fd94968545acdbfb670af75ae8c1c64536d2b75a207",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/bedrock.git",
       "state" : {
-        "branch" : "v22-rewrite",
-        "revision" : "6c92dd55c6c39bb8d416d97d153c81a8a81149a9"
+        "revision" : "e6225cb114c6daf0f39ea2af765a60106566160a",
+        "version" : "8.0.0"
       }
     },
     {
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/CLMDB.git",
       "state" : {
-        "revision" : "4ce5826424f8e65f395efc5b4c611479384722b1",
-        "version" : "0.9.30"
+        "revision" : "653e73e2fc1b48cec661c740510cabfb53af723d",
+        "version" : "1.0.2"
       }
     },
     {
@@ -38,12 +38,12 @@
       }
     },
     {
-      "identity" : "negentropy-swift",
+      "identity" : "no-webui",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/bwyma1/negentropy-swift",
+      "location" : "https://github.com/tannerdsilva/no-webui.git",
       "state" : {
-        "branch" : "main",
-        "revision" : "aeda715d53f6467a142c5e59d38a222e2e4e009b"
+        "branch" : "dev",
+        "revision" : "db287d78bd9e8222c0de53952a4c0a3e11313c46"
       }
     },
     {
@@ -65,12 +65,21 @@
       }
     },
     {
+      "identity" : "quickjson",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tannerdsilva/QuickJSON.git",
+      "state" : {
+        "revision" : "5e5b769d55248ed41acb42ac8806c1675461200f",
+        "version" : "2.0.1"
+      }
+    },
+    {
       "identity" : "quicklmdb",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/QuickLMDB",
       "state" : {
-        "branch" : "rawdog-v22-bump",
-        "revision" : "df12a8489322654f3df165f6af6681a8d81827a0"
+        "revision" : "588b11d6de70e4a610ae8934d0e293c7301ac28b",
+        "version" : "16.0.0"
       }
     },
     {
@@ -200,6 +209,15 @@
       }
     },
     {
+      "identity" : "swift-mcp",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tannerdsilva/swift-mcp.git",
+      "state" : {
+        "revision" : "5003705bc673530cec1febc0b9f1278a2be2324d",
+        "version" : "2.0.0"
+      }
+    },
+    {
       "identity" : "swift-metrics",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-metrics.git",
@@ -312,8 +330,17 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/wireguard-swift",
       "state" : {
-        "branch" : "master",
-        "revision" : "b2dbd057996cfe0f96ab3307aa0ce0aab11f12ea"
+        "revision" : "c44539e0e8fc2b1513d1d9bfeb6e963982f23bde",
+        "version" : "0.1.1"
+      }
+    },
+    {
+      "identity" : "yyjson",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ibireme/yyjson.git",
+      "state" : {
+        "revision" : "8b4a38dc994a110abaec8a400615567bd996105f",
+        "version" : "0.12.0"
       }
     }
   ],

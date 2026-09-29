@@ -134,7 +134,10 @@ public enum MediaTools {
                 return "Error: Audio file not found: \(path)"
             }
             let audio = try Data(contentsOf: URL(fileURLWithPath: path))
-            let url = URL(string: config.baseURL)!.appendingPathComponent("audio/transcriptions")
+            guard let base = URL(string: config.baseURL) else {
+                return "Error: MEDIA_BASE_URL is not a valid URL: \(config.baseURL)"
+            }
+            let url = base.appendingPathComponent("audio/transcriptions")
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")

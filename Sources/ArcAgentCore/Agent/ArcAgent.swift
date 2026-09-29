@@ -246,6 +246,14 @@ public actor ArcAgent: Service {
     /// Changed paths observed from terminal-tool evidence during the current
     /// turn (feeds the verify-on-stop nudge).
     private var turnChangedPaths: [String] = []
+    /// Session-scoped todo list (reference `todo_tool.py`). One per agent
+    /// instance — re-injected after context compression.
+    private let todoStore = TodoStore()
+    /// Streaming reasoning-tag scrubber (reference `think_scrubber.py`
+    /// `StreamingThinkScrubber`). Re-entrant per stream — reset at the top
+    /// of every new streamed turn so a hung block from an interrupted prior
+    /// stream cannot taint the next turn's output.
+    private var streamThinkScrubber = StreamingThinkScrubber()
     /// Tool calls issued in the current turn (background-review cadence).
     private var toolCallsThisTurn = 0
     /// Guidance from a background review, injected at the start of the next
@@ -457,6 +465,8 @@ public actor ArcAgent: Service {
         MemoryTool.provider = config.memoryProvider
         // The session-search tool reads through the agent's session store.
         SessionSearchTool.store = config.sessionStore
+        // The todo tool is session-scoped: one list per agent instance.
+        TodoTool.store = todoStore
     }
 
     /// Replace the LLM client for this agent.
@@ -527,6 +537,8 @@ public actor ArcAgent: Service {
         // The memory tool writes through the agent's configured provider.
         MemoryTool.provider = config.memoryProvider
         SessionSearchTool.store = config.sessionStore
+        // Session-scoped todo list (one per agent instance).
+        TodoTool.store = todoStore
     }
 
     /// Tear the HTTP client down (streaming callers own their client).
@@ -1441,13 +1453,35 @@ public actor ArcAgent: Service {
                 return "Error: \(error.localizedDescription)"
             }
 
+            // 4b. Non-streaming parity: the streaming loop scrubs reasoning
+            // tags per-delta (StreamingThinkScrubber); on this path the whole
+            // response arrives at once, so run the batch scrubber
+            // (ThinkScrubber.scrub) on the content before it is persisted or
+            // classified. Tool calls are unaffected (schema keeps its
+            // arguments intact; only visible text is scrubbed).
+            let response2: LLMResponse
+            if let rawContent = response.content, !rawContent.isEmpty {
+                let scrubbed = ThinkScrubber.scrub(rawContent)
+                if scrubbed != rawContent {
+                    response2 = LLMResponse(
+                        content: scrubbed.isEmpty ? nil : scrubbed,
+                        toolCalls: response.toolCalls,
+                        finishReason: response.finishReason,
+                        usage: response.usage
+                    )
+                } else {
+                    response2 = response
+                }
+            } else {
+                response2 = response
+            }
             // 5. Truncation recovery — "length"/"max_tokens" means the answer
             // was cut off. Keep the partial, nudge a bounded continuation,
             // and loop instead of returning a half answer.
-            let finishReason = response.finishReason ?? ""
+            let finishReason = response2.finishReason ?? ""
             if (finishReason == "length" || finishReason == "max_tokens"),
-               (response.toolCalls ?? []).isEmpty,
-               let partial = response.content, !partial.isEmpty,
+               (response2.toolCalls ?? []).isEmpty,
+               let partial = response2.content, !partial.isEmpty,
                truncationContinuations < Self.maxTruncationContinuations {
                 messageHistory.append(Message(role: .assistant, content: partial))
                 messageHistory.append(Message(role: .system, content: Self.truncationNudge))
@@ -1456,7 +1490,7 @@ public actor ArcAgent: Service {
             }
 
             // 6. Parse response — tool calls take precedence over content.
-            switch Self.classifyTurn(content: response.content, toolCalls: response.toolCalls) {
+            switch Self.classifyTurn(content: response2.content, toolCalls: response2.toolCalls) {
             case .text(let content):
                 messageHistory.append(Message(role: .assistant, content: content))
                 turnRecoveryState.markProviderSuccess()
@@ -1465,7 +1499,7 @@ public actor ArcAgent: Service {
             case .toolCalls(let toolCalls):
                 messageHistory.append(Message(
                     role: .assistant,
-                    content: response.content,
+                    content: response2.content,
                     toolCalls: toolCalls
                 ))
 
@@ -1608,6 +1642,9 @@ public actor ArcAgent: Service {
             var accumulatedContent = ""
             var streamUsage: Usage?
             var accumulatedToolCalls: [ToolCall] = []
+            // Fresh stream → fresh scrubber state (a hung thinking block from
+            // an interrupted prior stream must not taint this turn's output).
+            streamThinkScrubber.reset()
 
             do {
                 let stream = try await callStreamWithRetry(
@@ -1624,8 +1661,17 @@ public actor ArcAgent: Service {
                         streamUsage = usage
                     }
                     if let content = delta.content {
-                        accumulatedContent += content
-                        continuation.yield(content)
+                        // Strip streamed reasoning blocks with a stateful
+                        // scrubber (reference `StreamingThinkScrubber`): a
+                        // batch per-delta regex erases the open tag and
+                        // leaks the reasoning that follows. Partial tags at
+                        // delta boundaries are held back until resolved;
+                        // flushed by `finishReason`/end-of-stream.
+                        let visible = streamThinkScrubber.feed(content)
+                        accumulatedContent += visible
+                        if !visible.isEmpty {
+                            continuation.yield(visible)
+                        }
                     }
                     if let toolCallDeltas = delta.toolCalls {
                         for tcd in toolCallDeltas {
@@ -1657,6 +1703,14 @@ public actor ArcAgent: Service {
                         streamFinishReason = finish
                         break
                     }
+                }
+                // End of stream: flush any held-back partial-tag prose that
+                // turned out not to be a real tag (reference flush()). If
+                // still inside an unterminated block, flush() discards it.
+                let tail = streamThinkScrubber.flush()
+                if !tail.isEmpty {
+                    accumulatedContent += tail
+                    continuation.yield(tail)
                 }
             } catch {
                 let errorClass = classifyError(error)

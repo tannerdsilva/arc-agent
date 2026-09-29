@@ -258,64 +258,77 @@ public actor TesseraConnection {
             throw TesseraStoreError.invalidKeys
         }
 
-        let (publicKey, privateKey) = try RAW_ed25519.generateKeys(secretKey: configuration.myPrivateKey)
-        nostrPublicKey = publicKey
-        nostrPrivateKey = privateKey
+        do {
+            let (publicKey, privateKey) = try RAW_ed25519.generateKeys(secretKey: configuration.myPrivateKey)
+            nostrPublicKey = publicKey
+            nostrPrivateKey = privateKey
 
-        let model = ArcModel()
-        let receiver = TesseraClientReceiverStore()
-        receiver.models.append(model)
+            let model = ArcModel()
+            let receiver = TesseraClientReceiverStore()
+            receiver.models.append(model)
 
-        let session = TesseraSession(
-            client: TesseraClient(configuration: configuration),
-            receiver: receiver,
-            application: config.application,
-            myNostrPublicKey: publicKey
-        )
-        let tracker = EOSETracker(expected: Self.subscriptionIDs)
-        session.onEOSE = { [weak tracker] eose in
-            tracker?.mark(String(eose.subscriptionID))
-        }
-        session.onNotice = { text in
-            FileHandle.standardError.write(Data("[tessera] notice: \(text)\n".utf8))
-        }
-        self.model = model
-        self.session = session
-        self.eoseTracker = tracker
-
-        // Bound the connect: a wedged relay (handshake never completing) must
-        // fail the store after a bounded wait instead of hanging the process.
-        // Race via TaskGroup per the First Law; the loser keeps its work but
-        // never blocks the caller.
-        try await Self.boundedOp(seconds: 25) {
-            try await session.connect()
-        }
-        // The subscribe path waits on the same tunnel channel as connect; a
-        // relay that dies mid-handshake leaves it unresolved forever, so
-        // bound the whole subscribe phase (mirror of the connect race above).
-        // The raw client's channel wait cannot be cancelled once entered, so
-        // the losing task stays blocked inside the client's own pool — a
-        // bounded leak beats an unbounded caller freeze.
-        try await Self.boundedOp(seconds: Self.writeTimeoutSeconds) {
-            for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind]) {
-                try await session.subscribe(subscriptionID: sub, filters: [Filter(applications: [config.application], kinds: [kind])])
+            let session = TesseraSession(
+                client: TesseraClient(configuration: configuration),
+                receiver: receiver,
+                application: config.application,
+                myNostrPublicKey: publicKey
+            )
+            let tracker = EOSETracker(expected: Self.subscriptionIDs)
+            session.onEOSE = { [weak tracker] eose in
+                tracker?.mark(String(eose.subscriptionID))
             }
-        }
+            session.onNotice = { text in
+                FileHandle.standardError.write(Data("[tessera] notice: \(text)\n".utf8))
+            }
+            self.model = model
+            self.session = session
+            self.eoseTracker = tracker
 
-        // Wait for every end-of-history marker, then give the receiver a
-        // moment to drain the decoded events into the model.
-        let deadline = Date().addingTimeInterval(20)
-        while Date() < deadline {
-            if tracker.completed() { break }
-            try await Task.sleep(nanoseconds: 100_000_000)
-        }
-        try await Task.sleep(nanoseconds: 500_000_000)
-        guard tracker.completed() else {
-            throw TesseraStoreError.eoseTimeout
-        }
+            // Bound the connect: a wedged relay (handshake never completing) must
+            // fail the store after a bounded wait instead of hanging the process.
+            // Race via TaskGroup per the First Law; the loser keeps its work but
+            // never blocks the caller.
+            try await Self.boundedOp(seconds: 25) {
+                try await session.connect()
+            }
+            // The subscribe path waits on the same tunnel channel as connect; a
+            // relay that dies mid-handshake leaves it unresolved forever, so
+            // bound the whole subscribe phase (mirror of the connect race above).
+            // The raw client's channel wait cannot be cancelled once entered, so
+            // the losing task stays blocked inside the client's own pool — a
+            // bounded leak beats an unbounded caller freeze.
+            try await Self.boundedOp(seconds: Self.writeTimeoutSeconds) {
+                for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind]) {
+                    try await session.subscribe(subscriptionID: sub, filters: [Filter(applications: [config.application], kinds: [kind])])
+                }
+            }
 
-        nextSeq = globalMaxSequence() + 1
-        isStarted = true
+            // Wait for every end-of-history marker, then give the receiver a
+            // moment to drain the decoded events into the model.
+            let deadline = Date().addingTimeInterval(20)
+            while Date() < deadline {
+                if tracker.completed() { break }
+                try await Task.sleep(nanoseconds: 100_000_000)
+            }
+            try await Task.sleep(nanoseconds: 500_000_000)
+            guard tracker.completed() else {
+                throw TesseraStoreError.eoseTimeout
+            }
+
+            nextSeq = globalMaxSequence() + 1
+            isStarted = true
+        } catch {
+            // A failed start must never leave a half-open tunnel behind: the
+            // stale session/model/eose-tracker stay set, and the next retry
+            // would build a FRESH session over the old one, accumulating
+            // subscriptions and sockets on the shared client channel. Tear
+            // everything down (shutdown is idempotent, and is the same path
+            // CLI healthCheck already uses) so a retry starts from a clean
+            // slate. pendingRecords are cleared too — unacked writes are
+            // stale; their echoes replay under the fresh model on reconnect.
+            await shutdown()
+            throw error
+        }
     }
 
     // MARK: - Publishing

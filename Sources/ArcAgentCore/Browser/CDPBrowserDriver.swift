@@ -229,7 +229,14 @@ public final class CDPBrowserProvider: BrowserProvider, @unchecked Sendable {
     public init(endpoint: URL? = nil) {
         let env = ProcessInfo.processInfo.environment["BROWSER_CDP_URL"]
             ?? "ws://localhost:9222/devtools/browser"
-        self.endpoint = endpoint ?? URL(string: env)!
+        // A malformed BROWSER_CDP_URL (trailing space, missing scheme) must
+        // not crash the process from inside a tool handler — fall back to
+        // the default, which is at least deterministic.
+        if let provided = endpoint ?? URL(string: env) {
+            self.endpoint = provided
+        } else {
+            self.endpoint = URL(string: "ws://localhost:9222/devtools/browser")!
+        }
     }
 
     /// Open the newest page target and attach. Idempotent per process.

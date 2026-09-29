@@ -53,7 +53,11 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         struct BootTimeout: Error {}
         let stream = AsyncStream<Result<Void, Error>>.makeStream()
         let c = stream.continuation
-        Task {
+        // Hold the boot task handle so a timed-out first boot can be CANCELLED
+        // before the fallback runs — otherwise it finishes last (~45-70s) and
+        // overwrites the store state the fallback just built, blanking the
+        // sidebar, and leaks the tunnel it spawned.
+        let bootTask = Task {
             do {
                 await app.boot()
                 c.yield(.success(())); c.finish()
@@ -71,6 +75,7 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         case .failure:
             await app.crumb("entry: boot timeout — fallback to file")
             logger.warning("boot timed out (Tessera unreachable?) — using file storage")
+            bootTask.cancel()
             await app.forceTesseraOff()
             await app.boot()
             await app.crumb("entry: fallback boot done")

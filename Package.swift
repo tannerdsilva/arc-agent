@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.3
 
 import PackageDescription
 
@@ -32,7 +32,8 @@ let package = Package(
             from: "2.0.0"
         ),
 		.package(
-			path: "../swift-mcp"
+			url: "https://github.com/tannerdsilva/swift-mcp.git",
+			"2.0.0"..<"3.0.0"
 		),
         .package(
             url: "https://github.com/apple/swift-nio.git",
@@ -58,7 +59,10 @@ let package = Package(
             url: "https://github.com/apple/swift-log.git",
             from: "1.6.0"
         ),
-        .package(name: "no-webui", path: "../no-webui-upstream"),
+        .package(
+            url: "https://github.com/tannerdsilva/no-webui.git",
+            branch: "dev"
+        ),
     ],
 
     targets: [
