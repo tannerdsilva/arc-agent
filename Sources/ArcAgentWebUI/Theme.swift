@@ -1,4 +1,6 @@
 import Foundation
+import WebUI
+import WebUIDesignSystem
 
 // MARK: - Themes
 
@@ -34,16 +36,84 @@ struct ColorScheme {
         self.dark = dark
     }
 
-    /// `#app[data-scheme="<id>"][data-theme="light|dark"] { --var: value; ... }`
+    /// The scheme's palette blocks, scoped to
+    /// `#app[data-scheme="<id>"][data-theme="light|dark|system"]`, plus the
+    /// `system` dark pass inside a `prefers-color-scheme` media query.
+    ///
+    /// Emitted through no-webui's CSS builders rather than string
+    /// concatenation, and every block carries arc's own custom properties
+    /// *and* the design tokens `tokenMap` projects from them — so a no-webui
+    /// component rendered inside `#app` adopts the active scheme without arc
+    /// restating the palette.
     var cssBlocks: String {
-        block(theme: "light", vars: light) + "\n" + block(theme: "dark", vars: dark)
-            + "\n" + block(theme: "system", vars: light)
-            + "\n@media (prefers-color-scheme: dark) {\n" + block(theme: "system", vars: dark) + "\n}"
+        let scoped = CSSStylesheet([
+            block(theme: "light", palette: light, isDark: false),
+            block(theme: "dark", palette: dark, isDark: true),
+            block(theme: "system", palette: light, isDark: false),
+        ]).render()
+        // The media pass comes last so it wins the cascade for a system-preference
+        // viewer, exactly as the hand-rolled sheets ordered it.
+        let systemDark = CSSMediaQuery(
+            "(prefers-color-scheme: dark)",
+            rules: [block(theme: "system", palette: dark, isDark: true)]
+        ).render()
+        return scoped + "\n" + systemDark
     }
 
-    private func block(theme: String, vars: [String: String]) -> String {
-        let body = vars.map { "      --\($0.key): \($0.value);" }.joined(separator: "\n")
-        return "#app[data-scheme=\"\(id)\"][data-theme=\"\(theme)\"] {\n" + body + "\n    }"
+    /// One scoped rule: the palette as arc's custom properties, then the design
+    /// tokens projected from it. Declarations are sorted by name so the served
+    /// sheet is deterministic — the previous `dictionary.map` emitted them in
+    /// hash order, which made the bytes differ between runs of the same build.
+    private func block(theme: String, palette: [String: String], isDark: Bool) -> CSSRule {
+        var declarations = palette
+            .sorted { $0.key < $1.key }
+            .map { CSSDeclaration("--\($0.key)", $0.value) }
+        for (prop, token) in Self.tokenMap.sorted(by: { $0.key < $1.key }) {
+            if let value = palette[prop] {
+                declarations.append(CSSDeclaration("--\(token.rawValue)", value))
+            }
+        }
+        return CSSRule("#app[data-scheme=\"\(id)\"][data-theme=\"\(theme)\"]", declarations)
+    }
+
+    /// arc custom property → no-webui design token.
+    ///
+    /// Deliberately partial: it maps only where the two vocabularies mean the
+    /// same thing, and the compiler enforces each token case exists. arc keeps
+    /// the properties with no token equivalent — `accent-soft`,
+    /// `accent-border`, `border-subtle`, `hover-bg`, `input-bg`, `code-bg`,
+    /// `code-inline-bg`, `code-text`, `link`, `shadow`, `user-bubble` — as
+    /// custom properties; a token invented to cover them would be a name that
+    /// lies about what it means.
+    static let tokenMap: [String: DesignToken] = [
+        "bg": .colorBg,
+        "surface": .colorBgRaised,
+        "surface-2": .colorBgInset,
+        "sidebar": .colorBgSubtle,
+        "border": .colorBorder,
+        "border-strong": .colorBorderStrong,
+        "text": .colorText,
+        "muted": .colorTextMuted,
+        "accent": .colorPrimarySolid,
+        "accent-strong": .colorPrimarySolidHover,
+        "danger": .colorDanger,
+        "danger-soft": .colorDangerSoft,
+        "success": .colorSuccess,
+        "warning": .colorWarning,
+        "scroll-thumb": .scrollbarThumb,
+    ]
+
+    /// The scheme as a native no-webui theme, for a page that renders through
+    /// `WebUITheme` (a `WebUIDocument`) instead of arc's own stylesheet. An
+    /// override-only scheme contributes just its overrides, matching how
+    /// ``cssBlocks`` scopes it.
+    func theme(isDark: Bool) -> WebUITheme {
+        let palette = isDark ? dark : light
+        var tokens: [DesignToken: String] = [:]
+        for (prop, token) in Self.tokenMap {
+            if let value = palette[prop] { tokens[token] = value }
+        }
+        return WebUITheme(tokens: tokens, scheme: isDark ? .dark : .light)
     }
 
     // MARK: Schemas
