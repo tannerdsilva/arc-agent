@@ -1,14 +1,6 @@
 import ArcAgentCore
 import Foundation
-import NIOCore
-import NIOWebSocket
 import WebUI
-
-// MARK: - Per-connection identity
-
-enum TaskEnv {
-    @TaskLocal static var clientID: Int?
-}
 
 // MARK: - AppState extensions (turn engine)
 
@@ -978,12 +970,6 @@ final class Controller {
         }, for: ComponentID(id))
     }
 
-    /// The push for the origin of the current event. The connection id is
-    /// accepted and ignored — see `push`.
-    func pusher(forClientID _: Int) -> @Sendable ([FragmentUpdate]) async -> Void {
-        push
-    }
-
     func wireAll(_ router: EventRouter) {
         wireNav(router)
         wireChat(router)
@@ -1479,9 +1465,7 @@ final class Controller {
             _ = await app.hint("Steering current response…")
             return await app.chatFragments()
         }
-        // Grab originating client id while inside the handler context.
-        let cid = TaskEnv.clientID ?? 0
-        let pusher = pusher(forClientID: cid)
+        let pusher = push
         Task {
             await self.app.runTurn(userText: withContexts, pusher: pusher, sessionID: sid, displayText: displayOverride)
         }
@@ -1661,8 +1645,7 @@ final class Controller {
             let directive = "[USER OVERRIDE] You MUST follow the skill '\(info.name)' content provided below before responding to the next message."
             let forced = "[FORCED SKILL CONTEXT: \(info.name)]\n\(content)\n[/FORCED SKILL CONTEXT]"
             let sid = await app.activeSessionID ?? ""
-            let cid = TaskEnv.clientID ?? 0
-            let pusher = pusher(forClientID: cid)
+            let pusher = push
             Task {
                 await self.app.runTurn(
                     userText: directive + "\n\n" + forced + "\n\n" + (args.split(separator: " ", maxSplits: 1).dropFirst().joined(separator: " ")),

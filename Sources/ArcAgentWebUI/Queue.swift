@@ -633,8 +633,7 @@ extension Controller {
             }
             if tid == "queue-run-sync" || tid == "queue-run-async" {
                 guard await self.app.queueRunActive == false else { return [] }
-                let cid = TaskEnv.clientID ?? 0
-                let pusher = self.pusher(forClientID: cid)
+                let pusher = self.push
                 let sequential = tid == "queue-run-sync"
                 Task {
                     if sequential {
