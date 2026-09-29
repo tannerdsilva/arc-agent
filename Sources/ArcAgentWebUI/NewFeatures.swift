@@ -356,14 +356,14 @@ extension AppState {
             rows.append("""
             <div class="todo-row\(t.done ? " done" : "")" data-tid="\(t.id)">
               <button type="button" id="todo-toggle-\(t.id)" data-component-id="todos" class="todo-check" title="\(t.done ? "Mark not done" : "Mark done")" aria-label="Toggle">
-                \(svgIcon("check", 12))
+                \(WebUIIcon(.check, size: .small).render())
               </button>
               <span class="todo-text">\(esc(t.text))</span>
               <button type="button" id="todo-run-\(t.id)" data-component-id="todos" class="todo-run" title="Run in chat" aria-label="Run in chat">
-                \(svgIcon("play", 11))
+                \(WebUIIcon(.play, size: .small).render())
               </button>
               <button type="button" id="todo-del-\(t.id)" data-component-id="todos" class="todo-x" title="Remove" aria-label="Remove">
-                \(svgIcon("x", 11))
+                \(WebUIIcon(.x, size: .small).render())
               </button>
             </div>
             """)
@@ -380,7 +380,7 @@ extension AppState {
 
         let empty = items.isEmpty ? """
             <div class="todo-empty">
-              <div class="todo-empty-ico">\(svgIcon("check", 26))</div>
+              <div class="todo-empty-ico">\(WebUIIcon(.check, size: .extraLarge).render())</div>
               <div>\(chat.isEmpty ? "Select a chat to see its todos" : "No todos for this chat yet")</div>
               <small>Add one below — it stays with this chat.</small>
             </div>
@@ -398,7 +398,7 @@ extension AppState {
               <div class="todo-head-actions">
                 \(clearBtn)
                 <button type="button" id="todo-run-all" data-component-id="todos" class="todo-runall" title="Run all open todos in chat" aria-label="Run all open todos in chat">
-                  <span class="todo-runall-ico">\(svgIcon("fast-forward", 10))</span>Run all
+                  <span class="todo-runall-ico">\(WebUIIcon(.fastForward, size: .small).render())</span>Run all
                 </button>
                 <span class="todo-pill">\(pending) open</span>
               </div>
@@ -419,7 +419,7 @@ extension AppState {
 
     /// Scheduled Tasks page — left panel: one chat row per scheduled task.
     func tasksPanel() -> String {
-        let newBtn = btn("task-new", "tasks", "plus-btn", svgIcon("plus", 15), " title=\"New scheduled task\"")
+        let newBtn = btn("task-new", "tasks", "plus-btn", WebUIIcon(.plus, size: .medium).render(), " title=\"New scheduled task\"")
         let head = """
         <div class="panel-head">
           <span class="panel-title">Scheduled Tasks</span>
@@ -474,7 +474,7 @@ extension AppState {
             <div class="row-actions-main" style="margin:0">
               <button type="button" id="task-toggle-\(job.id)" data-component-id="tasks" class="ghost-btn">\(toggleLabel)</button>
               <button type="button" id="task-now-\(job.id)" data-component-id="tasks" class="ghost-btn">Run now</button>
-              <button type="button" id="task-del-\(job.id)" data-component-id="tasks" class="icon-mini danger" title="Delete task and its chat">\(svgIcon("x", 11))</button>
+              <button type="button" id="task-del-\(job.id)" data-component-id="tasks" class="icon-mini danger" title="Delete task and its chat">\(WebUIIcon(.x, size: .small).render())</button>
             </div>
           </div>
           <div class="task-ctrl-line"><span class="task-ctrl-key">Prompt</span><span class="task-ctrl-val">\(esc(job.prompt))</span></div>

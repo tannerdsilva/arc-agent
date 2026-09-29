@@ -441,15 +441,15 @@ extension AppState {
         let linkPop = queueLinksOpen == e.id ? queueLinkPopupHTML(e, plan: plan) : ""
         return """
         <div class="queue-row\(missing)\(statusCls)" draggable="true" data-qid="\(e.id)">
-          <span class="queue-grip" title="Drag to reorder">\(svgIcon("grip", 13))</span>
+          <span class="queue-grip" title="Drag to reorder">\(WebUIIcon(.moreVertical, size: .small).render())</span>
           <span class="queue-idx">\(index + 1)</span>
           <div class="queue-main">
             <div class="queue-text">\(esc(todo?.text ?? "⚠︎ todo no longer exists"))</div>
             <div class="queue-meta">\(esc(queueChatLabel(e.chatID))) · \(inputsChips)</div>
           </div>
-          <button type="button" id="queue-inputs-\(e.id)" data-component-id="queue" data-event="click" class="icon-mini queue-link-btn" title="Feed earlier task output into this task">\(svgIcon("link", 12))</button>
+          <button type="button" id="queue-inputs-\(e.id)" data-component-id="queue" data-event="click" class="icon-mini queue-link-btn" title="Feed earlier task output into this task">\(WebUIIcon(.link, size: .small).render())</button>
           <span class="queue-status\(statusCls)">\(esc(statusText))</span>
-          <button type="button" id="queue-del-\(e.id)" data-component-id="queue" data-event="click" class="icon-mini danger" title="Remove from queue">\(svgIcon("x", 11))</button>
+          <button type="button" id="queue-del-\(e.id)" data-component-id="queue" data-event="click" class="icon-mini danger" title="Remove from queue">\(WebUIIcon(.x, size: .small).render())</button>
         </div>
         \(linkPop)
         """
@@ -514,7 +514,7 @@ extension AppState {
         <div class="queue-picker">
           <div class="queue-picker-head">
             <span>Add todos from your chats</span>
-            <button type="button" id="queue-picker-close" data-component-id="queue" data-event="click" class="icon-mini">\(svgIcon("x", 11))</button>
+            <button type="button" id="queue-picker-close" data-component-id="queue" data-event="click" class="icon-mini">\(WebUIIcon(.x, size: .small).render())</button>
           </div>
           \(body)
           <div class="queue-picker-foot">
@@ -530,7 +530,7 @@ extension AppState {
         let rows = plan.enumerated().map { i, e in queueRowHTML(e, index: i, plan: plan) }.joined()
         let empty = plan.isEmpty ? """
             <div class="todo-empty">
-              <div class="todo-empty-ico">\(svgIcon("fast-forward", 26))</div>
+              <div class="todo-empty-ico">\(WebUIIcon(.fastForward, size: .extraLarge).render())</div>
               <div>Nothing queued yet</div>
               <small>Add todos from any chat below, drag to reorder, then run them.</small>
             </div>
@@ -557,12 +557,12 @@ extension AppState {
             runBtns = """
             <div class="queue-ctrl-btns">
               <button type="button" id="queue-run-sync" data-component-id="queue" data-event="click" class="queue-run-btn" title="Run tasks in the shown order; linked tasks receive earlier output as context">
-                <span class="queue-run-ico">\(svgIcon("play", 10))</span>Run sequential
+                <span class="queue-run-ico">\(WebUIIcon(.play, size: .small).render())</span>Run sequential
               </button>
               <button type="button" id="queue-run-async" data-component-id="queue" data-event="click" class="queue-run-btn" title="Run each chat at the same time; same-chat tasks are combined">
-                <span class="queue-run-ico">\(svgIcon("fast-forward", 10))</span>Run parallel
+                <span class="queue-run-ico">\(WebUIIcon(.fastForward, size: .small).render())</span>Run parallel
               </button>
-              <button type="button" id="queue-picker-toggle" data-component-id="queue" data-event="click" class="queue-add-btn">\(svgIcon("plus", 11)) Add tasks</button>
+              <button type="button" id="queue-picker-toggle" data-component-id="queue" data-event="click" class="queue-add-btn">\(WebUIIcon(.plus, size: .small).render()) Add tasks</button>
             </div>
             <div class="queue-loop-row">
               <label class="queue-loop-toggle" title="Repeat the sequential run; linked later tasks feed back on the next pass">

@@ -1,6 +1,7 @@
 import ArcAgentCore
 import AsyncHTTPClient
 import Foundation
+import WebUI
 
 // MARK: - Enums & value types
 
@@ -58,19 +59,19 @@ enum ViewID: String, CaseIterable {
 
     var icon: String {
         switch self {
-        case .chat: return svgIcon("chat", 19)
-        case .skills: return svgIcon("sparkle", 19)
-        case .profiles: return svgIcon("person", 19)
-        case .tools: return svgIcon("tools", 19)
-        case .workspaces: return svgIcon("workspaces", 19)
-        case .github: return svgIcon("branch", 19)
-        case .kanban: return svgIcon("kanban", 19)
-        case .memory: return svgIcon("memory", 19)
-        case .insights: return svgIcon("chart", 19)
-        case .logs: return svgIcon("log", 19)
-        case .tasks: return svgIcon("clock", 19)
-        case .todos: return svgIcon("check", 19)
-        case .settings: return svgIcon("settings", 19)
+        case .chat: return WebUIIcon(.messageSquare, size: .large).render()
+        case .skills: return WebUIIcon(.star, size: .large).render()
+        case .profiles: return WebUIIcon(.user, size: .large).render()
+        case .tools: return WebUIIcon(.tool, size: .large).render()
+        case .workspaces: return WebUIIcon(.grid, size: .large).render()
+        case .github: return WebUIIcon(.gitBranch, size: .large).render()
+        case .kanban: return WebUIIcon(.columns, size: .large).render()
+        case .memory: return WebUIIcon(.database, size: .large).render()
+        case .insights: return WebUIIcon(.chartBar, size: .large).render()
+        case .logs: return WebUIIcon(.list, size: .large).render()
+        case .tasks: return WebUIIcon(.clock, size: .large).render()
+        case .todos: return WebUIIcon(.check, size: .large).render()
+        case .settings: return WebUIIcon(.settings, size: .large).render()
         }
     }
 }

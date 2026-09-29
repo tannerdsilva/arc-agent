@@ -84,7 +84,7 @@ extension AppState {
     /// colorless lightning mark centred with the current chat's name beside it.
     func topbarHTML() -> String {
         let name = esc(topbarLabel())
-        let bolt = svgIcon("lightning", 16)
+        let bolt = WebUIIcon(.zap, size: .medium).render()
         return """
         <header id="topbar">
           <div class="topbar-center">
@@ -137,7 +137,7 @@ extension AppState {
     func toastsHTML() -> String {
         let items = toasts.map { t -> String in
             let dot = "<span class=\"toast-dot\"></span>"
-            let x = btn("t-\(t.id)", "toast-dismiss", "toast-x", svgIcon("x", 10))
+            let x = btn("t-\(t.id)", "toast-dismiss", "toast-x", WebUIIcon(.x, size: .small).render())
             return "<div class=\"toast \(t.kind)\">\(dot)<span>\(esc(t.text))</span>\(x)</div>"
         }
         return items.joined()
@@ -264,8 +264,8 @@ extension AppState {
     // MARK: Chat panel
 
     func chatPanel(todos: Bool = false) -> String {
-        let newBtn = btn("chat-new", "chat-new", "plus-btn", svgIcon("plus", 15), " title=\"New chat\"")
-        let archBtn = btn("chat-showarch", "chat-showarch", "icon-btn" + (showArchived ? " active" : ""), svgIcon("archive", 15), " title=\"Show archived\"")
+        let newBtn = btn("chat-new", "chat-new", "plus-btn", WebUIIcon(.plus, size: .medium).render(), " title=\"New chat\"")
+        let archBtn = btn("chat-showarch", "chat-showarch", "icon-btn" + (showArchived ? " active" : ""), WebUIIcon(.archive, size: .medium).render(), " title=\"Show archived\"")
         // The Todos page reuses this panel but stripped down: title "Todos",
         // no archived toggle, no "+" new chat, minimal rows.
         let actions = todos ? "" : archBtn + newBtn
@@ -275,13 +275,13 @@ extension AppState {
           <div class="panel-actions">\(actions)</div>
         </div>
         <div class="filter-bar">
-          <span class="filter-ico">\(svgIcon("search", 13))</span>
+          <span class="filter-ico">\(WebUIIcon(.search, size: .small).render())</span>
           <input id="chat-search-input" data-component-id="chat-search-input" type="text" placeholder="Filter conversations…" value="\(esc(chatFilter))">
         </div>
         \(categoryCloudHTML())
         \(todos ? "" : """
         <button type="button" id="chat-showarch-link" data-component-id="chat-showarch" class="arch-link" title="Toggle archived">
-          <span class="arch-ico">\(svgIcon(showArchived ? "chevron-down" : "chevron-right", 10))</span><span>\(showArchived ? " Hide archived conversations" : " Show archived conversations")</span>
+          <span class="arch-ico">\(WebUIIcon(showArchived ? .chevronDown : .chevronRight, size: .small).render())</span><span>\(showArchived ? " Hide archived conversations" : " Show archived conversations")</span>
         </button>
         """)
         """
@@ -353,7 +353,7 @@ extension AppState {
                     <span class="cat-dot" style="background:\(cat.color)"></span>
                     <span>\(esc(cat.name))</span>
                   </button>
-                  \(btn("cat-del-\(cid)", "cat-pick", "chip-x", svgIcon("x", 9), " title=\"Delete category\""))
+                  \(btn("cat-del-\(cid)", "cat-pick", "chip-x", WebUIIcon(.x, size: .small).render(), " title=\"Delete category\""))
                 </div>
                 """
             } else {
@@ -365,7 +365,7 @@ extension AppState {
                 """
             }
         }
-        let plusLabel = addingCategory ? svgIcon("x", 12) : svgIcon("plus", 12)
+        let plusLabel = addingCategory ? WebUIIcon(.x, size: .small).render() : WebUIIcon(.plus, size: .small).render()
         chips += btn("cat-add", "cat-pick", "cat-chip cat-add", plusLabel, " title=\"" + (addingCategory ? "Cancel" : "Add category") + "\"")
         chips += "</div>"
         if addingCategory {
@@ -436,7 +436,7 @@ extension AppState {
         return """
         <div class="sess-group" data-grp="\(key)">
           <button type="button" class="sess-group-head" id="sess-grp-\(key)" title="\(esc(title))">
-            <span class="sess-caret">\(svgIcon("chevron-down", 11))</span>
+            <span class="sess-caret">\(WebUIIcon(.chevronDown, size: .small).render())</span>
             <span class="sess-group-title">\(esc(title))</span>
           </button>
           <div class="sess-group-rows">\(rows)</div>
@@ -465,7 +465,7 @@ extension AppState {
         let count = s.messages.isEmpty ? s.messageCount : s.messages.count
         let epochMs = Int(s.updatedAt.timeIntervalSince1970 * 1000)
         let meta = "\(count) msg • <span class=\"rel-time\" data-reltime=\"\(epochMs)\">\(relTimeLabel(s.updatedAt))</span>" + (archived.isEmpty ? "" : " • Archived")
-        let pinBadge = booked ? "<span class=\"pin-badge\" title=\"Pinned\">" + svgIcon("pin", 12) + "</span>" : ""
+        let pinBadge = booked ? "<span class=\"pin-badge\" title=\"Pinned\">" + WebUIIcon(.bookmark, size: .small).render() + "</span>" : ""
         let pinLabel = booked ? "Unpin conversation" : "Pin conversation"
         let arcLabel = archived.isEmpty ? "Archive conversation" : "Unarchive conversation"
         let catID = categoryID(for: s.id)
@@ -475,10 +475,10 @@ extension AppState {
         // right of "Set category" (arc parity), keeping category option
         // button ids so the existing chat-menu wire handles them unchanged.
         let noneCls = catID == nil ? " menu-sel" : ""
-        var catSub = "<button type=\"button\" id=\"sm-uncat-\(encID)\" data-component-id=\"chat-menu\" class=\"" + noneCls.trimmingCharacters(in: .whitespaces) + "\">No Project" + (catID == nil ? " " + svgIcon("check", 12) : "") + "</button>"
+        var catSub = "<button type=\"button\" id=\"sm-uncat-\(encID)\" data-component-id=\"chat-menu\" class=\"" + noneCls.trimmingCharacters(in: .whitespaces) + "\">No Project" + (catID == nil ? " " + WebUIIcon(.check, size: .small).render() : "") + "</button>"
         for c in settings.chatCategories {
             let sel = c.id == catID ? " menu-sel" : ""
-            let check = c.id == catID ? " " + svgIcon("check", 12) : ""
+            let check = c.id == catID ? " " + WebUIIcon(.check, size: .small).render() : ""
             catSub += """
             <button type="button" id="sm-cat-\(enc(c.id)).\(encID)" data-component-id="chat-menu" class="\(sel)" data-sid="\(s.id)">
               <span class="cat-dot" style="background:\(c.color)"></span><span>\(esc(c.name))\(check)</span>
@@ -492,7 +492,7 @@ extension AppState {
         let catPanel = """
         <div class="chat-menu-panel" id="catpanel-\(encID)" hidden>
           <div class="cat-panel-head">
-            <button type="button" id="sm-catback-\(encID)" data-component-id="chat-menu" class="cat-panel-back" title="Back">\(svgIcon("chevron-left", 11))</button>
+            <button type="button" id="sm-catback-\(encID)" data-component-id="chat-menu" class="cat-panel-back" title="Back">\(WebUIIcon(.chevronLeft, size: .small).render())</button>
             <span class="cat-panel-title">Move to Category</span>
           </div>
           <div class="cat-panel-list">\(catSub)</div>
@@ -500,7 +500,7 @@ extension AppState {
         """
         let catOpts = """
         <button type="button" id="sm-catmenu-\(encID)" data-component-id="chat-menu" class="menu-item-head catmenu-head">
-          <span>Move to Category</span><span class="menu-arrow">\(svgIcon("chevron-right", 12))</span>
+          <span>Move to Category</span><span class="menu-arrow">\(WebUIIcon(.chevronRight, size: .small).render())</span>
         </button>
         """
         let rowDotContent: String
@@ -541,7 +541,7 @@ extension AppState {
     // MARK: Skills panel
 
     func skillsPanel() -> String {
-        let newBtn = btn("skill-new", "skill-new", "plus-btn", svgIcon("plus", 15), " title=\"Add skill\"")
+        let newBtn = btn("skill-new", "skill-new", "plus-btn", WebUIIcon(.plus, size: .medium).render(), " title=\"Add skill\"")
         let head = """
         <div class="panel-head">
           <span class="panel-title">Skills</span>
@@ -567,7 +567,7 @@ extension AppState {
                 return """
                 <div class="skill-group" data-grp-skill="\(esc(cat))">
                   <button type="button" class="skill-cat-head" id="skcat-\(enc(cat))" title="Toggle section">
-                    <span class="skill-cat-caret">\(svgIcon("chevron-down", 11))</span>
+                    <span class="skill-cat-caret">\(WebUIIcon(.chevronDown, size: .small).render())</span>
                     <span class="skill-cat-title">\(esc(cat))</span>
                     <span class="skill-cat-count">(\(list.count))</span>
                   </button>
@@ -608,7 +608,7 @@ extension AppState {
     // MARK: Profiles panel
 
     func profilesPanel() -> String {
-        let newBtn = btn("profile-new", "profile-new", "plus-btn", svgIcon("plus", 15), " title=\"Add profile\"")
+        let newBtn = btn("profile-new", "profile-new", "plus-btn", WebUIIcon(.plus, size: .medium).render(), " title=\"Add profile\"")
         let head = """
         <div class="panel-head">
           <span class="panel-title">Profiles</span>
@@ -685,7 +685,7 @@ extension AppState {
     // MARK: Workspaces panel
 
     func workspacesPanel() -> String {
-        let newBtn = btn("ws-new", "ws-new", "plus-btn", svgIcon("plus", 15), " title=\"New workspace\"")
+        let newBtn = btn("ws-new", "ws-new", "plus-btn", WebUIIcon(.plus, size: .medium).render(), " title=\"New workspace\"")
         let head = """
         <div class="panel-head">
           <span class="panel-title">Workspaces</span>
@@ -702,7 +702,7 @@ extension AppState {
                 <span class="lr-name">\(esc(entry.name))</span>
                 <span class="lr-sub">\(esc(entry.path == WorkspaceEntry.defaultPath(for: "main") ? "home folder (default)" : trunc(entry.path, 58)))</span>
               </button>
-              <div class="row-actions">\(btn("ws-del-\(encWS)", "workspace-list", "icon-mini danger", svgIcon("x", 11), " title=\"Delete\""))</div>
+              <div class="row-actions">\(btn("ws-del-\(encWS)", "workspace-list", "icon-mini danger", WebUIIcon(.x, size: .small).render(), " title=\"Delete\""))</div>
             </div>
             """)
         }
@@ -772,7 +772,7 @@ extension AppState {
         guard activeSessionID != nil else {
             return """
             <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(svgIcon("chat", 44))</div><div>Select a chat, or start a new one.</div></div>
+              <div class="blank"><div class="big">\(WebUIIcon(.messageSquare, size: .extraLarge).render())</div><div>Select a chat, or start a new one.</div></div>
             </div>
             """
         }
@@ -783,10 +783,10 @@ extension AppState {
         let count = session.map { $0.messages.isEmpty ? $0.messageCount : $0.messages.count } ?? 0
         let model = settings.modelConfig(named: configName)?.model ?? configName
         let meta = "\(esc(model)) • \(count) messages"
-        let delLabel = pendingDelete ? "Confirm?" : svgIcon("x", 11)
+        let delLabel = pendingDelete ? "Confirm?" : WebUIIcon(.x, size: .small).render()
         let delClass = pendingDelete ? "sess-confirm" : "icon-mini danger"
         let regenBtn = """
-        <button type="button" id="regen-btn" data-component-id="regen" class="icon-mini" title="Regenerate last reply">\(svgIcon("refresh", 12))</button>
+        <button type="button" id="regen-btn" data-component-id="regen" class="icon-mini" title="Regenerate last reply">\(WebUIIcon(.refreshCw, size: .small).render())</button>
         """
         let header = """
         <header class="chat-header">
@@ -886,7 +886,7 @@ extension AppState {
             html.append(liveMessageHTML(live))
         }
         if html.isEmpty {
-            html.append("<div class=\"blank\"><div class=\"big\">\(svgIcon("chat", 44))</div><div>Start a conversation below.</div></div>")
+            html.append("<div class=\"blank\"><div class=\"big\">\(WebUIIcon(.messageSquare, size: .extraLarge).render())</div><div>Start a conversation below.</div></div>")
         }
         return html.joined()
     }
@@ -897,7 +897,7 @@ extension AppState {
         let tp = m.tps ?? 0
         let tpsChip = settings.showTps && tp > 0
             ? "<span class=\"msg-tps-inline\" title=\"Tokens per second\">\(esc(fmtTps(tp)))</span>" : ""
-        return "<div class=\"msg-meta\"><span class=\"role-icon assistant\">\(svgIcon("sparkle", 11))</span> ARC Agent\(tpsChip)</div>"
+        return "<div class=\"msg-meta\"><span class=\"role-icon assistant\">\(WebUIIcon(.star, size: .small).render())</span> ARC Agent\(tpsChip)</div>"
     }
 
     /// The body (markdown + tool chips) of an assistant reply.
@@ -963,7 +963,7 @@ extension AppState {
             // per tool round with a copy button (reference worklog look).
             let allReasoning = reasons.filter { !$0.isEmpty }.joined(separator: "\n\n")
             if !allReasoning.isEmpty {
-                rows.append("<details class=\"thinking-row\"><summary>" + svgIcon("pencil", 13) + "<span>Thinking</span></summary><div class=\"tc-detail\">" + esc(allReasoning) + "</div></details>")
+                rows.append("<details class=\"thinking-row\"><summary>" + WebUIIcon(.edit, size: .small).render() + "<span>Thinking</span></summary><div class=\"tc-detail\">" + esc(allReasoning) + "</div></details>")
             }
             for (idx, pair) in rounds.enumerated() {
                 let target = "twc-\(turnIndex)-\(idx)"
@@ -981,10 +981,10 @@ extension AppState {
                     detail.append("<div class=\"msg-body interim\">" + mdBox(interim) + "</div>")
                 }
                 detail.append(toolChipsHTML(calls))
-                rows.append("<details class=\"worklog-summary\" id=\"\(target)\"><summary>" + svgIcon("tools", 13)
+                rows.append("<details class=\"worklog-summary\" id=\"\(target)\"><summary>" + WebUIIcon(.tool, size: .small).render()
                     + "<span>" + esc(summary) + "</span><span class=\"tw-spacer\"></span>"
-                    + "<button class=\"tw-copy\" type=\"button\" data-copy-target=\"\(target)\" title=\"Copy this activity\">" + svgIcon("copy", 12) + "</button>"
-                    + svgIcon("chevron-right", 11) + "</summary><div class=\"wl-detail\">" + detail.joined() + "</div></details>")
+                    + "<button class=\"tw-copy\" type=\"button\" data-copy-target=\"\(target)\" title=\"Copy this activity\">" + WebUIIcon(.copy, size: .small).render() + "</button>"
+                    + WebUIIcon(.chevronRight, size: .small).render() + "</summary><div class=\"wl-detail\">" + detail.joined() + "</div></details>")
             }
         } else {
             // transparent_stream: full cards, block pre-opened.
@@ -994,7 +994,7 @@ extension AppState {
             // Direct replies (no tool rounds) still stream reasoning: surface
             // it as a thinking row so the dropdown body is never empty.
             if let r = finalMsg.reasoning, !r.isEmpty {
-                rows.append("<details class=\"thinking-row\"><summary>" + svgIcon("pencil", 13) + "<span>Thinking</span></summary><div class=\"tc-detail\">" + esc(r) + "</div></details>")
+                rows.append("<details class=\"thinking-row\"><summary>" + WebUIIcon(.edit, size: .small).render() + "<span>Thinking</span></summary><div class=\"tc-detail\">" + esc(r) + "</div></details>")
             }
         }
 
@@ -1008,7 +1008,7 @@ extension AppState {
               <span class="tw-dot"></span>
               <span class="tw-label">\(esc(label))</span>
               <span class="tw-spacer"></span>
-              <span class="tw-caret">\(svgIcon("chevron-right", 11))</span>
+              <span class="tw-caret">\(WebUIIcon(.chevronRight, size: .small).render())</span>
             </summary>
             <div class="wl-detail tw-body">
               \(rows.joined())
@@ -1061,7 +1061,7 @@ extension AppState {
         case "transparent_stream":
             var rows: [String] = []
             if let r = m.reasoning, !r.isEmpty {
-                rows.append("<details class=\"thinking-row\"><summary>" + svgIcon("pencil", 13) + "<span>Thinking</span></summary><div class=\"tc-detail\">" + esc(r) + "</div></details>")
+                rows.append("<details class=\"thinking-row\"><summary>" + WebUIIcon(.edit, size: .small).render() + "<span>Thinking</span></summary><div class=\"tc-detail\">" + esc(r) + "</div></details>")
             }
             if let interim = m.content, !interim.isEmpty {
                 rows.append("<div class=\"msg-body interim\">" + mdBox(interim) + "</div>")
@@ -1082,7 +1082,7 @@ extension AppState {
                 detail.append("<div class=\"msg-body interim\">" + mdBox(interim) + "</div>")
             }
             detail.append(toolChipsHTML(calls))
-            return "<details class=\"worklog-summary\"><summary>" + svgIcon("tools", 13) + "<span>" + esc(summary) + "</span></summary><div class=\"wl-detail\">" + detail.joined() + "</div></details>"
+            return "<details class=\"worklog-summary\"><summary>" + WebUIIcon(.tool, size: .small).render() + "<span>" + esc(summary) + "</span></summary><div class=\"wl-detail\">" + detail.joined() + "</div></details>"
         }
     }
 
@@ -1091,7 +1091,7 @@ extension AppState {
         let args = c.function.arguments
         let preview = trunc(args.replacingOccurrences(of: "\n", with: " "), 64)
         let resultText = esc(result ?? "(no result)")
-        return "<details class=\"tool-card\"><summary>" + svgIcon("tools", 13) + "<span class=\"tc-name\">" + esc(c.function.name) + "</span><span class=\"tc-arg\">" + esc(preview) + "</span></summary><div class=\"tc-detail\"><div class=\"tc-label\">Arguments</div><pre class=\"tc-block\">" + esc(args) + "</pre><div class=\"tc-label\">Result</div><pre class=\"tc-block\">" + resultText + "</pre></div></details>"
+        return "<details class=\"tool-card\"><summary>" + WebUIIcon(.tool, size: .small).render() + "<span class=\"tc-name\">" + esc(c.function.name) + "</span><span class=\"tc-arg\">" + esc(preview) + "</span></summary><div class=\"tc-detail\"><div class=\"tc-label\">Arguments</div><pre class=\"tc-block\">" + esc(args) + "</pre><div class=\"tc-label\">Result</div><pre class=\"tc-block\">" + resultText + "</pre></div></details>"
     }
 
     func messageHTML(_ m: Message, rawIdx: Int = -1) -> String {
@@ -1142,12 +1142,12 @@ extension AppState {
         switch reason {
         case "user_stopped":
             return interruptionCardHTML(
-                icon: "stop-solid", title: "Turn stopped",
+                icon: .square, title: "Turn stopped",
                 sub: "Stopped by the user before the reply finished.",
                 state: "Stopped by user", next: "Start a new turn to continue.")
         case "disconnected":
             return interruptionCardHTML(
-                icon: "warning", title: "Model connection lost",
+                icon: .alertTriangle, title: "Model connection lost",
                 sub: "The connection to the model was lost, so the turn was interrupted.",
                 state: "Disconnected", next: "Start a new turn to continue.")
         default:
@@ -1161,7 +1161,7 @@ extension AppState {
         return """
         <div class="limit-card">
           <div class="limit-head">
-            <span class="limit-ico">\(svgIcon("lightning", 13))</span>
+            <span class="limit-ico">\(WebUIIcon(.zap, size: .small).render())</span>
             <span class="limit-title">Tool iteration limit reached</span>
           </div>
           <div class="limit-sub">Stopped because the tool iteration limit was reached.</div>
@@ -1175,11 +1175,11 @@ extension AppState {
 
     /// Shared shell for interruption status cards (same look as the limit
     /// card, distinct icon/colors per terminal reason).
-    func interruptionCardHTML(icon: String, title: String, sub: String, state: String, next: String) -> String {
+    func interruptionCardHTML(icon: IconName, title: String, sub: String, state: String, next: String) -> String {
         return """
         <div class="limit-card">
           <div class="limit-head">
-            <span class="limit-ico">\(svgIcon(icon, 13))</span>
+            <span class="limit-ico">\(WebUIIcon(icon, size: .small).render())</span>
             <span class="limit-title">\(esc(title))</span>
           </div>
           <div class="limit-sub">\(esc(sub))</div>
@@ -1205,7 +1205,7 @@ extension AppState {
         let liveText = esc(live.assistantText).isEmpty ? " " : esc(live.assistantText).replacingOccurrences(of: "\n", with: "<br>")
         let cursor = live.status == "running" ? "<span class=\"stream-cursor\"></span>" : ""
         let thinkingRow = mode == "transparent_stream" && !live.thinking.isEmpty
-            ? "<details class=\"thinking-row\"><summary>" + svgIcon("pencil", 13) + "<span>Thinking</span></summary><div class=\"tc-detail\">" + esc(live.thinking) + "</div></details>"
+            ? "<details class=\"thinking-row\"><summary>" + WebUIIcon(.edit, size: .small).render() + "<span>Thinking</span></summary><div class=\"tc-detail\">" + esc(live.thinking) + "</div></details>"
             : ""
         let chips = mode == "transparent_stream" && !live.toolChips.isEmpty
             ? "<div class=\"tool-pills\">" + live.toolChips.joined() + "</div>"
@@ -1214,16 +1214,16 @@ extension AppState {
         switch live.status {
         case "tool":
             status = mode == "hide_all_activity" ? ""
-                : "<div class=\"live-status\"><span>" + svgIcon("tools", 13) + " Running a tool…</span></div>"
+                : "<div class=\"live-status\"><span>" + WebUIIcon(.tool, size: .small).render() + " Running a tool…</span></div>"
         case "error":
-            status = "<div class=\"live-status\" style=\"color:var(--danger)\"><span>" + svgIcon("warning", 13) + " " + esc(live.error ?? "Turn failed") + "</span></div>"
+            status = "<div class=\"live-status\" style=\"color:var(--danger)\"><span>" + WebUIIcon(.alertTriangle, size: .small).render() + " " + esc(live.error ?? "Turn failed") + "</span></div>"
         case "approval":
-            status = "<div class=\"live-status\"><span>" + svgIcon("warning", 13) + " Waiting for your approval…</span></div>"
+            status = "<div class=\"live-status\"><span>" + WebUIIcon(.alertTriangle, size: .small).render() + " Waiting for your approval…</span></div>"
         case "done":
             status = ""
         default:
             status = mode == "hide_all_activity" ? ""
-                : "<div class=\"live-status\"><span>" + svgIcon("pencil", 13) + " Responding…</span></div>"
+                : "<div class=\"live-status\"><span>" + WebUIIcon(.edit, size: .small).render() + " Responding…</span></div>"
         }
         let body = liveText == " " && live.status == "running"
             ? "<div class=\"msg-body\"><span class=\"stream-cursor\"></span></div>"
@@ -1272,20 +1272,20 @@ extension AppState {
         <div class="approval-card visible">
           <div class="approval-inner">
             <div class="approval-head">
-              <span class="approval-ico">\(svgIcon("warning", 13))</span><span class="approval-title">Approval required</span>
-              <button type="button" class="approval-collapse" id="approval-collapse" title="Collapse">\(svgIcon("chevron-down", 14))</button>
-              <button type="button" id="approval-dismiss" data-component-id="approval-dismiss" data-event="click" class="approval-dismiss" title="Dismiss">\(svgIcon("x", 14))</button>
+              <span class="approval-ico">\(WebUIIcon(.alertTriangle, size: .small).render())</span><span class="approval-title">Approval required</span>
+              <button type="button" class="approval-collapse" id="approval-collapse" title="Collapse">\(WebUIIcon(.chevronDown, size: .small).render())</button>
+              <button type="button" id="approval-dismiss" data-component-id="approval-dismiss" data-event="click" class="approval-dismiss" title="Dismiss">\(WebUIIcon(.x, size: .small).render())</button>
             </div>
             \(desc)
             <div class="approval-cmd"><code>\(esc(command))</code></div>
             <div class="approval-btns">
-              <button type="button" id="approval-once" data-component-id="approval-once" data-event="click" class="approval-btn once">\(svgIcon("check", 13))<span class="approval-btn-label">Allow once</span></button>
-              <button type="button" id="approval-session" data-component-id="approval-session" data-event="click" class="approval-btn session">\(svgIcon("lock", 13))<span class="approval-btn-label">Allow session</span></button>
-              <button type="button" id="approval-always" data-component-id="approval-always" data-event="click" class="approval-btn always">\(svgIcon("star", 13))<span class="approval-btn-label">Always allow</span></button>
-              <button type="button" id="approval-deny" data-component-id="approval-deny" data-event="click" class="approval-btn deny">\(svgIcon("x", 13))<span class="approval-btn-label">Deny</span></button>
+              <button type="button" id="approval-once" data-component-id="approval-once" data-event="click" class="approval-btn once">\(WebUIIcon(.check, size: .small).render())<span class="approval-btn-label">Allow once</span></button>
+              <button type="button" id="approval-session" data-component-id="approval-session" data-event="click" class="approval-btn session">\(WebUIIcon(.lock, size: .small).render())<span class="approval-btn-label">Allow session</span></button>
+              <button type="button" id="approval-always" data-component-id="approval-always" data-event="click" class="approval-btn always">\(WebUIIcon(.star, size: .small).render())<span class="approval-btn-label">Always allow</span></button>
+              <button type="button" id="approval-deny" data-component-id="approval-deny" data-event="click" class="approval-btn deny">\(WebUIIcon(.x, size: .small).render())<span class="approval-btn-label">Deny</span></button>
             </div>
             <div class="approval-yolo-row">
-              <button type="button" id="approval-yolo" data-component-id="approval-yolo" data-event="click" class="approval-btn yolo">\(svgIcon("lightning", 13))<span class="approval-btn-label">Skip all this session</span></button>
+              <button type="button" id="approval-yolo" data-component-id="approval-yolo" data-event="click" class="approval-btn yolo">\(WebUIIcon(.zap, size: .small).render())<span class="approval-btn-label">Skip all this session</span></button>
             </div>
           </div>
         </div>
@@ -1309,9 +1309,9 @@ extension AppState {
         <div class="clarify-card visible">
           <div class="clarify-inner">
             <div class="clarify-head">
-              <span class="clarify-ico">\(svgIcon("help", 13))</span><span class="clarify-title">Clarification needed</span>
+              <span class="clarify-ico">\(WebUIIcon(.badgeQuestionMark, size: .small).render())</span><span class="clarify-title">Clarification needed</span>
               <span class="clarify-countdown" id="clarify-countdown" data-expires="\(expiryMs)">\(remaining)s</span>
-              <button type="button" class="clarify-collapse" id="clarify-collapse" title="Collapse">\(svgIcon("chevron-down", 14))</button>
+              <button type="button" class="clarify-collapse" id="clarify-collapse" title="Collapse">\(WebUIIcon(.chevronDown, size: .small).render())</button>
             </div>
             <div class="clarify-question">\(esc(pc.question))</div>
             \(choicesBlock)
@@ -1333,7 +1333,7 @@ extension AppState {
     func yoloPillHTML() -> String {
         """
         <div class="yolo-pill">
-          <span class="yolo-ico">\(svgIcon("lightning", 12))</span>
+          <span class="yolo-ico">\(WebUIIcon(.zap, size: .small).render())</span>
           <span class="yolo-text">Approvals skipped for this session</span>
           <button type="button" id="yolo-off" data-component-id="yolo-off" data-event="click" class="yolo-off">Restore</button>
         </div>
@@ -1361,7 +1361,7 @@ extension AppState {
         <div class="msg-foot">
           \(timeSpan)
           <span class="msg-actions">
-            <button type="button" class="msg-copy-btn msg-action-btn" data-copy="\(esc(m.content ?? ""))" title="Copy response">\(svgIcon("copy", 12))</button>
+            <button type="button" class="msg-copy-btn msg-action-btn" data-copy="\(esc(m.content ?? ""))" title="Copy response">\(WebUIIcon(.copy, size: .small).render())</button>
           </span>
         </div>
         """
@@ -1534,14 +1534,14 @@ extension AppState {
         let attachmentsHTML: String = {
             var chips = ""
             for (i, path) in attachments.enumerated() {
-                let x = btn("att-del-\(i)", "att-chips", "chip-x", svgIcon("x", 9))
+                let x = btn("att-del-\(i)", "att-chips", "chip-x", WebUIIcon(.x, size: .small).render())
                 chips += "<span class=\"chip\">@\(esc(trunc(path, 50)))\(x)</span>"
             }
             return chips
         }()
 
         let isBooked = activeSessionID.map { isBookmarked($0) } ?? false
-        let bookLabel = isBooked ? svgIcon("star-solid", 14) : svgIcon("star", 14)
+        let bookLabel = isBooked ? WebUIIcon(.star, size: .small).render() : WebUIIcon(.star, size: .small).render()
 
         // arc-parity composer dropdowns (workspace / profile / model /
         // thinking) — custom panels rendered by the server, replacing the
@@ -1569,9 +1569,9 @@ extension AppState {
         // While a turn runs, the send control becomes a red stop button.
         let sendButton: String
         if running {
-            sendButton = #"<button type="button" id="cb-send" data-component-id="stop-turn" class="send-btn stop" title="Stop">"# + svgIcon("stop-solid", 15) + #"</button>"#
+            sendButton = #"<button type="button" id="cb-send" data-component-id="stop-turn" class="send-btn stop" title="Stop">"# + WebUIIcon(.square, size: .medium).render() + #"</button>"#
         } else {
-            sendButton = #"<button type="submit" id="cb-send" data-component-id="cb-send" class="send-btn" title="Send">"# + svgIcon("arrow-up", 15) + #"</button>"#
+            sendButton = #"<button type="submit" id="cb-send" data-component-id="cb-send" class="send-btn" title="Send">"# + WebUIIcon(.arrowUp, size: .medium).render() + #"</button>"#
         }
 
         let selOpen = wsSelectOpen || profileSelectOpen || modelSelectOpen || thinkSelectOpen
@@ -1584,7 +1584,7 @@ extension AppState {
             <div class="attach-chips" id="attach-chips">\(attachmentsHTML)</div>
             <textarea id="composer-input" name="composer-input" data-component-id="composer-input" data-session="\(esc(sid))" data-prevent-enter="send" placeholder="\(running ? "Steer the current response…" : "Message ARC…")" rows="1" style="min-height:24px">\(esc(draft))</textarea>
             <div class="composer-toolbar">
-              \(btn("cb-file", "cb-file", "tool-btn" + (filePopOpen ? " on" : ""), svgIcon("clip", 15), " title=\"Attach a file\""))
+              \(btn("cb-file", "cb-file", "tool-btn" + (filePopOpen ? " on" : ""), WebUIIcon(.paperclip, size: .medium).render(), " title=\"Attach a file\""))
               \(btn("cb-bookmark", "cb-bookmark", "tool-btn" + (isBooked ? " on" : ""), bookLabel, " title=\"Bookmark this chat\""))
               \(selectors)
               <span class="spacer"></span>
@@ -1610,13 +1610,13 @@ extension AppState {
         let model = settings.modelConfig(named: config)?.model ?? config
         let think = (thinkingLevel(for: activeSessionID) ?? "")
 
-        let wsTrigger = ddTrigger(id: "cb-ws-toggle", icon: svgIcon("folder", 13),
+        let wsTrigger = ddTrigger(id: "cb-ws-toggle", icon: WebUIIcon(.folder, size: .small).render(),
                                   label: ws.isEmpty ? "Workspace" : ws, title: "Workspace")
-        let ppTrigger = ddTrigger(id: "cb-profile-toggle", icon: svgIcon("person", 13),
+        let ppTrigger = ddTrigger(id: "cb-profile-toggle", icon: WebUIIcon(.user, size: .small).render(),
                                   label: profile.isEmpty ? "Profile" : profile, title: "Profile")
-        let mdTrigger = ddTrigger(id: "cb-model-toggle", icon: svgIcon("cube", 13),
+        let mdTrigger = ddTrigger(id: "cb-model-toggle", icon: WebUIIcon(.box, size: .small).render(),
                                   label: model.isEmpty ? "Model" : model, title: "Model")
-        let thTrigger = ddTrigger(id: "cb-think-toggle", icon: svgIcon("gauge", 13),
+        let thTrigger = ddTrigger(id: "cb-think-toggle", icon: WebUIIcon(.circleGauge, size: .small).render(),
                                   label: think.isEmpty ? "Off" : think.capitalized, title: "Thinking")
 
         return wsDropdown(trigger: wsTrigger)
@@ -1628,7 +1628,7 @@ extension AppState {
     private func ddTrigger(id: String, icon: String, label: String, title: String) -> String {
         """
         <button type="button" id="\(id)" data-component-id="\(id)" class="dd-trigger" title="\(esc(title))">
-          \(icon)<span class="dd-trigger-label">\(esc(trunc(label, 26)))</span>\(svgIcon("chevron-down", 11))
+          \(icon)<span class="dd-trigger-label">\(esc(trunc(label, 26)))</span>\(WebUIIcon(.chevronDown, size: .small).render())
         </button>
         """
     }
@@ -1661,16 +1661,16 @@ extension AppState {
           <div class="dd-pop dd-pop-ws\(vis)">
             <div class="dd-search">
               <input id="ws-search-input" data-component-id="ws-search-input" data-event="input" data-no-restore type="text" placeholder="Search workspaces…" spellcheck="false" autocomplete="off" value="\(esc(wsSelectQuery))">
-              \(wsSelectQuery.isEmpty ? "" : btn("ws-search-clear", "ws-search-clear", "dd-clear", svgIcon("x", 10)))
+              \(wsSelectQuery.isEmpty ? "" : btn("ws-search-clear", "ws-search-clear", "dd-clear", WebUIIcon(.x, size: .small).render()))
             </div>
             <div class="dd-list">\(rows.joined())\(empty)</div>
             <div class="dd-foot">
               <button type="button" id="ws-choose-path" data-component-id="ws-choose-path" class="dd-foot-row">
-                <span class="dd-foot-ico">\(svgIcon("folder-plus", 13))</span>
+                <span class="dd-foot-ico">\(WebUIIcon(.folderPlus, size: .small).render())</span>
                 <span class="dd-foot-txt"><span class="dd-row-title">Choose workspace path</span><span class="dd-row-sub">Add a validated path and switch this conversation</span></span>
               </button>
               <button type="button" id="ws-manage" data-component-id="ws-manage" class="dd-foot-row">
-                <span class="dd-foot-ico">\(svgIcon("settings", 13))</span>
+                <span class="dd-foot-ico">\(WebUIIcon(.settings, size: .small).render())</span>
                 <span class="dd-foot-txt"><span class="dd-row-title">Manage workspaces</span><span class="dd-row-sub">Open the Spaces panel</span></span>
               </button>
             </div>
@@ -1688,7 +1688,7 @@ extension AppState {
         var rows: [String] = []
         for p in profiles {
             let on = !activeProfileName.isEmpty && p.name == activeProfileName
-            let check = on ? " " + svgIcon("check", 11) : ""
+            let check = on ? " " + WebUIIcon(.check, size: .small).render() : ""
             let model = p.model ?? settings.modelConfig(named: settings.activeConfig)?.model ?? "inherit"
             // Skills are active by default; the runtime gates on
             // settings.disabledSkills (see Actions.swift), not profileSkills.
@@ -1710,7 +1710,7 @@ extension AppState {
             <div class="dd-list dd-list-profile">\(rows.joined())</div>
             <div class="dd-foot">
               <button type="button" id="pp-manage" data-component-id="pp-manage" class="dd-foot-row">
-                <span class="dd-foot-ico">\(svgIcon("settings", 13))</span>
+                <span class="dd-foot-ico">\(WebUIIcon(.settings, size: .small).render())</span>
                 <span class="dd-foot-txt"><span class="dd-row-title">Manage profiles</span></span>
               </button>
             </div>
@@ -1745,7 +1745,7 @@ extension AppState {
             <div class="dd-note">Applies to this conversation from your next message.</div>
             <div class="dd-search">
               <input id="model-search-input" data-component-id="model-search-input" data-event="input" data-no-restore type="text" placeholder="Search models…" spellcheck="false" autocomplete="off" value="\(esc(modelSelectQuery))">
-              \(modelSelectQuery.isEmpty ? "" : btn("model-search-clear", "model-search-clear", "dd-clear", svgIcon("x", 10)))
+              \(modelSelectQuery.isEmpty ? "" : btn("model-search-clear", "model-search-clear", "dd-clear", WebUIIcon(.x, size: .small).render()))
             </div>
             <div class="dd-section">CONFIGURED</div>
             <div class="dd-list">\(rows.joined())\(empty)</div>
@@ -1761,7 +1761,7 @@ extension AppState {
         var rows: [String] = []
         for lv in ["off", "low", "medium", "high", "max"] {
             let on = lv == current
-            let check = on ? " " + svgIcon("check", 11) : ""
+            let check = on ? " " + WebUIIcon(.check, size: .small).render() : ""
             rows.append(ddRow(id: "tp-\(lv)", component: "think-pick", body: """
             <span class="dd-row-title">\(lv.capitalized)\(check)</span>
             """))
@@ -1805,7 +1805,7 @@ extension AppState {
         else {
             return """
             <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(svgIcon("sparkle", 44))</div><div>Select a skill to see its description.</div></div>
+              <div class="blank"><div class="big">\(WebUIIcon(.star, size: .extraLarge).render())</div><div>Select a skill to see its description.</div></div>
             </div>
             """
         }
@@ -1820,7 +1820,7 @@ extension AppState {
               <div class="mem-head">
                 <div><h1 class="detail-title" style="margin:0">\(esc(skill.name))</h1>
                 <div class="detail-sub">\(esc(skill.category ?? ""))\(skill.tags.isEmpty ? "" : " • " + skill.tags.map(esc).joined(separator: ", "))</div></div>
-                \(btn("sk-edit", "skill-edit", "icon-mini", svgIcon("pencil", 13), " title=\"Edit skill\""))
+                \(btn("sk-edit", "skill-edit", "icon-mini", WebUIIcon(.edit, size: .small).render(), " title=\"Edit skill\""))
               </div>
               <p style="color:var(--text);font-size:0.98em;margin:0 0 12px">\(esc(skill.description))</p>
               <div class="detail-body" style="margin-top:14px">\(body)</div>
@@ -1953,7 +1953,7 @@ extension AppState {
         else {
             return """
             <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(svgIcon("person", 44))</div><div>Select a profile to see its details.</div></div>
+              <div class="blank"><div class="big">\(WebUIIcon(.user, size: .extraLarge).render())</div><div>Select a profile to see its details.</div></div>
             </div>
             """
         }
@@ -1962,9 +1962,9 @@ extension AppState {
         let toolsetsNote = set.isEmpty ? "all (not overridden)" : set.joined(separator: ", ")
         let encName = enc(p.name)
         let isDefault = p.name == "default"
-        let headIcons = btn("pr-edit-\(encName)", "profile-list", "icon-mini", svgIcon("pencil", 15), " title=\"Edit profile\"")
-            + btn("pr-sel-\(encName)", "profile-list", "icon-mini", svgIcon("check", 16), " title=\"Select profile for this chat\"")
-            + (isDefault ? "" : btn("pr-del-\(encName)", "profile-list", "icon-mini danger", svgIcon("trash", 15), " title=\"Delete profile\""))
+        let headIcons = btn("pr-edit-\(encName)", "profile-list", "icon-mini", WebUIIcon(.edit, size: .medium).render(), " title=\"Edit profile\"")
+            + btn("pr-sel-\(encName)", "profile-list", "icon-mini", WebUIIcon(.check, size: .medium).render(), " title=\"Select profile for this chat\"")
+            + (isDefault ? "" : btn("pr-del-\(encName)", "profile-list", "icon-mini danger", WebUIIcon(.trash, size: .medium).render(), " title=\"Delete profile\""))
         return """
         <div class="main-view">
           <div class="main-scroll" data-scroll-key="main-scroll">
@@ -2058,7 +2058,7 @@ extension AppState {
         else {
             return """
             <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(svgIcon("tools", 44))</div><div>Select a tool to see its definition and parameters.</div></div>
+              <div class="blank"><div class="big">\(WebUIIcon(.tool, size: .extraLarge).render())</div><div>Select a tool to see its definition and parameters.</div></div>
             </div>
             """
         }
@@ -2202,7 +2202,7 @@ extension AppState {
         <div class="main-view">
           <div class="main-scroll" data-scroll-key="main-scroll">
             <div class="detail-card">
-              <h1 class="detail-title">\(svgIcon("workspaces", 18)) Workspaces</h1>
+              <h1 class="detail-title">\(WebUIIcon(.grid, size: .large).render()) Workspaces</h1>
               <div class="detail-sub">Workspaces are folders on this computer. Each chat keeps its own workspace, chosen in the chat composer.</div>
               <div class="kv"><span class="k">Default</span><span class="v">\(esc(ws))</span></div>
               <div class="kv"><span class="k">Folder</span><span class="v">\(esc(path))</span></div>
@@ -2333,17 +2333,17 @@ extension AppState {
 
     func settingsMain() -> String {
         // Appearance
-        let themeDefs: [(key: String, label: String, icon: String, preview: String)] = [
-            ("light", "Light", "sun",
+        let themeDefs: [(key: String, label: String, icon: IconName, preview: String)] = [
+            ("light", "Light", .sun,
              "background:#FFFFFF;border:1px solid rgba(0,0,0,0.14)"),
-            ("dark", "Dark", "moon",
+            ("dark", "Dark", .moon,
              "background:#0D1117;border:1px solid rgba(255,255,255,0.10)"),
-            ("system", "System", "monitor",
+            ("system", "System", .monitor,
              "background:linear-gradient(100deg,#FFFFFF 0%,#8B8B93 52%,#15151A 100%);border:1px solid rgba(0,0,0,0.12)"),
         ]
         let themeCards = themeDefs.map { t in
             let active = settings.theme == t.key ? " active" : ""
-            return "<button type=\"button\" id=\"thm-\(t.key)\" data-component-id=\"theme-pick\" class=\"theme-pick-btn\(active)\" title=\"\(t.label)\"><span class=\"thm-preview\" style=\"\(t.preview)\"><span class=\"thm-ic\">\(svgIcon(t.icon, 15))</span></span><span class=\"thm-label\">\(t.label)</span></button>"
+            return "<button type=\"button\" id=\"thm-\(t.key)\" data-component-id=\"theme-pick\" class=\"theme-pick-btn\(active)\" title=\"\(t.label)\"><span class=\"thm-preview\" style=\"\(t.preview)\"><span class=\"thm-ic\">\(WebUIIcon(t.icon, size: .medium).render())</span></span><span class=\"thm-label\">\(t.label)</span></button>"
         }.joined()
         let sizeCards = ThemeSize.allCases.map { s in
             let active = settings.textSize == s.rawValue ? " active" : ""
@@ -2638,7 +2638,7 @@ extension AppState {
     // MARK: Kanban
 
     func kanbanPanel() -> String {
-        let newBtn = btn("kb-addcol", "kanban", "plus-btn", addingColumn ? svgIcon("x", 14) : svgIcon("plus", 14), " title=\"" + (addingColumn ? "Cancel" : "Add column") + "\"")
+        let newBtn = btn("kb-addcol", "kanban", "plus-btn", addingColumn ? WebUIIcon(.x, size: .small).render() : WebUIIcon(.plus, size: .small).render(), " title=\"" + (addingColumn ? "Cancel" : "Add column") + "\"")
         let head = """
         <div class="panel-head">
           <span class="panel-title">Kanban</span>
@@ -2649,7 +2649,7 @@ extension AppState {
         for col in settings.kanbanColumns {
             let cid = enc(col.id)
             let count = settings.kanbanCards.filter { $0.columnID == col.id }.count
-            let confirm = confirmColumn == col.id ? " Confirm?" : svgIcon("x", 10)
+            let confirm = confirmColumn == col.id ? " Confirm?" : WebUIIcon(.x, size: .small).render()
             let delCls = confirmColumn == col.id ? "sess-confirm" : "icon-mini danger"
             rows.append("""
             <div class="list-row">
@@ -2699,7 +2699,7 @@ extension AppState {
         guard !settings.kanbanColumns.isEmpty else {
             return """
             <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(svgIcon("kanban", 44))</div><div>No columns yet — add one in the panel.</div></div>
+              <div class="blank"><div class="big">\(WebUIIcon(.columns, size: .extraLarge).render())</div><div>No columns yet — add one in the panel.</div></div>
             </div>
             """
         }
@@ -2737,8 +2737,8 @@ extension AppState {
             <span class="kb-col-name">\(esc(col.name))</span>
             <span class="kb-col-count">\(cards.count)</span>
             <div class="kb-col-actions">
-              \(btn("kb-rencol-\(cid)", "kanban", "icon-mini", svgIcon("pencil", 13), " title=\"Rename column\" data-colid=\"\(col.id)\""))
-              \(btn("kb-bdel-\(cid)", "kanban", confirmColumn == col.id ? "icon-mini danger sess-confirm" : "icon-mini danger", confirmColumn == col.id ? "Confirm?" : svgIcon("x", 11), " title=\"Delete column\""))
+              \(btn("kb-rencol-\(cid)", "kanban", "icon-mini", WebUIIcon(.edit, size: .small).render(), " title=\"Rename column\" data-colid=\"\(col.id)\""))
+              \(btn("kb-bdel-\(cid)", "kanban", confirmColumn == col.id ? "icon-mini danger sess-confirm" : "icon-mini danger", confirmColumn == col.id ? "Confirm?" : WebUIIcon(.x, size: .small).render(), " title=\"Delete column\""))
             </div>
           </div>
           <div class="kb-cards">\(cardHTML)</div>
@@ -2750,15 +2750,15 @@ extension AppState {
     func kanbanCardHTML(_ card: KBCard) -> String {
         let encc = enc(card.id)
         let idx = settings.kanbanColumns.firstIndex { $0.id == card.columnID } ?? 0
-        let left = idx > 0 ? btn("kb-movel-\(encc)", "kanban", "icon-mini", svgIcon("chevron-left", 13), " title=\"Move left\"") : ""
-        let right = idx < settings.kanbanColumns.count - 1 ? btn("kb-mover-\(encc)", "kanban", "icon-mini", svgIcon("chevron-right", 13), " title=\"Move right\"") : ""
+        let left = idx > 0 ? btn("kb-movel-\(encc)", "kanban", "icon-mini", WebUIIcon(.chevronLeft, size: .small).render(), " title=\"Move left\"") : ""
+        let right = idx < settings.kanbanColumns.count - 1 ? btn("kb-mover-\(encc)", "kanban", "icon-mini", WebUIIcon(.chevronRight, size: .small).render(), " title=\"Move right\"") : ""
         return """
         <div class="kb-card">
           <div class="kb-card-title" data-cardid="\(card.id)">\(esc(trunc(card.title, 70)))</div>
           <div class="kb-card-actions">
-            \(btn("kb-edit-\(encc)", "kanban", "icon-mini", svgIcon("pencil", 13), " title=\"Edit title\" data-cardid=\"\(card.id)\""))
+            \(btn("kb-edit-\(encc)", "kanban", "icon-mini", WebUIIcon(.edit, size: .small).render(), " title=\"Edit title\" data-cardid=\"\(card.id)\""))
             \(left)\(right)
-            \(btn("kb-del-\(encc)", "kanban", "icon-mini danger", svgIcon("x", 11), " title=\"Delete card\""))
+            \(btn("kb-del-\(encc)", "kanban", "icon-mini danger", WebUIIcon(.x, size: .small).render(), " title=\"Delete card\""))
           </div>
         </div>
         """
@@ -2773,10 +2773,10 @@ extension AppState {
         </div>
         """
         let items: [(key: String, title: String, sub: String, glyph: String)] = [
-            ("memory", "My Notes", "MEMORY.md", svgIcon("note", 20)),
-            ("user", "User Profile", "USER.md", svgIcon("person", 20)),
-            ("soul", "Agent Soul", "SOUL.md", svgIcon("sparkle", 20)),
-            ("context", "Project Context", "AGENTS.md", svgIcon("folder", 20)),
+            ("memory", "My Notes", "MEMORY.md", WebUIIcon(.fileText, size: .large).render()),
+            ("user", "User Profile", "USER.md", WebUIIcon(.user, size: .large).render()),
+            ("soul", "Agent Soul", "SOUL.md", WebUIIcon(.star, size: .large).render()),
+            ("context", "Project Context", "AGENTS.md", WebUIIcon(.folder, size: .large).render()),
         ]
         let boxes = items.map { it in
             let active = memoryDoc == it.key ? " active" : ""
@@ -2795,7 +2795,7 @@ extension AppState {
         guard let doc = memoryDoc else {
             return """
             <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(svgIcon("memory", 44))</div><div>Select a document from the panel.</div></div>
+              <div class="blank"><div class="big">\(WebUIIcon(.database, size: .extraLarge).render())</div><div>Select a document from the panel.</div></div>
             </div>
             """
         }
@@ -2842,14 +2842,14 @@ extension AppState {
             """
         }
         let contentHTML = memoryContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "<div class=\"empty-hint\">\(esc(sub)) is empty. Press " + svgIcon("pencil", 12) + " to start writing.</div>"
+            ? "<div class=\"empty-hint\">\(esc(sub)) is empty. Press " + WebUIIcon(.edit, size: .small).render() + " to start writing.</div>"
             : mdBox(memoryContent)
         return """
         <div class="main-view"><div class="main-scroll" data-scroll-key="main-scroll">
           <div class="detail-card">
             <div class="mem-head">
               <div><h1 class="detail-title" style="margin:0">\(title)</h1><div class="detail-sub">\(esc(sub)) — \(esc(meta.note))</div></div>
-              \(btn("mem-edit", "memory", "icon-mini", svgIcon("pencil", 13), " title=\"Edit \(esc(sub))\""))
+              \(btn("mem-edit", "memory", "icon-mini", WebUIIcon(.edit, size: .small).render(), " title=\"Edit \(esc(sub))\""))
             </div>
             <div class="detail-body" style="margin-top:14px">\(contentHTML)</div>
           </div>
@@ -2876,7 +2876,7 @@ extension AppState {
         let head = """
         <div class="panel-head">
           <span class="panel-title">Logs</span>
-          \(btn("log-clear", "log-clear", "icon-mini", svgIcon("trash", 13), " title=\"Clear logs\""))
+          \(btn("log-clear", "log-clear", "icon-mini", WebUIIcon(.trash, size: .small).render(), " title=\"Clear logs\""))
         </div>
         """
         let chips = ["all", "info", "warn", "error"].map { lvl -> String in
@@ -2963,7 +2963,7 @@ extension AppState {
         guard !workspaceOpen else { return "<div id=\"ws-dock\"></div>" }
         return """
         <div id="ws-dock">
-          <button type="button" id="w-dock" data-component-id="workspace" class="ws-dock-btn" title="Open workspace">\(svgIcon("chevron-left", 17))</button>
+          <button type="button" id="w-dock" data-component-id="workspace" class="ws-dock-btn" title="Open workspace">\(WebUIIcon(.chevronLeft, size: .medium).render())</button>
         </div>
         """
     }
@@ -2980,7 +2980,7 @@ extension AppState {
         <div class="ws-menu-wrap">
           <button type="button" id="w-menu" data-component-id="workspace" class="icon-mini" title="Workspace options">⋮</button>
           <div class="chat-menu ws-menu" id="ws-menu">
-            <button type="button" id="w-hidden" data-component-id="workspace" class="\(showHiddenFiles ? "menu-sel" : "")">\(showHiddenFiles ? "<span class=\"chk\">" + svgIcon("checkbox-checked", 12) + "</span>" : "<span class=\"chk\">" + svgIcon("checkbox", 12) + "</span>") Show hidden files</button>
+            <button type="button" id="w-hidden" data-component-id="workspace" class="\(showHiddenFiles ? "menu-sel" : "")">\(showHiddenFiles ? "<span class=\"chk\">" + WebUIIcon(.checkSquare, size: .small).render() + "</span>" : "<span class=\"chk\">" + WebUIIcon(.square, size: .small).render() + "</span>") Show hidden files</button>
           </div>
         </div>
         """
@@ -3005,11 +3005,11 @@ extension AppState {
           <div class="panel-head ws-head">
             <span class="panel-title">Workspace</span>
             <div class="ws-tools">
-              \(btn("w-new", "workspace", "icon-mini", svgIcon("plus", 14), " title=\"New file\""))
-              \(btn("w-newfolder", "workspace", "icon-mini", svgIcon("folder", 14), " title=\"New folder\""))
-              \(btn("w-upload", "workspace", "icon-mini", svgIcon("upload", 14), " title=\"Upload files or drop them here\""))
+              \(btn("w-new", "workspace", "icon-mini", WebUIIcon(.plus, size: .small).render(), " title=\"New file\""))
+              \(btn("w-newfolder", "workspace", "icon-mini", WebUIIcon(.folder, size: .small).render(), " title=\"New folder\""))
+              \(btn("w-upload", "workspace", "icon-mini", WebUIIcon(.upload, size: .small).render(), " title=\"Upload files or drop them here\""))
               \(wsMenu)
-              \(btn("w-close", "workspace", "icon-mini", svgIcon("x", 11), " title=\"Close workspace\""))
+              \(btn("w-close", "workspace", "icon-mini", WebUIIcon(.x, size: .small).render(), " title=\"Close workspace\""))
             </div>
           </div>
           \(create)
@@ -3049,8 +3049,8 @@ extension AppState {
                 if count > 600 { return }
                 if isDir {
                     let expanded = expandedPaths.contains(relPath)
-                    let caret = expanded ? svgIcon("chevron-down", 11) : svgIcon("chevron-right", 11)
-                    lines.append("<button type=\"button\" id=\"w-toggle-\(encPath)\" data-component-id=\"workspace\" class=\"ws-row\" style=\"padding-left:\(pad)px\" title=\"\(esc(relPath))\"><span class=\"ws-caret\">\(caret)</span><span class=\"ws-ic\">\(svgIcon("folder", 13))</span><span class=\"ws-name\">\(esc(name))</span></button>")
+                    let caret = expanded ? WebUIIcon(.chevronDown, size: .small).render() : WebUIIcon(.chevronRight, size: .small).render()
+                    lines.append("<button type=\"button\" id=\"w-toggle-\(encPath)\" data-component-id=\"workspace\" class=\"ws-row\" style=\"padding-left:\(pad)px\" title=\"\(esc(relPath))\"><span class=\"ws-caret\">\(caret)</span><span class=\"ws-ic\">\(WebUIIcon(.folder, size: .small).render())</span><span class=\"ws-name\">\(esc(name))</span></button>")
                     if expanded { walk(entry, rel: relPath, depth: depth + 1) }
                 } else {
                     lines.append("<button type=\"button\" id=\"w-file-\(encPath)\" data-component-id=\"workspace\" class=\"ws-row\" style=\"padding-left:\(pad + 4)px\" title=\"\(esc(relPath))\"><span class=\"ws-ic\">\(wsFileIcon(name))</span><span class=\"ws-name\">\(esc(name))</span></button>")
@@ -3065,7 +3065,7 @@ extension AppState {
     }
 
     func wsFileIcon(_ name: String) -> String {
-        return svgIcon("file", 14)
+        return WebUIIcon(.file, size: .small).render()
     }
 }
 
@@ -3115,7 +3115,7 @@ extension AppState {
     /// commits carry the theme-accent badge; the selected commit is active.
     func githubPanel() -> String {
         let refreshBtn = btn("gh-refresh", "gh-refresh", "icon-btn",
-                             svgIcon("refresh", 15), " title=\"Refresh repository\" data-tip=\"Refresh\"")
+                             WebUIIcon(.refreshCw, size: .medium).render(), " title=\"Refresh repository\" data-tip=\"Refresh\"")
         let head = """
         <div class="panel-head">
           <span class="panel-title">GitHub</span>
@@ -3187,7 +3187,7 @@ extension AppState {
         guard let sha = githubSelectedSHA else {
             return """
             <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(svgIcon("branch", 44))</div><div>Select a commit on the left to see its message and files.</div></div>
+              <div class="blank"><div class="big">\(WebUIIcon(.gitBranch, size: .extraLarge).render())</div><div>Select a commit on the left to see its message and files.</div></div>
             </div>
             """
         }
@@ -3240,222 +3240,30 @@ extension AppState {
     }
 }
 
-// MARK: - Monochrome line-drawing icons
-
-/// Render a simple colorless line-drawing icon as inline SVG. Every glyph uses
-/// `stroke="currentColor"` (or `fill="currentColor"` for the solid star) so it
-/// inherits the surrounding text color and stays monochrome in any scheme.
-func svgIcon(_ name: String, _ size: Int = 16) -> String {
-    let fill: String
-    let stroke: String
-    let d: String
-    switch name {
-    case "chat":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v6.5a2.5 2.5 0 0 1-2.5 2.5H9.5L5 20.5v-4.3A2.4 2.4 0 0 1 4 14z'/>"
-    case "sparkle":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M12 3l2 5.5 5.5 2-5.5 2-2 5.5-2-5.5L4 10.5l5.5-2z'/>"
-    case "person":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z'/><path d='M4.5 20a7.5 7.5 0 0 1 15 0'/>"
-    case "tools":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M4 7h9'/><path d='M17 7h3'/><path d='M4 17h9'/><path d='M17 17h3'/><circle cx='15' cy='7' r='2'/><circle cx='15' cy='17' r='2'/>"
-    case "workspaces":
-        fill = "none"; stroke = "currentColor"
-        d = "<rect x='4' y='4' width='6' height='6' rx='1.2'/><rect x='14' y='4' width='6' height='6' rx='1.2'/><rect x='4' y='14' width='6' height='6' rx='1.2'/><rect x='14' y='14' width='6' height='6' rx='1.2'/>"
-    case "branch":
-        fill = "none"; stroke = "currentColor"
-        d = "<circle cx='7' cy='5' r='2.2'/><circle cx='7' cy='19' r='2.2'/><path d='M7 7.2v9.6'/><path d='M7 9.5c0 3 2.4 5.5 5.5 5.5H13.5'/><circle cx='17' cy='15' r='2.2'/>"
-    case "kanban":
-        fill = "none"; stroke = "currentColor"
-        d = "<rect x='4.5' y='4' width='4' height='16' rx='1.2'/><rect x='10' y='4' width='4' height='11' rx='1.2'/><rect x='15.5' y='4' width='4' height='7' rx='1.2'/>"
-    case "memory":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M7 3h11a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z'/><path d='M10 4v16'/><path d='M13 8h4'/><path d='M13 12h4'/>"
-    case "settings":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M4 6h16'/><path d='M4 12h16'/><path d='M4 18h16'/>"
-    case "chart":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M4 20h16'/><path d='M7 20v-6'/><path d='M12 20V8'/><path d='M17 20v-10'/>"
-    case "folder":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/>"
-    case "folder-plus":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/><path d='M12 11v6'/><path d='M9 14h6'/>"
-    case "cube":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M12 3l7 4v10l-7 4-7-4V7z'/><path d='M5 7l7 4 7-4'/><path d='M12 11v10'/>"
-    case "gauge":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18z'/><path d='M12 12l4-4'/><circle cx='12' cy='12' r='1.2'/>"
-    case "file":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M6 3h7l5 5v13H6z'/><path d='M13 3v5h5'/>"
-    case "upload":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M12 3v10'/><path d='M7 8l5-5 5 5'/><path d='M5 19h14'/>"
-    case "refresh":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M23 4v6h-6'/><path d='M1 20v-6h6'/><path d='M3.51 9a9 9 0 0 1 14.85-3.36L23 10'/><path d='M1 14l4.64 4.36A9 9 0 0 0 20.49 15'/>"
-    case "chevron-right":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M9 18l6-6-6-6'/>"
-    case "chevron-down":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M6 9l6 6 6-6'/>"
-    case "arrow-up":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M12 19V5'/><path d='M5 12l7-7 7 7'/>"
-    case "play":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M5 3l14 9-14 9z'/>"
-    case "fast-forward":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M13 19L22 12L13 5z'/><path d='M2 19L11 12L2 5z'/>"
-    case "x":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M7 7l10 10'/><path d='M17 7L7 17'/>"
-    case "trash":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M5 7h14'/><path d='M9 7V5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5v2'/><path d='M6.5 7l1 12a1.5 1.5 0 0 0 1.5 1.4h6a1.5 1.5 0 0 0 1.5-1.4l1-12'/><path d='M10 11v6'/><path d='M14 11v6'/>"
-    case "plus":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M12 5v14'/><path d='M5 12h14'/>"
-    case "archive":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M4 9h16v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z'/><path d='M3 5h18v4H3z'/><path d='M10 13h4'/>"
-    case "pin":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z'/><circle cx='12' cy='10' r='3'/>"
-    case "star", "star-solid":
-        fill = name == "star-solid" ? "currentColor" : "none"
-        stroke = name == "star-solid" ? "none" : "currentColor"
-        d = "<path d='M12 3l2.6 5.6 6.1.8-4.5 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.3 9.4l6.1-.8z'/>"
-    case "pencil":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M17 3a2.8 2.8 0 0 1 4 4L7.5 20.5 3 22l1.5-4.5z'/>"
-    case "check":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M5 12.5l4.5 4.5L19 7'/>"
-    case "grip":
-        fill = "none"; stroke = "currentColor"
-        d = "<circle cx='9' cy='6' r='1.2'/><circle cx='15' cy='6' r='1.2'/><circle cx='9' cy='12' r='1.2'/><circle cx='15' cy='12' r='1.2'/><circle cx='9' cy='18' r='1.2'/><circle cx='15' cy='18' r='1.2'/>"
-    case "link":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4L11.5 6.1'/><path d='M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.5-1.5'/>"
-    case "lock":
-        fill = "none"; stroke = "currentColor"
-        d = "<rect x='5' y='11' width='14' height='9' rx='2'/><path d='M8 11V7a4 4 0 0 1 8 0v4'/>"
-    case "help":
-        fill = "none"; stroke = "currentColor"
-        d = "<circle cx='12' cy='12' r='9'/><path d='M9.2 9a3 3 0 0 1 5.6 1.4c0 2-2.8 2.4-2.8 4.1'/><circle cx='12' cy='17.5' r='0.4' fill='currentColor'/>"
-    case "copy":
-        fill = "none"; stroke = "currentColor"
-        d = "<rect x='9' y='9' width='11' height='11' rx='2'/><path d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'/>"
-    case "checkbox":
-        fill = "none"; stroke = "currentColor"
-        d = "<rect x='4' y='4' width='16' height='16' rx='3'/>"
-    case "checkbox-checked":
-        fill = "none"; stroke = "currentColor"
-        d = "<rect x='4' y='4' width='16' height='16' rx='3'/><path d='M8.5 12.5l3 3 5-6'/>"
-    case "chevron-left":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M15 5l-7 7 7 7'/>"
-    case "chevron-right":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M9 5l7 7-7 7'/>"
-    case "chevron-down":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M5 9l7 7 7-7'/>"
-    case "warning":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M12 3l9 17H3z'/><path d='M12 9v4'/><path d='M12 16.5h.01'/>"
-    case "clip":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M21.4 11.1l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.4-8.5'/>"
-    case "note":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M6 3h8l4 4v14H6z'/><path d='M14 3v4h4'/><path d='M9 12h6'/><path d='M9 16h6'/>"
-    case "search":
-        fill = "none"; stroke = "currentColor"
-        d = "<circle cx='11' cy='11' r='7'/><path d='M21 21l-4.3-4.3'/>"
-    case "trash":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M4 7h16'/><path d='M9.5 7V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v2'/><path d='M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13'/>"
-    case "globe":
-        fill = "none"; stroke = "currentColor"
-        d = "<circle cx='12' cy='12' r='9'/><path d='M3 12h18'/><path d='M12 3a14.5 14.5 0 0 1 0 18'/><path d='M12 3a14.5 14.5 0 0 0 0 18'/>"
-    case "refresh":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M20 12a8 8 0 1 1-2.3-5.7'/><path d='M20 3v4h-4'/>"
-    case "clock":
-        fill = "none"; stroke = "currentColor"
-        d = "<circle cx='12' cy='12' r='9'/><path d='M12 7v5l3.5 2'/>"
-    case "terminal":
-        fill = "none"; stroke = "currentColor"
-        d = "<rect x='3' y='4' width='18' height='16' rx='2'/><path d='M7 9l3 3-3 3'/><path d='M12 15h5'/>"
-    case "lightning":
-        fill = "none"; stroke = "currentColor"
-        d = "<polygon points='13 2 3 14 12 14 11 22 21 10 12 10 13 2'/>"
-    case "log":
-        fill = "none"; stroke = "currentColor"
-        d = "<line x1='8' y1='6' x2='21' y2='6'/><line x1='8' y1='12' x2='21' y2='12'/><line x1='8' y1='18' x2='21' y2='18'/><line x1='3' y1='6' x2='3.01' y2='6'/><line x1='3' y1='12' x2='3.01' y2='12'/><line x1='3' y1='18' x2='3.01' y2='18'/>"
-    case "target":
-        fill = "none"; stroke = "currentColor"
-        d = "<circle cx='12' cy='12' r='9'/><circle cx='12' cy='12' r='5'/><circle cx='12' cy='12' r='1.4'/>"
-    case "stop":
-        fill = "none"; stroke = "currentColor"
-        d = "<rect x='6' y='6' width='12' height='12' rx='2'/>"
-    case "stop-solid":
-        fill = "currentColor"; stroke = "none"
-        d = "<rect x='6.5' y='6.5' width='11' height='11' rx='2'/>"
-    case "sun":
-        fill = "none"; stroke = "currentColor"
-        d = "<circle cx='12' cy='12' r='4'/><path d='M12 2v2'/><path d='M12 20v2'/><path d='M4.93 4.93l1.41 1.41'/><path d='M17.66 17.66l1.41 1.41'/><path d='M2 12h2'/><path d='M20 12h2'/><path d='M4.93 19.07l1.41-1.41'/><path d='M17.66 6.34l1.41-1.41'/>"
-    case "moon":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z'/>"
-    case "monitor":
-        fill = "none"; stroke = "currentColor"
-        d = "<rect x='2' y='4' width='20' height='13' rx='2'/><path d='M8 21h8'/><path d='M12 17v4'/>"
-    case "book":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M4 5a2 2 0 0 1 2-2h13a1 1 0 0 1 1 1v16H6a2 2 0 0 0-2 2z'/><path d='M20 20H6a2 2 0 0 0-2 2'/>"
-    default:
-        fill = "none"; stroke = "currentColor"
-        d = ""
-    }
-    return "<svg viewBox=\"0 0 24 24\" width=\"\(size)\" height=\"\(size)\" fill=\"\(fill)\" stroke=\"\(stroke)\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">\(d)</svg>"
-}
-
 /// Map a harness tool emoji to its colorless line-drawing equivalent.
 /// Unknown or nil emoji render nothing (or a generic file glyph for a
 /// non-nil unknown), so no colored emoji ever reaches the UI.
 func toolEmojiIcon(_ emoji: String?) -> String {
     guard let e = emoji, !e.isEmpty else { return "" }
     switch e {
-    case "📋": return svgIcon("note", 14)
-    case "🔍": return svgIcon("search", 14)
-    case "💬": return svgIcon("chat", 14)
-    case "➕": return svgIcon("plus", 14)
-    case "🗑️", "🗑": return svgIcon("trash", 14)
-    case "👥": return svgIcon("person", 14)
-    case "📄": return svgIcon("file", 14)
-    case "🌐": return svgIcon("globe", 14)
-    case "🔄": return svgIcon("refresh", 14)
-    case "💻": return svgIcon("terminal", 14)
-    case "🧠": return svgIcon("memory", 14)
-    case "✏️", "✏": return svgIcon("pencil", 14)
-    case "🎯": return svgIcon("target", 14)
-    case "⏹️", "⏹": return svgIcon("stop", 14)
-    case "📚", "📖": return svgIcon("book", 14)
-    case "✅": return svgIcon("check", 14)
-    case "🚫": return svgIcon("x", 14)
-    default: return svgIcon("file", 14)
+    case "📋": return WebUIIcon(.fileText, size: .small).render()
+    case "🔍": return WebUIIcon(.search, size: .small).render()
+    case "💬": return WebUIIcon(.messageSquare, size: .small).render()
+    case "➕": return WebUIIcon(.plus, size: .small).render()
+    case "🗑️", "🗑": return WebUIIcon(.trash, size: .small).render()
+    case "👥": return WebUIIcon(.user, size: .small).render()
+    case "📄": return WebUIIcon(.file, size: .small).render()
+    case "🌐": return WebUIIcon(.globe, size: .small).render()
+    case "🔄": return WebUIIcon(.refreshCw, size: .small).render()
+    case "💻": return WebUIIcon(.terminal, size: .small).render()
+    case "🧠": return WebUIIcon(.database, size: .small).render()
+    case "✏️", "✏": return WebUIIcon(.edit, size: .small).render()
+    case "🎯": return WebUIIcon(.target, size: .small).render()
+    case "⏹️", "⏹": return WebUIIcon(.stopCircle, size: .small).render()
+    case "📚", "📖": return WebUIIcon(.book, size: .small).render()
+    case "✅": return WebUIIcon(.check, size: .small).render()
+    case "🚫": return WebUIIcon(.x, size: .small).render()
+    default: return WebUIIcon(.file, size: .small).render()
     }
 }
 

@@ -1,5 +1,6 @@
 import Foundation
 import ArcAgentCore
+import WebUI
 
 // MARK: - Insights data model
 //
@@ -187,8 +188,8 @@ extension AppState {
         // Section 1 — skill usage
         let bubbles = """
         <div class="ins-bubbles">
-          \(statBubble(label: "Total Invocations", value: Self.fmtCount(totalUses), icon: svgIcon("sparkle", 18)))
-          \(statBubble(label: "Skills Used", value: "\(touched)/\(skillNames.count)", icon: svgIcon("book", 18)))
+          \(statBubble(label: "Total Invocations", value: Self.fmtCount(totalUses), icon: WebUIIcon(.star, size: .large).render()))
+          \(statBubble(label: "Skills Used", value: "\(touched)/\(skillNames.count)", icon: WebUIIcon(.book, size: .large).render()))
         </div>
         """
         // Top 10 skills by times used (keeps the panel uncluttered).
@@ -230,9 +231,9 @@ extension AppState {
             .values.reduce(0, +)
         let stats = """
         <div class="ins-stats">
-          \(statBox(label: "Chat Sessions", value: Self.fmtCount(sessions.count), icon: svgIcon("chat", 18)))
-          \(statBox(label: "Total Messages", value: Self.fmtCount(totalMessages), icon: svgIcon("note", 18)))
-          \(statBox(label: "Tokens Burned", value: Self.fmtCount(rangeTokens), icon: svgIcon("chart", 18)))
+          \(statBox(label: "Chat Sessions", value: Self.fmtCount(sessions.count), icon: WebUIIcon(.messageSquare, size: .large).render()))
+          \(statBox(label: "Total Messages", value: Self.fmtCount(totalMessages), icon: WebUIIcon(.fileText, size: .large).render()))
+          \(statBox(label: "Tokens Burned", value: Self.fmtCount(rangeTokens), icon: WebUIIcon(.chartBar, size: .large).render()))
         </div>
         """
 
