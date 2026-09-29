@@ -26,7 +26,8 @@ Sources/ArcAgentWebUI/
 ├── Actions.swift          — wire handlers (settings, approvals, queues, skills, agent powers)
 ├── Views.swift            — all page/section HTML builders (chat, sidebar, settings, skills, …)
 ├── Theme.swift            — base stylesheet + 27 color schemes as Swift constants
-├── RuntimeAsset.swift     — the client runtime JS, embedded as a Swift string
+├── init.js (in Entry.swift) — the arc-specific client overlay (composer, KaTeX,
+│                            tables, slash menu, selection, outline, worklog)
 ├── Queue.swift            — run-queue model/engine (sequential + parallel, output chaining)
 ├── NewFeatures.swift      — tabbed panels, todos, cron, regenerate
 ├── Insights.swift         — usage insights (top-10 skills, token/activity charts)
@@ -74,14 +75,16 @@ embedded asset is a build product of its input and cannot drift from it.
 
 ## Known gaps
 
-- **`RuntimeAsset.swift` embeds a fork** of no-webui's client runtime
-  (`designer/assets/webui-runtime.js`), ~59 KB against upstream's ~29 KB. The
-  fork predates no-webui's render-token pings and its keyboard accessibility,
-  and adds arc behaviour (scroll preservation, markdown-table enhancement, KaTeX
-  post-render, slash/selection/queue extras). no-webui now exposes
-  `WebUIRuntime.on.afterPatch/.ready` for exactly this — but see the journal:
-  no-webui is engine-first (`webui-engine.js`), so the cutover should target the
-  engine rather than the older runtime.
+- **Resolved (2026-09): the client runtime fork is gone.** `RuntimeAsset.swift`
+  (a ~59 KB fork of no-webui's `webui-runtime.js`), its `Assets/runtime.js`
+  source, and `gen_runtime.py` were deleted. `HTMLDocument` now boots no-webui's
+  **engine**, and a page loads exactly two scripts: `/ui/webui-engine.js` (routed
+  by `WebUIServer`) plus the arc overlay. Transport, event dispatch, fragment
+  patching, scroll/form-state restore and sanitising are the engine's job.
+  The overlay keeps only arc-specific behaviour — composer, KaTeX post-render,
+  markdown-table enhancement, slash menu, selection button, outline, worklog —
+  and must re-run on DOM mutation: the engine's only client events are
+  `webui:connected` / `webui:disconnected`, with no post-patch hook.
 - The panels still build their markup by hand (536 bespoke CSS classes across the
   target). They use no-webui's view DSL, icons and tokens, but not its component
   set — adopting `WebUIStat`/`WebUITable`/`WebUIEmptyState` etc. would re-skin the
