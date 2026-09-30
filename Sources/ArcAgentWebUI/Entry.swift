@@ -274,7 +274,7 @@ struct ArcAgentWebUI: AsyncParsableCommand {
           var seenChatScroll = null;
           // ---- Server-rendered math + table enhancement (arc-specific).
           // Lived in the forked runtime until that fork was deleted; it belongs in the
-          // overlay and is driven from the mutation observer below.
+          // overlay and is driven from the engine's afterPatch seam below.
           // Mirrors arc-webui ui.js `renderKatexBlocks` + messages.js table
             // enhancement: server-rendered <equation-inline>/<equation-block> elements
             // are typeset with KaTeX (lazy-loaded, rendered-source cached), and pipe
@@ -426,10 +426,17 @@ struct ArcAgentWebUI: AsyncParsableCommand {
               }
             }
 
-          new MutationObserver(function () {
-            resizeComposerIfNew();
-            renderKatexBlocks(document);
-            enhanceMarkdownTables(document);
+          // ---- Post-patch seam. The engine hands `afterPatch` the array of elements a
+          // fragment batch replaced, so enhancement is scoped to what actually changed
+          // instead of rescanning the whole document on every mutation — the old
+          // MutationObserver also fired on the overlay's own edits, so it thrashed while
+          // a turn streamed. `ready` only fires for hooks registered before the engine
+          // boots; this overlay is a separate script that runs first, so registration
+          // happens on DOMContentLoaded (after the engine's synchronous boot) and the
+          // initial pass is invoked directly. Every pass is idempotent — rendered blocks
+          // and enhanced tables are marked, the scroll listener is bound once — which is
+          // what makes the extra call safe.
+          function stickToChat() {
             var s = chatScroller();
             if (!s) return;
             if (!s.__bound) {
@@ -457,9 +464,46 @@ struct ArcAgentWebUI: AsyncParsableCommand {
             } else if (stick) {
               s.scrollTop = s.scrollHeight;
             }
-          }).observe(document, { childList: true, subtree: true });
-          renderKatexBlocks(document);
-          enhanceMarkdownTables(document);
+          }
+
+          function enhanceAll() {
+            resizeComposerIfNew();
+            renderKatexBlocks(document);
+            enhanceMarkdownTables(document);
+            stickToChat();
+          }
+
+          function enhancePatched(changed) {
+            resizeComposerIfNew();
+            if (changed && changed.length) {
+              for (var i = 0; i < changed.length; i++) {
+                renderKatexBlocks(changed[i]);
+                enhanceMarkdownTables(changed[i]);
+              }
+            } else {
+              // A runtime that hands no subtree: fall back to a document pass.
+              renderKatexBlocks(document);
+              enhanceMarkdownTables(document);
+            }
+            stickToChat();
+          }
+
+          function bootOverlay() {
+            if (window.WebUIEngine && WebUIEngine.on) {
+              WebUIEngine.on.afterPatch(enhancePatched);
+              WebUIEngine.on.ready(enhanceAll);
+            }
+            // The engine boots synchronously with its own script, which precedes this
+            // handler, so `ready` may never fire — the initial pass runs here, and
+            // covers anything that arrived before registration.
+            enhanceAll();
+          }
+
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', bootOverlay);
+          } else {
+            bootOverlay();
+          }
 
           // ---- Jump-to-latest circle button (arc parity): appears when the
           // user has scrolled away from the bottom; click returns to the end.
