@@ -139,7 +139,13 @@ struct ArcAgentWebUI: AsyncParsableCommand {
                 """,
                 htmlAttributes: themeAttrs,
                 devMode: false,
-                contentSecurityPolicy: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; connect-src 'self' ws: wss:; font-src 'self' data:"
+                // Extras, not a restated policy: a full policy names no nonce source, and
+                // `HTMLDocument` then suppresses the pre-paint theme prelude rather than
+                // emit an inline script the browser refuses (a stored scheme would flash
+                // on every load). These two directives are all arc needs beyond the
+                // framework default — remote images in rendered markdown, and a font-src
+                // that also allows data: for KaTeX.
+                contentSecurityPolicyExtras: "img-src 'self' data: https: blob:; font-src 'self' data:"
             )
         }
         let bootShell = await app.appShell()
