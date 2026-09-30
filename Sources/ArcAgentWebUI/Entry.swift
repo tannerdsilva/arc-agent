@@ -1,5 +1,6 @@
 import ArcAgentCore
 import ArgumentParser
+import CryptoKit
 import Foundation
 import Logging
 import ServiceLifecycle
@@ -34,6 +35,20 @@ struct ArcAgentWebUI: AsyncParsableCommand {
     /// framework emits.
     static func themeAttrs(_ theme: (scheme: String, mode: String)) -> String {
         "data-scheme=\"\(esc(theme.scheme))\" data-theme=\"\(esc(theme.mode))\""
+    }
+
+    /// A url that changes when the bytes do: `/ui/style.css?v=<sha256 prefix>`.
+    ///
+    /// The hand-maintained `?v=47` counter was both forgettable and pointless: the assets
+    /// were registered bare and served `no-store`, so the query was a cache key for a
+    /// response that never cached, and the 250 kb sheet was re-fetched on every navigation.
+    /// Deriving the stamp from the content means a rebuild changes the url by construction,
+    /// which is what makes a year-long cache safe: unchanged bytes keep their url, changed
+    /// bytes cannot be served under the old one.
+    static func stamped(_ path: String, _ content: String) -> String {
+        let digest = SHA256.hash(data: Data(content.utf8))
+        let stamp = digest.map { String(format: "%02x", $0) }.joined().prefix(12)
+        return "\(path)?v=\(stamp)"
     }
 
     func run() async throws {
@@ -120,6 +135,14 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         // created further down, once the server that carries its pushes exists.
         let router = EventRouter()
 
+        // Content-derived asset urls: the head links and the asset registrations must
+        // agree byte-for-byte, and neither may be hand-versioned. `initPath` is stamped
+        // later, once the overlay literal it hashes exists.
+        let sheet = Theme.css + Theme.schemeCSS
+        let sheetPath = Self.stamped("/ui/style.css", sheet)
+        let katexCSSPath = Self.stamped("/ui/vendor/katex/katex.min.css", KaTeXAssets.css)
+        let katexJSPath = Self.stamped("/ui/vendor/katex/katex.min.js", KaTeXAssets.js)
+
         // Assemble the page (external /ui/* assets keep each response small).
         // The document template wraps whatever body the app currently renders,
         // so a refresh ALWAYS reflects live store state (a boot-cached page
@@ -127,15 +150,16 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         // The theme attributes belong on `<html>`, not on `#app`: the engine writes them on
         // `documentElement` and the theme is scoped to `:root`. `themeAttrs` is the server's
         // default, which the engine overrides from storage before first paint.
-        let makeDocument: (String, String) -> WebUI.HTMLDocument = { body, themeAttrs in
+        let makeDocument: (String, String, String) -> WebUI.HTMLDocument = { body, themeAttrs, initPath in
             WebUI.HTMLDocument(
                 title: "ARC Agent",
                 body: body,
                 rawStyles: [],
                 head: """
-                <link rel="stylesheet" href="/ui/style.css?v=47">
-                <link rel="stylesheet" href="/ui/vendor/katex/katex.min.css">
-                <script src="/ui/init.js?v=30"></script>
+                <link rel="stylesheet" href="\(sheetPath)">
+                <link rel="stylesheet" href="\(katexCSSPath)">
+                <meta name="arc-katex-js" content="\(katexJSPath)">
+                <script src="\(initPath)"></script>
                 """,
                 htmlAttributes: themeAttrs,
                 devMode: false,
@@ -148,16 +172,16 @@ struct ArcAgentWebUI: AsyncParsableCommand {
                 contentSecurityPolicyExtras: "img-src 'self' data: https: blob:; font-src 'self' data:"
             )
         }
-        let bootShell = await app.appShell()
-        let bootTheme = await app.themeDefaults()
-        let bootPage = makeDocument(bootShell, Self.themeAttrs(bootTheme)).render()
-        let pageProvider: @Sendable (String?) async -> String = { [app] deepLink in
+        // The overlay's url is stamped from its bytes, which only exist after the literal
+        // below — so the factory takes the path as an argument rather than capturing a
+        // variable out of order, and every call site passes the stamped value.
+        let pageProvider: @Sendable (String?, String) async -> String = { [app] deepLink, initPath in
             if let sid = deepLink, !sid.isEmpty {
                 await app.openDeepLink(sid)
             }
             await app.armScrollToBottom()
             let shell = await app.appShell()
-            return makeDocument(shell, Self.themeAttrs(await app.themeDefaults())).render()
+            return makeDocument(shell, Self.themeAttrs(await app.themeDefaults()), initPath).render()
         }
 
         let initJS = """
@@ -312,7 +336,8 @@ struct ArcAgentWebUI: AsyncParsableCommand {
                 if (!_katexState.loading) {
                   _katexState.loading = true;
                   var script = document.createElement('script');
-                  script.src = '/ui/vendor/katex/katex.min.js';
+                  script.src = (document.querySelector('meta[name="arc-katex-js"]') || {}).content ||
+                    '/ui/vendor/katex/katex.min.js';
                   script.onload = function () {
                     if (typeof katex !== 'undefined') {
                       _katexState.ready = true;
@@ -1074,6 +1099,9 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         })();
         """
 
+        // The overlay's content-derived url, now that its bytes exist.
+        let initPath = Self.stamped("/ui/init.js", initJS)
+
         // Vendored KaTeX fonts are binary: register each as a byte asset so the
         // served page fetches them from this server instead of a second one.
         let fontAssets: [WebUIServerAsset] = KaTeXAssets.fontsBase64.compactMap { name, encoded in
@@ -1089,18 +1117,22 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         let server = WebUIServer(
             requestRender: { request in
                 // ?s=<id> opens that conversation directly (copy-link flow).
-                await pageProvider(request.value("s"))
+                await pageProvider(request.value("s"), initPath)
             },
             router: router,
             config: WebUIServerConfig(
                 host: host,
                 port: port,
                 pagePath: "/",
+                // Registered at the bare path — the server strips a request's query before
+                // the asset lookup, so a stamped url resolves to the same bytes. The `?v=`
+                // is the *client's* cache key: a rebuilt asset is a new url and cannot be
+                // served from a year-long cache under the old one.
                 assets: [
-                    .text("/ui/style.css", Theme.css + Theme.schemeCSS, contentType: "text/css; charset=utf-8"),
-                    .text("/ui/init.js", initJS, contentType: "text/javascript; charset=utf-8"),
-                    .text("/ui/vendor/katex/katex.min.css", KaTeXAssets.css, contentType: "text/css; charset=utf-8"),
-                    .text("/ui/vendor/katex/katex.min.js", KaTeXAssets.js, contentType: "text/javascript; charset=utf-8"),
+                    .text("/ui/style.css", sheet, contentType: "text/css; charset=utf-8", cacheSeconds: 31_536_000),
+                    .text("/ui/init.js", initJS, contentType: "text/javascript; charset=utf-8", cacheSeconds: 31_536_000),
+                    .text("/ui/vendor/katex/katex.min.css", KaTeXAssets.css, contentType: "text/css; charset=utf-8", cacheSeconds: 31_536_000),
+                    .text("/ui/vendor/katex/katex.min.js", KaTeXAssets.js, contentType: "text/javascript; charset=utf-8", cacheSeconds: 31_536_000),
                 ] + fontAssets
             ),
             logger: logger
@@ -1111,7 +1143,14 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         })
         controller.wireAll(router)
 
-        logger.info("serving http://\(host):\(port) (page \(bootPage.utf8.count) bytes)")
+        // the boot page is rendered here, once the stamped asset urls exist, purely
+        // so the log line reports a real byte count.
+        let bootPageBytes = makeDocument(
+            await app.appShell(),
+            Self.themeAttrs(await app.themeDefaults()),
+            initPath
+        ).render().utf8.count
+        logger.info("serving http://\(host):\(port) (page \(bootPageBytes) bytes)")
         await app.startCronEngine()
 
         // Live log stream: drain the ring buffer and push the log box to
