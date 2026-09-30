@@ -2,6 +2,11 @@ import Foundation
 import Testing
 @testable import ArcAgentCore
 
+/// Single-threaded mutable flag shared with a `@Sendable` closure.
+final class CallFlag: @unchecked Sendable {
+    var value = false
+}
+
 // MARK: - Micro-compaction (reference docs/micro-compaction.md) parity tests
 
 @Suite("Micro-compaction")
@@ -28,7 +33,7 @@ struct MicroCompactionTests {
     }
 
     /// A scripted summary closure: returns the exchange text prefixed with "SUMMARY:".
-    private func scriptedSummary() -> (String, String) async -> String? {
+    private func scriptedSummary() -> @Sendable (String, String) async -> String? {
         { existing, exchange in
             existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? "SUMMARY: " + String(exchange.prefix(20))
@@ -36,7 +41,7 @@ struct MicroCompactionTests {
         }
     }
 
-    private func neverFails() -> (String) async -> String? {
+    private func neverFails() -> @Sendable (String) async -> String? {
         { _ in "DEFRAGGED" }
     }
 
@@ -320,7 +325,7 @@ struct MicroCompactionTests {
 
     @Test("summarizer failure leaves transcript unchanged; three strikes skip the exchange")
     func passFailureThenSkip() async {
-        let failing: (String, String) async -> String? = { _, _ in nil }
+        let failing: @Sendable (String, String) async -> String? = { _, _ in nil }
         let msgs = bigTranscript()
         var state = MicroCompactState()
         var run = await MicroCompactor.run(
@@ -376,19 +381,19 @@ struct MicroCompactionTests {
         var state = MicroCompactState()
         state.rollingSummary = "a very long baggy summary"
         state.cursor = 3
-        var called = false
+        let called = CallFlag()
         let run = await MicroCompactor.run(
             messages: msgs, state: &state,
             config: defaultConfig(defrag: 3), limit: 100_000,
             countTokens: { counter.count($0) },
             summarize: scriptedSummary(),
             defragSummarize: { _ in
-                called = true
+                called.value = true
                 return "FRESH TIGHT SUMMARY"
             }
         )
         #expect(run.outcome == .defrag)
-        #expect(called)
+        #expect(called.value)
         #expect(state.rollingSummary == "FRESH TIGHT SUMMARY")
         #expect(run.messages.count == msgs.count) // no splice, shape-neutral
         let last = run.messages.last { MicroCompactor.isMicroMarker($0) }!

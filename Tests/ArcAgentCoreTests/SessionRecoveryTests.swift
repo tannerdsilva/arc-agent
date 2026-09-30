@@ -119,7 +119,7 @@ struct SessionRecoveryTests {
         // exactly the state a real crash produces before supervision fires.
         handle.inputContinuation.finish()
         var vacant = false
-        for _ in 0..<200 {
+        for _ in 0..<400 {
             if await registry.agent(for: "recovery-restart") == nil {
                 vacant = true
                 break

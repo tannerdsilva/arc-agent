@@ -44,7 +44,9 @@ struct SecurityOSV: AsyncParsableCommand {
         if queries.isEmpty { print("No resolvable pins found."); return }
         print("Auditing \(queries.count) pins (ecosystem: \(ecosystem))…")
         let client = HTTPClient(eventLoopGroupProvider: .singleton)
-        defer { try? client.syncShutdown() }
+        // One-shot CLI: the client is torn down with the process; schedule the
+        // (async-only) shutdown so this command never blocks on it.
+        defer { Task { try? await client.shutdown() } }
         var request = HTTPClientRequest(url: api)
         request.method = .POST
         request.headers.add(name: "content-type", value: "application/json")

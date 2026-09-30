@@ -8,7 +8,7 @@ import ServiceLifecycle
 @Suite("Send message tool", .serialized)
 struct SendMessageToolTests {
 
-    final class MockAdapter: PlatformAdapter {
+    final class MockAdapter: PlatformAdapter, @unchecked Sendable {
         let name: String
         var sent: [(message: OutgoingMessage, target: ChatTarget)] = []
         let incomingMessages: AsyncStream<IncomingMessage> = AsyncStream { _ in }

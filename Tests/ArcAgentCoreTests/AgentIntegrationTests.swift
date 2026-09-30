@@ -117,7 +117,6 @@ struct AgentIntegrationTests {
     func completionPathExecutesTool() async throws {
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
         defer { try? httpClient.shutdown() }
-        defer { try? httpClient.syncShutdown() }
 
         let target = FileManager.default.temporaryDirectory
             .appendingPathComponent("arc-agent-test-\(UUID().uuidString).txt")
@@ -141,7 +140,6 @@ struct AgentIntegrationTests {
     func streamingPathExecutesTool() async throws {
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
         defer { try? httpClient.shutdown() }
-        defer { try? httpClient.syncShutdown() }
 
         let target = FileManager.default.temporaryDirectory
             .appendingPathComponent("arc-agent-stream-\(UUID().uuidString).txt")
@@ -167,7 +165,6 @@ struct AgentIntegrationTests {
     func missingToolReturnsError() async throws {
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
         defer { try? httpClient.shutdown() }
-        defer { try? httpClient.syncShutdown() }
 
         // A registry that has NOTHING — the mock will still request read_file.
         let registry = CompileTimeToolRegistry()

@@ -167,7 +167,7 @@ public actor SessionRegistry {
     /// there is no window in which ``removeIfCurrent(sessionID:agent:)`` can
     /// resolve against the wrong generation.
     func getOrCreate(sessionID: String, profile: String = "default") async -> SessionHandle {
-        if let existing = agents[sessionID] {
+        if agents[sessionID] != nil {
             handles[sessionID]?.inputContinuation.finish()
             handles[sessionID]?.responseContinuation.finish()
             // Wait for the previous generation to exit and release the

@@ -96,7 +96,6 @@ struct AuxiliaryModelsTests {
         defer { try? hc.shutdown() }
         #expect(router.makeClient(task: .compression, httpClient: hc) != nil)
         #expect(router.makeClient(task: .titleGeneration, httpClient: hc) != nil)
-        try hc.syncShutdown()
     }
 
     @Test("decodes a reference-shaped auxiliary block tolerantly and round-trips")

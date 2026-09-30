@@ -61,7 +61,16 @@ public enum ProcessTool {
 
         switch action {
         case "list":
-            return try json(["processes": await ProcessRegistry.shared.summaries()])
+            let processes = await ProcessRegistry.shared.summaries()
+                .map { summary in
+                    [
+                        "session_id": summary.sessionID,
+                        "command": summary.command,
+                        "status": summary.status,
+                        "exit_code": summary.exitCode ?? NSNull(),
+                    ] as [String: Any]
+                }
+            return try json(["processes": processes])
 
         case "poll", "log", "wait", "kill":
             guard !sid.isEmpty else {

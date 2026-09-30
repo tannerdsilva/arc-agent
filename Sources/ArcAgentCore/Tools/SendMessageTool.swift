@@ -14,11 +14,11 @@ import Foundation
 public enum SendMessageTool {
 
     /// The delivery manager. Wired by ``GatewayService`` (and by tests).
-    public static var delivery: DeliveryManager?
+    public nonisolated(unsafe) static var delivery: DeliveryManager?
 
     /// Resolves a bare platform name to its home chat id (wired by the
     /// gateway from its platform config; nil when unknown).
-    public static var homeChatResolver: (@Sendable (String) async -> String?)?
+    public nonisolated(unsafe) static var homeChatResolver: (@Sendable (String) async -> String?)?
 
     public static let entry = ToolEntry(
         name: "send_message",

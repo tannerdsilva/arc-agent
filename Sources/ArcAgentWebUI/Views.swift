@@ -318,12 +318,21 @@ extension AppState {
                 : (showArchived ? "No archived chats." : "No chats yet — press + to start one.")
             rows.append("<div class=\"empty-hint\">\(msg)</div>")
         }
+        // Beyond the current window? The store lists at most `sessionLoadLimit`
+        // sessions; expand the window one page at a time ("load the other
+        // messages") instead of pulling the whole history up front.
+        let loadMore = sessionsExhausted || todos ? "" : """
+        <button type="button" id="chat-loadmore" data-component-id="chat-loadmore" class="arch-link" title="Load older conversations">
+          <span class="arch-ico">\(svgIcon("chevron-down", 10))</span><span> Load more conversations</span>
+        </button>
+        """
         let stamp = liveHintHTML()
         return """
         \(head)
         <div class="panel-body" id="sess-list-body">
           \(stamp)
           \(rows.joined())
+          \(loadMore)
         </div>
         """
     }
@@ -844,7 +853,7 @@ extension AppState {
         """
     }
 
-    func messagesHTML(_ messages: [Message]) -> String {
+    func messagesHTML(_ messages: [Message], includeLive: Bool = true) -> String {
         var html: [String] = []
         var i = 0
         let mode = settings.activityDisplay
@@ -870,24 +879,37 @@ extension AppState {
             }
             i = j
         }
-        // Live turn + steer bubble belong to their owning session only.
-        if let live = activeTurns[activeSessionID ?? ""] {
-            // A pending steer renders as a arc-style steer indicator: a
-            // transient italic banner with the uppercase STEER badge, below
-            // the messages (never persisted as a message).
-            if let steer = live.steerText, !steer.isEmpty {
-                html.append("""
-                <div class="steer-indicator">
-                  <span class="steer-badge">Steer</span>
-                  <span class="steer-body">\(esc(steer))</span>
-                </div>
-                """)
-            }
-            html.append(liveMessageHTML(live))
+        // Live turn + steer bubble belong to their owning session only. The
+        // streaming tail is rendered separately (`liveTailHTML`) so the live
+        // fragments path can keep the static transcript cached.
+        if includeLive {
+            html.append(liveTailHTML())
         }
         if html.isEmpty {
             html.append("<div class=\"blank\"><div class=\"big\">\(svgIcon("chat", 44))</div><div>Start a conversation below.</div></div>")
         }
+        return html.joined()
+    }
+
+    /// The live-turn tail (steer banner + streaming bubble) for the owning
+    /// session. Mirrors exactly the block `messagesHTML(includeLive: true)`
+    /// appends, so the incremental path (`liveFragments`) can append it to a
+    /// cached static transcript and produce byte-identical output.
+    func liveTailHTML() -> String {
+        guard let live = activeTurns[activeSessionID ?? ""] else { return "" }
+        var html: [String] = []
+        // A pending steer renders as a arc-style steer indicator: a
+        // transient italic banner with the uppercase STEER badge, below
+        // the messages (never persisted as a message).
+        if let steer = live.steerText, !steer.isEmpty {
+            html.append("""
+            <div class="steer-indicator">
+              <span class="steer-badge">Steer</span>
+              <span class="steer-body">\(esc(steer))</span>
+            </div>
+            """)
+        }
+        html.append(liveMessageHTML(live))
         return html.joined()
     }
 
@@ -1604,11 +1626,11 @@ extension AppState {
     /// model, thinking) as trigger buttons with server-rendered popovers,
     /// matching the arc agent webui look.
     func composerSelectorsHTML() -> String {
-        let ws = (workspaceName(for: activeSessionID) ?? "")
+        let ws = workspaceName(for: activeSessionID)
         let profile = (profileName(for: activeSessionID) ?? "")
-        let config = (configName(for: activeSessionID) ?? "")
+        let config = configName(for: activeSessionID)
         let model = settings.modelConfig(named: config)?.model ?? config
-        let think = (thinkingLevel(for: activeSessionID) ?? "")
+        let think = thinkingLevel(for: activeSessionID)
 
         let wsTrigger = ddTrigger(id: "cb-ws-toggle", icon: svgIcon("folder", 13),
                                   label: ws.isEmpty ? "Workspace" : ws, title: "Workspace")
@@ -3365,12 +3387,6 @@ func svgIcon(_ name: String, _ size: Int = 16) -> String {
     case "chevron-left":
         fill = "none"; stroke = "currentColor"
         d = "<path d='M15 5l-7 7 7 7'/>"
-    case "chevron-right":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M9 5l7 7-7 7'/>"
-    case "chevron-down":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M5 9l7 7 7-7'/>"
     case "warning":
         fill = "none"; stroke = "currentColor"
         d = "<path d='M12 3l9 17H3z'/><path d='M12 9v4'/><path d='M12 16.5h.01'/>"
@@ -3383,15 +3399,9 @@ func svgIcon(_ name: String, _ size: Int = 16) -> String {
     case "search":
         fill = "none"; stroke = "currentColor"
         d = "<circle cx='11' cy='11' r='7'/><path d='M21 21l-4.3-4.3'/>"
-    case "trash":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M4 7h16'/><path d='M9.5 7V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v2'/><path d='M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13'/>"
     case "globe":
         fill = "none"; stroke = "currentColor"
         d = "<circle cx='12' cy='12' r='9'/><path d='M3 12h18'/><path d='M12 3a14.5 14.5 0 0 1 0 18'/><path d='M12 3a14.5 14.5 0 0 0 0 18'/>"
-    case "refresh":
-        fill = "none"; stroke = "currentColor"
-        d = "<path d='M20 12a8 8 0 1 1-2.3-5.7'/><path d='M20 3v4h-4'/>"
     case "clock":
         fill = "none"; stroke = "currentColor"
         d = "<circle cx='12' cy='12' r='9'/><path d='M12 7v5l3.5 2'/>"

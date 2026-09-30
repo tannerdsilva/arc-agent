@@ -87,13 +87,22 @@ public enum StaleStreamError: Error, CustomStringConvertible, Equatable {
     }
 }
 
+/// Single-consumer holder for a non-Sendable iterator: the idle-race hands
+/// the iterator to exactly one task (the waiter), which is the only mutation
+/// site, and the holder is safely closed over by the `@Sendable` race
+/// closures. Access is governed by the task-group lifetime.
+private final class IteratorBox<T>: @unchecked Sendable {
+    var value: T
+    init(_ value: T) { self.value = value }
+}
+
 /// AsyncSequence wrapper enforcing an idle (inter-delta) patience budget on
 /// any element stream. A single producer task drains `base` and presents
 /// elements on an internal stream; each `next()` on the base is raced against
 /// an idle deadline that restarts per element. If the deadline wins, the
 /// stream terminates with `StaleStreamError.idleTimeout`. Law-compliant:
 /// races via `withThrowingTaskGroup`, one task owns the iterator.
-public struct IdleTimeoutStream<Base: AsyncSequence>: AsyncSequence {
+public struct IdleTimeoutStream<Base: AsyncSequence>: AsyncSequence where Base: Sendable, Base.Element: Sendable {
     public typealias Element = Base.Element
     let base: Base
     let idleSeconds: Double
@@ -105,13 +114,14 @@ public struct IdleTimeoutStream<Base: AsyncSequence>: AsyncSequence {
 
     public func makeAsyncIterator() -> Iterator {
         let inner = AsyncThrowingStream<Element, Error> { continuation in
+            let box = IteratorBox(base.makeAsyncIterator())
+            let idle = idleSeconds
             Task {
-                var iterator = base.makeAsyncIterator()
                 do {
                     while true {
                         let element: Element? = try await Self.wait(
-                            timeout: idleSeconds,
-                            operation: { try await iterator.next() }
+                            timeout: idle,
+                            operation: { try await box.value.next() }
                         )
                         guard let element else { break }
                         continuation.yield(element)
@@ -126,7 +136,7 @@ public struct IdleTimeoutStream<Base: AsyncSequence>: AsyncSequence {
     }
 
     /// Race `operation` against an idle deadline (reference stale watchdog).
-    static func wait<T>(timeout: Double, operation: @escaping () async throws -> T?) async throws -> T? {
+    static func wait<T: Sendable>(timeout: Double, operation: @escaping @Sendable () async throws -> T?) async throws -> T? {
         if timeout <= 0 { return try await operation() }
         return try await withThrowingTaskGroup(of: T?.self) { group in
             group.addTask { try await operation() }

@@ -9,15 +9,15 @@ import Foundation
 struct MemoryTool {
 
     /// The memory provider wired by the agent at startup.
-    static var provider: (any MemoryProvider)?
+    nonisolated(unsafe) static var provider: (any MemoryProvider)?
 
     /// The file provider used when no provider has been injected.
-    static var fallbackProvider: (any MemoryProvider) = FileMemoryProvider(
+    nonisolated(unsafe) static var fallbackProvider: (any MemoryProvider) = FileMemoryProvider(
         directory: FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".arc/memories")
     )
 
-    static var entry = ToolEntry(
+    nonisolated(unsafe) static var entry = ToolEntry(
         name: "memory",
         toolset: "core",
         description: "Save durable facts to persistent memory that survive across sessions. Memory is "

@@ -84,7 +84,7 @@ public struct WebSocketServerService: Service {
 // MARK: - WebSocket Frame Handler
 
 /// Handles WebSocket frames after the upgrade is complete.
-final class WebSocketFrameHandler: ChannelInboundHandler {
+final class WebSocketFrameHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = WebSocketFrame
     typealias OutboundOut = WebSocketFrame
 
@@ -110,7 +110,7 @@ final class WebSocketFrameHandler: ChannelInboundHandler {
             _ = context.close()
 
         case .ping:
-            var buffer = context.channel.allocator.buffer(capacity: 0)
+            let buffer = context.channel.allocator.buffer(capacity: 0)
             let pongFrame = WebSocketFrame(fin: true, opcode: .pong, data: buffer)
             context.writeAndFlush(wrapOutboundOut(pongFrame), promise: nil)
 

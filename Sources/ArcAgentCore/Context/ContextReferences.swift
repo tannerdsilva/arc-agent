@@ -166,16 +166,23 @@ public struct ContextReferenceExpander {
             fetchURL: { urlString in
                 guard let url = URL(string: urlString) else { return nil }
                 let client = HTTPClient(eventLoopGroupProvider: .singleton)
-                defer { try? client.syncShutdown() }
+                let text: String?
                 do {
                     let response = try await client.get(url: url.absoluteString).get()
-                    guard var body = response.body else { return nil }
-                    guard let data = body.readData(length: body.readableBytes) else { return nil }
-                    guard let html = String(data: data, encoding: .utf8) else { return nil }
-                    return htmlToText(html)
+                    let data: Data?
+                    if var body = response.body {
+                        let n = body.readableBytes
+                        data = body.readData(length: n)
+                    } else {
+                        data = nil
+                    }
+                    let html = data.flatMap { String(data: $0, encoding: .utf8) }
+                    text = html.map { htmlToText($0) }
                 } catch {
-                    return nil
+                    text = nil
                 }
+                try? await client.shutdown()
+                return text
             }
         )
     }

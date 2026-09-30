@@ -269,7 +269,7 @@ extension AppState {
 
     func notifyQueueView(_ pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void) async {
         guard activeView == .todos else { return }
-        await pusher([FragmentUpdate(id: "main", html: await self.todosPanelHTML())])
+        await pusher([FragmentUpdate(id: "main", html: self.todosPanelHTML())])
     }
 
     /// Run one queue task in its own chat (waiting for the chat to be free).
@@ -634,13 +634,14 @@ extension Controller {
             if tid == "queue-run-sync" || tid == "queue-run-async" {
                 guard await self.app.queueRunActive == false else { return [] }
                 let cid = TaskEnv.clientID ?? 0
+                let app = self.app
                 let pusher = self.pusher(forClientID: cid)
                 let sequential = tid == "queue-run-sync"
                 Task {
                     if sequential {
-                        await self.app.runQueueSequential(pusher: pusher)
+                        await app.runQueueSequential(pusher: pusher)
                     } else {
-                        await self.app.runQueueParallel(pusher: pusher)
+                        await app.runQueueParallel(pusher: pusher)
                     }
                 }
                 return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]

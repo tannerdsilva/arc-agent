@@ -82,7 +82,7 @@ public enum MemoryRecall {
     /// stall the turn (reference: join(timeout), non-fatal).
     public static func prefetchWithTimeout(
         timeout: Duration = .seconds(2),
-        _ op: @escaping () async throws -> String
+        _ op: @escaping @Sendable () async throws -> String
     ) async -> String {
         do {
             return try await withThrowingTaskGroup(of: String.self) { group in

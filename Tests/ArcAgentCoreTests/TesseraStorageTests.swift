@@ -300,6 +300,11 @@ struct TesseraStorageE2ETests {
         try await sessionStore.delete(id: "e2e-session-1")
         let gone = try await sessionStore.get(id: "e2e-session-1")
         #expect(gone == nil)
+        // The record index must drop the deleted session too (unindex path):
+        // summaries must no longer contain it even though other sessions exist.
+        let afterDelete = try await sessionStore.list(limit: 50)
+        #expect(afterDelete.allSatisfy { $0.id != "e2e-session-1" },
+            "deleted session must be gone from list() summaries as well")
 
         // --- Persistence across reconnection ---
         // Write a session, tear the connection down, re-open, and confirm

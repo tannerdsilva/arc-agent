@@ -42,7 +42,7 @@ public final class CDPCommandChannel: @unchecked Sendable {
     private var socket: URLSessionWebSocketTask?
     private var readerTask: Task<Void, Never>?
     private var nextID = 1
-    private var pending: [Int: CheckedContinuation<[String: Any], Error>] = [:]
+    private var pending: [Int: CheckedContinuation<CDPJSON, Error>] = [:]
     private let events = CDPEventLog()
     /// Runtime/Page domains enabled for event capture (idempotent).
     private var domainsEnabled = false
@@ -52,7 +52,7 @@ public final class CDPCommandChannel: @unchecked Sendable {
     public var isConnected: Bool { socket != nil }
 
     public func connect(endpoint: URL) async throws {
-        try await disconnect()
+        await disconnect()
         let session = URLSession(configuration: .default)
         let task = session.webSocketTask(with: endpoint)
         socket = task
@@ -69,7 +69,7 @@ public final class CDPCommandChannel: @unchecked Sendable {
         socket = nil
     }
 
-    public func send(method: String, params: [String: Any]) async throws -> [String: Any] {
+    public func send(method: String, params: [String: Any]) async throws -> CDPJSON {
         guard let socket else { throw CDPError.notConnected }
         let id = nextID
         nextID += 1
@@ -97,7 +97,7 @@ public final class CDPCommandChannel: @unchecked Sendable {
     }
 
     /// Buffered native JS dialogs (alert/confirm/prompt/beforeunload).
-    public func pendingDialogs() async -> [[String: Any]] {
+    public func pendingDialogs() async -> [CDPDialog] {
         await events.dialogs()
     }
 
@@ -116,7 +116,7 @@ public final class CDPCommandChannel: @unchecked Sendable {
                     // the console/dialog buffers (CDP internals exception:
                     // @unchecked Sendable + actor buffering).
                     if let method = json["method"] as? String, json["id"] == nil {
-                        await self?.routeEvent(method: method, json: json)
+                        await self?.routeEvent(method: method, json: NonSendableBox(json))
                         continue
                     }
                     guard let id = json["id"] as? Int else { continue }
@@ -124,7 +124,7 @@ public final class CDPCommandChannel: @unchecked Sendable {
                         if let error = json["error"] as? [String: Any] {
                             cont.resume(throwing: CDPError.commandFailed(error["message"] as? String ?? "unknown"))
                         } else {
-                            cont.resume(returning: json["result"] as? [String: Any] ?? [:])
+                            cont.resume(returning: CDPJSON(json["result"] as? [String: Any] ?? [:]))
                         }
                     }
                 } catch {
@@ -138,8 +138,8 @@ public final class CDPCommandChannel: @unchecked Sendable {
         }
     }
 
-    private func routeEvent(method: String, json: [String: Any]) async {
-        let params = json["params"] as? [String: Any] ?? [:]
+    private func routeEvent(method: String, json: NonSendableBox<[String: Any]>) async {
+        let params = json.value["params"] as? [String: Any] ?? [:]
         switch method {
         case "Runtime.consoleAPICalled":
             let type = params["type"] as? String ?? "log"
@@ -175,11 +175,30 @@ public final class CDPCommandChannel: @unchecked Sendable {
     }
 }
 
+/// A CDP command result (raw JSON dictionary, boxed so it can cross the
+/// continuation handoff; values are never mutated after creation).
+public struct CDPJSON: @unchecked Sendable {
+    public let value: [String: Any]
+    public init(_ value: [String: Any]) { self.value = value }
+}
+
+/// A captured native JS dialog (alert/confirm/prompt/beforeunload).
+public struct CDPDialog: Sendable {
+    public let message: String
+    public let type: String
+    public let defaultValue: String?
+    public init(message: String, type: String, defaultValue: String?) {
+        self.message = message
+        self.type = type
+        self.defaultValue = defaultValue
+    }
+}
+
 /// Actor-buffered console/dialog events (CDP internals exception: the
 /// reader task appends; tools drain).
 actor CDPEventLog {
     private var consoleBuffer: [(type: String, text: String)] = []
-    private var dialogBuffer: [[String: Any]] = []
+    private var dialogBuffer: [CDPDialog] = []
 
     func appendConsole(type: String, text: String) {
         guard !text.isEmpty else { return }
@@ -187,8 +206,12 @@ actor CDPEventLog {
         if consoleBuffer.count > 1_000 { consoleBuffer.removeFirst(consoleBuffer.count - 1_000) }
     }
 
-    func appendDialog(params: [String: Any]) {
-        dialogBuffer.append(params)
+    func appendDialog(params: sending [String: Any]) {
+        dialogBuffer.append(CDPDialog(
+            message: params["message"] as? String ?? "",
+            type: params["type"] as? String ?? "",
+            defaultValue: params["defaultValue"] as? String
+        ))
         if dialogBuffer.count > 20 { dialogBuffer.removeFirst(dialogBuffer.count - 20) }
     }
 
@@ -200,7 +223,7 @@ actor CDPEventLog {
         return lines
     }
 
-    func dialogs() -> [[String: Any]] { dialogBuffer }
+    func dialogs() -> [CDPDialog] { dialogBuffer }
 }
 
 public enum CDPError: Error, CustomStringConvertible {
@@ -224,7 +247,7 @@ public final class CDPBrowserProvider: BrowserProvider, @unchecked Sendable {
     public let name = "cdp"
     private let channel = CDPCommandChannel()
     private let endpoint: URL
-    private static var pageTargetID: String?
+    private nonisolated(unsafe) static var pageTargetID: String?
 
     public init(endpoint: URL? = nil) {
         let env = ProcessInfo.processInfo.environment["BROWSER_CDP_URL"]
@@ -247,7 +270,7 @@ public final class CDPBrowserProvider: BrowserProvider, @unchecked Sendable {
         if !channel.isConnected {
             try await channel.connect(endpoint: endpoint)
         }
-        let version = try await channel.send(method: "Target.getTargets", params: [:])
+        let version = try await channel.send(method: "Target.getTargets", params: [:]).value
         let targets = version["targetInfos"] as? [[String: Any]] ?? []
         guard let page = targets.first(where: { ($0["type"] as? String) == "page" }) else {
             throw CDPError.commandFailed("no page target found")
@@ -276,7 +299,7 @@ public final class CDPBrowserProvider: BrowserProvider, @unchecked Sendable {
         let result = try await channel.send(method: "Runtime.evaluate", params: [
             "expression": "document.body ? document.body.innerText : ''",
             "returnByValue": true,
-        ])
+        ]).value
         let value = (result["result"] as? [String: Any])?["value"] as? String ?? ""
         return value.isEmpty ? "(empty page)" : value
     }
@@ -357,7 +380,7 @@ public final class CDPBrowserProvider: BrowserProvider, @unchecked Sendable {
             "expression": expression,
             "returnByValue": true,
             "awaitPromise": true,
-        ])
+        ]).value
         guard let remote = result["result"] as? [String: Any] else { return "undefined" }
         if let value = remote["value"] as? String { return value }
         if remote["value"] != nil {
@@ -401,7 +424,7 @@ public final class CDPBrowserProvider: BrowserProvider, @unchecked Sendable {
         let result = try await channel.send(method: "Page.captureScreenshot", params: [
             "format": "png",
             "fromSurface": true,
-        ])
+        ]).value
         guard let base64 = result["data"] as? String,
               let data = Data(base64Encoded: base64, options: [.ignoreUnknownCharacters]) else {
             throw CDPError.commandFailed("no screenshot data returned")
@@ -415,7 +438,7 @@ public final class CDPBrowserProvider: BrowserProvider, @unchecked Sendable {
     }
 
     /// Buffered native JS dialogs (reference snapshot `pending_dialogs`).
-    public func dialogs() async throws -> [[String: Any]] {
+    public func dialogs() async throws -> [CDPDialog] {
         let id = try await ensureAttached()
         try await attach(id: id)
         return await channel.pendingDialogs()

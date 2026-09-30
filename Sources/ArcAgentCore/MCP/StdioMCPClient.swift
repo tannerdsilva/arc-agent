@@ -74,6 +74,18 @@ public struct MCPServerConfig: Codable, Sendable, Equatable {
 /// Subprocess exception (documented in AGENTS.md): server processes are
 /// real OS processes via Foundation `Process` with async byte-stream reads
 /// (`FileHandle.bytes.lines` AsyncSequence) — no manual threads.
+/// A discovered MCP tool's sendable descriptor.
+public struct MCPToolInfo: Sendable, Equatable {
+    public let name: String
+    public let description: String
+    public let hasInputSchema: Bool
+    public init(name: String, description: String, hasInputSchema: Bool) {
+        self.name = name
+        self.description = description
+        self.hasInputSchema = hasInputSchema
+    }
+}
+
 public actor StdioMCPClient {
 
     public let name: String
@@ -104,22 +116,30 @@ public actor StdioMCPClient {
         try await startProcess()
     }
 
-    /// The discovered tools: [{name, description, inputSchema}].
-    public func tools() async throws -> [[String: Any]] {
+    /// The discovered tools, reduced to Sendable fields (the raw schema
+    /// dictionaries stay inside the actor; only names/descriptions cross).
+    public func tools() async throws -> [MCPToolInfo] {
         try await ensureStarted()
         if toolsCache.isEmpty {
             toolsCache = try await listTools()
             cache.save(server: name, tools: toolsCache)
         }
-        return toolsCache
+        return toolsCache.map {
+            MCPToolInfo(
+                name: $0["name"] as? String ?? "?",
+                description: $0["description"] as? String ?? "",
+                hasInputSchema: $0["inputSchema"] != nil
+            )
+        }
     }
 
     /// Call an MCP tool and return the text content (arc tools/call).
-    public func callTool(_ toolName: String, arguments: [String: Any]) async throws -> String {
+    /// The arguments box is read-only and handed to exactly one request.
+    public func callTool(_ toolName: String, arguments: NonSendableBox<[String: Any]>) async throws -> String {
         try await ensureStarted()
         let result = try await request(
             method: "tools/call",
-            params: ["name": toolName, "arguments": arguments],
+            params: ["name": toolName, "arguments": arguments.value],
             timeout: config.timeout
         )
         let content = result["content"] as? [[String: Any]] ?? []

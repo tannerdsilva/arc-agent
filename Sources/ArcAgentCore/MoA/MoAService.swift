@@ -39,8 +39,15 @@ public enum MoAPrompts {
 /// Every failure is turned into a model-specific note instead of aborting
 /// the turn (reference `aggregate_moa_context`): the main model can still act
 /// with partial context.
-public actor MoAService {
+/// Shared read-only box: hands a non-Sendable immutable value to concurrent
+/// consumers while keeping the value behind a Sendable facade. The boxed
+/// value is never mutated after init, and each consumer treats it read-only.
+private final class SendableBox<T>: @unchecked Sendable {
+    let value: T
+    init(_ value: T) { self.value = value }
+}
 
+public actor MoAService {
     public static let maxConcurrentReferences = 8
     public static let referencePollIntervalSeconds = 5.0
     public static let toolResultBudgetChars = 4_000
@@ -139,12 +146,12 @@ public actor MoAService {
     func runReferencesParallel(userPrompt: String, apiMessages: [[String: Any]]) async -> [MoAReferenceResult] {
         // Slots = configured references, capped at the concurrent limit.
         let slots = Array(config.referenceModels.prefix(config.maxConcurrentReferences))
-        let advisoryView = Self.advisoryMessages(apiMessages: apiMessages, userPrompt: userPrompt)
+        let advisory = SendableBox(Self.advisoryMessages(apiMessages: apiMessages, userPrompt: userPrompt))
 
         return await withTaskGroup(of: (Int, MoAReferenceResult).self) { group in
             for (index, slot) in slots.enumerated() {
                 group.addTask {
-                    let result = await self.runOneReference(slot: slot, messages: advisoryView)
+                    let result = await self.runOneReference(slot: slot, messages: advisory.value)
                     return (index, result)
                 }
             }

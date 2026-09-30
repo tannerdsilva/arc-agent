@@ -47,9 +47,7 @@ public actor SessionAgent: Service {
             let resolvedModel: String
             let resolvedProvider: String
             let resolvedBaseURL: URL
-            let resolvedKey: String
             let resolvedSOUL: String?
-            let resolvedToolsets: (enabled: Set<String>?, disabled: Set<String>?)
             let resolvedContext: ProfileContextConfig?
 
             if let profileConfig = try await profileManager.get(name: profile) {
@@ -63,9 +61,7 @@ public actor SessionAgent: Service {
                 } else {
                     resolvedBaseURL = URL(string: "https://api.openai.com/v1")!
                 }
-                resolvedKey = agentConfig.apiKey
                 resolvedSOUL = profileConfig.soulMD
-                resolvedToolsets = (profileConfig.enabledToolsets, profileConfig.disabledToolsets)
                 resolvedContext = profileConfig.context
             } else {
                 resolvedModel = agentConfig.model
@@ -75,9 +71,7 @@ public actor SessionAgent: Service {
                 } else {
                     resolvedBaseURL = URL(string: "https://api.openai.com/v1")!
                 }
-                resolvedKey = agentConfig.apiKey
                 resolvedSOUL = nil
-                resolvedToolsets = (nil, nil)
                 resolvedContext = nil
             }
 
@@ -145,7 +139,7 @@ public actor SessionAgent: Service {
             // Process incoming messages (with session-heartbeat injection:
             // an idle session fires its `/heartbeat` prompt as a user turn).
             logger.info("step: entering message loop")
-            let heartbeatStore = try HeartbeatStore()
+            let heartbeatStore = HeartbeatStore()
             // Standing goals: Tessera-backed when active, file otherwise —
             // same gate as sessions/memory.
             let goalStore: any GoalStoring = await TesseraAvailability.shared.isTesseraActive()
@@ -288,7 +282,7 @@ public actor SessionAgent: Service {
                         raw: nil
                     )
                 case .stopped(let stopMessage):
-                    try? await deliveryManager.send(
+                    _ = try? await deliveryManager.send(
                         message: OutgoingMessage(text: stopMessage), to: chat
                     )
                 case .idle:

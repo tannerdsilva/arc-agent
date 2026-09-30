@@ -272,7 +272,7 @@ struct CronList: AsyncParsableCommand {
         print("⚡ ARC Agent — Cron jobs")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         for j in jobs {
-            print("  \(j.id.prefix(8)) — \(j.schedule) — \(j.name ?? "(unnamed)")")
+            print("  \(j.id.prefix(8)) — \(j.schedule) — \(j.name)")
             print("     \(String(describing: j.prompt.prefix(140)))")
         }
         print("Total: \(jobs.count) job(s)")
@@ -305,7 +305,7 @@ struct ConfigShow: AsyncParsableCommand {
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("  Path:  ~/.arc/config.json")
         print("  Model: \(config.model.defaultModel) (\(config.model.provider))")
-        print("  Context length: \(config.model.contextLength)")
+        print("  Context length: \(String(describing: config.model.contextLength))")
         print("  Approval mode:  \(config.security.approvalMode)")
         print("  Max turns:      \(config.max_turns ?? 0)")
         print("  Web search:     \(config.web.effectiveSearchBackend ?? "(auto)" )")

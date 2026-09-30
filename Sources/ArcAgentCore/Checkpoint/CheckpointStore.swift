@@ -24,7 +24,7 @@ public struct Checkpoint: Codable, Sendable, Equatable {
 /// Snapshots are git commits of the working tree (`git stash create`).
 public actor CheckpointStore {
 
-    public static var storageURL: URL = {
+    public nonisolated(unsafe) static var storageURL: URL = {
         let base = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".arc/checkpoints")
         return base.appendingPathComponent("registry.json")

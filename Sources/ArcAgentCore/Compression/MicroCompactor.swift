@@ -340,9 +340,9 @@ public enum MicroCompactor {
         state: inout MicroCompactState,
         config: MicroCompactConfig,
         limit: Int,
-        countTokens: (String) -> Int,
-        summarize: (String, String) async -> String?,
-        defragSummarize: (String) async -> String?
+        countTokens: @escaping @Sendable (String) -> Int,
+        summarize: @escaping @Sendable (String, String) async -> String?,
+        defragSummarize: @escaping @Sendable (String) async -> String?
     ) async -> MicroCompactRun {
         func noop(_ outcome: MicroCompactOutcome, msgs: [Message] = messages) -> MicroCompactRun {
             MicroCompactRun(messages: msgs, outcome: outcome, tokensBefore: 0, tokensAfter: 0)

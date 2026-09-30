@@ -153,6 +153,15 @@ public actor TesseraConnection {
     /// read-after-write semantics; they are dropped once the echo lands.
     private var pendingRecords: [PendingRecord] = []
 
+    // MARK: Record index (fix #1 — bounded per-kind queries)
+
+    /// The actor's record index (see ``TesseraRecordIndex``). Updated in
+    /// O(1) on every local publish and on rare external reconciliations, so
+    /// per-message metadata/memory lookups no longer walk the entire
+    /// `modelStorage` (which holds every kind and every session — the old
+    /// O(n) per operation made long sessions quadratic).
+    private var recordIndex = TesseraRecordIndex()
+
     private init() {}
 
     /// Whether a Tessera configuration has been provided.
@@ -198,6 +207,7 @@ public actor TesseraConnection {
         isStarted = false
         nextSeq = 0
         pendingRecords.removeAll()
+        recordIndex = TesseraRecordIndex()
     }
 
     // MARK: - Sequence numbers
@@ -238,6 +248,97 @@ public actor TesseraConnection {
             return nil
         }
         return seq
+    }
+
+    /// Group key for a d-tag value: the tag minus its trailing `/<seq>`
+    /// segment. `arc/meta/<session>/12` → `arc/meta/<session>`; a tag without
+    /// a numeric tail has no group (nil). The group key is how "the latest
+    /// record belonging to this session/key" is looked up in O(1).
+    static func groupKey(fromDTag dTag: String) -> String? {
+        guard let slash = dTag.lastIndex(of: "/") else { return nil }
+        let tail = dTag[dTag.index(after: slash)...]
+        guard let seq = Int(tail), seq >= 0 else { return nil }
+        return String(dTag[..<slash])
+    }
+
+    // MARK: - Record index maintenance
+
+    /// Insert (or replace) a record in the index. O(1). Sequence numbers come
+    /// from the d-tag tail; for a group, only the higher-seq record is kept.
+    private func indexRecord(_ record: TesseraRecord, kind: UInt32, seq: Int) {
+        recordIndex.index(record, kind: kind, seq: seq)
+    }
+
+    /// Remove every index entry whose d-tag falls under a prefix (used by
+    /// `deleteAll` after the model deletion was applied).
+    private func unindex(dTagPrefix prefix: String, kind: UInt32) {
+        recordIndex.unindex(dTagPrefix: prefix, kind: kind)
+    }
+
+    /// Bring the index up to date with the model before serving a query.
+    ///
+    /// The steady-state cost is O(pending): our own echoes land and their
+    /// pendings are evicted — nothing else changes count, so the fast path
+    /// returns after one array filter. An O(model) reconcile runs only when
+    /// something genuinely external arrived (another writer on the relay), a
+    /// deletion reached the model, or the cache was cleared — all rare
+    /// relative to local message traffic.
+    private func reconcileIndex(_ model: ArcModel) {
+        let storage = model.modelStorage
+        // Evict pendings whose echo landed; every landed echo is already in
+        // the index (we indexed it at publish time), so nothing to add.
+        var unlanded: [PendingRecord] = []
+        unlanded.reserveCapacity(pendingRecords.count)
+        for pending in pendingRecords {
+            if storage[pending.id] != nil { continue }
+            unlanded.append(pending)
+        }
+        pendingRecords = unlanded
+
+        let expected = recordIndex.count - unlanded.count
+        if storage.count == expected { return } // converged: O(pending) only
+
+        if storage.count < expected {
+            // A record our index still holds is gone from the model (kind-5
+            // deletion / clearCache). Rebuild from the model — rare.
+            recordIndex = TesseraRecordIndex()
+            for (id, event) in storage {
+                let dTag = findTag(tags: event.tags.array, as: DTag.self)
+                    .flatMap { Self.stringValue($0.value) }
+                let content = Self.stringValue(event.content) ?? ""
+                let seq = dTag.flatMap(Self.sequenceNumber(fromTagKey:)) ?? 0
+                indexRecord(
+                    TesseraRecord(id: id, dTag: dTag, content: content),
+                    kind: event.kind.RAW_native(),
+                    seq: seq
+                )
+            }
+            for pending in pendingRecords {
+                let seq = Self.sequenceNumber(fromTagKey: pending.dTag) ?? 0
+                indexRecord(
+                    TesseraRecord(id: pending.id, dTag: pending.dTag, content: pending.content),
+                    kind: pending.kind,
+                    seq: seq
+                )
+            }
+            return
+        }
+
+        // Additions: external events that arrived since the last reconcile.
+        // Delta-add only the unknown ids (O(model) iteration, but this fires
+        // only on genuinely external arrivals).
+        for (id, event) in storage {
+            guard !recordIndex.ids.contains(id) else { continue }
+            let dTag = findTag(tags: event.tags.array, as: DTag.self)
+                .flatMap { Self.stringValue($0.value) }
+            let content = Self.stringValue(event.content) ?? ""
+            let seq = dTag.flatMap(Self.sequenceNumber(fromTagKey:)) ?? 0
+            indexRecord(
+                TesseraRecord(id: id, dTag: dTag, content: content),
+                kind: event.kind.RAW_native(),
+                seq: seq
+            )
+        }
     }
 
     // MARK: - Connection lifecycle
@@ -351,6 +452,14 @@ public actor TesseraConnection {
             content: ByteBuffer(string: content)
         )
         let signed = try unsigned.sign(as: nostrPrivateKey)
+        let seq = Self.sequenceNumber(fromTagKey: dTagValue) ?? 0
+        // Index immediately (read-after-write: snapshots serve from the
+        // index, so writes are visible before their echo arrives).
+        indexRecord(
+            TesseraRecord(id: signed.unsignedEvent.id, dTag: dTagValue, content: content),
+            kind: kind,
+            seq: seq
+        )
         pendingRecords.append(PendingRecord(
             id: signed.unsignedEvent.id,
             kind: kind,
@@ -385,11 +494,12 @@ public actor TesseraConnection {
             // Propagate a delete timeout so callers (ProfileManager etc.) can
             // fall back (the `try?` here would hide the unavailable tunnel
             // and leave the removal half-applied).
-            guard try await Self.boundedDelete(session, eventID: id, signedBy: nostrPrivateKey) else {
+            guard await Self.boundedDelete(session, eventID: id, signedBy: nostrPrivateKey) else {
                 throw TesseraStoreError.deleteTimeout
             }
             try? model.delete(id: id)
         }
+        unindex(dTagPrefix: prefix, kind: kind)
     }
 
     // MARK: - Timeout guards
@@ -481,34 +591,32 @@ public actor TesseraConnection {
     /// evicted as their echoes land in the model.
     public func snapshot(kind: UInt32) -> [TesseraRecord] {
         guard let model else { return [] }
-        // Evict pending records whose echo has landed in the model.
-        if !pendingRecords.isEmpty {
-            let modelDTags = Set(model.modelStorage.values.compactMap { event in
-                findTag(tags: event.tags.array, as: DTag.self)
-                    .flatMap { Self.stringValue($0.value) }
-            })
-            pendingRecords.removeAll { record in
-                modelDTags.contains(record.dTag)
-            }
-        }
-        var out: [TesseraRecord] = []
-        for (id, event) in model.modelStorage {
-            guard event.kind.RAW_native() == kind else { continue }
-            let dTag = findTag(tags: event.tags.array, as: DTag.self)
-                .flatMap { Self.stringValue($0.value) }
-            let content = Self.stringValue(event.content) ?? ""
-            out.append(TesseraRecord(id: id, dTag: dTag, content: content))
-        }
-        for pending in pendingRecords where pending.kind == kind {
-            out.append(TesseraRecord(id: pending.id, dTag: pending.dTag, content: pending.content))
-        }
-        return out
+        reconcileIndex(model)
+        return recordIndex.snapshot(kind: kind)
+    }
+
+    /// O(1) latest-record lookup for a d-tag *group* (e.g.
+    /// `arc/meta/<session>` or `arc/m/<key>`). Returns the record with the
+    /// greatest sequence number in that group, or nil when none exists.
+    public func latestRecord(groupKey: String) -> TesseraRecord? {
+        guard let model else { return nil }
+        reconcileIndex(model)
+        return recordIndex.latest(groupKey: groupKey)
+    }
+
+    /// Every indexed group (record per group key) — O(#sessions) instead of
+    /// O(store). Used by the session store's `list` to decode only the
+    /// current metas.
+    public func latestGroups(prefix: String) -> [String: TesseraRecord] {
+        guard let model else { return [:] }
+        reconcileIndex(model)
+        return recordIndex.latestGroups(prefix: prefix)
     }
 
     /// Reads a RAW string-like value as a Swift `String` from its bytes.
     static func stringValue(_ value: any RAW_accessible) -> String? {
         var out = ""
-        value.RAW_access { buffer in
+        value.RAW_access_immutable(UnsafeRawBufferPointer.self) { buffer in
             out = String(decoding: buffer, as: UTF8.self)
         }
         return out.isEmpty ? nil : out

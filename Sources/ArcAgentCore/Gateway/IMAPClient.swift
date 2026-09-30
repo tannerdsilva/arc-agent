@@ -1,6 +1,6 @@
 import Foundation
 import NIO
-import NIOSSL
+@preconcurrency import NIOSSL
 import NIOCore
 
 /// Minimal IMAP4 client (RFC 3501 subset) for the email gateway adapter.
@@ -49,7 +49,7 @@ public final class IMAPClient: @unchecked Sendable {
     private let startTLS: Bool
     private let group: EventLoopGroup
 
-    private final class Connection {
+    private final class Connection: @unchecked Sendable {
         var channel: Channel? = nil
         var continuation: CheckedContinuation<CommandResponse, Error>? = nil
         var currentTag = ""
@@ -74,16 +74,18 @@ public final class IMAPClient: @unchecked Sendable {
 
         let bootstrap = ClientBootstrap(group: group)
             .channelInitializer { channel in
-                let addCodec = channel.pipeline.addHandler(LineCodec())
-                if self.useTLS {
-                    return addCodec.flatMap {
-                        channel.pipeline.addHandler(
+                do {
+                    try channel.pipeline.syncOperations.addHandler(LineCodec())
+                    if self.useTLS {
+                        try channel.pipeline.syncOperations.addHandler(
                             try! NIOSSLClientHandler(context: try! self.tlsContext(), serverHostname: self.host),
                             position: .first
                         )
                     }
+                    return channel.eventLoop.makeSucceededVoidFuture()
+                } catch {
+                    return channel.eventLoop.makeFailedFuture(error)
                 }
-                return addCodec
             }
 
         let channel = try await bootstrap.connect(host: host, port: port).get()
@@ -102,16 +104,18 @@ public final class IMAPClient: @unchecked Sendable {
         }
 
         // Consume the greeting (* OK).
-        try await commandExpectingTag(required: nil)
+        _ = try await commandExpectingTag(required: nil)
         _ = conn.literals; conn.literals = []
 
         if startTLS && !useTLS {
             _ = try await command("STARTTLS")
             // Wrap TLS around the existing pipeline: inbound decrypts first.
-            try await channel.pipeline.addHandler(
-                NIOSSLClientHandler(context: tlsContext(), serverHostname: host),
-                position: .first
-            ).get()
+            try await channel.eventLoop.submit { [host, self] in
+                try channel.pipeline.syncOperations.addHandler(
+                    NIOSSLClientHandler(context: self.tlsContext(), serverHostname: host),
+                    position: .first
+                )
+            }.get()
         }
 
         _ = try await command("LOGIN \(quote(username)) \(quote(password))")
@@ -261,7 +265,9 @@ public enum MailError: Error, CustomStringConvertible {
 ///
 /// Delivers CRLF-terminated lines without the terminator and captures IMAP
 /// literal payloads (`{N}` markers) as raw `Data` chunks in order.
-final class LineCodec: ChannelInboundHandler {
+/// Line-delimited framing codec. Confined to one channel pipeline; only ever
+/// touched from that channel's event loop, so sharing is safe.
+final class LineCodec: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
 
     var onLine: ((String) -> Void)? = nil {

@@ -61,11 +61,11 @@ struct MCPClientTests {
             }
             let tools = try await client.tools()
             #expect(tools.count == 1)
-            #expect((tools[0]["name"] as? String) == "echo")
-            #expect((tools[0]["description"] as? String) == "echo back")
+            #expect(tools[0].name == "echo")
+            #expect(tools[0].description == "echo back")
 
             let out = try await withTimeout(seconds: 15) {
-                try await client.callTool("echo", arguments: ["text": "hello mcp"])
+                try await client.callTool("echo", arguments: NonSendableBox(["text": "hello mcp"] as [String: Any]))
             }
             #expect(out == "echo: hello mcp")
         } catch {
@@ -77,7 +77,7 @@ struct MCPClientTests {
 
     /// Fail-fast race so a broken transport surfaces as a test failure
     /// instead of a hang.
-    private func withTimeout<T>(seconds: Double, _ body: @escaping () async throws -> T) async throws -> T {
+    private func withTimeout<T: Sendable>(seconds: Double, _ body: @escaping @Sendable () async throws -> T) async throws -> T {
         try await withThrowingTaskGroup(of: T.self) { group in
             group.addTask { try await body() }
             group.addTask {

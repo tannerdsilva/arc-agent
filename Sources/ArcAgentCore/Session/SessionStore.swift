@@ -79,16 +79,29 @@ public protocol SessionStore: Sendable {
     /// Delete a session.
     func delete(id: String) async throws
 
-    /// List all sessions, newest first.
+    /// List sessions, newest first, bounded at the store level.
     ///
     /// Returns *summaries only*: each session's `messages` array is empty and
     /// ``messageCount``/``title`` carry the metadata. Use `get(id:)` to
     /// materialize a session's messages. This keeps listing O(sessions) in
     /// memory and time instead of O(total messages).
-    func list(limit: Int) async throws -> [Session]
+    ///
+    /// `limit` bounds how many summaries are returned **here** — the store
+    /// never hands the UI more than `limit` sessions, and `offset` pages past
+    /// the newest ones. The webui uses this for a bounded sidebar window plus
+    /// an explicit "load more" step, so the UI and the store agree on what is
+    /// listed.
+    func list(limit: Int, offset: Int) async throws -> [Session]
 
     /// Append a message to a session.
     func appendMessage(sessionID: String, message: Message) async throws
+}
+
+/// Convenience for callers that want only the most recent page (offset 0).
+extension SessionStore {
+    public func list(limit: Int) async throws -> [Session] {
+        try await list(limit: limit, offset: 0)
+    }
 }
 
 /// A file-based session store that persists sessions as JSON files.
@@ -147,7 +160,7 @@ public struct FileSessionStore: SessionStore {
         try FileManager.default.removeItem(at: url)
     }
 
-    public func list(limit: Int) async throws -> [Session] {
+    public func list(limit: Int, offset: Int) async throws -> [Session] {
         let files = try FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.contentModificationDateKey],
@@ -159,6 +172,7 @@ public struct FileSessionStore: SessionStore {
             let dateB = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             return dateA > dateB
         }
+        .dropFirst(max(0, offset))
         .prefix(limit)
 
         var sessions: [Session] = []

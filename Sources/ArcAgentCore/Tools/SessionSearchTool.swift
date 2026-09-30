@@ -7,7 +7,7 @@ import Foundation
 /// in earlier sessions — the counterpart to session-history restore.
 public struct SessionSearchTool: Sendable {
     /// The session store to search. Wired by the agent at startup.
-    public static var store: (any SessionStore)?
+    public nonisolated(unsafe) static var store: (any SessionStore)?
 
     public static let entry = ToolEntry(
         name: "session_search",

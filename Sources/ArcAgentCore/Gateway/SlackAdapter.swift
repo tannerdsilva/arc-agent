@@ -85,7 +85,7 @@ public final class SlackAdapter: PlatformAdapter {
     // MARK: - Service
 
     public func run() async throws {
-        try await withTaskCancellationHandler {
+        await withTaskCancellationHandler {
             await identify()
             while !Task.isCancelled {
                 do {
@@ -375,7 +375,7 @@ enum SlackError: Error, CustomStringConvertible {
 }
 
 /// Sends the Socket Mode GET upgrade request when the channel becomes active.
-final class SlackUpgradeRequestHandler: ChannelInboundHandler, RemovableChannelHandler {
+final class SlackUpgradeRequestHandler: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
     typealias InboundIn = HTTPClientResponsePart
     typealias OutboundOut = HTTPClientRequestPart
 
@@ -414,7 +414,7 @@ final class SlackUpgradeRequestHandler: ChannelInboundHandler, RemovableChannelH
 
 /// Converts WebSocket frames into text callbacks; also the socket's send
 /// path (NIO 2.100 removed the standalone `WebSocket` convenience type).
-final class SlackWSHandler: ChannelInboundHandler {
+final class SlackWSHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = WebSocketFrame
     typealias OutboundOut = WebSocketFrame
 
@@ -434,7 +434,7 @@ final class SlackWSHandler: ChannelInboundHandler {
     func sendText(_ text: String) {
         var data = context?.channel.allocator.buffer(capacity: text.utf8.count)
         data?.writeString(text)
-        var frame = WebSocketFrame(fin: true, opcode: .text, data: data ?? ByteBuffer())
+        let frame = WebSocketFrame(fin: true, opcode: .text, data: data ?? ByteBuffer())
         context?.write(NIOAny(frame), promise: nil)
         context?.flush()
     }

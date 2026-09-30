@@ -13,7 +13,7 @@ public enum ToolSearchTool {
 
     /// The registry searched by the handler. Wired by the agent at startup;
     /// when nil the handler falls back to ``ArcAgentCore/buildDefaultRegistry()``.
-    public static var registry: (any ToolRegistry)?
+    public nonisolated(unsafe) static var registry: (any ToolRegistry)?
 
     static let toolsets = "tools"
     static let forms = ["listing", "names", "mixed"]

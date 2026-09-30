@@ -31,7 +31,7 @@ public enum PromptCachePlan {
     public static func applyMarker(to message: inout [String: Any], ttl: String = defaultTTL) {
         let marker = marker(ttl: ttl)
         let role = message["role"] as? String ?? ""
-        var content = message["content"]
+        let content = message["content"]
 
         if content == nil || (content as? String)?.isEmpty == true {
             if role == "tool" { return }
@@ -55,7 +55,7 @@ public enum PromptCachePlan {
         messages.map { msg in
             var m = msg
             m.removeValue(forKey: "cache_control")
-            var content = m["content"]
+            let content = m["content"]
             if var blocks = content as? [[String: Any]] {
                 for i in blocks.indices { blocks[i].removeValue(forKey: "cache_control") }
                 m["content"] = blocks
@@ -97,17 +97,17 @@ public enum PromptCachePlan {
         // Breakpoint budget: staticSystemPrefix breakpoint, system-end
         // breakpoint, then the last 2 non-system messages — max 4.
         var remaining = defaultBreakpoints
-        var marker = marker(ttl: cacheTTL)
+        let marker = marker(ttl: cacheTTL)
 
         if let prefix = staticSystemPrefix, !prefix.isEmpty {
             // Split the first system message at the prefix boundary.
-            if let idx = plannedMessages.firstIndex(where: { ($0["role"] as? String) == "system" }),
-               var system = plannedMessages[idx] as? [String: Any] {
+            if let idx = plannedMessages.firstIndex(where: { ($0["role"] as? String) == "system" }) {
+                var system = plannedMessages[idx]
                 let full = (system["content"] as? String) ?? ""
                 if full.hasPrefix(prefix) {
                     let suffix = String(full.dropFirst(prefix.count))
-                    var prefixBlock: [String: Any] = ["type": "text", "text": prefix, "cache_control": marker]
-                    var suffixBlock: [String: Any] = ["type": "text", "text": suffix]
+                    let prefixBlock: [String: Any] = ["type": "text", "text": prefix, "cache_control": marker]
+                    let suffixBlock: [String: Any] = ["type": "text", "text": suffix]
                     var blocks: [[String: Any]] = [prefixBlock]
                     if !suffix.isEmpty { blocks.append(suffixBlock) }
                     system["content"] = blocks

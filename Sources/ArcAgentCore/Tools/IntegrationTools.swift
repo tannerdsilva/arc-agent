@@ -305,17 +305,19 @@ public actor ShellHooks {
     private var postHooks: [String: String] = [:]
 
     init() {
-        load()
+        (self.preHooks, self.postHooks) = Self.loadHookFiles()
     }
 
-    func load() {
+    /// Reads `~/.arc-agent/hooks.json` synchronously (no actor state is
+    /// touched, so it can run in the nonisolated initializer).
+    nonisolated static func loadHookFiles() -> ([String: String], [String: String]) {
         let url = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".arc-agent/hooks.json")
         guard let data = try? Data(contentsOf: url),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let shell = json["shell"] as? [String: Any] else { return }
-        preHooks = shell["pre"] as? [String: String] ?? [:]
-        postHooks = shell["post"] as? [String: String] ?? [:]
+              let shell = json["shell"] as? [String: Any] else { return ([:], [:]) }
+        return (shell["pre"] as? [String: String] ?? [:],
+                shell["post"] as? [String: String] ?? [:])
     }
 
     /// Run the pre-hook for a tool (bounded 15s, output capped).

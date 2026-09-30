@@ -32,7 +32,7 @@ public actor MCPClientManager {
 /// `~/.arc/config.json`) and their discovered tool lists.
 public enum MCPClientTool {
 
-    public static var entry = ToolEntry(
+    public nonisolated(unsafe) static var entry = ToolEntry(
         name: "mcp_tool",
         toolset: "mcp",
         description: "Call a tool from a connected MCP (Model Context Protocol) server. "
@@ -71,8 +71,8 @@ public enum MCPClientTool {
                             lines.append("  (no tools discovered)")
                         } else {
                             for tool in tools {
-                                let name = tool["name"] as? String ?? "?"
-                                let desc = (tool["description"] as? String)?.prefix(70) ?? ""
+                                let name = tool.name
+                                let desc = tool.description.prefix(70)
                                 lines.append("  \(name) — \(desc)")
                             }
                         }
@@ -87,12 +87,12 @@ public enum MCPClientTool {
                 let arguments = args["arguments"] as? [String: Any] ?? [:]
                 let client = try await MCPClientManager.shared.client(named: server)
                 let tools = try await client.tools()
-                guard tools.contains(where: { ($0["name"] as? String) == toolName }) else {
-                    let names = tools.compactMap { $0["name"] as? String }
+                guard tools.contains(where: { $0.name == toolName }) else {
+                    let names = tools.map { $0.name }
                     return "Error: MCP server '\(server)' has no tool '\(toolName)'. Available: "
                         + (names.isEmpty ? "(none)" : names.joined(separator: ", "))
                 }
-                return try await client.callTool(toolName, arguments: arguments)
+                return try await client.callTool(toolName, arguments: NonSendableBox(arguments))
             default:
                 return "Error: unknown action '\(action)'. Valid actions: call, list"
             }

@@ -25,7 +25,7 @@ public struct ArcProject: Codable, Sendable, Equatable {
 /// stored as `~/.arc/projects.json`). An actor: all mutation is serialized.
 public actor ProjectStore {
 
-    private static var _fileURL: URL = FileManager.default.homeDirectoryForCurrentUser
+    private nonisolated(unsafe) static var _fileURL: URL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".arc/projects.json")
 
     /// Locations file (test seam — redirects storage, never touches the real
@@ -36,7 +36,7 @@ public actor ProjectStore {
     /// Re-anchor hook: called after a create/switch with the project's
     /// primary path so live sessions (webui sidebar, CLI cwd) can follow.
     /// `nil` in contexts with no live workspace to move.
-    public static var workspaceHook: (@Sendable (String?) async -> Void)?
+    public nonisolated(unsafe) static var workspaceHook: (@Sendable (String?) async -> Void)?
 
     private var projects: [ArcProject] = []
     private var activeID: String?

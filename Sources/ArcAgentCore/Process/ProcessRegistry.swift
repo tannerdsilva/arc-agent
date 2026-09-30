@@ -112,16 +112,32 @@ public actor ProcessRegistry {
     }
 
     /// One-line summaries for `process(action: "list")`.
-    public func summaries() -> [[String: Any]] {
+    /// A snapshot row for the `process list` tool. Concrete values (not
+    /// `[String: Any]`) so it can cross actor/task boundaries as `Sendable`.
+    public struct ProcessSummary: Sendable {
+        public let sessionID: String
+        public let command: String
+        public let status: String
+        public let exitCode: Int?
+
+        public init(sessionID: String, command: String, status: String, exitCode: Int?) {
+            self.sessionID = sessionID
+            self.command = command
+            self.status = status
+            self.exitCode = exitCode
+        }
+    }
+
+    public func summaries() -> [ProcessSummary] {
         entries.values
             .sorted { $0.startedAt < $1.startedAt }
             .map { entry in
-                [
-                    "session_id": entry.id,
-                    "command": entry.command,
-                    "status": entry.exited ? "exited" : "running",
-                    "exit_code": entry.exitCode as Any,
-                ]
+                ProcessSummary(
+                    sessionID: entry.id,
+                    command: entry.command,
+                    status: entry.exited ? "exited" : "running",
+                    exitCode: entry.exitCode
+                )
             }
     }
 

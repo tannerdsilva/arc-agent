@@ -32,7 +32,10 @@ enum UpgradeResult: Sendable {
 
 // MARK: - WebServer
 
-final class WebServer {
+/// HTTP + WebSocket server for the webui. All mutable state lives in the
+/// `AppState` actor; this class only holds immutable lets, so it is safe to
+/// share across the NIO event loop and connection tasks.
+final class WebServer: @unchecked Sendable {
 
     let logger: Logger
     let router: EventRouter
@@ -269,7 +272,7 @@ final class WebServer {
                             }
                         }
                     }
-                    text = (try? await self.pageProvider(deepLink)) ?? self.bootPage
+                    text = await self.pageProvider(deepLink)
                     contentType = "text/html; charset=utf-8"
                 default:
                     try await self.respond404(outbound: outbound)
@@ -295,7 +298,7 @@ final class WebServer {
         // Write head/body/end atomically, then give the flush time to land
         // before the channel closes (prevents tail truncation on large pages).
         try await outbound.write(contentsOf: [.head(head), .body(buf), .end(nil)])
-        try await outbound.finish()
+        outbound.finish()
         try await Task.sleep(nanoseconds: 150_000_000)
     }
 
@@ -312,7 +315,7 @@ final class WebServer {
         var buf = ByteBuffer()
         buf.writeBytes(body)
         try await outbound.write(contentsOf: [.head(head), .body(buf), .end(nil)])
-        try await outbound.finish()
+        outbound.finish()
         try await Task.sleep(nanoseconds: 150_000_000)
     }
 
@@ -325,7 +328,7 @@ final class WebServer {
         var buf = ByteBuffer()
         buf.writeString("not found")
         try await outbound.write(contentsOf: [.head(head), .body(buf), .end(nil)])
-        try await outbound.finish()
+        outbound.finish()
         try await Task.sleep(nanoseconds: 50_000_000)
     }
 
@@ -336,7 +339,7 @@ final class WebServer {
         head.headers.replaceOrAdd(name: "Content-Length", value: "0")
         head.headers.replaceOrAdd(name: "Connection", value: "close")
         try await outbound.write(contentsOf: [.head(head), .end(nil)])
-        try await outbound.finish()
+        outbound.finish()
         try await Task.sleep(nanoseconds: 50_000_000)
     }
 }

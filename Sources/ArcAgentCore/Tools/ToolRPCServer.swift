@@ -66,6 +66,7 @@ final class RPCRequestHandler: ChannelInboundHandler, @unchecked Sendable {
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        let channel = context.channel
         var incoming = unwrapInboundIn(data)
         buffer.writeBuffer(&incoming)
 
@@ -76,9 +77,9 @@ final class RPCRequestHandler: ChannelInboundHandler, @unchecked Sendable {
         let lineLength = buffer.readableBytesView.distance(
             from: buffer.readerIndex, to: newlineIdx)
         guard var line = buffer.readSlice(length: lineLength) else { return }
-        _ = line.moveReaderIndex(forwardBy: 0)
+        line.moveReaderIndex(forwardBy: 0)
         guard let jsonText = line.readString(length: lineLength) else {
-            respondError(context: context, message: "invalid request encoding")
+            respondError(channel: channel, message: "invalid request encoding")
             return
         }
         _ = newlineIdx
@@ -87,41 +88,42 @@ final class RPCRequestHandler: ChannelInboundHandler, @unchecked Sendable {
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tool = obj["tool"] as? String,
               !tool.isEmpty else {
-            respondError(context: context, message: "missing or invalid 'tool' field")
+            respondError(channel: channel, message: "missing or invalid 'tool' field")
             return
         }
         if let sentToken = obj["token"] as? String, sentToken != token {
-            respondError(context: context, message: "invalid RPC token")
+            respondError(channel: channel, message: "invalid RPC token")
             return
         }
         let args = obj["args"] as? [String: Any] ?? [:]
+        let argsBox = NonSendableBox(args)
 
         let future: EventLoopFuture<String> = context.eventLoop.makeFutureWithTask {
             try await self.limiter.run {
-                try await self.host(tool, args)
+                try await self.host(tool, argsBox.value)
             }
         }
         future.whenComplete { result in
             switch result {
             case .success(let text):
-                var out = context.channel.allocator.buffer(capacity: text.count + 32)
+                var out = channel.allocator.buffer(capacity: text.count + 32)
                 let payload = "{\"result\":\(Self.jsonEscape(text))}\n"
                 out.writeString(payload)
-                context.writeAndFlush(NIOAny(out), promise: nil)
-                context.close(promise: nil)
+                channel.pipeline.writeAndFlush(out, promise: nil)
+                channel.close(promise: nil)
             case .failure(let error):
-                self.respondError(context: context, message: String(describing: error))
+                self.respondError(channel: channel, message: String(describing: error))
             }
         }
     }
 
-    private func respondError(context: ChannelHandlerContext, message: String) {
+    private func respondError(channel: Channel, message: String) {
         guard !responded else { return }
         responded = true
-        var out = context.channel.allocator.buffer(capacity: message.count + 32)
+        var out = channel.allocator.buffer(capacity: message.count + 32)
         out.writeString("{\"error\":\(Self.jsonEscape(message))}\n")
-        context.writeAndFlush(NIOAny(out), promise: nil)
-        context.close(promise: nil)
+        channel.pipeline.writeAndFlush(out, promise: nil)
+        channel.close(promise: nil)
     }
 
     /// JSON string escaping for arbitrary tool result text.

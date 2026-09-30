@@ -81,7 +81,14 @@ public actor ToolGuardrails {
     /// Decide whether a tool call may run. Increments counters; returns a
     /// synthetic result when a cap is hit (reference returns synthetic results
     /// for repeated calls instead of executing again).
-    public func decide(toolName: String, args: [String: Any]) -> Decision {
+    /// Convenience overload for single-hop callers (tests, CLI): the args are
+    /// consumed by this call — the caller must not use them afterwards.
+    public func decide(toolName: String, args: sending [String: Any]) -> Decision {
+        decide(toolName: toolName, args: NonSendableBox(args))
+    }
+
+    public func decide(toolName: String, args: NonSendableBox<[String: Any]>) -> Decision {
+        let params = args.value
         counts[toolName, default: 0] += 1
         let n = counts[toolName] ?? 0
 
@@ -94,7 +101,7 @@ public actor ToolGuardrails {
         // Repeat detection: the same canonical call more than twice in a turn
         // is almost always a loop — synthetic result + guidance. With an
         // unlimited cap, keep a floor so infinite loops are still caught.
-        let sig = ToolSignature(tool: toolName, canonicalArgs: ToolGuardrails.canonicalArgs(args))
+        let sig = ToolSignature(tool: toolName, canonicalArgs: ToolGuardrails.canonicalArgs(params))
         signatures[sig, default: 0] += 1
         let repeats = signatures[sig] ?? 0
         let repeatLimit = configuredCap > 0 ? max(2, cap / 3) : max(3, 10)

@@ -58,12 +58,8 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         // overwrites the store state the fallback just built, blanking the
         // sidebar, and leaks the tunnel it spawned.
         let bootTask = Task {
-            do {
-                await app.boot()
-                c.yield(.success(())); c.finish()
-            } catch {
-                c.yield(.failure(error)); c.finish()
-            }
+            await app.boot()
+            c.yield(.success(())); c.finish()
         }
         Task {
             do { try await Task.sleep(nanoseconds: 12_000_000_000) } catch {}
@@ -118,7 +114,7 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         // The document template wraps whatever body the app currently renders,
         // so a refresh ALWAYS reflects live store state (a boot-cached page
         // would show sessions deleted after startup).
-        let makeDocument: (String) -> WebUI.HTMLDocument = { body in
+        let makeDocument: @Sendable (String) -> WebUI.HTMLDocument = { body in
             WebUI.HTMLDocument(
                 title: "ARC Agent",
                 body: body,

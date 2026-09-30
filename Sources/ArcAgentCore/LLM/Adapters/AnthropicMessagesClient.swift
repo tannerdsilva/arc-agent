@@ -5,7 +5,11 @@ import AsyncHTTPClient
 /// `anthropic_adapter.py`: OpenAI-format messages in, Anthropic
 /// content blocks out, with `cache_control` markers, adaptive-thinking
 /// `output_config.effort`, tool-result blocks, and stream event mapping.
-public struct AnthropicMessagesClient: LLMClient {
+/// A transport-conforming client. The `reasoningPayload`/`thinkingPayload`
+/// dictionaries are built once from JSON-primitive values and never mutated
+/// after init (compiler can't prove `Any` is Sendable, so it's asserted
+/// explicitly — same store-once semantics as the other payloads).
+public struct AnthropicMessagesClient: LLMClient, @unchecked Sendable {
     public let baseURL: URL            // e.g. https://api.anthropic.com/v1
     public let apiKey: String
     public let model: String

@@ -151,7 +151,6 @@ public enum Redactor {
         result = replacingRegex(result, pattern: linePattern) { match, _ in
             let ns = result as NSString
             let key = captured(match, ns, 1)
-            let value = captured(match, ns, 2)
             if keyLooksSecret(key) {
                 return "\(key) = [REDACTED]"
             }

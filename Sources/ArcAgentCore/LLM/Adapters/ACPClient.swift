@@ -65,7 +65,7 @@ public actor ACPClient {
             self.child = acp
             // Reap in a detached task: run() suspends for the process's
             // lifetime and returns once it exits (after shutdown signal).
-            self.runTask = Task { try? await acp.run(cancellationSignal: SIGTERM) }
+            self.runTask = Task { _ = try? await acp.run(cancellationSignal: SIGTERM) }
         }
         return try await rpc(method: "initialize", params: [
             "protocolVersion": 1,
@@ -94,13 +94,21 @@ public actor ACPClient {
     }
 
     /// Send a user prompt and await the model reply (reference `session/prompt`).
-    public func prompt(sessionID: String, content: String) async throws -> [String: Any] {
-        try await rpc(method: "session/prompt", params: [
+    public func prompt(sessionID: String, content: String) async throws -> ACPPromptReply {
+        let result = try await rpc(method: "session/prompt", params: [
             "sessionId": sessionID,
             "prompt": [
                 ["type": "text", "text": content],
             ],
         ])
+        // Parsing happens here, inside the actor, so only the extracted
+        // Sendable fields cross the isolation boundary.
+        let reply = (result["message"] as? [String: Any]) ?? result
+        let text = ((reply["content"] as? [Any]) ?? [])
+            .compactMap { ($0 as? [String: Any])?["text"] as? String }
+            .joined()
+        let stopReason = (reply["stopReason"] as? String) ?? "stop"
+        return ACPPromptReply(text: text, stopReason: stopReason)
     }
 
     public func shutdown() async {
@@ -164,6 +172,17 @@ public actor ACPClient {
     }
 }
 
+/// A `session/prompt` reply reduced to its Sendable fields. Parsing stays
+/// inside the actor; only these values cross isolation boundaries.
+public struct ACPPromptReply: Sendable {
+    public let text: String
+    public let stopReason: String
+    public init(text: String, stopReason: String) {
+        self.text = text
+        self.stopReason = stopReason
+    }
+}
+
 /// Bridges an ACP session to the `LLMClient` shape for a single prompt round
 /// (reference codex_acp path; the ACP protocol is prompt-oriented, so
 /// `complete` maps messages → one prompt and returns the final message).
@@ -184,26 +203,25 @@ public struct ACPChatAdapter: LLMClient {
             sid = try await client.newSession(instruction: arcAgentSystemPrompt(messages))
         }
         let content = messages.compactMap { $0.content }.joined(separator: "\n\n")
-        let result = try await client.prompt(sessionID: sid, content: content)
-        // ACP `session/prompt` result carries the reply message.
-        let reply = (result["message"] as? [String: Any]) ?? result
-        let text = ((reply["content"] as? [Any]) ?? [])
-            .compactMap { ($0 as? [String: Any])?["text"] as? String }
-            .joined()
-        let stopReason = (reply["stopReason"] as? String) ?? "stop"
+        let reply = try await client.prompt(sessionID: sid, content: content)
         return LLMResponse(
-            content: text.isEmpty ? nil : text,
+            content: reply.text.isEmpty ? nil : reply.text,
             toolCalls: nil,
-            finishReason: stopReason == "maxTokens" ? "length" : "stop",
+            finishReason: reply.stopReason == "maxTokens" ? "length" : "stop",
             usage: nil
         )
     }
 
     public func stream(messages: [Message], tools: [[String: Any]]?) -> AsyncThrowingStream<LLMDelta, Error> {
-        AsyncThrowingStream { continuation in
+        // Read-only box: the tools payload is consumed by exactly one task.
+        let toolsBox = NonSendableBox(tools ?? [])
+        return AsyncThrowingStream { continuation in
             Task {
                 do {
-                    let response = try await complete(messages: messages, tools: tools)
+                    let response = try await complete(
+                        messages: messages,
+                        tools: toolsBox.value.isEmpty ? nil : toolsBox.value
+                    )
                     if let content = response.content {
                         continuation.yield(LLMDelta(content: content))
                     }

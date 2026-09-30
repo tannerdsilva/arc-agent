@@ -10,7 +10,7 @@ import Testing
 @Suite("Agent powers lockdown", .serialized)
 struct AgentPowersTests {
 
-    private static var tmp: URL!
+    private nonisolated(unsafe) static var tmp: URL!
 
     /// Install a clean gate + temp dirs for the duration of a test.
     private func install(

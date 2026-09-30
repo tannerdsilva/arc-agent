@@ -78,7 +78,7 @@ public struct MemoryStore: Sendable {
     /// Find the entry containing `oldText`, replace it with `newContent`.
     public func replace(_ target: String, _ oldText: String, _ newContent: String) async throws -> [String: Any] {
         let oldText = oldText.trimmingCharacters(in: .whitespacesAndNewlines)
-        var newContent = newContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newContent = newContent.trimmingCharacters(in: .whitespacesAndNewlines)
         if oldText.isEmpty {
             return error("old_text cannot be empty.")
         }

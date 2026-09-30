@@ -27,7 +27,7 @@ public actor RateLimitTracker {
         guard let snapshot else {
             // Only retry-after was present (no bucket): still record route
             // backoff state.
-            if let retryAfter {
+            if retryAfter != nil {
                 consecutiveThrottles[route, default: 0] += 1
             }
             return

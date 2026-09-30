@@ -13,14 +13,14 @@ import Foundation
 public enum AgentPowers {
 
     /// Live configuration, set by ``configure(_:)`` at agent startup.
-    public static var config: AgentPowersConfig = AgentPowersConfig()
+    public nonisolated(unsafe) static var config: AgentPowersConfig = AgentPowersConfig()
 
     /// Where skills live (`~/.arc/skills` by default). Overridable for tests.
-    public static var skillsDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    public nonisolated(unsafe) static var skillsDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".arc/skills")
 
     /// Where MEMORY.md / USER.md live (`~/.arc/memories` by default).
-    public static var memoriesDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    public nonisolated(unsafe) static var memoriesDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".arc/memories")
 
     /// Install the gate from configuration. Called by ``ArcAgent`` at init.

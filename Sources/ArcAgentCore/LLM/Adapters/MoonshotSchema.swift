@@ -20,11 +20,11 @@ public enum MoonshotSchema {
     public static func sanitizeTool(_ tool: [String: Any]) -> [String: Any] {
         var result = tool
         if var function = result["function"] as? [String: Any] {
-            if var params = function["parameters"] as? [String: Any] {
+            if let params = function["parameters"] as? [String: Any] {
                 function["parameters"] = sanitizeSchema(params)
             }
             result["function"] = function
-        } else if var params = result["parameters"] as? [String: Any] {
+        } else if let params = result["parameters"] as? [String: Any] {
             result["parameters"] = sanitizeSchema(params)
         }
         return result
@@ -46,7 +46,7 @@ public enum MoonshotSchema {
             s.removeValue(forKey: "required")
         }
         // Recurse into properties / items.
-        if var properties = s["properties"] as? [String: Any] {
+        if let properties = s["properties"] as? [String: Any] {
             var out: [String: Any] = [:]
             for (key, value) in properties {
                 if let sub = value as? [String: Any] {
@@ -57,7 +57,7 @@ public enum MoonshotSchema {
             }
             s["properties"] = out
         }
-        if var items = s["items"] as? [String: Any] {
+        if let items = s["items"] as? [String: Any] {
             s["items"] = sanitizeSchema(items, depth: depth + 1)
         }
         return s

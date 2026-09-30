@@ -4,7 +4,7 @@ import AsyncHTTPClient
 /// OpenAI Responses API client (reference `codex_responses_adapter.py`): the
 /// `responses` endpoint used for Codex/GPT-5.x models — `instructions` +
 /// `input` item arrays, typed function tools, and event-based streaming.
-public struct CodexResponsesClient: LLMClient {
+public struct CodexResponsesClient: LLMClient, @unchecked Sendable {
     public let baseURL: URL      // e.g. https://api.openai.com/v1
     public let apiKey: String
     public let model: String

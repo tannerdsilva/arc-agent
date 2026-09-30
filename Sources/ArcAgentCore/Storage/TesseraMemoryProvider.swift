@@ -56,16 +56,10 @@ public actor TesseraMemoryProvider: MemoryProvider {
     private func read(key: String) async throws -> String {
         let conn = connection
         try await conn.ensureStarted()
-        let prefix = "arc/m/\(key)/"
-        var best: (seq: Int, content: String)?
-        for record in await conn.snapshot(kind: TesseraConnection.memoryKind)
-            .filter({ $0.dTag?.hasPrefix(prefix) ?? false }) {
-            guard let seq = TesseraConnection.sequenceNumber(fromTagKey: record.dTag ?? "") else { continue }
-            if best == nil || seq > best!.seq {
-                best = (seq, record.content)
-            }
-        }
-        return best?.content ?? ""
+        // O(1): the connection keeps the newest record per d-tag group
+        // (`arc/m/<key>/<seq>`) — no full-store scan per prompt build.
+        let record = await conn.latestRecord(groupKey: "arc/m/\(key)")
+        return record?.content ?? ""
     }
 
     private func append(key: String, text: String) async throws {

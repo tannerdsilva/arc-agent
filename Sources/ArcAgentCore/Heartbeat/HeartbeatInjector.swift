@@ -28,9 +28,7 @@ public enum HeartbeatInjector {
         let (stream, continuation) = AsyncStream<IncomingMessage>.makeStream()
         let finished = OSAllocatedUnfairLock(initialState: false)
         let messageTask = Task {
-            var lastChat: ChatTarget? = nil
             for await message in incoming {
-                lastChat = message.chat
                 continuation.yield(message)
             }
             finished.withLock { $0 = true }

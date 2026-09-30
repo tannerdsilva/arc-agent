@@ -43,9 +43,9 @@ struct BackgroundProcessTests {
         let id = try await reg.start(command: "echo listed-\(UUID().uuidString.prefix(4)); sleep 0.1")
         _ = await reg.wait(id: id, timeout: 15)
         let all = await reg.summaries()
-        #expect(all.contains { ($0["session_id"] as? String) == id })
-        let entry = all.first { ($0["session_id"] as? String) == id }
-        #expect(entry?["status"] as? String == "exited")
+        #expect(all.contains { $0.sessionID == id })
+        let entry = all.first { $0.sessionID == id }
+        #expect(entry?.status == "exited")
     }
 
     @Test("kill terminates a long run and records killed")

@@ -3,6 +3,11 @@ import SwiftSlash
 import Testing
 @testable import ArcAgentCore
 
+/// Single-threaded mutable flag shared with a `@Sendable` closure.
+final class BoolFlag: @unchecked Sendable {
+    var value = false
+}
+
 // MARK: - Verification wiring (#1)
 
 @Suite("Verification wiring")
@@ -227,10 +232,10 @@ struct CronSchedulerWiringTests {
     func firstRunBookkeeps() async throws {
         let job = CronJob(id: "j4", name: "fresh", schedule: "nonsense", prompt: "x")
         let store = FakeCronStore(jobs: [job])
-        var ran = false
-        let scheduler = CronScheduler(store: store, jobRunner: { _ in ran = true; return "unexpected" })
+        let ran = BoolFlag()
+        let scheduler = CronScheduler(store: store, jobRunner: { _ in ran.value = true; return "unexpected" })
         try await scheduler.runDueJobs()
-        #expect(!ran)
+        #expect(!ran.value)
         let updated = await store.jobs.first { $0.id == "j4" }
         #expect(updated != nil)
         #expect(updated?.lastOutput == nil)

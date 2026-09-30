@@ -78,7 +78,9 @@ private struct FailingGetStore: SessionStore {
     func get(id: String) async throws -> Session? { throw SessionError.storageError("boom") }
     func update(_ session: Session) async throws { try await inner.update(session) }
     func delete(id: String) async throws { try await inner.delete(id: id) }
-    func list(limit: Int) async throws -> [Session] { try await inner.list(limit: limit) }
+    func list(limit: Int, offset: Int) async throws -> [Session] {
+        try await inner.list(limit: limit, offset: offset)
+    }
     func appendMessage(sessionID: String, message: Message) async throws {
         try await inner.appendMessage(sessionID: sessionID, message: message)
     }
@@ -166,7 +168,6 @@ struct PromptHardeningTests {
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
 
         defer { try? httpClient.shutdown() }
-        defer { try? httpClient.syncShutdown() }
         let box = ClientScripts(responses: [LLMResponse(content: "new answer", finishReason: "stop")])
         let agent = await makeAgent(
             registry: CompileTimeToolRegistry(),
@@ -202,7 +203,6 @@ struct PromptHardeningTests {
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
 
         defer { try? httpClient.shutdown() }
-        defer { try? httpClient.syncShutdown() }
         let box = ClientScripts(responses: [
             LLMResponse(content: "a", finishReason: "stop"),
             LLMResponse(content: "b", finishReason: "stop"),
@@ -232,7 +232,6 @@ struct PromptHardeningTests {
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
 
         defer { try? httpClient.shutdown() }
-        defer { try? httpClient.syncShutdown() }
         let box = ClientScripts(responses: [LLMResponse(content: "survived", finishReason: "stop")])
         let agent = await makeAgent(
             registry: CompileTimeToolRegistry(),
@@ -275,7 +274,6 @@ struct PromptHardeningTests {
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
 
         defer { try? httpClient.shutdown() }
-        defer { try? httpClient.syncShutdown() }
         let box = ClientScripts(responses: [
             LLMResponse(content: nil, toolCalls: [
                 ToolCall(id: "c1", function: ToolCallFunction(name: "read_file", arguments: #"{"path":"slow"}"#)),
@@ -306,7 +304,6 @@ struct PromptHardeningTests {
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
 
         defer { try? httpClient.shutdown() }
-        defer { try? httpClient.syncShutdown() }
         let box = ClientScripts(responses: [
             LLMResponse(content: nil, toolCalls: [
                 ToolCall(id: "c1", function: ToolCallFunction(name: "read_file", arguments: #"{"path":"x"}"#)),
@@ -328,7 +325,6 @@ struct PromptHardeningTests {
     func emptyToolCallsRecovers() async throws {
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
         defer { try? httpClient.shutdown() }
-        defer { try? httpClient.syncShutdown() }
         let box = ClientScripts(responses: [
             LLMResponse(content: nil, toolCalls: [], finishReason: "tool_calls"),
             LLMResponse(content: "ok then", finishReason: "stop"),
@@ -351,7 +347,6 @@ struct PromptHardeningTests {
     func truncationContinues() async throws {
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
         defer { try? httpClient.shutdown() }
-        defer { try? httpClient.syncShutdown() }
         let box = ClientScripts(responses: [
             LLMResponse(content: "PART ONE ", finishReason: "length"),
             LLMResponse(content: "PART TWO", finishReason: "stop"),
@@ -381,7 +376,6 @@ struct PromptHardeningTests {
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
 
         defer { try? httpClient.shutdown() }
-        defer { try? httpClient.syncShutdown() }
         let box = ClientScripts(responses: [], streamScripts: [
             [LLMDelta(content: nil, toolCalls: [
                 ToolCallDelta(index: 0, id: "c1", name: "read_file", arguments: #"{"path":"x"}"#),

@@ -94,14 +94,8 @@ struct DoctorCmd: AsyncParsableCommand {
             print("❌ No config at \(configURL.path). Run `arc setup` first.")
             return
         }
-        let config: ArcConfig
-        do {
-            config = loadConfig()
-            report("✅", "config parses (\(configURL.path))")
-        } catch {
-            print("❌ config failed to load: \(error)")
-            return
-        }
+        let config = loadConfig()
+        report("✅", "config parses (\(configURL.path))")
         let env = ProcessInfo.processInfo.environment
         let hasKey = env["ARC_API_KEY"].map { !$0.isEmpty } == true
             || env["OPENAI_API_KEY"].map { !$0.isEmpty } == true

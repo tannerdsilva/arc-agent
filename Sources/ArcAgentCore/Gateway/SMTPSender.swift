@@ -1,6 +1,6 @@
 import Foundation
 import NIO
-import NIOSSL
+@preconcurrency import NIOSSL
 import NIOCore
 
 /// Minimal SMTP client (RFC 5321 subset) used by the email gateway adapter.
@@ -49,16 +49,18 @@ public final class SMTPSender: @unchecked Sendable {
     public func connect() async throws {
         let bootstrap = ClientBootstrap(group: group)
             .channelInitializer { channel in
-                let addCodec = channel.pipeline.addHandler(LineCodec())
-                if self.useTLS {
-                    return addCodec.flatMap {
-                        channel.pipeline.addHandler(
+                do {
+                    try channel.pipeline.syncOperations.addHandler(LineCodec())
+                    if self.useTLS {
+                        try channel.pipeline.syncOperations.addHandler(
                             try! NIOSSLClientHandler(context: try! self.tlsContext(), serverHostname: self.host),
                             position: .first
                         )
                     }
+                    return channel.eventLoop.makeSucceededVoidFuture()
+                } catch {
+                    return channel.eventLoop.makeFailedFuture(error)
                 }
-                return addCodec
             }
         let channel = try await bootstrap.connect(host: host, port: port).get()
         self.channel = channel
@@ -74,10 +76,12 @@ public final class SMTPSender: @unchecked Sendable {
         if startTLS && !useTLS {
             _ = try await exchange("EHLO \(host)")
             _ = try await exchange("STARTTLS")
-            try await channel.pipeline.addHandler(
-                NIOSSLClientHandler(context: tlsContext(), serverHostname: host),
-                position: .first
-            ).get()
+            try await channel.eventLoop.submit { [host, self] in
+                try channel.pipeline.syncOperations.addHandler(
+                    NIOSSLClientHandler(context: self.tlsContext(), serverHostname: host),
+                    position: .first
+                )
+            }.get()
             _ = try await exchange("EHLO \(host)")
         } else {
             _ = try await exchange("EHLO \(host)")

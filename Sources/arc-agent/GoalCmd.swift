@@ -22,7 +22,7 @@ func goalStoreForCLI() async throws -> any GoalStoring {
     if await TesseraAvailability.shared.isTesseraActive() {
         return TesseraGoalStore()
     }
-    return try GoalStore()
+    return GoalStore()
 }
 
 struct GoalSet: AsyncParsableCommand {

@@ -275,7 +275,6 @@ enum FuzzyMatch {
     /// Strategy 8: anchor on first/last lines, similarity threshold on middle.
     static func strategyBlockAnchor(_ content: String, _ pattern: String) -> [CharRange] {
         let contentChars = Array(content)
-        let patternChars = Array(pattern)
         let normPattern = unicodeNormalize(pattern)
         let normContent = unicodeNormalize(content)
         let patternLines = splitLines(normPattern)
@@ -680,7 +679,7 @@ enum FuzzyMatch {
     }
 
     static func findClosestLines(old: String, content: String, contextLines: Int = 2, maxResults: Int = 3) -> String {
-        var oldLines = splitLines(old)
+        let oldLines = splitLines(old)
         guard !oldLines.isEmpty else { return "" }
         let contentLines = splitLines(content)
         guard !contentLines.isEmpty else { return "" }

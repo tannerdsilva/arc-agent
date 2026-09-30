@@ -610,7 +610,7 @@ private func renderEmphasis(_ text: String) -> String {
             }
             if let close = findInlineMarker(text, from: contentStart,
                                             marker: String(repeating: ch, count: markerLen)) {
-                var inner = String(text[contentStart..<close])
+                let inner = String(text[contentStart..<close])
                 if ch == "_", close < text.index(before: text.endIndex) {
                     let afterClose = text.index(close, offsetBy: markerLen)
                     if afterClose < text.endIndex, isWordChar(text[afterClose]) {

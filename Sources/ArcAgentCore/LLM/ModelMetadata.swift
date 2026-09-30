@@ -166,7 +166,6 @@ public struct ModelMetadataRegistry: Sendable {
 
     private func merging(_ meta: ModelMetadata, configuredContextLength: Int?) -> ModelMetadata {
         guard let configured = configuredContextLength else { return meta }
-        var m = meta
         return ModelMetadata(
             model: meta.model, provider: meta.provider,
             contextLength: configured,

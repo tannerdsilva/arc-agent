@@ -453,6 +453,20 @@ struct LiveTurn {
     var steerText: String? = nil
 }
 
+/// Incremental-stream render cache for the live chat transcript. Holds the
+/// HTML of every **materialized** message (everything before the live turn's
+/// tail) keyed on the inputs that could change it. While a turn streams,
+/// `session.messages` is immutable — only the live tail mutates every ~90 ms
+/// push — so ticks reuse this HTML instead of re-escaping/re-rendering the
+/// whole transcript (which made long chats quadratic).
+struct LiveTranscriptCache: Sendable {
+    let sessionID: String?
+    let messageCount: Int
+    let activityDisplay: String
+    let sessionVersion: Int
+    let html: String
+}
+
 /// A pending user-approval request (arc-style permission card in the chat).
 /// A named context block attached to the composer (arc agent webui parity:
 /// `_pendingSelections`, rendered as "Context N" chips above the input).
@@ -513,6 +527,11 @@ actor AppState {
 
     var sessions: [Session] = []
 
+    /// Current sidebar window: `store.list(limit: sessionLoadLimit, offset: 0)`.
+    var sessionLoadLimit = AppState.sessionListPageSize
+    /// True when the last list page came back short — nothing is left behind.
+    var sessionsExhausted = true
+
     // MARK: Lazy message loading (scalable design)
 
     /// Chat IDs whose message bodies are currently materialized, oldest-open
@@ -523,6 +542,12 @@ actor AppState {
     /// least-recently-opened and never touches the active chat, so memory
     /// stays constant no matter how large the history grows.
     static let sessionMessageCacheCap = 32
+
+    /// Sidebar window: how many sessions the store lists per page. This is a
+    /// hard, store-level bound (`list(limit:offset:)`), so the UI and the
+    /// store agree on what is listed; "Load more conversations" grows the
+    /// window in page-sized steps.
+    static let sessionListPageSize = 50
 
     /// Materialize a session's messages (fetching from the store if they were
     /// never loaded or were evicted from the LRU cache). No-op when the
@@ -569,8 +594,35 @@ actor AppState {
             }
         }
     }
+
+    /// Fetch the sidebar window — the newest `sessionLoadLimit` sessions. The
+    /// limit is enforced by the store itself (`list(limit:offset:)`), so the
+    /// UI never holds — or asks for — more than the window until the user
+    /// expands it with "Load more conversations".
+    func loadSessionsPage() async {
+        guard let store else {
+            sessionsExhausted = true
+            return
+        }
+        let limit = max(1, sessionLoadLimit)
+        let fetched = (try? await store.list(limit: limit, offset: 0)) ?? []
+        sessions = fetched
+        sessionsExhausted = fetched.count < limit
+    }
+
+    /// Expand the sidebar window by one page and re-fetch ("Load more
+    /// conversations").
+    func loadMoreSessions() async {
+        guard !sessionsExhausted else { return }
+        sessionLoadLimit += Self.sessionListPageSize
+        await loadSessionsPage()
+    }
+
     var activeSessionID: String?
     var sessionVersion = 0
+    /// See ``LiveTranscriptCache``: transient (never persisted), rebuilt on
+    /// any key change and cleared by ``reloadSessions``/session switches.
+    var liveTranscriptCache: LiveTranscriptCache?
 
     var skills: [Skill] = []
     var selectedSkill: String?
@@ -815,6 +867,9 @@ actor AppState {
 
     init() throws {
         self.registry = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
+        // The registered tool_search handler searches this registry (incl.
+        // plugin tools) rather than a fresh default registry.
+        ToolSearchTool.registry = self.registry
         let grouped = Dictionary(grouping: self.registry.allTools, by: { $0.toolset })
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
         self.settings = Self.loadSettings()
@@ -828,14 +883,20 @@ actor AppState {
         let resolvedConfig = loadConfig()
         self.settings = AppState.seedConfigs(from: resolvedConfig, into: self.settings)
         self.settings = AppState.seedKanban(into: self.settings)
+        var needsSettingsSave = false
         if Self.migrateLegacyAuxModels(into: &self.settings, arc: &self.arcConfig) {
-            saveSettings()
+            needsSettingsSave = true
         }
         if Self.migrateWorkspaceDefaults(into: &self.settings) {
-            saveSettings()
+            needsSettingsSave = true
         }
         self.selectedWorkspace = self.settings.activeWorkspace
         Task { await self.refreshPlugins() }
+        // Persist after init: saveSettings is actor-isolated and cannot run
+        // inside the nonisolated initializer; memory state is already final.
+        if needsSettingsSave {
+            Task { await self.saveSettings() }
+        }
     }
 
     /// Rescan `~/.arc/plugins/` and rebuild the runtime registry with built-in
@@ -846,6 +907,7 @@ actor AppState {
         let allow = self.arcConfig.plugins.enabled.map { Set($0) }
         if let made = try? await MutableToolRegistry.make(enabledPlugins: allow) {
             self.registry = made
+            ToolSearchTool.registry = made
         }
         let grouped = Dictionary(grouping: self.registry.allTools, by: { $0.toolset })
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
@@ -1158,7 +1220,7 @@ actor AppState {
     /// the client is unavailable or the call fails, letting the regex
     /// detector stand in.
     func classifyApprovalRisk(_ command: String) async -> DangerLevel? {
-        guard let hc = httpClient,
+        guard httpClient != nil,
               let client = makeAuxClient(for: .approval, sessionID: nil) else { return nil }
         let prompt = """
         You classify shell commands for an autonomous coding agent. Reply with exactly one word from: safe, suspicious, dangerous, critical. Consider destructive or exfiltrating operations (rm -rf, mkfs, dd, diskutil erase, curl | sh) critical or dangerous.
@@ -1244,7 +1306,7 @@ actor AppState {
     /// the client is unavailable, the call fails, or the answer is empty —
     /// the caller then falls back to the best-judgement notice.
     func smartClarifyChoice(question: String, choices: [String]) async -> String? {
-        guard let hc = httpClient,
+        guard httpClient != nil,
               let client = makeAuxClient(for: .clarify, sessionID: nil) else { return nil }
         let choiceBlock = choices.isEmpty
             ? "(No choices were offered — answer the question directly, briefly.)"
@@ -1307,11 +1369,11 @@ actor AppState {
     /// Reload sessions, skills and profiles from the backing stores.
     func reloadAll() async {
         await ensureRuntime()
-        if let store {
+        if store != nil {
             crumb("reloadAll: listing sessions (\(runtimeBackend))")
-            sessions = (try? await store.list(limit: 500)) ?? []
-            crumb("reloadAll: sessions listed (\(sessions.count))")
         }
+        await loadSessionsPage()
+        crumb("reloadAll: sessions listed (\(sessions.count))")
         sessionVersion += 1
 
         skills = discoverSkills()

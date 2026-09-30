@@ -57,7 +57,6 @@ struct PromptArchitectureTests {
     private func runOnce(_ config: ArcAgent.Configuration, box: ClientScripts) async throws -> String {
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
         defer { try? httpClient.shutdown() }
-        defer { try? httpClient.syncShutdown() }
         let agent = ArcAgent(config: config)
         await agent.setupClient(httpClient: httpClient)
         await agent.setClient(ScriptedClient(box: box))
@@ -226,6 +225,50 @@ struct PromptArchitectureTests {
         #expect(cleaned.contains { $0.role == .tool && $0.toolCallID == "1" })
     }
 
+    @Test("sanitize O(1) fast path preserves duplicate results and result-before-call stubs")
+    func sanitizeFastPathEdgeCases() {
+        // Regression for the O(n²)→O(n) rewrite: duplicates of a valid result
+        // must all survive (old code kept every tool message whose id was
+        // declared by an assistant), and a tool result placed BEFORE its
+        // assistant call must still produce a stub (only results AFTER the
+        // call satisfy the "has result" test).
+        let messages: [Message] = [
+            Message(role: .user, content: "go"),
+            Message(role: .assistant, content: nil, toolCalls: [
+                ToolCall(id: "1", function: ToolCallFunction(name: "read_file", arguments: "{}")),
+            ]),
+            Message(role: .tool, content: "r1", toolCallID: "1"),
+            Message(role: .tool, content: "r1-dup", toolCallID: "1"),
+            Message(role: .tool, content: "ghost", toolCallID: "orphan"),
+            Message(role: .assistant, content: nil, toolCalls: [
+                ToolCall(id: "2", function: ToolCallFunction(name: "write_file", arguments: "{}")),
+            ]),
+            Message(role: .tool, content: "result-before-call", toolCallID: "3"),
+            Message(role: .assistant, content: nil, toolCalls: [
+                ToolCall(id: "3", function: ToolCallFunction(name: "patch", arguments: "{}")),
+            ]),
+            Message(role: .assistant, content: nil, toolCalls: [
+                ToolCall(id: "4", function: ToolCallFunction(name: "x", arguments: "{}")),
+            ]),
+        ]
+        let cleaned = ArcAgent.sanitizeMessages(messages)
+
+        // Both duplicate results survive.
+        #expect(cleaned.filter { $0.role == .tool && $0.toolCallID == "1" }.count == 2,
+            "duplicate tool results for a declared call id must all survive")
+        // Orphan result dropped.
+        #expect(!cleaned.contains { $0.content == "ghost" })
+        // Missing result for "2" → stub.
+        let stub2 = cleaned.filter { $0.role == .tool && $0.toolCallID == "2" }
+        #expect(stub2.count == 1)
+        #expect(stub2.first?.content != nil || stub2.first?.content?.contains("no result") == true)
+        // Result BEFORE the "3" call → stub still added (nothing follows it).
+        let tool3 = cleaned.filter { $0.role == .tool && $0.toolCallID == "3" }
+        #expect(tool3.count == 2, "tool-3 result plus generated stub must both be present")
+        // The "4" call has no result at all → one stub, no drop of the call.
+        #expect(cleaned.filter { $0.role == .tool && $0.toolCallID == "4" }.count == 1)
+    }
+
     @Test("redactSecrets covers API keys, GH tokens, AWS keys, bearer, private keys")
     func redactSecretsPatterns() {
         let sample = "ghp_1234567890abcdefghij and sk-abcdefghijklmnopqrstuvwxyz123456 and AKIA1234567890ABCDEF and Bearer abcdefghijklmnop and -----BEGIN RSA PRIVATE KEY-----"
@@ -256,7 +299,6 @@ struct PromptArchitectureTests {
         let config = makeConfig(persistSessions: false, injectProjectContext: false)
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
         defer { try? httpClient.shutdown() }
-        defer { try? httpClient.syncShutdown() }
         let agent = ArcAgent(config: config)
         await agent.setupClient(httpClient: httpClient)
         await agent.setClient(ScriptedClient(box: box))
@@ -273,7 +315,6 @@ struct PromptArchitectureTests {
         let config = makeConfig(persistSessions: false, injectProjectContext: false)
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
         defer { try? httpClient.shutdown() }
-        defer { try? httpClient.syncShutdown() }
         let agent = ArcAgent(config: config)
         await agent.setupClient(httpClient: httpClient)
         await agent.setClient(ScriptedClient(box: box))

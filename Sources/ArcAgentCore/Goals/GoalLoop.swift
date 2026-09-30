@@ -138,7 +138,8 @@ public struct GoalLoop {
                     goal.gates[index] = gate
                 }
             }
-            try await store.update(sessionID: sessionID) { $0.gates = goal.gates }
+            let gatesSnapshot = goal.gates
+            try await store.update(sessionID: sessionID) { $0.gates = gatesSnapshot }
             if let red = goal.gates.first(where: { $0.passed == false }) {
                 let reason = "Quality gate failed: \(red.command)\n\(red.lastOutput ?? "")"
                 return try await continueTurn(goal: try await store.get(sessionID: sessionID) ?? goal,
@@ -197,7 +198,6 @@ public struct GoalLoop {
     private static func workspaceFingerprint(
         workdir: String?, runner: GateRunner
     ) async -> String? {
-        guard let workdir else { return nil }
         do {
             let (headCode, headOut) = try await runner("git rev-parse HEAD 2>/dev/null", 10)
             guard headCode == 0 else { return nil }

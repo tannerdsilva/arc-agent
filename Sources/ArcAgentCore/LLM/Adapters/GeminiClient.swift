@@ -5,7 +5,7 @@ import AsyncHTTPClient
 /// `contents` / `systemInstruction` / `generationConfig` request shape,
 /// `functionDeclarations` tools, `functionCall`/`functionResponse` parts, and
 /// streamed `data:` SSE events with `usageMetadata`.
-public struct GeminiClient: LLMClient {
+public struct GeminiClient: LLMClient, @unchecked Sendable {
     public let baseURL: URL       // https://generativelanguage.googleapis.com/v1beta (or v1alpha)
     public let apiKey: String
     public let model: String

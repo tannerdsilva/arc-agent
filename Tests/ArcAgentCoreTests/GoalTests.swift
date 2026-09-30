@@ -2,6 +2,11 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 
+/// Single-threaded mutable flag shared with a `@Sendable` closure.
+final class JudgedFlag: @unchecked Sendable {
+    var value = false
+}
+
 /// Standing goals (reference `features/goals.md` Ralph loop).
 @Suite("Goals", .serialized)
 struct GoalTests {
@@ -113,8 +118,8 @@ struct GoalTests {
         var state = GoalState(text: "Fix tests", maxTurns: 20)
         state.gates = [QualityGate(command: "pytest tests")]
         try await store.set(sessionID: "s1", state: state)
-        var judged = false
-        let judge: GoalLoop.Judge = { _, _ in judged = true; return GoalJudgeResult(kind: .done, reason: "never called") }
+        let judged = JudgedFlag()
+        let judge: GoalLoop.Judge = { _, _ in judged.value = true; return GoalJudgeResult(kind: .done, reason: "never called") }
         let outcome = try await GoalLoop.afterTurn(
             sessionID: "s1", store: store, finalResponse: "fixed?",
             judge: judge,
@@ -125,7 +130,7 @@ struct GoalTests {
             Issue.record("expected continueTurn from red gate, got \(outcome)"); return
         }
         #expect(cont.contains("Quality gate failed"))
-        #expect(judged == false)
+        #expect(judged.value == false)
     }
 
     @Test("judge error is fail-open (treated as continue)")

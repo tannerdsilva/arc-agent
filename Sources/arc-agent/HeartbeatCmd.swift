@@ -38,8 +38,8 @@ struct HeartbeatSet: AsyncParsableCommand {
         guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ValidationError("--prompt is required.")
         }
-        let store = try HeartbeatStore()
-        try await store.set(
+        let store = HeartbeatStore()
+        await store.set(
             sessionID: session,
             intervalSeconds: seconds,
             prompt: prompt,
@@ -61,7 +61,7 @@ struct HeartbeatStatus: AsyncParsableCommand {
     var session: String?
 
     func run() async throws {
-        let store = try HeartbeatStore()
+        let store = HeartbeatStore()
         if let session {
             guard let hb = await store.status(sessionID: session) else {
                 print("No heartbeat set for session \(session).")
@@ -95,7 +95,7 @@ struct HeartbeatPause: AsyncParsableCommand {
     )
     @Argument var session: String
     func run() async throws {
-        let store = try HeartbeatStore()
+        let store = HeartbeatStore()
         guard await store.status(sessionID: session) != nil else {
             print("No heartbeat set for session \(session).")
             return
@@ -112,7 +112,7 @@ struct HeartbeatResume: AsyncParsableCommand {
     )
     @Argument var session: String
     func run() async throws {
-        let store = try HeartbeatStore()
+        let store = HeartbeatStore()
         guard await store.status(sessionID: session) != nil else {
             print("No heartbeat set for session \(session).")
             return
@@ -129,7 +129,7 @@ struct HeartbeatClear: AsyncParsableCommand {
     )
     @Argument var session: String
     func run() async throws {
-        let store = try HeartbeatStore()
+        let store = HeartbeatStore()
         await store.clear(sessionID: session)
         try await store.save()
         print("♥ Heartbeat cleared for \(session).")

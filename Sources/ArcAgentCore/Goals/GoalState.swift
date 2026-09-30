@@ -88,8 +88,7 @@ public struct GoalState: Codable, Sendable, Equatable {
     public static func parse(text: String) -> (headline: String, contract: GoalContract?) {
         var headline = ""
         var contract = GoalContract()
-        var any = false
-        var lines = text.components(separatedBy: .newlines)
+        let lines = text.components(separatedBy: .newlines)
         var headlineLines: [String] = []
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -99,7 +98,6 @@ public struct GoalState: Codable, Sendable, Equatable {
                 let value = String(trimmed.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
                 guard !value.isEmpty else { return }
                 contract[keyPath: key] = value
-                any = true
             }
             take("verify:", into: \.verification)
             take("verified by:", into: \.verification)
@@ -145,7 +143,7 @@ public protocol GoalStoring: Sendable {
 
 public actor GoalStore: GoalStoring {
 
-    private static var storageURL = FileManager.default.homeDirectoryForCurrentUser
+    private nonisolated(unsafe) static var storageURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".arc/goals.json")
 
     public static func setStorageURL(_ url: URL) {

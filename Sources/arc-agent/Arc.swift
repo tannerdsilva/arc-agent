@@ -158,7 +158,7 @@ struct Chat: AsyncParsableCommand {
         if let t = toolsets {
             disabledToolsets.formUnion(Self.parseList(t))
         }
-        if let profileName, let enabled = profileEnabledToolsets {
+        if let enabled = profileEnabledToolsets {
             let all = Set(registry.allTools.map(\.toolset))
             disabledToolsets.formUnion(all.subtracting(enabled))
         }

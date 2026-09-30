@@ -261,7 +261,9 @@ public enum ProgressiveToolDisclosure {
         return schemas
     }
 
-    static func schema(for entry: ToolEntry) -> [String: Any] {
+    /// OpenAI function-schema dict for a tool entry (shared by the core agent
+    /// and the webui `tool_describe` bridge translation).
+    public static func schema(for entry: ToolEntry) -> [String: Any] {
         [
             "type": "function",
             "function": [

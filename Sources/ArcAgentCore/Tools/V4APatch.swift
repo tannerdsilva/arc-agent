@@ -411,7 +411,7 @@ enum V4APatch {
 
     static func applyUpdate(_ op: V4APatchOperation, fileOps: V4AFileOps) -> String? {
         let (readResult, readErr) = fileOps.readFileRaw(op.filePath)
-        if let readErr {
+        if readErr != nil {
             return nil
         }
         var newContent = readResult ?? ""
@@ -491,7 +491,7 @@ enum V4APatch {
             }
         }
 
-        if let err = fileOps.writeFile(op.filePath, newContent) {
+        if fileOps.writeFile(op.filePath, newContent) != nil {
             return nil
         }
         return unifiedDiff(

@@ -2,6 +2,12 @@ import Foundation
 import Testing
 @testable import ArcAgentCore
 
+/// Mutable string capture shared with a `@Sendable` sink closure
+/// (single-threaded use; only the box is shared).
+final class ApprovalSinkRecorder: @unchecked Sendable {
+    var items: [String] = []
+}
+
 /// Approval choices (arc parity): always-allow allowlist, allow-session,
 /// and yolo/skip-all — all bypass dangerous commands but critical commands
 /// always require approval.
@@ -20,11 +26,11 @@ struct ApprovalChoicesTests {
 
     @Test("alwaysAllow persists through the sink and takes effect immediately")
     func alwaysAllowRecords() async {
-        var persisted: [String] = []
+        let persisted = ApprovalSinkRecorder()
         let mgr = ApprovalManager(mode: .manual)
-        await mgr.setAlwaysAllowSink { cmd in persisted.append(cmd) }
+        await mgr.setAlwaysAllowSink { cmd in persisted.items.append(cmd) }
         await mgr.alwaysAllow(command: "  sudo apt-get update  ")
-        #expect(persisted == ["sudo apt-get update"])
+        #expect(persisted.items == ["sudo apt-get update"])
         #expect(await mgr.needsApproval(command: "sudo apt-get update", sessionKey: "s2") == false)
     }
 

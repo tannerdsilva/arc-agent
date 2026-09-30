@@ -151,7 +151,7 @@ extension AppState {
     func runScheduledJob(_ job: CronJob, now: Date = Date()) async {
         let sid = jobSessionID(job)
         var session: Session
-        if let existing = sessions.first(where: { $0.id == sid }) {
+        if sessions.contains(where: { $0.id == sid }) {
             await ensureSessionMessages(sid)
             guard let existing = sessions.first(where: { $0.id == sid }) else { return }
             session = existing
@@ -176,7 +176,15 @@ extension AppState {
         await persistMessage(userMsg, sessionID: sid, store: store)
 
         let system = Message(role: .system, content: await buildSystemPrompt(config: preset, sessionID: sid))
-        let tools = registry.buildToolSchemas(enabled: [], disabled: Set(settings.disabledToolsets))
+        // Progressive disclosure parity (same as the interactive turn path):
+        // deferrable toolsets are replaced by the tool_search/tool_describe/
+        // tool_call bridges + manifest.
+        let tools = ProgressiveToolDisclosure.buildPromptSchemas(
+            registry: registry,
+            disabled: Set(settings.disabledToolsets),
+            config: arcConfig.toolSearch,
+            contextLength: preset.contextLength ?? arcConfig.model.contextLength
+        )
         var history = session.messages
         var finalText = ""
         var iterations = 0

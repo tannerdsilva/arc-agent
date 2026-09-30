@@ -79,7 +79,7 @@ public actor WebSocketHandler {
         guard let channel = self.channel else { return }
         let buffer = channel.allocator.buffer(string: text)
         let frame = WebSocketFrame(fin: true, opcode: .text, data: buffer)
-        try await channel.writeAndFlush(frame, promise: nil)
+        channel.writeAndFlush(frame, promise: nil)
     }
 
     /// Take exactly the **next** element from `stream`, or `nil` if the

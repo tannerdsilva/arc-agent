@@ -114,6 +114,16 @@ extension AppState {
         var parts = [
             "You are ARC, a Swift-native AI agent harness.",
             "You assist the user directly and precisely. When a task calls for a tool, use it confidently — tools are safe, isolated, and expected.",
+            // Universal finish-the-job / no-fabrication guidance (reference
+            // `TASK_COMPLETION_GUIDANCE`, shipped to every model in the
+            // hermes-agent prompt; arc-webui parity).
+            """
+            ## Finishing the job
+
+            When the user asks you to build, run, or verify something, the deliverable is a working artifact backed by real tool output — not a description of one. Do not stop after writing a stub, a plan, or a single command. Keep working until you have actually exercised the code or produced the requested result, then report what real execution returned.
+
+            If a tool, install, or network call fails and blocks the real path, say so directly and try an alternative (different package manager, different approach, ask the user). NEVER substitute plausible-looking fabricated output (made-up data, invented file contents, synthesised API responses) for results you couldn't actually produce. Reporting a blocker honestly is always better than inventing a result.
+            """,
         ]
         // Profile SOUL
         if let pname = profileName(for: sessionID),
@@ -128,7 +138,7 @@ extension AppState {
         // list (inherited by profiles without overrides).
         let pname = profileName(for: sessionID)
         let disabledSkills = pname.flatMap { settings.profileSkills[$0] } ?? settings.disabledSkills
-        var allowed: [Skill] = skills.filter { !disabledSkills.contains($0.name) }
+        let allowed: [Skill] = skills.filter { !disabledSkills.contains($0.name) }
         if !allowed.isEmpty {
             parts.append(SkillsPrompt.section(index: buildSkillsIndex(allowed)))
         }
@@ -161,8 +171,16 @@ extension AppState {
                 function: .init(
                     name: name,
                     arguments: String(data: data, encoding: .utf8) ?? "{}"))
-            return try await self.runTool(
+            return await self.runTool(
                 ambient, sessionID: sessionID, pusher: { _ in }, headless: true)
+        }
+        // ── Progressive tool disclosure bridge (reference tools/tool_search.py):
+        // tool_describe/tool_call are not registered tools; translate them here
+        // and route the target back through THIS runTool so guardrails,
+        // approvals, and the tool gateway all fire normally (mirrors the core
+        // agent's dispatch).
+        if call.function.name == "tool_describe" || call.function.name == "tool_call" {
+            return await handleBridgeCall(call, sessionID: sessionID, pusher: pusher, headless: headless)
         }
         guard let tool = registry.lookup(name: call.function.name) else {
             return "Error: tool '\(call.function.name)' is not registered."
@@ -172,9 +190,10 @@ extension AppState {
            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             args = obj
         }
+        let argsBox = NonSendableBox(args)
         // Tool guardrails (reference tool_guardrails parity): per-turn budgets,
         // repeated-call detection, and synthetic results.
-        switch await guardrails.decide(toolName: call.function.name, args: args) {
+        switch await guardrails.decide(toolName: call.function.name, args: NonSendableBox(args)) {
         case .synthetic(let message):
             return message
         case .allow:
@@ -201,7 +220,7 @@ extension AppState {
                     return "Error: command blocked by approval policy (classified critical; scheduled jobs cannot run destructive commands)."
                 }
                 return (try? await WorkspacePath.$root.withValue(workspacePath(for: sessionID)) {
-                    try await tool.handler(args)
+                    try await tool.handler(argsBox.value)
                 }) ?? "Error: tool execution failed"
             }
             decision = await manager.requestApproval(
@@ -234,7 +253,7 @@ extension AppState {
         }
         do {
             let result = try await WorkspacePath.$root.withValue(workspacePath(for: sessionID)) {
-                try await tool.handler(args)
+                try await tool.handler(argsBox.value)
             }
             recordSkillToolUse(toolName: call.function.name, args: args)
             return result
@@ -243,6 +262,59 @@ extension AppState {
         }
     }
 
+    /// Bridge translation for tool_describe / tool_call (arc parity): the
+    /// model sees only the three bridge tools for deferred toolsets; this
+    /// resolves the target name against the live registry and either returns
+    /// its full schema (tool_describe) or re-dispatches the call through
+    /// ``runTool`` (tool_call), so policy is applied exactly once.
+    private func handleBridgeCall(
+        _ call: ToolCall,
+        sessionID: String,
+        pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void,
+        headless: Bool
+    ) async -> String {
+        guard let data = call.function.arguments.data(using: .utf8),
+              let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tool = args["tool"] as? String, !tool.isEmpty else {
+            return "Error: 'tool' (string) is required."
+        }
+        if call.function.name == "tool_describe" {
+            guard let entry = registry.lookup(name: tool) else {
+                return "Error: Unknown tool '\(tool)'."
+            }
+            let schema = ProgressiveToolDisclosure.schema(for: entry)
+            guard let pretty = try? JSONSerialization.data(withJSONObject: schema, options: [.prettyPrinted, .sortedKeys]),
+                  let text = String(data: pretty, encoding: .utf8) else {
+                return "Error: could not serialize schema for '\(tool)'."
+            }
+            return "## \(tool)\n\n\(text)"
+        }
+        // tool_call
+        guard tool != "tool_call", tool != "tool_describe", tool != "tool_search" else {
+            return "Error: cannot invoke bridge tool '\(tool)' through tool_call."
+        }
+        guard registry.lookup(name: tool) != nil else {
+            return "Error: Unknown tool '\(tool)'."
+        }
+        let inner: String
+        if let innerArgs = args["arguments"] as? [String: Any] {
+            guard let d = try? JSONSerialization.data(withJSONObject: innerArgs) else {
+                return "Error: invalid 'arguments' for '\(tool)'."
+            }
+            inner = String(data: d, encoding: .utf8) ?? "{}"
+        } else if let raw = args["arguments"] as? String, !raw.isEmpty {
+            inner = raw
+        } else {
+            inner = "{}"
+        }
+        return await runTool(
+            ToolCall(
+                id: "bridge-\(UUID().uuidString)", type: "function",
+                function: .init(name: tool, arguments: inner)
+            ),
+            sessionID: sessionID, pusher: pusher, headless: headless
+        )
+    }
     /// Pause the running turn on a permission card until the user clicks
     /// Approve / Deny (or stops the turn). Returns true when approved.
     func requestUserApproval(command: String, description: String, sessionID: String, pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void) async -> Bool {
@@ -381,15 +453,13 @@ extension AppState {
             return (Self.compressedHistory(msgs, summary: existing), true)
         }
         let nonSystem = msgs.filter { $0.role != .system }
-        let minRecent = min(10, nonSystem.count)
-        let recent = Array(nonSystem.suffix(minRecent))
-        let compressible = Array(nonSystem.prefix(nonSystem.count - minRecent))
+        let compressible = Array(nonSystem.prefix(max(0, nonSystem.count - 10)))
         guard !compressible.isEmpty else { return (msgs, false) }
 
         let record = extractiveRecord(compressible)
         var summary = record
         if arcConfig.auxiliary.override(for: .compression)?.isSet == true,
-           let hc = httpClient,
+           httpClient != nil,
            let client = makeAuxClient(for: .compression, sessionID: sessionID) {
             let prompt = """
             You are the context compressor for a long agent conversation. Produce a dense summary
@@ -663,17 +733,20 @@ extension AppState {
         // fragments while the user is viewing the chat that owns the turn —
         // otherwise the active chat's scroll container is needlessly replaced
         // every ~90 ms and its scroll position fights the user.
-        var lastPush = Date.distantPast
+        final class PushGate: @unchecked Sendable {
+            var lastPush = Date.distantPast
+        }
+        let pushGate = PushGate()
         let throttle: () async -> Void = { [weak self] in
             guard let self else { return }
             let now = Date()
-            if now.timeIntervalSince(lastPush) > 0.09, await self.activeSessionID == sessionID {
-                lastPush = now
+            if now.timeIntervalSince(pushGate.lastPush) > 0.09, await self.activeSessionID == sessionID {
+                pushGate.lastPush = now
                 await pusher(await self.liveFragments())
             }
         }
-        func flush() async {
-            lastPush = .distantPast
+        let flush: () async -> Void = {
+            pushGate.lastPush = .distantPast
             await throttle()
         }
 
@@ -690,7 +763,18 @@ extension AppState {
         }
         var assistantText = ""
         var reasoningAccum = ""
-        let tools = registry.buildToolSchemas(enabled: [], disabled: Set(settings.disabledToolsets))
+        // Tool schemas with progressive disclosure (reference tools.tool_search
+        // parity): deferrable toolsets (plugin/MCP/media/kanban/project…)
+        // leave the model-visible array and are replaced by
+        // tool_search/tool_describe/tool_call + a manifest — exactly what the
+        // core ArcAgent does. `enabled` stays empty (all toolsets), disabled
+        // comes from the per-chat settings.
+        let tools = ProgressiveToolDisclosure.buildPromptSchemas(
+            registry: registry,
+            disabled: Set(settings.disabledToolsets),
+            config: arcConfig.toolSearch,
+            contextLength: preset.contextLength ?? arcConfig.model.contextLength
+        )
         var finalError: String?
         var recovery = TurnRecoveryState()
         guardrails = Self.freshGuardrails()
@@ -957,9 +1041,35 @@ extension AppState {
     /// composer keeps focus and the panel keeps scrolling undisturbed.
     /// MUST mirror chatMain()'s structure (chat-scroll > chat-inner > messages)
     /// so the centered column, gutters and scrollbar-gutter survive streaming.
+    ///
+    /// Incremental render: while a turn streams, `session.messages` is
+    /// immutable (only the live tail mutates each ~90 ms push), so the static
+    /// transcript HTML is rendered once and cached; each tick re-renders just
+    /// the live tail (`liveTailHTML`). The cache is keyed on session, message
+    /// count, version and activity mode — any change falls back to a full
+    /// render, so output is byte-identical to the previous always-full path.
     func liveFragments() async -> [FragmentUpdate] {
         let session = activeSession()
-        let scroll = messagesHTML(session?.messages ?? [])
+        let messages = session?.messages ?? []
+        let tail = liveTailHTML()
+        let transcriptHTML: String
+        if let cached = liveTranscriptCache,
+           cached.sessionID == activeSessionID,
+           cached.messageCount == messages.count,
+           cached.activityDisplay == settings.activityDisplay,
+           cached.sessionVersion == sessionVersion {
+            transcriptHTML = cached.html
+        } else {
+            transcriptHTML = messagesHTML(messages, includeLive: false)
+            liveTranscriptCache = LiveTranscriptCache(
+                sessionID: activeSessionID,
+                messageCount: messages.count,
+                activityDisplay: settings.activityDisplay,
+                sessionVersion: sessionVersion,
+                html: transcriptHTML
+            )
+        }
+        let scroll = transcriptHTML + tail
         return [
             // Stream into #chat-inner, not #chat-scroll: replacing the scroll
             // container every ~90 ms destroys the user's scroll position and
@@ -973,9 +1083,7 @@ extension AppState {
 
     /// Reload sessions from the store, optionally selecting one.
     func reloadSessions(selecting wanted: String? = nil) async {
-        if let store {
-            sessions = (try? await store.list(limit: 500)) ?? []
-        }
+        await loadSessionsPage()
         sessionVersion += 1
         // list() returns metadata-only summaries: drop the lazy cache and
         // re-materialize whichever chat is now active.
@@ -996,7 +1104,9 @@ extension AppState {
 
 // MARK: - Controller (event wiring)
 
-final class Controller {
+/// Event wiring for the webui. Holds only immutable references (`AppState`
+/// actor + `ClientHub`); safe to share across event handlers.
+final class Controller: @unchecked Sendable {
 
     let app: AppState
     let hub: ClientHub
@@ -1012,7 +1122,7 @@ final class Controller {
         _ router: EventRouter,
         id: String,
         events: Set<String> = ["click", "change", "submit", "input"],
-        _ handler: @escaping (EventData) async -> [FragmentUpdate]
+        _ handler: @escaping @Sendable (EventData) async -> [FragmentUpdate]
     ) {
         router.register({ event in
             guard events.contains(event.event) else { return [] }
@@ -1135,7 +1245,7 @@ final class Controller {
             // "Reply with selection" button: the selected chat text rides in
             // `payload` (dynamic button, reference `_addNamedContextBlock`).
             guard let sel = event.string("payload"), !sel.isEmpty else { return [] }
-            await self.app.addPendingContext(sel)
+            _ = await self.app.addPendingContext(sel)
             return await self.app.chatFragments()
         }
         wire(router, id: "selection-context-del", events: ["click"]) { event in
@@ -1443,6 +1553,10 @@ final class Controller {
         }
         wire(router, id: "chat-showarch", events: ["click"]) { _ in
             await self.app.setShowArchived(!self.app.showArchived)
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "chat-loadmore", events: ["click"]) { _ in
+            await self.app.loadMoreSessions()
             return await self.app.refreshFragments()
         }
     }

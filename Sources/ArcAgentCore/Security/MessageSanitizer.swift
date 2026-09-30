@@ -193,7 +193,7 @@ public enum ThinkScrubber {
         }
         // Leading preamble lines: "thinking: ..." repeated blocks.
         var lines = result.split(separator: "\n", omittingEmptySubsequences: false)
-        var firstNonEmpty = 0
+        let firstNonEmpty = 0
         while firstNonEmpty < lines.count {
             let l = lines[firstNonEmpty].trimmingCharacters(in: .whitespaces)
             let lower = l.lowercased()

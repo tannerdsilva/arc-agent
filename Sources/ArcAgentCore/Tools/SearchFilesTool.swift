@@ -31,7 +31,7 @@ public enum SearchFilesTool {
             let offset = (args["offset"] as? Int) ?? 0
             let outputMode = (args["output_mode"] as? String) ?? "content"
             let context = (args["context"] as? Int) ?? 0
-            return try await Self.search(
+            return await Self.search(
                 pattern: pattern, path: path, target: target, fileGlob: fileGlob,
                 limit: limit, offset: offset, outputMode: outputMode, context: context)
         },

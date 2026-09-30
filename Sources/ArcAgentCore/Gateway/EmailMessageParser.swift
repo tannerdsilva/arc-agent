@@ -42,7 +42,7 @@ public enum EmailMessageParser {
         var headers: [String: String] = [:]
         var currentKey: String? = nil
         for rawLine in head.split(separator: "\n", omittingEmptySubsequences: false) {
-            var line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            let line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
             // Unfold continuation lines.
             if line.hasPrefix(" ") || line.hasPrefix("\t") {
                 if let key = currentKey {
@@ -207,7 +207,7 @@ public enum EmailMessageParser {
 
     /// Decode RFC 2047 encoded words `=?utf-8?B?...?=` / `=?utf-8?Q?...?=`.
     static func decodeMimeWords(_ value: String) -> String {
-        var result = value
+        let result = value
         let pattern = try! NSRegularExpression(pattern: #"=\?([^?]+)\?([bBqQ])\?([^?]*)\?="#)
         var last = result.startIndex
         var out = ""

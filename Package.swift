@@ -1,4 +1,4 @@
-// swift-tools-version: 6.3
+// swift-tools-version: 6.4
 
 import PackageDescription
 
@@ -74,7 +74,6 @@ let package = Package(
                 .target(name: "ArcAgentCore"),
             ],
             swiftSettings: [
-                .swiftLanguageMode(.v5),
             ]
         ),
 
@@ -102,7 +101,6 @@ let package = Package(
             ],
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug)),
-                .swiftLanguageMode(.v5),
             ]
         ),
 
@@ -129,7 +127,6 @@ let package = Package(
                 "Assets",
             ],
             swiftSettings: [
-                .swiftLanguageMode(.v5),
             ]
         ),
 
@@ -140,7 +137,6 @@ let package = Package(
                 .target(name: "ArcAgentCore"),
             ],
             swiftSettings: [
-                .swiftLanguageMode(.v5),
             ]
         ),
     ]

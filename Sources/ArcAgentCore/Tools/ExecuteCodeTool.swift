@@ -29,7 +29,7 @@ public enum ExecuteCodeTool {
     }
 
     /// Test hook: overrides the script timeout.
-    static var timeoutOverride: Double?
+    nonisolated(unsafe) static var timeoutOverride: Double?
 
     public static let entry = ToolEntry(
         name: "execute_code",
@@ -87,7 +87,7 @@ public enum ExecuteCodeTool {
         init(budget: Int) {
             remaining = budget
         }
-        func run(_ body: () async throws -> String) async throws -> String {
+        func run(_ body: @Sendable () async throws -> String) async throws -> String {
             guard remaining > 0 else {
                 throw ToolError.execution("Tool-call budget exceeded (max \(ExecuteCodeTool.maxToolCalls) per script)")
             }
@@ -153,7 +153,7 @@ public enum ExecuteCodeTool {
             let callsMade = await limiter.callsMade()
 
             let duration = Date().timeIntervalSince(start)
-            var stdoutText = truncateHeadTail(outcome.stdout, cap: maxStdoutBytes)
+            let stdoutText = truncateHeadTail(outcome.stdout, cap: maxStdoutBytes)
             var stderrText = String(data: outcome.stderr, encoding: .utf8) ?? ""
             if stderrText.count > 10_000 {
                 stderrText = String(stderrText.prefix(10_000)) + "\n... (stderr truncated)"

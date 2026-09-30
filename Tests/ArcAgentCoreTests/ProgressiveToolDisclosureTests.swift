@@ -11,7 +11,7 @@ struct ProgressiveToolDisclosureTests {
         _ name: String,
         toolset: String,
         description: String = "Does useful things with parameters and returns a result.",
-        check: (() -> Bool)? = nil
+        check: (@Sendable () -> Bool)? = nil
     ) -> ToolEntry {
         ToolEntry(
             name: name,

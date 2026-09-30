@@ -159,7 +159,7 @@ enum TodoTool {
     /// Fallback used when no store has been wired (e.g. `arc tools` listing).
     static let fallbackStore = TodoStore()
 
-    static var entry = ToolEntry(
+    nonisolated(unsafe) static var entry = ToolEntry(
         name: "todo",
         toolset: "todo",
         description: "Manage your task list for the current session. Use for complex tasks "

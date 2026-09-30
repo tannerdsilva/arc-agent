@@ -144,14 +144,15 @@ public actor TesseraSessionStore: SessionStore {
         try await conn.deleteAll(dTagPrefix: "arc/meta/\(id)/", kind: TesseraConnection.metadataKind)
     }
 
-    public func list(limit: Int) async throws -> [Session] {
+    public func list(limit: Int, offset: Int) async throws -> [Session] {
         let conn = connection
         try await conn.ensureStarted()
         let metas = await latestMetaGrouped()
-        let ordered = metas.values.sorted { $0.updatedAt > $1.updatedAt }.prefix(limit)
+        let ordered = metas.values.sorted { $0.updatedAt > $1.updatedAt }
+        let page = ordered.dropFirst(max(0, offset)).prefix(limit)
         // Metadata-only summaries: message bodies are materialized lazily via
         // get(id:) when a chat is opened (bounded memory at very large scale).
-        return ordered.map { meta in
+        return page.map { meta in
             Session(
                 id: meta.sessionID,
                 createdAt: meta.createdAt,
@@ -168,7 +169,7 @@ public actor TesseraSessionStore: SessionStore {
         let conn = connection
         try await conn.ensureStarted()
         try await publishMessage(message, sessionID: sessionID)
-        if var meta = await latestMeta(for: sessionID) {
+        if let meta = await latestMeta(for: sessionID) {
             var hint = meta.titleHint
             if hint == nil, message.role == .user,
                let c = message.content, !c.isEmpty {
@@ -231,28 +232,29 @@ public actor TesseraSessionStore: SessionStore {
 
     /// The newest metadata record for one session, or nil.
     private func latestMeta(for sessionID: String) async -> TesseraSessionMeta? {
-        let prefix = "arc/meta/\(sessionID)/"
-        var best: TesseraSessionMeta?
-        for record in await connection.snapshot(kind: TesseraConnection.metadataKind)
-            .filter({ $0.dTag?.hasPrefix(prefix) ?? false }) {
-            guard let meta = try? JSONDecoder().decode(TesseraSessionMeta.self, from: Data(record.content.utf8)),
-                  meta.sessionID == sessionID else {
-                continue
-            }
-            if best == nil || meta.seq > best!.seq { best = meta }
+        // O(1): the connection keeps the newest metadata record per session
+        // group (d-tag `arc/meta/<session>/<seq>`); no more full-store scan +
+        // decode-of-every-meta per append.
+        guard let record = await connection.latestRecord(groupKey: "arc/meta/\(sessionID)") else {
+            return nil
         }
-        return best
+        return try? JSONDecoder().decode(TesseraSessionMeta.self, from: Data(record.content.utf8))
     }
 
     /// The newest metadata record per session.
     private func latestMetaGrouped() async -> [String: TesseraSessionMeta] {
+        // O(#sessions): one record per group (the connection's "latest per
+        // d-tag group" index), decoded here — instead of decoding every
+        // metadata event in the store on every list.
         var best: [String: TesseraSessionMeta] = [:]
-        for record in await connection.snapshot(kind: TesseraConnection.metadataKind) {
+        let groups = await connection.latestGroups(prefix: "arc/meta/")
+        for (group, record) in groups {
+            let sid = String(group.dropFirst("arc/meta/".count))
             guard let meta = try? JSONDecoder().decode(TesseraSessionMeta.self, from: Data(record.content.utf8)) else {
                 continue
             }
-            if let existing = best[meta.sessionID], existing.seq > meta.seq { continue }
-            best[meta.sessionID] = meta
+            if let existing = best[sid], existing.seq > meta.seq { continue }
+            best[sid] = meta
         }
         return best
     }

@@ -2,6 +2,11 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 
+/// Single-threaded recorder shared with a `@Sendable` closure.
+final class SeenRecorder: @unchecked Sendable {
+    var items: [String?] = []
+}
+
 /// Project store + tools (reference `tools/project_tools.py` parity).
 @Suite("Project tools", .serialized)
 struct ProjectToolsTests {
@@ -91,12 +96,12 @@ struct ProjectToolsTests {
     func hookFires() async throws {
         try await withTempStore { _ in
             let store = ProjectStore()
-            var seen: [String?] = []
-            ProjectStore.workspaceHook = { path in seen.append(path) }
+            let seen = SeenRecorder()
+            ProjectStore.workspaceHook = { path in seen.items.append(path) }
             try await store.create(name: "Hooked", path: "/hooked/path")
-            #expect(seen.last ?? nil == "/hooked/path")
+            #expect(seen.items.last ?? nil == "/hooked/path")
             try await store.create(name: "Other", path: nil)
-            #expect(seen.last ?? nil == nil)
+            #expect(seen.items.last ?? nil == nil)
         }
     }
 }

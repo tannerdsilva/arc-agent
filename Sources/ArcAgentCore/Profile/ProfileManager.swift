@@ -31,7 +31,7 @@ public actor ProfileManager {
 
     /// Test seam: when set, overrides the profile storage root so tests never
     /// touch the real `~/.arc/profiles` directory.
-    public static var testProfilesRoot: String?
+    public nonisolated(unsafe) static var testProfilesRoot: String?
 
     /// Path to the index file used when Tessera storage is not configured.
     public static var indexFilePath: String {
@@ -266,7 +266,7 @@ public actor ProfileManager {
 
     /// Get or create the canonical "Bot Chat" session ID for a profile.
     public func getOrCreateCanonicalChat(profile name: String) async throws -> String {
-        let profile = try await get(name: name) ?? Profile(name: name)
+        _ = try await get(name: name) ?? Profile(name: name)
 
         // Check if a canonical chat ID is stored in the profile's metadata
         // We store it as a file in the profile directory
@@ -311,7 +311,11 @@ public actor ProfileManager {
 
         do {
             var loaded: [String: Profile] = [:]
-            if await TesseraConnection.shared.isConfigured {
+            // A `testProfilesRoot` override means the manager is hermetic:
+            // always read/write the JSON index under that root, never the
+            // process-wide Tessera store (which would leak profiles across
+            // isolated test roots).
+            if Self.testProfilesRoot == nil, await TesseraConnection.shared.isConfigured {
                 do {
                     loaded = try await loadProfilesFromTessera()
                 } catch let error as TesseraStoreError where error.isUnavailable {
@@ -382,7 +386,7 @@ public actor ProfileManager {
         // Keep the profile directory self-contained in every mode (reference
         // profile distributions rely on `profiles/<name>/config.json`).
         try writeProfileConfig(profile)
-        if await TesseraConnection.shared.isConfigured {
+        if Self.testProfilesRoot == nil, await TesseraConnection.shared.isConfigured {
             do {
                 let conn = TesseraConnection.shared
                 try await conn.ensureStarted()

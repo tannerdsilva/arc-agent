@@ -267,9 +267,11 @@ public actor ArcAgent: Service {
     /// tool_guardrails parity).
     private let toolGuardrails: ToolGuardrails
     /// Mixture-of-Agents service (reference moa_loop parity; built from config).
-    private lazy var moaService: MoAService = {
+    private var _moaService: MoAService?
+    private var moaService: MoAService {
+        if let existing = _moaService { return existing }
         let baseProfile = BundledProviders.resolve(config.provider)
-        return MoAService(config: config.moa, aggregatorModelName: currentModelName) { [weak self] role, apiKey in
+        let built = MoAService(config: config.moa, aggregatorModelName: currentModelName) { [weak self] role, apiKey in
             guard let self else { return nil }
             guard let hc = await self.httpClient else { return nil }
             let profile = role.provider.flatMap { BundledProviders.resolve($0) } ?? baseProfile
@@ -279,7 +281,9 @@ public actor ArcAgent: Service {
                 profile: profile, model: role.model, apiKey: key, httpClient: hc
             )
         }
-    }()
+        _moaService = built
+        return built
+    }
     /// Structured logger for diagnostic output.
     private let logger = Logger(label: "com.arc-agent.agent")
     private let approvalManager: ApprovalManager
@@ -933,7 +937,7 @@ public actor ArcAgent: Service {
 
     /// Run `body` with the skill-context TaskLocals anchored to this agent's
     /// session (reference skill_preprocessing needs the session for `${ARC_SESSION_ID}`).
-    private nonisolated func withSkillContext<T>(
+    private func withSkillContext<T>(
         _ body: () async throws -> T
     ) async rethrows -> T {
         try await SkillContext.$sessionID.withValue(config.sessionID ?? "") {
@@ -1081,7 +1085,7 @@ public actor ArcAgent: Service {
             tailBudget: tailBudget,
             countTokens: { [config] text in tokenCounter.count(text, model: config.model) }
         )
-        var head = window.head
+        let head = window.head
         var middle = window.middle
         let tail = window.tail
 
@@ -1209,7 +1213,7 @@ public actor ArcAgent: Service {
             state: &state,
             config: config.microCompact,
             limit: limit,
-            countTokens: { [config] text in tokenCounter.count(text, model: config.model) },
+            countTokens: { [self, config] text in self.tokenCounter.count(text, model: config.model) },
             summarize: { existing, exchange in
                 let prompt = await self.microSummaryPrompt(existing: existing, exchange: exchange)
                 return await self.microAuxComplete(client: client, prompt: prompt)
@@ -1335,7 +1339,6 @@ public actor ArcAgent: Service {
             case .assistant: roleLabel = "Assistant"
             case .system: roleLabel = "System"
             case .tool: roleLabel = "Tool"
-            default: roleLabel = "Unknown"
             }
             return "[\(roleLabel)]: \(content)"
         }.joined(separator: "\n\n---\n\n")
@@ -1350,6 +1353,7 @@ public actor ArcAgent: Service {
             return "Error: Agent HTTP client not initialized."
         }
         var currentClient = client
+        let fallbackClient = client
         var fallbackIndex = 0
         let fallbacks = BundledProviders.resolve(config.provider)?.fallbackModels ?? []
         var emptyAfterToolsNudges = 0
@@ -1361,7 +1365,7 @@ public actor ArcAgent: Service {
         var appendedToolResults = false
 
         let maxIters = config.maxIterations > 0 ? config.maxIterations : Int.max
-        for iteration in 0..<maxIters {
+        for _ in 0..<maxIters {
             if turnInterrupted {
                 turnInterrupted = false
                 return "Interrupted by user."
@@ -1407,7 +1411,7 @@ public actor ArcAgent: Service {
             do {
                 response = try await callWithRetry(
                     client: currentClient,
-                    makeClient: { self.freshClient() ?? currentClient },
+                    makeClient: { await self.freshClient() ?? fallbackClient },
                     messages: messages,
                     tools: toolSchemas,
                     timeout: config.maxTurnDuration,
@@ -1545,11 +1549,7 @@ public actor ArcAgent: Service {
                 continue
             }
 
-            if iteration == maxIters - 1 {
-                return "I encountered an issue processing your request. Please try again."
-            }
         }
-
         return "The conversation reached the maximum iteration limit. Please start a new session."
     }
 
@@ -1587,12 +1587,13 @@ public actor ArcAgent: Service {
             continuation.finish()
             return
         }
-        var currentClient = self.llmClient ?? OpenAICompatibleClient(
+        let fallbackClient = self.llmClient ?? OpenAICompatibleClient(
             baseURL: config.baseURL,
             apiKey: config.apiKey,
             model: config.model,
             httpClient: hc
         )
+        var currentClient = fallbackClient
         var fallbackIndex = 0
         let fallbacks = BundledProviders.resolve(config.provider)?.fallbackModels ?? []
         var emptyAfterToolsNudges = 0
@@ -1603,7 +1604,7 @@ public actor ArcAgent: Service {
         var appendedToolResults = false
 
         let maxIters = config.maxIterations > 0 ? config.maxIterations : Int.max
-        for iteration in 0..<maxIters {
+        for _ in 0..<maxIters {
             if turnInterrupted {
                 turnInterrupted = false
                 continuation.yield("Interrupted by user.")
@@ -1649,7 +1650,7 @@ public actor ArcAgent: Service {
             do {
                 let stream = try await callStreamWithRetry(
                     client: currentClient,
-                    makeClient: { self.freshClient() ?? currentClient },
+                    makeClient: { await self.freshClient() ?? fallbackClient },
                     messages: messages,
                     tools: toolSchemas,
                     timeout: config.maxTurnDuration,
@@ -1842,11 +1843,6 @@ public actor ArcAgent: Service {
                 continue
             }
 
-            if iteration == maxIters - 1 {
-                continuation.yield("I encountered an issue processing your request. Please try again.")
-                continuation.finish()
-                return
-            }
         }
 
         continuation.yield("The conversation reached the maximum iteration limit. Please start a new session.")
@@ -1865,7 +1861,7 @@ public actor ArcAgent: Service {
     ///   Throws ``CircuitBreakerError.open`` if the circuit is open.
     private func callWithRetry(
         client: any LLMClient,
-        makeClient: @escaping () -> any LLMClient,
+        makeClient: @escaping @Sendable () async -> any LLMClient,
         messages: [Message],
         tools: [[String: Any]]?,
         timeout: Int = 120,
@@ -1983,7 +1979,7 @@ public actor ArcAgent: Service {
                    failure.reason == .timeout || failure.reason == .tls {
                     turnRecoveryState.primaryRecoveryAttempted = true
                     logger.warning("recovering primary transport after \(failure.reason.rawValue)")
-                    recoveredClient = makeClient()
+                    recoveredClient = await makeClient()
                     continue
                 }
 
@@ -2016,7 +2012,7 @@ public actor ArcAgent: Service {
     /// Call the LLM with streaming response, retry logic, and circuit breaker.
     private func callStreamWithRetry(
         client: any LLMClient,
-        makeClient: @escaping () -> any LLMClient,
+        makeClient: @escaping @Sendable () async -> any LLMClient,
         messages: [Message],
         tools: [[String: Any]]?,
         timeout: Int = 120,
@@ -2055,7 +2051,7 @@ public actor ArcAgent: Service {
                     toolsArg = nil
                 }
 
-                let stream = try await activeClient.stream(
+                let stream = activeClient.stream(
                     messages: messages,
                     tools: toolsArg,
                     reasoningEffort: reasoningEffort
@@ -2094,7 +2090,7 @@ public actor ArcAgent: Service {
                    failure.reason == .timeout || failure.reason == .tls {
                     turnRecoveryState.primaryRecoveryAttempted = true
                     logger.warning("recovering primary transport after \(failure.reason.rawValue)")
-                    recoveredClient = makeClient()
+                    recoveredClient = await makeClient()
                     continue
                 }
 
@@ -2273,6 +2269,21 @@ public actor ArcAgent: Service {
     /// - canonicalize tool-call argument JSON;
     /// - redact secrets from tool contents.
     static func sanitizeMessages(_ messages: [Message]) -> [Message] {
+        // Precompute the set of tool-call IDs declared by assistant messages
+        // in one pass. Every assistant message with tool calls survives Pass 1
+        // (only thinking-only — content empty AND no tool calls — assistants
+        // are dropped), so "does an accepted assistant carry this call id" is
+        // exactly "does any input assistant carry it" — an O(1) membership
+        // test instead of the previous O(n²) scan of `cleaned` for every tool
+        // message. This is the dominant allocation in long tool-heavy
+        // transcripts; the old scan made each round O(n²) in history length.
+        var validToolCallIDs: Set<String> = []
+        validToolCallIDs.reserveCapacity(messages.count / 2)
+        for msg in messages where msg.role == .assistant {
+            for call in msg.toolCalls ?? [] {
+                validToolCallIDs.insert(call.id)
+            }
+        }
         // Pass 1: drop orphans, canonicalize, strip thinking-only, redact,
         // and repair only the adjacency the drop itself creates.
         var cleaned: [Message] = []
@@ -2281,10 +2292,7 @@ public actor ArcAgent: Service {
             switch msg.role {
             case .tool:
                 guard let id = msg.toolCallID,
-                      cleaned.contains(where: { ass in
-                          ass.role == .assistant
-                              && (ass.toolCalls ?? []).contains { $0.id == id }
-                      })
+                      validToolCallIDs.contains(id)
                 else { continue } // orphaned result with no preceding call — drop
                 mergeNextUser = false
                 let content = msg.content.map { redactSecrets($0) }
@@ -2327,19 +2335,30 @@ public actor ArcAgent: Service {
             }
         }
         // Pass 2: missing stubs — every assistant tool call needs a result.
+        // Equivalent O(1) formulation of the old `following.contains(...)`
+        // scan: a result exists AFTER index `idx` iff the LAST position of a
+        // tool message with that id is > idx. One dictionary pass, then
+        // O(1) per call instead of O(n) per call (previously O(n²) overall).
+        var lastToolResultPosition: [String: Int] = [:]
+        for (idx, msg) in cleaned.enumerated() where msg.role == .tool {
+            if let id = msg.toolCallID {
+                lastToolResultPosition[id] = idx
+            }
+        }
         var withStubs: [Message] = []
         for (idx, msg) in cleaned.enumerated() {
             withStubs.append(msg)
             guard msg.role == .assistant, let calls = msg.toolCalls else { continue }
-            let following = cleaned.dropFirst(idx + 1)
             for call in calls {
-                guard !following.contains(where: { $0.role == .tool && $0.toolCallID == call.id }) else { continue }
-                withStubs.append(Message(
-                    role: .tool,
-                    content: "<no result - tool call was never executed>",
-                    name: call.function.name,
-                    toolCallID: call.id
-                ))
+                guard let last = lastToolResultPosition[call.id], last > idx else {
+                    withStubs.append(Message(
+                        role: .tool,
+                        content: "<no result - tool call was never executed>",
+                        name: call.function.name,
+                        toolCallID: call.id
+                    ))
+                    continue
+                }
             }
         }
         // Pass 3: reference message sanitization — unicode/control cleanup and
@@ -2543,7 +2562,8 @@ public actor ArcAgent: Service {
 
         // Tool guardrails (reference tool_guardrails): loop caps, per-turn
         // budgets, and repeated-call synthetic results.
-        switch await toolGuardrails.decide(toolName: toolCall.function.name, args: args) {
+        let argsBox = NonSendableBox(args)
+        switch await toolGuardrails.decide(toolName: toolCall.function.name, args: argsBox) {
         case .synthetic(let message):
             return message
         case .allow:
@@ -2558,10 +2578,10 @@ public actor ArcAgent: Service {
                 guard let self else {
                     throw ToolError.execution("execute_code host agent no longer active")
                 }
-                return try await self.dispatchAmbientTool(name: name, args: args)
+                return try await self.dispatchAmbientTool(name: name, args: NonSendableBox(args))
             }
             return try await WorkspacePath.$root.withValue(FileManager.default.currentDirectoryPath) {
-                try await entry.handler(args)
+                try await entry.handler(argsBox.value)
             }
         } catch {
             return "Error executing tool '\(toolCall.function.name)': \(error.localizedDescription)"
@@ -2570,8 +2590,8 @@ public actor ArcAgent: Service {
 
     /// Re-enter the tool pipeline from execute_code's RPC dispatcher (returns
     /// the tool result text, same as a direct tool call).
-    private func dispatchAmbientTool(name: String, args: [String: Any]) async throws -> String {
-        let data = try JSONSerialization.data(withJSONObject: args)
+    private func dispatchAmbientTool(name: String, args: NonSendableBox<[String: Any]>) async throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: args.value)
         let call = ToolCall(
             id: "ambient-\(name)",
             function: ToolCallFunction(
