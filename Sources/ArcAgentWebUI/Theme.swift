@@ -36,44 +36,33 @@ struct ColorScheme {
         self.dark = dark
     }
 
-    /// The scheme's palette blocks, scoped to
-    /// `#app[data-scheme="<id>"][data-theme="light|dark|system"]`, plus the
-    /// `system` dark pass inside a `prefers-color-scheme` media query.
+    /// The scheme as no-webui's theme, scoped by attribute.
     ///
-    /// Emitted through no-webui's CSS builders rather than string
-    /// concatenation, and every block carries arc's own custom properties
-    /// *and* the design tokens `tokenMap` projects from them — so a no-webui
-    /// component rendered inside `#app` adopts the active scheme without arc
-    /// restating the palette.
-    var cssBlocks: String {
-        let scoped = CSSStylesheet([
-            block(theme: "light", palette: light, isDark: false),
-            block(theme: "dark", palette: dark, isDark: true),
-            block(theme: "system", palette: light, isDark: false),
-        ]).render()
-        // The media pass comes last so it wins the cascade for a system-preference
-        // viewer, exactly as the hand-rolled sheets ordered it.
-        let systemDark = CSSMediaQuery(
-            "(prefers-color-scheme: dark)",
-            rules: [block(theme: "system", palette: dark, isDark: true)]
-        ).render()
-        return scoped + "\n" + systemDark
+    /// Scoped to `:root`, **not** `#app`. arc used to scope to `#app`, which could never work
+    /// once the engine owned switching: the engine writes `data-scheme`/`data-theme` on
+    /// `documentElement`, so `#app[data-scheme=…]` matched nothing the engine ever wrote, and a
+    /// scheme change had to re-render the whole app fragment server-side. `:root` is where the
+    /// engine writes, so switching is the client's and costs no round trip.
+    ///
+    /// The emission is no-webui's `ThemeScope.attribute`, which also carries arc's own custom
+    /// properties *and* the design tokens `tokenMap` projects from them, so a no-webui component
+    /// inside `#app` adopts the active scheme without arc restating the palette.
+    var scopedTheme: WebUITheme {
+        WebUITheme(
+            palette: ThemePalette(tokens: Self.tokenOverrides(light), customTokens: light),
+            dark: ThemePalette(tokens: Self.tokenOverrides(dark), customTokens: dark)
+        )
     }
 
-    /// One scoped rule: the palette as arc's custom properties, then the design
-    /// tokens projected from it. Declarations are sorted by name so the served
-    /// sheet is deterministic — the previous `dictionary.map` emitted them in
-    /// hash order, which made the bytes differ between runs of the same build.
-    private func block(theme: String, palette: [String: String], isDark: Bool) -> CSSRule {
-        var declarations = palette
-            .sorted { $0.key < $1.key }
-            .map { CSSDeclaration("--\($0.key)", $0.value) }
-        for (prop, token) in Self.tokenMap.sorted(by: { $0.key < $1.key }) {
-            if let value = palette[prop] {
-                declarations.append(CSSDeclaration("--\(token.rawValue)", value))
-            }
+    var cssBlocks: String { scopedTheme.stylesheet(scope: .attribute(id: id)) }
+
+    /// The palette projected onto the design-token vocabulary.
+    static func tokenOverrides(_ palette: [String: String]) -> [DesignToken: String] {
+        var out: [DesignToken: String] = [:]
+        for (prop, token) in tokenMap {
+            if let value = palette[prop] { out[token] = value }
         }
-        return CSSRule("#app[data-scheme=\"\(id)\"][data-theme=\"\(theme)\"]", declarations)
+        return out
     }
 
     /// arc custom property → no-webui design token.
@@ -102,19 +91,6 @@ struct ColorScheme {
         "warning": .colorWarning,
         "scroll-thumb": .scrollbarThumb,
     ]
-
-    /// The scheme as a native no-webui theme, for a page that renders through
-    /// `WebUITheme` (a `WebUIDocument`) instead of arc's own stylesheet. An
-    /// override-only scheme contributes just its overrides, matching how
-    /// ``cssBlocks`` scopes it.
-    func theme(isDark: Bool) -> WebUITheme {
-        let palette = isDark ? dark : light
-        var tokens: [DesignToken: String] = [:]
-        for (prop, token) in Self.tokenMap {
-            if let value = palette[prop] { tokens[token] = value }
-        }
-        return WebUITheme(tokens: tokens, scheme: isDark ? .dark : .light)
-    }
 
     // MARK: Schemas
     static let defaultScheme = ColorScheme(id: "default", label: "Default", accentHex: "#B8860B", dots: ["#D9A441", "#B8860B", "#8A5A2B"],
@@ -388,7 +364,7 @@ static let css: String = """
     }
 
     /* ─── Light theme ─────────────────────────────────────────── */
-    #app[data-theme="light"] {
+    :root[data-theme="light"] {
       --bg: #FDFBF7;
       --surface: #FFFFFF;
       --surface-2: #F7F3EA;
@@ -412,7 +388,7 @@ static let css: String = """
     }
 
     /* ─── Dark theme (reference dark + Sisyphus violet) ───────────── */
-    #app[data-theme="dark"] {
+    :root[data-theme="dark"] {
       --bg: #0D0D1A;
       --surface: #1A1A2E;
       --surface-2: #20203A;
@@ -441,7 +417,7 @@ static let css: String = """
     }
 
     /* ─── System theme (light by default; follows the OS) ──────── */
-    #app[data-theme="system"] {
+    :root[data-theme="system"] {
       --bg: #FDFBF7;
       --surface: #FFFFFF;
       --surface-2: #F7F3EA;
@@ -464,7 +440,7 @@ static let css: String = """
       --scroll-thumb: #D8D0BE;
     }
     @media (prefers-color-scheme: dark) {
-      #app[data-theme="system"] {
+      :root[data-theme="system"] {
         --bg: #17171B;
         --surface: #1F1F24;
         --surface-2: #26262C;

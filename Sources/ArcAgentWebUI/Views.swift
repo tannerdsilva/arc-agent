@@ -65,7 +65,7 @@ extension AppState {
         let main = mainContentHTML()
 
         return """
-        <div id="app" data-theme="\(esc(settings.theme))" data-scheme="\(esc(settings.colorScheme))" data-size="\(esc(settings.textSize))">
+        <div id="app" data-size="\(esc(settings.textSize))">
         \(topbarHTML())
         <div id="app-body">
         <aside id="iconbar">\(iconbar)</aside>
@@ -2343,7 +2343,7 @@ extension AppState {
         ]
         let themeCards = themeDefs.map { t in
             let active = settings.theme == t.key ? " active" : ""
-            return "<button type=\"button\" id=\"thm-\(t.key)\" data-component-id=\"theme-pick\" class=\"theme-pick-btn\(active)\" title=\"\(t.label)\"><span class=\"thm-preview\" style=\"\(t.preview)\"><span class=\"thm-ic\">\(WebUIIcon(t.icon, size: .medium).render())</span></span><span class=\"thm-label\">\(t.label)</span></button>"
+            return "<button type=\"button\" id=\"thm-\(t.key)\" data-component-id=\"theme-pick\" data-theme-choice=\"\(t.key)\" class=\"theme-pick-btn\(active)\" title=\"\(t.label)\"><span class=\"thm-preview\" style=\"\(t.preview)\"><span class=\"thm-ic\">\(WebUIIcon(t.icon, size: .medium).render())</span></span><span class=\"thm-label\">\(t.label)</span></button>"
         }.joined()
         let sizeCards = ThemeSize.allCases.map { s in
             let active = settings.textSize == s.rawValue ? " active" : ""
@@ -2355,7 +2355,7 @@ extension AppState {
                 "<span class=\"scheme-dot\" style=\"background:\(d)\"></span>"
             }.joined()
             return """
-            <button type="button" id="scheme-\(enc(s.id))" data-component-id="scheme-pick" class="scheme-tile\(active)" title="\(esc(s.label))" style="--sw-accent:\(s.accentHex)">
+            <button type="button" id="scheme-\(enc(s.id))" data-component-id="scheme-pick" data-scheme-choice="\(esc(s.id))" class="scheme-tile\(active)" title="\(esc(s.label))" style="--sw-accent:\(s.accentHex)">
               <span class="scheme-dots">\(dots)</span>
               <span class="scheme-name">\(esc(s.label))</span>
             </button>

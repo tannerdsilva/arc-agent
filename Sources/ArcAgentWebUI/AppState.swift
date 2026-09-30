@@ -507,6 +507,15 @@ actor AppState {
     // MARK: State
 
     var settings = AppSettings()
+
+    /// The scheme and mode the document should carry on `<html>`.
+    ///
+    /// The engine writes those attributes on `documentElement` from storage, so a page whose
+    /// theme is scoped to `:root` needs a *server* default: with no stored choice the engine sets
+    /// no scheme at all, and a client would match no theme rule and render unpainted.
+    func themeDefaults() -> (scheme: String, mode: String) {
+        (settings.colorScheme, settings.theme)
+    }
     var activeView: ViewID = .chat
 
     /// Logs view: active severity filter ("all" | "info" | "warn" | "error").

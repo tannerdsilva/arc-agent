@@ -30,6 +30,12 @@ struct ArcAgentWebUI: AsyncParsableCommand {
     @Flag(name: .long, help: "Use file storage instead of Tessera.")
     var tesseraOff: Bool = false
 
+    /// `data-scheme`/`data-theme` for `<html>`, escaped like every other attribute the
+    /// framework emits.
+    static func themeAttrs(_ theme: (scheme: String, mode: String)) -> String {
+        "data-scheme=\"\(esc(theme.scheme))\" data-theme=\"\(esc(theme.mode))\""
+    }
+
     func run() async throws {
         // Route every swift-log line into the in-app ring buffer instead of
         // stdout, so logs stop appearing in the terminal and surface in the
@@ -118,7 +124,10 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         // The document template wraps whatever body the app currently renders,
         // so a refresh ALWAYS reflects live store state (a boot-cached page
         // would show sessions deleted after startup).
-        let makeDocument: (String) -> WebUI.HTMLDocument = { body in
+        // The theme attributes belong on `<html>`, not on `#app`: the engine writes them on
+        // `documentElement` and the theme is scoped to `:root`. `themeAttrs` is the server's
+        // default, which the engine overrides from storage before first paint.
+        let makeDocument: (String, String) -> WebUI.HTMLDocument = { body, themeAttrs in
             WebUI.HTMLDocument(
                 title: "ARC Agent",
                 body: body,
@@ -128,19 +137,21 @@ struct ArcAgentWebUI: AsyncParsableCommand {
                 <link rel="stylesheet" href="/ui/vendor/katex/katex.min.css">
                 <script src="/ui/init.js?v=30"></script>
                 """,
+                htmlAttributes: themeAttrs,
                 devMode: false,
                 contentSecurityPolicy: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; connect-src 'self' ws: wss:; font-src 'self' data:"
             )
         }
         let bootShell = await app.appShell()
-        let bootPage = makeDocument(bootShell).render()
+        let bootTheme = await app.themeDefaults()
+        let bootPage = makeDocument(bootShell, Self.themeAttrs(bootTheme)).render()
         let pageProvider: @Sendable (String?) async -> String = { [app] deepLink in
             if let sid = deepLink, !sid.isEmpty {
                 await app.openDeepLink(sid)
             }
             await app.armScrollToBottom()
             let shell = await app.appShell()
-            return makeDocument(shell).render()
+            return makeDocument(shell, Self.themeAttrs(await app.themeDefaults())).render()
         }
 
         let initJS = """
