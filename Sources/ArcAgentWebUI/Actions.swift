@@ -1,4 +1,5 @@
 import ArcAgentCore
+import ArcTheme
 import Foundation
 import WebUI
 

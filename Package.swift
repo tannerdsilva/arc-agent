@@ -67,6 +67,23 @@ let package = Package(
     ],
 
     targets: [
+        // ── Theme (shared with the asset tool) ────────────────────
+        // arc's chrome stylesheet and the 27-scheme catalog live in their own target so the
+        // build tool can render the whole sheet, hash it and gzip it at build time — the
+        // served bytes are then a build product of the theme source, and the runtime neither
+        // compresses nor hashes them. `public` because the macro mirrors the type's own
+        // access and these cross a target boundary.
+        .target(
+            name: "ArcTheme",
+            dependencies: [
+                .product(name: "WebUI", package: "no-webui"),
+                .product(name: "WebUIDesignSystem", package: "no-webui"),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+
         // ── Executable ────────────────────────────────────────────
         .executableTarget(
             name: "arc-agent",
@@ -111,6 +128,7 @@ let package = Package(
         .executableTarget(
             name: "arc-agent-webui",
             dependencies: [
+                .target(name: "ArcTheme"),
                 .target(name: "ArcAgentCore"),
                 .product(name: "WebUI", package: "no-webui"),
                 .product(name: "WebUIServer", package: "no-webui"),
@@ -146,6 +164,9 @@ let package = Package(
         // drift from Assets/vendor/katex/.
         .executableTarget(
             name: "ArcAssetTool",
+            dependencies: [
+                .target(name: "ArcTheme"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
             ]
@@ -175,6 +196,7 @@ let package = Package(
             name: "ArcAgentWebUITests",
             dependencies: [
                 .target(name: "arc-agent-webui"),
+                .target(name: "ArcTheme"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),

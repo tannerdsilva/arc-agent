@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 
+import ArcTheme
 @testable import arc_agent_webui
 
 /// The theme sheet is generated, not hand-written: `ArcThemeCatalog.stylesheet()` is the

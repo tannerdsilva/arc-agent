@@ -29,8 +29,8 @@ import WebUIDesignSystem
 ///
 /// an alias emits an *indirection*, not a value: the scheme still states the token, and
 /// every arc property that means that token follows it, in both modes and every scheme.
-enum ArcThemeAliases {
-	static let all: [TokenAlias] = [
+public enum ArcThemeAliases {
+	public static let all: [TokenAlias] = [
 		TokenAlias("--bg", .colorBg),
 		TokenAlias("--surface", .colorBgRaised),
 		TokenAlias("--surface-2", .colorBgInset),
@@ -53,10 +53,10 @@ enum ArcThemeAliases {
 /// taken from the sheet arc actually shipped, not restated by hand — so a scheme can only
 /// ever *deviate* from what the product painted, never drift from it.
 @Theme
-struct ArcBaseTheme {
-	static let aliases = ArcThemeAliases.all
+public struct ArcBaseTheme {
+	public static let aliases = ArcThemeAliases.all
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#FFFFFF", .colorBgInset: "#F7F7F7", .colorBgRaised: "#FFFFFF",
 					.colorBgSubtle: "#F3F3F3", .colorBorder: "#E2E2E2", .colorBorderStrong: "#CFCFCF",
 					.colorDanger: "#C43C3C", .colorDangerSoft: "rgba(196, 60, 60, 0.10)",
@@ -69,7 +69,7 @@ struct ArcBaseTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#151614", .colorBgInset: "#20211F", .colorBgRaised: "#1B1C1A",
 					.colorBgSubtle: "#242624", .colorBorder: "#343631", .colorBorderStrong: "#4B4D47",
 					.colorDanger: "#E5484D", .colorDangerSoft: "rgba(229, 72, 77, 0.14)",
@@ -88,12 +88,12 @@ struct ArcBaseTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct ArcDefaultTheme {
-	static let themeID = "default"
-	static let themeLabel = "Default"
-	static let themeSwatch = ["#B8860B", "#D9A441", "#B8860B", "#8A5A2B",]
+public struct ArcDefaultTheme {
+	public static let themeID = "default"
+	public static let themeLabel = "Default"
+	public static let themeSwatch = ["#B8860B", "#D9A441", "#B8860B", "#8A5A2B",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#FDFBF7", .colorBgInset: "#F7F3EA", .colorBgSubtle: "#FAF7F0",
 					.colorBorder: "#EAE2D3", .colorBorderStrong: "#D5CEBE", .colorDanger: "#B34141",
 					.colorDangerSoft: "rgba(179, 65, 65, 0.10)", .colorPrimarySolid: "#B8860B",
@@ -105,7 +105,7 @@ struct ArcDefaultTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#17171B", .colorBgInset: "#26262C", .colorBgRaised: "#1F1F24",
 					.colorBgSubtle: "#1B1B20", .colorBorder: "#2E2E36", .colorBorderStrong: "#3C3C46",
 					.colorDanger: "#E06C6C", .colorDangerSoft: "rgba(224, 108, 108, 0.14)",
@@ -123,12 +123,12 @@ struct ArcDefaultTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct AresTheme {
-	static let themeID = "ares"
-	static let themeLabel = "Ares"
-	static let themeSwatch = ["#E5484D", "#E5484D", "#F06A75", "#F8A5AE",]
+public struct AresTheme {
+	public static let themeID = "ares"
+	public static let themeLabel = "Ares"
+	public static let themeSwatch = ["#E5484D", "#E5484D", "#F06A75", "#F8A5AE",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#F6EBED", .colorBgInset: "#EEDEE2", .colorBgRaised: "#FEF6F6",
 					.colorBgSubtle: "#F1E8EB", .colorBorder: "#E2CCD2", .colorBorderStrong: "#D3BAC2",
 					.colorPrimarySolid: "#E5484D", .colorPrimarySolidHover: "#C6373C", .scrollbarThumb: "#D8B1B8",
@@ -141,7 +141,7 @@ struct AresTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#22171C", .colorBgInset: "#36272F", .colorBgRaised: "#251D24",
 					.colorBgSubtle: "#231A20", .colorBorder: "#463039", .colorBorderStrong: "#553C47",
 					.colorPrimarySolid: "#E5484D", .colorPrimarySolidHover: "#C6373C", .scrollbarThumb: "#603842",
@@ -160,12 +160,12 @@ struct AresTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct MonoTheme {
-	static let themeID = "mono"
-	static let themeLabel = "Mono"
-	static let themeSwatch = ["#8B8B93", "#C8C8CD", "#8B8B93", "#4A4A52",]
+public struct MonoTheme {
+	public static let themeID = "mono"
+	public static let themeLabel = "Mono"
+	public static let themeSwatch = ["#8B8B93", "#C8C8CD", "#8B8B93", "#4A4A52",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#EFEFF2", .colorBgInset: "#E5E5E9", .colorBgRaised: "#F9F9FA",
 					.colorBgSubtle: "#ECECEF", .colorBorder: "#D6D6DC", .colorBorderStrong: "#C5C5CD",
 					.colorPrimarySolid: "#8B8B93", .colorPrimarySolidHover: "#6E6E76", .scrollbarThumb: "#C2C2CA",
@@ -178,7 +178,7 @@ struct MonoTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#1B1B21", .colorBgInset: "#2D2D36", .colorBgRaised: "#212128",
 					.colorBgSubtle: "#1E1E24", .colorBorder: "#393943", .colorBorderStrong: "#474752",
 					.colorPrimarySolid: "#8B8B93", .colorPrimarySolidHover: "#6E6E76", .scrollbarThumb: "#494953",
@@ -197,12 +197,12 @@ struct MonoTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct GraphiteTheme {
-	static let themeID = "graphite"
-	static let themeLabel = "Graphite"
-	static let themeSwatch = ["#303030", "#FFFFFF", "#B8B8C0", "#3A3A42",]
+public struct GraphiteTheme {
+	public static let themeID = "graphite"
+	public static let themeLabel = "Graphite"
+	public static let themeSwatch = ["#303030", "#FFFFFF", "#B8B8C0", "#3A3A42",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorDanger: "#D44D4D", .colorPrimarySolid: "#303030",
 					.colorPrimarySolidHover: "#303030", .colorSuccess: "#0F8F70", .colorText: "#242424",
 					.colorTextMuted: "#707070", .colorWarning: "#B87916",
@@ -214,7 +214,7 @@ struct GraphiteTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorDanger: "#FF6B6B", .colorPrimarySolid: "#D7D6CE",
 					.colorPrimarySolidHover: "#D7D6CE", .colorSuccess: "#10A37F", .colorText: "#ECEBE4",
 					.colorTextMuted: "#A7A79D", .colorWarning: "#E6B15C",
@@ -232,12 +232,12 @@ struct GraphiteTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct GithubTheme {
-	static let themeID = "github"
-	static let themeLabel = "GitHub"
-	static let themeSwatch = ["#0969DA", "#0969DA", "#1F883D", "#30363D",]
+public struct GithubTheme {
+	public static let themeID = "github"
+	public static let themeLabel = "GitHub"
+	public static let themeSwatch = ["#0969DA", "#0969DA", "#1F883D", "#30363D",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorDanger: "#D1242F", .colorPrimarySolid: "#0969DA",
 					.colorPrimarySolidHover: "#0969DA", .colorSuccess: "#1A7F37", .colorText: "#242424",
 					.colorTextMuted: "#707070", .colorWarning: "#9A6700",
@@ -249,7 +249,7 @@ struct GithubTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorDanger: "#FF7B72", .colorPrimarySolid: "#4493F8",
 					.colorPrimarySolidHover: "#58A6FF", .colorSuccess: "#3FB950", .colorText: "#ECEBE4",
 					.colorTextMuted: "#A7A79D", .colorWarning: "#D29922",
@@ -268,12 +268,12 @@ struct GithubTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct CodexTheme {
-	static let themeID = "codex"
-	static let themeLabel = "Codex"
-	static let themeSwatch = ["#72B39A", "#10A37F", "#E8E8E8", "#333333",]
+public struct CodexTheme {
+	public static let themeID = "codex"
+	public static let themeLabel = "Codex"
+	public static let themeSwatch = ["#72B39A", "#10A37F", "#E8E8E8", "#333333",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBgInset: "#F1F1F1", .colorBorder: "#E0E0E0", .colorBorderStrong: "#C8C8C8",
 					.colorDanger: "#D92D20", .colorPrimarySolid: "#2E7A60", .colorPrimarySolidHover: "#1D6850",
 					.colorSuccess: "#2E7A60", .colorText: "#252523", .colorTextMuted: "#6A6A68",
@@ -287,7 +287,7 @@ struct CodexTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorDanger: "#FF6B6B", .colorPrimarySolid: "#72B39A",
 					.colorPrimarySolidHover: "#84BEA8", .colorSuccess: "#72B39A", .colorText: "#ECEBE4",
 					.colorTextMuted: "#A7A79D", .colorWarning: "#E6B15C",
@@ -305,12 +305,12 @@ struct CodexTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct TerracottaTheme {
-	static let themeID = "terracotta"
-	static let themeLabel = "Terracotta"
-	static let themeSwatch = ["#C0785A", "#C08A6D", "#E8E8E8", "#3A3A42",]
+public struct TerracottaTheme {
+	public static let themeID = "terracotta"
+	public static let themeLabel = "Terracotta"
+	public static let themeSwatch = ["#C0785A", "#C08A6D", "#E8E8E8", "#3A3A42",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#FAF9F5", .colorBgInset: "#F7F4EC", .colorBgRaised: "#FFFEFA",
 					.colorBgSubtle: "#F0EEE6", .colorBorder: "#E8E6DC", .colorBorderStrong: "#D7D2C4",
 					.colorDanger: "#C15F3C", .colorPrimarySolidHover: "#A94F35", .colorSuccess: "#6EA100",
@@ -323,7 +323,7 @@ struct TerracottaTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#141413", .colorBgInset: "#20201D", .colorBgRaised: "#191917",
 					.colorBgSubtle: "#1E1D1A", .colorBorder: "#34332E", .colorBorderStrong: "#4A473F",
 					.colorDanger: "#F08A6F", .colorPrimarySolid: "#D97757", .colorPrimarySolidHover: "#E69072",
@@ -344,12 +344,12 @@ struct TerracottaTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct SlateTheme {
-	static let themeID = "slate"
-	static let themeLabel = "Slate"
-	static let themeSwatch = ["#4E7C99", "#7DA7C4", "#4E7C99", "#2A3F4C",]
+public struct SlateTheme {
+	public static let themeID = "slate"
+	public static let themeLabel = "Slate"
+	public static let themeSwatch = ["#4E7C99", "#7DA7C4", "#4E7C99", "#2A3F4C",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#EBEEF2", .colorBgInset: "#DFE4EA", .colorBgRaised: "#F6F8FA",
 					.colorBgSubtle: "#E8EBEF", .colorBorder: "#CDD4DD", .colorBorderStrong: "#BBC3CE",
 					.colorPrimarySolid: "#4E7C99", .colorPrimarySolidHover: "#3D647D", .scrollbarThumb: "#B2BECB",
@@ -362,7 +362,7 @@ struct SlateTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#171A21", .colorBgInset: "#272C37", .colorBgRaised: "#1E2028",
 					.colorBgSubtle: "#1A1D24", .colorBorder: "#313744", .colorBorderStrong: "#3D4553",
 					.colorPrimarySolid: "#4E7C99", .colorPrimarySolidHover: "#3D647D", .scrollbarThumb: "#3A4555",
@@ -381,12 +381,12 @@ struct SlateTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct PoseidonTheme {
-	static let themeID = "poseidon"
-	static let themeLabel = "Poseidon"
-	static let themeSwatch = ["#0E7C9B", "#4FC3E8", "#0E7C9B", "#0B4E63",]
+public struct PoseidonTheme {
+	public static let themeID = "poseidon"
+	public static let themeLabel = "Poseidon"
+	public static let themeSwatch = ["#0E7C9B", "#4FC3E8", "#0E7C9B", "#0B4E63",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#F4FAFC", .colorBgInset: "#EAF3F6", .colorBgSubtle: "#F0F7F9",
 					.colorBorder: "#D8E7EC", .colorBorderStrong: "#C0D6DE", .colorDanger: "#C04040",
 					.colorDangerSoft: "rgba(192, 64, 64, 0.10)", .colorPrimarySolid: "#0E7C9B",
@@ -399,7 +399,7 @@ struct PoseidonTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#0E1B22", .colorBgInset: "#1B2D38", .colorBgRaised: "#14242D",
 					.colorBgSubtle: "#101E25", .colorBorder: "#24404B", .colorBorderStrong: "#315463",
 					.colorDanger: "#EF7A7A", .colorDangerSoft: "rgba(239, 122, 122, 0.14)",
@@ -418,12 +418,12 @@ struct PoseidonTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct SisyphusTheme {
-	static let themeID = "sisyphus"
-	static let themeLabel = "Sisyphus"
-	static let themeSwatch = ["#A78BFA", "#C4B5FD", "#8B5CF6", "#5B21B6",]
+public struct SisyphusTheme {
+	public static let themeID = "sisyphus"
+	public static let themeLabel = "Sisyphus"
+	public static let themeSwatch = ["#A78BFA", "#C4B5FD", "#8B5CF6", "#5B21B6",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#FEFCF7", .colorBgInset: "#F3EEE3", .colorBgSubtle: "#FAF7F0",
 					.colorBorder: "#E0D8C8", .colorBorderStrong: "#D0C8B8", .colorDanger: "#C62828",
 					.colorDangerSoft: "rgba(198, 40, 40, 0.10)", .colorPrimarySolid: "#7C3AED",
@@ -436,7 +436,7 @@ struct SisyphusTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#0D0D1A", .colorBgInset: "#20203A", .colorBgRaised: "#1A1A2E",
 					.colorBgSubtle: "#141425", .colorBorder: "#2A2A45", .colorBorderStrong: "#3A3A5C",
 					.colorDanger: "#EF5350", .colorDangerSoft: "rgba(239, 83, 80, 0.14)",
@@ -458,12 +458,12 @@ struct SisyphusTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct CharizardTheme {
-	static let themeID = "charizard"
-	static let themeLabel = "Charizard"
-	static let themeSwatch = ["#F97316", "#F9A03F", "#F97316", "#C2410C",]
+public struct CharizardTheme {
+	public static let themeID = "charizard"
+	public static let themeLabel = "Charizard"
+	public static let themeSwatch = ["#F97316", "#F9A03F", "#F97316", "#C2410C",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#F7EEE9", .colorBgInset: "#F0E3DD", .colorBgRaised: "#FFF8F3",
 					.colorBgSubtle: "#F2EAE8", .colorBorder: "#E5D2CB", .colorBorderStrong: "#D7C1B9",
 					.colorPrimarySolid: "#F97316", .colorPrimarySolidHover: "#C2410C", .scrollbarThumb: "#DDBCAA",
@@ -476,7 +476,7 @@ struct CharizardTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#231A18", .colorBgInset: "#382B2A", .colorBgRaised: "#261F21",
 					.colorBgSubtle: "#251D1D", .colorBorder: "#493632", .colorBorderStrong: "#59433E",
 					.colorPrimarySolid: "#F97316", .colorPrimarySolidHover: "#C2410C", .scrollbarThumb: "#644334",
@@ -495,12 +495,12 @@ struct CharizardTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct SiennaTheme {
-	static let themeID = "sienna"
-	static let themeLabel = "Sienna"
-	static let themeSwatch = ["#A9714B", "#D2A17E", "#A9714B", "#6B4632",]
+public struct SiennaTheme {
+	public static let themeID = "sienna"
+	public static let themeLabel = "Sienna"
+	public static let themeSwatch = ["#A9714B", "#D2A17E", "#A9714B", "#6B4632",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#FAF9F5", .colorBgInset: "#EFEFF3", .colorBgSubtle: "#F0EEE6",
 					.colorBorder: "#E7E4DB", .colorBorderStrong: "#D7D3C7", .colorPrimarySolidHover: "#A55237",
 					.colorText: "#1F1E1C", .colorTextMuted: "#6B6A63",
@@ -513,7 +513,7 @@ struct SiennaTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#1F1E1C", .colorBgInset: "#23232C", .colorBgRaised: "#2C2B28",
 					.colorBgSubtle: "#262522", .colorBorder: "#3A3935", .colorBorderStrong: "#4A4843",
 					.colorPrimarySolid: "#E0896D", .colorPrimarySolidHover: "#E6A88A", .colorText: "#EDEBE3",
@@ -533,12 +533,12 @@ struct SiennaTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct CatppuccinTheme {
-	static let themeID = "catppuccin"
-	static let themeLabel = "Catppuccin"
-	static let themeSwatch = ["#CBA6F7", "#CDD6F4", "#C6A0F6", "#7C6FA8",]
+public struct CatppuccinTheme {
+	public static let themeID = "catppuccin"
+	public static let themeLabel = "Catppuccin"
+	public static let themeSwatch = ["#CBA6F7", "#CDD6F4", "#C6A0F6", "#7C6FA8",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#EFF1F5", .colorBgInset: "#EFEFF3", .colorBgSubtle: "#E6E9EF",
 					.colorBorder: "#CCD0DA", .colorBorderStrong: "#BCC0CC", .colorPrimarySolid: "#8839EF",
 					.colorPrimarySolidHover: "#8839EF", .colorText: "#4C4F69", .colorTextMuted: "#7C7F93",
@@ -551,7 +551,7 @@ struct CatppuccinTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#1E1E2E", .colorBgInset: "#23232C", .colorBgRaised: "#313244",
 					.colorBgSubtle: "#181825", .colorBorder: "#45475A", .colorBorderStrong: "#585B70",
 					.colorPrimarySolid: "#CBA6F7", .colorPrimarySolidHover: "#CBA6F7", .colorText: "#CDD6F4",
@@ -571,12 +571,12 @@ struct CatppuccinTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct HepburnTheme {
-	static let themeID = "hepburn"
-	static let themeLabel = "Hepburn"
-	static let themeSwatch = ["#F278AD", "#F472B6", "#F9A8D4", "#FBCFE8",]
+public struct HepburnTheme {
+	public static let themeID = "hepburn"
+	public static let themeLabel = "Hepburn"
+	public static let themeSwatch = ["#F278AD", "#F472B6", "#F9A8D4", "#FBCFE8",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#fff3f7", .colorBgInset: "rgba(242,120,173,0.04)", .colorBgRaised: "#fff9fb",
 					.colorBgSubtle: "#fbe4ed", .colorBorder: "#ecc8d5",
 					.colorBorderStrong: "rgba(242,120,173,0.18)", .colorDanger: "#c0392b",
@@ -591,7 +591,7 @@ struct HepburnTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#110a0f", .colorBgInset: "rgba(242,120,173,0.05)", .colorBgRaised: "#241420",
 					.colorBgSubtle: "#1e0f19", .colorBorder: "#311a28",
 					.colorBorderStrong: "rgba(242,120,173,0.20)", .colorDanger: "#ff5c5c",
@@ -612,12 +612,12 @@ struct HepburnTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct NousTheme {
-	static let themeID = "nous"
-	static let themeLabel = "Nous"
-	static let themeSwatch = ["#4682B4", "#93C5FD", "#4682B4", "#1E3A8A",]
+public struct NousTheme {
+	public static let themeID = "nous"
+	public static let themeLabel = "Nous"
+	public static let themeSwatch = ["#4682B4", "#93C5FD", "#4682B4", "#1E3A8A",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBgInset: "rgba(0,0,0,.025)", .colorBgSubtle: "#F5F5F5", .colorBorder: "#D0D8E0",
 					.colorBorderStrong: "rgba(0,0,0,0.15)", .colorDanger: "#C62828", .colorPrimarySolid: "#4682B4",
 					.colorPrimarySolidHover: "#2C5F88", .colorSuccess: "#3D8B40", .colorText: "#1A2A3A",
@@ -631,7 +631,7 @@ struct NousTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#0A0E14", .colorBgInset: "rgba(255,255,255,.025)", .colorBgRaised: "#111820",
 					.colorBgSubtle: "#0F1419", .colorBorder: "#1E2A3A",
 					.colorBorderStrong: "rgba(255,255,255,0.14)", .colorDanger: "#EF5350",
@@ -652,12 +652,12 @@ struct NousTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct NeonTheme {
-	static let themeID = "neon"
-	static let themeLabel = "Neon"
-	static let themeSwatch = ["#00B8FF", "#A855F7", "#00B8FF", "#22D3EE",]
+public struct NeonTheme {
+	public static let themeID = "neon"
+	public static let themeLabel = "Neon"
+	public static let themeSwatch = ["#00B8FF", "#A855F7", "#00B8FF", "#22D3EE",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#F7F9FB", .colorBgInset: "#ECF0F4", .colorBgSubtle: "#F1F4F7",
 					.colorBorder: "#D9E0E8", .colorBorderStrong: "#BFCAD6", .colorDanger: "#E6386E",
 					.colorDangerSoft: "rgba(230, 56, 110, 0.10)", .colorPrimarySolid: "#0896C2",
@@ -670,7 +670,7 @@ struct NeonTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#0B0D12", .colorBgInset: "#1A1E28", .colorBgRaised: "#12151C",
 					.colorBgSubtle: "#0E1116", .colorBorder: "#252B38", .colorBorderStrong: "#333B4C",
 					.colorDanger: "#FF3D71", .colorDangerSoft: "rgba(255, 61, 113, 0.14)",
@@ -689,12 +689,12 @@ struct NeonTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct NeonSoftTheme {
-	static let themeID = "neon-soft"
-	static let themeLabel = "Neon Soft"
-	static let themeSwatch = ["#C084FC", "#C084FC", "#67E8F9", "#BAE6FD",]
+public struct NeonSoftTheme {
+	public static let themeID = "neon-soft"
+	public static let themeLabel = "Neon Soft"
+	public static let themeSwatch = ["#C084FC", "#C084FC", "#67E8F9", "#BAE6FD",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#F8F7FC", .colorBgInset: "rgba(147,51,234,.025)", .colorBgSubtle: "#F0EEF8",
 					.colorBorder: "#D8D4EC", .colorBorderStrong: "rgba(0,0,0,0.12)", .colorDanger: "#DC2626",
 					.colorPrimarySolid: "#9333EA", .colorSuccess: "#059669", .colorText: "#1E1B2E",
@@ -708,7 +708,7 @@ struct NeonSoftTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#181428", .colorBgInset: "rgba(179,71,255,.03)", .colorBgRaised: "#1c1732",
 					.colorBgSubtle: "#141024", .colorBorder: "#2a2448", .colorBorderStrong: "rgba(179,71,255,0.15)",
 					.colorDanger: "#ff4466", .colorPrimarySolid: "#b347ff", .colorPrimarySolidHover: "#c8a0ff",
@@ -729,12 +729,12 @@ struct NeonSoftTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct NeonPaintTheme {
-	static let themeID = "neon-paint"
-	static let themeLabel = "Neon Paint"
-	static let themeSwatch = ["#EC4899", "#EC4899", "#22D3EE", "#FDE047",]
+public struct NeonPaintTheme {
+	public static let themeID = "neon-paint"
+	public static let themeLabel = "Neon Paint"
+	public static let themeSwatch = ["#EC4899", "#EC4899", "#22D3EE", "#FDE047",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#F5F0FF", .colorBgInset: "rgba(255,45,149,.025)", .colorBgSubtle: "#EDE6F8",
 					.colorBorder: "#D4C8EE", .colorBorderStrong: "rgba(0,0,0,0.12)", .colorDanger: "#FF1744",
 					.colorPrimarySolid: "#FF2D95", .colorPrimarySolidHover: "#C2185B", .colorSuccess: "#00E676",
@@ -748,7 +748,7 @@ struct NeonPaintTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#0D0A16", .colorBgInset: "rgba(255,45,149,.03)", .colorBgRaised: "#12101e",
 					.colorBgSubtle: "#0A0712", .colorBorder: "#2a1f40", .colorBorderStrong: "rgba(255,45,149,0.15)",
 					.colorDanger: "#FF1744", .colorPrimarySolid: "#FF2D95", .colorPrimarySolidHover: "#FF80BF",
@@ -769,12 +769,12 @@ struct NeonPaintTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct GeistContrastTheme {
-	static let themeID = "geist-contrast"
-	static let themeLabel = "Geist Contrast"
-	static let themeSwatch = ["#FFF175", "#000000", "#FFFFFF", "#FFF175",]
+public struct GeistContrastTheme {
+	public static let themeID = "geist-contrast"
+	public static let themeLabel = "Geist Contrast"
+	public static let themeSwatch = ["#FFF175", "#000000", "#FFFFFF", "#FFF175",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#ffffff", .colorBgInset: "#fafafa", .colorBgRaised: "#ffffff",
 					.colorBgSubtle: "#fafafa", .colorBorder: "#eaeaea", .colorBorderStrong: "#d4d4d4",
 					.colorDanger: "#e5484d", .colorPrimarySolid: "#0070f3", .colorPrimarySolidHover: "#005bd1",
@@ -788,7 +788,7 @@ struct GeistContrastTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#000000", .colorBgInset: "#111111", .colorBgRaised: "#0a0a0a",
 					.colorBgSubtle: "#050505", .colorBorder: "#262626", .colorBorderStrong: "#3f3f3f",
 					.colorDanger: "#ff6369", .colorPrimarySolid: "#FFF175", .colorPrimarySolidHover: "#f5e65f",
@@ -809,12 +809,12 @@ struct GeistContrastTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct ZeusTheme {
-	static let themeID = "zeus"
-	static let themeLabel = "Zeus"
-	static let themeSwatch = ["#E5B75D", "#E5B75D", "#C9A227", "#365314",]
+public struct ZeusTheme {
+	public static let themeID = "zeus"
+	public static let themeLabel = "Zeus"
+	public static let themeSwatch = ["#E5B75D", "#E5B75D", "#C9A227", "#365314",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#F6F3EE", .colorBgInset: "#EEE9E4", .colorBgRaised: "#FEFBF7",
 					.colorBgSubtle: "#F1EEEC", .colorBorder: "#E2DCD5", .colorBorderStrong: "#D3CCC4",
 					.colorPrimarySolid: "#E5B75D", .colorPrimarySolidHover: "#C9A227", .scrollbarThumb: "#D8CDBC",
@@ -827,7 +827,7 @@ struct ZeusTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#0F0F0F", .colorBgInset: "rgba(255,255,255,.03)", .colorBgRaised: "#181818",
 					.colorBgSubtle: "#111111", .colorBorder: "#2A2A1E", .colorBorderStrong: "rgba(255,215,0,0.18)",
 					.colorPrimarySolid: "#E5B75D", .colorPrimarySolidHover: "#C9A227",
@@ -846,12 +846,12 @@ struct ZeusTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct VerdigrisTheme {
-	static let themeID = "verdigris"
-	static let themeLabel = "Verdigris"
-	static let themeSwatch = ["#2F5D50", "#C0A080", "#2F5D50", "#3A3A42",]
+public struct VerdigrisTheme {
+	public static let themeID = "verdigris"
+	public static let themeLabel = "Verdigris"
+	public static let themeSwatch = ["#2F5D50", "#C0A080", "#2F5D50", "#3A3A42",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#E9ECED", .colorBgInset: "#DCE0E3", .colorBgRaised: "#F5F7F6",
 					.colorBgSubtle: "#E6E9EB", .colorBorder: "#C9CFD3", .colorBorderStrong: "#B6BEC2",
 					.colorPrimarySolid: "#2F5D50", .colorPrimarySolidHover: "#24493F", .scrollbarThumb: "#ABB6B9",
@@ -864,7 +864,7 @@ struct VerdigrisTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#0F1714", .colorBgInset: "rgba(255,255,255,.02)", .colorBgRaised: "#16211C",
 					.colorBgSubtle: "#121D18", .colorBorder: "#22342C", .colorBorderStrong: "rgba(200,154,90,0.10)",
 					.colorDanger: "#D26A6A", .colorPrimarySolid: "#C89A5A", .colorPrimarySolidHover: "#E4C28D",
@@ -885,12 +885,12 @@ struct VerdigrisTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct DraculaTheme {
-	static let themeID = "dracula"
-	static let themeLabel = "Dracula"
-	static let themeSwatch = ["#BD93F9", "#BD93F9", "#FF79C6", "#50FA7B",]
+public struct DraculaTheme {
+	public static let themeID = "dracula"
+	public static let themeLabel = "Dracula"
+	public static let themeSwatch = ["#BD93F9", "#BD93F9", "#FF79C6", "#50FA7B",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#F8F7FC", .colorBgInset: "#EFEDF7", .colorBgSubtle: "#F4F2FA",
 					.colorBorder: "#DDD9EC", .colorBorderStrong: "#C6C0DC", .colorDanger: "#C94A5E",
 					.colorDangerSoft: "rgba(201, 74, 94, 0.10)", .colorPrimarySolid: "#6C4FA1",
@@ -903,7 +903,7 @@ struct DraculaTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#282A36", .colorBgInset: "#383A4A", .colorBgRaised: "#2F3240",
 					.colorBgSubtle: "#2B2D3B", .colorBorder: "#44475A", .colorBorderStrong: "#565975",
 					.colorDanger: "#FF5555", .colorDangerSoft: "rgba(255, 85, 85, 0.15)",
@@ -922,12 +922,12 @@ struct DraculaTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct GruvboxTheme {
-	static let themeID = "gruvbox"
-	static let themeLabel = "Gruvbox"
-	static let themeSwatch = ["#D79921", "#D79921", "#FE8019", "#B8BB26",]
+public struct GruvboxTheme {
+	public static let themeID = "gruvbox"
+	public static let themeLabel = "Gruvbox"
+	public static let themeSwatch = ["#D79921", "#D79921", "#FE8019", "#B8BB26",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#FBF1C7", .colorBgInset: "#EBDBB2", .colorBgRaised: "#FFFDF5",
 					.colorBgSubtle: "#F2E5BC", .colorBorder: "#D5C4A1", .colorBorderStrong: "#BDAE8B",
 					.colorPrimarySolid: "#D79921", .colorPrimarySolidHover: "#B07E15", .colorText: "#3C3836",
@@ -941,7 +941,7 @@ struct GruvboxTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#282828", .colorBgInset: "#45403D", .colorBgRaised: "#3C3836",
 					.colorBgSubtle: "#32302F", .colorBorder: "#504945", .colorBorderStrong: "#665C54",
 					.colorPrimarySolid: "#D79921", .colorPrimarySolidHover: "#B07E15", .colorText: "#EBDBB2",
@@ -961,12 +961,12 @@ struct GruvboxTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct OneDarkTheme {
-	static let themeID = "one-dark"
-	static let themeLabel = "One Dark"
-	static let themeSwatch = ["#61AFEF", "#61AFEF", "#C678DD", "#98C379",]
+public struct OneDarkTheme {
+	public static let themeID = "one-dark"
+	public static let themeLabel = "One Dark"
+	public static let themeSwatch = ["#61AFEF", "#61AFEF", "#C678DD", "#98C379",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#ECF2F8", .colorBgInset: "#E1E9F3", .colorBgRaised: "#F7FBFE",
 					.colorBgSubtle: "#E9EEF5", .colorBorder: "#D0DBE9", .colorBorderStrong: "#BECBDC",
 					.colorPrimarySolid: "#61AFEF", .colorPrimarySolidHover: "#4A93CC", .scrollbarThumb: "#B7CBE1",
@@ -979,7 +979,7 @@ struct OneDarkTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#181E27", .colorBgInset: "#293140", .colorBgRaised: "#1E222C",
 					.colorBgSubtle: "#1B202A", .colorBorder: "#333E50", .colorBorderStrong: "#404D61",
 					.colorPrimarySolid: "#61AFEF", .colorPrimarySolidHover: "#4A93CC", .scrollbarThumb: "#3E526A",
@@ -998,12 +998,12 @@ struct OneDarkTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct TokyoNightTheme {
-	static let themeID = "tokyo-night"
-	static let themeLabel = "Tokyo Night"
-	static let themeSwatch = ["#7AA2F7", "#7AA2F7", "#BB9AF7", "#9ECE6A",]
+public struct TokyoNightTheme {
+	public static let themeID = "tokyo-night"
+	public static let themeLabel = "Tokyo Night"
+	public static let themeSwatch = ["#7AA2F7", "#7AA2F7", "#BB9AF7", "#9ECE6A",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#EEF1F9", .colorBgInset: "#E3E7F3", .colorBgRaised: "#F8FAFF",
 					.colorBgSubtle: "#EBEDF5", .colorBorder: "#D3D9EA", .colorBorderStrong: "#C2C9DD",
 					.colorPrimarySolid: "#7AA2F7", .colorPrimarySolidHover: "#5E88E8", .scrollbarThumb: "#BEC8E3",
@@ -1016,7 +1016,7 @@ struct TokyoNightTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#1A1D28", .colorBgInset: "#2C3040", .colorBgRaised: "#20222D",
 					.colorBgSubtle: "#1D1F2A", .colorBorder: "#373D51", .colorBorderStrong: "#444B62",
 					.colorPrimarySolid: "#7AA2F7", .colorPrimarySolidHover: "#5E88E8", .scrollbarThumb: "#454F6C",
@@ -1035,12 +1035,12 @@ struct TokyoNightTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct RosepineTheme {
-	static let themeID = "rosepine"
-	static let themeLabel = "Rosé Pine"
-	static let themeSwatch = ["#B4637A", "#E0DEF4", "#B4637A", "#8A7AB5",]
+public struct RosepineTheme {
+	public static let themeID = "rosepine"
+	public static let themeLabel = "Rosé Pine"
+	public static let themeSwatch = ["#B4637A", "#E0DEF4", "#B4637A", "#8A7AB5",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#FAF4F4", .colorBgInset: "#F3E9E9", .colorBgRaised: "#FFFBFB",
 					.colorBgSubtle: "#F7EEEE", .colorBorder: "#E4D6D6", .colorBorderStrong: "#D0BABA",
 					.colorDanger: "#C04C4C", .colorDangerSoft: "rgba(192, 76, 76, 0.10)",
@@ -1053,7 +1053,7 @@ struct RosepineTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#191724", .colorBgInset: "#26233A", .colorBgRaised: "#1F1D2E",
 					.colorBgSubtle: "#1B1926", .colorBorder: "#322F4A", .colorBorderStrong: "#403E5C",
 					.colorDanger: "#EB6F92", .colorDangerSoft: "rgba(235, 111, 146, 0.14)",
@@ -1072,12 +1072,12 @@ struct RosepineTheme {
 /// `themeSwatch` is `[accent, dot, dot, dot]`: arc's own shape (the accent is the tile's
 /// selection border, the three dots its preview), which predates the provider contract.
 @Theme(base: ArcBaseTheme.self)
-struct SolarizedDarkTheme {
-	static let themeID = "solarized-dark"
-	static let themeLabel = "Solarized Dark"
-	static let themeSwatch = ["#268BD2", "#268BD2", "#2AA198", "#859900",]
+public struct SolarizedDarkTheme {
+	public static let themeID = "solarized-dark"
+	public static let themeLabel = "Solarized Dark"
+	public static let themeSwatch = ["#268BD2", "#268BD2", "#2AA198", "#859900",]
 
-	static let palette = ThemePalette(
+	public static let palette = ThemePalette(
 				tokens: [.colorBg: "#E8EFF6", .colorBgInset: "#DBE5F0", .colorBgRaised: "#F4F9FD",
 					.colorBgSubtle: "#E6ECF3", .colorBorder: "#C8D6E5", .colorBorderStrong: "#B5C5D7",
 					.colorPrimarySolid: "#268BD2", .colorPrimarySolidHover: "#1B6FA8", .scrollbarThumb: "#A8C2DA",
@@ -1090,7 +1090,7 @@ struct SolarizedDarkTheme {
 				],
 			)
 
-	static let dark = ThemePalette(
+	public static let dark = ThemePalette(
 				tokens: [.colorBg: "#141B25", .colorBgInset: "#232D3D", .colorBgRaised: "#1C212B",
 					.colorBgSubtle: "#181E28", .colorBorder: "#2B394C", .colorBorderStrong: "#37475C",
 					.colorPrimarySolid: "#268BD2", .colorPrimarySolidHover: "#1B6FA8", .scrollbarThumb: "#304963",
@@ -1108,8 +1108,8 @@ struct SolarizedDarkTheme {
 ///
 /// `all` is computed, not stored: an existential metatype array is not `Sendable`, and
 /// Swift 6 rejects a stored one as global mutable state.
-enum ArcThemeCatalog: ThemeCatalog {
-	static var all: [any WebUIThemeProvider.Type] {
+public enum ArcThemeCatalog: ThemeCatalog {
+	public static var all: [any WebUIThemeProvider.Type] {
 		[
 			ArcDefaultTheme.self,
 			AresTheme.self,
@@ -1141,5 +1141,5 @@ enum ArcThemeCatalog: ThemeCatalog {
 		]
 	}
 
-	static var defaultTheme: any WebUIThemeProvider.Type { ArcDefaultTheme.self }
+	public static var defaultTheme: any WebUIThemeProvider.Type { ArcDefaultTheme.self }
 }

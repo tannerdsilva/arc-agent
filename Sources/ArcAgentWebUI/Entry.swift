@@ -135,11 +135,12 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         // created further down, once the server that carries its pushes exists.
         let router = EventRouter()
 
-        // Content-derived asset urls: the head links and the asset registrations must
-        // agree byte-for-byte, and neither may be hand-versioned. `initPath` is stamped
-        // later, once the overlay literal it hashes exists.
-        let sheet = Theme.css + ArcThemeCatalog.stylesheet()
-        let sheetPath = Self.stamped("/ui/style.css", sheet)
+        // The sheet is a build product (`ArcAssetTool theme-sheet`): rendered from
+        // `Sources/ArcTheme/`, stamped with the sha256 its url carries, and gzipped at build
+        // time. Nothing here renders or hashes 271 kb at boot, and the url, the bytes and the
+        // hash cannot disagree — a test pins the product against the source it came from.
+        let sheet = ThemeSheetAssets.sheet
+        let sheetPath = "/ui/style.css?v=\(ThemeSheetAssets.stamp)"
         let katexCSSPath = Self.stamped("/ui/vendor/katex/katex.min.css", KaTeXAssets.css)
         let katexJSPath = Self.stamped("/ui/vendor/katex/katex.min.js", KaTeXAssets.js)
 
@@ -1129,7 +1130,13 @@ struct ArcAgentWebUI: AsyncParsableCommand {
                 // is the *client's* cache key: a rebuilt asset is a new url and cannot be
                 // served from a year-long cache under the old one.
                 assets: [
-                    .text("/ui/style.css", sheet, contentType: "text/css; charset=utf-8", cacheSeconds: 31_536_000),
+                    .text(
+                        "/ui/style.css",
+                        sheet,
+                        contentType: "text/css; charset=utf-8",
+                        cacheSeconds: 31_536_000,
+                        gzip: ThemeSheetAssets.gzip.isEmpty ? nil : ThemeSheetAssets.gzip
+                    ),
                     .text("/ui/init.js", initJS, contentType: "text/javascript; charset=utf-8", cacheSeconds: 31_536_000),
                     .text("/ui/vendor/katex/katex.min.css", KaTeXAssets.css, contentType: "text/css; charset=utf-8", cacheSeconds: 31_536_000),
                     .text("/ui/vendor/katex/katex.min.js", KaTeXAssets.js, contentType: "text/javascript; charset=utf-8", cacheSeconds: 31_536_000),
