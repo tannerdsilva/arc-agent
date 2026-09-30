@@ -4,7 +4,7 @@
 
 ARC Agent is a **precompiled, Swift-native AI agent harness** — architecturally inspired by [the reference agent](https://hermes-agent.nousresearch.com), but built from the ground up for Swift's concurrency model, type system, and distribution story. Single binary, zero interpreter overhead, no npm dependency chain, instant startup.
 
-**Status:** Vascular hardening. The core architecture is built across 141 source files with 414 passing tests and a clean build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. The web UI ships as the `arc-agent-webui` executable: all CSS/JS are Swift-embedded strings (no build pipeline, no external assets at runtime).
+**Status:** Vascular hardening. The core architecture is built across 177 source files with 668 tests (2 of them environment-gated) and a clean build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. The web UI ships as the `arc-agent-webui` executable: all CSS/JS are Swift-embedded strings (no build pipeline, no external assets at runtime), served by no-webui's `WebUIServer` from content-stamped, immutable-cached urls.
 
 ## Why Swift?
 
@@ -78,11 +78,13 @@ swift run arc-agent serve --port 8080
 
 The web UI is a single Swift executable target, `Sources/ArcAgentWebUI/`, built on the declarative no-webui engine (Swift DSL → HTML/CSS/JS). There is no npm, no `package.json`, no node_modules, no build pipeline — every byte of CSS and JavaScript the UI needs is embedded in the binary:
 
-- **Theme.swift** — the full stylesheet (27 color schemes), built on no-webui's CSS
-  builders and projected onto its design tokens
+- **Theme** — `Sources/ArcTheme/` holds the chrome stylesheet and the 27 schemes as no-webui
+  providers (a shared base, token aliases, and a catalog the settings grid renders from); the
+  served sheet is a **build product** — `ArcAssetTool theme-sheet` renders it, stamps its sha256
+  into the url, and gzips it (271 kb → 30 kb on the wire)
 - **no-webui's engine** — the client runtime. A page loads exactly two scripts: the
   engine (served by `WebUIServer` at `/ui/webui-engine.js`) and `init.js`, the
-  arc-specific overlay
+  arc-specific overlay, which rides the engine's `on.afterPatch` seam
 - **KaTeX assets** — generated into the build by `ArcAssetPlugin` (via the
   `ArcAssetTool` target) from `Sources/ArcAgentWebUI/Assets/vendor/katex/`
 
