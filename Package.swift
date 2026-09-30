@@ -168,6 +168,18 @@ let package = Package(
                 .swiftLanguageMode(.v5),
             ]
         ),
+        // The web UI is an executable target, so this test target depends on it
+        // directly: the theme emission and the assembled page are the units under
+        // test, and they are generated rather than hand-written.
+        .testTarget(
+            name: "ArcAgentWebUITests",
+            dependencies: [
+                .target(name: "arc-agent-webui"),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
     ]
 )
 

@@ -45,16 +45,26 @@ struct ColorScheme {
     /// engine writes, so switching is the client's and costs no round trip.
     ///
     /// The emission is no-webui's `ThemeScope.attribute`, which also carries arc's own custom
-    /// properties *and* the design tokens `tokenMap` projects from them, so a no-webui component
-    /// inside `#app` adopts the active scheme without arc restating the palette.
+    /// properties *and* the design tokens `tokenMap` projects from them, so any no-webui
+    /// component rendered inside `#app` inherits the active scheme.
+    ///
+    /// arc's palettes are keyed by bare property name (`bg`, `accent`); `ThemePalette.customTokens`
+    /// keys are **css property names**, so they need the `--` prefix. Without it the emission is
+    /// `bg: #FDFBF7;` — not a custom property, and a declaration the browser drops, so every
+    /// scheme silently painted the base sheet's palette. `prefixed(_:)` is that boundary.
     var scopedTheme: WebUITheme {
         WebUITheme(
-            palette: ThemePalette(tokens: Self.tokenOverrides(light), customTokens: light),
-            dark: ThemePalette(tokens: Self.tokenOverrides(dark), customTokens: dark)
+            palette: ThemePalette(tokens: Self.tokenOverrides(light), customTokens: Self.prefixed(light)),
+            dark: ThemePalette(tokens: Self.tokenOverrides(dark), customTokens: Self.prefixed(dark))
         )
     }
 
     var cssBlocks: String { scopedTheme.stylesheet(scope: .attribute(id: id)) }
+
+    /// arc's palette dictionaries, keyed by bare property name, become css custom properties.
+    static func prefixed(_ palette: [String: String]) -> [String: String] {
+        Dictionary(uniqueKeysWithValues: palette.map { ("--\($0.key)", $0.value) })
+    }
 
     /// The palette projected onto the design-token vocabulary.
     static func tokenOverrides(_ palette: [String: String]) -> [DesignToken: String] {
