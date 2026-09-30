@@ -2349,15 +2349,20 @@ extension AppState {
             let active = settings.textSize == s.rawValue ? " active" : ""
             return "<button type=\"button\" id=\"fsz-\(s.rawValue)\" data-component-id=\"font-size-pick\" class=\"font-size-pick-btn\(active)\" title=\"\(s.label)\"><span class=\"fsz-preview\" style=\"font-size:\(s.previewPx)\">Aa</span><span class=\"fsz-label\">\(s.label)</span></button>"
         }.joined()
-        let swatches = ColorScheme.all.map { s in
-            let active = settings.colorScheme == s.id ? " active" : ""
-            let dots = s.dots.map { d in
+        // the scheme grid renders from the catalog: identity — id, label, swatch — comes from
+        // the providers themselves, so the picker cannot list a scheme the sheet does not
+        // carry, and adding one is a single declaration. `swatch[0]` is the accent (the
+        // tile's border), the rest are the preview dots.
+        let swatches = ArcThemeCatalog.entries.map { entry in
+            let active = settings.colorScheme == entry.id ? " active" : ""
+            let accent = entry.swatch.first ?? ""
+            let dots = entry.swatch.dropFirst().map { d in
                 "<span class=\"scheme-dot\" style=\"background:\(d)\"></span>"
             }.joined()
             return """
-            <button type="button" id="scheme-\(enc(s.id))" data-component-id="scheme-pick" data-scheme-choice="\(esc(s.id))" class="scheme-tile\(active)" title="\(esc(s.label))" style="--sw-accent:\(s.accentHex)">
+            <button type="button" id="scheme-\(enc(entry.id))" data-component-id="scheme-pick" data-scheme-choice="\(esc(entry.id))" class="scheme-tile\(active)" title="\(esc(entry.label))" style="--sw-accent:\(accent)">
               <span class="scheme-dots">\(dots)</span>
-              <span class="scheme-name">\(esc(s.label))</span>
+              <span class="scheme-name">\(esc(entry.label))</span>
             </button>
             """
         }.joined()

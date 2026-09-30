@@ -138,7 +138,7 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         // Content-derived asset urls: the head links and the asset registrations must
         // agree byte-for-byte, and neither may be hand-versioned. `initPath` is stamped
         // later, once the overlay literal it hashes exists.
-        let sheet = Theme.css + Theme.schemeCSS
+        let sheet = Theme.css + ArcThemeCatalog.stylesheet()
         let sheetPath = Self.stamped("/ui/style.css", sheet)
         let katexCSSPath = Self.stamped("/ui/vendor/katex/katex.min.css", KaTeXAssets.css)
         let katexJSPath = Self.stamped("/ui/vendor/katex/katex.min.js", KaTeXAssets.js)

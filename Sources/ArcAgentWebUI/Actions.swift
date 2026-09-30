@@ -1572,14 +1572,14 @@ final class Controller {
         }
         if name == "theme" {
             if args.isEmpty {
-                let names = ColorScheme.all.map { $0.id }
+                let names = ArcThemeCatalog.entries.map { $0.id }
                 await echoUserMessage(text)
                 await pushAssistantNote("Available color schemes:\n\n" + names.map { "  `\($0)`" }.joined(separator: "\n"))
                 return await app.chatFragments()
             }
             // Resolve by id first, then by label, case-insensitively.
-            let byID = ColorScheme.all.first { $0.id.lowercased() == args.lowercased() }
-            let byLabel = byID == nil ? ColorScheme.all.first { $0.label.lowercased() == args.lowercased() } : nil
+            let byID = ArcThemeCatalog.entries.first { $0.id.lowercased() == args.lowercased() }
+            let byLabel = byID == nil ? ArcThemeCatalog.entries.first { $0.label.lowercased() == args.lowercased() } : nil
             guard let scheme = byID ?? byLabel else {
                 _ = await app.hint("No scheme named '\(args)'. Use /theme to list.", kind: "error")
                 return await app.chatFragments()
