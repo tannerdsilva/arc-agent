@@ -25,13 +25,19 @@ Sources/ArcAgentWebUI/
 ├── AppState.swift         — actor: sessions, settings, registry, runTurn orchestration, fragments
 ├── Actions.swift          — wire handlers (settings, approvals, queues, skills, agent powers)
 ├── Views.swift            — all page/section HTML builders (chat, sidebar, settings, skills, …)
-├── Theme.swift            — base stylesheet + 27 color schemes as Swift constants
+├── Theme.swift            — arc's chrome stylesheet (layout, components, text-size axis)
+├── ThemeCatalog.swift     — the 27 schemes as no-webui providers: a shared base every scheme
+│                            layers over, the token aliases, and the catalog the settings grid
+│                            renders from
 ├── init.js (in Entry.swift) — the arc-specific client overlay (composer, KaTeX,
 │                            tables, slash menu, selection, outline, worklog)
 ├── Queue.swift            — run-queue model/engine (sequential + parallel, output chaining)
 ├── NewFeatures.swift      — tabbed panels, todos, cron, regenerate
 ├── Insights.swift         — usage insights (top-10 skills, token/activity charts)
 └── Assets/vendor/katex/   — vendored KaTeX source files (the generator's input)
+
+Tests/ArcAgentWebUITests/     — emission + catalog invariants for the web UI target, which had
+                                no coverage until the scheme sheet shipped inert
 
 Sources/ArcAssetTool/main.swift          — generates KaTeXAssets.swift from the vendor dir
 Plugins/ArcAssetPlugin/plugin.swift      — runs the tool on every build
@@ -59,19 +65,29 @@ embedded asset is a build product of its input and cannot drift from it.
 
 ## Theming and icons
 
-- `Theme.swift` holds 27 schemes. Each scheme's palette is emitted through
-  no-webui's CSS builders (`CSSRule` / `CSSStylesheet` / `CSSMediaQuery`) into
-  `#app[data-scheme=…][data-theme=…]` blocks that carry arc's own custom
-  properties **and** the design tokens `ColorScheme.tokenMap` projects from the
-  same values — so any no-webui component rendered inside `#app` inherits the
-  active scheme. `ColorScheme.theme(isDark:)` exposes a scheme as a native
-  `WebUITheme` for a `WebUIDocument`-rendered page.
+- `ThemeCatalog.swift` holds the 27 schemes as no-webui `WebUIThemeProvider`s.
+  `ArcBaseTheme` carries the value each property takes in the *majority* of schemes plus the
+  14 `TokenAlias` declarations, so a scheme states only what makes it that scheme and arc's
+  own property names ride the framework's tokens (`--bg: var(--color-bg)`) instead of a
+  hand-written mapping table — a mistyped token is a missing enum case. `ArcThemeCatalog` is
+  the catalog: `entries` drives the settings grid (so the picker cannot list a scheme the
+  sheet does not carry), and `stylesheet()` emits every scheme × mode scoped to
+  `:root[data-scheme=…][data-theme=…]`, which is what lets the engine switch with no round
+  trip. `--warning` stays literal on purpose: no-webui emits each alias into every block, and
+  its token is not defined in every scheme, so the indirection would resolve to nothing where
+  the property inherits the chrome sheet's orange today.
 - Icons are no-webui's: `WebUIIcon(_: IconName, size: IconSize)` over the
   generated 628-glyph catalog. There is no hand-drawn glyph table, and a wrong
   glyph is a compile error rather than a blank `<svg>`.
+- Host assets are **content-stamped and cached for a year**: the sheet, the overlay and the
+  KaTeX css/js are linked as `…?v=<sha256 prefix>` derived from their own bytes, so a rebuild
+  changes the url by construction and a repeat navigation transfers none of them. The policy
+  passes only its two extras (`img-src … https: blob:`, `font-src … data:`) through
+  `contentSecurityPolicyExtras`, so the framework's nonce — and with it the pre-paint theme
+  prelude — survives.
 - no-webui products in use: `WebUI` (view DSL, `EventRouter`, `CSSRule`,
-  `WebUIRuntime`, `WebUIIcon`), `WebUIDesignSystem` (`DesignToken`,
-  `WebUITheme`), `WebUIServer`.
+  `WebUIRuntime`, `WebUIIcon`), `WebUIDesignSystem` (`DesignToken`, `WebUITheme`,
+  `@Theme`, `TokenAlias`, `ThemeCatalog`), `WebUIServer`.
 
 ## Known gaps
 
@@ -82,9 +98,26 @@ embedded asset is a build product of its input and cannot drift from it.
   by `WebUIServer`) plus the arc overlay. Transport, event dispatch, fragment
   patching, scroll/form-state restore and sanitising are the engine's job.
   The overlay keeps only arc-specific behaviour — composer, KaTeX post-render,
-  markdown-table enhancement, slash menu, selection button, outline, worklog —
-  and must re-run on DOM mutation: the engine's only client events are
-  `webui:connected` / `webui:disconnected`, with no post-patch hook.
+  markdown-table enhancement, slash menu, selection button, outline, worklog.
+- **Resolved (2026-09): the overlay rides the engine's post-patch seam.** It used to rescan
+  the whole document from a `MutationObserver` — including on its own edits, so a streaming
+  turn re-triggered it repeatedly — and the seam the engine grew for exactly this
+  (`WebUIEngine.on.afterPatch`, handing the patched subtree) sat unused. Enhancement is now
+  scoped to the elements a fragment batch replaced. Registration happens on
+  `DOMContentLoaded`: the overlay script precedes the engine's synchronous boot, so `ready`
+  never fires for a hook registered after it, and the initial pass runs directly (every pass
+  is idempotent).
+- **Resolved (2026-09): the scheme sheet no longer ships inert.** `ThemePalette.customTokens`
+  keys are css property names, so arc's bare dictionary keys emitted `bg: …` — a declaration
+  the browser drops — and all 27 schemes painted the base sheet's palette while the served
+  bytes looked plausible. The catalog emits `--bg` (or its alias), `Tests/ArcAgentWebUITests`
+  pins the invariants, and the post-rewrite sheet is value-for-value identical to the
+  pre-rewrite one (108 blocks; 0 changed / 0 lost / 0 added, aliases resolved).
+- **Resolved (2026-09): the CSP keeps the pre-paint theme prelude.** arc restated the whole
+  policy to add two directives, and a restated policy names no nonce source — so
+  `HTMLDocument` suppressed the prelude rather than ship an inline script the browser refuses,
+  and a stored scheme flashed on every load. It now declares two extras
+  (`contentSecurityPolicyExtras`) and the render nonce survives.
 - The panels still build their markup by hand (536 bespoke CSS classes across the
   target). They use no-webui's view DSL, icons and tokens, but not its component
   set — adopting `WebUIStat`/`WebUITable`/`WebUIEmptyState` etc. would re-skin the
