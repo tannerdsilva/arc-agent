@@ -137,10 +137,15 @@ struct ArcAgentWebUI: AsyncParsableCommand {
 
         // The sheet is a build product (`ArcAssetTool theme-sheet`): rendered from
         // `Sources/ArcTheme/`, stamped with the sha256 its url carries, and gzipped at build
-        // time. Nothing here renders or hashes 271 kb at boot, and the url, the bytes and the
-        // hash cannot disagree — a test pins the product against the source it came from.
-        let sheet = ThemeSheetAssets.sheet
-        let sheetPath = "/ui/style.css?v=\(ThemeSheetAssets.stamp)"
+        // time. One `WebUIAsset` owns the bytes, the url a page links and the registration the
+        // server answers with, so the address, the bytes and the cache policy cannot disagree —
+        // and a test pins the product against the source it came from.
+        let sheet = WebUIAsset(
+            path: "/ui/style.css",
+            text: ThemeSheetAssets.sheet,
+            gzip: ThemeSheetAssets.gzip.isEmpty ? nil : ThemeSheetAssets.gzip,
+            contentType: "text/css; charset=utf-8"
+        )
 
         // Assemble the page (external /ui/* assets keep each response small).
         // The document template wraps whatever body the app currently renders,
@@ -155,7 +160,7 @@ struct ArcAgentWebUI: AsyncParsableCommand {
                 body: body,
                 rawStyles: [],
                 head: """
-                <link rel="stylesheet" href="\(sheetPath)">
+                <link rel="stylesheet" href="\(sheet.url)">
                 <script src="\(initPath)"></script>
                 """,
                 htmlAttributes: themeAttrs,
@@ -1040,13 +1045,7 @@ struct ArcAgentWebUI: AsyncParsableCommand {
                 // is the *client's* cache key: a rebuilt asset is a new url and cannot be
                 // served from a year-long cache under the old one.
                 assets: [
-                    .text(
-                        "/ui/style.css",
-                        sheet,
-                        contentType: "text/css; charset=utf-8",
-                        cacheSeconds: 31_536_000,
-                        gzip: ThemeSheetAssets.gzip.isEmpty ? nil : ThemeSheetAssets.gzip
-                    ),
+                    sheet.registration,
                     .text("/ui/init.js", initJS, contentType: "text/javascript; charset=utf-8", cacheSeconds: 31_536_000),
                 ]
             ),
