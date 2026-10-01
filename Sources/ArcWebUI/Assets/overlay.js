@@ -8,10 +8,13 @@
 
 (function () {
   try {
-  // The runtime restores input values across fragment replacements, so a
-  // server-side empty textarea would be re-filled. Clear the composer
-  // synchronously on submit (after the runtime has read its value).
-  document.addEventListener('submit', function (e) {
+  // The engine restores input values across fragment replacements, so a
+  // server-side empty textarea would be re-filled. Clear the composer after
+  // the engine has read its value on submit — the ENGINE's delegated submit
+  // listener lives on `document`, so this one registers on `window` (bubble
+  // reaches window last): registering on `document` instead would clear the
+  // field BEFORE the engine reads it, and every send would carry "".
+  window.addEventListener('submit', function (e) {
     if (e.target && e.target.id === 'composer-form') {
       var t = document.getElementById('composer-input');
       if (t) t.value = '';
