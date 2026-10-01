@@ -6,6 +6,24 @@ ARC Agent is a **precompiled, Swift-native AI agent harness** — architecturall
 
 **Status:** Vascular hardening. The core architecture is built across 141 source files with 414 passing tests and a clean build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. The web UI ships as the `arc-agent-webui` executable: all CSS/JS are Swift-embedded strings (no build pipeline, no external assets at runtime).
 
+## Install
+
+Install the latest release (precompiled binaries; no compiler or dependency chain needed):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tannerdsilva/arc-agent/master/install.sh | bash
+```
+
+The installer fetches a prebuilt release tarball from GitHub Releases and falls back to a source build (clone + `swift build -c release`) when no asset exists for the platform yet. It installs `arc` and `arc-agent-webui` into `~/.local/bin` and leaves configuration to first-run setup:
+
+```bash
+arc setup                       # provider, model, approval mode → ~/.arc/config.json
+arc doctor                      # verify installation and connectivity
+arc chat -q "hello world"
+```
+
+From a source checkout, `make install` performs the same release build + copy into `~/.local/bin`, and `make uninstall` removes the binaries. A curl-installed copy can be removed with `bash install.sh --uninstall`. Release assets are produced by `.github/workflows/release.yml` on `v*` tags.
+
 ## Why Swift?
 
 | Concern | Python Agent (reference) | Swift Agent (ARC) |

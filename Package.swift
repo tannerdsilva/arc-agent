@@ -154,5 +154,6 @@ let package = Package(
 // embed ArcAgentCore in-process.
 package.products = [
     .library(name: "ArcAgentCore", targets: ["ArcAgentCore"]),
+    .executable(name: "arc", targets: ["arc-agent"]),
     .executable(name: "arc-agent-webui", targets: ["arc-agent-webui"]),
 ]
