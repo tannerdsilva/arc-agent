@@ -1,6 +1,5 @@
 import ArcAgentCore
 import ArgumentParser
-import CryptoKit
 import Foundation
 import Logging
 import ServiceLifecycle
@@ -35,20 +34,6 @@ struct ArcAgentWebUI: AsyncParsableCommand {
     /// framework emits.
     static func themeAttrs(_ theme: (scheme: String, mode: String)) -> String {
         "data-scheme=\"\(esc(theme.scheme))\" data-theme=\"\(esc(theme.mode))\""
-    }
-
-    /// A url that changes when the bytes do: `/ui/style.css?v=<sha256 prefix>`.
-    ///
-    /// The hand-maintained `?v=47` counter was both forgettable and pointless: the assets
-    /// were registered bare and served `no-store`, so the query was a cache key for a
-    /// response that never cached, and the 250 kb sheet was re-fetched on every navigation.
-    /// Deriving the stamp from the content means a rebuild changes the url by construction,
-    /// which is what makes a year-long cache safe: unchanged bytes keep their url, changed
-    /// bytes cannot be served under the old one.
-    static func stamped(_ path: String, _ content: String) -> String {
-        let digest = SHA256.hash(data: Data(content.utf8))
-        let stamp = digest.map { String(format: "%02x", $0) }.joined().prefix(12)
-        return "\(path)?v=\(stamp)"
     }
 
     func run() async throws {
@@ -173,9 +158,9 @@ struct ArcAgentWebUI: AsyncParsableCommand {
                 contentSecurityPolicyExtras: "img-src 'self' data: https: blob:"
             )
         }
-        // The overlay's url is stamped from its bytes, which only exist after the literal
-        // below — so the factory takes the path as an argument rather than capturing a
-        // variable out of order, and every call site passes the stamped value.
+        // The overlay's url is derived from its bytes, which only exist after the literal
+        // below — so the factory takes the url as an argument rather than capturing a
+        // variable out of order, and every call site passes `overlay.url`.
         let pageProvider: @Sendable (String?, String) async -> String = { [app] deepLink, initPath in
             if let sid = deepLink, !sid.isEmpty {
                 await app.openDeepLink(sid)
@@ -1028,12 +1013,16 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         """
 
         // The overlay's content-derived url, now that its bytes exist.
-        let initPath = Self.stamped("/ui/init.js", initJS)
+        let overlay = WebUIAsset(
+            path: "/ui/init.js",
+            text: initJS,
+            contentType: "text/javascript; charset=utf-8"
+        )
 
         let server = WebUIServer(
             requestRender: { request in
                 // ?s=<id> opens that conversation directly (copy-link flow).
-                await pageProvider(request.value("s"), initPath)
+                await pageProvider(request.value("s"), overlay.url)
             },
             router: router,
             config: WebUIServerConfig(
@@ -1046,7 +1035,7 @@ struct ArcAgentWebUI: AsyncParsableCommand {
                 // served from a year-long cache under the old one.
                 assets: [
                     sheet.registration,
-                    .text("/ui/init.js", initJS, contentType: "text/javascript; charset=utf-8", cacheSeconds: 31_536_000),
+                    overlay.registration,
                 ]
             ),
             logger: logger
@@ -1062,7 +1051,7 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         let bootPageBytes = makeDocument(
             await app.appShell(),
             Self.themeAttrs(await app.themeDefaults()),
-            initPath
+            overlay.url
         ).render().utf8.count
         logger.info("serving http://\(host):\(port) (page \(bootPageBytes) bytes)")
         await app.startCronEngine()
