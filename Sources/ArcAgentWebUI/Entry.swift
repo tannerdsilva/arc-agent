@@ -4,6 +4,7 @@ import Foundation
 import Logging
 import ServiceLifecycle
 import WebUI
+import WebUIDesignSystem
 import WebUIServer
 
 // MARK: - Entry point
@@ -34,6 +35,44 @@ struct ArcAgentWebUI: AsyncParsableCommand {
     /// framework emits.
     static func themeAttrs(_ theme: (scheme: String, mode: String)) -> String {
         "data-scheme=\"\(esc(theme.scheme))\" data-theme=\"\(esc(theme.mode))\""
+    }
+
+    /// The page template: the framework's component sheet links FIRST, arc's own chrome +
+    /// scheme sheet LAST.
+    ///
+    /// Two parameters, not one, and the order is the contract. `HTMLDocument` emits
+    /// `stylesheetURL:` (the base sheet) before `themeStylesheetURL:`, and its `head:` slot —
+    /// where arc's link used to live — renders *before* both. arc's markup leans on the
+    /// framework's `.icon { width:1em }` base (15 of its rules size an svg's presentation
+    /// only), so the component sheet must be linked; and arc's sheet must follow it, or the
+    /// three colliding `:root` tokens (`--radius-sm/md/lg`) and ten like-named classes
+    /// (`chip`, `kv`, `toast`, …) silently change ownership.
+    static func makeDocument(
+        sheetURL: String,
+        overlayURL: String
+    ) -> @Sendable (String, String) -> WebUI.HTMLDocument {
+        { body, themeAttrs in
+            WebUI.HTMLDocument(
+                title: "ARC Agent",
+                body: body,
+                rawStyles: [],
+                head: """
+                <script src="\(overlayURL)"></script>
+                """,
+                htmlAttributes: themeAttrs,
+                devMode: false,
+                // Extras, not a restated policy: a full policy names no nonce source, and
+                // `HTMLDocument` then suppresses the pre-paint theme prelude rather than
+                // emit an inline script the browser refuses (a stored scheme would flash
+                // on every load). This directive is all arc needs beyond the framework
+                // default — remote images in rendered markdown.
+                contentSecurityPolicyExtras: "img-src 'self' data: https: blob:",
+                // framework components (base sheet, emitted first)…
+                stylesheetURL: DesignSystemAssets.stylesheetURL,
+                // …then arc's chrome + 27 schemes, so its tokens win the collisions
+                themeStylesheetURL: sheetURL
+            )
+        }
     }
 
     func run() async throws {
@@ -139,25 +178,7 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         // The theme attributes belong on `<html>`, not on `#app`: the engine writes them on
         // `documentElement` and the theme is scoped to `:root`. `themeAttrs` is the server's
         // default, which the engine overrides from storage before first paint.
-        let makeDocument: @Sendable (String, String) -> WebUI.HTMLDocument = { body, themeAttrs in
-            WebUI.HTMLDocument(
-                title: "ARC Agent",
-                body: body,
-                rawStyles: [],
-                head: """
-                <link rel="stylesheet" href="\(sheet.url)">
-                <script src="\(overlay.url)"></script>
-                """,
-                htmlAttributes: themeAttrs,
-                devMode: false,
-                // Extras, not a restated policy: a full policy names no nonce source, and
-                // `HTMLDocument` then suppresses the pre-paint theme prelude rather than
-                // emit an inline script the browser refuses (a stored scheme would flash
-                // on every load). This directive is all arc needs beyond the framework
-                // default — remote images in rendered markdown.
-                contentSecurityPolicyExtras: "img-src 'self' data: https: blob:"
-            )
-        }
+        let makeDocument = Self.makeDocument(sheetURL: sheet.url, overlayURL: overlay.url)
         let pageProvider: @Sendable (String?) async -> String = { [app] deepLink in
             if let sid = deepLink, !sid.isEmpty {
                 await app.openDeepLink(sid)
