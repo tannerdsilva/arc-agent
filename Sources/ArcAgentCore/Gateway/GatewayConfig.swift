@@ -328,15 +328,16 @@ public struct APIGatewayConfig: Sendable {
 /// The daemon's Web UI surface (no-webui's `WebUIServer` + `ArcWebUI`).
 ///
 /// Config lives in `gateway.json` under the `webui` key; environment overrides:
-/// `WEBUI_ENABLED`, `WEBUI_HOST`, `WEBUI_PORT`. The surface is enabled by
-/// default on loopback:8890 — the daemon is the only UI host (the standalone
-/// `arc-agent-webui` binary is a shim until phase 3 retires it).
+/// `WEBUI_ENABLED`, `WEBUI_HOST`, `WEBUI_PORT`, and `--webui/--no-webui` on
+/// `arc serve` overrides both. Enabled by default on loopback:8890 — the
+/// daemon is the only UI host (the standalone `arc-agent-webui` binary is a
+/// shim until phase 3 retires it).
 public struct WebUIGatewayConfig: Sendable {
     public var enabled: Bool
     public var host: String
     public var port: Int
 
-    public init(enabled: Bool = false, host: String = "127.0.0.1", port: Int = 8890) {
+    public init(enabled: Bool = true, host: String = "127.0.0.1", port: Int = 8890) {
         self.enabled = enabled
         self.host = host
         self.port = port
@@ -350,7 +351,7 @@ public struct WebUIGatewayConfig: Sendable {
         if let raw = env["WEBUI_ENABLED"] {
             self.enabled = Self.truthy(raw)
         } else {
-            self.enabled = d["enabled"] as? Bool ?? false
+            self.enabled = d["enabled"] as? Bool ?? true
         }
     }
 

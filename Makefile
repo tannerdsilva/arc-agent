@@ -47,10 +47,10 @@ install: release
 update: release install
 	@echo "  ✅ Update complete: $(BINARY) v$(VERSION)"
 
-# ── Dev: build debug and run the web UI ───────────────────
+# ── Dev: build debug and run the daemon (API + web UI) ────
 dev: build
-	@echo "  Starting web UI (http://127.0.0.1:8890)..."
-	$(SWIFT) run $(WEBUI)
+	@echo "  Starting the daemon (web UI http://127.0.0.1:8890, API http://127.0.0.1:8080)..."
+	$(SWIFT) run $(BINARY) serve
 
 # ── Test ──────────────────────────────────────────────────
 test:

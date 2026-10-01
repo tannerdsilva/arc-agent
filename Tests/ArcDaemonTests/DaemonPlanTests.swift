@@ -102,10 +102,10 @@ struct DaemonPlanTests {
         #expect(filled.telegram.botToken == "file-tok")
     }
 
-    @Test("the web UI surface follows gateway.json (off by default until the flip)")
-    func webuiDefaultsOff() throws {
+    @Test("the web UI surface is on by default (loopback:8890)")
+    func webuiDefaultsOn() throws {
         let plan = DaemonPlan.resolve(gateway: try loadGateway(), overrides: .init())
-        #expect(plan.webui == nil)
+        #expect(plan.webui == DaemonPlan.Surface(host: "127.0.0.1", port: 8890))
     }
 
     @Test("webui.enabled: true with host and port from the file")
