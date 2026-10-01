@@ -92,7 +92,11 @@ public final class TelegramAdapter: PlatformAdapter {
                 await identify()
             }
             while !Task.isCancelled {
-                try await poll()
+                do {
+                    try await poll()
+                } catch {
+                    logger.warning("telegram poll failed: \(error)")
+                }
                 try await Task.sleep(for: self.pollInterval)
             }
         } onCancel: {

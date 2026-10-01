@@ -980,9 +980,14 @@ public actor ArcAgent: Service {
         } else {
             newMessages = []
         }
-        persistedMessageCount = history.count
         guard !newMessages.isEmpty else { return }
 
+        // The watermark advances only for messages that actually landed.
+        // Advancing it up front would silently drop a slice on a transient
+        // store failure (and, if the initial create fails, orphan the whole
+        // conversation — later appends would target a session that was
+        // never created).
+        var persisted = 0
         do {
             if !sessionCreatedInStore {
                 try await store.create(Session(
@@ -997,10 +1002,16 @@ public actor ArcAgent: Service {
             } else {
                 for message in newMessages {
                     try await store.appendMessage(sessionID: sessionID, message: message)
+                    persisted += 1
                 }
             }
-            logger.info("persisted \(newMessages.count) message(s) to session store")
+            persistedMessageCount = history.count
+            logger.info("persisted \(persisted) message(s) to session store")
         } catch {
+            // Resume where the last successful write left off: the next call
+            // re-attempts only the messages that never landed (no gaps, no
+            // duplicates — the stores do not dedupe).
+            persistedMessageCount += persisted
             logger.error("failed to persist conversation to session store: \(error)")
         }
     }
@@ -1716,6 +1727,16 @@ public actor ArcAgent: Service {
             } catch {
                 let errorClass = classifyError(error)
 
+                // Wall-clock budget exceeded (maxTurnDuration): the stream
+                // lived too long even while making progress. Unlike a stale
+                // stream this is terminal for the turn — reconnecting restarts
+                // the same clock.
+                if error is StreamTotalTimeoutError {
+                    continuation.yield("The model request exceeded the maximum turn duration. Please try again or shorten the context.")
+                    continuation.finish()
+                    return
+                }
+
                 // Stale-stream recovery (reference staleness watchdog with
                 // patience budget + give-up streak): reconnect once per turn,
                 // then give up after the streak threshold.
@@ -2061,8 +2082,14 @@ public actor ArcAgent: Service {
                 await rateLimitTracker.recordSuccess(route: rateLimitRoute())
                 turnRecoveryState.markProviderSuccess()
                 // Apply the per-provider stale watchdog (reference
-                // stream-stale patience budget).
-                return IdleTimeoutStream(stream, idleSeconds: patience)
+                // stream-stale patience budget) and the caller's wall-clock
+                // budget (`timeout`, i.e. maxTurnDuration): a stream that
+                // trickles forever must still be bounded.
+                return IdleTimeoutStream(
+                    stream,
+                    idleSeconds: patience,
+                    totalSeconds: timeout > 0 ? Double(timeout) : nil
+                )
             } catch {
                 lastError = error
                 let errorClass = classifyError(error)
@@ -2368,6 +2395,14 @@ public actor ArcAgent: Service {
     }
 
     // MARK: - Tool Dispatch
+
+    /// Tools that can execute arbitrary code or shell commands. These are the
+    /// tools the approval manager gates: a manual/smart approval policy is
+    /// meaningless if a process-execution path can sidestep it entirely.
+    /// (Read-only tools deliberately stay ungated.)
+    static func requiresApprovalForTool(named name: String) -> Bool {
+        name == "terminal" || name == "execute_code"
+    }
 
     /// Tools that are safe to run concurrently within one batch: read-only,
     /// no shared mutable state, no side effects observable by a sibling call.
@@ -2708,12 +2743,14 @@ public actor ArcAgent: Service {
     /// Run one tool call end to end: terminal approval gate, dispatch, and
     /// metrics. Returns the string that becomes the tool result message.
     private func runToolCall(_ toolCall: ToolCall) async -> String {
-        if toolCall.function.name == "terminal" {
+        if Self.requiresApprovalForTool(named: toolCall.function.name) {
             let args = toolCall.function.arguments
             if await approvalManager.needsApproval(command: args, sessionKey: sessionID) {
                 switch await approvalManager.requestApproval(
                     command: args,
-                    description: "Execute shell command",
+                    description: toolCall.function.name == "terminal"
+                        ? "Execute shell command"
+                        : "Execute Python code",
                     sessionKey: sessionID
                 ) {
                 case .denied:

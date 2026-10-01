@@ -87,6 +87,22 @@ public enum StaleStreamError: Error, CustomStringConvertible, Equatable {
     }
 }
 
+/// `IdleTimeoutStream`'s wall-clock companion: the *total* lifetime budget.
+/// Unlike ``StaleStreamError`` (which measures silence between deltas), this
+/// fires even when the provider is steadily trickling data, bounding a turn
+/// that would otherwise run until one response completes.
+public struct StreamTotalTimeoutError: Error, CustomStringConvertible, Equatable {
+    public let seconds: Double
+
+    public init(seconds: Double) {
+        self.seconds = seconds
+    }
+
+    public var description: String {
+        "Stream exceeded its \(seconds)s total duration budget"
+    }
+}
+
 /// Single-consumer holder for a non-Sendable iterator: the idle-race hands
 /// the iterator to exactly one task (the waiter), which is the only mutation
 /// site, and the holder is safely closed over by the `@Sendable` race
@@ -97,30 +113,48 @@ private final class IteratorBox<T>: @unchecked Sendable {
 }
 
 /// AsyncSequence wrapper enforcing an idle (inter-delta) patience budget on
-/// any element stream. A single producer task drains `base` and presents
-/// elements on an internal stream; each `next()` on the base is raced against
-/// an idle deadline that restarts per element. If the deadline wins, the
-/// stream terminates with `StaleStreamError.idleTimeout`. Law-compliant:
+/// any element stream, plus an optional wall-clock ``totalSeconds`` budget. A
+/// single producer task drains `base` and presents elements on an internal
+/// stream; each `next()` on the base is raced against a deadline that
+/// restarts per element (idle budget) and bounded by the remaining total
+/// budget. If a deadline wins, the stream terminates with
+/// `StaleStreamError.idleTimeout` or ``StreamTotalTimeoutError``. Law-compliant:
 /// races via `withThrowingTaskGroup`, one task owns the iterator.
 public struct IdleTimeoutStream<Base: AsyncSequence>: AsyncSequence where Base: Sendable, Base.Element: Sendable {
     public typealias Element = Base.Element
     let base: Base
     let idleSeconds: Double
+    let totalSeconds: Double?
 
-    public init(_ base: Base, idleSeconds: Double) {
+    public init(_ base: Base, idleSeconds: Double, totalSeconds: Double? = nil) {
         self.base = base
         self.idleSeconds = idleSeconds
+        self.totalSeconds = totalSeconds
     }
 
     public func makeAsyncIterator() -> Iterator {
         let inner = AsyncThrowingStream<Element, Error> { continuation in
             let box = IteratorBox(base.makeAsyncIterator())
             let idle = idleSeconds
+            let total = totalSeconds
+            let start = Date()
             Task {
                 do {
                     while true {
+                        var deadline = idle
+                        var useTotalKind = false
+                        if let total {
+                            let elapsed = Date().timeIntervalSince(start)
+                            let remaining = total - elapsed
+                            if remaining <= 0 {
+                                throw StreamTotalTimeoutError(seconds: total)
+                            }
+                            deadline = Swift.min(idle, remaining)
+                            useTotalKind = remaining <= idle
+                        }
                         let element: Element? = try await Self.wait(
-                            timeout: idle,
+                            timeout: deadline,
+                            kind: useTotalKind ? .total : .idle,
                             operation: { try await box.value.next() }
                         )
                         guard let element else { break }
@@ -135,19 +169,41 @@ public struct IdleTimeoutStream<Base: AsyncSequence>: AsyncSequence where Base: 
         return Iterator(inner: inner.makeAsyncIterator(), stream: inner)
     }
 
-    /// Race `operation` against an idle deadline (reference stale watchdog).
-    static func wait<T: Sendable>(timeout: Double, operation: @escaping @Sendable () async throws -> T?) async throws -> T? {
+    /// What a deadline represents — determines which error a timed-out wait
+    /// raises (``StaleStreamError`` for silence, ``StreamTotalTimeoutError``
+    /// for the wall-clock budget).
+    enum DeadlineKind {
+        case idle
+        case total
+    }
+
+    /// Race `operation` against a deadline (reference stale watchdog).
+    static func wait<T: Sendable>(
+        timeout: Double,
+        kind: DeadlineKind = .idle,
+        operation: @escaping @Sendable () async throws -> T?
+    ) async throws -> T? {
         if timeout <= 0 { return try await operation() }
         return try await withThrowingTaskGroup(of: T?.self) { group in
             group.addTask { try await operation() }
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                throw StaleStreamError.idleTimeout(seconds: timeout)
+                switch kind {
+                case .idle:
+                    throw StaleStreamError.idleTimeout(seconds: timeout)
+                case .total:
+                    throw StreamTotalTimeoutError(seconds: timeout)
+                }
             }
             let first = try await group.next()
             group.cancelAll()
             guard let value = first else {
-                throw StaleStreamError.idleTimeout(seconds: timeout)
+                switch kind {
+                case .idle:
+                    throw StaleStreamError.idleTimeout(seconds: timeout)
+                case .total:
+                    throw StreamTotalTimeoutError(seconds: timeout)
+                }
             }
             return value
         }
