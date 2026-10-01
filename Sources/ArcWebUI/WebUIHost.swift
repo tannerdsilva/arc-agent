@@ -191,7 +191,8 @@ public struct WebUIHost: Service {
             AppShell.themeAttrs(await app.themeDefaults())
         ).render().utf8.count
         logger.info("serving http://\(host):\(port) (page \(bootPageBytes) bytes)")
-        await app.startCronEngine()
+        // no cron engine here: the daemon owns the one scheduler and calls
+        // back into this host's `runScheduledJob` for job execution.
 
         // Live log stream: drain the ring buffer and push the log box to
         // connected clients while the server runs.

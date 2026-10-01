@@ -404,9 +404,9 @@ extension AppState {
         let tasksCls = todosTab == .tasks ? " todo-tab-active" : ""
         let queueCls = todosTab == .queue ? " todo-tab-active" : ""
         return """
-        <div class="todo-tabs">
-          <button type="button" id="queue-tab-tasks" data-component-id="queue" data-event="click" class="todo-tab\(tasksCls)">Tasks</button>
-          <button type="button" id="queue-tab-queue" data-component-id="queue" data-event="click" class="todo-tab\(queueCls)">Run queue</button>
+        <div class="todo-tabs" data-component-id="queue" data-event="click">
+          <button type="button" id="queue-tab-tasks" class="todo-tab\(tasksCls)">Tasks</button>
+          <button type="button" id="queue-tab-queue" class="todo-tab\(queueCls)">Run queue</button>
           <span class="todo-tabs-count">\(settings.queuePlan.count) queued</span>
         </div>
         """
@@ -447,9 +447,9 @@ extension AppState {
             <div class="queue-text">\(esc(todo?.text ?? "⚠︎ todo no longer exists"))</div>
             <div class="queue-meta">\(esc(queueChatLabel(e.chatID))) · \(inputsChips)</div>
           </div>
-          <button type="button" id="queue-inputs-\(e.id)" data-component-id="queue" data-event="click" class="icon-mini queue-link-btn" title="Feed earlier task output into this task">\(WebUIIcon(.link, size: .small).render())</button>
+          <button type="button" id="queue-inputs-\(e.id)" class="icon-mini queue-link-btn" title="Feed earlier task output into this task">\(WebUIIcon(.link, size: .small).render())</button>
           <span class="queue-status\(statusCls)">\(esc(statusText))</span>
-          <button type="button" id="queue-del-\(e.id)" data-component-id="queue" data-event="click" class="icon-mini danger" title="Remove from queue">\(WebUIIcon(.x, size: .small).render())</button>
+          <button type="button" id="queue-del-\(e.id)" class="icon-mini danger" title="Remove from queue">\(WebUIIcon(.x, size: .small).render())</button>
         </div>
         \(linkPop)
         """
@@ -482,8 +482,8 @@ extension AppState {
           \(body)
           \(note)
           <div class="queue-link-actions">
-            <button type="button" id="queue-link-apply" data-component-id="queue" data-event="click" class="primary-btn">Apply</button>
-            <button type="button" id="queue-link-clear" data-component-id="queue" data-event="click" class="ghost-btn">Clear</button>
+            <button type="button" id="queue-link-apply" class="primary-btn">Apply</button>
+            <button type="button" id="queue-link-clear" class="ghost-btn">Clear</button>
           </div>
         </div>
         """
@@ -514,11 +514,11 @@ extension AppState {
         <div class="queue-picker">
           <div class="queue-picker-head">
             <span>Add todos from your chats</span>
-            <button type="button" id="queue-picker-close" data-component-id="queue" data-event="click" class="icon-mini">\(WebUIIcon(.x, size: .small).render())</button>
+            <button type="button" id="queue-picker-close" class="icon-mini">\(WebUIIcon(.x, size: .small).render())</button>
           </div>
           \(body)
           <div class="queue-picker-foot">
-            <button type="button" id="queue-picker-add" data-component-id="queue" data-event="click" class="primary-btn">Add \(count) selected</button>
+            <button type="button" id="queue-picker-add" class="primary-btn">Add \(count) selected</button>
           </div>
         </div>
         """
@@ -545,7 +545,7 @@ extension AppState {
                 passText = " · pass \(queueLoopPass)/\(max(1, settings.queueLoopCount))"
             }
             runBtns = "<span class='queue-running'><span class='queue-running-dot'></span>Running…\(esc(passText))</span>"
-            runBtns += "<button type=\"button\" id=\"queue-stop\" data-component-id=\"queue\" data-event=\"click\" class=\"queue-stop-btn\" title=\"Stop the queue run; prompts already running in chats keep going\">Stop</button>"
+            runBtns += "<button type=\"button\" id=\"queue-stop\" class=\"queue-stop-btn\" title=\"Stop the queue run; prompts already running in chats keep going\">Stop</button>"
         } else {
             let checked = loopOn ? " checked" : ""
             let countField = loopOn ? """
@@ -556,13 +556,13 @@ extension AppState {
             """ : ""
             runBtns = """
             <div class="queue-ctrl-btns">
-              <button type="button" id="queue-run-sync" data-component-id="queue" data-event="click" class="queue-run-btn" title="Run tasks in the shown order; linked tasks receive earlier output as context">
+              <button type="button" id="queue-run-sync" class="queue-run-btn" title="Run tasks in the shown order; linked tasks receive earlier output as context">
                 <span class="queue-run-ico">\(WebUIIcon(.play, size: .small).render())</span>Run sequential
               </button>
-              <button type="button" id="queue-run-async" data-component-id="queue" data-event="click" class="queue-run-btn" title="Run each chat at the same time; same-chat tasks are combined">
+              <button type="button" id="queue-run-async" class="queue-run-btn" title="Run each chat at the same time; same-chat tasks are combined">
                 <span class="queue-run-ico">\(WebUIIcon(.fastForward, size: .small).render())</span>Run parallel
               </button>
-              <button type="button" id="queue-picker-toggle" data-component-id="queue" data-event="click" class="queue-add-btn">\(WebUIIcon(.plus, size: .small).render()) Add tasks</button>
+              <button type="button" id="queue-picker-toggle" class="queue-add-btn">\(WebUIIcon(.plus, size: .small).render()) Add tasks</button>
             </div>
             <div class="queue-loop-row">
               <label class="queue-loop-toggle" title="Repeat the sequential run; linked later tasks feed back on the next pass">
@@ -574,7 +574,7 @@ extension AppState {
             """
         }
         return """
-        <div class="todo-card queue-card">
+        <div class="todo-card queue-card" data-component-id="queue" data-event="click">
           <div class="todo-head">
             <div>
               <h2 class="todo-title">Run queue</h2>
@@ -587,7 +587,7 @@ extension AppState {
             \(rows)
           </div>
           \(picker)
-          <button type="button" id="queue-reorder" data-component-id="queue" data-event="click" class="queue-hidden-btn">reorder</button>
+          <button type="button" id="queue-reorder" class="queue-hidden-btn">reorder</button>
         </div>
         """
     }

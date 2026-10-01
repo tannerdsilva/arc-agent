@@ -257,6 +257,8 @@ let package = Package(
             dependencies: [
                 .target(name: "ArcWebUI"),
                 .target(name: "ArcTheme"),
+                // the cron-store migration test constructs a FileCronStore.
+                .target(name: "ArcAgentCore"),
                 // the minifier the emitted sheet goes through: the drift test compares the
                 // product against `minifyCSS(source)`.
                 .product(name: "WebUICore", package: "no-webui"),

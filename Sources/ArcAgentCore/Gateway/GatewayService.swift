@@ -42,10 +42,10 @@ public struct GatewayService: Service {
     /// Chat→session binding (reference `session_router` parity): resolves every
     /// incoming chat to its deterministic session ID.
     private let sessionRouter: SessionRouter
-    /// Scheduled job runner (reference `cron` service parity): registered as a
-    /// Service; the injected runner executes each due job as a one-shot agent
-    /// session.
-    private let cronScheduler: CronScheduler
+    /// The cron job runner (reference `cron` service parity): executes a due
+    /// job as a one-shot agent session. The daemon owns the scheduler itself
+    /// (`ArcDaemon`) and picks this runner when the web UI is not hosted.
+    public let cronRunner: @Sendable (CronJob) async throws -> String
 
     public init(
         host: String = "127.0.0.1",
@@ -165,30 +165,26 @@ public struct GatewayService: Service {
 
         // Cron execution harness: each due job becomes a one-shot agent
         // session under the default profile; the first response lands in
-        // the job's `lastOutput` (capped by the scheduler).
-        let cron = CronScheduler(
-            store: RuntimeCronStore(),
-            pollIntervalSeconds: 30,
-            jobRunner: { job in
-                let sessionID = "cron-\(job.id)"
-                let handle = await reg.getOrCreate(sessionID: sessionID, profile: "default")
-                let incoming = IncomingMessage(
-                    id: UUID().uuidString,
-                    chat: ChatTarget(platform: "cron", chatID: job.id),
-                    text: job.prompt,
-                    senderID: "cron"
-                )
-                handle.inputContinuation.yield(incoming)
-                var output = ""
-                for await response in handle.responses {
-                    output = response
-                    break // First response is the job result.
-                }
-                await reg.remove(sessionID: sessionID)
-                return output.isEmpty ? "Job processed (no response)." : output
+        // the job's `lastOutput` (capped by the scheduler, which the daemon
+        // owns — this closure is its runner when the web UI is not hosted).
+        self.cronRunner = { job in
+            let sessionID = "cron-\(job.id)"
+            let handle = await reg.getOrCreate(sessionID: sessionID, profile: "default")
+            let incoming = IncomingMessage(
+                id: UUID().uuidString,
+                chat: ChatTarget(platform: "cron", chatID: job.id),
+                text: job.prompt,
+                senderID: "cron"
+            )
+            handle.inputContinuation.yield(incoming)
+            var output = ""
+            for await response in handle.responses {
+                output = response
+                break // First response is the job result.
             }
-        )
-        self.cronScheduler = cron
+            await reg.remove(sessionID: sessionID)
+            return output.isEmpty ? "Job processed (no response)." : output
+        }
     }
 
     // MARK: - Service
@@ -196,7 +192,7 @@ public struct GatewayService: Service {
     public func run() async throws {
         logger.info("Starting ARC Agent Gateway (Bot Mode)...")
 
-        var services: [any Service] = [httpServer, botMessaging, cronScheduler]
+        var services: [any Service] = [httpServer, botMessaging]
 
         // Register adapters for delivery, then ingest their messages into
         // sessions — routing each chat to the profile its route table

@@ -23,7 +23,11 @@ public enum AgentPowers {
     public static var memoriesDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".arc/memories")
 
-    /// Install the gate from configuration. Called by ``ArcAgent`` at init.
+    /// Install the gate from configuration. Installed once at startup by
+    /// ``ArcDaemon`` (the daemon's agents, the CLI's agent and a hosted web UI
+    /// all consult this one gate); ``ArcAgent`` re-asserts only a
+    /// *non-default* config so a plainly-constructed agent never clobbers a
+    /// lockdown; the web UI's toggles are the live writer.
     public static func configure(_ config: AgentPowersConfig) {
         self.config = config
     }

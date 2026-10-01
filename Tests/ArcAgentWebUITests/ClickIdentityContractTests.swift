@@ -163,11 +163,13 @@ struct ClickIdentityContractTests {
         let files = Self.sourceFiles()
         #expect(!files.isEmpty, "no web-UI sources were found — the scan is broken, not the markup")
 
-        let actions = try #require(
-            files.first { $0.name == "Actions.swift" }?.text,
-            "Actions.swift holds the wire registrations"
-        )
-        let identityWires = Self.wireRegistrations(in: Self.clientText(actions))
+        // wires live in every source file (Actions, NewFeatures, Queue, …):
+        // scanning one file is how the tasks panel's dead controls slipped
+        // through — its `tasks` wire is registered in NewFeatures. Extraction
+        // is per file: a wire's body runs to the next registration, and a
+        // cross-file concatenation would bleed one file's wires into another's.
+        let identityWires = files
+            .flatMap { Self.wireRegistrations(in: Self.clientText($0.text)) }
             .filter { $0.body.contains("\"click\"") && $0.body.contains("targetId") }
             .map(\.id)
         #expect(
@@ -183,6 +185,10 @@ struct ClickIdentityContractTests {
                       identityWires.contains(component),
                       Self.attribute("id", in: tag) != nil
                 else { continue }
+                // a control that declares only `change` is not click-addressed:
+                // its boundary owns the change event and identity rides `value`
+                // (the change-wire rule pins that separately).
+                if Self.attribute("data-event", in: tag) == "change" { continue }
                 offenders.append("\(file.name): \(tag.prefix(140))")
             }
         }
@@ -203,8 +209,8 @@ struct ClickIdentityContractTests {
     @Test("no helper-built control carries a boundary whose wire dispatches on targetId")
     func helperControlsDoNotOwnTheirBoundary() throws {
         let files = Self.sourceFiles()
-        let actions = try #require(files.first { $0.name == "Actions.swift" }?.text)
-        let identityWires = Self.wireRegistrations(in: Self.clientText(actions))
+        let identityWires = files
+            .flatMap { Self.wireRegistrations(in: Self.clientText($0.text)) }
             .filter { $0.body.contains("\"click\"") && $0.body.contains("targetId") }
             .map(\.id)
         #expect(!identityWires.isEmpty, "no targetId-dispatching click wires were found — the scan is broken")
@@ -253,11 +259,9 @@ struct ClickIdentityContractTests {
 
     @Test("change wires that dispatch on row identity read the value channel")
     func changeWiresUseTheValueChannel() throws {
-        let actions = try #require(
-            Self.sourceFiles().first { $0.name == "Actions.swift" }?.text,
-            "Actions.swift holds the wire registrations"
-        )
-        let identityChangeWires = Self.wireRegistrations(in: Self.clientText(actions))
+        let files = Self.sourceFiles()
+        let identityChangeWires = files
+            .flatMap { Self.wireRegistrations(in: Self.clientText($0.text)) }
             .filter { $0.body.contains("\"change\"") && $0.body.contains("targetId") }
         #expect(
             !identityChangeWires.isEmpty,

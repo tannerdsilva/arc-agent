@@ -107,42 +107,13 @@ extension AppState {
         saveSettings()
     }
 
-    // MARK: Cron engine
+    // MARK: Cron (store-backed)
 
-    /// Start the recurring tick that fires due scheduled jobs. One structured
-    /// Task owned by the actor; cancel via stopCronEngine().
-    func startCronEngine() {
-        guard cronTask == nil else { return }
-        cronTask = Task { [weak self] in
-            while !Task.isCancelled {
-                await self?.cronTick()
-                try? await Task.sleep(nanoseconds: 15_000_000_000)
-            }
-        }
-    }
-
-    func stopCronEngine() {
-        cronTask?.cancel()
-        cronTask = nil
-    }
-
-    /// Fire every scheduled job whose `nextRunAt` is due (or never set).
-    func cronTick() async {
-        let now = Date()
-        var fired: [CronJob] = []
-        for job in settings.scheduledJobs where job.isActive {
-            let due: Bool
-            if let next = job.nextRunAt {
-                due = next <= now
-            } else {
-                due = true
-            }
-            if due { fired.append(job) }
-        }
-        for job in fired {
-            await runScheduledJob(job, now: now)
-        }
-    }
+    // The scheduling engine lives in the daemon (`CronScheduler` over
+    // `RuntimeCronStore` — ONE engine, ONE store). This view keeps a render
+    // cache (`scheduledJobs`) that `refreshScheduledJobs()` reloads from the
+    // store; the CRUD below writes through to the store, and execution comes
+    // back through `runScheduledJob` via the daemon's cron runner.
 
     /// Run one scheduled job fully headless: the agent turn is executed with
     /// the scheduled prompt in a per-job session, tools allowed, with smart
@@ -170,7 +141,7 @@ extension AppState {
 
         guard let preset = settings.modelConfig(named: configName(for: sid)),
               let client = makeClient(for: preset) else {
-            updateJob(job.id) { $0.lastOutput = "Error: no model configuration" }
+            // the caller (Run-now or the daemon scheduler) records lastOutput
             return "Error: no model configuration"
         }
 
@@ -211,13 +182,9 @@ extension AppState {
         let asstMsg = Message(role: .assistant, content: finalText, createdAt: Date())
         history.append(asstMsg)
         await persistMessage(asstMsg, sessionID: sid, store: store)
-        updateJob(job.id) {
-            $0.lastRunAt = now
-            $0.runCount += 1
-            $0.lastOutput = trunc(finalText, 240)
-            let next = CronNext(expression: $0.schedule, from: now)
-            $0.nextRunAt = next
-        }
+        // Job bookkeeping is the caller's: the daemon's scheduler records
+        // lastRunAt/runCount/lastOutput/nextRunAt, and Run-now does the same
+        // through `updateJob`.
         // Never yank the user's active chat: the job's session belongs to the
         // scheduled-tasks area, not the main chat list.
         await reloadSessions(selecting: nil)
@@ -230,13 +197,16 @@ extension AppState {
 
     func jobSessionID(_ job: CronJob) -> String { "Cron-\(job.id)" }
 
-    private func updateJob(_ id: String, _ mutate: (inout CronJob) -> Void) {
-        guard let i = settings.scheduledJobs.firstIndex(where: { $0.id == id }) else { return }
-        mutate(&settings.scheduledJobs[i])
-        saveSettings()
+    /// Persist a job mutation through the cron store (the single source of
+    /// truth) and refresh the render cache.
+    private func updateJob(_ id: String, _ mutate: (inout CronJob) -> Void) async {
+        guard var job = settings.scheduledJobs.first(where: { $0.id == id }) else { return }
+        mutate(&job)
+        try? await cronStore.save(job)
+        await refreshScheduledJobs()
     }
 
-    func addJob(name: String, schedule: String, prompt: String, firstRun: Date? = nil) {
+    func addJob(name: String, schedule: String, prompt: String, firstRun: Date? = nil) async {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let s = schedule.trimmingCharacters(in: .whitespacesAndNewlines)
         let p = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -246,13 +216,13 @@ extension AppState {
         // interval tick); subsequent runs are computed from the schedule.
         job.nextRunAt = firstRun ?? CronNext(expression: job.schedule, from: Date())
         job.lastOutput = nil
-        settings.scheduledJobs.append(job)
-        saveSettings()
+        try? await cronStore.save(job)
+        await refreshScheduledJobs()
     }
 
-    func removeJob(_ id: String) {
-        settings.scheduledJobs.removeAll { $0.id == id }
-        saveSettings()
+    func removeJob(_ id: String) async {
+        try? await cronStore.delete(id: id)
+        await refreshScheduledJobs()
     }
 
     /// Delete a scheduled task AND its chat session (the chat is owned by the
@@ -260,9 +230,9 @@ extension AppState {
     func deleteJob(_ id: String) async {
         guard let job = settings.scheduledJobs.first(where: { $0.id == id }) else { return }
         let sid = jobSessionID(job)
-        settings.scheduledJobs.removeAll { $0.id == id }
+        try? await cronStore.delete(id: id)
         if tasksSelectedID == id { tasksSelectedID = nil }
-        saveSettings()
+        await refreshScheduledJobs()
         await confirmDeleteSession(sid)
         // confirmDeleteSession doesn't touch custom titles; drop the task's own
         // chat title so nothing lingers after the task is gone.
@@ -279,8 +249,8 @@ extension AppState {
         }
     }
 
-    func toggleJob(_ id: String) {
-        updateJob(id) { job in
+    func toggleJob(_ id: String) async {
+        await updateJob(id) { job in
             job.isActive.toggle()
             if job.isActive {
                 // Start = begin at the next start time (now + interval), then
@@ -292,9 +262,17 @@ extension AppState {
         }
     }
 
-    func runJobNow(_ id: String) {
+    func runJobNow(_ id: String) async {
         guard let job = settings.scheduledJobs.first(where: { $0.id == id }) else { return }
-        Task { await self.runScheduledJob(job) }
+        let text = await runScheduledJob(job)
+        await updateJob(id) { j in
+            j.lastRunAt = Date()
+            j.runCount += 1
+            j.lastOutput = trunc(text, 240)
+            if let next = CronNext(expression: j.schedule, from: Date()) {
+                j.nextRunAt = next
+            }
+        }
     }
 }
 
@@ -359,14 +337,14 @@ extension AppState {
         for t in items {
             rows.append("""
             <div class="todo-row\(t.done ? " done" : "")" data-tid="\(t.id)">
-              <button type="button" id="todo-toggle-\(t.id)" data-component-id="todos" class="todo-check" title="\(t.done ? "Mark not done" : "Mark done")" aria-label="Toggle">
+              <button type="button" id="todo-toggle-\(t.id)" class="todo-check" title="\(t.done ? "Mark not done" : "Mark done")" aria-label="Toggle">
                 \(WebUIIcon(.check, size: .small).render())
               </button>
               <span class="todo-text">\(esc(t.text))</span>
-              <button type="button" id="todo-run-\(t.id)" data-component-id="todos" class="todo-run" title="Run in chat" aria-label="Run in chat">
+              <button type="button" id="todo-run-\(t.id)" class="todo-run" title="Run in chat" aria-label="Run in chat">
                 \(WebUIIcon(.play, size: .small).render())
               </button>
-              <button type="button" id="todo-del-\(t.id)" data-component-id="todos" class="todo-x" title="Remove" aria-label="Remove">
+              <button type="button" id="todo-del-\(t.id)" class="todo-x" title="Remove" aria-label="Remove">
                 \(WebUIIcon(.x, size: .small).render())
               </button>
             </div>
@@ -390,10 +368,10 @@ extension AppState {
             </div>
             """ : ""
         let clearBtn = done > 0
-            ? btn("todo-clear-done", "todos", "ghost-btn", "Clear done (\(done))", " title=\"Remove completed todos\"")
+            ? btn("todo-clear-done", "", "ghost-btn", "Clear done (\(done))", " title=\"Remove completed todos\"")
             : ""
         return """
-        <div class="todo-card">
+        <div class="todo-card" data-component-id="todos" data-event="click">
           <div class="todo-head">
             <div>
               <h2 class="todo-title">Todos</h2>
@@ -401,7 +379,7 @@ extension AppState {
               </div>
               <div class="todo-head-actions">
                 \(clearBtn)
-                <button type="button" id="todo-run-all" data-component-id="todos" class="todo-runall" title="Run all open todos in chat" aria-label="Run all open todos in chat">
+                <button type="button" id="todo-run-all" class="todo-runall" title="Run all open todos in chat" aria-label="Run all open todos in chat">
                   <span class="todo-runall-ico">\(WebUIIcon(.fastForward, size: .small).render())</span>Run all
                 </button>
                 <span class="todo-pill">\(pending) open</span>
@@ -413,7 +391,7 @@ extension AppState {
             </div>
             <div class="todo-foot">
               <form id="todo-add-form" data-component-id="todos" class="todo-add">
-                <input type="text" id="todo-add-text" data-component-id="todos" data-no-restore name="todo-text" placeholder="Add a todo for this chat…" autocomplete="off">
+                <input type="text" id="todo-add-text" data-no-restore name="todo-text" placeholder="Add a todo for this chat…" autocomplete="off">
                 <button type="submit" class="primary-btn">Add</button>
               </form>
             </div>
@@ -423,9 +401,12 @@ extension AppState {
 
     /// Scheduled Tasks page — left panel: one chat row per scheduled task.
     func tasksPanel() -> String {
-        let newBtn = btn("task-new", "tasks", "plus-btn", WebUIIcon(.plus, size: .medium).render(), " title=\"New scheduled task\"")
+        // the boundary lives on the containers; the controls keep only ids, or
+        // the engine never reports them (id + data-component-id on one element
+        // is a dead control — the click identity contract).
+        let newBtn = btn("task-new", "", "plus-btn", WebUIIcon(.plus, size: .medium).render(), " title=\"New scheduled task\"")
         let head = """
-        <div class="panel-head">
+        <div class="panel-head" data-component-id="tasks" data-event="click">
           <span class="panel-title">Scheduled Tasks</span>
           <div class="panel-actions">\(newBtn)</div>
         </div>
@@ -433,7 +414,7 @@ extension AppState {
         let rows = settings.scheduledJobs.map { taskRowHTML($0) }.joined()
         let body = rows.isEmpty
             ? "<div class=\"panel-note\">No scheduled tasks yet. Create one to run a prompt on a schedule — each task gets its own chat (kept out of the main chat list).</div>"
-            : "<div class=\"task-list\">\(rows)</div>"
+            : "<div class=\"task-list\" data-component-id=\"tasks\" data-event=\"click\">\(rows)</div>"
         return head + "<div class=\"panel-body\">\(body)</div>"
     }
 
@@ -443,7 +424,7 @@ extension AppState {
         let next = j.nextRunAt.map { fmtRel($0) } ?? "—"
         let runs = j.runCount > 0 ? " · \(j.runCount) run\(j.runCount == 1 ? "" : "s")" : ""
         return """
-        <button type="button" id="task-open-\(j.id)" data-component-id="tasks" class="task-row\(active)">
+        <button type="button" id="task-open-\(j.id)" class="task-row\(active)">
           <span class="task-dot\(dot)">●</span>
           <span class="task-ri">
             <span class="task-rname">\(esc(j.name))</span>
@@ -475,10 +456,10 @@ extension AppState {
               <div class="task-ctrl-name">\(esc(job.name)) <span class="task-status \(statusCls)">\(status)</span></div>
               <div class="task-ctrl-meta">\(esc(job.schedule)) · next \(esc(next)) · last \(esc(last)) · \(job.runCount) run\(job.runCount == 1 ? "" : "s")</div>
             </div>
-            <div class="row-actions-main" style="margin:0">
-              <button type="button" id="task-toggle-\(job.id)" data-component-id="tasks" class="ghost-btn">\(toggleLabel)</button>
-              <button type="button" id="task-now-\(job.id)" data-component-id="tasks" class="ghost-btn">Run now</button>
-              <button type="button" id="task-del-\(job.id)" data-component-id="tasks" class="icon-mini danger" title="Delete task and its chat">\(WebUIIcon(.x, size: .small).render())</button>
+            <div class="row-actions-main" style="margin:0" data-component-id="tasks" data-event="click">
+              <button type="button" id="task-toggle-\(job.id)" class="ghost-btn">\(toggleLabel)</button>
+              <button type="button" id="task-now-\(job.id)" class="ghost-btn">Run now</button>
+              <button type="button" id="task-del-\(job.id)" class="icon-mini danger" title="Delete task and its chat">\(WebUIIcon(.x, size: .small).render())</button>
             </div>
           </div>
           <div class="task-ctrl-line"><span class="task-ctrl-key">Prompt</span><span class="task-ctrl-val">\(esc(job.prompt))</span></div>

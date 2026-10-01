@@ -17,6 +17,10 @@ extension AppState {
         pendingDelete = false
         filePopOpen = false
         confirmDeleteID = nil
+        if v == .tasks {
+            // the panel renders from the store-backed cache; refresh on open.
+            await refreshScheduledJobs()
+        }
         // Materialize the selected scheduled task's chat when opening Tasks so
         // the thread renders (messages are lazily loaded from the store).
         if v == .tasks, let sel = tasksSelectedID,
@@ -1072,6 +1076,8 @@ extension AppState {
         crumb("boot: runtime built, backend=\(runtimeBackend)")
         await reloadAll()
         crumb("boot: reloadAll done")
+        await refreshScheduledJobs()
+        crumb("boot: scheduled jobs loaded (\(settings.scheduledJobs.count))")
     }
 
     /// Force file storage for THIS process only (does not persist), used by

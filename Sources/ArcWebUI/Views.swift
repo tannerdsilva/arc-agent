@@ -787,7 +787,7 @@ extension AppState {
         let delLabel = pendingDelete ? "Confirm?" : WebUIIcon(.x, size: .small).render()
         let delClass = pendingDelete ? "sess-confirm" : "icon-mini danger"
         let regenBtn = """
-        <button type="button" id="regen-btn" data-component-id="regen" class="icon-mini" title="Regenerate last reply">\(WebUIIcon(.refreshCw, size: .small).render())</button>
+        <button type="button" id="regen-btn" class="icon-mini" title="Regenerate last reply">\(WebUIIcon(.refreshCw, size: .small).render())</button>
         """
         let header = """
         <header class="chat-header">
@@ -795,7 +795,7 @@ extension AppState {
             <div class="chat-title">\(esc(title))</div>
             <div class="chat-meta">\(meta)</div>
           </div>
-          <div class="row-actions-main" style="margin:0">
+          <div class="row-actions-main" style="margin:0" data-component-id="regen" data-event="click">
             \(regenBtn)
             \(btn("chat-del", "chat-del", delClass, delLabel, " title=\"Delete chat\""))
           </div>

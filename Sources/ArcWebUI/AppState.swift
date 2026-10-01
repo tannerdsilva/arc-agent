@@ -340,7 +340,9 @@ struct AppSettings: Codable, Equatable {
         case sessionConfig, sessionProfile, sessionThinking, sessionTitles, sessionCompressions, archivedSessions
         case chatCategories, sessionCategories
         case kanbanColumns, kanbanCards
-        case todos, scheduledJobs
+        case todos
+        // `scheduledJobs` deliberately absent: the cron store owns jobs since
+        // phase 2; the legacy key is lifted once by `ScheduledJobsImport`.
         case queuePlan
         case queueLoopEnabled, queueLoopCount
         case workspaceRoot
@@ -400,7 +402,6 @@ struct AppSettings: Codable, Equatable {
         queuePlan = try c.decodeIfPresent([QueueEntry].self, forKey: .queuePlan) ?? []
         queueLoopEnabled = try c.decodeIfPresent(Bool.self, forKey: .queueLoopEnabled) ?? false
         queueLoopCount = try c.decodeIfPresent(Int.self, forKey: .queueLoopCount) ?? 2
-        scheduledJobs = try c.decodeIfPresent([CronJob].self, forKey: .scheduledJobs) ?? []
         kanbanColumns = try c.decodeIfPresent([KBColumn].self, forKey: .kanbanColumns) ?? []
         kanbanCards = try c.decodeIfPresent([KBCard].self, forKey: .kanbanCards) ?? []
         workspaceRoot = try c.decodeIfPresent(String.self, forKey: .workspaceRoot) ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("workspace").path
@@ -778,10 +779,8 @@ actor AppState {
     /// Set by the Stop button; the run engine honors it between entries/passes
     /// (or before a parallel group starts). Running prompts are left alone.
     var queueCancelRequested = false
-    /// The currently awaiting user approval (rendered as a card in chat).
+    /// Currently awaiting user approval (rendered as a card in chat).
     var pendingApproval: PendingApproval?
-    /// Owned task handle for the scheduled-jobs engine (cancelled at stop).
-    var cronTask: Task<Void, Never>?
     /// Guards fire-and-forget title generation so only one runs at a time.
     var isTitleGenRunning = false
     /// The `~/.arc/config.json` as loaded from disk (no env overrides), the
@@ -826,6 +825,11 @@ actor AppState {
     /// and the in-UI Tessera toggle applies on the next daemon start instead
     /// of rebuilding storage mid-process.
     var attachedStorage: StorageRuntime?
+
+    /// The cron store — single source of truth for scheduled jobs since the
+    /// phase-2 convergence. `settings.scheduledJobs` is only a render cache,
+    /// reloaded by ``refreshScheduledJobs()``.
+    let cronStore = RuntimeCronStore()
 
     // MARK: Init
 
@@ -1139,6 +1143,12 @@ actor AppState {
     func attachRuntime(_ runtime: StorageRuntime) {
         attachedStorage = runtime
         runtimeKey = nil
+    }
+
+    /// Reload the scheduled-jobs render cache from the cron store (the single
+    /// source of truth; the UI no longer owns job state).
+    func refreshScheduledJobs() async {
+        settings.scheduledJobs = (try? await cronStore.listAll()) ?? []
     }
 
     /// Human-readable description of the storage backend actually in use,

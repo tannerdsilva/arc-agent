@@ -32,6 +32,12 @@ public enum ArcDaemon {
         let gatewayConfig = plan.gatewayWithFilledToken(gateway)
         let logger = Logger(label: "arc-agent.gateway")
 
+        // ONE gate install: the daemon's agents consult the same lockdown
+        // config the CLI writes. `ArcAgent` only re-asserts a *non-default*
+        // powers config, so this boot install (and the web UI's live toggle)
+        // stay authoritative for the whole process.
+        AgentPowers.configure(arc.agentPowers)
+
         // ONE storage decision for the whole process: the gateway's session
         // agents and the web UI share this exact pair (no second env on the
         // same store directories).
@@ -50,31 +56,54 @@ public enum ArcDaemon {
             storage: storage
         )
 
-        var services: [any Service] = []
+        // ── surfaces ────────────────────────────────────────────────
+        var gateway: GatewayService?
         if let api = plan.api {
-            services.append(GatewayService(
+            gateway = GatewayService(
                 host: api.host,
                 port: api.port,
                 telegramToken: plan.telegramToken,
                 gatewayConfig: gatewayConfig,
                 agentConfig: agentConfig
-            ))
+            )
         }
+        var uiHost: WebUIHost?
         if let webui = plan.webui {
-            services.append(try WebUIHost(
+            uiHost = try WebUIHost(
                 host: webui.host,
                 port: webui.port,
                 tesseraOff: plan.tesseraOff,
                 storage: storage
-            ))
+            )
         }
+
+        // ── cron: ONE engine, ONE store ─────────────────────────────
+        // The daemon owns the scheduler; job execution prefers the web UI's
+        // approval-aware headless runner and falls back to the gateway's
+        // session-agent runner (the pre-daemon behavior) when the UI is off.
+        let cronStore = RuntimeCronStore()
+        await ScheduledJobsImport.runIfNeeded(into: cronStore)
+        let jobRunner: @Sendable (CronJob) async throws -> String
+        if let uiHost {
+            jobRunner = { job in await uiHost.runScheduledJob(job) }
+        } else if let gateway {
+            jobRunner = gateway.cronRunner
+        } else {
+            jobRunner = { _ in "No runner: neither the web UI nor the API surface is enabled." }
+        }
+        let cronScheduler = CronScheduler(store: cronStore, jobRunner: jobRunner)
 
         printBanner(plan: plan, gateway: gatewayConfig)
 
+        var services: [any Service] = []
+        if let gateway { services.append(gateway) }
+        if let uiHost { services.append(uiHost) }
         guard !services.isEmpty else {
             logger.warning("no daemon surfaces enabled (see gateway.json) — nothing to run")
             return
         }
+        // cron rides with a surface: jobs need a runner.
+        services.append(cronScheduler)
 
         var configuration = ServiceGroupConfiguration(
             services: services,
