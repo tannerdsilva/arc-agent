@@ -13,7 +13,7 @@ extension AppState {
         createSkill = false
         skillEdit = false
         createProfile = false
-        createWorkspace = false
+        closeWorkspaceCreate()
         pendingDelete = false
         filePopOpen = false
         confirmDeleteID = nil
@@ -68,8 +68,30 @@ extension AppState {
         if on { selectedProfile = nil }
     }
 
-    func setCreateWorkspace(_ on: Bool) {
-        createWorkspace = on
+    /// Open the Workspaces create form. `forChat` records the intent behind
+    /// the open: the composer's "Choose workspace path" promises to switch
+    /// THIS conversation, while the panel's "+" creates a standalone preset.
+    /// The view switch happens first, inside this method — `switchView` closes
+    /// any open create form, so setting the flag before switching views (as
+    /// `ws-choose-path` once did) left nothing open.
+    func openWorkspaceCreate(forChat: Bool) async {
+        if activeView != .workspaces {
+            await switchView(.workspaces)
+        }
+        createWorkspace = true
+        workspaceCreateForChat = forChat
+    }
+
+    func closeWorkspaceCreate() {
+        createWorkspace = false
+        workspaceCreateForChat = false
+    }
+
+    /// Drop the create-form drafts after a successful create (a failed
+    /// attempt keeps them so the user can fix and retry).
+    func clearWorkspaceCreateFields() {
+        formValues["ws-name-input"] = ""
+        formValues["ws-path-input"] = ""
     }
 
     func setActiveSession(_ id: String) async {
@@ -898,10 +920,6 @@ extension AppState {
 
     // MARK: Workspaces
 
-    func workspaceNames() -> [String] {
-        settings.workspaces.map(\.name)
-    }
-
     func workspaceEntry(named name: String) -> WorkspaceEntry? {
         settings.workspaces.first { $0.name == name }
     }
@@ -930,9 +948,13 @@ extension AppState {
         settings.activeWorkspace
     }
 
-    func setWorkspaces(_ list: [WorkspaceEntry], active: String) {
-        settings.workspaces = list
-        settings.activeWorkspace = active
+    /// Append a workspace preset. `makeDefault` reflects the entry point: the
+    /// panel's "+" makes the new preset the global default (long-standing
+    /// behavior); the composer's "Choose workspace path" flow appends only and
+    /// then binds the active chat, so unpinned chats keep their workspace.
+    func addWorkspace(_ entry: WorkspaceEntry, makeDefault: Bool) {
+        settings.workspaces.append(entry)
+        if makeDefault { settings.activeWorkspace = entry.name }
         saveSettings()
     }
 

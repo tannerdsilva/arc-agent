@@ -1244,8 +1244,7 @@ final class Controller {
         }
         wire(router, id: "ws-choose-path", events: ["click"]) { _ in
             await self.app.closeComposerSelectors()
-            await self.app.setCreateWorkspace(true)
-            await self.app.switchView(.workspaces)
+            await self.app.openWorkspaceCreate(forChat: true)
             return await self.app.refreshFragments(includeApp: true)
         }
         wire(router, id: "ws-manage", events: ["click"]) { _ in
@@ -2056,12 +2055,12 @@ final class Controller {
 
     private func wireWorkspaces(_ router: EventRouter) {
         wire(router, id: "ws-new", events: ["click"]) { _ in
-            await self.app.setCreateWorkspace(true)
+            await self.app.openWorkspaceCreate(forChat: false)
             return await self.app.refreshFragments()
         }
         wire(router, id: "ws-create-form", events: ["submit"]) { event in
-            let name = (event.string("ws-name-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let path = (event.string("ws-path-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = event.string("ws-name-input") ?? ""
+            let path = event.string("ws-path-input") ?? ""
             return await self.createWorkspace(name: name, path: path)
         }
         wire(router, id: "ws-name-input", events: ["input"]) { event in
@@ -2073,7 +2072,7 @@ final class Controller {
             return []
         }
         wire(router, id: "ws-cancel", events: ["click"]) { _ in
-            await self.app.setCreateWorkspace(false)
+            await self.app.closeWorkspaceCreate()
             return await self.app.refreshFragments()
         }
         wire(router, id: "workspace-list", events: ["click"]) { event in
@@ -2094,36 +2093,39 @@ final class Controller {
     }
 
     private func createWorkspace(name rawName: String, path rawPath: String) async -> [FragmentUpdate] {
-        let cleaned = rawName.lowercased().replacingOccurrences(of: " ", with: "-")
-        let valid = !cleaned.isEmpty && cleaned.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
-        guard valid else {
-            _ = await app.hint("Workspace names: letters, numbers, dashes, underscores.", kind: "error")
+        let existing = await app.workspaceEntries()
+        let entry: WorkspaceEntry
+        do {
+            entry = try WorkspaceRules.planEntry(name: rawName, path: rawPath, existing: existing)
+        } catch let e as WorkspaceRuleError {
+            // Re-render exactly what was submitted: the form restores from
+            // `formValues`, which the debounced input wire may lag behind.
+            await app.storeFormValue("ws-name-input", rawName)
+            await app.storeFormValue("ws-path-input", rawPath)
+            _ = await app.hint(e.description, kind: "error")
+            return await self.app.refreshFragments()
+        } catch {
+            await app.storeFormValue("ws-name-input", rawName)
+            await app.storeFormValue("ws-path-input", rawPath)
+            _ = await app.hint("Could not add the workspace: \(error)", kind: "error")
             return await self.app.refreshFragments()
         }
-        if await app.workspaceNames().contains(cleaned) {
-            _ = await app.hint("Workspace '\(cleaned)' already exists.", kind: "error")
-            return await self.app.refreshFragments()
+
+        // Intent: the composer flow binds THIS chat (falling back to the
+        // default when no chat is open); the panel flow makes the preset the
+        // new global default.
+        let forChat = await app.workspaceCreateForChat
+        let hasChat = (await app.activeSessionID) != nil
+        let bindToChat = forChat && hasChat
+        await app.addWorkspace(entry, makeDefault: !bindToChat)
+        if bindToChat {
+            await app.setChatWorkspace(entry.name)
         }
-        // Resolve the folder path (~ expansion) and validate it exists as a directory.
-        var path = rawPath
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        if path == "~" {
-            path = home
-        } else if path.hasPrefix("~/") {
-            path = home + path.dropFirst(1)
-        }
-        var isDir: ObjCBool = false
-        let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDir)
-        guard path.hasPrefix("/"), exists, isDir.boolValue else {
-            _ = await app.hint("Invalid folder path: '\(path)' is not an existing directory.", kind: "error")
-            return await self.app.refreshFragments()
-        }
-        var entries = await app.workspaceEntries()
-        entries.append(WorkspaceEntry(name: cleaned, path: (path as NSString).standardizingPath))
-        await app.setWorkspaces(entries, active: cleaned)
         await app.rebuildAndReload()
-        await app.setCreateWorkspace(false)
-        _ = await app.hint("Workspace '\(cleaned)' created at \(path).")
+        await app.closeWorkspaceCreate()
+        await app.clearWorkspaceCreateFields()
+        let effect = bindToChat ? "this chat now uses it" : "it is now the default"
+        _ = await app.hint("Workspace '\(entry.name)' created at \(entry.path) — \(effect).")
         return await self.app.refreshFragments(includeApp: true)
     }
 

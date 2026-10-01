@@ -161,9 +161,13 @@ struct ModelConfigPreset: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
-/// A named workspace bound to an arbitrary folder on disk. Older settings
-/// stored workspaces as plain name strings (data dir `~/.arc/workspaces/<name>`);
-/// decoding accepts both the legacy string form and the current {name,path} form.
+/// A named workspace bound to an arbitrary folder on disk. `path` is the
+/// required anchor (Unix path standards, see `WorkspaceRules`); `name` is a
+/// label — optional at the edges (create form, decode) and always resolved to
+/// a non-empty, unique string before it is stored. Older settings stored
+/// workspaces as plain name strings (data dir `~/.arc/workspaces/<name>`);
+/// decoding accepts the legacy string form, the current {name,path} form, and
+/// a {path}-only form (the name is then derived from the folder).
 struct WorkspaceEntry: Codable, Equatable {
     var name: String
     /// Absolute path to the folder this workspace points at.
@@ -182,9 +186,15 @@ struct WorkspaceEntry: Codable, Equatable {
             return
         }
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.name = try c.decode(String.self, forKey: .name)
-        let p = try c.decodeIfPresent(String.self, forKey: .path)
-        self.path = p?.isEmpty == false ? p! : Self.defaultPath(for: self.name)
+        let rawName = (try c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        let rawPath = (try c.decodeIfPresent(String.self, forKey: .path)) ?? ""
+        guard !rawName.isEmpty || !rawPath.isEmpty else {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: c.codingPath,
+                debugDescription: "workspace entry needs a name or a path"))
+        }
+        self.name = rawName.isEmpty ? WorkspaceRules.derivedName(forPath: rawPath) : rawName
+        self.path = rawPath.isEmpty ? Self.defaultPath(for: rawName) : rawPath
     }
 
     /// The legacy default data directory for a named workspace.
@@ -695,6 +705,10 @@ actor AppState {
     /// doubles as the edit form; when set, it renders pre-filled.
     var editingProfile: String?
     var createWorkspace = false
+    /// Intent behind an open workspace create form: true when it was opened
+    /// from the composer's "Choose workspace path" (switch THIS conversation),
+    /// false from the panel's "+" (create a preset and make it the default).
+    var workspaceCreateForChat = false
     /// Left-panel chat list: show archived chats instead of the active ones.
     var showArchived = false
     /// Session awaiting delete confirmation (centered modal).

@@ -2183,10 +2183,18 @@ extension AppState {
             let form = """
             <form id="ws-create-form" data-component-id="ws-create-form" class="detail-card" style="max-width:560px">
               <h1 class="detail-title">New workspace</h1>
-              <div class="detail-sub">A workspace points at any folder on this computer. Sessions keep their own workspace per chat; you pick it in the chat composer.</div>
+              <div class="detail-sub">A workspace points at any folder on this computer. The folder path is required and follows Unix path rules; the name is an optional label — leave it blank and it is derived from the folder. Sessions keep their own workspace per chat; you pick it in the chat composer.</div>
               <div class="form-grid">
-                <div><label for="ws-name-input">Name</label><input id="ws-name-input" name="ws-name-input" data-component-id="ws-name-input" placeholder="research" value="\(esc(formValues["ws-name-input"] ?? ""))"></div>
-                <div><label for="ws-path-input">Folder path</label><input id="ws-path-input" name="ws-path-input" data-component-id="ws-path-input" placeholder="/Users/you/research or ~/research" value="\(esc(formValues["ws-path-input"] ?? ""))"></div>
+                <div>
+                  <label for="ws-path-input">Folder path</label>
+                  <input id="ws-path-input" name="ws-path-input" data-component-id="ws-path-input" type="text" placeholder="/Users/you/research or ~/research" autofocus value="\(esc(formValues["ws-path-input"] ?? ""))">
+                  <small style="color:var(--muted);font-size:0.75em">Required. An absolute path; ~ means your home folder.</small>
+                </div>
+                <div>
+                  <label for="ws-name-input">Name (optional)</label>
+                  <input id="ws-name-input" name="ws-name-input" data-component-id="ws-name-input" type="text" placeholder="derived from the folder name" value="\(esc(formValues["ws-name-input"] ?? ""))">
+                  <small style="color:var(--muted);font-size:0.75em">A label for the switcher — any text except '/'.</small>
+                </div>
               </div>
               <div class="row-actions-main">
                 <button type="submit" class="primary-btn">Create</button>
