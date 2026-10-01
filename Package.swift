@@ -145,11 +145,20 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ],
             path: "Sources/ArcAgentWebUI",
+            exclude: [
+                // Assets/ is consumed by WebUIEmbedPlugin, not compiled: excluding it keeps
+                // SwiftPM from warning about files it does not know how to handle (the plugin
+                // reads them through its own context, which exclusion does not affect).
+                "Assets",
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
             ],
             plugins: [
                 "ArcAssetPlugin",
+                // the file half: every build re-embeds Assets/webui-assets.json's files as
+                // generated declarations the server feeds to WebUIAsset.
+                .plugin(name: "WebUIEmbedPlugin", package: "no-webui"),
             ]
         ),
 
@@ -157,7 +166,8 @@ let package = Package(
         // No shell script and no checked-in generated file: the tool is Swift
         // and the plugin runs it before every build of the web UI target, so
         // the embedded theme sheet is a build product of Sources/ArcTheme/ and
-        // cannot drift from it.
+        // cannot drift from it. The overlay's file rides the framework's embed
+        // plugin (no-webui's WebUIEmbedPlugin) for the same reason.
         .executableTarget(
             name: "ArcAssetTool",
             dependencies: [
