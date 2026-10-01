@@ -48,17 +48,21 @@ public struct GatewayConfig: Sendable {
     public var slack: SlackGatewayConfig
     /// The daemon's REST API surface (`POST /v1/chat`, `GET /health`).
     public var api: APIGatewayConfig
+    /// The daemon's Web UI surface (no-webui + ArcWebUI).
+    public var webui: WebUIGatewayConfig
 
     public init(
         telegram: TelegramGatewayConfig = TelegramGatewayConfig(),
         email: EmailGatewayConfig = EmailGatewayConfig(),
         slack: SlackGatewayConfig = SlackGatewayConfig(),
-        api: APIGatewayConfig = APIGatewayConfig()
+        api: APIGatewayConfig = APIGatewayConfig(),
+        webui: WebUIGatewayConfig = WebUIGatewayConfig()
     ) {
         self.telegram = telegram
         self.email = email
         self.slack = slack
         self.api = api
+        self.webui = webui
     }
 
     /// Load config from `<home>/gateway.json`, applying env overrides.
@@ -78,12 +82,14 @@ public struct GatewayConfig: Sendable {
             config.email = EmailGatewayConfig(dict: root["email"] as? [String: Any], env: environment)
             config.slack = SlackGatewayConfig(dict: root["slack"] as? [String: Any], env: environment)
             config.api = APIGatewayConfig(dict: root["api"] as? [String: Any], env: environment)
+            config.webui = WebUIGatewayConfig(dict: root["webui"] as? [String: Any], env: environment)
         } else {
             // No file: still honor env-only configuration.
             config.telegram = TelegramGatewayConfig(dict: nil, env: environment)
             config.email = EmailGatewayConfig(dict: nil, env: environment)
             config.slack = SlackGatewayConfig(dict: nil, env: environment)
             config.api = APIGatewayConfig(dict: nil, env: environment)
+            config.webui = WebUIGatewayConfig(dict: nil, env: environment)
         }
         return config
     }
@@ -311,6 +317,40 @@ public struct APIGatewayConfig: Sendable {
             self.enabled = Self.truthy(raw)
         } else {
             self.enabled = d["enabled"] as? Bool ?? true
+        }
+    }
+
+    private static func truthy(_ v: String) -> Bool {
+        ["1", "true", "yes", "on"].contains(v.lowercased())
+    }
+}
+
+/// The daemon's Web UI surface (no-webui's `WebUIServer` + `ArcWebUI`).
+///
+/// Config lives in `gateway.json` under the `webui` key; environment overrides:
+/// `WEBUI_ENABLED`, `WEBUI_HOST`, `WEBUI_PORT`. The surface is enabled by
+/// default on loopback:8890 — the daemon is the only UI host (the standalone
+/// `arc-agent-webui` binary is a shim until phase 3 retires it).
+public struct WebUIGatewayConfig: Sendable {
+    public var enabled: Bool
+    public var host: String
+    public var port: Int
+
+    public init(enabled: Bool = false, host: String = "127.0.0.1", port: Int = 8890) {
+        self.enabled = enabled
+        self.host = host
+        self.port = port
+    }
+
+    init(dict: [String: Any]?, env: [String: String]) {
+        let d = dict ?? [:]
+        // env always wins over the JSON file (reference convention).
+        self.host = env["WEBUI_HOST"] ?? (d["host"] as? String) ?? "127.0.0.1"
+        self.port = Int(env["WEBUI_PORT"] ?? "") ?? (d["port"] as? Int) ?? 8890
+        if let raw = env["WEBUI_ENABLED"] {
+            self.enabled = Self.truthy(raw)
+        } else {
+            self.enabled = d["enabled"] as? Bool ?? false
         }
     }
 

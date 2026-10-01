@@ -23,16 +23,34 @@ public struct DaemonPlan: Sendable, Equatable {
         public var host: String?
         public var port: Int?
         public var telegramToken: String?
+        /// `--webui` / `--no-webui` (tri-state: nil keeps the config's value).
+        public var webuiEnabled: Bool?
+        /// `--tessera-off`: skip the Tessera probe and use file storage.
+        public var tesseraOff: Bool
 
-        public init(host: String? = nil, port: Int? = nil, telegramToken: String? = nil) {
+        public init(
+            host: String? = nil,
+            port: Int? = nil,
+            telegramToken: String? = nil,
+            webuiEnabled: Bool? = nil,
+            tesseraOff: Bool = false
+        ) {
             self.host = host
             self.port = port
             self.telegramToken = telegramToken
+            self.webuiEnabled = webuiEnabled
+            self.tesseraOff = tesseraOff
         }
     }
 
     /// The REST API surface; `nil` when disabled by config.
     public var api: Surface?
+
+    /// The Web UI surface; `nil` when disabled by config.
+    public var webui: Surface?
+
+    /// Skip the Tessera probe and use file storage for this process.
+    public var tesseraOff: Bool
 
     /// A telegram bot token supplied on the command line; `nil` when absent.
     public var telegramToken: String?
@@ -48,7 +66,16 @@ public struct DaemonPlan: Sendable, Equatable {
                 port: overrides.port ?? gateway.api.port
             )
         }
-        return DaemonPlan(api: api, telegramToken: overrides.telegramToken)
+        var webui: Surface?
+        if overrides.webuiEnabled ?? gateway.webui.enabled {
+            webui = Surface(host: gateway.webui.host, port: gateway.webui.port)
+        }
+        return DaemonPlan(
+            api: api,
+            webui: webui,
+            tesseraOff: overrides.tesseraOff,
+            telegramToken: overrides.telegramToken
+        )
     }
 
     /// Fill a command-line token into a gateway config that carries none — the

@@ -1,4 +1,5 @@
 import ArcAgentCore
+import ArcWebUI
 import Foundation
 import Logging
 import ServiceLifecycle
@@ -22,15 +23,19 @@ public enum ArcDaemon {
         gateway: GatewayConfig,
         overrides: DaemonPlan.Overrides = DaemonPlan.Overrides()
     ) async throws {
+        // Route every swift-log line into the web UI's ring buffer; the
+        // daemon's own loggers (and a hosted UI's) all land there. Idempotent:
+        // whichever of daemon/host runs first installs it.
+        WebUILogging.install()
+
         let plan = DaemonPlan.resolve(gateway: gateway, overrides: overrides)
         let gatewayConfig = plan.gatewayWithFilledToken(gateway)
         let logger = Logger(label: "arc-agent.gateway")
 
-        // Tessera storage for the daemon: sessions, memory, and the profile
-        // index all flow through the shared connection.
-        if let tessera = arc.tessera {
-            await TesseraConnection.shared.configure(tessera)
-        }
+        // ONE storage decision for the whole process: the gateway's session
+        // agents and the web UI share this exact pair (no second env on the
+        // same store directories).
+        let storage = await StorageRuntime.resolve(tessera: arc.tessera, tesseraOff: plan.tesseraOff)
 
         let agentConfig = SessionRegistry.AgentConfig(
             model: arc.model.defaultModel,
@@ -41,7 +46,8 @@ public enum ArcDaemon {
             persistSessions: arc.agent.persistSessions,
             maxIterations: arc.effectiveMaxTurns(),
             toolLoopCap: arc.effectiveToolLoopCap(),
-            mcpServers: arc.mcpServers
+            mcpServers: arc.mcpServers,
+            storage: storage
         )
 
         var services: [any Service] = []
@@ -52,6 +58,14 @@ public enum ArcDaemon {
                 telegramToken: plan.telegramToken,
                 gatewayConfig: gatewayConfig,
                 agentConfig: agentConfig
+            ))
+        }
+        if let webui = plan.webui {
+            services.append(try WebUIHost(
+                host: webui.host,
+                port: webui.port,
+                tesseraOff: plan.tesseraOff,
+                storage: storage
             ))
         }
 
@@ -82,6 +96,11 @@ public enum ArcDaemon {
             print("HTTP server: http://\(api.host):\(api.port)")
         } else {
             print("HTTP server: disabled")
+        }
+        if let webui = plan.webui {
+            print("Web UI:     http://\(webui.host):\(webui.port)")
+        } else {
+            print("Web UI:     disabled")
         }
         if gateway.telegram.enabled { print("Telegram: enabled") }
         if gateway.email.enabled { print("Email: enabled") }

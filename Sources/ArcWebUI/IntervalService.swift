@@ -1,3 +1,4 @@
+import ArcAgentCore
 import ServiceLifecycle
 
 /// A long-lived poll loop as a `Service`.
@@ -28,16 +29,20 @@ struct IntervalService: Service {
     }
 
     func run() async throws {
-        // `Task.sleep` throws on cancellation; the loop then exits through the
-        // explicit check rather than swallowing the throw and spinning.
-        while !Task.isCancelled {
-            do {
-                try await Task.sleep(for: interval)
-            } catch {
-                return
+        // `runUntilShutdown` converts the enclosing group's graceful shutdown
+        // into task cancellation; the loop below already exits on cancellation
+        // (sleep throws), so the daemon never waits out its grace period for a
+        // streamer.
+        try await runUntilShutdown {
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: interval)
+                } catch {
+                    return
+                }
+                if Task.isCancelled { return }
+                await tick()
             }
-            if Task.isCancelled { return }
-            await tick()
         }
     }
 }

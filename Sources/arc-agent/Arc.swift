@@ -301,6 +301,13 @@ struct Serve: AsyncParsableCommand {
     @Option(name: .long, help: "Telegram bot token (overrides gateway.json / TELEGRAM_BOT_TOKEN).")
     var telegramToken: String?
 
+    @Flag(name: .customLong("webui"), inversion: .prefixedNo,
+          help: "Force the Web UI on/off (overrides gateway.json).")
+    var webui: Bool?
+
+    @Flag(name: .long, help: "Use file storage instead of Tessera.")
+    var tesseraOff: Bool = false
+
     func run() async throws {
         let arcConfig = loadConfig()
 
@@ -316,7 +323,13 @@ struct Serve: AsyncParsableCommand {
         try await ArcDaemon.run(
             arc: arcConfig,
             gateway: gatewayConfig,
-            overrides: .init(host: host, port: port, telegramToken: telegramToken)
+            overrides: .init(
+                host: host,
+                port: port,
+                telegramToken: telegramToken,
+                webuiEnabled: webui,
+                tesseraOff: tesseraOff
+            )
         )
     }
 }

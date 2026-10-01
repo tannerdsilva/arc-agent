@@ -88,7 +88,13 @@ public actor SessionAgent: Service {
             logger.info("step: opening session storage")
             let sessionStore: any SessionStore
             let memoryProvider: any MemoryProvider
-            if let tessera = agentConfig.tessera {
+            if let storage = agentConfig.storage {
+                // the daemon prebuilt ONE storage pair for the whole process;
+                // constructing a second pair here would open a second env on
+                // the same store directories.
+                sessionStore = storage.store
+                memoryProvider = storage.memory
+            } else if let tessera = agentConfig.tessera {
                 await TesseraConnection.shared.configure(tessera)
                 sessionStore = TesseraSessionStore()
                 memoryProvider = TesseraMemoryProvider()

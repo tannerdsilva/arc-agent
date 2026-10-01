@@ -8,75 +8,101 @@ import WebUIServer
 /// The Web UI host: boots the app state, serves the page through no-webui's
 /// `WebUIServer`, and streams logs + the workspace tree while it runs.
 ///
-/// Today it owns the process bootstrap (swift-log into the in-app ring buffer) and its own
-/// `ServiceGroup` — the standalone `arc-agent-webui` binary is a shim over this value. The
-/// daemon consolidation (`.hermes/plans/2026-10-01_093852-unify-the-daemon.md`) hoists the
-/// bootstrap to the daemon root and mounts this under the daemon's tree; that is why the
-/// host is already a `Service`.
+/// Two ways in, one implementation: the daemon (`ArcDaemon`) mounts this as a
+/// service with prebuilt storage and the log sink already installed; the
+/// standalone `arc-agent-webui` shim (retired in phase 3) constructs it bare
+/// and this host resolves its own storage under the original 12 s timebox.
 public struct WebUIHost: Service {
 
     public let host: String
     public let port: Int
     public let tesseraOff: Bool
+    /// Storage prebuilt by the daemon; nil = resolve our own (standalone).
+    public let storage: StorageRuntime?
 
-    public init(host: String = "127.0.0.1", port: Int = 8890, tesseraOff: Bool = false) {
+    /// The UI's state actor. Created eagerly so the daemon can reach it (the
+    /// cron runner) without racing the boot.
+    let app: AppState
+
+    public init(
+        host: String = "127.0.0.1",
+        port: Int = 8890,
+        tesseraOff: Bool = false,
+        storage: StorageRuntime? = nil
+    ) throws {
         self.host = host
         self.port = port
         self.tesseraOff = tesseraOff
+        self.storage = storage
+        self.app = try AppState()
+    }
+
+    /// Run one scheduled job headless and return its output — the daemon's
+    /// cron runner (`AppState` owns the model config, the sessions and the
+    /// approval-aware headless tool path).
+    public func runScheduledJob(_ job: CronJob) async -> String {
+        await app.runScheduledJob(job)
     }
 
     public func run() async throws {
         // Route every swift-log line into the in-app ring buffer instead of
-        // stdout, so logs stop appearing in the terminal and surface in the
-        // web UI's Logs section. Must run before any Logger is created.
-        LoggingSystem.bootstrap { label in
-            WebUILogHandler(label: label)
-        }
+        // stdout, so the Logs panel is the operator view. Idempotent: the
+        // daemon usually installed it first; this is a no-op then.
+        WebUILogging.install()
         let logger = Logger(label: "arc-agent.webui")
         logger.info("starting (pid \(ProcessInfo.processInfo.processIdentifier))")
 
-        let app = try AppState()
-        if tesseraOff {
-            await app.overrideTesseraOff(true)
-        }
-
-        // Timeboxed boot: a Tessera tunnel that never handshakes must not
-        // wedge the whole UI — fall back to file storage after 12s.
-        // Implemented as an AsyncStream race: a TaskGroup's next() never
-        // delivers a timer child's throw while the boot child is suspended
-        // forever (Swift 6.3 behavior, observed live), which turns the
-        // timeout into a deadlock.
-        struct BootTimeout: Error {}
-        let stream = AsyncStream<Result<Void, Error>>.makeStream()
-        let c = stream.continuation
-        // Hold the boot task handle so a timed-out first boot can be CANCELLED
-        // before the fallback runs — otherwise it finishes last (~45-70s) and
-        // overwrites the store state the fallback just built, blanking the
-        // sidebar, and leaks the tunnel it spawned.
-        let bootTask = Task {
-            do {
-                await app.boot()
-                c.yield(.success(())); c.finish()
-            } catch {
-                c.yield(.failure(error)); c.finish()
-            }
-        }
-        Task {
-            do { try await Task.sleep(nanoseconds: 12_000_000_000) } catch {}
-            c.yield(.failure(BootTimeout())); c.finish()
-        }
-        switch await stream.stream.first(where: { _ in true }) {
-        case .success:
-            await app.crumb("entry: boot race completed cleanly")
-        case .failure:
-            await app.crumb("entry: boot timeout — fallback to file")
-            logger.warning("boot timed out (Tessera unreachable?) — using file storage")
-            bootTask.cancel()
-            await app.forceTesseraOff()
+        let app = self.app
+        if let storage {
+            // the daemon prebuilt the process storage and already probed it:
+            // attach it (one store pair for the whole process) and boot plain —
+            // there is nothing left to time out.
+            await app.attachRuntime(storage)
             await app.boot()
-            await app.crumb("entry: fallback boot done")
-        case nil:
-            await app.crumb("entry: boot race stream ended empty")
+            await app.crumb("host: boot on attached storage (backend=\(storage.backend))")
+        } else {
+            if tesseraOff {
+                await app.overrideTesseraOff(true)
+            }
+
+            // Timeboxed boot: a Tessera tunnel that never handshakes must not
+            // wedge the whole UI — fall back to file storage after 12s.
+            // Implemented as an AsyncStream race: a TaskGroup's next() never
+            // delivers a timer child's throw while the boot child is suspended
+            // forever (Swift 6.3 behavior, observed live), which turns the
+            // timeout into a deadlock.
+            struct BootTimeout: Error {}
+            let stream = AsyncStream<Result<Void, Error>>.makeStream()
+            let c = stream.continuation
+            // Hold the boot task handle so a timed-out first boot can be CANCELLED
+            // before the fallback runs — otherwise it finishes last (~45-70s) and
+            // overwrites the store state the fallback just built, blanking the
+            // sidebar, and leaks the tunnel it spawned.
+            let bootTask = Task {
+                do {
+                    await app.boot()
+                    c.yield(.success(())); c.finish()
+                } catch {
+                    c.yield(.failure(error)); c.finish()
+                }
+            }
+            Task {
+                do { try await Task.sleep(nanoseconds: 12_000_000_000) } catch {}
+                c.yield(.failure(BootTimeout())); c.finish()
+            }
+            switch await stream.stream.first(where: { _ in true }) {
+            case .success:
+                await app.crumb("entry: boot race completed cleanly")
+            case .failure:
+                await app.crumb("entry: boot timeout — fallback to file")
+                logger.warning("boot timed out (Tessera unreachable?) — using file storage")
+                bootTask.cancel()
+                await app.forceTesseraOff()
+                await app.boot()
+                await app.crumb("entry: fallback boot done")
+            case nil:
+                await app.crumb("entry: boot race stream ended empty")
+            }
         }
         await app.crumb("entry: boot block done")
         logger.info("boot complete")
@@ -189,6 +215,12 @@ public struct WebUIHost: Service {
         // Second Law: the server and both streamers are Services in one group,
         // so startup is ordered and shutdown is graceful — cancellation stops
         // the loops and the listener together instead of leaving ad-hoc Tasks.
+        //
+        // Shutdown shape: the streamers observe graceful shutdown directly;
+        // no-webui's `WebUIServerService` ends on CANCELLATION only, so this
+        // host converts the inherited graceful shutdown into exactly that —
+        // held in a task handle so the conversion is deterministic and the
+        // subtree stops promptly instead of waiting out the grace period.
         let group = ServiceGroup(
             services: [
                 WebUIServerService(server: server, logger: logger),
@@ -197,6 +229,15 @@ public struct WebUIHost: Service {
             ],
             logger: logger
         )
-        try await group.run()
+        let run = Task { try await group.run() }
+        do {
+            try await withTaskCancellationOrGracefulShutdownHandler {
+                try await run.value
+            } onCancelOrGracefulShutdown: {
+                run.cancel()
+            }
+        } catch is CancellationError {
+            // expected: the inherited shutdown cancelled the subtree
+        }
     }
 }

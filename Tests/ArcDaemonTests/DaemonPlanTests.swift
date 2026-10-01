@@ -101,4 +101,37 @@ struct DaemonPlanTests {
         let filled = plan.gatewayWithFilledToken(file)
         #expect(filled.telegram.botToken == "file-tok")
     }
+
+    @Test("the web UI surface follows gateway.json (off by default until the flip)")
+    func webuiDefaultsOff() throws {
+        let plan = DaemonPlan.resolve(gateway: try loadGateway(), overrides: .init())
+        #expect(plan.webui == nil)
+    }
+
+    @Test("webui.enabled: true with host and port from the file")
+    func webuiFromFile() throws {
+        let plan = DaemonPlan.resolve(
+            gateway: try loadGateway(json: #"{"webui": {"enabled": true, "host": "0.0.0.0", "port": 9998}}"#),
+            overrides: .init()
+        )
+        #expect(plan.webui == DaemonPlan.Surface(host: "0.0.0.0", port: 9998))
+    }
+
+    @Test("--webui / --no-webui beat the file")
+    func webuiOverrides() throws {
+        let on = DaemonPlan.resolve(gateway: try loadGateway(), overrides: .init(webuiEnabled: true))
+        #expect(on.webui == DaemonPlan.Surface(host: "127.0.0.1", port: 8890))
+
+        let off = DaemonPlan.resolve(
+            gateway: try loadGateway(json: #"{"webui": {"enabled": true}}"#),
+            overrides: .init(webuiEnabled: false)
+        )
+        #expect(off.webui == nil)
+    }
+
+    @Test("tessera-off propagates into the plan")
+    func tesseraOffPropagates() throws {
+        let plan = DaemonPlan.resolve(gateway: try loadGateway(), overrides: .init(tesseraOff: true))
+        #expect(plan.tesseraOff)
+    }
 }

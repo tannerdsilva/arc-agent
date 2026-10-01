@@ -26,6 +26,7 @@ struct ArcAgentWebUI: AsyncParsableCommand {
     var tesseraOff: Bool = false
 
     func run() async throws {
-        try await WebUIHost(host: host, port: port, tesseraOff: tesseraOff).run()
+        let ui = try WebUIHost(host: host, port: port, tesseraOff: tesseraOff)
+        try await ui.run()
     }
 }

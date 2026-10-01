@@ -135,6 +135,8 @@ let package = Package(
             name: "ArcDaemon",
             dependencies: [
                 .target(name: "ArcAgentCore"),
+                // the UI host mounts here (phase 2); core stays UI-free.
+                .target(name: "ArcWebUI"),
                 .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
                 .product(name: "Logging", package: "swift-log"),
             ],

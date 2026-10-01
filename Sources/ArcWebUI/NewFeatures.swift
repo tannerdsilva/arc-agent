@@ -148,12 +148,15 @@ extension AppState {
     /// the scheduled prompt in a per-job session, tools allowed, with smart
     /// classification deciding dangerous commands (no interactive prompt —
     /// critical commands are blocked and logged, never run).
-    func runScheduledJob(_ job: CronJob, now: Date = Date()) async {
+    /// Runs the job's turn and returns the final assistant text — the daemon's
+    /// cron runner consumes it (the UI's Run-now ignores it).
+    @discardableResult
+    func runScheduledJob(_ job: CronJob, now: Date = Date()) async -> String {
         let sid = jobSessionID(job)
         var session: Session
         if let existing = sessions.first(where: { $0.id == sid }) {
             await ensureSessionMessages(sid)
-            guard let existing = sessions.first(where: { $0.id == sid }) else { return }
+            guard let existing = sessions.first(where: { $0.id == sid }) else { return "" }
             session = existing
         } else {
             session = Session(id: sid, createdAt: now, updatedAt: now, model: settings.modelConfig(named: settings.activeConfig)?.model ?? "")
@@ -168,7 +171,7 @@ extension AppState {
         guard let preset = settings.modelConfig(named: configName(for: sid)),
               let client = makeClient(for: preset) else {
             updateJob(job.id) { $0.lastOutput = "Error: no model configuration" }
-            return
+            return "Error: no model configuration"
         }
 
         let userMsg = Message(role: .user, content: job.prompt, createdAt: now)
@@ -222,6 +225,7 @@ extension AppState {
         if tasksSelectedID == job.id {
             await selectTaskJob(job.id)
         }
+        return finalText
     }
 
     func jobSessionID(_ job: CronJob) -> String { "Cron-\(job.id)" }

@@ -821,6 +821,12 @@ actor AppState {
     /// permanently flip the user's persisted preference.
     var runtimeTesseraOff = false
 
+    /// Storage prebuilt by the daemon: one pair shared by every consumer in
+    /// the process. When attached, `ensureRuntime` never constructs its own,
+    /// and the in-UI Tessera toggle applies on the next daemon start instead
+    /// of rebuilding storage mid-process.
+    var attachedStorage: StorageRuntime?
+
     // MARK: Init
 
     init() throws {
@@ -1104,6 +1110,16 @@ actor AppState {
 
         if runtimeKey == key, store != nil { return }
         runtimeKey = key
+
+        // Daemon-prebuilt storage: one store pair for the whole process. Use
+        // it as-is — building another pair here would open a second env on the
+        // same store directories and race its writes.
+        if let attachedStorage {
+            runtimeBackend = attachedStorage.backend
+            store = attachedStorage.store
+            memory = attachedStorage.memory
+            return
+        }
         let tesseraOff = settings.tesseraOff || runtimeTesseraOff
 
         if tesseraOff || loadConfig().tessera == nil {
@@ -1116,6 +1132,13 @@ actor AppState {
             store = TesseraSessionStore()
             memory = TesseraMemoryProvider()
         }
+    }
+
+    /// Attach daemon-prebuilt storage. Called before `boot()` by a hosted
+    /// `WebUIHost`; the rebind is forced so a re-attach re-binds.
+    func attachRuntime(_ runtime: StorageRuntime) {
+        attachedStorage = runtime
+        runtimeKey = nil
     }
 
     /// Human-readable description of the storage backend actually in use,
