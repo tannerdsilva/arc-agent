@@ -26,7 +26,7 @@ extension AppState {
         // so re-render it on session switches and workspace changes too.
         u.append(FragmentUpdate(id: "ws-dock", html: workspaceDockHTML()))
         u.append(FragmentUpdate(id: "ws-panel", html: workspacePanelHTML()))
-        let toastsDiv = "<div id=\"toasts\">\(toastsHTML())</div>"
+        let toastsDiv = "<div id=\"toasts\" data-component-id=\"toast-dismiss\" data-event=\"click\">\(toastsHTML())</div>"
         u.append(FragmentUpdate(id: "toasts", html: toastsDiv))
         let modalDiv = "<div id=\"modal-root\">\(modalRootHTML())</div>"
         u.append(FragmentUpdate(id: "modal-root", html: modalDiv))
@@ -1058,9 +1058,15 @@ final class Controller {
             await self.newChat()
             return await self.app.refreshFragments()
         }
-        wire(router, id: "sess-list", events: ["click", "change"]) { event in
+        // click-only: `#sess-list-body` declares data-event="click", and a change
+        // event carries no targetId on the engine — identity rides `value`.
+        wire(router, id: "sess-list", events: ["click"]) { event in
             guard let tid = event.string("targetId") else { return [] }
             return await self.sessionListAction(tid)
+        }
+        wire(router, id: "cat-menu-close", events: ["click"]) { _ in
+            await self.app.closeCategoryMenu()
+            return await self.app.refreshFragments()
         }
         wire(router, id: "chat-del", events: ["click"]) { _ in
             await self.deleteActiveChat()
@@ -1280,18 +1286,17 @@ final class Controller {
                 await self.app.closeCategoryMenu()
                 return await self.app.refreshFragments()
             }
-            if tid == "cat-menu-close" {
-                await self.app.closeCategoryMenu()
-                return await self.app.refreshFragments()
-            }
             if tid.hasPrefix("cm-rename-") {
                 await self.app.setCategoryMenuRename(true)
                 return await self.app.refreshFragments()
             }
             if tid.hasPrefix("cm-color-") {
-                guard let color = event.string("color"),
+                // The engine carries no attribute payloads, so the swatch's
+                // colour rides its element id (`cm-color-<hex>`).
+                let hex = String(tid.dropFirst("cm-color-".count))
+                guard hex.allSatisfy({ $0.isHexDigit }),
                       let cid = await self.app.menuCategoryID() else { return [] }
-                await self.app.setCategoryColor(cid, color: color)
+                await self.app.setCategoryColor(cid, color: "#" + hex)
                 return await self.app.refreshFragments()
             }
             if tid.hasPrefix("cm-del-") {
@@ -1686,7 +1691,10 @@ final class Controller {
             return await self.app.skillPanelFragment()
         }
         wire(router, id: "skill-list", events: ["click", "change"]) { event in
-            guard let tid = event.string("targetId") else { return [] }
+            // Clicks resolve the row from targetId (the id inside the boundary);
+            // a checkbox change carries no targetId, so the row identity rides
+            // the input's `value` instead.
+            let tid = event.string("targetId") ?? event.string("value") ?? ""
             return await self.skillListAction(tid, checked: event.string("checked"))
         }
         wire(router, id: "skill-create-form", events: ["submit"]) { event in
@@ -1707,7 +1715,8 @@ final class Controller {
             return await self.app.refreshFragments()
         }
         wire(router, id: "side-tab-chips", events: ["change"]) { event in
-            guard let tid = event.string("targetId"), tid.hasPrefix("st-") else { return [] }
+            let tid = event.string("targetId") ?? event.string("value") ?? ""
+            guard tid.hasPrefix("st-") else { return [] }
             let key = dec(String(tid.dropFirst("st-".count))) ?? ""
             let on = event.string("checked") == "true"
             await self.app.setSidebarTab(key, visible: on)
@@ -1881,7 +1890,8 @@ final class Controller {
             return await self.profileListAction(tid)
         }
         wire(router, id: "profile-skills", events: ["change"]) { event in
-            guard let tid = event.string("targetId") else { return [] }
+            let tid = event.string("targetId") ?? event.string("value") ?? ""
+            guard tid.hasPrefix("ps-") else { return [] }
             let rest = String(tid.dropFirst("ps-".count))
             let parts = rest.split(separator: "-", maxSplits: 1).map(String.init)
             guard parts.count == 2, let pname = dec(parts[0]) else { return [] }
@@ -2016,7 +2026,8 @@ final class Controller {
             return await self.app.refreshFragments()
         }
         wire(router, id: "tools-toggle", events: ["change"]) { event in
-            guard let tid = event.string("targetId"), tid.hasPrefix("ts-") else { return [] }
+            let tid = event.string("targetId") ?? event.string("value") ?? ""
+            guard tid.hasPrefix("ts-") else { return [] }
             let ts = dec(String(tid.dropFirst("ts-".count))) ?? ""
             let on = event.string("checked") == "true"
             await self.app.setToolset(ts, enabled: on)
@@ -2028,7 +2039,8 @@ final class Controller {
 
     private func wirePlugins(_ router: EventRouter) {
         wire(router, id: "plugin-toggle", events: ["change"]) { event in
-            guard let tid = event.string("targetId"), tid.hasPrefix("plgl-") else { return [] }
+            let tid = event.string("targetId") ?? event.string("value") ?? ""
+            guard tid.hasPrefix("plgl-") else { return [] }
             let name = dec(String(tid.dropFirst("plgl-".count))) ?? ""
             let on = event.string("checked") == "true"
             await self.app.setPluginEnabled(name, enabled: on)
@@ -2225,9 +2237,7 @@ final class Controller {
             return []
         }
         wire(router, id: "aux-form", events: ["submit"]) { event in
-            guard let tid = event.string("targetId"), tid.hasPrefix("aux-form-") else { return [] }
-            let key = String(tid.dropFirst("aux-form-".count))
-            guard let task = AuxiliaryTask(configKey: key) else { return [] }
+            guard let key = event.string("aux-task"), let task = AuxiliaryTask(configKey: key) else { return [] }
             await self.app.setAuxOverride(
                 task: task,
                 provider: event.string("aux-provider") ?? "",
@@ -2271,7 +2281,8 @@ final class Controller {
             return await self.app.refreshFragments(includeApp: true)
         }
         wire(router, id: "ap-skill-locks", events: ["change"]) { event in
-            guard let tid = event.string("targetId"), tid.hasPrefix("ap-skill-lock-") else { return [] }
+            let tid = event.string("targetId") ?? event.string("value") ?? ""
+            guard tid.hasPrefix("ap-skill-lock-") else { return [] }
             let name = String(tid.dropFirst("ap-skill-lock-".count))
             let locked = event.string("checked") == "true"
             await self.app.updateAgentPowers { cfg in
@@ -2284,7 +2295,8 @@ final class Controller {
             return await self.app.refreshFragments(includeApp: true)
         }
         wire(router, id: "ap-profilefile-locks", events: ["change"]) { event in
-            guard let tid = event.string("targetId"), tid.hasPrefix("ap-profilefile-lock-") else { return [] }
+            let tid = event.string("targetId") ?? event.string("value") ?? ""
+            guard tid.hasPrefix("ap-profilefile-lock-") else { return [] }
             let key = String(tid.dropFirst("ap-profilefile-lock-".count))
             guard ["memory", "user", "soul", "agents"].contains(key) else { return [] }
             let locked = event.string("checked") == "true"
@@ -2365,6 +2377,10 @@ final class Controller {
             guard let tid = event.string("targetId") else { return [] }
             return await self.kanbanAction(tid)
         }
+        wire(router, id: "kb-addcol", events: ["click"]) { _ in
+            await self.app.setAddingColumn(!self.app.addingColumn)
+            return await self.app.refreshFragments()
+        }
         wire(router, id: "kb-addcol-form", events: ["submit", "click"]) { event in
             if event.event == "submit" {
                 let name = event.string("kb-addcol-name") ?? ""
@@ -2399,6 +2415,10 @@ final class Controller {
             } else {
                 return []
             }
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "mem-edit", events: ["click"]) { _ in
+            await self.app.startMemoryEdit()
             return await self.app.refreshFragments()
         }
         wire(router, id: "mem-save-form", events: ["submit", "click"]) { event in
@@ -2546,7 +2566,7 @@ final class Controller {
                   let id = Int(tid.dropFirst("t-".count)) else { return [] }
             await self.app.dismissToast(id: id)
             let html = await self.app.toastsHTML()
-            let toastsDiv = "<div id=\"toasts\">\(html)</div>"
+            let toastsDiv = "<div id=\"toasts\" data-component-id=\"toast-dismiss\" data-event=\"click\">\(html)</div>"
             return [FragmentUpdate(id: "toasts", html: toastsDiv)]
         }
     }

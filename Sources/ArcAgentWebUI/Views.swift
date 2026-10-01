@@ -76,7 +76,7 @@ extension AppState {
         \(workspacePanelHTML())
         </div>
         <div id="modal-root">\(modalRootHTML())</div>
-        <div id="toasts">\(toastsHTML())</div>
+        <div id="toasts" data-component-id="toast-dismiss" data-event="click">\(toastsHTML())</div>
         </div>
         """
     }
@@ -107,7 +107,7 @@ extension AppState {
     }
 
     func toastsShell() -> String {
-        "<div id=\"toasts\">\(toastsHTML())</div>"
+        "<div id=\"toasts\" data-component-id=\"toast-dismiss\" data-event=\"click\">\(toastsHTML())</div>"
     }
 
     func iconbarHTML() -> String {
@@ -138,7 +138,7 @@ extension AppState {
     func toastsHTML() -> String {
         let items = toasts.map { t -> String in
             let dot = "<span class=\"toast-dot\"></span>"
-            let x = btn("t-\(t.id)", "toast-dismiss", "toast-x", WebUIIcon(.x, size: .small).render())
+            let x = btn("t-\(t.id)", "", "toast-x", WebUIIcon(.x, size: .small).render())
             return "<div class=\"toast \(t.kind)\">\(dot)<span>\(esc(t.text))</span>\(x)</div>"
         }
         return items.joined()
@@ -154,9 +154,9 @@ extension AppState {
               <div class="modal-card">
                 <h3>Delete profile?</h3>
                 <p>The profile “\(esc(title))” will be permanently deleted. This cannot be undone.</p>
-                <div class="modal-actions">
-                  <button type="button" id="modal-cancel" data-component-id="modal" class="ghost-btn">Cancel</button>
-                  <button type="button" id="modal-confirm" data-component-id="modal" class="danger-btn">Delete</button>
+                <div class="modal-actions" data-component-id="modal" data-event="click">
+                  <button type="button" id="modal-cancel" class="ghost-btn">Cancel</button>
+                  <button type="button" id="modal-confirm" class="danger-btn">Delete</button>
                 </div>
               </div>
             </div>
@@ -172,9 +172,9 @@ extension AppState {
           <div class=\"modal-card\">
             <h3>Delete conversation?</h3>
             <p>The chat “\(esc(title))” will be permanently deleted. This cannot be undone.</p>
-            <div class=\"modal-actions\">
-              <button type=\"button\" id=\"modal-cancel\" data-component-id=\"modal\" class=\"ghost-btn\">Cancel</button>
-              <button type=\"button\" id=\"modal-confirm\" data-component-id=\"modal\" class=\"danger-btn\">Delete</button>
+            <div class=\"modal-actions\" data-component-id=\"modal\" data-event=\"click\">
+              <button type=\"button\" id=\"modal-cancel\" class=\"ghost-btn\">Cancel</button>
+              <button type=\"button\" id=\"modal-confirm\" class=\"danger-btn\">Delete</button>
             </div>
           </div>
         </div>
@@ -195,30 +195,30 @@ extension AppState {
         let swatches = AppState.palette.map { c in
             let sel = c == cat.color ? " sel" : ""
             return """
-            <button type="button" id="cm-color-\(cid)" data-component-id="cat-menu" data-color="\(c)" class="menu-swatch\(sel)" style="background:\(c)" aria-label="\(c)"></button>
+            <button type="button" id="cm-color-\(c.hasPrefix("#") ? String(c.dropFirst()) : c)" data-color="\(c)" class="menu-swatch\(sel)" style="background:\(c)" aria-label="\(c)"></button>
             """
         }.joined()
         let head: String
         if categoryMenuRename {
             head = """
-            <form class="ctx-rename" id="cm-rename-form-\(cid)" data-component-id="cat-menu" data-prevent-enter="false">
+            <form class="ctx-rename" id="cm-rename-form-\(cid)" data-prevent-enter="false">
               <input id="cat-rename-input" name="cat-rename-input" value="\(esc(cat.name))" autofocus>
               <button type="submit" class="primary-btn">Save</button>
             </form>
             """
         } else {
-            head = btn("cm-rename-\(cid)", "cat-menu", "ctx-item", "✎ Rename")
+            head = btn("cm-rename-\(cid)", "", "ctx-item", "✎ Rename")
         }
         return """
-        <div class="ctx-backdrop" id="cat-menu-close" data-component-id="cat-menu"></div>
-        <div class="ctx-menu" id="cat-menu" style="left:\(left)px;top:\(top)px">
+        <div class="ctx-backdrop" id="cat-menu-close" data-component-id="cat-menu-close"></div>
+        <div class="ctx-menu" data-component-id="cat-menu" id="cat-menu" style="left:\(left)px;top:\(top)px">
           \(head)
           <div class="ctx-swatches">
             <div class="ctx-label">Color</div>
             <div class="ctx-swatch-row">\(swatches)</div>
           </div>
           <div class="ctx-divider"></div>
-          <button type="button" id="cm-del-\(cid)" data-component-id="cat-menu" class="ctx-item ctx-danger">Delete</button>
+          <button type="button" id="cm-del-\(cid)" class="ctx-item ctx-danger">Delete</button>
         </div>
         """
     }
@@ -322,7 +322,7 @@ extension AppState {
         let stamp = liveHintHTML()
         return """
         \(head)
-        <div class="panel-body" id="sess-list-body">
+        <div class="panel-body" id="sess-list-body" data-component-id="sess-list" data-event="click">
           \(stamp)
           \(rows.joined())
         </div>
@@ -337,9 +337,9 @@ extension AppState {
         let allActive = activeCategory == "all" ? " active" : ""
         let unActive = activeCategory == "unassigned" ? " active" : ""
         var chips = """
-        <div class="cat-bar">
-          <button type="button" id="cat-all" data-component-id="cat-pick" class="cat-chip\(allActive)">All</button>
-          <button type="button" id="cat-unassigned" data-component-id="cat-pick" class="cat-chip\(unActive)">Unassigned</button>
+        <div class="cat-bar" data-component-id="cat-pick" data-event="click">
+          <button type="button" id="cat-all" class="cat-chip\(allActive)">All</button>
+          <button type="button" id="cat-unassigned" class="cat-chip\(unActive)">Unassigned</button>
         """
         for cat in settings.chatCategories {
             let cid = enc(cat.id)
@@ -350,16 +350,16 @@ extension AppState {
                 // parser and break the layout).
                 chips += """
                 <div class="cat-chip\(active)">
-                  <button type="button" id="cat-\(cid)" data-component-id="cat-pick" class="cat-chip-btn">
+                  <button type="button" id="cat-\(cid)" class="cat-chip-btn">
                     <span class="cat-dot" style="background:\(cat.color)"></span>
                     <span>\(esc(cat.name))</span>
                   </button>
-                  \(btn("cat-del-\(cid)", "cat-pick", "chip-x", WebUIIcon(.x, size: .small).render(), " title=\"Delete category\""))
+                  \(btn("cat-del-\(cid)", "", "chip-x", WebUIIcon(.x, size: .small).render(), " title=\"Delete category\""))
                 </div>
                 """
             } else {
                 chips += """
-                <button type="button" id="cat-\(cid)" data-component-id="cat-pick" class="cat-chip\(active)">
+                <button type="button" id="cat-\(cid)" class="cat-chip\(active)">
                   <span class="cat-dot" style="background:\(cat.color)"></span>
                   <span>\(esc(cat.name))</span>
                 </button>
@@ -367,7 +367,7 @@ extension AppState {
             }
         }
         let plusLabel = addingCategory ? WebUIIcon(.x, size: .small).render() : WebUIIcon(.plus, size: .small).render()
-        chips += btn("cat-add", "cat-pick", "cat-chip cat-add", plusLabel, " title=\"" + (addingCategory ? "Cancel" : "Add category") + "\"")
+        chips += btn("cat-add", "", "cat-chip cat-add", plusLabel, " title=\"" + (addingCategory ? "Cancel" : "Add category") + "\"")
         chips += "</div>"
         if addingCategory {
             let swatches = AppState.palette.enumerated().map { i, c in
@@ -381,7 +381,7 @@ extension AppState {
               <div class="cat-swatches">\(swatches)</div>
               <div class="cat-add-actions">
                 <button type="submit" class="primary-btn">Add</button>
-                \(btn("cat-add-cancel", "cat-add-form", "ghost-btn", "Cancel"))
+                \(btn("cat-add-cancel", "", "ghost-btn", "Cancel"))
               </div>
             </form>
             """
@@ -455,7 +455,7 @@ extension AppState {
             // no ⋮ menu, no category dot, no pin badge.
             return """
             <div class="sess-row\(active)\(archived)">
-              <button type="button" id="s-open-\(encID)" data-component-id="sess-list" class="sess-open">
+              <button type="button" id="s-open-\(encID)" class="sess-open">
                 <span class="sess-title">\(esc(title))</span>
               </button>
             </div>
@@ -476,12 +476,12 @@ extension AppState {
         // right of "Set category" (arc parity), keeping category option
         // button ids so the existing chat-menu wire handles them unchanged.
         let noneCls = catID == nil ? " menu-sel" : ""
-        var catSub = "<button type=\"button\" id=\"sm-uncat-\(encID)\" data-component-id=\"chat-menu\" class=\"" + noneCls.trimmingCharacters(in: .whitespaces) + "\">No Project" + (catID == nil ? " " + WebUIIcon(.check, size: .small).render() : "") + "</button>"
+        var catSub = "<button type=\"button\" id=\"sm-uncat-\(encID)\" class=\"" + noneCls.trimmingCharacters(in: .whitespaces) + "\">No Project" + (catID == nil ? " " + WebUIIcon(.check, size: .small).render() : "") + "</button>"
         for c in settings.chatCategories {
             let sel = c.id == catID ? " menu-sel" : ""
             let check = c.id == catID ? " " + WebUIIcon(.check, size: .small).render() : ""
             catSub += """
-            <button type="button" id="sm-cat-\(enc(c.id)).\(encID)" data-component-id="chat-menu" class="\(sel)" data-sid="\(s.id)">
+            <button type="button" id="sm-cat-\(enc(c.id)).\(encID)" class="\(sel)" data-sid="\(s.id)">
               <span class="cat-dot" style="background:\(c.color)"></span><span>\(esc(c.name))\(check)</span>
             </button>
             """
@@ -493,14 +493,14 @@ extension AppState {
         let catPanel = """
         <div class="chat-menu-panel" id="catpanel-\(encID)" hidden>
           <div class="cat-panel-head">
-            <button type="button" id="sm-catback-\(encID)" data-component-id="chat-menu" class="cat-panel-back" title="Back">\(WebUIIcon(.chevronLeft, size: .small).render())</button>
+            <button type="button" id="sm-catback-\(encID)" class="cat-panel-back" title="Back">\(WebUIIcon(.chevronLeft, size: .small).render())</button>
             <span class="cat-panel-title">Move to Category</span>
           </div>
           <div class="cat-panel-list">\(catSub)</div>
         </div>
         """
         let catOpts = """
-        <button type="button" id="sm-catmenu-\(encID)" data-component-id="chat-menu" class="menu-item-head catmenu-head">
+        <button type="button" id="sm-catmenu-\(encID)" class="menu-item-head catmenu-head">
           <span>Move to Category</span><span class="menu-arrow">\(WebUIIcon(.chevronRight, size: .small).render())</span>
         </button>
         """
@@ -513,16 +513,16 @@ extension AppState {
         let menu = """
         <div class="menu-wrap">
           <div class="menu-left">\(catDot)</div>
-          <button type="button" id="s-menu-\(encID)" data-component-id="sess-list" class="menu-dots" title="Chat actions">\(rowDotContent)</button>
-          <div class="chat-menu" id="menu-\(encID)">
+          <button type="button" id="s-menu-\(encID)" class="menu-dots" title="Chat actions">\(rowDotContent)</button>
+          <div class="chat-menu" data-component-id="chat-menu" data-event="click" id="menu-\(encID)">
             <div class="chat-menu-items">
-            <button type="button" id="sm-copy-\(encID)" data-component-id="chat-menu" data-sid="\(s.id)">Copy conversation link</button>
-            <button type="button" id="sm-rename-\(encID)" data-component-id="chat-menu" data-sid="\(s.id)">Rename conversation</button>
-            <button type="button" id="sm-pin-\(encID)" data-component-id="chat-menu" data-sid="\(s.id)">\(pinLabel)</button>
-            <button type="button" id="sm-arc-\(encID)" data-component-id="chat-menu" data-sid="\(s.id)">\(arcLabel)</button>
+            <button type="button" id="sm-copy-\(encID)" data-sid="\(s.id)">Copy conversation link</button>
+            <button type="button" id="sm-rename-\(encID)" data-sid="\(s.id)">Rename conversation</button>
+            <button type="button" id="sm-pin-\(encID)" data-sid="\(s.id)">\(pinLabel)</button>
+            <button type="button" id="sm-arc-\(encID)" data-sid="\(s.id)">\(arcLabel)</button>
             \(catOpts)
-            <button type="button" id="sm-dup-\(encID)" data-component-id="chat-menu" data-sid="\(s.id)">Duplicate conversation</button>
-            <button type="button" id="sm-del-\(encID)" data-component-id="chat-menu" class="danger" data-sid="\(s.id)">Delete conversation</button>
+            <button type="button" id="sm-dup-\(encID)" data-sid="\(s.id)">Duplicate conversation</button>
+            <button type="button" id="sm-del-\(encID)" class="danger" data-sid="\(s.id)">Delete conversation</button>
             </div>
             \(catPanel)
           </div>
@@ -530,7 +530,7 @@ extension AppState {
         """
         return """
         <div class="sess-row\(active)\(archived)">
-          <button type="button" id="s-open-\(encID)" data-component-id="sess-list" class="sess-open">
+          <button type="button" id="s-open-\(encID)" class="sess-open">
             <span class="sess-title">\(pinBadge)\(esc(title))</span>
             <span class="sess-meta">\(meta)</span>
           </button>
@@ -572,7 +572,7 @@ extension AppState {
                     <span class="skill-cat-title">\(esc(cat))</span>
                     <span class="skill-cat-count">(\(list.count))</span>
                   </button>
-                  <div class="skill-cat-rows">\(inner)</div>
+                  <div class="skill-cat-rows" data-component-id="skill-list">\(inner)</div>
                 </div>
                 """
             }
@@ -595,10 +595,10 @@ extension AppState {
         return """
         <div class="skill-row\(active)\(dis)">
           <label class="switch" title="\(enabled ? "Enabled" : "Disabled")">
-            <input type="checkbox" id="sk-toggle-\(encName)" data-component-id="skill-list" data-event="change" data-no-restore \(enabled ? "checked" : "")>
+            <input type="checkbox" id="sk-toggle-\(encName)" value="sk-toggle-\(encName)" data-event="change" data-no-restore \(enabled ? "checked" : "")>
             <span class="track"></span><span class="knob"></span>
           </label>
-          <button type="button" id="sk-open-\(encName)" data-component-id="skill-list" class="sess-open skill-open">
+          <button type="button" id="sk-open-\(encName)" class="sess-open skill-open">
             <span class="sk-name">\(esc(skill.name))</span>
             <span class="sk-desc">\(esc(trunc(skill.description, 64)))</span>
           </button>
@@ -622,8 +622,8 @@ extension AppState {
             let active = p.name == selectedProfile ? " active" : ""
             let sub = p.model ?? ""
             rows.append("""
-            <div class="list-row\(active)">
-              <button type="button" id="pr-open-\(encName)" data-component-id="profile-list" class="sess-open" style="padding:0">
+            <div class="list-row\(active)" data-component-id="profile-list">
+              <button type="button" id="pr-open-\(encName)" class="sess-open" style="padding:0">
                 <span class="lr-name">\(esc(p.title.isEmpty ? p.name : p.title))</span>
                 <span class="lr-sub">\(esc(sub))</span>
               </button>
@@ -656,7 +656,7 @@ extension AppState {
             <div class="list-row" style="padding:6px 10px">
               <span class="lr-sub" style="flex:1">\(tools.count) tool\(tools.count == 1 ? "" : "s")</span>
               <label class="switch" title="\(disabled ? "Toolset disabled" : "Toolset enabled")">
-                <input type="checkbox" id="ts-\(encTS)" data-component-id="tools-toggle" data-event="change" data-no-restore \(disabled ? "" : "checked")>
+                <input type="checkbox" id="ts-\(encTS)" value="ts-\(encTS)" data-component-id="tools-toggle" data-event="change" data-no-restore \(disabled ? "" : "checked")>
                 <span class="track"></span><span class="knob"></span>
               </label>
             </div>
@@ -668,8 +668,8 @@ extension AppState {
                 let avail = (t.checkFn?() ?? true)
                 let badge = avail ? "" : " <span class='lr-sub'>(needs env)</span>"
                 toolRows.append("""
-                <div class="list-row\(active)">
-                  <button type="button" id="tl-open-\(encT)" data-component-id="tool-list" class="sess-open" style="padding:0">
+                <div class="list-row\(active)" data-component-id="tool-list">
+                  <button type="button" id="tl-open-\(encT)" class="sess-open" style="padding:0">
                     <span class="lr-name">\(toolEmojiIcon(t.emoji))\(esc(t.name))\(badge)</span>
                   </button>
                 </div>
@@ -698,12 +698,12 @@ extension AppState {
             let encWS = enc(entry.name)
             let active = entry.name == settings.activeWorkspace ? " active" : ""
             rows.append("""
-            <div class="list-row\(active)">
-              <button type="button" id="ws-open-\(encWS)" data-component-id="workspace-list" class="sess-open" style="padding:0">
+            <div class="list-row\(active)" data-component-id="workspace-list">
+              <button type="button" id="ws-open-\(encWS)" class="sess-open" style="padding:0">
                 <span class="lr-name">\(esc(entry.name))</span>
                 <span class="lr-sub">\(esc(entry.path == WorkspaceEntry.defaultPath(for: "main") ? "home folder (default)" : trunc(entry.path, 58)))</span>
               </button>
-              <div class="row-actions">\(btn("ws-del-\(encWS)", "workspace-list", "icon-mini danger", WebUIIcon(.x, size: .small).render(), " title=\"Delete\""))</div>
+              <div class="row-actions">\(btn("ws-del-\(encWS)", "", "icon-mini danger", WebUIIcon(.x, size: .small).render(), " title=\"Delete\""))</div>
             </div>
             """)
         }
@@ -1300,12 +1300,12 @@ extension AppState {
         let remaining = max(1, Int(pc.expiresAt.timeIntervalSinceNow.rounded(.up)))
         let choiceRows = pc.choices.enumerated().map { i, c in
             """
-            <button type="button" id="clarify-choice-\(i)" data-component-id="clarify-choice" data-event="click" class="clarify-choice">
+            <button type="button" id="clarify-choice-\(i)" class="clarify-choice">
               <span class="clarify-choice-badge">\(i + 1)</span><span class="clarify-choice-text">\(esc(c))</span>
             </button>
             """
         }.joined()
-        let choicesBlock = choiceRows.isEmpty ? "" : "<div class=\"clarify-choices\">\(choiceRows)</div>"
+        let choicesBlock = choiceRows.isEmpty ? "" : "<div class=\"clarify-choices\" data-component-id=\"clarify-choice\" data-event=\"click\">\(choiceRows)</div>"
         return """
         <div class="clarify-card visible">
           <div class="clarify-inner">
@@ -1519,12 +1519,12 @@ extension AppState {
             cards += "<div class=\"selection-context-body\">"
             cards += "<div class=\"selection-context-header\">"
             cards += #"<span class="selection-context-name">\#(esc(block.name))</span>"#
-            cards += #"<button type="button" id="\#(esc(block.id))" data-component-id="selection-context-del" data-event="click" class="selection-context-remove" title="Remove context block">&#x2715;</button>"#
+            cards += #"<button type="button" id="\#(esc(block.id))" class="selection-context-remove" title="Remove context block">&#x2715;</button>"#
             cards += "</div>"
             cards += #"<blockquote class="selection-context-quote">\#(esc(preview))</blockquote>"#
             cards += "</div></article>"
         }
-        return #"<div id="composer-selection-chips" class="selection-chips-wrap">\#(cards)</div>"#
+        return #"<div id="composer-selection-chips" class="selection-chips-wrap" data-component-id="selection-context-del" data-event="click">\#(cards)</div>"#
     }
 
     func composerHTML() -> String {
@@ -1535,7 +1535,7 @@ extension AppState {
         let attachmentsHTML: String = {
             var chips = ""
             for (i, path) in attachments.enumerated() {
-                let x = btn("att-del-\(i)", "att-chips", "chip-x", WebUIIcon(.x, size: .small).render())
+                let x = btn("att-del-\(i)", "", "chip-x", WebUIIcon(.x, size: .small).render())
                 chips += "<span class=\"chip\">@\(esc(trunc(path, 50)))\(x)</span>"
             }
             return chips
@@ -1553,11 +1553,11 @@ extension AppState {
         let filePopVisible = filePopOpen ? "" : " hidden"
         let recents = settings.recentFiles.prefix(6).map { r in
             let er = enc(r)
-            return "<button type=\"button\" id=\"fr-\(er)\" data-component-id=\"file-recents\" class=\"fp-recent\">@\(esc(trunc(r, 60)))</button>"
+            return "<button type=\"button\" id=\"fr-\(er)\" class=\"fp-recent\">@\(esc(trunc(r, 60)))</button>"
         }.joined()
 
         let filePop = """
-        <div id="file-pop" class="file-pop\(filePopVisible)">
+        <div id="file-pop" class="file-pop\(filePopVisible)" data-component-id="file-recents" data-event="click">
           <div class="fp-row">
             <input id="file-path-input" data-component-id="file-path-input" type="text" placeholder="/absolute/path/to/file" value="\(esc(formValues["file-path-input"] ?? ""))">
             \(btn("file-attach", "file-attach", "primary-btn", "Attach"))
@@ -1582,7 +1582,7 @@ extension AppState {
           <div id="cmd-dropdown" class="cmd-dropdown" aria-label="Slash commands"></div>
           \(selectionChipsHTML())
           <form id="composer-form" data-component-id="composer-form" class="composer-bar\(selOpen ? " sel-open" : "")">
-            <div class="attach-chips" id="attach-chips">\(attachmentsHTML)</div>
+            <div class="attach-chips" id="attach-chips" data-component-id="att-chips" data-event="click">\(attachmentsHTML)</div>
             <textarea id="composer-input" name="composer-input" data-component-id="composer-input" data-session="\(esc(sid))" data-prevent-enter="send" placeholder="\(running ? "Steer the current response…" : "Message ARC…")" rows="1" style="min-height:24px">\(esc(draft))</textarea>
             <div class="composer-toolbar">
               \(btn("cb-file", "cb-file", "tool-btn" + (filePopOpen ? " on" : ""), WebUIIcon(.paperclip, size: .medium).render(), " title=\"Attach a file\""))
@@ -1634,10 +1634,13 @@ extension AppState {
         """
     }
 
-    private func ddRow(id: String, component: String, body: String, extraClass: String = "") -> String {
+    /// one dropdown row. the row carries only its id: the wire dispatches on
+    /// `targetId`, and the engine reports the nearest id *inside* the boundary —
+    /// so the boundary lives on the popover (`dd-pop`), never on the row.
+    private func ddRow(id: String, body: String, extraClass: String = "") -> String {
         let cls = extraClass.isEmpty ? "dd-row" : "dd-row \(extraClass)"
         return """
-        <button type="button" id="\(id)" data-component-id="\(component)" class="\(cls)">\(body)</button>
+        <button type="button" id="\(id)" class="\(cls)">\(body)</button>
         """
     }
 
@@ -1649,7 +1652,7 @@ extension AppState {
         for ws in settings.workspaces {
             if !q.isEmpty && !ws.name.lowercased().contains(q) && !ws.path.lowercased().contains(q) { continue }
             let encWS = enc(ws.name)
-            rows.append(ddRow(id: "ws-pick-\(encWS)", component: "ws-pick", body: """
+            rows.append(ddRow(id: "ws-pick-\(encWS)", body: """
             <span class="dd-row-title">\(esc(ws.name))</span>
             <span class="dd-row-sub">\(esc(trunc(ws.path, 58)))</span>
             """))
@@ -1659,7 +1662,7 @@ extension AppState {
         return """
         <div class="dd">
           \(trigger)
-          <div class="dd-pop dd-pop-ws\(vis)">
+          <div class="dd-pop dd-pop-ws\(vis)" data-component-id="ws-pick" data-event="click">
             <div class="dd-search">
               <input id="ws-search-input" data-component-id="ws-search-input" data-event="input" data-no-restore type="text" placeholder="Search workspaces…" spellcheck="false" autocomplete="off" value="\(esc(wsSelectQuery))">
               \(wsSelectQuery.isEmpty ? "" : btn("ws-search-clear", "ws-search-clear", "dd-clear", WebUIIcon(.x, size: .small).render()))
@@ -1695,7 +1698,7 @@ extension AppState {
             // settings.disabledSkills (see Actions.swift), not profileSkills.
             let onCount = enabledSkillCount(for: p.name)
             let titleSuffix = p.title.isEmpty || p.title == p.name ? "" : " (\(esc(p.title)))"
-            rows.append(ddRow(id: "pp-\(enc(p.name))", component: "profile-pick", body: """
+            rows.append(ddRow(id: "pp-\(enc(p.name))", body: """
             <span class="dd-dot\(on ? " on" : "")"></span>
             <span class="dd-profile-main">
               <span class="dd-row-title">\(esc(p.name))\(titleSuffix)\(check)</span>
@@ -1707,7 +1710,7 @@ extension AppState {
         return """
         <div class="dd">
           \(trigger)
-          <div class="dd-pop dd-pop-profile\(vis)">
+          <div class="dd-pop dd-pop-profile\(vis)" data-component-id="profile-pick" data-event="click">
             <div class="dd-list dd-list-profile">\(rows.joined())</div>
             <div class="dd-foot">
               <button type="button" id="pp-manage" data-component-id="pp-manage" class="dd-foot-row">
@@ -1730,7 +1733,7 @@ extension AppState {
             if !q.isEmpty && !c.name.lowercased().contains(q) && !c.model.lowercased().contains(q) { continue }
             let sel = c.name == active
             let selBadge = sel ? "<span class=\"dd-badge sel\">SELECTED</span>" : ""
-            rows.append(ddRow(id: "mc-\(enc(c.name))", component: "model-pick", body: """
+            rows.append(ddRow(id: "mc-\(enc(c.name))", body: """
             <span class="dd-model-main">
               <span class="dd-row-title">\(esc(c.model))</span>
               <span class="dd-badges"><span class="dd-badge">\(esc(c.name.uppercased())) (CUSTOM)</span>\(selBadge)</span>
@@ -1742,7 +1745,7 @@ extension AppState {
         return """
         <div class="dd">
           \(trigger)
-          <div class="dd-pop dd-pop-model\(vis)">
+          <div class="dd-pop dd-pop-model\(vis)" data-component-id="model-pick" data-event="click">
             <div class="dd-note">Applies to this conversation from your next message.</div>
             <div class="dd-search">
               <input id="model-search-input" data-component-id="model-search-input" data-event="input" data-no-restore type="text" placeholder="Search models…" spellcheck="false" autocomplete="off" value="\(esc(modelSelectQuery))">
@@ -1763,14 +1766,14 @@ extension AppState {
         for lv in ["off", "low", "medium", "high", "max"] {
             let on = lv == current
             let check = on ? " " + WebUIIcon(.check, size: .small).render() : ""
-            rows.append(ddRow(id: "tp-\(lv)", component: "think-pick", body: """
+            rows.append(ddRow(id: "tp-\(lv)", body: """
             <span class="dd-row-title">\(lv.capitalized)\(check)</span>
             """))
         }
         return """
         <div class="dd">
           \(trigger)
-          <div class="dd-pop dd-pop-think\(vis)">
+          <div class="dd-pop dd-pop-think\(vis)" data-component-id="think-pick" data-event="click">
             <div class="dd-list">\(rows.joined())</div>
           </div>
         </div>
@@ -1853,7 +1856,7 @@ extension AppState {
             <div class="row-actions-main">
               <button type="submit" class="primary-btn">Save changes</button>
               \(btn("sk-edit-delete", "sk-edit-delete", "ghost-btn danger", "Delete"))
-              \(btn("sk-edit-cancel", "sk-edit-form", "ghost-btn", "Cancel"))
+              \(btn("sk-edit-cancel", "", "ghost-btn", "Cancel"))
             </div>
           </form>
         </div></div>
@@ -1963,9 +1966,9 @@ extension AppState {
         let toolsetsNote = set.isEmpty ? "all (not overridden)" : set.joined(separator: ", ")
         let encName = enc(p.name)
         let isDefault = p.name == "default"
-        let headIcons = btn("pr-edit-\(encName)", "profile-list", "icon-mini", WebUIIcon(.edit, size: .medium).render(), " title=\"Edit profile\"")
-            + btn("pr-sel-\(encName)", "profile-list", "icon-mini", WebUIIcon(.check, size: .medium).render(), " title=\"Select profile for this chat\"")
-            + (isDefault ? "" : btn("pr-del-\(encName)", "profile-list", "icon-mini danger", WebUIIcon(.trash, size: .medium).render(), " title=\"Delete profile\""))
+        let headIcons = btn("pr-edit-\(encName)", "", "icon-mini", WebUIIcon(.edit, size: .medium).render(), " title=\"Edit profile\"")
+            + btn("pr-sel-\(encName)", "", "icon-mini", WebUIIcon(.check, size: .medium).render(), " title=\"Select profile for this chat\"")
+            + (isDefault ? "" : btn("pr-del-\(encName)", "", "icon-mini danger", WebUIIcon(.trash, size: .medium).render(), " title=\"Delete profile\""))
         return """
         <div class="main-view">
           <div class="main-scroll" data-scroll-key="main-scroll">
@@ -1975,7 +1978,7 @@ extension AppState {
                   <h1 class="detail-title" style="margin:0">\(esc(p.title.isEmpty ? p.name : p.title))</h1>
                   <div class="detail-sub">\(esc(p.description.isEmpty ? "No description." : p.description))</div>
                 </div>
-                <div class="row-actions">\(headIcons)</div>
+                <div class="row-actions" data-component-id="profile-list" data-event="click">\(headIcons)</div>
               </div>
               \(card)
               <h3 style="margin:16px 0 6px">Tool sets</h3>
@@ -2102,7 +2105,7 @@ extension AppState {
               <div style="display:flex;align-items:center;justify-content:space-between">
                 <div class="set-label">\(esc(name)) <small>v\(esc(m?.version ?? "0.0.0"))</small></div>
                 <label class="switch">
-                  <input type="checkbox" id="plgl-\(enc(name))" data-component-id="plugin-toggle" data-event="change" data-no-restore \(on ? "checked" : "")>
+                  <input type="checkbox" id="plgl-\(enc(name))" value="plgl-\(enc(name))" data-component-id="plugin-toggle" data-event="change" data-no-restore \(on ? "checked" : "")>
                   <span class="track"></span><span class="knob"></span>
                 </label>
               </div>
@@ -2283,7 +2286,7 @@ extension AppState {
         /// client would address the checkbox directly and the container wire
         /// would never fire.
         func swPlain(_ id: String, _ on: Bool) -> String {
-            "<label class=\"switch\"><input type=\"checkbox\" id=\"\(id)\" data-no-restore \(on ? "checked" : "")><span class=\"track\"></span><span class=\"knob\"></span></label>"
+            "<label class=\"switch\"><input type=\"checkbox\" id=\"\(id)\" value=\"\(id)\" data-no-restore \(on ? "checked" : "")><span class=\"track\"></span><span class=\"knob\"></span></label>"
         }
         let lockedNames = Set(powers.lockedSkills)
         var skillRows = ""
@@ -2344,11 +2347,11 @@ extension AppState {
         ]
         let themeCards = themeDefs.map { t in
             let active = settings.theme == t.key ? " active" : ""
-            return "<button type=\"button\" id=\"thm-\(t.key)\" data-component-id=\"theme-pick\" data-theme-choice=\"\(t.key)\" class=\"theme-pick-btn\(active)\" title=\"\(t.label)\"><span class=\"thm-preview\" style=\"\(t.preview)\"><span class=\"thm-ic\">\(WebUIIcon(t.icon, size: .medium).render())</span></span><span class=\"thm-label\">\(t.label)</span></button>"
+            return "<button type=\"button\" id=\"thm-\(t.key)\" data-theme-choice=\"\(t.key)\" class=\"theme-pick-btn\(active)\" title=\"\(t.label)\"><span class=\"thm-preview\" style=\"\(t.preview)\"><span class=\"thm-ic\">\(WebUIIcon(t.icon, size: .medium).render())</span></span><span class=\"thm-label\">\(t.label)</span></button>"
         }.joined()
         let sizeCards = ThemeSize.allCases.map { s in
             let active = settings.textSize == s.rawValue ? " active" : ""
-            return "<button type=\"button\" id=\"fsz-\(s.rawValue)\" data-component-id=\"font-size-pick\" class=\"font-size-pick-btn\(active)\" title=\"\(s.label)\"><span class=\"fsz-preview\" style=\"font-size:\(s.previewPx)\">Aa</span><span class=\"fsz-label\">\(s.label)</span></button>"
+            return "<button type=\"button\" id=\"fsz-\(s.rawValue)\" class=\"font-size-pick-btn\(active)\" title=\"\(s.label)\"><span class=\"fsz-preview\" style=\"font-size:\(s.previewPx)\">Aa</span><span class=\"fsz-label\">\(s.label)</span></button>"
         }.joined()
         // the scheme grid renders from the catalog: identity — id, label, swatch — comes from
         // the providers themselves, so the picker cannot list a scheme the sheet does not
@@ -2361,7 +2364,7 @@ extension AppState {
                 "<span class=\"scheme-dot\" style=\"background:\(d)\"></span>"
             }.joined()
             return """
-            <button type="button" id="scheme-\(enc(entry.id))" data-component-id="scheme-pick" data-scheme-choice="\(esc(entry.id))" class="scheme-tile\(active)" title="\(esc(entry.label))" style="--sw-accent:\(accent)">
+            <button type="button" id="scheme-\(enc(entry.id))" data-scheme-choice="\(esc(entry.id))" class="scheme-tile\(active)" title="\(esc(entry.label))" style="--sw-accent:\(accent)">
               <span class="scheme-dots">\(dots)</span>
               <span class="scheme-name">\(esc(entry.label))</span>
             </button>
@@ -2375,7 +2378,7 @@ extension AppState {
             ("hide_all_activity", "Final answer only"),
         ].map { mode, label in
             let active = settings.activityDisplay == mode ? " active" : ""
-            return "<button type=\"button\" id=\"actdisp-\(mode)\" data-component-id=\"activity-display\" class=\"bubble-opt\(active)\">\(label)</button>"
+            return "<button type=\"button\" id=\"actdisp-\(mode)\" class=\"bubble-opt\(active)\">\(label)</button>"
         }.joined()
 
         // Sidebar tabs (arc-style chips; Chat + Settings are always visible)
@@ -2392,7 +2395,7 @@ extension AppState {
             let on = !settings.hiddenSidebarTabs.contains(key)
             return """
             <label class="side-tab-chip\(on ? " on" : "")">
-              <input type="checkbox" id="st-\(enc(key))" data-component-id="side-tab-chips" data-event="change" data-no-restore \(on ? "checked" : "")>
+              <input type="checkbox" id="st-\(enc(key))" value="st-\(enc(key))" data-component-id="side-tab-chips" data-event="change" data-no-restore \(on ? "checked" : "")>
               <span>\(label)</span>
             </label>
             """
@@ -2407,8 +2410,8 @@ extension AppState {
               <span class="mc-name">\(esc(c.name)) \(badge)</span>
               <span class="mc-model">\(esc(c.model))</span>
               <div class="row-actions-main" style="margin:0">
-                \(btn("mc-use-\(encName)", "modelcfg-list", "ghost-btn", "Use", " style=\"padding:4px 10px;font-size:0.8em\""))
-                \(btn("mc-del-\(encName)", "modelcfg-list", "danger-btn", "Remove", " style=\"padding:4px 10px;font-size:0.8em\""))
+                \(btn("mc-use-\(encName)", "", "ghost-btn", "Use", " style=\"padding:4px 10px;font-size:0.8em\""))
+                \(btn("mc-del-\(encName)", "", "danger-btn", "Remove", " style=\"padding:4px 10px;font-size:0.8em\""))
               </div>
             </div>
             """
@@ -2433,14 +2436,14 @@ extension AppState {
                 <div class="aux-editing">
                   <form id="aux-form-\(task.key)" data-component-id="aux-form">
                     <div class="aux-fields">
-                      <label class="aux-field">Provider<input name="aux-provider" id="aux-provider-\(task.key)" value="\(esc(pv))" placeholder="auto"></label>
+                      <label class="aux-field">Provider<input type="hidden" name="aux-task" value="\(task.key)"><input name="aux-provider" id="aux-provider-\(task.key)" value="\(esc(pv))" placeholder="auto"></label>
                       <label class="aux-field">Model<input name="aux-model" id="aux-model-\(task.key)" value="\(esc(mv))" placeholder="(main model)"></label>
                       <label class="aux-field">Base URL<input name="aux-base-url" id="aux-base-url-\(task.key)" value="\(esc(bv))" placeholder="(main base URL)"></label>
                       <label class="aux-field">API key<input name="aux-api-key" id="aux-api-key-\(task.key)" type="password" value="\(esc(kv))" placeholder="(main API key)"></label>
                     </div>
-                    <div class="aux-actions">
+                    <div class="aux-actions" data-component-id="aux-edit" data-event="click">
                       <button type="submit" class="primary-btn">Save</button>
-                      \(btn("aux-cancel-\(task.key)", "aux-edit", "ghost-btn", "Cancel"))
+                      \(btn("aux-cancel-\(task.key)", "", "ghost-btn", "Cancel"))
                     </div>
                   </form>
                 </div>
@@ -2463,9 +2466,9 @@ extension AppState {
             return """
             <div class="set-row">
               <div class="set-label">\(esc(task.displayName))<small>\(esc(task.detail)). Currently: \(esc(summary)).</small></div>
-              <div class="aux-right">
-                \(btn("aux-edit-\(task.key)", "aux-edit", "ghost-btn", has ? "Edit" : "Configure"))
-                \(has ? btn("aux-reset-\(task.key)", "aux-edit", "ghost-btn", "Reset") : "")
+              <div class="aux-right" data-component-id="aux-edit" data-event="click">
+                \(btn("aux-edit-\(task.key)", "", "ghost-btn", has ? "Edit" : "Configure"))
+                \(has ? btn("aux-reset-\(task.key)", "", "ghost-btn", "Reset") : "")
               </div>
             </div>
             """
@@ -2480,15 +2483,15 @@ extension AppState {
               <div class="detail-card">
                 <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
                   <div class="set-label">Theme<small>Light, dark, or follow the system.</small></div>
-                  <div class="thm-grid">\(themeCards)</div>
+                  <div class="thm-grid" data-component-id="theme-pick" data-event="click">\(themeCards)</div>
                 </div>
                 <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
                   <div class="set-label">Text size<small>Chat content, session names, workspace files, and memory text.</small></div>
-                  <div class="fsz-grid">\(sizeCards)</div>
+                  <div class="fsz-grid" data-component-id="font-size-pick" data-event="click">\(sizeCards)</div>
                 </div>
                 <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
                   <div class="set-label">Color scheme<small>Full palette for the interface.</small></div>
-                  <div class="scheme-grid">\(swatches)</div>
+                  <div class="scheme-grid" data-component-id="scheme-pick" data-event="click">\(swatches)</div>
                 </div>
                   <div class="set-row">
                     <div class="set-label">Show conversation outline<small>Adds a floating button to the chat view that lists your sent messages; clicking one jumps to it.</small></div>
@@ -2499,7 +2502,7 @@ extension AppState {
                   </div>
                   <div class="set-row">
                     <div class="set-label">Activity display<small>How thinking and tool activity appear in chats.</small></div>
-                    <div class="bubble-opts">\(actOpts)</div>
+                    <div class="bubble-opts" data-component-id="activity-display" data-event="click">\(actOpts)</div>
                   </div>
                   <div class="set-row" style="flex-direction:column;align-items:stretch;gap:8px">
                     <div class="set-label">Sidebar tabs</div>
@@ -2543,7 +2546,7 @@ extension AppState {
               <div class="detail-card">
                 <h3 style="margin:0 0 6px">Model configurations</h3>
                 <div class="detail-sub" style="margin-bottom:10px">Add or remove the model configurations available in every chat's config selector.</div>
-                \(mcRows.isEmpty ? "<div class=\"empty-hint\">No model configurations.</div>" : mcRows)
+                <div data-component-id="modelcfg-list" data-event="click">\(mcRows.isEmpty ? "<div class=\"empty-hint\">No model configurations.</div>" : mcRows)</div>
                 <form id="modelcfg-add-form" data-component-id="modelcfg-add-form" class="form-grid" style="margin-top:14px;border-top:1px dashed var(--border);padding-top:14px">
                   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
                     <div><label for="mc-name">Name</label><input id="mc-name" name="mc-name" data-component-id="mc-name" placeholder="deepseek-v4-flash"></div>
@@ -2644,7 +2647,7 @@ extension AppState {
     // MARK: Kanban
 
     func kanbanPanel() -> String {
-        let newBtn = btn("kb-addcol", "kanban", "plus-btn", addingColumn ? WebUIIcon(.x, size: .small).render() : WebUIIcon(.plus, size: .small).render(), " title=\"" + (addingColumn ? "Cancel" : "Add column") + "\"")
+        let newBtn = btn("kb-addcol", "kb-addcol", "plus-btn", addingColumn ? WebUIIcon(.x, size: .small).render() : WebUIIcon(.plus, size: .small).render(), " title=\"" + (addingColumn ? "Cancel" : "Add column") + "\"")
         let head = """
         <div class="panel-head">
           <span class="panel-title">Kanban</span>
@@ -2664,7 +2667,7 @@ extension AppState {
                 <span class="lr-name">\(esc(col.name))</span>
                 <span class="lr-sub">\(count) card\(count == 1 ? "" : "s")</span>
               </div>
-              <div class="row-actions">\(btn("kb-pdel-\(cid)", "kanban", delCls, confirm, " title=\"Delete column\""))</div>
+              <div class="row-actions">\(btn("kb-pdel-\(cid)", "", delCls, confirm, " title=\"Delete column\""))</div>
             </div>
             """)
         }
@@ -2684,7 +2687,7 @@ extension AppState {
               <div class="cat-swatches">\(swatches)</div>
               <div class="cat-add-actions">
                 <button type="submit" class="primary-btn">Add</button>
-                \(btn("kb-addcol-cancel", "kb-addcol-form", "ghost-btn", "Cancel"))
+                \(btn("kb-addcol-cancel", "", "ghost-btn", "Cancel"))
               </div>
             </form>
             """
@@ -2693,7 +2696,7 @@ extension AppState {
         }
         return """
         \(head)
-        <div class="panel-body">
+        <div class="panel-body" data-component-id="kanban" data-event="click">
           \(addForm)
           \(rows.joined())
         </div>
@@ -2712,7 +2715,7 @@ extension AppState {
         let cols = settings.kanbanColumns.map { kanbanColumnHTML($0) }.joined()
         return """
         <div class="kanban-main main-view" style="padding:0">
-          <div class="kanban-board">\(cols)</div>
+          <div class="kanban-board" data-component-id="kanban" data-event="click">\(cols)</div>
         </div>
         """
     }
@@ -2730,12 +2733,12 @@ extension AppState {
               <input type="hidden" name="kb-addcard-col" value="\(col.id)">
               <div class="cat-add-actions" style="justify-content:flex-end">
                 <button type="submit" class="primary-btn">Add</button>
-                \(btn("kb-addcard-cancel", "kb-addcard-form", "ghost-btn", "Cancel"))
+                \(btn("kb-addcard-cancel", "", "ghost-btn", "Cancel"))
               </div>
             </form>
             """
         } else {
-            add = btn("kb-addcard-\(cid)", "kanban", "kb-addcard", "+ Add card")
+            add = btn("kb-addcard-\(cid)", "", "kb-addcard", "+ Add card")
         }
         return """
         <div class="kb-col">
@@ -2743,8 +2746,8 @@ extension AppState {
             <span class="kb-col-name">\(esc(col.name))</span>
             <span class="kb-col-count">\(cards.count)</span>
             <div class="kb-col-actions">
-              \(btn("kb-rencol-\(cid)", "kanban", "icon-mini", WebUIIcon(.edit, size: .small).render(), " title=\"Rename column\" data-colid=\"\(col.id)\""))
-              \(btn("kb-bdel-\(cid)", "kanban", confirmColumn == col.id ? "icon-mini danger sess-confirm" : "icon-mini danger", confirmColumn == col.id ? "Confirm?" : WebUIIcon(.x, size: .small).render(), " title=\"Delete column\""))
+              \(btn("kb-rencol-\(cid)", "", "icon-mini", WebUIIcon(.edit, size: .small).render(), " title=\"Rename column\" data-colid=\"\(col.id)\""))
+              \(btn("kb-bdel-\(cid)", "", confirmColumn == col.id ? "icon-mini danger sess-confirm" : "icon-mini danger", confirmColumn == col.id ? "Confirm?" : WebUIIcon(.x, size: .small).render(), " title=\"Delete column\""))
             </div>
           </div>
           <div class="kb-cards">\(cardHTML)</div>
@@ -2756,15 +2759,15 @@ extension AppState {
     func kanbanCardHTML(_ card: KBCard) -> String {
         let encc = enc(card.id)
         let idx = settings.kanbanColumns.firstIndex { $0.id == card.columnID } ?? 0
-        let left = idx > 0 ? btn("kb-movel-\(encc)", "kanban", "icon-mini", WebUIIcon(.chevronLeft, size: .small).render(), " title=\"Move left\"") : ""
-        let right = idx < settings.kanbanColumns.count - 1 ? btn("kb-mover-\(encc)", "kanban", "icon-mini", WebUIIcon(.chevronRight, size: .small).render(), " title=\"Move right\"") : ""
+        let left = idx > 0 ? btn("kb-movel-\(encc)", "", "icon-mini", WebUIIcon(.chevronLeft, size: .small).render(), " title=\"Move left\"") : ""
+        let right = idx < settings.kanbanColumns.count - 1 ? btn("kb-mover-\(encc)", "", "icon-mini", WebUIIcon(.chevronRight, size: .small).render(), " title=\"Move right\"") : ""
         return """
         <div class="kb-card">
           <div class="kb-card-title" data-cardid="\(card.id)">\(esc(trunc(card.title, 70)))</div>
           <div class="kb-card-actions">
-            \(btn("kb-edit-\(encc)", "kanban", "icon-mini", WebUIIcon(.edit, size: .small).render(), " title=\"Edit title\" data-cardid=\"\(card.id)\""))
+            \(btn("kb-edit-\(encc)", "", "icon-mini", WebUIIcon(.edit, size: .small).render(), " title=\"Edit title\" data-cardid=\"\(card.id)\""))
             \(left)\(right)
-            \(btn("kb-del-\(encc)", "kanban", "icon-mini danger", WebUIIcon(.x, size: .small).render(), " title=\"Delete card\""))
+            \(btn("kb-del-\(encc)", "", "icon-mini danger", WebUIIcon(.x, size: .small).render(), " title=\"Delete card\""))
           </div>
         </div>
         """
@@ -2787,14 +2790,14 @@ extension AppState {
         let boxes = items.map { it in
             let active = memoryDoc == it.key ? " active" : ""
             return """
-            <button type="button" id="mem-open-\(it.key)" data-component-id="memory" class="mem-box\(active)">
+            <button type="button" id="mem-open-\(it.key)" class="mem-box\(active)">
               <span class="mem-glyph">\(it.glyph)</span>
               <span class="mem-txt"><span class="mem-title">\(it.title)</span><span class="mem-sub">\(it.sub)</span></span>
               <span class="mem-arrow">›</span>
             </button>
             """
         }.joined()
-        return head + "<div class=\"panel-body\">\(boxes)</div>"
+        return head + "<div class=\"panel-body\" data-component-id=\"memory\" data-event=\"click\">\(boxes)</div>"
     }
 
     func memoryMain() -> String {
@@ -2841,7 +2844,7 @@ extension AppState {
                 <textarea id="mem-content" name="mem-content" data-component-id="mem-content" class="mem-textarea" spellcheck="false">\(esc(memoryContent))</textarea>
                 <div class="row-actions-main">
                   <button type="submit" class="primary-btn">Save changes</button>
-                  \(btn("mem-cancel", "mem-save-form", "ghost-btn", "Cancel"))
+                  \(btn("mem-cancel", "", "ghost-btn", "Cancel"))
                 </div>
               </form>
             </div></div>
@@ -2855,7 +2858,7 @@ extension AppState {
           <div class="detail-card">
             <div class="mem-head">
               <div><h1 class="detail-title" style="margin:0">\(title)</h1><div class="detail-sub">\(esc(sub)) — \(esc(meta.note))</div></div>
-              \(btn("mem-edit", "memory", "icon-mini", WebUIIcon(.edit, size: .small).render(), " title=\"Edit \(esc(sub))\""))
+              \(btn("mem-edit", "mem-edit", "icon-mini", WebUIIcon(.edit, size: .small).render(), " title=\"Edit \(esc(sub))\""))
             </div>
             <div class="detail-body" style="margin-top:14px">\(contentHTML)</div>
           </div>
@@ -2888,7 +2891,7 @@ extension AppState {
         let chips = ["all", "info", "warn", "error"].map { lvl -> String in
             let label = lvl == "all" ? "All" : (lvl == "info" ? "Info" : (lvl == "warn" ? "Warn" : "Error"))
             let active = logFilter == lvl ? " active" : ""
-            return "<button type=\"button\" id=\"log-filter-\(lvl)\" data-component-id=\"log-filter\" class=\"chip-btn\(active)\">\(label)</button>"
+            return "<button type=\"button\" id=\"log-filter-\(lvl)\" class=\"chip-btn\(active)\">\(label)</button>"
         }.joined()
         return """
         \(head)
@@ -2898,7 +2901,7 @@ extension AppState {
             <span class="log-stat"><span class="dot dot-warn"></span>\(warn)</span>
             <span class="log-stat"><span class="dot dot-err"></span>\(err)</span>
           </div>
-          <div class="log-chips">\(chips)</div>
+          <div class="log-chips" data-component-id="log-filter" data-event="click">\(chips)</div>
           <div class="log-panel-note">In-app log stream. Captured lines from this process appear here instead of the terminal.</div>
         </div>
         """
@@ -2968,8 +2971,8 @@ extension AppState {
     func workspaceDockHTML() -> String {
         guard !workspaceOpen else { return "<div id=\"ws-dock\"></div>" }
         return """
-        <div id="ws-dock">
-          <button type="button" id="w-dock" data-component-id="workspace" class="ws-dock-btn" title="Open workspace">\(WebUIIcon(.chevronLeft, size: .medium).render())</button>
+        <div id="ws-dock" data-component-id="workspace" data-event="click">
+          <button type="button" id="w-dock" class="ws-dock-btn" title="Open workspace">\(WebUIIcon(.chevronLeft, size: .medium).render())</button>
         </div>
         """
     }
@@ -2983,10 +2986,10 @@ extension AppState {
         let anim = wsEnterAnim ? " ws-enter" : ""
         wsEnterAnim = false
         let wsMenu = """
-        <div class="ws-menu-wrap">
-          <button type="button" id="w-menu" data-component-id="workspace" class="icon-mini" title="Workspace options">⋮</button>
+        <div class="ws-menu-wrap" data-component-id="workspace" data-event="click">
+          <button type="button" id="w-menu" class="icon-mini" title="Workspace options">⋮</button>
           <div class="chat-menu ws-menu" id="ws-menu">
-            <button type="button" id="w-hidden" data-component-id="workspace" class="\(showHiddenFiles ? "menu-sel" : "")">\(showHiddenFiles ? "<span class=\"chk\">" + WebUIIcon(.checkSquare, size: .small).render() + "</span>" : "<span class=\"chk\">" + WebUIIcon(.square, size: .small).render() + "</span>") Show hidden files</button>
+            <button type="button" id="w-hidden" class="\(showHiddenFiles ? "menu-sel" : "")">\(showHiddenFiles ? "<span class=\"chk\">" + WebUIIcon(.checkSquare, size: .small).render() + "</span>" : "<span class=\"chk\">" + WebUIIcon(.square, size: .small).render() + "</span>") Show hidden files</button>
           </div>
         </div>
         """
@@ -3001,7 +3004,7 @@ extension AppState {
               <input type="hidden" name="ws-new-kind" value="\(wsNewMode)">
               <div class="cat-add-actions" style="margin-top:8px">
                 <button type="submit" class="primary-btn">Create</button>
-                \(btn("ws-new-cancel", "ws-new-form", "ghost-btn", "Cancel"))
+                \(btn("ws-new-cancel", "", "ghost-btn", "Cancel"))
               </div>
             </form>
             """
@@ -3010,16 +3013,16 @@ extension AppState {
         <div id="ws-panel" class="ws-panel\(hidden)\(anim)">
           <div class="panel-head ws-head">
             <span class="panel-title">Workspace</span>
-            <div class="ws-tools">
-              \(btn("w-new", "workspace", "icon-mini", WebUIIcon(.plus, size: .small).render(), " title=\"New file\""))
-              \(btn("w-newfolder", "workspace", "icon-mini", WebUIIcon(.folder, size: .small).render(), " title=\"New folder\""))
-              \(btn("w-upload", "workspace", "icon-mini", WebUIIcon(.upload, size: .small).render(), " title=\"Upload files or drop them here\""))
+            <div class="ws-tools" data-component-id="workspace" data-event="click">
+              \(btn("w-new", "", "icon-mini", WebUIIcon(.plus, size: .small).render(), " title=\"New file\""))
+              \(btn("w-newfolder", "", "icon-mini", WebUIIcon(.folder, size: .small).render(), " title=\"New folder\""))
+              \(btn("w-upload", "", "icon-mini", WebUIIcon(.upload, size: .small).render(), " title=\"Upload files or drop them here\""))
               \(wsMenu)
-              \(btn("w-close", "workspace", "icon-mini", WebUIIcon(.x, size: .small).render(), " title=\"Close workspace\""))
+              \(btn("w-close", "", "icon-mini", WebUIIcon(.x, size: .small).render(), " title=\"Close workspace\""))
             </div>
           </div>
           \(create)
-          <div class="ws-body" id="ws-tree" data-root="\(esc(panelWorkspacePath()))">
+          <div class="ws-body" id="ws-tree" data-component-id="workspace" data-event="click" data-root="\(esc(panelWorkspacePath()))">
             <div class="ws-path" title="\(esc(panelWorkspacePath()))">\(esc(panelWorkspacePath()))</div>
             \(workspaceTreeHTML())
           </div>
@@ -3056,10 +3059,10 @@ extension AppState {
                 if isDir {
                     let expanded = expandedPaths.contains(relPath)
                     let caret = expanded ? WebUIIcon(.chevronDown, size: .small).render() : WebUIIcon(.chevronRight, size: .small).render()
-                    lines.append("<button type=\"button\" id=\"w-toggle-\(encPath)\" data-component-id=\"workspace\" class=\"ws-row\" style=\"padding-left:\(pad)px\" title=\"\(esc(relPath))\"><span class=\"ws-caret\">\(caret)</span><span class=\"ws-ic\">\(WebUIIcon(.folder, size: .small).render())</span><span class=\"ws-name\">\(esc(name))</span></button>")
+                    lines.append("<button type=\"button\" id=\"w-toggle-\(encPath)\" class=\"ws-row\" style=\"padding-left:\(pad)px\" title=\"\(esc(relPath))\"><span class=\"ws-caret\">\(caret)</span><span class=\"ws-ic\">\(WebUIIcon(.folder, size: .small).render())</span><span class=\"ws-name\">\(esc(name))</span></button>")
                     if expanded { walk(entry, rel: relPath, depth: depth + 1) }
                 } else {
-                    lines.append("<button type=\"button\" id=\"w-file-\(encPath)\" data-component-id=\"workspace\" class=\"ws-row\" style=\"padding-left:\(pad + 4)px\" title=\"\(esc(relPath))\"><span class=\"ws-ic\">\(wsFileIcon(name))</span><span class=\"ws-name\">\(esc(name))</span></button>")
+                    lines.append("<button type=\"button\" id=\"w-file-\(encPath)\" class=\"ws-row\" style=\"padding-left:\(pad + 4)px\" title=\"\(esc(relPath))\"><span class=\"ws-ic\">\(wsFileIcon(name))</span><span class=\"ws-name\">\(esc(name))</span></button>")
                 }
             }
         }
@@ -3160,7 +3163,7 @@ extension AppState {
             if githubCommits.isEmpty {
                 body = summary + "<div class=\"empty-hint\">No commits found.</div>"
             } else {
-                body = summary + "<div class=\"gh-list\">\(rows)</div>"
+                body = summary + "<div class=\"gh-list\" data-component-id=\"gh-commit\" data-event=\"click\">\(rows)</div>"
             }
         }
         return head + "<div class=\"panel-body gh-panel-body\" id=\"gh-list-body\">\(body)</div>"
@@ -3177,7 +3180,7 @@ extension AppState {
             : "<span class=\"gh-refs\">\(esc(trunc(c.refs, 40)))</span>"
         let date = ghShortDate(c.dateISO)
         return """
-        <button type="button" id="gh-commit-\(c.sha)" data-component-id="gh-commit" class="gh-commit\(active)">
+        <button type="button" id="gh-commit-\(c.sha)" class="gh-commit\(active)">
           <span class="gh-commit-row">
             <span class="gh-sha">\(esc(c.short))</span>
             <span class="gh-commit-subject">\(esc(trunc(c.subject, 56)))</span>

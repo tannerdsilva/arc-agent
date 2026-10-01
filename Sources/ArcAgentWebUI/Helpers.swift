@@ -66,6 +66,12 @@ func div(_ id: String?, _ cls: String, _ content: String) -> String {
     return "<div\(idAttr) class=\"\(cls)\">\(content)</div>"
 }
 
+/// A button. `component` is the `data-component-id` the engine routes to; pass "" for a
+/// control that must NOT own a boundary (its id is then reported as `targetId` by the
+/// enclosing boundary). An empty attribute would still be a boundary — `findComponent`
+/// matches on presence — so an empty value omits the attribute rather than emitting
+/// `data-component-id=""`, which would shadow the container and swallow the click.
 func btn(_ id: String, _ component: String, _ cls: String, _ label: String, _ extra: String = "") -> String {
-    "<button type=\"button\" id=\"\(id)\"\(extra) data-component-id=\"\(component)\" class=\"\(cls)\">\(label)</button>"
+    let routing = component.isEmpty ? "" : " data-component-id=\"\(component)\""
+    return "<button type=\"button\" id=\"\(id)\"\(extra)\(routing) class=\"\(cls)\">\(label)</button>"
 }

@@ -1146,7 +1146,7 @@ extension AppState {
         return [
             FragmentUpdate(
                 id: "ws-tree",
-                html: "<div class=\"ws-body\" id=\"ws-tree\" data-root=\"\(path)\">\n" +
+                html: "<div class=\"ws-body\" id=\"ws-tree\" data-component-id=\"workspace\" data-event=\"click\" data-root=\"\(path)\">\n" +
                       "  <div class=\"ws-path\" title=\"\(path)\">\(path)</div>\n" +
                       "  \(cachedWSTreeHTML)\n" +
                       "</div>"
