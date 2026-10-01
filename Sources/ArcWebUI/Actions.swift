@@ -2537,7 +2537,7 @@ final class Controller {
             _ = await app.hint("Base URL is not a valid URL.", kind: "error")
             return await self.app.refreshFragments()
         }
-        let preset = ModelConfigPreset(name: name, model: model, provider: provider.isEmpty ? "custom" : provider, baseURL: baseURL, apiKey: apiKey, contextLength: ctx, maxOutputTokens: maxtok)
+        let preset = ModelConfigPreset(name: name, model: model, provider: provider.isEmpty ? "custom" : provider, baseURL: baseURL, apiKey: apiKey, contextLength: ctx, maxOutputTokens: maxtok, source: "ui")
         await app.addModelConfig(preset)
         _ = await app.hint("Configuration '\(name)' added.")
         return await self.app.refreshFragments()

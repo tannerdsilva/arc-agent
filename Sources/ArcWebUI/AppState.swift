@@ -119,6 +119,10 @@ struct ModelConfigPreset: Codable, Equatable, Identifiable, Sendable {
     var maxOutputTokens: Int?
     var temperature: Double?
     var topP: Double?
+    /// Provenance: "config.json" = the managed preset refreshed from
+    /// `~/.arc/config.json` on every boot; "ui" = created in the picker; nil =
+    /// pre-provenance (the legacy one-shot seed, adopted on first reconcile).
+    var source: String?
 
     init(
         name: String,
@@ -129,7 +133,8 @@ struct ModelConfigPreset: Codable, Equatable, Identifiable, Sendable {
         contextLength: Int? = nil,
         maxOutputTokens: Int? = nil,
         temperature: Double? = nil,
-        topP: Double? = nil
+        topP: Double? = nil,
+        source: String? = nil
     ) {
         self.name = name
         self.model = model
@@ -140,6 +145,7 @@ struct ModelConfigPreset: Codable, Equatable, Identifiable, Sendable {
         self.maxOutputTokens = maxOutputTokens
         self.temperature = temperature
         self.topP = topP
+        self.source = source
     }
 
     /// A copy with the bound profile's context overrides applied (nil fields
@@ -846,9 +852,18 @@ actor AppState {
         self.insights = Self.loadInsights()
         self.insightsRangeDays = self.settings.insightsRangeDays
         let resolvedConfig = loadConfig()
-        self.settings = AppState.seedConfigs(from: resolvedConfig, into: self.settings)
+        // config.json's model block is the UI's default model: the managed
+        // preset is refreshed on every boot (the 08:51 divergence fix — the
+        // one-shot seed this replaces never re-read the file).
+        let modelChanged = ConfigModelReconciler.reconcile(
+            &self.settings,
+            resolved: .init(arc: resolvedConfig, apiKey: Self.envAPIKey)
+        )
         self.settings = AppState.seedKanban(into: self.settings)
         if Self.migrateLegacyAuxModels(into: &self.settings, arc: &self.arcConfig) {
+            saveSettings()
+        }
+        if modelChanged {
             saveSettings()
         }
         if Self.migrateWorkspaceDefaults(into: &self.settings) {
@@ -998,27 +1013,12 @@ actor AppState {
         return s
     }
 
-    /// Seed model configs from ~/.arc/config.json on first run.
-    static func seedConfigs(from arc: ArcConfig, into s: AppSettings) -> AppSettings {
-        var s = s
-        guard s.modelConfigs.isEmpty else { return s }
-        let model = arc.model.defaultModel
-        let baseURL = arc.model.baseURL ?? "https://api.openai.com/v1"
-        let key = ProcessInfo.processInfo.environment["ARC_API_KEY"]
+    /// The API key the environment provides, if any (reference convention:
+    /// secrets live in env, not `config.json`).
+    static var envAPIKey: String {
+        ProcessInfo.processInfo.environment["ARC_API_KEY"]
             ?? ProcessInfo.processInfo.environment["OPENAI_API_KEY"]
             ?? ""
-        let preset = ModelConfigPreset(
-            name: model.isEmpty ? "default" : model,
-            model: model.isEmpty ? "gpt-4o" : model,
-            provider: arc.model.provider,
-            baseURL: baseURL,
-            apiKey: key,
-            contextLength: arc.model.contextLength,
-            maxOutputTokens: arc.model.maxOutputTokens
-        )
-        s.modelConfigs = [preset]
-        s.activeConfig = preset.name
-        return s
     }
 
     // MARK: Settings persistence
