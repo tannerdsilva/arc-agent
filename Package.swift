@@ -90,6 +90,7 @@ let package = Package(
             dependencies: [
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .target(name: "ArcAgentCore"),
+                .target(name: "ArcDaemon"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
@@ -104,6 +105,8 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "SystemPackage", package: "swift-system"),
                 .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
+                // the signal type names in `HTTPServerService`'s initializer.
+                .product(name: "UnixSignals", package: "swift-service-lifecycle"),
                 .product(name: "tessera-client", package: "tessera"),
                 .product(name: "Hummingbird", package: "hummingbird"),
                 .product(name: "HummingbirdRouter", package: "hummingbird"),
@@ -120,6 +123,22 @@ let package = Package(
             ],
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug)),
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+
+        // ── Daemon (the single composition root) ──────────────────
+        // One ServiceGroup assembled from DaemonPlan; `arc serve` and the web
+        // UI host both ride this. Core stays UI-free: the daemon links both
+        // libraries.
+        .target(
+            name: "ArcDaemon",
+            dependencies: [
+                .target(name: "ArcAgentCore"),
+                .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            swiftSettings: [
                 .swiftLanguageMode(.v5),
             ]
         ),
@@ -206,11 +225,28 @@ let package = Package(
             name: "ArcAgentCoreTests",
             dependencies: [
                 .target(name: "ArcAgentCore"),
+                // the shutdown-contract test builds a real ServiceGroup.
+                .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
+                .product(name: "Logging", package: "swift-log"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
             ]
         ),
+
+        // The daemon composition matrix: plan resolution is pure, so these
+        // tests bind nothing.
+        .testTarget(
+            name: "ArcDaemonTests",
+            dependencies: [
+                .target(name: "ArcDaemon"),
+                .target(name: "ArcAgentCore"),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+
         // The web UI under test is the ArcWebUI library (the shim is a shell): the
         // theme emission and the assembled page are the units under test, and they
         // are generated rather than hand-written.

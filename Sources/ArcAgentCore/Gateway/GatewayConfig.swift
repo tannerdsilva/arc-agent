@@ -46,21 +46,25 @@ public struct GatewayConfig: Sendable {
     public var telegram: TelegramGatewayConfig
     public var email: EmailGatewayConfig
     public var slack: SlackGatewayConfig
+    /// The daemon's REST API surface (`POST /v1/chat`, `GET /health`).
+    public var api: APIGatewayConfig
 
     public init(
         telegram: TelegramGatewayConfig = TelegramGatewayConfig(),
         email: EmailGatewayConfig = EmailGatewayConfig(),
-        slack: SlackGatewayConfig = SlackGatewayConfig()
+        slack: SlackGatewayConfig = SlackGatewayConfig(),
+        api: APIGatewayConfig = APIGatewayConfig()
     ) {
         self.telegram = telegram
         self.email = email
         self.slack = slack
+        self.api = api
     }
 
     /// Load config from `<home>/gateway.json`, applying env overrides.
     ///
     /// - Parameters:
-    ///   - home: The gateway home directory (defaults to `~/.arc-agent-webui`).
+    ///   - home: The gateway home directory (defaults to `~/.arc`).
     ///   - environment: Process environment (injectable for tests).
     public static func load(
         home: URL = Self.defaultHome(),
@@ -73,18 +77,22 @@ public struct GatewayConfig: Sendable {
             config.telegram = TelegramGatewayConfig(dict: root["telegram"] as? [String: Any], env: environment)
             config.email = EmailGatewayConfig(dict: root["email"] as? [String: Any], env: environment)
             config.slack = SlackGatewayConfig(dict: root["slack"] as? [String: Any], env: environment)
+            config.api = APIGatewayConfig(dict: root["api"] as? [String: Any], env: environment)
         } else {
             // No file: still honor env-only configuration.
             config.telegram = TelegramGatewayConfig(dict: nil, env: environment)
             config.email = EmailGatewayConfig(dict: nil, env: environment)
             config.slack = SlackGatewayConfig(dict: nil, env: environment)
+            config.api = APIGatewayConfig(dict: nil, env: environment)
         }
         return config
     }
 
     public static func defaultHome() -> URL {
         let fm = FileManager.default
-        let base = fm.homeDirectoryForCurrentUser.appendingPathComponent(".arc-agent-webui", isDirectory: true)
+        // One home for everything the daemon reads: `~/.arc`. The web UI's
+        // `.arc-agent-webui` directory remains UI state only.
+        let base = fm.homeDirectoryForCurrentUser.appendingPathComponent(".arc", isDirectory: true)
         return base
     }
 }
@@ -274,5 +282,39 @@ public struct SlackGatewayConfig: Sendable {
             return ["1", "true", "yes", "on"].contains(s.lowercased())
         default: return false
         }
+    }
+}
+
+/// The daemon's REST API surface (`POST /v1/chat`, `GET /health`).
+///
+/// Config lives in `gateway.json` under the `api` key; environment overrides:
+/// `API_ENABLED`, `API_HOST`, `API_PORT`. The surface is enabled by default and
+/// binds loopback; disabling it removes the HTTP service from the daemon's tree
+/// entirely (nothing is listened on).
+public struct APIGatewayConfig: Sendable {
+    public var enabled: Bool
+    public var host: String
+    public var port: Int
+
+    public init(enabled: Bool = true, host: String = "127.0.0.1", port: Int = 8080) {
+        self.enabled = enabled
+        self.host = host
+        self.port = port
+    }
+
+    init(dict: [String: Any]?, env: [String: String]) {
+        let d = dict ?? [:]
+        // env always wins over the JSON file (reference convention).
+        self.host = env["API_HOST"] ?? (d["host"] as? String) ?? "127.0.0.1"
+        self.port = Int(env["API_PORT"] ?? "") ?? (d["port"] as? Int) ?? 8080
+        if let raw = env["API_ENABLED"] {
+            self.enabled = Self.truthy(raw)
+        } else {
+            self.enabled = d["enabled"] as? Bool ?? true
+        }
+    }
+
+    private static func truthy(_ v: String) -> Bool {
+        ["1", "true", "yes", "on"].contains(v.lowercased())
     }
 }

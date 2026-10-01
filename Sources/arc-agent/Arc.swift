@@ -1,5 +1,6 @@
 import ArgumentParser
 import ArcAgentCore
+import ArcDaemon
 import Foundation
 import Logging
 import ServiceLifecycle
@@ -291,40 +292,20 @@ struct Serve: AsyncParsableCommand {
         abstract: "Start the gateway server daemon."
     )
 
-    @Option(name: .shortAndLong, help: "HTTP server host.")
-    var host: String = "127.0.0.1"
+    @Option(name: .shortAndLong, help: "HTTP server host (overrides gateway.json).")
+    var host: String?
 
-    @Option(name: .shortAndLong, help: "HTTP server port.")
-    var port: Int = 8080
+    @Option(name: .shortAndLong, help: "HTTP server port (overrides gateway.json).")
+    var port: Int?
 
-    @Option(name: .long, help: "Telegram bot token.")
+    @Option(name: .long, help: "Telegram bot token (overrides gateway.json / TELEGRAM_BOT_TOKEN).")
     var telegramToken: String?
 
     func run() async throws {
         let arcConfig = loadConfig()
-        let logger = Logger(label: "arc-agent.gateway")
 
-        // Tessera storage for the gateway: sessions, memory, and the profile
-        // index all flow through the shared connection.
-        if let tessera = arcConfig.tessera {
-            await TesseraConnection.shared.configure(tessera)
-        }
-
-        let agentConfig = SessionRegistry.AgentConfig(
-            model: arcConfig.model.defaultModel,
-            provider: arcConfig.model.provider,
-            baseURL: arcConfig.model.baseURL ?? "https://api.openai.com/v1",
-            apiKey: ProcessInfo.processInfo.environment["ARC_API_KEY"] ?? "",
-            tessera: arcConfig.tessera,
-            persistSessions: arcConfig.agent.persistSessions,
-            maxIterations: arcConfig.effectiveMaxTurns(),
-            toolLoopCap: arcConfig.effectiveToolLoopCap(),
-            mcpServers: arcConfig.mcpServers
-        )
-
-        // Load gateway config (per-platform blocks; env var overrides).
-        // ~/.arc/gateway.json (sits next to config.json), arc-style env
-        // overrides on top.
+        // Surfaces live in ~/.arc/gateway.json (per-platform blocks; env-var
+        // overrides on top). One daemon composes them all.
         let arcHome = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".arc", isDirectory: true)
         let gatewayConfig = GatewayConfig.load(
@@ -332,36 +313,11 @@ struct Serve: AsyncParsableCommand {
             environment: ProcessInfo.processInfo.environment
         )
 
-        let gateway = GatewayService(
-            host: host,
-            port: port,
-            telegramToken: telegramToken ?? ProcessInfo.processInfo.environment["TELEGRAM_BOT_TOKEN"],
-            gatewayConfig: gatewayConfig,
-            agentConfig: agentConfig
+        try await ArcDaemon.run(
+            arc: arcConfig,
+            gateway: gatewayConfig,
+            overrides: .init(host: host, port: port, telegramToken: telegramToken)
         )
-
-        print("⚡ ARC Agent Gateway")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("HTTP server: http://\(host):\(port)")
-        if gatewayConfig.telegram.enabled || telegramToken != nil || ProcessInfo.processInfo.environment["TELEGRAM_BOT_TOKEN"] != nil {
-            print("Telegram: enabled")
-        }
-        if gatewayConfig.email.enabled {
-            print("Email: enabled")
-        }
-        if gatewayConfig.slack.enabled {
-            print("Slack: enabled")
-        }
-        print("")
-
-        let serviceGroup = ServiceGroup(
-            configuration: ServiceGroupConfiguration(
-                services: [gateway],
-                logger: logger
-            )
-        )
-
-        try await serviceGroup.run()
     }
 }
 

@@ -3,13 +3,16 @@ import Hummingbird
 import HummingbirdRouter
 import NIOCore
 import ServiceLifecycle
+import UnixSignals
 import Logging
 
 /// An HTTP server exposing the gateway's REST API.
 ///
-/// Serves as the REST API layer of the gateway; the web UI is a separate
-/// process (`arc-agent-webui`, on no-webui's `WebUIServer`). The server is a
-/// ``Service`` managed by the gateway's ``ServiceGroup``.
+/// Serves as the REST API layer of the daemon; the web UI is a sibling service
+/// in the same tree (`ArcDaemon` — see
+/// `.hermes/plans/2026-10-01_093852-unify-the-daemon.md`). The server is a
+/// ``Service`` managed by its parent ``ServiceGroup`` and owns no signal
+/// handling of its own: exactly one group — the daemon root — does.
 ///
 /// **Endpoints:**
 /// - `POST /v1/chat` — Send a message to an agent session
@@ -28,16 +31,23 @@ public final class HTTPServerService: Service {
 
     private let config: Configuration
     private let onChat: @Sendable (String, String) async throws -> String
+    /// Signals that trigger graceful shutdown of the inner group; empty when
+    /// nested under a group that owns signals (the daemon root).
+    private let gracefulShutdownSignals: [UnixSignal]
 
     /// Create an HTTP server service.
     /// - Parameters:
     ///   - config: Server configuration (host, port).
+    ///   - gracefulShutdownSignals: Signals that trigger this server's graceful
+    ///     shutdown; pass `[]` when a parent group owns signals.
     ///   - onChat: Closure called when a chat request arrives.
     public init(
         config: Configuration = .init(),
+        gracefulShutdownSignals: [UnixSignal] = [],
         onChat: @escaping @Sendable (String, String) async throws -> String
     ) {
         self.config = config
+        self.gracefulShutdownSignals = gracefulShutdownSignals
         self.onChat = onChat
     }
 
@@ -66,20 +76,20 @@ public final class HTTPServerService: Service {
         // aware: a `Task { try await server.run() }; task.cancel()` (as test
         // teardown does) would leave the server and its NIO event-loop
         // threads alive, so the test process could never exit. Wire task
-        // cancellation to the group's graceful shutdown — cancel now stops
+        // cancellation AND inherited graceful shutdown (the daemon root's
+        // SIGTERM cascade) to the group's graceful shutdown — either now stops
         // the server cleanly instead of leaking a MultiThreadedEventLoopGroup.
-        // Signal handling is unchanged from `runService()`.
         let serviceGroup = ServiceGroup(
             configuration: .init(
                 services: [app],
-                gracefulShutdownSignals: [.sigterm, .sigint],
+                gracefulShutdownSignals: gracefulShutdownSignals,
                 logger: Logger(label: "arc-http-server")
             )
         )
-        try await withTaskCancellationHandler {
+        try await withTaskCancellationOrGracefulShutdownHandler {
             try await serviceGroup.run()
-        } onCancel: {
-            // onCancel is synchronous; the group coalesces racing triggers
+        } onCancelOrGracefulShutdown: {
+            // the handler is synchronous; the group coalesces racing triggers
             // and `run()` returns once every service has shut down.
             Task { await serviceGroup.triggerGracefulShutdown() }
         }

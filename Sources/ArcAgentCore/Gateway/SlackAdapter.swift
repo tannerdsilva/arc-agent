@@ -85,6 +85,16 @@ public final class SlackAdapter: PlatformAdapter {
     // MARK: - Service
 
     public func run() async throws {
+        // `runUntilShutdown` bridges the enclosing group's graceful shutdown to
+        // the cancellation this loop already understands, so SIGTERM stops the
+        // socket promptly instead of waiting out the grace period.
+        try await runUntilShutdown {
+            try await self.socketLoop()
+        }
+    }
+
+    /// The events-socket loop; exits on task cancellation.
+    private func socketLoop() async throws {
         try await withTaskCancellationHandler {
             await identify()
             while !Task.isCancelled {

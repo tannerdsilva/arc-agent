@@ -41,14 +41,20 @@ public actor CronScheduler: Service {
     public func run() async throws {
         logger.info("Cron scheduler started (poll interval: \(pollInterval / 1_000_000_000)s)")
 
-        while !Task.isCancelled {
-            do {
-                try await runDueJobs()
-            } catch {
-                // Log and continue on transient errors
-            }
+        // the loop exits on cancellation; `runUntilShutdown` converts the
+        // group's graceful shutdown into that cancellation, so SIGTERM stops
+        // the poll promptly instead of waiting out the grace period.
+        let interval = pollInterval
+        try await runUntilShutdown { [self] in
+            while !Task.isCancelled {
+                do {
+                    try await self.runDueJobs()
+                } catch {
+                    // Log and continue on transient errors
+                }
 
-            try await Task.sleep(nanoseconds: pollInterval)
+                try await Task.sleep(nanoseconds: interval)
+            }
         }
 
         logger.info("Cron scheduler stopped.")
