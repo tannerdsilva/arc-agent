@@ -4,7 +4,7 @@ import Testing
 
 import ArcTheme
 import WebUICore
-@testable import arc_agent_webui
+@testable import ArcWebUI
 
 /// The served sheet is a build product: `ArcAssetTool theme-sheet` renders it from
 /// `Sources/ArcTheme/` and emits it through the framework's `WebUIBuild`, which stamps it

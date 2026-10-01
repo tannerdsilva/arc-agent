@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import arc_agent_webui
+@testable import ArcWebUI
 
 /// the click/change identity contract of the no-webui engine, pinned against arc's own
 /// markup and wire registrations.
@@ -23,7 +23,7 @@ import Testing
 @Suite("Click identity contract")
 struct ClickIdentityContractTests {
 
-    private static let sourcesRoot = "Sources/ArcAgentWebUI"
+    private static let sourcesRoot = "Sources/ArcWebUI"
 
     /// every `.swift` file in the web-UI target, keyed by name.
     private static func sourceFiles() -> [(name: String, text: String)] {

@@ -3,7 +3,7 @@ import Testing
 
 import ArcTheme
 import WebUIDesignSystem
-@testable import arc_agent_webui
+@testable import ArcWebUI
 
 /// The host stylesheet contract (ARC-5): a served page must link every stylesheet its
 /// markup depends on, and arc's own sheet must come *after* the framework's.
@@ -17,7 +17,7 @@ struct HostStylesheetContractTests {
 
     /// The page template, rendered with stamped-asset-shaped urls and a themed `<html>`.
     private static func renderedPage(body: String = "") -> String {
-        ArcAgentWebUI.makeDocument(
+        AppShell.makeDocument(
             sheetURL: "/ui/style.css?v=abc123",
             overlayURL: "/ui/init.js?v=def456"
         )(body, "data-scheme=\"poseidon\" data-theme=\"dark\"").render()
@@ -117,7 +117,7 @@ struct HostStylesheetContractTests {
     }
 
     private static func markupClassTokens() throws -> [String] {
-        let root = "Sources/ArcAgentWebUI"
+        let root = "Sources/ArcWebUI"
         var tokens = Set<String>()
         guard let walker = FileManager.default.enumerator(atPath: root) else { return [] }
         for case let path as String in walker where path.hasSuffix(".swift") {

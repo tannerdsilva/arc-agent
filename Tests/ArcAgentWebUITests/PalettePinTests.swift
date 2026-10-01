@@ -2,7 +2,7 @@ import Foundation
 import Testing
 
 import ArcTheme
-@testable import arc_agent_webui
+@testable import ArcWebUI
 
 /// The painted values, pinned to a checked-in fixture.
 ///

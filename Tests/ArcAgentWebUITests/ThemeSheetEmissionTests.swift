@@ -2,7 +2,7 @@ import Foundation
 import Testing
 
 import ArcTheme
-@testable import arc_agent_webui
+@testable import ArcWebUI
 
 /// The theme sheet is generated, not hand-written: `ArcThemeCatalog.stylesheet()` is the
 /// emission of 27 providers through no-webui's `ThemeScope.attribute`.

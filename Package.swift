@@ -124,9 +124,9 @@ let package = Package(
             ]
         ),
 
-        // ── Web UI (merged from arc-agent-webui) ───────────────────
-        .executableTarget(
-            name: "arc-agent-webui",
+        // ── Web UI library (the UI surfaces; mounted by the daemon or the shim) ──
+        .target(
+            name: "ArcWebUI",
             dependencies: [
                 .target(name: "ArcTheme"),
                 .target(name: "ArcAgentCore"),
@@ -144,7 +144,7 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Logging", package: "swift-log"),
             ],
-            path: "Sources/ArcAgentWebUI",
+            path: "Sources/ArcWebUI",
             exclude: [
                 // Assets/ is consumed by WebUIEmbedPlugin, not compiled: excluding it keeps
                 // SwiftPM from warning about files it does not know how to handle (the plugin
@@ -159,6 +159,19 @@ let package = Package(
                 // the file half: every build re-embeds Assets/webui-assets.json's files as
                 // generated declarations the server feeds to WebUIAsset.
                 .plugin(name: "WebUIEmbedPlugin", package: "no-webui"),
+            ]
+        ),
+
+        // ── Web UI shim (the standalone binary; retired in phase 3) ──
+        .executableTarget(
+            name: "arc-agent-webui",
+            dependencies: [
+                .target(name: "ArcWebUI"),
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            path: "Sources/ArcAgentWebUI",
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
             ]
         ),
 
@@ -198,13 +211,13 @@ let package = Package(
                 .swiftLanguageMode(.v5),
             ]
         ),
-        // The web UI is an executable target, so this test target depends on it
-        // directly: the theme emission and the assembled page are the units under
-        // test, and they are generated rather than hand-written.
+        // The web UI under test is the ArcWebUI library (the shim is a shell): the
+        // theme emission and the assembled page are the units under test, and they
+        // are generated rather than hand-written.
         .testTarget(
             name: "ArcAgentWebUITests",
             dependencies: [
-                .target(name: "arc-agent-webui"),
+                .target(name: "ArcWebUI"),
                 .target(name: "ArcTheme"),
                 // the minifier the emitted sheet goes through: the drift test compares the
                 // product against `minifyCSS(source)`.
