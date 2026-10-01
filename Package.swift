@@ -192,6 +192,11 @@ let package = Package(
                 .target(name: "arc-agent-webui"),
                 .target(name: "ArcTheme"),
             ],
+            resources: [
+                // the palette pins: the values the painted sheet must still hold, extracted
+                // from the verified sheet and re-read by the test on every run.
+                .copy("Fixtures"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
             ]
