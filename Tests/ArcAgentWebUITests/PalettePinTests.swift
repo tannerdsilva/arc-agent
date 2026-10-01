@@ -75,7 +75,7 @@ struct PalettePinTests {
 
     @Test("every pinned declaration still holds in the served sheet")
     func paletteValuesMatchThePins() throws {
-        let sheet = ThemeSheetAssets.sheet
+        let sheet = ThemeSheetAssets.text
         var failures: [String] = []
         for pin in try Self.loadPins() {
             let selector = ":root[data-scheme=\"\(pin.scheme)\"][data-theme=\"\(pin.mode)\"]"

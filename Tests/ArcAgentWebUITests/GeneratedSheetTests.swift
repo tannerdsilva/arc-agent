@@ -6,7 +6,8 @@ import ArcTheme
 @testable import arc_agent_webui
 
 /// The served sheet is a build product: `ArcAssetTool theme-sheet` renders it from
-/// `Sources/ArcTheme/`, stamps it with the sha256 its url carries, and gzips it.
+/// `Sources/ArcTheme/` and emits it through the framework's `WebUIBuild`, which stamps it
+/// with the sha256 its url carries and gzips it.
 ///
 /// These tests are the drift guard. A plugin that silently stopped re-running — the failure
 /// mode the plugin exists to prevent — a stamp that names other bytes than the server serves,
@@ -16,12 +17,12 @@ struct GeneratedSheetTests {
 
     @Test("the generated sheet is exactly what the theme source emits")
     func sheetMatchesTheSource() {
-        #expect(ThemeSheetAssets.sheet == Theme.css + ArcThemeCatalog.stylesheet())
+        #expect(ThemeSheetAssets.text == Theme.css + ArcThemeCatalog.stylesheet())
     }
 
     @Test("the stamp is the sha256 prefix of the served bytes")
     func stampNamesTheBytes() {
-        let digest = SHA256.hash(data: Data(ThemeSheetAssets.sheet.utf8))
+        let digest = SHA256.hash(data: Data(ThemeSheetAssets.body))
         let expected = digest.map { String(format: "%02x", $0) }.joined().prefix(12)
         #expect(ThemeSheetAssets.stamp == expected)
         #expect(ThemeSheetAssets.stamp.count == 12)
@@ -29,10 +30,9 @@ struct GeneratedSheetTests {
 
     @Test("the gzip variant inflates to the served sheet, byte for byte")
     func gzipInflatesToTheSheet() throws {
-        let gzip = ThemeSheetAssets.gzip
-        // no gzip in the product means the build host had none: the server serves the
+        // an absent variant means the build host had no gzip: the server then serves the
         // uncompressed form, and there is nothing to assert.
-        guard !gzip.isEmpty else { return }
+        guard let gzip = ThemeSheetAssets.gzip, !gzip.isEmpty else { return }
         guard FileManager.default.isExecutableFile(atPath: "/usr/bin/gunzip") else { return }
 
         let tmp = FileManager.default.temporaryDirectory
@@ -52,8 +52,8 @@ struct GeneratedSheetTests {
         process.waitUntilExit()
 
         #expect(process.terminationStatus == 0)
-        #expect(String(decoding: inflated, as: UTF8.self) == ThemeSheetAssets.sheet)
+        #expect(String(decoding: inflated, as: UTF8.self) == ThemeSheetAssets.text)
         // the point of the variant: it is smaller than the bytes it stands for.
-        #expect(gzip.count < ThemeSheetAssets.sheet.utf8.count)
+        #expect(gzip.count < ThemeSheetAssets.text.utf8.count)
     }
 }

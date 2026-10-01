@@ -125,12 +125,7 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         // time. One `WebUIAsset` owns the bytes, the url a page links and the registration the
         // server answers with, so the address, the bytes and the cache policy cannot disagree —
         // and a test pins the product against the source it came from.
-        let sheet = WebUIAsset(
-            path: "/ui/style.css",
-            text: ThemeSheetAssets.sheet,
-            gzip: ThemeSheetAssets.gzip.isEmpty ? nil : ThemeSheetAssets.gzip,
-            contentType: "text/css; charset=utf-8"
-        )
+        let sheet = WebUIAsset(ThemeSheetAssets.self, path: "/ui/style.css")
 
         // Assemble the page (external /ui/* assets keep each response small).
         // The document template wraps whatever body the app currently renders,

@@ -133,6 +133,8 @@ let package = Package(
                 .product(name: "WebUI", package: "no-webui"),
                 .product(name: "WebUIServer", package: "no-webui"),
                 .product(name: "WebUIDesignSystem", package: "no-webui"),
+                // the shipped-asset protocol the generated ThemeSheetAssets conforms to.
+                .product(name: "WebUICore", package: "no-webui"),
                 .product(name: "SwiftSlash", package: "SwiftSlash"),
                 .product(name: "AsyncHTTPClient", package: "async-http-client"),
                 .product(name: "NIOCore", package: "swift-nio"),
@@ -160,6 +162,9 @@ let package = Package(
             name: "ArcAssetTool",
             dependencies: [
                 .target(name: "ArcTheme"),
+                // the framework's build library: the tool emits through it, so the
+                // address/gzip/escaping rules exist once and arc owns none of them.
+                .product(name: "WebUIBuild", package: "no-webui"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
