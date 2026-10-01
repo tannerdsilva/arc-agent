@@ -37,6 +37,51 @@ public enum ApprovalMode: String, Sendable, Codable {
     case off
 }
 
+/// A pending approval request handed to an injected ``ApprovalPresenter``.
+public struct ApprovalRequest: Sendable {
+
+    /// The raw command or action text under review.
+    public let command: String
+
+    /// A human-readable description of the action.
+    public let description: String
+
+    /// The session the request belongs to.
+    public let sessionKey: String
+
+    public init(command: String, description: String, sessionKey: String) {
+        self.command = command
+        self.description = description
+        self.sessionKey = sessionKey
+    }
+}
+
+/// The user's answer to an ``ApprovalRequest``.
+public enum ApprovalDecision: Sendable {
+
+    /// Approve this request only.
+    case approve
+
+    /// Approve, and remember the exact command as always-allowed
+    /// (persisted through the ``ApprovalManager/setAlwaysAllowSink(_:)`` sink).
+    case alwaysAllow
+
+    /// Approve, and pre-approve the rest of the session. Critical commands
+    /// still require approval in a pre-approved session.
+    case allowSession
+
+    /// Deny the request.
+    case deny
+}
+
+/// Presents approval requests to a human (web UI permission card, TUI prompt,
+/// …) and returns their decision.
+///
+/// Injected with ``ApprovalManager/setPresenter(_:)``. Without a presenter a
+/// manual-mode request resolves to ``ApprovalResult/requiresReview`` — the
+/// historic behaviour — so headless consumers are unaffected.
+public typealias ApprovalPresenter = @Sendable (ApprovalRequest) async -> ApprovalDecision
+
 /// Manages approval for dangerous commands and actions.
 ///
 /// ``ApprovalManager`` implements three modes:
@@ -74,6 +119,10 @@ public actor ApprovalManager {
     /// can persist the pattern (e.g. into ~/.arc/config.json). nil = no-op.
     private var alwaysAllowSink: (@Sendable (String) async -> Void)?
 
+    /// Optional approval presenter (web UI card, TUI prompt, …). When nil a
+    /// manual-mode request resolves to ``ApprovalResult/requiresReview``.
+    private var presenter: ApprovalPresenter?
+
     /// Create an approval manager.
     ///
     /// - Parameters:
@@ -102,6 +151,16 @@ public actor ApprovalManager {
     /// Register the persistence sink for "Always allow" choices.
     public func setAlwaysAllowSink(_ sink: @escaping @Sendable (String) async -> Void) {
         self.alwaysAllowSink = sink
+    }
+
+    /// Register the presenter that asks a human for approval decisions.
+    ///
+    /// The presenter is consulted in ``ApprovalMode/manual`` for dangerous
+    /// commands and in ``ApprovalMode/smart`` for suspicious-or-worse commands,
+    /// mirroring the existing ``setClassifier(_:)`` seam. Passing nil restores
+    /// the headless behaviour (`.requiresReview`).
+    public func setPresenter(_ presenter: ApprovalPresenter?) {
+        self.presenter = presenter
     }
 
     /// Record a command as always-allowed for this and future sessions, and
@@ -160,6 +219,11 @@ public actor ApprovalManager {
 
     /// Request approval for a command.
     ///
+    /// With a presenter registered the human decision is awaited; `alwaysAllow`
+    /// and `allowSession` decisions update the manager's own state (and fire
+    /// the persistence sink) before resolving to `.approved`. Without a
+    /// presenter the historic results are returned unchanged.
+    ///
     /// - Parameters:
     ///   - command: The command to approve.
     ///   - description: A human-readable description of the action.
@@ -174,9 +238,14 @@ public actor ApprovalManager {
         case .off:
             return .approved
         case .manual:
-            // In manual mode, we always require review for dangerous commands.
-            // In a CLI context, this would prompt the user.
-            return .requiresReview
+            // In manual mode, every dangerous command is a human decision:
+            // with a presenter we ask; without one the caller (CLI, gateway)
+            // gets `.requiresReview` and decides how to surface it.
+            guard let presenter else { return .requiresReview }
+            let decision = await presenter(
+                ApprovalRequest(command: command, description: description, sessionKey: sessionKey)
+            )
+            return await resolve(decision, command: command, sessionKey: sessionKey)
         case .smart:
             // arc parity: critical/hardline is always denied by the
             // detector before the classifier is consulted. Suspicious and
@@ -190,8 +259,33 @@ public actor ApprovalManager {
                 return .denied
             }
             if level >= .suspicious {
-                return .requiresReview
+                guard let presenter else { return .requiresReview }
+                let decision = await presenter(
+                    ApprovalRequest(command: command, description: description, sessionKey: sessionKey)
+                )
+                return await resolve(decision, command: command, sessionKey: sessionKey)
             }
+            return .approved
+        }
+    }
+
+    /// Apply a presenter's decision to manager state (always-allow and
+    /// session pre-approval both persist before resolving).
+    private func resolve(
+        _ decision: ApprovalDecision,
+        command: String,
+        sessionKey: String
+    ) async -> ApprovalResult {
+        switch decision {
+        case .approve:
+            return .approved
+        case .deny:
+            return .denied
+        case .alwaysAllow:
+            await alwaysAllow(command: command)
+            return .approved
+        case .allowSession:
+            preApproveSession(sessionKey)
             return .approved
         }
     }
