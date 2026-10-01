@@ -41,7 +41,9 @@ arc serve  →  ArcDaemon.run   (one Service Lifecycle tree, one process)
 │   └── DeliveryManager (actor — response routing)
 ├── WebUIHost  (no-webui's WebUIServer + two streamers)   — web UI on :8890
 │   └── AppState/Actions/Views (Swift-generated HTML/CSS/JS, zero npm)
-└── CronScheduler (RuntimeCronStore)                      — one engine, one store
+├── CronScheduler (RuntimeCronStore)                      — one engine, one store
+├── MCPServerAdapter (swift-mcp, TCP)                     — `mcp_server` gate, default off
+└── KanbanDispatcher (core file board)                    — `kanban` gate, default off
 
 The daemon owns the signals (SIGTERM/SIGINT → graceful shutdown), one shared
 storage pair, and one log sink; surfaces are gated by `~/.arc/gateway.json`

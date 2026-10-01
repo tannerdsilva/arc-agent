@@ -18,6 +18,15 @@ public struct DaemonPlan: Sendable, Equatable {
         }
     }
 
+    /// A background loop with no address of its own: present means enabled.
+    public struct KanbanLoop: Sendable, Equatable {
+        public var pollSeconds: Int
+
+        public init(pollSeconds: Int) {
+            self.pollSeconds = pollSeconds
+        }
+    }
+
     /// Command-line overrides; `nil` keeps the config file's value.
     public struct Overrides: Sendable {
         public var host: String?
@@ -49,6 +58,12 @@ public struct DaemonPlan: Sendable, Equatable {
     /// The Web UI surface; `nil` when disabled by config.
     public var webui: Surface?
 
+    /// The MCP server surface; `nil` when disabled by config.
+    public var mcpServer: Surface?
+
+    /// The kanban dispatcher; `nil` when disabled by config.
+    public var kanban: KanbanLoop?
+
     /// Skip the Tessera probe and use file storage for this process.
     public var tesseraOff: Bool
 
@@ -70,9 +85,19 @@ public struct DaemonPlan: Sendable, Equatable {
         if overrides.webuiEnabled ?? gateway.webui.enabled {
             webui = Surface(host: gateway.webui.host, port: gateway.webui.port)
         }
+        var mcpServer: Surface?
+        if gateway.mcpServer.enabled {
+            mcpServer = Surface(host: gateway.mcpServer.host, port: gateway.mcpServer.port)
+        }
+        var kanban: KanbanLoop?
+        if gateway.kanban.dispatcherEnabled {
+            kanban = KanbanLoop(pollSeconds: gateway.kanban.pollSeconds)
+        }
         return DaemonPlan(
             api: api,
             webui: webui,
+            mcpServer: mcpServer,
+            kanban: kanban,
             tesseraOff: overrides.tesseraOff,
             telegramToken: overrides.telegramToken
         )

@@ -105,6 +105,26 @@ public enum ArcDaemon {
         // cron rides with a surface: jobs need a runner.
         services.append(cronScheduler)
 
+        if let mcp = plan.mcpServer {
+            // TCP only — stdio is meaningless for a daemon. Exposes every
+            // BUILT-IN tool (plugin tools are not in the CompileTimeToolRegistry
+            // the adapter takes); no auth, so the bind host is the boundary.
+            services.append(try MCPServerAdapter(
+                host: mcp.host,
+                port: mcp.port,
+                registry: try ArcAgentCore.buildDefaultRegistry()
+            ))
+        }
+        if let kanban = plan.kanban {
+            // CAVEAT: a stub executor that fabricates completion, polling the
+            // CORE board (~/.arc/kanban), not the web UI's panel. Default off;
+            // see KanbanGatewayConfig.
+            services.append(KanbanDispatcher(
+                board: FileKanbanBoard(),
+                pollIntervalSeconds: UInt64(kanban.pollSeconds)
+            ))
+        }
+
         var configuration = ServiceGroupConfiguration(
             services: services,
             gracefulShutdownSignals: [.sigterm, .sigint],

@@ -134,4 +134,32 @@ struct DaemonPlanTests {
         let plan = DaemonPlan.resolve(gateway: try loadGateway(), overrides: .init(tesseraOff: true))
         #expect(plan.tesseraOff)
     }
+
+    @Test("the MCP server and kanban dispatcher are off by default")
+    func newGatesDefaultOff() throws {
+        let plan = DaemonPlan.resolve(gateway: try loadGateway(), overrides: .init())
+        #expect(plan.mcpServer == nil)
+        #expect(plan.kanban == nil)
+    }
+
+    @Test("mcp_server {enabled, host, port} comes from the file")
+    func mcpServerFromFile() throws {
+        let plan = DaemonPlan.resolve(
+            gateway: try loadGateway(json: #"{"mcp_server": {"enabled": true, "host": "0.0.0.0", "port": 9091}}"#),
+            overrides: .init()
+        )
+        #expect(plan.mcpServer == DaemonPlan.Surface(host: "0.0.0.0", port: 9091))
+    }
+
+    @Test("the kanban gate carries its poll interval from the environment")
+    func kanbanFromEnv() throws {
+        let plan = DaemonPlan.resolve(
+            gateway: try loadGateway(env: [
+                "KANBAN_DISPATCHER_ENABLED": "true",
+                "KANBAN_POLL_SECONDS": "1",
+            ]),
+            overrides: .init()
+        )
+        #expect(plan.kanban == DaemonPlan.KanbanLoop(pollSeconds: 1))
+    }
 }

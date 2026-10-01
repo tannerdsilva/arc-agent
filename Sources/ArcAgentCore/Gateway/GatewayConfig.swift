@@ -51,18 +51,27 @@ public struct GatewayConfig: Sendable {
     /// The daemon's Web UI surface (no-webui + ArcWebUI).
     public var webui: WebUIGatewayConfig
 
+    /// The daemon's MCP server surface (swift-mcp, TCP).
+    public var mcpServer: MCPServerGatewayConfig
+    /// The kanban dispatcher loop (core file board).
+    public var kanban: KanbanGatewayConfig
+
     public init(
         telegram: TelegramGatewayConfig = TelegramGatewayConfig(),
         email: EmailGatewayConfig = EmailGatewayConfig(),
         slack: SlackGatewayConfig = SlackGatewayConfig(),
         api: APIGatewayConfig = APIGatewayConfig(),
-        webui: WebUIGatewayConfig = WebUIGatewayConfig()
+        webui: WebUIGatewayConfig = WebUIGatewayConfig(),
+        mcpServer: MCPServerGatewayConfig = MCPServerGatewayConfig(),
+        kanban: KanbanGatewayConfig = KanbanGatewayConfig()
     ) {
         self.telegram = telegram
         self.email = email
         self.slack = slack
         self.api = api
         self.webui = webui
+        self.mcpServer = mcpServer
+        self.kanban = kanban
     }
 
     /// Load config from `<home>/gateway.json`, applying env overrides.
@@ -83,6 +92,8 @@ public struct GatewayConfig: Sendable {
             config.slack = SlackGatewayConfig(dict: root["slack"] as? [String: Any], env: environment)
             config.api = APIGatewayConfig(dict: root["api"] as? [String: Any], env: environment)
             config.webui = WebUIGatewayConfig(dict: root["webui"] as? [String: Any], env: environment)
+            config.mcpServer = MCPServerGatewayConfig(dict: root["mcp_server"] as? [String: Any], env: environment)
+            config.kanban = KanbanGatewayConfig(dict: root["kanban"] as? [String: Any], env: environment)
         } else {
             // No file: still honor env-only configuration.
             config.telegram = TelegramGatewayConfig(dict: nil, env: environment)
@@ -90,6 +101,8 @@ public struct GatewayConfig: Sendable {
             config.slack = SlackGatewayConfig(dict: nil, env: environment)
             config.api = APIGatewayConfig(dict: nil, env: environment)
             config.webui = WebUIGatewayConfig(dict: nil, env: environment)
+            config.mcpServer = MCPServerGatewayConfig(dict: nil, env: environment)
+            config.kanban = KanbanGatewayConfig(dict: nil, env: environment)
         }
         return config
     }
@@ -352,6 +365,81 @@ public struct WebUIGatewayConfig: Sendable {
             self.enabled = Self.truthy(raw)
         } else {
             self.enabled = d["enabled"] as? Bool ?? true
+        }
+    }
+
+    private static func truthy(_ v: String) -> Bool {
+        ["1", "true", "yes", "on"].contains(v.lowercased())
+    }
+}
+
+/// The daemon's MCP server surface (swift-mcp over TCP).
+///
+/// Config: `gateway.json` → `mcp_server {enabled, host, port}`; env
+/// `MCP_SERVER_ENABLED/HOST/PORT`. **Disabled by default.** When enabled it
+/// exposes every **built-in** tool (the `CompileTimeToolRegistry` — plugin
+/// tools are not exposed) to any MCP client that can reach the bind address.
+/// There is **no auth**: the bind host is the security boundary, so leave it
+/// on loopback unless you mean it. stdio transport is meaningless in a daemon;
+/// TCP only.
+public struct MCPServerGatewayConfig: Sendable {
+    public var enabled: Bool
+    public var host: String
+    public var port: Int
+
+    public init(enabled: Bool = false, host: String = "127.0.0.1", port: Int = 8081) {
+        self.enabled = enabled
+        self.host = host
+        self.port = port
+    }
+
+    init(dict: [String: Any]?, env: [String: String]) {
+        let d = dict ?? [:]
+        // env always wins over the JSON file (reference convention).
+        self.host = env["MCP_SERVER_HOST"] ?? (d["host"] as? String) ?? "127.0.0.1"
+        self.port = Int(env["MCP_SERVER_PORT"] ?? "") ?? (d["port"] as? Int) ?? 8081
+        if let raw = env["MCP_SERVER_ENABLED"] {
+            self.enabled = Self.truthy(raw)
+        } else {
+            self.enabled = d["enabled"] as? Bool ?? false
+        }
+    }
+
+    private static func truthy(_ v: String) -> Bool {
+        ["1", "true", "yes", "on"].contains(v.lowercased())
+    }
+}
+
+/// The kanban dispatcher loop.
+///
+/// Config: `gateway.json` → `kanban {dispatcher_enabled, poll_seconds}`; env
+/// `KANBAN_DISPATCHER_ENABLED`, `KANBAN_POLL_SECONDS`. **Disabled by default,
+/// and here is why you should leave it that way until it grows up:**
+/// `KanbanDispatcher.run()` is a stub — it marks every `ready` task `running`,
+/// sleeps one second, marks it `done`, and never runs anything. It also polls
+/// the **core** board (`~/.arc/kanban/`, `FileKanbanBoard`), not the web UI's
+/// kanban panel (which lives in `~/.arc-agent-webui/settings.json`) — the two
+/// are separate stores today. Enabling the gate is for exercising the dispatch
+/// loop only; it mutates the core board.
+public struct KanbanGatewayConfig: Sendable {
+    public var dispatcherEnabled: Bool
+    public var pollSeconds: Int
+
+    public init(dispatcherEnabled: Bool = false, pollSeconds: Int = 5) {
+        self.dispatcherEnabled = dispatcherEnabled
+        self.pollSeconds = pollSeconds
+    }
+
+    init(dict: [String: Any]?, env: [String: String]) {
+        let d = dict ?? [:]
+        // env always wins over the JSON file (reference convention).
+        self.pollSeconds = Int(env["KANBAN_POLL_SECONDS"] ?? "")
+            ?? (d["poll_seconds"] as? Int)
+            ?? 5
+        if let raw = env["KANBAN_DISPATCHER_ENABLED"] {
+            self.dispatcherEnabled = Self.truthy(raw)
+        } else {
+            self.dispatcherEnabled = d["dispatcher_enabled"] as? Bool ?? false
         }
     }
 
