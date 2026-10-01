@@ -1020,6 +1020,11 @@ extension AppState {
 
     func setTesseraOff(_ off: Bool) {
         settings.tesseraOff = off
+        // An explicit user toggle is authoritative: clear the transient
+        // boot-time fallback flag (forceTesseraOff) so a relay outage can
+        // never silently keep the runtime stuck on file storage after the
+        // user switches back to Tessera in-process.
+        runtimeTesseraOff = false
         saveSettings()
     }
 
@@ -1154,11 +1159,33 @@ extension AppState {
         ]
     }
 
-    // MARK: Auxiliary models
+    // MARK: Settings model pickers (Main model + Auxiliary models)
 
-    /// Which auxiliary task's editor is open (nil = all collapsed).
-    func setAuxEditing(_ key: String?) {
-        auxEditingTask = key
+    /// Composer-style toggle for the Settings → Main model picker. AppState-
+    /// backed so the open state survives fragment re-renders.
+    func toggleMainModelPick() { mainModelPickOpen.toggle() }
+    func setMainModelPickOpen(_ open: Bool) { mainModelPickOpen = open }
+    func setMainModelPickQuery(_ query: String) { mainModelPickQuery = query }
+
+    /// Settings → Auxiliary models: open one task's picker at a time (tapping
+    /// the open trigger closes it again).
+    func toggleAuxPick(_ key: String) { auxPickTask = (auxPickTask == key) ? nil : key }
+    func closeAuxPick() { auxPickTask = nil }
+
+    /// Apply a model configuration as an auxiliary task's override: copies
+    /// provider/model/base URL (and the config's own API key, when present).
+    func setAuxOverrideFromConfig(task: AuxiliaryTask, configName: String) {
+        guard let preset = settings.modelConfigs.first(where: { $0.name == configName }) else {
+            _ = hint("Model configuration “\(configName)” was not found.", kind: "error")
+            return
+        }
+        setAuxOverride(
+            task: task,
+            provider: preset.provider,
+            model: preset.model,
+            baseURL: preset.baseURL,
+            apiKey: preset.apiKey
+        )
     }
 
     /// Persist one auxiliary task's override to `~/.arc/config.json`

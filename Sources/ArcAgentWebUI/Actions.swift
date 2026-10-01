@@ -926,6 +926,12 @@ extension AppState {
                 await persistMessage(asstMsg, sessionID: sessionID, store: store)
             }
             activeTurns[sessionID]?.toolChips = calls.map { "⚙ \($0.function.name)" }
+            // Live tool activity: every call of this round appears as a
+            // visible row immediately (not only after the turn completes).
+            let rounds = calls.map {
+                LiveToolRound(id: $0.id, name: $0.function.name, args: $0.function.arguments, status: "running", resultPreview: nil)
+            }
+            activeTurns[sessionID]?.toolRounds.append(contentsOf: rounds)
             activeTurns[sessionID]?.status = "tool"
             await flush()
 
@@ -937,6 +943,15 @@ extension AppState {
                 if let store {
                     await persistMessage(toolMsg, sessionID: sessionID, store: store)
                 }
+                // Flip the live row to done (user keeps seeing the calls they
+                // already ran while the model thinks about the next round).
+                if var turns = activeTurns[sessionID],
+                   let idx = turns.toolRounds.firstIndex(where: { $0.id == call.id }) {
+                    turns.toolRounds[idx].status = "done"
+                    turns.toolRounds[idx].resultPreview = result
+                    activeTurns[sessionID] = turns
+                }
+                await flush()
             }
             // Steer injection at the tool-result boundary (arc parity):
             // pending user guidance is appended to the last tool result so the
@@ -2379,36 +2394,58 @@ final class Controller: @unchecked Sendable {
         }
         wire(router, id: "aux-edit", events: ["click"]) { event in
             guard let tid = event.string("targetId") else { return [] }
-            if tid.hasPrefix("aux-edit-") {
-                await self.app.setAuxEditing(String(tid.dropFirst("aux-edit-".count)))
-                return await self.app.refreshFragments()
-            }
-            if tid.hasPrefix("aux-cancel-") {
-                await self.app.setAuxEditing(nil)
-                return await self.app.refreshFragments()
-            }
             if tid.hasPrefix("aux-reset-") {
                 let key = String(tid.dropFirst("aux-reset-".count))
                 if let task = AuxiliaryTask(configKey: key) {
                     await self.app.clearAuxOverride(task: task)
                 }
-                await self.app.setAuxEditing(nil)
+                await self.app.closeAuxPick()
                 return await self.app.refreshFragments()
             }
             return []
         }
-        wire(router, id: "aux-form", events: ["submit"]) { event in
-            guard let tid = event.string("targetId"), tid.hasPrefix("aux-form-") else { return [] }
-            let key = String(tid.dropFirst("aux-form-".count))
-            guard let task = AuxiliaryTask(configKey: key) else { return [] }
-            await self.app.setAuxOverride(
-                task: task,
-                provider: event.string("aux-provider") ?? "",
-                model: event.string("aux-model") ?? "",
-                baseURL: event.string("aux-base-url") ?? "",
-                apiKey: event.string("aux-api-key") ?? ""
-            )
-            await self.app.setAuxEditing(nil)
+        wire(router, id: "mmp-toggle", events: ["click"]) { _ in
+            await self.app.toggleMainModelPick()
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "mmp-search-input", events: ["input"]) { event in
+            await self.app.setMainModelPickQuery(event.string("value") ?? "")
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "mmp-search-clear", events: ["click"]) { _ in
+            await self.app.setMainModelPickQuery("")
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "mmp-pick", events: ["click"]) { event in
+            guard let tid = event.string("targetId"), tid.hasPrefix("mmp-pick-"),
+                  let name = dec(String(tid.dropFirst("mmp-pick-".count))) else { return [] }
+            await self.app.setMainModelPickOpen(false)
+            await self.app.useModelConfig(name)
+            _ = await self.app.hint("Main model set to “\(name)”.")
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "aux-trig", events: ["click"]) { event in
+            guard let tid = event.string("targetId"), tid.hasPrefix("aux-trig-") else { return [] }
+            await self.app.toggleAuxPick(String(tid.dropFirst("aux-trig-".count)))
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "aux-pick", events: ["click"]) { event in
+            guard let tid = event.string("targetId") else { return [] }
+            await self.app.closeAuxPick()
+            if tid.hasPrefix("aux-default-") {
+                let key = String(tid.dropFirst("aux-default-".count))
+                if let task = AuxiliaryTask(configKey: key) {
+                    await self.app.clearAuxOverride(task: task)
+                }
+                return await self.app.refreshFragments()
+            }
+            guard tid.hasPrefix("aux-pick-") else { return [] }
+            let rest = String(tid.dropFirst("aux-pick-".count))
+            guard let sep = rest.range(of: "::") else { return [] }
+            let key = String(rest[..<sep.lowerBound])
+            let encName = String(rest[sep.upperBound...])
+            guard let task = AuxiliaryTask(configKey: key), let name = dec(encName) else { return [] }
+            await self.app.setAuxOverrideFromConfig(task: task, configName: name)
             return await self.app.refreshFragments()
         }
         wire(router, id: "set-tessera", events: ["change"]) { event in

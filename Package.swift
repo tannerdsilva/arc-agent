@@ -139,6 +139,14 @@ let package = Package(
             swiftSettings: [
             ]
         ),
+        .testTarget(
+            name: "ArcAgentWebUITests",
+            dependencies: [
+                .target(name: "arc-agent-webui"),
+            ],
+            swiftSettings: [
+            ]
+        ),
     ]
 )
 

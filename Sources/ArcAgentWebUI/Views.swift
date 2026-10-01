@@ -1222,6 +1222,33 @@ extension AppState {
         return "<div class=\"tool-pills\">\(chips.joined())</div>"
     }
 
+    /// Live activity rows for the streaming bubble: one visible row per tool
+    /// call — appears the moment the call starts, flips to done with a short
+    /// result preview when it returns. Live work is never hidden behind a
+    /// dropdown; the finished turn collapses into the closed "Processed Xm Ys"
+    /// worklog on finalize (per user preference, dropdowns stay closed until
+    /// the user opens them).
+    static func liveToolRoundsHTML(_ rounds: [LiveToolRound]) -> String {
+        guard !rounds.isEmpty else { return "" }
+        let rows = rounds.map { r -> String in
+            let state = r.status == "done"
+                ? "<span class=\"lt-state done\" title=\"Done\">✓</span>"
+                : "<span class=\"lt-state running\">…</span>"
+            let args = trunc(r.args.replacingOccurrences(of: "\n", with: " "), 60)
+            var html = "<div class=\"live-tool\" data-lt-id=\"\(esc(r.id))\">"
+            html += "<span class=\"lt-name\">\(svgIcon("tools", 12)) \(esc(r.name))</span>"
+            html += "<span class=\"lt-args\">\(esc(args))</span>"
+            html += state
+            if let p = r.resultPreview, !p.isEmpty {
+                let preview = trunc(p.replacingOccurrences(of: "\n", with: " "), 100)
+                html += "<div class=\"lt-preview\">\(esc(preview))</div>"
+            }
+            html += "</div>"
+            return html
+        }
+        return "<div class=\"live-tool-stack\">" + rows.joined() + "</div>"
+    }
+
     func liveMessageHTML(_ live: LiveTurn) -> String {
         let mode = settings.activityDisplay
         let liveText = esc(live.assistantText).isEmpty ? " " : esc(live.assistantText).replacingOccurrences(of: "\n", with: "<br>")
@@ -1229,9 +1256,10 @@ extension AppState {
         let thinkingRow = mode == "transparent_stream" && !live.thinking.isEmpty
             ? "<details class=\"thinking-row\"><summary>" + svgIcon("pencil", 13) + "<span>Thinking</span></summary><div class=\"tc-detail\">" + esc(live.thinking) + "</div></details>"
             : ""
-        let chips = mode == "transparent_stream" && !live.toolChips.isEmpty
-            ? "<div class=\"tool-pills\">" + live.toolChips.joined() + "</div>"
-            : ""
+        // Live tool activity rows: every tool call of the running turn shows
+        // up here as it happens — in every display mode (hide_all_activity
+        // keeps the finished transcript's behavior and suppresses them).
+        let rounds = mode == "hide_all_activity" ? "" : Self.liveToolRoundsHTML(live.toolRounds)
         let status: String
         switch live.status {
         case "tool":
@@ -1260,7 +1288,7 @@ extension AppState {
             <div class="msg-meta">ARC Agent\(tpsChip)</div>
             \(thinkingRow)
             \(body)
-            \(chips)
+            \(rounds)
             \(status)
           </div>
         </div>
@@ -2423,7 +2451,6 @@ extension AppState {
               <span class="mc-name">\(esc(c.name)) \(badge)</span>
               <span class="mc-model">\(esc(c.model))</span>
               <div class="row-actions-main" style="margin:0">
-                \(btn("mc-use-\(encName)", "modelcfg-list", "ghost-btn", "Use", " style=\"padding:4px 10px;font-size:0.8em\""))
                 \(btn("mc-del-\(encName)", "modelcfg-list", "danger-btn", "Remove", " style=\"padding:4px 10px;font-size:0.8em\""))
               </div>
             </div>
@@ -2436,32 +2463,13 @@ extension AppState {
         }.joined()
 
 
-        // Auxiliary models (reference auxiliary.<task>, edited into ~/.arc/config.json)
+        // Auxiliary models (reference auxiliary.<task>, written into
+        // ~/.arc/config.json). Each task picks from the Model configurations
+        // below via the same dropdown look as the composer selectors; no
+        // selection means "use the main model".
         let auxRows = AuxiliaryTask.allCases.map { task -> String in
             let ov = arcConfig.auxiliary.override(for: task)
             let has = ov?.isSet == true
-            if auxEditingTask == task.key {
-                let pv = ov?.provider ?? ""
-                let mv = ov?.model ?? ""
-                let bv = ov?.baseURL ?? ""
-                let kv = ov?.apiKey ?? ""
-                return """
-                <div class="aux-editing">
-                  <form id="aux-form-\(task.key)" data-component-id="aux-form">
-                    <div class="aux-fields">
-                      <label class="aux-field">Provider<input name="aux-provider" id="aux-provider-\(task.key)" value="\(esc(pv))" placeholder="auto"></label>
-                      <label class="aux-field">Model<input name="aux-model" id="aux-model-\(task.key)" value="\(esc(mv))" placeholder="(main model)"></label>
-                      <label class="aux-field">Base URL<input name="aux-base-url" id="aux-base-url-\(task.key)" value="\(esc(bv))" placeholder="(main base URL)"></label>
-                      <label class="aux-field">API key<input name="aux-api-key" id="aux-api-key-\(task.key)" type="password" value="\(esc(kv))" placeholder="(main API key)"></label>
-                    </div>
-                    <div class="aux-actions">
-                      <button type="submit" class="primary-btn">Save</button>
-                      \(btn("aux-cancel-\(task.key)", "aux-edit", "ghost-btn", "Cancel"))
-                    </div>
-                  </form>
-                </div>
-                """
-            }
             let summary: String
             if let ov, has {
                 if !ov.model.isEmpty {
@@ -2476,12 +2484,51 @@ extension AppState {
             } else {
                 summary = "Main model"
             }
+            // Which configuration the override mirrors (SELECTED badge).
+            let matched = settings.modelConfigs.first { c in
+                guard let ov else { return false }
+                return c.provider == ov.provider && c.model == ov.model && c.baseURL == ov.baseURL
+            }
+            let pickVis = auxPickTask == task.key ? "" : " hidden"
+            var pickRows: [String] = []
+            pickRows.append(ddRow(id: "aux-default-\(task.key)", component: "aux-pick", body: """
+            <span class="dd-model-main">
+              <span class="dd-row-title">Main model</span>
+              <span class="dd-badges">\(!has ? "<span class=\"dd-badge sel\">ACTIVE</span>" : "")</span>
+            </span>
+            """))
+            for c in settings.modelConfigs {
+                let sel = matched?.name == c.name
+                pickRows.append(ddRow(id: "aux-pick-\(task.key)::\(enc(c.name))", component: "aux-pick", body: """
+                <span class="dd-model-main">
+                  <span class="dd-row-title">\(esc(c.model))</span>
+                  <span class="dd-badges"><span class="dd-badge">\(esc(c.name.uppercased()))</span>\(sel ? "<span class=\"dd-badge sel\">ACTIVE</span>" : "")</span>
+                </span>
+                """))
+            }
+            let pickEmpty = settings.modelConfigs.isEmpty
+                ? "<div class=\"dd-empty\">No model configurations yet — add one in Model configurations.</div>" : ""
+            let picker = """
+            <div class="dd dd-settings">
+              <button type="button" id="aux-trig-\(task.key)" data-component-id="aux-trig" class="dd-trigger" title="\(esc(task.displayName))">
+                \(svgIcon("cube", 13))<span class="dd-trigger-label">\(esc(trunc(summary, 26)))</span>\(svgIcon("chevron-down", 11))
+              </button>
+              <div class="dd-pop dd-pop-down\(pickVis)">
+                <div class="dd-note">Defaults to the main model when nothing is selected.</div>
+                <div class="dd-section">USE</div>
+                <div class="dd-list">\(pickRows.joined())\(pickEmpty)</div>
+              </div>
+            </div>
+            """
+            let resetBtn = has
+                ? btn("aux-reset-\(task.key)", "aux-edit", "ghost-btn", "Reset")
+                : ""
             return """
             <div class="set-row">
               <div class="set-label">\(esc(task.displayName))<small>\(esc(task.detail)). Currently: \(esc(summary)).</small></div>
               <div class="aux-right">
-                \(btn("aux-edit-\(task.key)", "aux-edit", "ghost-btn", has ? "Edit" : "Configure"))
-                \(has ? btn("aux-reset-\(task.key)", "aux-edit", "ghost-btn", "Reset") : "")
+                \(picker)
+                \(resetBtn)
               </div>
             </div>
             """
@@ -2576,6 +2623,12 @@ extension AppState {
                     <button type="submit" class="primary-btn">Add configuration</button>
                   </div>
                 </form>
+              </div>
+
+              <div class="detail-card" style="margin-top:12px">
+                <h3 style="margin:0 0 6px">Main model</h3>
+                <div class="detail-sub" style="margin-bottom:10px">The default model for new chats (individual chats can override it from their config selector). Pick one of your model configurations above.</div>
+                \(mainModelPickerHTML())
               </div>
 
               <div class="detail-card" style="margin-top:12px">
@@ -2716,7 +2769,49 @@ extension AppState {
         """
     }
 
-    /// Board: one scrollable row of columns with their cards (arc-style).
+    /// Settings → Main model picker: composer-selector look (dd trigger +
+    /// popover), listing the user's model configurations. AppState-backed
+    /// open state so re-renders don't close it; loads closed by default.
+    func mainModelPickerHTML() -> String {
+        let vis = mainModelPickOpen ? "" : " hidden"
+        let active = settings.activeConfig
+        let q = mainModelPickQuery.lowercased()
+        var rows: [String] = []
+        for c in settings.modelConfigs {
+            if !q.isEmpty && !c.name.lowercased().contains(q) && !c.model.lowercased().contains(q) { continue }
+            let sel = c.name == active
+            let selBadge = sel ? "<span class=\"dd-badge sel\">ACTIVE</span>" : ""
+            rows.append(ddRow(id: "mmp-pick-\(enc(c.name))", component: "mmp-pick", body: """
+            <span class="dd-model-main">
+              <span class="dd-row-title">\(esc(c.model))</span>
+              <span class="dd-badges"><span class="dd-badge">\(esc(c.name.uppercased()))</span>\(selBadge)</span>
+            </span>
+            """))
+        }
+        let empty = rows.isEmpty
+            ? "<div class=\"dd-empty\">No model configurations yet — add one above.</div>" : ""
+        let mtrigger = ddTrigger(
+            id: "mmp-toggle",
+            icon: svgIcon("cube", 13),
+            label: settings.modelConfig(named: active).map { "\($0.name) · \($0.model)" } ?? "No configuration",
+            title: "Main model"
+        )
+        return """
+        <div class="dd dd-settings">
+          \(mtrigger)
+          <div class="dd-pop dd-pop-down\(vis)">
+            <div class="dd-note">Used by new chats by default. Per-chat overrides live in the chat's config selector.</div>
+            <div class="dd-search">
+              <input id="mmp-search-input" data-component-id="mmp-search-input" data-event="input" data-no-restore type="text" placeholder="Search configurations…" spellcheck="false" autocomplete="off" value="\(esc(mainModelPickQuery))">
+              \(mainModelPickQuery.isEmpty ? "" : btn("mmp-search-clear", "mmp-search-clear", "dd-clear", svgIcon("x", 10)))
+            </div>
+            <div class="dd-section">CONFIGURATIONS</div>
+            <div class="dd-list">\(rows.joined())\(empty)</div>
+          </div>
+        </div>
+        """
+    }
+
     func kanbanMain() -> String {
         guard !settings.kanbanColumns.isEmpty else {
             return """

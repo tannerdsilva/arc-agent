@@ -1738,6 +1738,24 @@ static let css: String = """
     @keyframes blink { 50% { opacity: 0; } }
 
     .live-status { font-size: 0.78em; color: var(--muted); margin: -8px 0 12px; display: flex; gap: 8px; align-items: center; }
+    /* Live tool activity rows (streaming bubble): visible while the agent is
+       processing; flat rows with a subtle 1px divider between them. */
+    .live-tool-stack { margin: 8px 0 4px; display: flex; flex-direction: column; }
+    .live-tool {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 6px 10px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.8em;
+    }
+    .live-tool + .live-tool { margin-top: 4px; }
+    .live-tool .lt-name { color: var(--accent-strong); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+    .live-tool .lt-name svg { width: 12px; height: 12px; }
+    .live-tool .lt-args { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 48ch; }
+    .live-tool .lt-state { margin-left: auto; color: var(--muted); }
+    .live-tool .lt-state.done { color: var(--success); }
+    .live-tool .lt-preview { flex-basis: 100%; color: var(--muted); font-size: 0.92em; border-top: 1px solid var(--border); padding-top: 4px; margin-top: 2px; white-space: pre-wrap; }
 
     /* ─── Permission card (reference approval) ─────────────────────── */
     .perm-card {
@@ -2356,6 +2374,14 @@ static let css: String = """
       max-height: min(60vh, 420px); overflow: hidden;
     }
     .dd-pop.hidden { display: none; }
+    /* Settings pickers (Main model / Auxiliary models) open downward — the
+       settings list is tall, so an upward popover would clip. */
+    .dd-pop-down { bottom: auto; top: calc(100% + 8px); }
+    .dd-settings .dd-trigger {
+      border: 1px solid var(--border); background: var(--surface-2);
+      color: var(--text); border-radius: 8px; max-width: 300px;
+      padding: 6px 10px; font-size: 0.82em;
+    }
     .dd-search { position: relative; display: flex; align-items: center; gap: 4px; padding: 2px 2px 8px; }
     .dd-search input {
       flex: 1; min-width: 0; background: var(--surface-2);

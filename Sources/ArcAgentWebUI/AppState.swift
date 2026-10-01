@@ -141,6 +141,14 @@ struct ModelConfigPreset: Codable, Equatable, Identifiable, Sendable {
         self.topP = topP
     }
 
+    /// An auxiliary override mirroring this configuration: picking a model
+    /// configuration for an auxiliary task copies provider / model / base URL
+    /// (and this config's own API key when present; an empty key inherits the
+    /// main key at resolution time).
+    var auxiliaryOverride: AuxiliaryOverride {
+        AuxiliaryOverride(provider: provider, model: model, baseURL: baseURL, apiKey: apiKey)
+    }
+
     /// A copy with the bound profile's context overrides applied (nil fields
     /// keep this config's values). Used when a chat is bound to a profile
     /// that sets per-profile context parameters.
@@ -439,6 +447,10 @@ struct LiveTurn {
     /// Accumulated reasoning/thinking text streamed by the model.
     var thinking: String = ""
     var toolChips: [String] = []
+    /// Every tool call of this turn, in flight order, with live state —
+    /// rendered as visible activity rows while the turn is processing
+    /// (supersedes the name-only `toolChips` for the streaming bubble).
+    var toolRounds: [LiveToolRound] = []
     var status: String = "running"   // running | tool | done | error
     var error: String? = nil
     var startedAt = Date()
@@ -451,6 +463,18 @@ struct LiveTurn {
     /// tool result at the next tool boundary; drained as the next turn if the
     /// run ends before consuming it (leftover steer).
     var steerText: String? = nil
+}
+
+/// One tool call observed live during a turn (pair start/finish via the
+/// ToolCall id). Rendered by `liveToolRoundsHTML` as a visible activity row
+/// while the agent is processing; the finished turn block takes over once
+/// the turn materializes.
+struct LiveToolRound: Equatable, Sendable {
+    let id: String
+    let name: String
+    let args: String
+    var status: String        // "running" | "done"
+    var resultPreview: String?
 }
 
 /// Incremental-stream render cache for the live chat transcript. Holds the
@@ -721,6 +745,14 @@ actor AppState {
     var profileSelectOpen = false
     var modelSelectOpen = false
     var modelSelectQuery = ""
+    // Settings → Main model picker (custom dropdown, mirrors the composer
+    // selector pattern: AppState-backed open state survives re-renders, and
+    // the panel loads closed).
+    var mainModelPickOpen = false
+    var mainModelPickQuery = ""
+    /// Settings → Auxiliary models: which task's picker is open (one at a
+    /// time; nil means all closed).
+    var auxPickTask: String? = nil
     var thinkSelectOpen = false
     /// True once the app's HTTP/WS server is bound (surfaced in the profile card).
     var gatewayRunning = false
@@ -831,8 +863,6 @@ actor AppState {
     var arcConfig: ArcConfig = ArcConfig()
     /// Per-turn tool guardrails (rebuilt from config at turn start).
     var guardrails = ToolGuardrails()
-    /// Which auxiliary task is currently being edited in Preferences.
-    var auxEditingTask: String? = nil
     /// Durable insights analytics (skill usage, daily token burn).
     var insights: InsightsData = InsightsData()
     /// Daily-token graph range selected in the Insights panel (7/30/90/365).
@@ -1066,9 +1096,16 @@ actor AppState {
     // MARK: Settings persistence
 
     static var settingsURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        settingsURLOverride ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".arc-agent-webui/settings.json")
     }
+
+    /// Test seam: points settings persistence at a temp file so unit tests
+    /// never read or write the user's real settings (pattern mirrors the
+    /// `testProfilesRoot` seam used by ProfileManager tests). Nil in production.
+    /// `nonisolated(unsafe)`: test-only mutable global, set/cleared on the main
+    /// actor in tests before any concurrent reader can observe it.
+    nonisolated(unsafe) static var settingsURLOverride: URL?
 
     static func loadSettings() -> AppSettings {
         let url = settingsURL
