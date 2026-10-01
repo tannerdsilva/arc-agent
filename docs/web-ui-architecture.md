@@ -2,40 +2,47 @@
 
 ## Overview
 
-The web UI is the `arc-agent-webui` executable target (`Sources/ArcAgentWebUI/`),
-built on the declarative **no-webui** library (Swift DSL → HTML/CSS/JS). There is
-no npm, no node_modules, no build pipeline: every asset required by the UI is
-compiled into the binary as Swift strings.
+The web UI is the `ArcWebUI` **library** target (`Sources/ArcWebUI/`), built on
+the declarative **no-webui** library (Swift DSL → HTML/CSS/JS). There is no npm,
+no node_modules, no build pipeline: every asset required by the UI is compiled
+into the binary as Swift strings.
 
 Serving is no-webui's, not ours: `WebUIServer` (an actor) owns the HTTP page
-route, the asset routes, and the `/ws` socket, and `WebUIServerService` hosts it
-inside a `ServiceGroup`. `Entry.swift` no longer contains a server.
+route, the asset routes, and the `/ws` socket; `WebUIServerService` hosts it
+inside a `ServiceGroup`, and `WebUIHost.swift` owns the boot, the page template
+wiring, and the two `IntervalService` streamers.
 
-The gateway (`arc serve`) is a separate process and hosts **no** UI — it is the
-REST API (`HTTPServerService`, Hummingbird: `/health`, `POST /v1/chat`) plus the
-platform adapters. There is exactly one web UI, this one.
+There is no standalone UI process any more: the daemon (`arc serve` →
+`ArcDaemon`) mounts the host as a sibling of the REST API
+(`HTTPServerService`, Hummingbird: `/health`, `POST /v1/chat`) and the platform
+adapters — one `ServiceGroup` per process — so the UI shares the daemon's
+storage pair, log sink and shutdown. The surface is gated by the `webui` block
+of `gateway.json` (on by default).
 
 ## Layout
 
 ```
-Sources/ArcAgentWebUI/
-├── Entry.swift            — CLI entrypoint, HTML shell, asset registration, CSP,
-│                            ServiceGroup wiring (server + two streamers)
+Sources/ArcWebUI/
+├── WebUIHost.swift        — the host Service: boot, page provider, asset wiring,
+│                            ServiceGroup (server + two streamers), shutdown bridge
+├── AppShell.swift         — the page template + the two served `WebUIAsset`s
 ├── IntervalService.swift  — a poll loop as a Service (log stream, workspace tree)
+├── WebUILogging.swift     — the idempotent swift-log → ring-buffer install
+├── ScheduledJobsImport.swift — one-time lift of legacy settings jobs into the store
 ├── AppState.swift         — actor: sessions, settings, registry, runTurn orchestration, fragments
 ├── Actions.swift          — wire handlers (settings, approvals, queues, skills, agent powers)
 ├── Views.swift            — all page/section HTML builders (chat, sidebar, settings, skills, …)
 ├── Theme.swift            — arc's chrome stylesheet (layout, components, text-size axis)
-├── ThemeCatalog.swift     — the 27 schemes as no-webui providers: a shared base every scheme
-│                            layers over, the token aliases, and the catalog the settings grid
-│                            renders from
-├── init.js (in Entry.swift) — the arc-specific client overlay (composer, tables,
-│                            slash menu, selection, outline, worklog)
 ├── Queue.swift            — run-queue model/engine (sequential + parallel, output chaining)
-├── NewFeatures.swift      — tabbed panels, todos, cron, regenerate
+├── NewFeatures.swift      — tabbed panels, todos, scheduled tasks, regenerate
 ├── Insights.swift         — usage insights (top-10 skills, token/activity charts)
+├── GitHub.swift / LogCollector.swift / Helpers.swift
 └── Assets/                — host files the build plugins consume (never compiled):
                              `overlay.js` (the client overlay) plus `webui-assets.json`
+
+(The theme catalog lives in `Sources/ArcTheme/`; the daemon lives in
+`Sources/ArcDaemon/` — `DaemonPlan` resolves the surfaces, `ArcDaemon.run`
+composes the tree.)
 
 Tests/ArcAgentWebUITests/     — emission + catalog invariants for the web UI target (no coverage
                                 until the scheme sheet shipped inert), plus the palette pins:
