@@ -4,7 +4,7 @@
 
 ARC Agent is a **precompiled, Swift-native AI agent harness** — architecturally inspired by [the reference agent](https://hermes-agent.nousresearch.com), but built from the ground up for Swift's concurrency model, type system, and distribution story. Single binary, zero interpreter overhead, no npm dependency chain, instant startup.
 
-**Status:** Vascular hardening. The core architecture is built across 177 source files with 668 tests (2 of them environment-gated) and a clean build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. The web UI ships as the `arc-agent-webui` executable: all CSS/JS are Swift-embedded strings (no build pipeline, no external assets at runtime), served by no-webui's `WebUIServer` from content-stamped, immutable-cached urls.
+**Status:** Vascular hardening. The core architecture is built across 178 source files with 674 tests (2 of them environment-gated) and a clean build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. The web UI ships as the `arc-agent-webui` executable: its CSS and JS are compiled into the binary as Swift — the theme sheet rendered, minified, stamped and gzipped from `Sources/ArcTheme/`, the client overlay embedded from `Assets/overlay.js` — and no-webui's `WebUIServer` serves them from content-stamped, immutable-cached urls.
 
 ## Why Swift?
 
@@ -85,8 +85,12 @@ The web UI is a single Swift executable target, `Sources/ArcAgentWebUI/`, built 
 - **no-webui's engine** — the client runtime. A page loads exactly two scripts: the
   engine (served by `WebUIServer` at `/ui/webui-engine.js`) and `init.js`, the
   arc-specific overlay, which rides the engine's `on.afterPatch` seam
-- **Theme sheet** — rendered, stamped and gzipped into the build by `ArcAssetPlugin`
-  (via the `ArcAssetTool` target) from `Sources/ArcTheme/`
+- **Theme sheet** — rendered from `Sources/ArcTheme/` and emitted through no-webui's
+  `WebUIBuild` by `ArcAssetPlugin` (via the `ArcAssetTool` target): minified, prose-gated,
+  stamped and gzipped on every build
+- **Client overlay** — `Sources/ArcAgentWebUI/Assets/overlay.js`, embedded by no-webui's
+  `WebUIEmbedPlugin` from its `Assets/webui-assets.json` manifest on every build, so the
+  served script is a build product too (gzipped, stamped, immutable)
 
 Markdown in chat is rendered server-side by the arc-parity renderer in `Sources/ArcAgentCore/WebUI/Utilities.swift` (ATX headings, pipe tables, nested blockquotes, task checkboxes, sanitized images, autolinks) and enhanced client-side (table sort/filter).
 

@@ -33,18 +33,41 @@ Sources/ArcAgentWebUI/
 │                            slash menu, selection, outline, worklog)
 ├── Queue.swift            — run-queue model/engine (sequential + parallel, output chaining)
 ├── NewFeatures.swift      — tabbed panels, todos, cron, regenerate
-└── Insights.swift         — usage insights (top-10 skills, token/activity charts)
+├── Insights.swift         — usage insights (top-10 skills, token/activity charts)
+└── Assets/                — host files the build plugins consume (never compiled):
+                             `overlay.js` (the client overlay) plus `webui-assets.json`
 
-Tests/ArcAgentWebUITests/     — emission + catalog invariants for the web UI target, which had
-                                no coverage until the scheme sheet shipped inert
+Tests/ArcAgentWebUITests/     — emission + catalog invariants for the web UI target (no coverage
+                                until the scheme sheet shipped inert), plus the palette pins:
+                                77 values over all 27 schemes guarding the minifier and emitter
 
-Sources/ArcAssetTool/main.swift          — renders the theme sheet (raw + gzip + content address)
+Sources/ArcAssetTool/main.swift          — renders the theme sheet, emits it through `WebUIBuild`
 Plugins/ArcAssetPlugin/plugin.swift      — runs the tool on every build
 ```
 
 `ThemeSheetAssets.swift` is **not checked in**. `ArcAssetPlugin` regenerates it into
 `.build/…/ArcAssetPlugin/` on every build from `Sources/ArcTheme/`, so the
 embedded sheet is a build product of its input and cannot drift from it.
+
+## The asset pipeline
+
+SwiftPM allows exactly two mechanisms, so there are exactly two:
+
+- **Rendered Swift** — `Sources/ArcTheme/` is arc's own and only arc can render it: a plugin
+  cannot import a library, and no framework plugin can render a consumer's theme types. arc
+  therefore keeps one small tool (`ArcAssetTool`, invoked by `ArcAssetPlugin` before every
+  build) whose whole body is one call into the framework's `WebUIBuild`. It emits
+  `ThemeSheetAssets.swift`: the sheet, minified, prose-gated, sha256-stamped and gzipped.
+- **Files** — `Assets/webui-assets.json` declares the host files, and no-webui's
+  `WebUIEmbedPlugin` embeds each one into `EmbeddedAssets.swift` on every build. The overlay
+  is its one entry, with `prose` deliberately **off**: the framework has no javascript strip
+  step, and a js comment stripper is a riskier tool than the css minifier — so the overlay's
+  comments ship, by recorded decision rather than by default.
+
+Both products feed `WebUIAsset`, which derives the url a page links and the registration the
+server answers with from the same bytes — so an address and the bytes it names cannot
+disagree, and the cache policy (`immutable`, one year) is part of the value rather than
+something an entry has to remember to ask for.
 
 ## Rendering pipeline
 
@@ -80,7 +103,9 @@ embedded sheet is a build product of its input and cannot drift from it.
   glyph is a compile error rather than a blank `<svg>`.
 - Host assets are **content-stamped and cached for a year**: the sheet and the
   overlay are linked as `…?v=<sha256 prefix>` derived from their own bytes, so a rebuild
-  changes the url by construction and a repeat navigation transfers none of them. The policy
+  changes the url by construction and a repeat navigation transfers none of them. Both are
+  served compressed (`Vary: Accept-Encoding`; gzip on request — 25,766 of 249,982 bytes for
+  the sheet, 9,904 of 34,967 for the overlay) and `immutable`. The policy
   passes only its one extra (`img-src … https: blob:`) through
   `contentSecurityPolicyExtras`, so the framework's nonce — and with it the pre-paint theme
   prelude — survives.
