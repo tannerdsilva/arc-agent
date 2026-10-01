@@ -330,8 +330,8 @@ public struct APIGatewayConfig: Sendable {
 /// Config lives in `gateway.json` under the `webui` key; environment overrides:
 /// `WEBUI_ENABLED`, `WEBUI_HOST`, `WEBUI_PORT`, and `--webui/--no-webui` on
 /// `arc serve` overrides both. Enabled by default on loopback:8890 — the
-/// daemon is the only UI host (the standalone `arc-agent-webui` binary is a
-/// shim until phase 3 retires it).
+/// daemon is the only UI host (the standalone `arc-agent-webui` binary was
+/// retired in the daemon consolidation).
 public struct WebUIGatewayConfig: Sendable {
     public var enabled: Bool
     public var host: String

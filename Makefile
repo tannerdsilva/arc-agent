@@ -7,15 +7,16 @@
 #
 # Generated assets are not a make step: ArcAssetPlugin regenerates the theme
 # sheet on every build from Sources/ArcTheme/.
-#   make dev      — debug build + web UI
+#   make dev      — debug build + the daemon (API + web UI)
 #   make test     — run tests
 #   make clean    — clean build artifacts
 #   make dist     — create a release tarball
 #   make uninstall — remove from install dir
 
 SWIFT      := swift
+# the built executable is `arc-agent` (the target name); it installs as `arc`
 BINARY     := arc
-WEBUI      := arc-agent-webui
+BUILT      := arc-agent
 BUILD_DIR  := .build
 
 INSTALL_DIR ?= $(HOME)/.local/bin
@@ -39,9 +40,8 @@ release:
 # ── Install: build release and copy binaries ──────────────
 install: release
 	@mkdir -p $(INSTALL_DIR)
-	cp -f $(BUILD_DIR)/release/$(BINARY) $(INSTALL_DIR)/$(BINARY)
-	cp -f $(BUILD_DIR)/release/$(WEBUI) $(INSTALL_DIR)/$(WEBUI)
-	@echo "  Installed $(BINARY) + $(WEBUI) → $(INSTALL_DIR)"
+	cp -f $(BUILD_DIR)/release/$(BUILT) $(INSTALL_DIR)/$(BINARY)
+	@echo "  Installed $(BUILT) → $(INSTALL_DIR)/$(BINARY)"
 
 # ── Update: full cycle — assets, release, install ─────────
 update: release install
@@ -63,8 +63,7 @@ clean:
 # ── Distribution tarball ──────────────────────────────────
 dist: release
 	@mkdir -p $(DIST_DIR)/$(DIST_NAME)
-	cp -f $(BUILD_DIR)/release/$(BINARY) $(DIST_DIR)/$(DIST_NAME)/$(BINARY)
-	cp -f $(BUILD_DIR)/release/$(WEBUI) $(DIST_DIR)/$(DIST_NAME)/$(WEBUI)
+	cp -f $(BUILD_DIR)/release/$(BUILT) $(DIST_DIR)/$(DIST_NAME)/$(BINARY)
 	cp -f README.md $(DIST_DIR)/$(DIST_NAME)/ 2>/dev/null; true
 	cp -f LICENSE $(DIST_DIR)/$(DIST_NAME)/ 2>/dev/null; true
 	cd $(DIST_DIR) && tar czf $(DIST_NAME).tar.gz $(DIST_NAME)
@@ -74,5 +73,6 @@ dist: release
 # ── Uninstall ─────────────────────────────────────────────
 uninstall:
 	rm -f $(INSTALL_DIR)/$(BINARY)
-	rm -f $(INSTALL_DIR)/$(WEBUI)
-	@echo "  Removed $(INSTALL_DIR)/$(BINARY), $(INSTALL_DIR)/$(WEBUI)"
+	# legacy cleanup: the standalone UI binary, retired in the daemon consolidation
+	rm -f $(INSTALL_DIR)/arc-agent-webui
+	@echo "  Removed $(INSTALL_DIR)/$(BINARY) (+ legacy arc-agent-webui if present)"

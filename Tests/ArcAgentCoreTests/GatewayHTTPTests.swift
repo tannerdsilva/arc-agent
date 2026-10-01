@@ -13,7 +13,7 @@ struct GatewayHTTPTests {
     /// Boot the real ``HTTPServerService`` on an ephemeral port and probe
     /// the REST entry points: health and the chat API. This is the
     /// "every message flows through them" test for the HTTP layer. The web UI
-    /// is served by the standalone `arc-agent-webui` binary, not here.
+    /// is served by `WebUIHost`, a sibling service in the daemon, not here.
     @Test("health and chat routes answer over real HTTP")
     func httpRoutesAnswer() async throws {
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)

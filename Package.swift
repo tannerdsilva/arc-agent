@@ -183,19 +183,6 @@ let package = Package(
             ]
         ),
 
-        // ── Web UI shim (the standalone binary; retired in phase 3) ──
-        .executableTarget(
-            name: "arc-agent-webui",
-            dependencies: [
-                .target(name: "ArcWebUI"),
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
-            ],
-            path: "Sources/ArcAgentWebUI",
-            swiftSettings: [
-                .swiftLanguageMode(.v5),
-            ]
-        ),
-
         // ── Asset codegen (build tool + plugin) ───────────────────
         // No shell script and no checked-in generated file: the tool is Swift
         // and the plugin runs it before every build of the web UI target, so
@@ -279,5 +266,4 @@ let package = Package(
 // embed ArcAgentCore in-process.
 package.products = [
     .library(name: "ArcAgentCore", targets: ["ArcAgentCore"]),
-    .executable(name: "arc-agent-webui", targets: ["arc-agent-webui"]),
 ]

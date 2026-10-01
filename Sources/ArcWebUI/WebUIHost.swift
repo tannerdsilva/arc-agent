@@ -8,10 +8,11 @@ import WebUIServer
 /// The Web UI host: boots the app state, serves the page through no-webui's
 /// `WebUIServer`, and streams logs + the workspace tree while it runs.
 ///
-/// Two ways in, one implementation: the daemon (`ArcDaemon`) mounts this as a
-/// service with prebuilt storage and the log sink already installed; the
-/// standalone `arc-agent-webui` shim (retired in phase 3) constructs it bare
-/// and this host resolves its own storage under the original 12 s timebox.
+/// The daemon (`ArcDaemon`) mounts this as a service with prebuilt storage and
+/// the log sink already installed, and reaches back through
+/// `runScheduledJob(_:)` for cron. Constructed bare (the retired standalone
+/// shim's shape, still exercised by tests) the host resolves its own storage
+/// under the original 12 s timebox.
 public struct WebUIHost: Service {
 
     public let host: String

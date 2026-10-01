@@ -15,12 +15,12 @@ import NIO
 /// - ``BotMessagingService`` — inter-agent messaging
 /// - ``GroupChatManager`` — multi-agent coordination rooms
 ///
-/// The web UI is NOT hosted here: it is the standalone `arc-agent-webui`
-/// binary, which runs on no-webui's `WebUIServer`. The gateway used to carry a
-/// second, hand-rolled UI surface (three `/ui` pages behind an `onUI` closure
-/// that was never configured, plus a NIO WebSocket server on `port + 1` whose
-/// only purpose was to talk to those pages). That duplicate is gone; `arc serve`
-/// is the API and the platform adapters.
+/// The web UI is not hosted here: it is a sibling service in the same daemon
+/// (`WebUIHost`, mounted by `ArcDaemon` on its own port via the `webui` block
+/// of `gateway.json`). The gateway used to carry a second, hand-rolled UI
+/// surface (three `/ui` pages behind an `onUI` closure that was never
+/// configured, plus a NIO WebSocket server on `port + 1`); that duplicate is
+/// long gone. This service is the API and the platform adapters.
 ///
 /// All components are managed by a ``ServiceGroup``.
 public struct GatewayService: Service {
@@ -82,8 +82,8 @@ public struct GatewayService: Service {
             await gcm.setMessagingService(bm)
         }
 
-        // Build the HTTP server. REST only: the web UI is the standalone
-        // `arc-agent-webui` binary, which runs on no-webui's `WebUIServer`.
+        // Build the HTTP server. REST only: the web UI is `WebUIHost`, a
+        // sibling service in the daemon (same process, its own port).
         self.httpServer = HTTPServerService(
             config: .init(host: host, port: port),
             onChat: { [reg, routes = profileRouting.sortedRoutes, multiplex = profileRouting.multiplexProfiles] sessionID, message in

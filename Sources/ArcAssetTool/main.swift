@@ -2,7 +2,7 @@ import ArcTheme
 import Foundation
 import WebUIBuild
 
-// arc-agent-webui's asset generator: the served theme sheet.
+// ArcWebUI's asset generator: the served theme sheet.
 //
 // invoked by `ArcAssetPlugin` on every build — there is no shell script and no hand-run step.
 //
