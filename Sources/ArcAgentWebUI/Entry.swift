@@ -141,8 +141,6 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         // hash cannot disagree — a test pins the product against the source it came from.
         let sheet = ThemeSheetAssets.sheet
         let sheetPath = "/ui/style.css?v=\(ThemeSheetAssets.stamp)"
-        let katexCSSPath = Self.stamped("/ui/vendor/katex/katex.min.css", KaTeXAssets.css)
-        let katexJSPath = Self.stamped("/ui/vendor/katex/katex.min.js", KaTeXAssets.js)
 
         // Assemble the page (external /ui/* assets keep each response small).
         // The document template wraps whatever body the app currently renders,
@@ -158,8 +156,6 @@ struct ArcAgentWebUI: AsyncParsableCommand {
                 rawStyles: [],
                 head: """
                 <link rel="stylesheet" href="\(sheetPath)">
-                <link rel="stylesheet" href="\(katexCSSPath)">
-                <meta name="arc-katex-js" content="\(katexJSPath)">
                 <script src="\(initPath)"></script>
                 """,
                 htmlAttributes: themeAttrs,
@@ -167,10 +163,9 @@ struct ArcAgentWebUI: AsyncParsableCommand {
                 // Extras, not a restated policy: a full policy names no nonce source, and
                 // `HTMLDocument` then suppresses the pre-paint theme prelude rather than
                 // emit an inline script the browser refuses (a stored scheme would flash
-                // on every load). These two directives are all arc needs beyond the
-                // framework default — remote images in rendered markdown, and a font-src
-                // that also allows data: for KaTeX.
-                contentSecurityPolicyExtras: "img-src 'self' data: https: blob:; font-src 'self' data:"
+                // on every load). This directive is all arc needs beyond the framework
+                // default — remote images in rendered markdown.
+                contentSecurityPolicyExtras: "img-src 'self' data: https: blob:"
             )
         }
         // The overlay's url is stamped from its bytes, which only exist after the literal
@@ -189,7 +184,7 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         // The client is no-webui's ENGINE: HTMLDocument emits the
         // `webui-config` meta and the engine script itself, so this page no
         // longer boots or serves the legacy WebUIRuntime. What remains below is
-        // only the arc-specific overlay (composer, KaTeX, tables, slash menu,
+        // only the arc-specific overlay (composer, tables, slash menu,
         // selection, outline, worklog) — everything it used to rely on the
         // runtime for (transport, event dispatch, fragment patching, scroll and
         // form-state restore, HTML sanitising) is the engine's job now.
@@ -303,80 +298,10 @@ struct ArcAgentWebUI: AsyncParsableCommand {
           function nearBottom(s) { return s.scrollHeight - s.scrollTop - s.clientHeight < SCROLL_PAD; }
           var stick = true;
           var seenChatScroll = null;
-          // ---- Server-rendered math + table enhancement (arc-specific).
+          // ---- Pipe-table enhancement (arc-specific).
           // Lived in the forked runtime until that fork was deleted; it belongs in the
-          // overlay and is driven from the engine's afterPatch seam below.
-          // Mirrors arc-webui ui.js `renderKatexBlocks` + messages.js table
-            // enhancement: server-rendered <equation-inline>/<equation-block> elements
-            // are typeset with KaTeX (lazy-loaded, rendered-source cached), and pipe
-            // tables get per-column sort + a filter input.
-            var _katexState = { loading: false, ready: false, cache: {} };
-
-            function _katexPending(el, root) {
-              // An equation that is the last descendant of the live body may still be
-              // receiving TeX while streaming — skip it until the parser settles.
-              var tag = (el && el.tagName || '').toLowerCase();
-              if (tag !== 'equation-block' && tag !== 'equation-inline') return false;
-              var node = el;
-              while (node && node !== root) {
-                if (node.nextSibling) return false;
-                node = node.parentNode;
-              }
-              return node === root;
-            }
-
-            function renderKatexBlocks(container, opts) {
-              var root = container || document;
-              var streaming = !!(opts && opts.streaming);
-              var blocks = root.querySelectorAll(
-                '.katex-block:not([data-rendered]),.katex-inline:not([data-rendered]),' +
-                'equation-block:not([data-rendered]),equation-inline:not([data-rendered])'
-              );
-              if (!blocks.length) return;
-              if (!_katexState.ready) {
-                if (!_katexState.loading) {
-                  _katexState.loading = true;
-                  var script = document.createElement('script');
-                  script.src = (document.querySelector('meta[name="arc-katex-js"]') || {}).content ||
-                    '/ui/vendor/katex/katex.min.js';
-                  script.onload = function () {
-                    if (typeof katex !== 'undefined') {
-                      _katexState.ready = true;
-                      renderKatexBlocks();
-                    }
-                  };
-                  document.head.appendChild(script);
-                }
-                return;
-              }
-              for (var i = 0; i < blocks.length; i++) {
-                var el = blocks[i];
-                if (streaming && _katexPending(el, root)) continue;
-                var src = el.textContent || '';
-                var tag = (el.tagName || '').toLowerCase();
-                var displayMode = el.getAttribute('data-katex') === 'display' || tag === 'equation-block';
-                var key = (displayMode ? 'd|' : 'i|') + src;
-                el.setAttribute('data-rendered', 'true');
-                if (_katexState.cache[key]) {
-                  el.innerHTML = _katexState.cache[key];
-                  continue;
-                }
-                try {
-                  katex.render(src, el, {
-                    displayMode: displayMode,
-                    throwOnError: false,
-                    trust: false,
-                    strict: 'ignore'
-                  });
-                  _katexState.cache[key] = el.innerHTML;
-                } catch (e) {
-                  // Leave the raw source as a code span on failure (arc parity).
-                  var code = document.createElement('code');
-                  code.textContent = src;
-                  if (el.parentNode) el.parentNode.replaceChild(code, el);
-                }
-              }
-            }
+          // overlay and is driven from the engine's afterPatch seam below — pipe tables
+          // get per-column sort + a filter input.
 
             function enhanceMarkdownTables(scope) {
               var tables = scope.querySelectorAll('.msg-body table:not([data-markdown-table-enhanced])');
@@ -500,7 +425,6 @@ struct ArcAgentWebUI: AsyncParsableCommand {
 
           function enhanceAll() {
             resizeComposerIfNew();
-            renderKatexBlocks(document);
             enhanceMarkdownTables(document);
             stickToChat();
           }
@@ -509,12 +433,10 @@ struct ArcAgentWebUI: AsyncParsableCommand {
             resizeComposerIfNew();
             if (changed && changed.length) {
               for (var i = 0; i < changed.length; i++) {
-                renderKatexBlocks(changed[i]);
                 enhanceMarkdownTables(changed[i]);
               }
             } else {
               // A runtime that hands no subtree: fall back to a document pass.
-              renderKatexBlocks(document);
               enhanceMarkdownTables(document);
             }
             stickToChat();
@@ -1103,18 +1025,6 @@ struct ArcAgentWebUI: AsyncParsableCommand {
         // The overlay's content-derived url, now that its bytes exist.
         let initPath = Self.stamped("/ui/init.js", initJS)
 
-        // Vendored KaTeX fonts are binary: register each as a byte asset so the
-        // served page fetches them from this server instead of a second one.
-        let fontAssets: [WebUIServerAsset] = KaTeXAssets.fontsBase64.compactMap { name, encoded in
-            guard let data = Data(base64Encoded: encoded) else { return nil }
-            return .bytes(
-                "/ui/vendor/katex/fonts/\(name)",
-                [UInt8](data),
-                contentType: "font/woff2",
-                cacheSeconds: 31_536_000
-            )
-        }
-
         let server = WebUIServer(
             requestRender: { request in
                 // ?s=<id> opens that conversation directly (copy-link flow).
@@ -1138,9 +1048,7 @@ struct ArcAgentWebUI: AsyncParsableCommand {
                         gzip: ThemeSheetAssets.gzip.isEmpty ? nil : ThemeSheetAssets.gzip
                     ),
                     .text("/ui/init.js", initJS, contentType: "text/javascript; charset=utf-8", cacheSeconds: 31_536_000),
-                    .text("/ui/vendor/katex/katex.min.css", KaTeXAssets.css, contentType: "text/css; charset=utf-8", cacheSeconds: 31_536_000),
-                    .text("/ui/vendor/katex/katex.min.js", KaTeXAssets.js, contentType: "text/javascript; charset=utf-8", cacheSeconds: 31_536_000),
-                ] + fontAssets
+                ]
             ),
             logger: logger
         )

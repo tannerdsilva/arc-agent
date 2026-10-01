@@ -1371,9 +1371,6 @@ public static let css: String = """
     .md ul, .md ol { padding-left: 22px; margin: 0.4em 0; }
     .md h1, .md h2, .md h3, .md h4 { margin: 0.9em 0 0.4em; }
     .md ul ul, .md ol ul, .md ul ol, .md ol ol { margin: 0.2em 0 0.2em 0; }
-    equation-block { display: block; text-align: center; margin: 0.7em 0; overflow-x: auto; }
-    equation-inline { display: inline; }
-
     details.thinking {
       margin: 4px 0 8px;
       border: 1px dashed var(--border-strong);

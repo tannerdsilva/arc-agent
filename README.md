@@ -46,7 +46,7 @@ GatewayService (Service Lifecycle tree)         — `arc serve`
 arc-agent-webui (executable)                     — web UI on :8890
 ├── AppState/Actions/Views/Theme  (Swift-generated HTML/CSS/JS, zero npm)
 ├── Entry.swift                   (page render, /ui/* host assets, ServiceGroup)
-└── (client is no-webui's engine; the KaTeX embed is generated at build time)
+└── (client is no-webui's engine; the theme sheet is generated at build time)
 ```
 
 **55 registered tools** across ~13 toolsets: `core`, `file`, `terminal`, `web`, `delegation`, `kanban`, `profile`, `media`, `webhooks`, `skills`, `mcp`, `project`, `tools`, `messaging` (arc-parity: `project_*`, unified `skill_manage` + `skills_list`, `tool_search`, `send_message`).
@@ -85,10 +85,10 @@ The web UI is a single Swift executable target, `Sources/ArcAgentWebUI/`, built 
 - **no-webui's engine** — the client runtime. A page loads exactly two scripts: the
   engine (served by `WebUIServer` at `/ui/webui-engine.js`) and `init.js`, the
   arc-specific overlay, which rides the engine's `on.afterPatch` seam
-- **KaTeX assets** — generated into the build by `ArcAssetPlugin` (via the
-  `ArcAssetTool` target) from `Sources/ArcAgentWebUI/Assets/vendor/katex/`
+- **Theme sheet** — rendered, stamped and gzipped into the build by `ArcAssetPlugin`
+  (via the `ArcAssetTool` target) from `Sources/ArcTheme/`
 
-Markdown in chat is rendered server-side by the arc-parity renderer in `Sources/ArcAgentCore/WebUI/Utilities.swift` (ATX headings, pipe tables, nested blockquotes, task checkboxes, KaTeX math, sanitized images, autolinks) and enhanced client-side (table sort/filter).
+Markdown in chat is rendered server-side by the arc-parity renderer in `Sources/ArcAgentCore/WebUI/Utilities.swift` (ATX headings, pipe tables, nested blockquotes, task checkboxes, sanitized images, autolinks) and enhanced client-side (table sort/filter).
 
 ### Makefile
 
@@ -131,7 +131,7 @@ See [VISION.md](VISION.md) for the full roadmap and subsystem documentation.
 | Regex | Swift Regex (built-in) |
 | Web UI | Swift DSL → HTML/CSS/JS (zero npm) |
 | WebSocket | NIOWebSocket (standalone, port+1) |
-| Asset pipeline | Embedded Swift strings + generated KaTeX assets |
+| Asset pipeline | Embedded Swift strings + a generated theme sheet |
 
 ## Related
 

@@ -5,8 +5,8 @@
 #   make install  — release + copy binaries to ~/.local/bin
 #   make update   — release + install (full cycle)
 #
-# KaTeX assets are not a make step: ArcAssetPlugin regenerates them on
-# every build from Sources/ArcAgentWebUI/Assets/vendor/katex/.
+# Generated assets are not a make step: ArcAssetPlugin regenerates the theme
+# sheet on every build from Sources/ArcTheme/.
 #   make dev      — debug build + web UI
 #   make test     — run tests
 #   make clean    — clean build artifacts

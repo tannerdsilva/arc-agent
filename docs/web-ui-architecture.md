@@ -29,32 +29,31 @@ Sources/ArcAgentWebUI/
 ├── ThemeCatalog.swift     — the 27 schemes as no-webui providers: a shared base every scheme
 │                            layers over, the token aliases, and the catalog the settings grid
 │                            renders from
-├── init.js (in Entry.swift) — the arc-specific client overlay (composer, KaTeX,
-│                            tables, slash menu, selection, outline, worklog)
+├── init.js (in Entry.swift) — the arc-specific client overlay (composer, tables,
+│                            slash menu, selection, outline, worklog)
 ├── Queue.swift            — run-queue model/engine (sequential + parallel, output chaining)
 ├── NewFeatures.swift      — tabbed panels, todos, cron, regenerate
-├── Insights.swift         — usage insights (top-10 skills, token/activity charts)
-└── Assets/vendor/katex/   — vendored KaTeX source files (the generator's input)
+└── Insights.swift         — usage insights (top-10 skills, token/activity charts)
 
 Tests/ArcAgentWebUITests/     — emission + catalog invariants for the web UI target, which had
                                 no coverage until the scheme sheet shipped inert
 
-Sources/ArcAssetTool/main.swift          — generates KaTeXAssets.swift from the vendor dir
+Sources/ArcAssetTool/main.swift          — renders the theme sheet (raw + gzip + content address)
 Plugins/ArcAssetPlugin/plugin.swift      — runs the tool on every build
 ```
 
-`KaTeXAssets.swift` is **not checked in**. `ArcAssetPlugin` regenerates it into
-`.build/…/ArcAssetPlugin/` on every build from `Assets/vendor/katex/`, so the
-embedded asset is a build product of its input and cannot drift from it.
+`ThemeSheetAssets.swift` is **not checked in**. `ArcAssetPlugin` regenerates it into
+`.build/…/ArcAssetPlugin/` on every build from `Sources/ArcTheme/`, so the
+embedded sheet is a build product of its input and cannot drift from it.
 
 ## Rendering pipeline
 
 1. **Server-side**: message content is rendered to HTML by the shared arc-parity
    renderer in `Sources/ArcAgentCore/WebUI/Utilities.swift`
    (`markdownToHTML` / `MarkdownRenderer`) — ATX headings, pipe tables, nested
-   blockquotes, task checkboxes, KaTeX math elements, sanitized images, autolinks.
-2. **Client-side enhancement**: table sort/filter, KaTeX rendering of
-   `<equation-inline>`/`<equation-block>` elements, drag-and-drop, flyouts, and
+   blockquotes, task checkboxes, sanitized images, autolinks (math renders as escaped
+   literal text).
+2. **Client-side enhancement**: table sort/filter, drag-and-drop, flyouts, and
    composer features (slash autocomplete, reply-with-selection context chips).
 3. **Interaction**: a `WebUIServer` event (`data-component-id` + `data-event`)
    dispatches through no-webui's `EventRouter` into the `Controller` handlers,
@@ -79,10 +78,10 @@ embedded asset is a build product of its input and cannot drift from it.
 - Icons are no-webui's: `WebUIIcon(_: IconName, size: IconSize)` over the
   generated 628-glyph catalog. There is no hand-drawn glyph table, and a wrong
   glyph is a compile error rather than a blank `<svg>`.
-- Host assets are **content-stamped and cached for a year**: the sheet, the overlay and the
-  KaTeX css/js are linked as `…?v=<sha256 prefix>` derived from their own bytes, so a rebuild
+- Host assets are **content-stamped and cached for a year**: the sheet and the
+  overlay are linked as `…?v=<sha256 prefix>` derived from their own bytes, so a rebuild
   changes the url by construction and a repeat navigation transfers none of them. The policy
-  passes only its two extras (`img-src … https: blob:`, `font-src … data:`) through
+  passes only its one extra (`img-src … https: blob:`) through
   `contentSecurityPolicyExtras`, so the framework's nonce — and with it the pre-paint theme
   prelude — survives.
 - no-webui products in use: `WebUI` (view DSL, `EventRouter`, `CSSRule`,
@@ -97,8 +96,8 @@ embedded asset is a build product of its input and cannot drift from it.
   **engine**, and a page loads exactly two scripts: `/ui/webui-engine.js` (routed
   by `WebUIServer`) plus the arc overlay. Transport, event dispatch, fragment
   patching, scroll/form-state restore and sanitising are the engine's job.
-  The overlay keeps only arc-specific behaviour — composer, KaTeX post-render,
-  markdown-table enhancement, slash menu, selection button, outline, worklog.
+  The overlay keeps only arc-specific behaviour — composer, markdown-table enhancement,
+  slash menu, selection button, outline, worklog.
 - **Resolved (2026-09): the overlay rides the engine's post-patch seam.** It used to rescan
   the whole document from a `MutationObserver` — including on its own edits, so a streaming
   turn re-triggered it repeatedly — and the seam the engine grew for exactly this

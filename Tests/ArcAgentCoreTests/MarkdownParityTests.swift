@@ -4,8 +4,9 @@ import Testing
 
 // arc-parity markdown coverage: mirrors the arc agent webui's smd feature set
 // (tables, blockquotes, nested lists, task checkboxes, strike, images,
-// autolinks, math) plus the baseline behavior (headings, lists, emphasis,
-// code spans, links, raw-HTML escaping, paragraphs).
+// autolinks) plus the baseline behavior (headings, lists, emphasis,
+// code spans, links, raw-HTML escaping, paragraphs). math is not a feature
+// since the vendored payload left: `$…$` renders as escaped literal text.
 @Suite("Markdown arc parity")
 struct MarkdownParityTests {
 
@@ -137,20 +138,29 @@ struct MarkdownParityTests {
         #expect(markdownToHTML("[x](https://example.com)") == "<p><a href=\"https://example.com\">x</a></p>")
     }
 
-    @Test("inline math emits equation-inline")
+    @Test("inline math renders as literal text")
     func inlineMath() {
-        #expect(markdownToHTML("e = $mc^2$ done").contains("<equation-inline>mc^2</equation-inline>"))
+        #expect(markdownToHTML("e = $mc^2$ done") == "<p>e = $mc^2$ done</p>")
     }
 
-    @Test("display math emits equation-block")
+    @Test("display math renders as literal text")
     func blockMath() {
-        #expect(markdownToHTML("$$x^2 + y^2$$") == "<equation-block>x^2 + y^2</equation-block>")
-        #expect(markdownToHTML("$$\nx^2\n$$").contains("<equation-block>"))
+        #expect(markdownToHTML("$$x^2 + y^2$$") == "<p>$$x^2 + y^2$$</p>")
+        #expect(markdownToHTML("$$\nx^2\n$$") == "<p>$$ x^2 $$</p>")
     }
 
-    @Test("backslash paren math")
+    @Test("backslash paren math renders as literal text")
     func parenMath() {
-        #expect(markdownToHTML("\\(a+b\\)").contains("<equation-inline>a+b</equation-inline>"))
+        #expect(markdownToHTML("\\(a+b\\)") == "<p>\\(a+b\\)</p>")
+    }
+
+    @Test("an unclosed backslash-bracket line renders literally")
+    func unclosedBracketMath() {
+        // Before the math path was deleted this input spun `parseBlocks` forever: the
+        // paragraph loop broke on the display-math line without consuming it, and the block
+        // loop asked again — measured 100% CPU and ~23 MB/s of empty paragraphs. Math now
+        // renders as escaped literal text, so the fixture doubles as the hang's regression.
+        #expect(markdownToHTML("\\[\nx = 1\n\\]") == "<p>\\[ x = 1 \\]</p>")
     }
 
     @Test("underscore emphasis respects word boundaries")
@@ -190,8 +200,8 @@ struct MarkdownParityTests {
     @Test("math source is html-escaped in transit")
     func mathEscaped() {
         let html = markdownToHTML("$a < b$")
-        #expect(html.contains("a &lt; b"))
-        #expect(!html.contains("<equation-inline>a < b"))
+        #expect(html == "<p>$a &lt; b$</p>")
+        #expect(!html.contains("<equation-"))
     }
 }
 

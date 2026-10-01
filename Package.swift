@@ -143,12 +143,6 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ],
             path: "Sources/ArcAgentWebUI",
-            exclude: [
-                // Vendored KaTeX and the canonical client runtime live here as
-                // plain files: the runtime is embedded by RuntimeAsset.swift,
-                // and KaTeXAssets.swift is a build product of the plugin below.
-                "Assets",
-            ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
             ],
@@ -160,8 +154,8 @@ let package = Package(
         // ── Asset codegen (build tool + plugin) ───────────────────
         // No shell script and no checked-in generated file: the tool is Swift
         // and the plugin runs it before every build of the web UI target, so
-        // the embedded KaTeX asset is a build product of its input and cannot
-        // drift from Assets/vendor/katex/.
+        // the embedded theme sheet is a build product of Sources/ArcTheme/ and
+        // cannot drift from it.
         .executableTarget(
             name: "ArcAssetTool",
             dependencies: [
