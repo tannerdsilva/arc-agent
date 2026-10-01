@@ -3,11 +3,13 @@ import Foundation
 import Testing
 
 import ArcTheme
+import WebUICore
 @testable import arc_agent_webui
 
 /// The served sheet is a build product: `ArcAssetTool theme-sheet` renders it from
 /// `Sources/ArcTheme/` and emits it through the framework's `WebUIBuild`, which stamps it
-/// with the sha256 its url carries and gzips it.
+/// with the sha256 its url carries, gzips it and — before either — minifies it, so the
+/// designer notes in the source never reach a client.
 ///
 /// These tests are the drift guard. A plugin that silently stopped re-running — the failure
 /// mode the plugin exists to prevent — a stamp that names other bytes than the server serves,
@@ -15,9 +17,9 @@ import ArcTheme
 @Suite("Generated theme sheet")
 struct GeneratedSheetTests {
 
-    @Test("the generated sheet is exactly what the theme source emits")
+    @Test("the generated sheet is the minified theme source, exactly")
     func sheetMatchesTheSource() {
-        #expect(ThemeSheetAssets.text == Theme.css + ArcThemeCatalog.stylesheet())
+        #expect(ThemeSheetAssets.text == minifyCSS(Theme.css + ArcThemeCatalog.stylesheet()))
     }
 
     @Test("the stamp is the sha256 prefix of the served bytes")

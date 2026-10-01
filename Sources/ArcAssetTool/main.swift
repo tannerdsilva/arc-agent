@@ -8,9 +8,10 @@ import WebUIBuild
 //
 //   usage: ArcAssetTool theme-sheet <out.swift>
 //
-// the body is one call into `WebUIBuild`: the framework renders the payload's address,
-// compresses it and writes the declaration, and this tool exists only because a SwiftPM
-// build-tool plugin cannot import a consumer's own theme types (it cannot render them itself).
+// the body is one call into `WebUIBuild`: the framework minifies the payload, refuses one
+// whose comments would reach a client, renders its address, compresses it and writes the
+// declaration. This tool exists only because a SwiftPM build-tool plugin cannot import a
+// consumer's own theme types (it cannot render them itself).
 
 let arguments = CommandLine.arguments
 
@@ -30,7 +31,10 @@ do {
     let emitted = try WebUIAssetBuilder.emit(
         shipped: Theme.css + ArcThemeCatalog.stylesheet(),
         typeName: "ThemeSheetAssets",
-        options: .init(minify: false, prose: .off, contentType: "text/css; charset=utf-8"),
+        // minify first, then the gate: the sheet's designer notes are for readers of
+        // `Sources/ArcTheme`, not for a client, and the gate's question — "would prose ship?"
+        // — is asked of the payload as it will ship.
+        options: .init(minify: true, prose: .check, contentType: "text/css; charset=utf-8"),
         to: output
     )
     print("  sheet \(emitted.bytes) bytes, stamp \(emitted.stamp), gzip \(emitted.gzipBytes ?? 0) bytes")

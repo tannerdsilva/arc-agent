@@ -196,6 +196,9 @@ let package = Package(
             dependencies: [
                 .target(name: "arc-agent-webui"),
                 .target(name: "ArcTheme"),
+                // the minifier the emitted sheet goes through: the drift test compares the
+                // product against `minifyCSS(source)`.
+                .product(name: "WebUICore", package: "no-webui"),
             ],
             resources: [
                 // the palette pins: the values the painted sheet must still hold, extracted
