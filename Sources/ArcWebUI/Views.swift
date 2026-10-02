@@ -144,41 +144,45 @@ extension AppState {
         return items.joined()
     }
 
-    /// Centered confirmation surfaced when a chat or profile delete is requested.
+    /// The one confirmation dialog. Chat and profile deletes arm their original
+    /// state fields; newer guards (workspaces) arm `pendingConfirm` — so every
+    /// destructive action gets the same dialog, the same Cancel/Delete pair, a
+    /// real dialog role, and (via the overlay) the same focus + Escape handling.
     func modalHTML() -> String {
-        if let pid = confirmProfileDelete,
-           let p = profiles.first(where: { $0.name == pid }) {
-            let title = trunc(p.title.isEmpty ? p.name : p.title, 48)
-            return """
-            <div class="modal-overlay" id="modal-overlay">
-              <div class="modal-card">
-                <h3>Delete profile?</h3>
-                <p>The profile “\(esc(title))” will be permanently deleted. This cannot be undone.</p>
-                <div class="modal-actions" data-component-id="modal" data-event="click">
-                  <button type="button" id="modal-cancel" class="ghost-btn">Cancel</button>
-                  <button type="button" id="modal-confirm" class="danger-btn">Delete</button>
-                </div>
-              </div>
-            </div>
-            """
-        }
-        guard let mid = confirmDeleteID,
-              let s = sessions.first(where: { $0.id == mid }) else {
-            return ""
-        }
-        let title = trunc(sessionTitle(s), 48)
+        guard let req = activeConfirm else { return "" }
         return """
         <div class="modal-overlay" id="modal-overlay">
-          <div class=\"modal-card\">
-            <h3>Delete conversation?</h3>
-            <p>The chat “\(esc(title))” will be permanently deleted. This cannot be undone.</p>
-            <div class=\"modal-actions\" data-component-id=\"modal\" data-event=\"click\">
-              <button type=\"button\" id=\"modal-cancel\" class=\"ghost-btn\">Cancel</button>
-              <button type=\"button\" id=\"modal-confirm\" class=\"danger-btn\">Delete</button>
+          <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+            <h3 id="modal-title">\(esc(req.title))</h3>
+            <p>\(esc(req.body))</p>
+            <div class="modal-actions" data-component-id="modal" data-event="click">
+              <button type="button" id="modal-cancel" class="ghost-btn">Cancel</button>
+              <button type="button" id="modal-confirm" class="danger-btn">Delete</button>
             </div>
           </div>
         </div>
         """
+    }
+
+    /// The armed destructive action, from whichever source carries it. Deriving
+    /// one shape here keeps the dialog identical everywhere while leaving the
+    /// chat/profile delete paths (the riskiest in the app) exactly as they were.
+    var activeConfirm: ConfirmRequest? {
+        if let pid = confirmProfileDelete,
+           let p = profiles.first(where: { $0.name == pid }) {
+            let title = trunc(p.title.isEmpty ? p.name : p.title, 48)
+            return ConfirmRequest(
+                kind: "profile", id: pid, title: "Delete profile?",
+                body: "The profile “\(title)” will be permanently deleted. This cannot be undone.")
+        }
+        if let mid = confirmDeleteID,
+           let s = sessions.first(where: { $0.id == mid }) {
+            let title = trunc(sessionTitle(s), 48)
+            return ConfirmRequest(
+                kind: "chat", id: mid, title: "Delete conversation?",
+                body: "The chat “\(title)” will be permanently deleted. This cannot be undone.")
+        }
+        return pendingConfirm
     }
 
     /// Right-click menu for a category chip: rename, color palette, divider,
@@ -725,7 +729,7 @@ extension AppState {
                 <span class="lr-name">\(esc(entry.name))</span>
                 <span class="lr-sub">\(esc(entry.path == WorkspaceEntry.defaultPath(for: "main") ? "home folder (default)" : trunc(entry.path, 58)))</span>
               </button>
-              <div class="row-actions">\(btn("ws-del-\(encWS)", "", "icon-mini danger", WebUIIcon(.x, size: .small).render(), " title=\"Delete\""))</div>
+              <div class="row-actions">\(entry.name == "main" ? "" : btn("ws-del-\(encWS)", "", "icon-mini danger", WebUIIcon(.x, size: .small).render(), " title=\"Delete\""))</div>
             </div>
             """)
         }
@@ -800,7 +804,7 @@ extension AppState {
         let count = session.map { $0.messages.isEmpty ? $0.messageCount : $0.messages.count } ?? 0
         let model = settings.modelConfig(named: configName)?.model ?? configName
         let meta = "\(esc(model)) • \(count) messages"
-        let delLabel = pendingDelete ? "Confirm?" : WebUIIcon(.x, size: .small).render()
+        let delLabel = pendingDelete ? "Confirm?" : WebUIIcon(.trash, size: .small).render()
         let delClass = pendingDelete ? "sess-confirm" : "icon-mini danger"
         let regenBtn = """
         <button type="button" id="regen-btn" class="icon-mini" title="Regenerate last reply">\(WebUIIcon(.refreshCw, size: .small).render())</button>
@@ -1971,6 +1975,7 @@ extension AppState {
                 <div><h1 class="detail-title" style="margin:0">\(esc(skill.name))</h1>
                 <div class="detail-sub">\(esc(skill.category ?? ""))\(skill.tags.isEmpty ? "" : " • " + skill.tags.map(esc).joined(separator: ", "))</div></div>
                 \(btn("sk-edit", "skill-edit", "icon-mini", WebUIIcon(.edit, size: .small).render(), " title=\"Edit skill\""))
+                \(btn("sk-delete", "skill-delete", "icon-mini danger", WebUIIcon(.trash, size: .small).render(), " title=\"Delete skill\""))
               </div>
               <p style="color:var(--text);font-size:0.98em;margin:0 0 12px">\(esc(skill.description))</p>
               <div class="detail-body" style="margin-top:14px">\(body)</div>
@@ -2901,7 +2906,7 @@ extension AppState {
             <span class="kb-col-count">\(cards.count)</span>
             <div class="kb-col-actions">
               \(btn("kb-rencol-\(cid)", "", "icon-mini", WebUIIcon(.edit, size: .small).render(), " title=\"Rename column\" data-colid=\"\(col.id)\""))
-              \(btn("kb-bdel-\(cid)", "", confirmColumn == col.id ? "icon-mini danger sess-confirm" : "icon-mini danger", confirmColumn == col.id ? "Confirm?" : WebUIIcon(.x, size: .small).render(), " title=\"Delete column\""))
+              \(btn("kb-bdel-\(cid)", "", confirmColumn == col.id ? "sess-confirm" : "icon-mini danger", confirmColumn == col.id ? "Confirm?" : WebUIIcon(.x, size: .small).render(), " title=\"Delete column\""))
             </div>
           </div>
           <div class="kb-cards">\(cardHTML)</div>
@@ -2915,13 +2920,18 @@ extension AppState {
         let idx = settings.kanbanColumns.firstIndex { $0.id == card.columnID } ?? 0
         let left = idx > 0 ? btn("kb-movel-\(encc)", "", "icon-mini", WebUIIcon(.chevronLeft, size: .small).render(), " title=\"Move left\"") : ""
         let right = idx < settings.kanbanColumns.count - 1 ? btn("kb-mover-\(encc)", "", "icon-mini", WebUIIcon(.chevronRight, size: .small).render(), " title=\"Move right\"") : ""
+        // Two-step delete, matching the column header: the first click arms the
+        // card and the button becomes "Confirm?" (a single click used to bin it).
+        let armed = confirmCard == card.id
+        let delCls = armed ? "sess-confirm" : "icon-mini danger"
+        let delLabel = armed ? "Confirm?" : WebUIIcon(.x, size: .small).render()
         return """
         <div class="kb-card">
           <div class="kb-card-title" data-cardid="\(card.id)">\(esc(trunc(card.title, 70)))</div>
           <div class="kb-card-actions">
             \(btn("kb-edit-\(encc)", "", "icon-mini", WebUIIcon(.edit, size: .small).render(), " title=\"Edit title\" data-cardid=\"\(card.id)\""))
             \(left)\(right)
-            \(btn("kb-del-\(encc)", "", "icon-mini danger", WebUIIcon(.x, size: .small).render(), " title=\"Delete card\""))
+            \(btn("kb-del-\(encc)", "", delCls, delLabel, " title=\"Delete card\""))
           </div>
         </div>
         """

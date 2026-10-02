@@ -357,6 +357,15 @@ extension AppState {
         confirmDeleteID = id
     }
 
+    // MARK: Generic confirmations (centered modal)
+
+    /// Arm a destructive action that the centered modal confirms. Workspaces
+    /// use this today; the dialog is rendered from whichever request is armed,
+    /// so a new guarded action needs no new modal code.
+    func requestConfirm(_ req: ConfirmRequest) { pendingConfirm = req }
+
+    func cancelConfirm() { pendingConfirm = nil }
+
     func cancelDelete() {
         confirmDeleteID = nil
     }
@@ -556,6 +565,8 @@ extension AppState {
     }
 
     func setConfirmColumn(_ id: String?) { confirmColumn = id }
+
+    func setConfirmCard(_ id: String?) { confirmCard = id }
 
     func deleteKanbanColumn(_ id: String) {
         settings.kanbanColumns.removeAll { $0.id == id }

@@ -295,10 +295,48 @@
     }
   }
 
+  // ---- Confirmation dialog: focus, Escape, and a light focus trap.
+  // The dialog is a server-rendered fragment the engine patches in, so nothing
+  // moves focus into it and Escape had no owner. Land focus on Cancel, route
+  // Escape to it, and keep Tab inside the card (no-webui's STABILITY.md lists a
+  // framework modal focus trap as a known limitation, so arc owns its own).
+  function modalCard() {
+    return document.querySelector('.modal-overlay .modal-card');
+  }
+
+  function syncModalFocus() {
+    var card = modalCard();
+    if (!card) return;
+    if (card.contains(document.activeElement)) return;
+    var target = card.querySelector('#modal-cancel') || card.querySelector('button');
+    if (target) target.focus();
+  }
+
+  document.addEventListener('keydown', function (e) {
+    var card = modalCard();
+    if (!card) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      var cancel = card.querySelector('#modal-cancel');
+      if (cancel) cancel.click();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    var f = card.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (!f.length) return;
+    var first = f[0], last = f[f.length - 1];
+    if (!card.contains(document.activeElement)) { e.preventDefault(); first.focus(); return; }
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
+
   function enhanceAll() {
     resizeComposerIfNew();
     enhanceMarkdownTables(document);
     stickToChat();
+    syncModalFocus();
   }
 
   function enhancePatched(changed) {
@@ -312,6 +350,7 @@
       enhanceMarkdownTables(document);
     }
     stickToChat();
+    syncModalFocus();
   }
 
   function bootOverlay() {

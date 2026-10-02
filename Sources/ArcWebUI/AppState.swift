@@ -92,6 +92,16 @@ struct CategoryMenu: Equatable {
     var y: Int
 }
 
+/// One armed destructive action. The modal renders whichever request is armed
+/// (`AppState.activeConfirm`) so every confirmation looks the same; `kind`
+/// tells the wire which delete to run once it is confirmed.
+struct ConfirmRequest: Equatable {
+    var kind: String        // "profile" | "chat" | "workspace" | …
+    var id: String
+    var title: String
+    var body: String
+}
+
 /// Kanban board column (name + accent color).
 struct KBColumn: Codable, Equatable, Identifiable {
     var id: String
@@ -728,6 +738,10 @@ actor AppState {
     var confirmDeleteID: String?
     /// Name of the profile pending deletion (confirmation modal).
     var confirmProfileDelete: String?
+    /// A newer destructive action awaiting confirmation (workspaces today; the
+    /// chat and profile flows keep their original fields above, untouched).
+    /// `modalHTML()` derives ONE dialog shape from whichever is armed.
+    var pendingConfirm: ConfirmRequest?
     /// Next chat-scroll render should force the view to the bottom (chat open).
     var forceScrollBottom = true
 
@@ -776,6 +790,9 @@ actor AppState {
     var addingColumn = false
     var addingCardColumnID: String? = nil
     var confirmColumn: String? = nil
+    /// Card awaiting delete confirmation — the board's in-place two-step, the
+    /// same guard `confirmColumn` already gives columns.
+    var confirmCard: String? = nil
 
     /// Shared palette for category / kanban column colors.
     static let palette: [String] = [

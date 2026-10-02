@@ -1570,16 +1570,30 @@ final class Controller {
             return await self.app.refreshFragments()
         }
         wire(router, id: "modal", events: ["click"]) { event in
-            if event.string("targetId") == "modal-confirm" {
-                if let pid = await self.app.confirmProfileDelete {
-                    await self.app.cancelProfileDelete()
-                    return await self.deleteProfile(pid)
-                }
-                let id = await self.app.confirmDeleteID
-                await self.app.confirmDeleteSession(id)
-            } else {
+            // One dialog, one dispatch: `activeConfirm` exposes whichever
+            // destructive action is armed (profile / chat keep their original
+            // state fields; workspaces arm `pendingConfirm`).
+            let confirmed = event.string("targetId") == "modal-confirm"
+            guard confirmed, let req = await self.app.activeConfirm else {
                 await self.app.cancelDelete()
                 await self.app.cancelProfileDelete()
+                await self.app.cancelConfirm()
+                return await self.app.refreshFragments()
+            }
+            switch req.kind {
+            case "profile":
+                await self.app.cancelProfileDelete()
+                return await self.deleteProfile(req.id)
+            case "chat":
+                await self.app.confirmDeleteSession(req.id)
+            case "workspace":
+                await self.app.cancelConfirm()
+                await self.deleteWorkspace(req.id)
+            case "skill":
+                await self.app.cancelConfirm()
+                await self.deleteSkill(req.id)
+            default:
+                await self.app.cancelConfirm()
             }
             return await self.app.refreshFragments()
         }
@@ -1938,6 +1952,16 @@ final class Controller {
             await self.app.startSkillEdit()
             return await self.app.refreshFragments()
         }
+        wire(router, id: "skill-delete", events: ["click"]) { _ in
+            // The handler (`deleteSkill`) has existed all along with no trigger
+            // rendered anywhere: the detail pane's trash button is that trigger,
+            // and it arms the shared dialog because it removes a folder on disk.
+            guard let name = await self.app.selectedSkill, !name.isEmpty else { return [] }
+            await self.app.requestConfirm(ConfirmRequest(
+                kind: "skill", id: name, title: "Delete skill?",
+                body: "The skill “\(name)” and its folder under ~/.arc/skills will be removed. This cannot be undone."))
+            return await self.app.refreshFragments()
+        }
         wire(router, id: "sk-edit-form", events: ["submit", "click"]) { event in
             // Clicks on form children (the id-less Save button resolves to the
             // form) carry NO field values: only handle the named action
@@ -2294,7 +2318,11 @@ final class Controller {
             return await self.switchWorkspace(name)
         }
         if tid.hasPrefix("ws-del-"), let name = dec(String(tid.dropFirst("ws-del-".count))) {
-            await self.deleteWorkspace(name)
+            // Confirmed like every other named-thing delete (profiles, chats):
+            // the row's ✕ arms the dialog instead of removing the workspace.
+            await app.requestConfirm(ConfirmRequest(
+                kind: "workspace", id: name, title: "Delete workspace?",
+                body: "“\(name)” will be removed from the workspace list. The folder on disk is not touched."))
             return await self.app.refreshFragments()
         }
         return []
@@ -2684,7 +2712,13 @@ final class Controller {
         } else if tid.hasPrefix("kb-mover-"), let id = dec(String(tid.dropFirst("kb-mover-".count))) {
             await app.moveKanbanCard(id, by: 1)
         } else if tid.hasPrefix("kb-del-"), let id = dec(String(tid.dropFirst("kb-del-".count))) {
-            await app.deleteKanbanCard(id)
+            // Two-step, like the column header: the first click arms the card.
+            if await app.confirmCard == id {
+                await app.setConfirmCard(nil)
+                await app.deleteKanbanCard(id)
+            } else {
+                await app.setConfirmCard(id)
+            }
         } else if tid.hasPrefix("kb-addcard-"), let id = dec(String(tid.dropFirst("kb-addcard-".count))) {
             await app.setAddingCard(id)
         } else {

@@ -432,6 +432,9 @@ public static let css: String = """
       background: var(--danger-soft); border-radius: 7px;
       font-size: 0.72em; padding: 2px 5px; cursor: pointer;
       font-weight: 600;
+      /* A label, not an icon: never inherit an icon box's fixed width, and keep
+         "Confirm?" on one line inside a narrow column header or card. */
+      width: auto; height: auto; min-width: 0; white-space: nowrap;
     }
     .empty-hint { color: var(--muted); font-size: 0.85em; padding: 12px 10px; }
 
@@ -2555,7 +2558,13 @@ public static let css: String = """
     }
     .kb-card:hover { border-color: var(--border-strong); }
     .kb-card-title { font-size: 0.88em; color: var(--text); line-height: 1.35; word-break: break-word; }
-    .kb-card-actions { justify-content: flex-end; }
+    .kb-card-actions { justify-content: flex-end; opacity: 0; transition: opacity 0.15s; }
+    /* Card actions stay in the DOM (keyboard reachable) but only surface while
+       the card is hovered or holds focus, so an idle board reads as cards rather
+       than a field of icons. Coarse pointers always show them. */
+    .kb-card:hover .kb-card-actions,
+    .kb-card:focus-within .kb-card-actions { opacity: 1; }
+    @media (hover: none) { .kb-card-actions { opacity: 1; } }
     .kb-empty { color: var(--muted); font-size: 0.8em; text-align: center; padding: 10px 0; }
     .kb-addcard {
       border: 1px dashed var(--border-strong); background: transparent;
