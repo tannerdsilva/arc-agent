@@ -10,48 +10,66 @@ import NIOCore
 @Suite("Gateway HTTP")
 struct GatewayHTTPTests {
 
-    /// Boot the real ``HTTPServerService`` on an ephemeral port and probe
-    /// the REST entry points: health and the chat API. This is the
-    /// "every message flows through them" test for the HTTP layer. The web UI
-    /// is served by `WebUIHost`, a sibling service in the daemon, not here.
+    /// Boot the real ``HTTPServerService`` and probe the REST entry points:
+    /// health and the chat API. This is the "every message flows through them"
+    /// test for the HTTP layer. The web UI is served by `WebUIHost`, a sibling
+    /// service in the daemon, not here.
+    ///
+    /// Binds a random high port per attempt and retries a bounded number of
+    /// times: a fixed port is red whenever a live `arc serve` (or a parallel
+    /// run) holds it — the suite went red while a daemon occupied 18091.
     @Test("health and chat routes answer over real HTTP")
     func httpRoutesAnswer() async throws {
         let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
         defer { try? httpClient.shutdown() }
 
-        let port = 18091
-        let base = "http://127.0.0.1:\(port)"
+        var serverTask: Task<Void, Never>?
+        defer { serverTask?.cancel() }
 
-        let server = HTTPServerService(
-            config: .init(host: "127.0.0.1", port: port),
-            onChat: { sessionID, message in
-                "echo:\(sessionID):\(message)"
-            }
-        )
+        var readyBase: String?
+        var lastPort = 0
+        for _ in 0..<3 {
+            let port = Int.random(in: 20_100...29_900)
+            lastPort = port
+            let base = "http://127.0.0.1:\(port)"
 
-        let task = Task { try? await server.run() }
-        defer { task.cancel() }
-
-        // Give the server its startup window before probing. A probe toward
-        // a still-starting Hummingbird can burn its full timeout, so don't
-        // tight-loop with short timeouts.
-        try? await Task.sleep(nanoseconds: 2_000_000_000)
-        var ready = false
-        for _ in 0..<5 {
-            do {
-                let response = try await httpClient.execute(
-                    HTTPClientRequest(url: base + "/health"),
-                    timeout: .seconds(4)
-                )
-                if response.status.code == 200 {
-                    ready = true
-                    break
+            let server = HTTPServerService(
+                config: .init(host: "127.0.0.1", port: port),
+                onChat: { sessionID, message in
+                    "echo:\(sessionID):\(message)"
                 }
-            } catch {
-                // not up yet
+            )
+            serverTask = Task { try? await server.run() }
+
+            // Give the server its startup window before probing. A probe toward
+            // a still-starting Hummingbird can burn its full timeout, so don't
+            // tight-loop with short timeouts.
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            var ready = false
+            for _ in 0..<5 {
+                do {
+                    let response = try await httpClient.execute(
+                        HTTPClientRequest(url: base + "/health"),
+                        timeout: .seconds(2)
+                    )
+                    if response.status.code == 200 {
+                        ready = true
+                        break
+                    }
+                } catch {
+                    // not up yet (or the port was taken before bind)
+                }
             }
+            if ready {
+                readyBase = base
+                break
+            }
+            // Port collision: stop this attempt before trying the next draw.
+            serverTask?.cancel()
+            serverTask = nil
+            try? await Task.sleep(nanoseconds: 300_000_000)
         }
-        #expect(ready, "gateway HTTP server did not become ready on port \(port)")
+        let base = try #require(readyBase, "gateway HTTP server did not become ready on any tried port (last \(lastPort))")
 
         // GET /health
         let health = try await httpClient.execute(
