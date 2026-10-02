@@ -17,9 +17,30 @@ extension AppState {
         pendingDelete = false
         filePopOpen = false
         confirmDeleteID = nil
-        if v == .tasks {
+        // Land on content, not on a "select something" canvas: a list/detail
+        // page opens with its first item chosen when nothing is chosen yet. An
+        // existing choice is kept, so leaving and returning finds the same
+        // skill / profile / tool / document / commit / job still open.
+        switch v {
+        case .skills:
+            if selectedSkill == nil { selectedSkill = skills.first?.name }
+        case .profiles:
+            if selectedProfile == nil { selectedProfile = profiles.first?.name }
+        case .tools:
+            if selectedTool == nil { selectedTool = registry.allTools.first?.name }
+        case .memory:
+            if memoryDoc == nil { openMemoryDoc("memory") }
+        case .tasks:
             // the panel renders from the store-backed cache; refresh on open.
             await refreshScheduledJobs()
+            if tasksSelectedID == nil { tasksSelectedID = settings.scheduledJobs.first?.id }
+        case .github:
+            await githubEnsureLoaded()
+            if githubSelectedSHA == nil, let first = githubCommits.first {
+                await githubSelect(sha: first.sha)
+            }
+        default:
+            break
         }
         // Materialize the selected scheduled task's chat when opening Tasks so
         // the thread renders (messages are lazily loaded from the store).
