@@ -240,6 +240,10 @@ struct AppSettings: Codable, Equatable {
     /// without an entry fall back to `activeWorkspace`.
     var sessionWorkspaces: [String: String] = [:]
     var tesseraOff: Bool = false
+    /// Tessera storage connections managed in Settings → Storage. The
+    /// active medium is `activeStorage` ("file" | "config" | connection id).
+    var storageConnections: [TesseraStorageConnection] = []
+    var activeStorage: String = "config"
     /// Mixture-of-Agents advisory passes, when reference models are configured.
     var moaEnabled: Bool = false
     /// Smart approval: when on, flagged commands are assessed by the
@@ -352,6 +356,7 @@ struct AppSettings: Codable, Equatable {
         case auxiliaryModels
         case disabledToolsets, disabledSkills, bookmarkedSessions
         case workspaces, activeWorkspace, sessionWorkspaces, tesseraOff, moaEnabled
+        case storageConnections, activeStorage
         case recentFiles
         case sessionConfig, sessionProfile, sessionThinking, sessionTitles, sessionCompressions, archivedSessions
         case chatCategories, sessionCategories
@@ -396,6 +401,8 @@ struct AppSettings: Codable, Equatable {
         activeWorkspace = try c.decodeIfPresent(String.self, forKey: .activeWorkspace) ?? "main"
         sessionWorkspaces = try c.decodeIfPresent([String: String].self, forKey: .sessionWorkspaces) ?? [:]
         tesseraOff = try c.decodeIfPresent(Bool.self, forKey: .tesseraOff) ?? false
+        storageConnections = try c.decodeIfPresent([TesseraStorageConnection].self, forKey: .storageConnections) ?? []
+        activeStorage = try c.decodeIfPresent(String.self, forKey: .activeStorage) ?? "config"
         moaEnabled = try c.decodeIfPresent(Bool.self, forKey: .moaEnabled) ?? false
         recentFiles = try c.decodeIfPresent([String].self, forKey: .recentFiles) ?? []
         sessionConfig = try c.decodeIfPresent([String: String].self, forKey: .sessionConfig) ?? [:]
@@ -705,6 +712,10 @@ actor AppState {
     var modelSelectOpen = false
     var modelSelectQuery = ""
     var thinkSelectOpen = false
+    /// Settings → Storage: staged medium, connection form, picker state.
+    var stagedStorage: String? = nil
+    var storageEdit: TesseraStorageConnection? = nil
+    var storagePickOpen = false
     /// True once the app's HTTP/WS server is bound (surfaced in the profile card).
     var gatewayRunning = false
     var createSkill = false
@@ -1098,7 +1109,7 @@ actor AppState {
     /// Workspaces are per-chat working directories and no longer isolate the
     /// session store — all chats share one session pool.
     func ensureRuntime() async {
-        let key = "\(settings.tesseraOff)-\(runtimeTesseraOff)"
+        let key = "\(settings.tesseraOff)-\(runtimeTesseraOff)-\(settings.activeStorage)"
 
         if httpClient == nil {
             httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
@@ -1148,15 +1159,29 @@ actor AppState {
         }
         let tesseraOff = settings.tesseraOff || runtimeTesseraOff
 
-        if tesseraOff || loadConfig().tessera == nil {
+        if tesseraOff {
             runtimeBackend = "file"
             store = FileSessionStore()
             memory = FileMemoryProvider()
         } else {
-            runtimeBackend = "tessera"
-            await TesseraConnection.shared.configure(loadConfig().tessera!)
-            store = TesseraSessionStore()
-            memory = TesseraMemoryProvider()
+            // The picker is authoritative: "file", "config" (the tessera block
+            // of ~/.arc/config.json) or a saved connection id. An unknown or
+            // incomplete selection resolves resiliently to file.
+            let resolution = resolveStorage(
+                active: settings.activeStorage,
+                connections: settings.storageConnections,
+                cliTessera: loadConfig().tessera
+            )
+            if resolution.backend == "tessera", let cfg = resolution.config {
+                runtimeBackend = "tessera"
+                await TesseraConnection.shared.configure(cfg)
+                store = TesseraSessionStore()
+                memory = TesseraMemoryProvider()
+            } else {
+                runtimeBackend = "file"
+                store = FileSessionStore()
+                memory = FileMemoryProvider()
+            }
         }
     }
 
@@ -1176,8 +1201,16 @@ actor AppState {
     /// Human-readable description of the storage backend actually in use,
     /// including the Tessera endpoint when connected.
     func storageDescription() -> String {
-        if runtimeBackend == "tessera", let t = loadConfig().tessera {
-            return "Tessera @ \(t.serverIP):\(t.serverPort) (signed NOSTR events)"
+        if runtimeBackend == "tessera" {
+            let resolution = resolveStorage(
+                active: settings.activeStorage,
+                connections: settings.storageConnections,
+                cliTessera: loadConfig().tessera
+            )
+            if let t = resolution.config {
+                return "Tessera @ \(t.serverIP):\(t.serverPort) (signed NOSTR events)"
+            }
+            return "Tessera storage (signed NOSTR events)"
         }
         return "File storage"
     }

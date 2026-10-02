@@ -1080,6 +1080,124 @@ extension AppState {
         saveSettings()
     }
 
+
+    // MARK: Storage connections (Settings → Storage)
+
+    /// Stage a storage-medium pick (picker only; nothing persists or connects
+    /// until "Save and Connect").
+    func setStagedStorage(_ value: String?) {
+        stagedStorage = value
+    }
+
+    /// Persist the connection form as a new or updated entry. Does NOT switch
+    /// the active medium — that is "Save and Connect" only.
+    func saveStorageConnection(
+        id: String?,
+        name: String,
+        serverIP: String,
+        serverPort: Int,
+        application: UInt16,
+        serverPublicKey: String,
+        myPrivateKey: String
+    ) -> Bool {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedIP = serverIP.trimmingCharacters(in: .whitespaces)
+        guard !trimmedName.isEmpty, !trimmedIP.isEmpty,
+              serverPort > 0, serverPort <= 65535 else { return false }
+        let conn = TesseraStorageConnection(
+            id: id ?? UUID().uuidString,
+            name: trimmedName,
+            serverIP: trimmedIP,
+            serverPort: serverPort,
+            application: application,
+            serverPublicKey: serverPublicKey,
+            myPrivateKey: myPrivateKey
+        )
+        if let idx = settings.storageConnections.firstIndex(where: { $0.id == conn.id }) {
+            settings.storageConnections[idx] = conn
+        } else {
+            settings.storageConnections.append(conn)
+        }
+        saveSettings()
+        storageEdit = nil
+        return true
+    }
+
+    /// Remove a configured connection. If it was the active medium, file
+    /// storage becomes the active selection and the runtime rebuilds so the
+    /// session list reflects the change immediately.
+    func removeStorageConnection(id: String) async {
+        settings.storageConnections.removeAll { $0.id == id }
+        if settings.activeStorage == id {
+            settings.activeStorage = "file"
+            runtimeTesseraOff = false
+            await ensureRuntime()
+            await reloadAll()
+        }
+        if stagedStorage == id { stagedStorage = nil }
+        saveSettings()
+    }
+
+    func beginStorageEdit(id: String) {
+        storageEdit = settings.storageConnections.first(where: { $0.id == id })
+    }
+
+    func cancelStorageEdit() {
+        storageEdit = nil
+    }
+
+    func setStoragePickOpen(_ open: Bool) {
+        storagePickOpen = open
+    }
+
+    /// Drop the storage form's transient field values (after save/cancel).
+    func clearStorageForm() {
+        for k in ["sc-name", "sc-ip", "sc-port", "sc-app", "sc-pub", "sc-priv"] {
+            formValues[k] = nil
+        }
+    }
+
+    /// "Save and Connect": persist the staged medium and rebuild the runtime
+    /// against it. Returns true when the switch happened.
+    func connectStagedStorage() async -> Bool {
+        guard let staged = stagedStorage else { return false }
+        if staged == "config", loadConfig().tessera == nil {
+            await hint("Default (config.json) has no tessera section - add one there or use a connection below.")
+            stagedStorage = nil
+            return false
+        }
+        if staged != "file", staged != "config" {
+            guard let conn = settings.storageConnections.first(where: { $0.id == staged }),
+                  conn.tesseraConfig != nil else {
+                await hint("That Tessera storage connection is incomplete (server IP, port, public key and client private key are required).")
+                stagedStorage = nil
+                return false
+            }
+        }
+        settings.activeStorage = staged
+        // The picker is authoritative over the legacy toggle and any
+        // transient boot-time fallback.
+        settings.tesseraOff = false
+        runtimeTesseraOff = false
+        stagedStorage = nil
+        saveSettings()
+        // In a hosted daemon the UI was handed the daemon's boot-time pair;
+        // detach it so the rebuild below picks the newly selected medium (the
+        // daemon's gateway/bot agents keep their boot-time pair until the
+        // daemon restarts - same as the pre-daemon architecture).
+        let wasHosted = attachedStorage != nil
+        attachedStorage = nil
+        await ensureRuntime()
+        crumb("storage: connected to \(settings.activeStorage) (backend=\(runtimeBackend))")
+        await reloadAll()
+        if wasHosted {
+            await hint("Storage connected. Gateway/bot services keep their boot-time backend until the daemon restarts.", kind: "success")
+        } else {
+            await hint("Storage connected.", kind: "success")
+        }
+        return true
+    }
+
     func setMoaEnabled(_ on: Bool) {
         settings.moaEnabled = on
         saveSettings()

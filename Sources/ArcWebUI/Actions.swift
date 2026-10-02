@@ -2470,6 +2470,71 @@ final class Controller {
                 : "Mixture of Agents disabled.")
             return await self.app.refreshFragments(includeApp: true)
         }
+
+        wire(router, id: "storage-pick-toggle", events: ["click"]) { event in
+            let next = !(await self.app.storagePickOpen)
+            await self.app.setStoragePickOpen(next)
+            return await self.app.refreshFragments(includeApp: true)
+        }
+        wire(router, id: "storage-pick", events: ["click"]) { event in
+            guard let tid = event.string("targetId") else { return [] }
+            if tid == "storage-pick-file" {
+                await self.app.setStagedStorage("file")
+            } else if tid == "storage-pick-config" {
+                await self.app.setStagedStorage("config")
+            } else if tid.hasPrefix("storage-pick-conn-"),
+                      let cid = dec(String(tid.dropFirst("storage-pick-conn-".count))) {
+                await self.app.setStagedStorage(cid)
+            } else {
+                return []
+            }
+            return await self.app.refreshFragments(includeApp: true)
+        }
+        wire(router, id: "storage-connect", events: ["click"]) { event in
+            let ok = await self.app.connectStagedStorage()
+            if !ok {
+                _ = await self.app.hint("Pick a different storage medium first — Save and Connect needs a change.")
+                return await self.app.refreshFragments(includeApp: true)
+            }
+            return await self.app.refreshFragments(includeApp: true)
+        }
+        wire(router, id: "storage-conn-form", events: ["submit"]) { event in
+            let editID = (event.string("storage-edit-id") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = (event.string("sc-name") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let ip = (event.string("sc-ip") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let port = Int((event.string("sc-port") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+            let appid = UInt16(event.string("sc-app")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") ?? 1
+            let pub = (event.string("sc-pub") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let priv = (event.string("sc-priv") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let ok = await self.app.saveStorageConnection(
+                id: editID.isEmpty ? nil : editID,
+                name: name, serverIP: ip, serverPort: port,
+                application: appid, serverPublicKey: pub, myPrivateKey: priv)
+            if ok {
+                await self.app.clearStorageForm()
+                _ = await self.app.hint("Tessera storage saved — pick it above and press Save and Connect to use it.", kind: "success")
+            } else {
+                _ = await self.app.hint("Check the storage name, IP and port (1–65535).")
+            }
+            return await self.app.refreshFragments(includeApp: true)
+        }
+        wire(router, id: "storage-edit", events: ["click"]) { event in
+            guard let tid = event.string("targetId"),
+                  let cid = dec(String(tid.dropFirst("storage-edit-".count))) else { return [] }
+            await self.app.beginStorageEdit(id: cid)
+            return await self.app.refreshFragments(includeApp: true)
+        }
+        wire(router, id: "storage-del", events: ["click"]) { event in
+            guard let tid = event.string("targetId"),
+                  let cid = dec(String(tid.dropFirst("storage-del-".count))) else { return [] }
+            await self.app.removeStorageConnection(id: cid)
+            _ = await self.app.hint("Tessera storage removed.", kind: "success")
+            return await self.app.refreshFragments(includeApp: true)
+        }
+        wire(router, id: "storage-cancel-edit", events: ["click"]) { event in
+            await self.app.cancelStorageEdit()
+            return await self.app.refreshFragments(includeApp: true)
+        }
         // Agent powers (lockdown) — Settings → Agent powers.
         wire(router, id: "ap-skills-global", events: ["change"]) { event in
             let on = event.string("checked") == "true"

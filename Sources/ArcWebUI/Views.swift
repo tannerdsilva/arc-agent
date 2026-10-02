@@ -2469,6 +2469,136 @@ extension AppState {
         """
     }
 
+
+    /// Settings → Storage: medium picker (staged, not connected until
+    /// "Save and Connect"), saved Tessera connections CRUD, and the active
+    /// medium label. Mirrors the composer-dropdown component shapes (one wire
+    /// on the popover container, rows carry only ids).
+    func storageSettingsHTML() -> String {
+        func storageMediumLabel(_ medium: String) -> String {
+            if medium == "file" { return "Local file storage" }
+            if medium == "config" { return "Default (config.json)" }
+            return settings.storageConnections.first(where: { $0.id == medium })?.name ?? "Unknown storage"
+        }
+        func storagePickedLabel(_ medium: String) -> String {
+            if medium == "file" { return "Local file storage" }
+            if medium == "config" { return "Default (config.json)" }
+            return settings.storageConnections.first(where: { $0.id == medium })?.name ?? "Unknown storage"
+        }
+        func storageRowBadges(active: Bool, staged: Bool) -> String {
+            var b = ""
+            if active { b += "<span class=\"dd-badge sel\">ACTIVE</span>" }
+            if staged { b += "<span class=\"dd-badge\">SELECTED</span>" }
+            return b
+        }
+        // The effective medium: the legacy toggle (file) wins over a persisted
+        // pick while it is on; otherwise the picker's selection is the truth.
+        let effectiveFile = runtimeBackend == "file"
+        let effectiveMedium = effectiveFile ? "file" : settings.activeStorage
+        let storagePickVis = storagePickOpen ? "" : " hidden"
+        var storagePickRows: [String] = []
+        storagePickRows.append(ddRow(id: "storage-pick-file", body: """
+        <span class="dd-row-title">Local file storage <span class="dd-badges">\(storageRowBadges(active: effectiveFile, staged: stagedStorage == "file"))</span></span>
+        <span class="dd-row-sub">~/.arc/sessions + memories — always available, needs no relay</span>
+        """))
+        storagePickRows.append(ddRow(id: "storage-pick-config", body: """
+        <span class="dd-row-title">Default (config.json) <span class="dd-badges">\(storageRowBadges(active: !effectiveFile && effectiveMedium == "config", staged: stagedStorage == "config"))</span></span>
+        <span class="dd-row-sub">Tessera from the tessera block of ~/.arc/config.json</span>
+        """))
+        for conn in settings.storageConnections {
+            storagePickRows.append(ddRow(id: "storage-pick-conn-\(enc(conn.id))", body: """
+            <span class="dd-row-title">\(esc(conn.name)) <span class="dd-badges">\(storageRowBadges(active: !effectiveFile && effectiveMedium == conn.id, staged: stagedStorage == conn.id))</span></span>
+            <span class="dd-row-sub">\(esc(conn.endpointLabel)) — app \(conn.application)</span>
+            """))
+        }
+        let storagePickerHTML = """
+        <div class="dd dd-settings">
+          \(ddTrigger(id: "storage-pick-toggle", icon: WebUIIcon(.database, size: .small).render(), label: storageMediumLabel(effectiveMedium), title: "Storage medium in use"))
+          <div class="dd-pop dd-pop-down\(storagePickVis)" data-component-id="storage-pick" data-event="click">
+            <div class="dd-note">Pick a medium, then press <strong>Save and Connect</strong> to switch.</div>
+            <div class="dd-list">\(storagePickRows.joined())</div>
+          </div>
+        </div>
+        """
+        let storageCanConnect = stagedStorage != nil && stagedStorage != settings.activeStorage
+        let storageStagedNote: String
+        if let st = stagedStorage {
+            storageStagedNote = "<div class=\"set-hint\" style=\"margin:2px 0 0 0\">Selected: <strong>\(esc(storagePickedLabel(st)))</strong> — not connected yet. Press <strong>Save and Connect</strong>.</div>"
+        } else {
+            storageStagedNote = ""
+        }
+        let storageConnRows = settings.storageConnections.map { conn -> String in
+            let encID = enc(conn.id)
+            let activeBadge = !effectiveFile && effectiveMedium == conn.id ? "<span class=\"mc-badge\">connected</span>" : ""
+            let stagedBadge = stagedStorage == conn.id ? "<span class=\"mc-badge\">selected</span>" : ""
+            return """
+            <div class="mc-row">
+              <span class="mc-name">\(esc(conn.name)) \(activeBadge)\(stagedBadge)</span>
+              <span class="mc-model">\(esc(conn.endpointLabel)) · app \(conn.application)</span>
+              <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+                <div data-component-id="storage-edit" data-event="click">\(btn("storage-edit-\(encID)", "", "ghost-btn", "Edit", " style=\"padding:4px 10px;font-size:0.8em\""))</div>
+                <div data-component-id="storage-del" data-event="click">\(btn("storage-del-\(encID)", "", "danger-btn", "Remove", " style=\"padding:4px 10px;font-size:0.8em\""))</div>
+              </div>
+            </div>
+            """
+        }.joined()
+        let storageConnList = storageConnRows.isEmpty
+            ? "<div class=\"empty-hint\">No tessera storages configured.</div>" : storageConnRows
+        let se = storageEdit
+        let storageConnForm = """
+        <form id="storage-conn-form" data-component-id="storage-conn-form" class="form-grid" style="margin-top:14px;border-top:1px dashed var(--border);padding-top:14px">
+          <input type="hidden" id="storage-edit-id" name="storage-edit-id" data-component-id="storage-edit-id" value="\(esc(se?.id ?? ""))">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+            <div><label for="sc-name">Name</label><input id="sc-name" name="sc-name" data-component-id="sc-name" placeholder="Home relay" value="\(esc(se?.name ?? ""))"></div>
+            <div><label for="sc-ip">Server IP / host</label><input id="sc-ip" name="sc-ip" data-component-id="sc-ip" placeholder="10.0.0.1" value="\(esc(se?.serverIP ?? ""))"></div>
+            <div><label for="sc-port">Port</label><input id="sc-port" name="sc-port" data-component-id="sc-port" type="number" min="1" max="65535" placeholder="51820" value="\(se.map { String($0.serverPort) } ?? "")"></div>
+          </div>
+          <div><label for="sc-app">Application id</label><input id="sc-app" name="sc-app" data-component-id="sc-app" type="number" min="0" max="65535" placeholder="1" value="\(se.map { String($0.application) } ?? "")"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div><label for="sc-pub">Server public key</label><input id="sc-pub" name="sc-pub" data-component-id="sc-pub" placeholder="base64 (32 bytes)" value="\(esc(se?.serverPublicKey ?? ""))"></div>
+            <div><label for="sc-priv">Client private key</label><input id="sc-priv" name="sc-priv" data-component-id="sc-priv" type="password" placeholder="base64 (32 bytes)" value="\(esc(se?.myPrivateKey ?? ""))"></div>
+          </div>
+          <div class="row-actions-main" style="margin:0">
+            <button type="submit" class="primary-btn">\(se == nil ? "Add storage" : "Update storage")</button>
+            \(se == nil ? "" : btn("storage-cancel-edit", "storage-cancel-edit", "ghost-btn", "Cancel", " style=\"padding:4px 10px;font-size:0.8em\""))
+          </div>
+        </form>
+        """
+
+        return """
+        <section class="set-section" id="storage">
+          <h2>Storage</h2>
+          <div class="detail-card">
+            <h3 style="margin:0 0 6px">Storage medium</h3>
+            <div class="detail-sub" style="margin-bottom:10px">Where sessions, memory and profiles are saved. Picking a medium only stages it — press <strong>Save and Connect</strong> to actually switch.</div>
+            <div class="set-row" style="flex-direction:column;align-items:stretch;gap:8px">
+              <div class="set-label">Connected storage<small>\(esc(storageDescription())).</small></div>
+              <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
+                \(storagePickerHTML)
+                <button type="button" id="storage-connect" data-component-id="storage-connect" class="primary-btn"\(storageCanConnect ? "" : " disabled")>Save and Connect</button>
+              </div>
+              \(storageStagedNote)
+            </div>
+          </div>
+          <div class="detail-card" style="margin-top:12px">
+            <h3 style="margin:0 0 6px">Tessera storages</h3>
+            <div class="detail-sub" style="margin-bottom:10px">Connections to different Tessera relays (signed NOSTR event stores). A connection must be complete (IP, port, public key, client private key) before it can be picked and connected to.</div>
+            \(storageConnList)
+            \(storageConnForm)
+          </div>
+          <div class="detail-card" style="margin-top:12px">
+            <div class="set-row">
+              <div class="set-label">Mixture of Agents<small>Fan out reference-model advice before the main call. Reference models come from the <code>moa</code> block of ~/.arc/config.json; without them this does nothing.</small></div>
+              <label class="switch">
+                <input type="checkbox" id="set-moa" data-component-id="set-moa" data-event="change" data-no-restore \(settings.moaEnabled ? "checked" : "")>
+                <span class="track"></span><span class="knob"></span>
+              </label>
+            </div>
+          </div>
+        </section>
+        """
+    }
+
     func settingsMain() -> String {
         // Appearance
         let themeDefs: [(key: String, label: String, icon: IconName, preview: String)] = [
@@ -2607,7 +2737,6 @@ extension AppState {
             </div>
             """
         }.joined()
-        let tesseraLabel = storageDescription()
 
         return """
         <div class="main-view">
@@ -2730,25 +2859,7 @@ extension AppState {
 
             \(agentPowersSection())
 
-            <section class="set-section" id="storage">
-              <h2>Storage</h2>
-              <div class="detail-card">
-                <div class="set-row">
-                  <div class="set-label">Backend<small>\(esc(tesseraLabel)). Toggling rebuilds the session store.</small></div>
-                  <label class="switch">
-                    <input type="checkbox" id="set-tessera" data-component-id="set-tessera" data-event="change" data-no-restore \(settings.tesseraOff ? "checked" : "")>
-                    <span class="track"></span><span class="knob"></span>
-                  </label>
-                </div>
-                <div class="set-row">
-                  <div class="set-label">Mixture of Agents<small>Fan out reference-model advice before the main call. Reference models come from the <code>moa</code> block of ~/.arc/config.json; without them this does nothing.</small></div>
-                  <label class="switch">
-                    <input type="checkbox" id="set-moa" data-component-id="set-moa" data-event="change" data-no-restore \(settings.moaEnabled ? "checked" : "")>
-                    <span class="track"></span><span class="knob"></span>
-                  </label>
-                </div>
-              </div>
-            </section>
+            \(storageSettingsHTML())
 
             <section class="set-section" id="tool-plugins">
               <h2>Tool plugins</h2>

@@ -102,6 +102,18 @@ public enum ArcDaemon {
             logger.warning("no daemon surfaces enabled (see gateway.json) — nothing to run")
             return
         }
+
+        // Reference gateway event: `gateway:startup` (fires once per process
+        // start; the platform list = the surfaces that were composed). The
+        // outbound config and file-hook loading are installed by the CLI
+        // entry before the daemon runs; this emit closes the loop.
+        var startedPlatforms = ["http"]
+        if gatewayConfig.telegram.enabled { startedPlatforms.append("telegram") }
+        if gatewayConfig.email.enabled { startedPlatforms.append("email") }
+        if gatewayConfig.slack.enabled { startedPlatforms.append("slack") }
+        if plan.webui != nil { startedPlatforms.append("webui") }
+        await HookBus.shared.emit("gateway:startup", ["platforms": .array(startedPlatforms)])
+
         // cron rides with a surface: jobs need a runner.
         services.append(cronScheduler)
 
