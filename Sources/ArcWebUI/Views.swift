@@ -315,9 +315,21 @@ extension AppState {
             }
         }
         if rows.isEmpty {
-            let msg = todos ? "No chats yet."
-                : (showArchived ? "No archived chats." : "No chats yet — press + to start one.")
-            rows.append("<div class=\"empty-hint\">\(msg)</div>")
+            // Tell the truth about WHY the list is empty: an unmatched filter
+            // must not claim the workspace has no chats at all.
+            let msg: String
+            if !chatFilter.isEmpty {
+                msg = "No chats match “\(chatFilter)”."
+            } else if todos {
+                msg = "No chats yet."
+            } else if showArchived {
+                msg = "No archived chats."
+            } else if activeCategory != "all" && activeCategory != "unassigned" {
+                msg = "No chats in this category yet."
+            } else {
+                msg = "No chats yet — press + to start one."
+            }
+            rows.append("<div class=\"empty-hint\">\(esc(msg))</div>")
         }
         return """
         \(head)
@@ -583,7 +595,11 @@ extension AppState {
                 """
             }
         if rows.isEmpty {
-            rows.append("<div class=\"empty-hint\">No skills match.</div>")
+            // Zero skills is not the same as "nothing matched a filter".
+            let msg = skills.isEmpty
+                ? "No skills yet — press + to create one."
+                : "No skills match “\(skillFilter)”."
+            rows.append("<div class=\"empty-hint\">\(esc(msg))</div>")
         }
         return """
         \(head)
@@ -1933,9 +1949,13 @@ extension AppState {
         guard let name = selectedSkill,
               let skill = skills.first(where: { $0.name == name })
         else {
+            // An empty library needs the create-first copy, not "select one".
+            let hint = skills.isEmpty
+                ? "No skills yet — create your first one with + above."
+                : "Select a skill to see its description."
             return """
             <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(WebUIIcon(.star, size: .extraLarge).render())</div><div>Select a skill to see its description.</div></div>
+              <div class="blank"><div class="big">\(WebUIIcon(.star, size: .extraLarge).render())</div><div>\(hint)</div></div>
             </div>
             """
         }
@@ -3031,9 +3051,9 @@ extension AppState {
         \(head)
         <div class="panel-body">
           <div class="log-stats">
-            <span class="log-stat"><span class="dot dot-info"></span>\(info)</span>
-            <span class="log-stat"><span class="dot dot-warn"></span>\(warn)</span>
-            <span class="log-stat"><span class="dot dot-err"></span>\(err)</span>
+            <span class="log-stat" title="Info lines"><span class="dot dot-info"></span>\(info) info</span>
+            <span class="log-stat" title="Warning lines"><span class="dot dot-warn"></span>\(warn) warn</span>
+            <span class="log-stat" title="Error lines"><span class="dot dot-err"></span>\(err) error</span>
           </div>
           <div class="log-chips" data-component-id="log-filter" data-event="click">\(chips)</div>
           <div class="log-panel-note">In-app log stream. Captured lines from this process appear here instead of the terminal.</div>

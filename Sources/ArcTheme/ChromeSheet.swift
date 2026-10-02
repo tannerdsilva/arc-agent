@@ -693,6 +693,10 @@ public static let css: String = """
     }
     .detail-title { font-size: 1.3em; font-weight: 700; margin: 0 0 4px; }
     .detail-sub { color: var(--muted); font-size: 0.9em; margin-bottom: 14px; }
+    /* A caption is its own line. `.set-row .set-label small` already does this;
+       the Agent-powers sub-heads use `.detail-sub`, where an inline `small`
+       glued the heading to its caption ("Locked profile filesThese cannot…"). */
+    .detail-sub small { display: block; color: var(--muted); font-size: 0.85em; margin-top: 2px; font-weight: 400; }
     .detail-body { font-size: 0.95em; line-height: 1.55; color: var(--text); }
     .detail-body p { margin: 0 0 0.7em; }
     .detail-body h1, .detail-body h2, .detail-body h3 { margin: 0.9em 0 0.4em; }
@@ -897,7 +901,11 @@ public static let css: String = """
     .task-thread .chat-scroll { height: 100%; overflow-y: auto; padding: 4px 0; }
     .task-add { display: flex; flex-direction: column; gap: 12px; }
     .task-add-row { display: flex; gap: 14px; flex-wrap: wrap; }
-    .task-field { display: flex; flex-direction: column; gap: 5px; font-size: 0.82em; color: var(--muted); font-weight: 600; flex: 1 1 220px; }
+    .task-field { display: flex; flex-direction: column; gap: 5px; font-size: 0.82em; color: var(--muted); font-weight: 600; }
+    /* Only fields that SHARE a row grow sideways. Inside the column parent
+       `.task-add` a flex basis is a HEIGHT, so the old rule stretched the
+       Title label to 220px and left a dead gap above Start. */
+    .task-add-row .task-field { flex: 1 1 220px; }
     .task-field input, .task-field textarea, .task-field select {
       background: var(--code-bg); color: var(--text); border: 1px solid var(--border);
       border-radius: 6px; padding: 8px 10px; font-size: 13px; font-family: inherit; width: 100%;
@@ -966,6 +974,11 @@ public static let css: String = """
       border-radius: 4px 4px 0 0; transition: filter 0.15s;
     }
     .ins-bar:hover { filter: brightness(1.25); }
+    /* A day with no tokens reads as a gap: a neutral 2px baseline tick, never a
+       short red bar (which made an empty month look like a month of activity). */
+    .ins-bar-empty { background: var(--border-strong); height: 2px !important; }
+    .ins-bar-empty:hover { filter: none; }
+    .ins-scale { font-size: 0.72em; color: var(--muted); margin: 0 0 2px; }
     .ins-xaxis { display: flex; margin-top: 7px; }
     .ins-xlabel { flex: 1; text-align: center; font-size: 0.72em; color: var(--muted); overflow: hidden; }
     .accent-swatches { display: flex; gap: 6px; }

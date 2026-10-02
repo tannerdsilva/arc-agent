@@ -279,9 +279,13 @@ extension AppState {
         let maxVal = max(vals.max() ?? 0, 1)
 
         let bars = zip(days, vals).map { (day, v) -> String in
-            let pct = v == 0 ? 3 : max(5, Int(Double(v) / Double(maxVal) * 100.0))
+            // A zero day is a GAP, not a small bar: the old `3` stub made an
+            // empty month look like a month of activity. Empty days now draw a
+            // 2px baseline tick in a neutral tone (see `.ins-bar-empty`).
+            let pct = v == 0 ? 0 : max(5, Int(Double(v) / Double(maxVal) * 100.0))
             let tip = "\(Self.dayLabel(day)) — \(Self.fmtCount(v)) tokens"
-            return "<div class=\"ins-bar\" style=\"height:\(pct)%\" title=\"\(esc(tip))\"></div>"
+            let cls = v == 0 ? "ins-bar ins-bar-empty" : "ins-bar"
+            return "<div class=\"\(cls)\" style=\"height:\(pct)%\" title=\"\(esc(tip))\"></div>"
         }.joined()
 
         // x-axis: label every day for short ranges, sparse for long ones.
@@ -293,6 +297,7 @@ extension AppState {
 
         return """
         <div class="ins-chart-wrap">
+          <div class="ins-scale">peak \(Self.fmtCount(maxVal))</div>
           <div class="ins-chart">\(bars)</div>
           <div class="ins-xaxis">\(labels)</div>
         </div>
