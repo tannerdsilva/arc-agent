@@ -389,6 +389,10 @@ public struct OpenAICompatibleClient: LLMClient {
         let message = choice["message"] as? [String: Any] ?? [:]
         let finishReason = choice["finish_reason"] as? String
         let content = message["content"] as? String
+        // DeepSeek (and some compatible servers) attach chain-of-thought to
+        // non-streamed completions as `reasoning_content` / `reasoning`.
+        let reasoning = message["reasoning_content"] as? String
+            ?? message["reasoning"] as? String
 
         let toolCalls: [ToolCall]?
         if let rawToolCalls = message["tool_calls"] as? [[String: Any]] {
@@ -423,7 +427,8 @@ public struct OpenAICompatibleClient: LLMClient {
             content: content,
             toolCalls: toolCalls,
             finishReason: finishReason,
-            usage: usage
+            usage: usage,
+            reasoning: reasoning
         )
     }
 }

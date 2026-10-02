@@ -162,16 +162,22 @@ public struct LLMResponse: Sendable {
     /// Usage statistics, if provided by the API.
     public let usage: Usage?
 
+    /// Thinking/reasoning text (assistant only; DeepSeek `reasoning_content`).
+    /// nil for legacy providers that do not expose reasoning non-streamed.
+    public let reasoning: String?
+
     public init(
         content: String?,
         toolCalls: [ToolCall]? = nil,
         finishReason: String? = nil,
-        usage: Usage? = nil
+        usage: Usage? = nil,
+        reasoning: String? = nil
     ) {
         self.content = content
         self.toolCalls = toolCalls
         self.finishReason = finishReason
         self.usage = usage
+        self.reasoning = reasoning
     }
 }
 
