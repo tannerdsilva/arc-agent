@@ -227,7 +227,7 @@ public static let css: String = """
       border: 1px solid var(--border-strong);
       border-radius: 999px;
       box-shadow: var(--shadow);
-      font-size: 0.62em;
+      font-size: 0.72em;
       font-weight: 600;
       letter-spacing: 0.03em;
       white-space: nowrap;
@@ -254,7 +254,7 @@ public static let css: String = """
       padding: 12px 16px;
     }
     .panel-title {
-      font-size: 11px; font-weight: 600; letter-spacing: 0.1em;
+      font-size: 12px; font-weight: 600; letter-spacing: 0.1em;
       text-transform: uppercase; color: var(--muted);
     }
     .panel-actions { display: flex; gap: 4px; }
@@ -312,13 +312,13 @@ public static let css: String = """
       flex-shrink: 0;
     }
     .logs-title { font-weight: 650; font-size: 0.98em; }
-    .logs-meta { font-size: 0.78em; color: var(--muted); }
+    .logs-meta { font-size: 0.84em; color: var(--muted); }
     .logs-lines {
       flex: 1; min-height: 0;
       overflow-y: auto;
       padding: 8px 14px 16px;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.82em;
+      font-size: 0.86em;
       line-height: 1.55;
     }
     .log-line {
@@ -328,7 +328,7 @@ public static let css: String = """
       word-break: break-word;
     }
     .log-line .log-time { flex: 0 0 auto; color: var(--muted); font-variant-numeric: tabular-nums; }
-    .log-line .log-lvl { flex: 0 0 auto; width: 44px; text-transform: uppercase; font-size: 0.8em; opacity: 0.85; }
+    .log-line .log-lvl { flex: 0 0 auto; width: 44px; text-transform: uppercase; font-size: 0.86em; opacity: 0.85; }
     .log-line .log-msg { color: var(--text); }
     .log-line.lvl-info .log-lvl { color: var(--muted); }
     .log-line.lvl-warn .log-lvl { color: var(--warning); }
@@ -345,12 +345,12 @@ public static let css: String = """
     .log-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 6px 12px; }
     .chip-btn {
       border: 1px solid var(--border); background: var(--surface-2);
-      color: var(--muted); font-size: 0.8em; padding: 4px 12px;
+      color: var(--muted); font-size: 0.86em; padding: 4px 12px;
       border-radius: 999px; cursor: pointer; transition: all 0.15s;
     }
     .chip-btn:hover { color: var(--text); border-color: var(--accent-border); }
     .chip-btn.active { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent-border); }
-    .log-panel-note { font-size: 0.8em; color: var(--muted); line-height: 1.5; margin: 4px 6px 0; }
+    .log-panel-note { font-size: 0.86em; color: var(--muted); line-height: 1.5; margin: 4px 6px 0; }
 
     /* ─── Chat list rows ──────────────────────────────────────── */
     .sess-group { margin: 2px 0 4px; }
@@ -359,7 +359,7 @@ public static let css: String = """
       padding: 6px 8px;
       background: transparent; border: none;
       color: var(--muted);
-      font-size: 11px; font-weight: 600;
+      font-size: 11.5px; font-weight: 600;
       letter-spacing: 0.06em; text-transform: uppercase;
       cursor: pointer; border-radius: 8px; text-align: left;
     }
@@ -400,14 +400,14 @@ public static let css: String = """
     }
     .sess-row.active .sess-open { color: var(--text); }
     .sess-title { font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sess-meta { font-size: 10.5px; color: var(--muted); display: flex; gap: 6px; }
+    .sess-meta { font-size: 12px; color: var(--muted); display: flex; gap: 6px; }
     /* Sidebar live-status pill: the running turn on its own session row
        (replaces the floating "Responding…" hint that read as list noise). */
     .sess-status {
       display: inline-flex; align-items: center; gap: 5px;
       padding: 0 7px 0 5px; border-radius: 999px;
       background: var(--accent-soft); border: 1px solid var(--accent-border);
-      color: var(--accent-strong); font-size: 10px; font-weight: 600;
+      color: var(--accent-strong); font-size: 11.5px; font-weight: 600;
       line-height: 1.7; white-space: nowrap;
     }
     .sess-status-dot {
@@ -430,7 +430,7 @@ public static let css: String = """
     .sess-confirm {
       border: 1px solid var(--danger); color: var(--danger);
       background: var(--danger-soft); border-radius: 7px;
-      font-size: 0.72em; padding: 2px 5px; cursor: pointer;
+      font-size: 0.84em; padding: 2px 5px; cursor: pointer;
       font-weight: 600;
       /* A label, not an icon: never inherit an icon box's fixed width, and keep
          "Confirm?" on one line inside a narrow column header or card. */
@@ -465,7 +465,7 @@ public static let css: String = """
       display: inline-flex; align-items: center; gap: 6px;
       border: 1px solid var(--border-subtle); background: var(--input-bg);
       color: var(--muted); border-radius: 999px;
-      padding: 3px 9px; font-size: 11px; cursor: pointer;
+      padding: 3px 9px; font-size: 11.5px; cursor: pointer;
       transition: background 0.15s, border-color 0.15s, color 0.15s;
     }
     .cat-chip:hover { background: var(--hover-bg); color: var(--text); }
@@ -487,13 +487,13 @@ public static let css: String = """
     .chip-x {
       width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center;
       border: none; background: transparent; color: var(--muted);
-      font-size: 11px; cursor: pointer; border-radius: 50%;
+      font-size: 12px; cursor: pointer; border-radius: 50%;
     }
     .chip-x:hover { background: var(--danger-soft); color: var(--danger); }
     .arch-link {
       display: block; text-align: left; width: 100%;
       border: none; background: transparent; color: var(--muted);
-      font-size: 0.78em; padding: 4px 14px 8px; cursor: pointer;
+      font-size: 0.84em; padding: 4px 14px 8px; cursor: pointer;
     }
     .arch-link:hover { color: var(--accent-strong); }
     .cat-add-form {
@@ -527,7 +527,7 @@ public static let css: String = """
     .ctx-danger:hover { background: var(--danger-soft); }
     .ctx-divider { height: 1px; margin: 5px 2px; background: var(--border-strong); }
     .ctx-label {
-      font-size: 0.72em; color: var(--muted); text-transform: uppercase;
+      font-size: 0.84em; color: var(--muted); text-transform: uppercase;
       letter-spacing: 0.05em; padding: 2px 10px;
     }
     .ctx-swatch-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 10px 8px; }
@@ -554,7 +554,7 @@ public static let css: String = """
     }
     .menu-left { display: flex; align-items: center; padding-right: 2px; }
     .menu-label {
-      font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.05em;
+      font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.05em;
       color: var(--muted); padding: 7px 12px 3px;
     }
     .chat-menu button.menu-sel { color: var(--accent-strong); }
@@ -569,7 +569,7 @@ public static let css: String = """
       margin-bottom: 4px;
     }
     .cat-panel-title {
-      font-size: 0.72em; font-weight: 700; text-transform: uppercase;
+      font-size: 0.84em; font-weight: 700; text-transform: uppercase;
       letter-spacing: 0.05em; color: var(--muted);
     }
     .cat-panel-back {
@@ -597,7 +597,7 @@ public static let css: String = """
     }
     .skill-meta-head {
       padding: 6px 12px;
-      font-size: 0.68em; font-weight: 700;
+      font-size: 0.76em; font-weight: 700;
       text-transform: uppercase; letter-spacing: 0.06em;
       color: var(--muted);
       background: var(--surface);
@@ -606,7 +606,7 @@ public static let css: String = """
     .skill-meta-pre {
       margin: 0; padding: 10px 12px;
       font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-      font-size: 0.78em; line-height: 1.55;
+      font-size: 0.84em; line-height: 1.55;
       color: var(--text);
       overflow-x: auto;
       white-space: pre-wrap; word-break: break-word;
@@ -625,7 +625,7 @@ public static let css: String = """
     .skill-cat-head {
       display: flex; align-items: center; gap: 6px; width: 100%;
       padding: 3px 8px; background: transparent; border: none;
-      color: var(--text); font-size: 0.74em; font-weight: 700;
+      color: var(--text); font-size: 0.84em; font-weight: 700;
       letter-spacing: 0.05em; text-transform: uppercase;
       cursor: pointer; border-radius: 8px; text-align: left;
     }
@@ -638,7 +638,7 @@ public static let css: String = """
     .skill-cat-rows { display: flex; flex-direction: column; }
     .skill-row .skill-open { flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; gap: 0; line-height: 1.25; padding: 0; }
     .skill-row .sk-name { flex: none; width: 100%; font-size: 0.93em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .skill-row .sk-desc { width: 100%; font-size: 0.72em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .skill-row .sk-desc { width: 100%; font-size: 0.84em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .skill-row.disabled .sk-name { color: var(--muted); }
     .skill-row.disabled .sk-desc { opacity: 0.6; }
     .skill-row.disabled .skill-open { cursor: default; }
@@ -678,8 +678,8 @@ public static let css: String = """
     .list-row:hover { background: var(--surface-2); }
     .list-row.active { background: var(--accent-soft); }
     .list-row .lr-name { flex: 1; min-width: 0; font-size: 0.93em; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .list-row .lr-sub { font-size: 0.78em; color: var(--muted); }
-    .tool-group { font-size: 0.72em; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 12px 10px 4px; }
+    .list-row .lr-sub { font-size: 0.84em; color: var(--muted); }
+    .tool-group { font-size: 0.84em; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 12px 10px 4px; }
 
     /* ─── Main content ────────────────────────────────────────── */
     .main-view { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 22px clamp(20px, 7vw, 88px) 12px; }
@@ -724,7 +724,7 @@ public static let css: String = """
     .kv .v.nowrap { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     .form-grid { display: flex; flex-direction: column; gap: 10px; margin: 14px 0; }
-    .form-grid label { font-size: 0.8em; color: var(--muted); font-weight: 550; display: block; margin-bottom: 3px; }
+    .form-grid label { font-size: 0.86em; color: var(--muted); font-weight: 550; display: block; margin-bottom: 3px; }
     .form-grid input, .form-grid select, .form-grid textarea {
       width: 100%;
       background: var(--surface);
@@ -785,14 +785,14 @@ public static let css: String = """
     }
     .set-row { display: flex; align-items: center; gap: 14px; padding: 7px 0; }
     .set-row .set-label { flex: 1; font-size: 0.92em; }
-    .set-row .set-label small { display: block; color: var(--muted); font-size: 0.8em; margin-top: 1px; }
+    .set-row .set-label small { display: block; color: var(--muted); font-size: 0.86em; margin-top: 1px; }
     .set-row select, .set-row input[type="text"], .set-row input[type="password"] {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--radius-sm); color: var(--text);
       padding: 6px 10px; font-size: 0.9em; outline: none;
     }
     .set-row select:focus, .set-row input:focus { border-color: var(--accent-border); }
-    .set-hint { color: var(--muted); font-size: 0.8em; }
+    .set-hint { color: var(--muted); font-size: 0.86em; }
     .side-tab-chips { display: flex; flex-wrap: wrap; gap: 8px; }
     .side-tab-chip {
       display: inline-flex; align-items: center; gap: 6px;
@@ -820,7 +820,7 @@ public static let css: String = """
       background: var(--surface-2); display: flex; flex-direction: column; gap: 4px;
     }
     .gh-summary-meta { font-size: 0.85em; color: var(--text); word-break: break-all; }
-    .gh-summary-sub { font-size: 0.72em; color: var(--muted); word-break: break-all; }
+    .gh-summary-sub { font-size: 0.84em; color: var(--muted); word-break: break-all; }
     .gh-remote { color: var(--muted); }
     .gh-unpushed { color: var(--accent); font-weight: 600; }
     .gh-list { display: flex; flex-direction: column; gap: 6px; }
@@ -835,35 +835,36 @@ public static let css: String = """
     .gh-commit.active { border-color: var(--accent-border); background: var(--accent-soft); }
     .gh-commit-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .gh-sha {
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.74em;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.84em;
       padding: 2px 6px; border-radius: 4px; background: var(--code-bg); color: var(--muted); flex-shrink: 0;
     }
-    .gh-commit-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .gh-commit-meta { font-size: 0.76em; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .gh-commit-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .gh-commit-meta { font-size: 0.84em; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .gh-unpushed-badge {
       color: var(--accent); border: 1px solid var(--accent-border); background: var(--accent-soft);
       border-radius: 999px; padding: 1px 8px; font-size: 0.92em;
     }
-    .gh-commit-refs { font-size: 0.72em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .gh-commit-refs { font-size: 0.84em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .gh-list { min-width: 0; }
     .gh-notice { padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
     .gh-notice-title { font-weight: 600; margin-bottom: 6px; font-size: 0.92em; }
-    .gh-notice-body { color: var(--muted); font-size: 0.82em; line-height: 1.5; word-break: break-word; }
+    .gh-notice-body { color: var(--muted); font-size: 0.86em; line-height: 1.5; word-break: break-word; }
     .gh-notice-body code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
     .gh-detail { padding: 18px 20px; }
     .gh-detail-subject { font-size: 1.15em; font-weight: 650; margin-bottom: 6px; }
-    .gh-detail-meta { font-size: 0.82em; color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .gh-detail-meta { font-size: 0.86em; color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
     .gh-body {
       white-space: pre-wrap; font-size: 0.9em; line-height: 1.55; color: var(--text);
       padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border);
       border-radius: var(--radius-sm); margin-bottom: 16px;
     }
     .gh-files-head { font-weight: 600; font-size: 0.92em; margin-bottom: 8px; display: flex; gap: 6px; align-items: center; }
-    .gh-files-count { background: var(--code-bg); color: var(--muted); border-radius: 999px; padding: 1px 8px; font-size: 0.8em; }
+    .gh-files-count { background: var(--code-bg); color: var(--muted); border-radius: 999px; padding: 1px 8px; font-size: 0.86em; }
     .gh-files { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
     .gh-file { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 0.85em; }
     .gh-file:last-child { border-bottom: none; }
     .gh-status {
-      border-radius: 4px; padding: 2px 7px; font-size: 0.74em; font-weight: 600;
+      border-radius: 4px; padding: 2px 7px; font-size: 0.84em; font-weight: 600;
       flex-shrink: 0; min-width: 62px; text-align: center;
     }
     .gh-status-a { color: var(--success); background: color-mix(in srgb, var(--success) 14%, transparent); border: 1px solid color-mix(in srgb, var(--success) 40%, transparent); }
@@ -874,7 +875,7 @@ public static let css: String = """
       flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88em;
     }
-    .gh-nums { display: flex; gap: 8px; font-size: 0.78em; flex-shrink: 0; }
+    .gh-nums { display: flex; gap: 8px; font-size: 0.84em; flex-shrink: 0; }
     .gh-num-add { color: var(--success); }
     .gh-num-del { color: var(--danger); }
 
@@ -886,28 +887,28 @@ public static let css: String = """
       font-size: 0.85em; transition: border-color .15s, background .15s; }
     .task-row:hover { border-color: var(--border-strong); background: var(--surface-2); }
     .task-row.active { border-color: var(--accent-border); background: var(--accent-soft); }
-    .task-dot { color: var(--muted); font-size: 0.7em; line-height: 1.6; flex: 0 0 auto; }
+    .task-dot { color: var(--muted); font-size: 0.78em; line-height: 1.6; flex: 0 0 auto; }
     .task-dot.on { color: var(--success); }
     .task-ri { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
     .task-rname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .task-rmeta { font-size: 0.76em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .task-rmeta { font-size: 0.84em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tasks-main-view { padding: 22px clamp(20px, 7vw, 88px) 12px; }
     .tasks-main-wrap { width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; }
     .task-ctrl-card { padding: 16px 18px; }
     .task-ctrl-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
     .task-ctrl-name { font-size: 1.05em; font-weight: 650; margin-bottom: 3px; display: flex; align-items: center; gap: 8px; }
-    .task-status { font-size: 0.72em; font-weight: 700; padding: 2px 9px; border-radius: 999px; }
+    .task-status { font-size: 0.84em; font-weight: 700; padding: 2px 9px; border-radius: 999px; }
     .task-status.on { color: var(--success); background: color-mix(in srgb, var(--success) 15%, transparent); border: 1px solid color-mix(in srgb, var(--success) 40%, transparent); }
     .task-status.off { color: var(--muted); background: var(--code-bg); border: 1px solid var(--border); }
-    .task-ctrl-meta { font-size: 0.8em; color: var(--muted); }
-    .task-ctrl-line { display: flex; gap: 10px; font-size: 0.82em; padding: 5px 0; border-top: 1px solid var(--border); }
+    .task-ctrl-meta { font-size: 0.86em; color: var(--muted); }
+    .task-ctrl-line { display: flex; gap: 10px; font-size: 0.86em; padding: 5px 0; border-top: 1px solid var(--border); }
     .task-ctrl-key { flex: 0 0 84px; color: var(--muted); font-weight: 600; }
     .task-ctrl-val { color: var(--text); word-break: break-word; }
     .task-thread { flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
     .task-thread .chat-scroll { height: 100%; overflow-y: auto; padding: 4px 0; }
     .task-add { display: flex; flex-direction: column; gap: 12px; }
     .task-add-row { display: flex; gap: 14px; flex-wrap: wrap; }
-    .task-field { display: flex; flex-direction: column; gap: 5px; font-size: 0.82em; color: var(--muted); font-weight: 600; }
+    .task-field { display: flex; flex-direction: column; gap: 5px; font-size: 0.86em; color: var(--muted); font-weight: 600; }
     /* Only fields that SHARE a row grow sideways. Inside the column parent
        `.task-add` a flex basis is a HEIGHT, so the old rule stretched the
        Title label to 220px and left a dead gap above Start. */
@@ -915,7 +916,7 @@ public static let css: String = """
     .task-add > .primary-btn { align-self: flex-start; }
     /* "Optional" reads as part of the label, not as a headline. */
     .task-field .task-opt { color: var(--muted); font-weight: 400; }
-    .task-preview { color: var(--muted); font-size: 0.82em; margin: 0; }
+    .task-preview { color: var(--muted); font-size: 0.86em; margin: 0; }
     .task-field input, .task-field textarea, .task-field select {
       background: var(--code-bg); color: var(--text); border: 1px solid var(--border);
       border-radius: 6px; padding: 8px 10px; font-size: 13px; font-family: inherit; width: 100%;
@@ -928,7 +929,7 @@ public static let css: String = """
     .set-row .aux-right { display: flex; gap: 8px; flex-shrink: 0; }
     .aux-editing { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin: 6px 0; background: var(--surface-2); }
     .aux-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 10px; }
-    .aux-field { display: flex; flex-direction: column; gap: 3px; font-size: 0.78em; color: var(--muted); }
+    .aux-field { display: flex; flex-direction: column; gap: 3px; font-size: 0.84em; color: var(--muted); }
     .aux-field input {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--radius-sm); color: var(--text);
@@ -937,7 +938,7 @@ public static let css: String = """
     .aux-field input:focus { border-color: var(--accent-border); }
     .aux-actions { display: flex; gap: 8px; margin-top: 10px; }
     .ins-range-wrap { margin-top: 4px; }
-    .ins-range-label { display: block; font-size: 0.78em; color: var(--muted); margin-bottom: 4px; }
+    .ins-range-label { display: block; font-size: 0.84em; color: var(--muted); margin-bottom: 4px; }
     .ins-range-wrap select {
       width: 100%; box-sizing: border-box; background: var(--surface);
       border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -956,7 +957,7 @@ public static let css: String = """
     .ins-table-wrap { overflow-x: auto; }
     .ins-table { width: 100%; border-collapse: collapse; font-size: 0.92em; }
     .ins-table th {
-      text-align: left; font-size: 0.78em; text-transform: uppercase;
+      text-align: left; font-size: 0.84em; text-transform: uppercase;
       letter-spacing: 0.04em; color: var(--muted);
       padding: 8px 10px; border-bottom: 1px solid var(--border);
     }
@@ -974,7 +975,7 @@ public static let css: String = """
     .ins-stat-icon svg { display: block; }
     .ins-stat-value { font-size: 1.5em; font-weight: 700; line-height: 1.1; }
     .ins-stat-label { color: var(--muted); font-size: 0.85em; margin-top: 4px; }
-    .ins-range-hint { color: var(--muted); font-size: 0.72em; font-weight: 400; }
+    .ins-range-hint { color: var(--muted); font-size: 0.84em; font-weight: 400; }
     .ins-chart-wrap { padding-top: 4px; }
     .ins-chart {
       display: flex; align-items: flex-end; gap: 3px; height: 220px;
@@ -988,9 +989,9 @@ public static let css: String = """
        short red bar (which made an empty month look like a month of activity). */
     .ins-bar-empty { background: var(--border-strong); height: 2px !important; }
     .ins-bar-empty:hover { filter: none; }
-    .ins-scale { font-size: 0.72em; color: var(--muted); margin: 0 0 2px; }
+    .ins-scale { font-size: 0.84em; color: var(--muted); margin: 0 0 2px; }
     .ins-xaxis { display: flex; margin-top: 7px; }
-    .ins-xlabel { flex: 1; text-align: center; font-size: 0.72em; color: var(--muted); overflow: hidden; }
+    .ins-xlabel { flex: 1; text-align: center; font-size: 0.84em; color: var(--muted); overflow: hidden; }
     .accent-swatches { display: flex; gap: 6px; }
     .swatch {
       width: 26px; height: 26px; border-radius: 50%;
@@ -1044,19 +1045,19 @@ public static let css: String = """
     #app[data-size="sm"] .sess-title { font-size: 11.5px; }
     #app[data-size="lg"] .sess-title { font-size: 15px; }
     #app[data-size="xl"] .sess-title { font-size: 17px; }
-    #app[data-size="sm"] .sess-meta { font-size: 10px; }
+    #app[data-size="sm"] .sess-meta { font-size: 11.5px; }
     #app[data-size="lg"] .sess-meta { font-size: 12.5px; }
     #app[data-size="xl"] .sess-meta { font-size: 14px; }
     #app[data-size="sm"] .ws-name { font-size: 12.5px; }
     #app[data-size="lg"] .ws-name { font-size: 16px; }
     #app[data-size="xl"] .ws-name { font-size: 18px; }
-    #app[data-size="sm"] .ws-path { font-size: 10.5px; }
+    #app[data-size="sm"] .ws-path { font-size: 11.5px; }
     #app[data-size="lg"] .ws-path { font-size: 13px; }
     #app[data-size="xl"] .ws-path { font-size: 14.5px; }
     #app[data-size="sm"] .mem-title { font-size: 12.5px; }
     #app[data-size="lg"] .mem-title { font-size: 16px; }
     #app[data-size="xl"] .mem-title { font-size: 18px; }
-    #app[data-size="sm"] .mem-sub { font-size: 10.5px; }
+    #app[data-size="sm"] .mem-sub { font-size: 11.5px; }
     #app[data-size="lg"] .mem-sub { font-size: 13.5px; }
     #app[data-size="xl"] .mem-sub { font-size: 15px; }
     #app[data-size="sm"] .mem-textarea { font-size: 12.5px; }
@@ -1068,8 +1069,8 @@ public static let css: String = """
       padding: 8px 10px; margin-bottom: 6px; background: var(--surface);
     }
     .mc-row .mc-name { flex: 1; min-width: 0; font-weight: 600; font-size: 0.93em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .mc-row .mc-model { color: var(--muted); font-size: 0.82em; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .mc-badge { font-size: 0.68em; padding: 2px 7px; border-radius: 20px; background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+    .mc-row .mc-model { color: var(--muted); font-size: 0.86em; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mc-badge { font-size: 0.76em; padding: 2px 7px; border-radius: 20px; background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
 
     /* ─── Chat main (reference look: centered column, rails, bubbles) ── */
     .chat-main { flex: 1; display: flex; flex-direction: column; min-height: 0; position: relative; }
@@ -1141,7 +1142,7 @@ public static let css: String = """
       display: inline-flex; align-items: center; gap: 8px;
       font-weight: 400; flex: 0 0 auto;
     }
-    .msg-meta .msg-time { font-size: 11px; }
+    .msg-meta .msg-time { font-size: 11.5px; }
     .msg.assistant .msg-meta { text-align: left; }
     .role-icon {
       width: 22px; height: 22px; border-radius: 50%;
@@ -1161,13 +1162,13 @@ public static let css: String = """
       border-radius: 999px;
       color: var(--muted);
       background: var(--surface);
-      font-size: 10.5px; font-weight: 500;
+      font-size: 12px; font-weight: 500;
       font-variant-numeric: tabular-nums;
       vertical-align: 1px; line-height: 1.4;
     }
     .msg-usage-inline {
       display: inline-block;
-      font-size: 11px; color: var(--muted);
+      font-size: 11.5px; color: var(--muted);
       font-variant-numeric: tabular-nums;
       min-width: 17ch; text-align: right;
     }
@@ -1176,7 +1177,7 @@ public static let css: String = """
       display: inline-flex; align-items: center; justify-content: flex-end;
       margin-left: 6px; min-width: 34px;
       color: var(--muted);
-      font-size: 10.5px; font-weight: 500;
+      font-size: 12px; font-weight: 500;
       font-variant-numeric: tabular-nums;
     }
     /* ── Conversation outline (reference #2124 parity) ───────────── */
@@ -1233,7 +1234,7 @@ public static let css: String = """
     .outline-entry:last-child { border-bottom: none; }
     .outline-entry:hover { background: var(--accent-soft); }
     .outline-entry-num {
-      font-size: 11px; font-weight: 600; color: var(--muted);
+      font-size: 11.5px; font-weight: 600; color: var(--muted);
       min-width: 18px; flex-shrink: 0;
     }
     .outline-entry-text {
@@ -1261,7 +1262,7 @@ public static let css: String = """
     }
     .steer-badge {
       display: inline-block;
-      font-size: 10px; font-weight: 600;
+      font-size: 11.5px; font-weight: 600;
       letter-spacing: 0.04em; text-transform: uppercase;
       color: var(--accent-strong);
       background: var(--accent-soft);
@@ -1403,7 +1404,7 @@ public static let css: String = """
       word-break: break-word;
     }
     .tc-label {
-      font-size: 0.72em;
+      font-size: 0.84em;
       text-transform: uppercase;
       letter-spacing: 0.05em;
       color: var(--muted);
@@ -1415,7 +1416,7 @@ public static let css: String = """
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 6px;
-      font-size: 0.82em;
+      font-size: 0.86em;
       font-family: var(--font-mono);
       white-space: pre-wrap;
       word-break: break-word;
@@ -1448,7 +1449,7 @@ public static let css: String = """
       color: var(--accent-strong);
       background: var(--accent-soft);
     }
-    .md { font-size: 0.96em; line-height: 1.55; }
+    .md { font-size: 1em; line-height: 1.55; }
     .md p { margin: 0 0 0.7em; }
     .md pre, .md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .md pre { background: var(--code-bg); border-radius: 8px; padding: 10px 12px; overflow-x: auto; font-size: 0.86em; }
@@ -1464,7 +1465,7 @@ public static let css: String = """
     .md th, .md td { border: 1px solid var(--border); padding: 5px 10px; }
     .md thead th { background: var(--bg-subtle, var(--bg)); font-weight: 600; }
     .markdown-table-head { display: inline-flex; align-items: center; gap: 4px; }
-    .markdown-table-sort { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 0.8em; padding: 0 2px; }
+    .markdown-table-sort { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 0.86em; padding: 0 2px; }
     .markdown-table-sort:hover { color: var(--text); }
     .markdown-table-filter-row th { background: none; padding: 3px 8px; }
     .markdown-table-filter { width: 100%; box-sizing: border-box; background: var(--bg-subtle, var(--bg)); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 3px 8px; font-size: 0.88em; }
@@ -1480,14 +1481,14 @@ public static let css: String = """
     }
     details.thinking summary {
       cursor: pointer; padding: 6px 10px; color: var(--muted);
-      font-size: 0.82em; user-select: none;
+      font-size: 0.86em; user-select: none;
     }
     details.thinking .think-body { padding: 4px 12px 10px; color: var(--muted); white-space: pre-wrap; }
 
     /* ── Message hover footer: produced-at time + copy (arc parity) ── */
     .msg-foot { display: flex; align-items: center; gap: 8px; margin-top: 5px; opacity: 0; transition: opacity 0.15s; }
     .msg:hover .msg-foot { opacity: 1; }
-    .msg-time { font-size: 0.72em; color: var(--muted); }
+    .msg-time { font-size: 0.84em; color: var(--muted); }
     .msg-actions { display: inline-flex; align-items: center; gap: 2px; }
     .msg-action-btn { background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 5px; border-radius: 5px; display: inline-flex; align-items: center; transition: color 0.12s, background 0.12s; }
     .msg-action-btn:hover { color: var(--text); background: var(--surface-2); }
@@ -1499,7 +1500,7 @@ public static let css: String = """
       background: var(--surface-2);
       border: 1px solid var(--border);
       border-radius: 20px;
-      font-size: 0.8em;
+      font-size: 0.86em;
       color: var(--muted);
       font-family: ui-monospace, Menlo, monospace;
     }
@@ -1564,7 +1565,7 @@ public static let css: String = """
     }
     @keyframes blink { 50% { opacity: 0; } }
 
-    .live-status { font-size: 0.78em; color: var(--muted); margin: -8px 0 12px; display: flex; gap: 8px; align-items: center; }
+    .live-status { font-size: 0.84em; color: var(--muted); margin: -8px 0 12px; display: flex; gap: 8px; align-items: center; }
 
     /* ─── Permission card (reference approval) ─────────────────────── */
     .perm-card {
@@ -1688,7 +1689,7 @@ public static let css: String = """
       display: inline-flex; align-items: center; justify-content: center;
       min-width: 24px; height: 24px; border-radius: 999px;
       background: var(--accent-soft); border: 1px solid var(--accent-border);
-      color: var(--accent-strong); font-size: 11px; font-weight: 800; flex-shrink: 0; line-height: 1;
+      color: var(--accent-strong); font-size: 11.5px; font-weight: 800; flex-shrink: 0; line-height: 1;
     }
     .clarify-choice-text { flex: 1; line-height: 1.45; min-width: 0; }
     .clarify-response { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
@@ -1717,7 +1718,7 @@ public static let css: String = """
       font-size: 12px; font-weight: 700; cursor: pointer; transition: all .15s; white-space: nowrap;
     }
     .clarify-submit:hover { background: var(--accent-soft); transform: translateY(-1px); }
-    .clarify-hint { margin-top: 6px; font-size: 11px; line-height: 1.45; color: var(--muted); }
+    .clarify-hint { margin-top: 6px; font-size: 12px; line-height: 1.45; color: var(--muted); }
 
     /* ── Yolo (skip-all) session pill ── */
     .yolo-pill {
@@ -1732,7 +1733,7 @@ public static let css: String = """
       margin-left: 4px; padding: 3px 10px; border-radius: 999px;
       border: 1px solid rgba(245, 158, 11, 0.45);
       background: transparent; color: #fbbf24;
-      font-size: 11px; font-weight: 700; cursor: pointer;
+      font-size: 11.5px; font-weight: 700; cursor: pointer;
     }
     .yolo-off:hover { background: rgba(245, 158, 11, 0.2); }
 
@@ -1799,12 +1800,12 @@ public static let css: String = """
       font-size: 13.5px; color: var(--text);
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    .queue-meta { font-size: 11.5px; color: var(--muted); }
+    .queue-meta { font-size: 12px; color: var(--muted); }
     .queue-in { color: var(--accent); }
     .queue-link-btn { color: var(--muted); }
     .queue-link-btn:hover { color: var(--accent); }
     .queue-status {
-      font-size: 11px; font-weight: 600;
+      font-size: 11.5px; font-weight: 600;
       color: var(--muted);
       min-width: 46px; text-align: center;
     }
@@ -1924,7 +1925,7 @@ public static let css: String = """
     .queue-link-num {
       font-weight: 700; color: var(--accent);
       background: var(--accent-soft);
-      border-radius: 5px; padding: 1px 7px; font-size: 11px;
+      border-radius: 5px; padding: 1px 7px; font-size: 11.5px;
       white-space: nowrap;
     }
     .queue-link-title {
@@ -1935,11 +1936,11 @@ public static let css: String = """
     .queue-link-actions { display: flex; gap: 8px; margin-top: 4px; }
     .queue-link-loop {
       margin-left: auto; white-space: nowrap;
-      font-size: 10.5px; font-weight: 700; color: var(--accent);
+      font-size: 11.5px; font-weight: 700; color: var(--accent);
       text-transform: uppercase; letter-spacing: 0.3px;
     }
     .queue-link-note {
-      font-size: 11px; color: var(--muted);
+      font-size: 12px; color: var(--muted);
       padding-top: 6px; margin-top: 4px;
       border-top: 1px dashed var(--border);
     }
@@ -1961,7 +1962,7 @@ public static let css: String = """
     }
     .queue-pick-chat { padding: 8px 14px 4px; }
     .queue-pick-title {
-      font-size: 11px; font-weight: 700; color: var(--muted);
+      font-size: 12px; font-weight: 700; color: var(--muted);
       text-transform: uppercase; letter-spacing: 0.4px;
       margin-bottom: 6px;
     }
@@ -2061,7 +2062,7 @@ public static let css: String = """
       background: transparent;
       border: none;
       color: var(--muted);
-      font-size: 0.82em;
+      font-size: 0.86em;
       /* Reserve room for the native caret so long option text truncates
          before it instead of clipping underneath. */
       padding: 6px 26px 6px 6px;
@@ -2087,7 +2088,7 @@ public static let css: String = """
     .ctx-ring-center { position: relative; display: flex; width: 14px; height: 14px; align-items: center; justify-content: center; border-radius: 999px; background: var(--bg); font-size: 7px; font-weight: 600; line-height: 1; color: var(--muted); font-variant-numeric: tabular-nums; }
     .ctx-indicator.ctx-mid .ctx-ring-value { stroke: var(--accent-strong); }
     .ctx-indicator.ctx-high .ctx-ring-value { stroke: var(--danger); }
-    .ctx-tooltip { position: absolute; right: 0; bottom: calc(100% + 10px); min-width: 210px; max-width: 250px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22); font-size: 11px; line-height: 1.45; color: var(--muted); opacity: 0; transform: translateY(4px); pointer-events: none; transition: opacity 0.14s ease, transform 0.14s ease; z-index: 30; }
+    .ctx-tooltip { position: absolute; right: 0; bottom: calc(100% + 10px); min-width: 210px; max-width: 250px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22); font-size: 12px; line-height: 1.45; color: var(--muted); opacity: 0; transform: translateY(4px); pointer-events: none; transition: opacity 0.14s ease, transform 0.14s ease; z-index: 30; }
     .ctx-tooltip::after { content: ''; position: absolute; right: 10px; top: 100%; border-width: 6px 6px 0 6px; border-style: solid; border-color: var(--surface) transparent transparent transparent; }
     .ctx-indicator-wrap:hover .ctx-tooltip, .ctx-indicator-wrap:focus-within .ctx-tooltip { opacity: 1; transform: translateY(0); pointer-events: auto; }
     .ctx-tooltip-title { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 5px; }
@@ -2120,7 +2121,7 @@ public static let css: String = """
       border: 1px solid var(--border);
       border-radius: 14px;
       padding: 3px 9px;
-      font-size: 0.8em;
+      font-size: 0.86em;
       color: var(--text);
       max-width: 260px;
       font-family: ui-monospace, Menlo, monospace;
@@ -2157,7 +2158,7 @@ public static let css: String = """
       font-family: ui-monospace, Menlo, monospace;
     }
     .file-pop input:focus { border-color: var(--accent-border); }
-    .file-pop .fp-recents { font-size: 0.78em; color: var(--muted); }
+    .file-pop .fp-recents { font-size: 0.84em; color: var(--muted); }
     .fp-recent {
       display: block; width: 100%; text-align: left;
       background: transparent; border: none; color: var(--link);
@@ -2172,7 +2173,7 @@ public static let css: String = """
     .dd-trigger {
       display: inline-flex; align-items: center; gap: 5px;
       background: transparent; border: none; color: var(--muted);
-      font-family: inherit; font-size: 0.82em; cursor: pointer;
+      font-family: inherit; font-size: 0.86em; cursor: pointer;
       padding: 6px 8px; border-radius: 8px; max-width: 210px; min-width: 0;
       white-space: nowrap; overflow: hidden;
     }
@@ -2192,7 +2193,7 @@ public static let css: String = """
     .dd-search input {
       flex: 1; min-width: 0; background: var(--surface-2);
       border: 1px solid var(--border); color: var(--text);
-      border-radius: 8px; padding: 6px 9px; font-size: 0.8em; outline: none;
+      border-radius: 8px; padding: 6px 9px; font-size: 0.86em; outline: none;
     }
     .dd-search input:focus { border-color: var(--accent-border); }
     .dd-clear {
@@ -2213,10 +2214,10 @@ public static let css: String = """
     }
     .dd-row:hover { background: var(--surface-2); }
     .dd-row-title { font-size: 0.86em; font-weight: 600; color: var(--text); display: inline-flex; align-items: center; gap: 5px; }
-    .dd-row-sub { font-size: 0.75em; color: var(--muted); }
-    .dd-empty { padding: 10px; font-size: 0.8em; color: var(--muted); }
-    .dd-section { font-size: 0.68em; letter-spacing: 0.06em; color: var(--muted); padding: 6px 10px 2px; text-transform: uppercase; }
-    .dd-note { font-size: 0.74em; color: var(--muted); padding: 2px 6px 8px; }
+    .dd-row-sub { font-size: 0.84em; color: var(--muted); }
+    .dd-empty { padding: 10px; font-size: 0.86em; color: var(--muted); }
+    .dd-section { font-size: 0.76em; letter-spacing: 0.06em; color: var(--muted); padding: 6px 10px 2px; text-transform: uppercase; }
+    .dd-note { font-size: 0.84em; color: var(--muted); padding: 2px 6px 8px; }
     .dd-foot { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 4px; display: flex; flex-direction: column; }
     .dd-foot-row {
       display: flex; align-items: center; gap: 9px; width: 100%;
@@ -2232,7 +2233,7 @@ public static let css: String = """
     .dd-profile-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
     .dd-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; max-width: 100%; min-width: 0; }
     .dd-badge {
-      font-size: 0.62em; font-weight: 600; letter-spacing: 0.05em;
+      font-size: 0.72em; font-weight: 600; letter-spacing: 0.05em;
       color: #7fb3e8; border: 1px solid rgba(127, 179, 232, 0.45);
       padding: 2px 6px; border-radius: 999px; text-transform: uppercase;
       max-width: 100%; overflow-wrap: anywhere; word-break: break-word;
@@ -2245,14 +2246,14 @@ public static let css: String = """
 
     /* ── arc-style profile card (Profile Box) ─────────────────────── */
     .pl-card { margin: 14px 0 4px; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: var(--surface); }
-    .pl-eyebrow { font-size: 0.66em; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+    .pl-eyebrow { font-size: 0.76em; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
     .pl-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--border); }
     .pl-row:first-of-type { border-top: none; }
     .pl-k { font-size: 0.84em; color: var(--muted); flex-shrink: 0; }
     .pl-v { display: inline-flex; align-items: center; gap: 6px; font-size: 0.84em; color: var(--text); min-width: 0; }
     .pl-badge {
       display: inline-flex; align-items: center; gap: 5px;
-      font-size: 0.68em; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+      font-size: 0.76em; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
       padding: 2px 8px; border-radius: 999px; border: 1px solid;
     }
     .badge-active { color: #7fb3e8; border-color: rgba(127, 179, 232, 0.55); }
@@ -2396,12 +2397,12 @@ public static let css: String = """
       width: 11px; height: 11px; border-radius: 999px;
       display: inline-block; border: 1px solid rgba(0,0,0,0.25);
     }
-    .scheme-name { font-size: 0.72em; font-weight: 600; white-space: nowrap; }
+    .scheme-name { font-size: 0.84em; font-weight: 600; white-space: nowrap; }
     .chat-menu button:hover { background: var(--accent-soft); }
     .chat-menu button.danger { color: var(--danger); }
     .chat-menu button.danger:hover { background: var(--danger-soft); }
 
-    .pin-badge { font-size: 0.82em; margin-right: 3px; }
+    .pin-badge { font-size: 0.86em; margin-right: 3px; }
     .sess-row.archived .sess-title { opacity: 0.62; }
     .rename-input {
       flex: 1; min-width: 0;
@@ -2455,7 +2456,7 @@ public static let css: String = """
     .code-wrap pre { margin: 0; }
     .copy-code {
         position: absolute; top: 6px; right: 6px; z-index: 2;
-        font-size: 11px; padding: 3px 9px; border-radius: 6px;
+        font-size: 11.5px; padding: 3px 9px; border-radius: 6px;
         border: 1px solid var(--border); background: var(--surface);
         color: var(--muted); cursor: pointer; opacity: .85;
     }
@@ -2470,7 +2471,7 @@ public static let css: String = """
     .todo-title { font-size: 15px; font-weight: 700; margin: 0; }
     .todo-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
     .todo-head-actions { display: flex; align-items: center; gap: 8px; }
-    .todo-pill { font-size: 11.5px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); white-space: nowrap; }
+    .todo-pill { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); white-space: nowrap; }
     .todo-row { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
     .todo-row:last-child { border-bottom: none; }
     .todo-check {
@@ -2502,7 +2503,7 @@ public static let css: String = """
     .todo-runall {
       display: inline-flex; align-items: center; gap: 6px;
       background: none; border: 1px solid var(--border); border-radius: 999px;
-      color: var(--text); font-size: 11.5px; font-weight: 600; padding: 3px 10px;
+      color: var(--text); font-size: 12px; font-weight: 600; padding: 3px 10px;
       cursor: pointer; white-space: nowrap; transition: border-color .15s, color .15s;
     }
     .todo-runall:hover { border-color: var(--accent); color: var(--accent); }
@@ -2552,7 +2553,7 @@ public static let css: String = """
     }
     .kb-col-name { flex: 1; font-weight: 650; font-size: 0.92em; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .kb-col-count {
-      font-size: 0.72em; color: var(--muted); background: var(--surface-2);
+      font-size: 0.84em; color: var(--muted); background: var(--surface-2);
       border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px;
     }
     .kb-col-actions, .kb-card-actions { display: flex; gap: 2px; align-items: center; }
@@ -2572,7 +2573,7 @@ public static let css: String = """
     .kb-card:hover .kb-card-actions,
     .kb-card:focus-within .kb-card-actions { opacity: 1; }
     @media (hover: none) { .kb-card-actions { opacity: 1; } }
-    .kb-empty { color: var(--muted); font-size: 0.8em; text-align: center; padding: 10px 0; }
+    .kb-empty { color: var(--muted); font-size: 0.86em; text-align: center; padding: 10px 0; }
     .kb-addcard {
       border: 1px dashed var(--border-strong); background: transparent;
       color: var(--muted); border-radius: var(--radius-sm);
@@ -2599,7 +2600,7 @@ public static let css: String = """
     .mem-glyph { font-size: 1.3em; flex: 0 0 auto; }
     .mem-txt { display: flex; flex-direction: column; flex: 1; min-width: 0; }
     .mem-title { color: var(--text); font-weight: 600; font-size: 0.92em; }
-    .mem-sub { color: var(--muted); font-size: 0.76em; }
+    .mem-sub { color: var(--muted); font-size: 0.84em; }
     .mem-arrow { color: var(--muted); font-size: 1.1em; }
     .mem-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
     .mem-textarea {
@@ -2648,7 +2649,7 @@ public static let css: String = """
     .ws-menu-wrap { position: relative; }
     .ws-body { flex: 1; overflow: auto; }
     .ws-path {
-      font-size: 0.7em; color: var(--muted); padding: 6px 12px 8px;
+      font-size: 0.84em; color: var(--muted); padding: 6px 12px 8px;
       border-bottom: 1px solid var(--border);
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
@@ -2659,7 +2660,7 @@ public static let css: String = """
       padding: 5px 12px 5px 12px; cursor: pointer; min-width: 0;
     }
     .ws-row:hover { background: var(--surface-2); }
-    .ws-caret { width: 12px; flex: 0 0 12px; color: var(--muted); font-size: 0.8em; }
+    .ws-caret { width: 12px; flex: 0 0 12px; color: var(--muted); font-size: 0.86em; }
     .ws-ic { flex: 0 0 auto; font-size: 0.95em; }
     .ws-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .ws-panel.drag { box-shadow: inset 0 0 0 2px var(--accent-strong); }
@@ -2720,8 +2721,8 @@ public static let css: String = """
     .cmd-item.selected { background: var(--accent-soft); outline: 1px solid var(--accent-strong); }
     .cmd-item-name { font-size: 13px; color: var(--text); font-weight: 500; }
     .cmd-item-arg { color: var(--muted); font-weight: 400; font-style: italic; }
-    .cmd-item-desc { font-size: 11px; color: var(--muted); margin-top: 1px; }
-    .cmd-item-badge { display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700;
+    .cmd-item-desc { font-size: 12px; color: var(--muted); margin-top: 1px; }
+    .cmd-item-badge { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 700;
       letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 999px;
       border: 1px solid var(--border-strong); color: var(--muted); background: var(--hover-bg); vertical-align: 1px; }
     .cmd-item-badge-skill { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-strong); }
@@ -2749,7 +2750,7 @@ public static let css: String = """
     .selection-context-accent { width: 3px; flex: 0 0 3px; background: var(--accent); opacity: .82; }
     .selection-context-body { min-width: 0; flex: 1; padding: 9px 10px 9px 0; }
     .selection-context-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
-    .selection-context-name { color: var(--accent); font-size: 11px; font-weight: 700; line-height: 1.2;
+    .selection-context-name { color: var(--accent); font-size: 12px; font-weight: 700; line-height: 1.2;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .selection-context-remove { display: inline-flex; align-items: center; justify-content: center;
       min-width: 28px; min-height: 28px; background: transparent; border: 1px solid transparent;
@@ -2762,7 +2763,7 @@ public static let css: String = """
     /* ── Queue feed chips (same named-context presentation as the composer) ── */
     .queue-feed-chips { display: flex; flex-wrap: wrap; gap: 4px; max-height: 54px; overflow-y: auto; }
     .queue-feed-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border-strong);
-      border-radius: 999px; padding: 1px 8px 1px 4px; font-size: 11px; color: var(--muted); }
+      border-radius: 999px; padding: 1px 8px 1px 4px; font-size: 11.5px; color: var(--muted); }
     .queue-feed-accent { width: 3px; height: 10px; border-radius: 2px; background: var(--accent); opacity: .8; }
     .queue-feed-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
     """
