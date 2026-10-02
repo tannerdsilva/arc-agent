@@ -332,6 +332,32 @@
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   });
 
+  // ---- Dismiss the composer dropdowns on Escape or an outside click.
+  // The panels are SERVER state (`wsSelectOpen`, `profileSelectOpen`, …) and
+  // the server already has the close path: the `dd-dismiss` handler in
+  // `Actions.wireAll` was written for exactly this ("fired by the runtime when a
+  // click lands outside an open dropdown panel") — but nothing ever rendered the
+  // boundary or fired it, so the popover stayed open until its trigger was
+  // clicked again. The overlay renders the intent: nudge the server. The chat
+  // row menu is client-side and closes itself.
+  function dismissDropdowns() {
+    if (!document.querySelector('.dd-pop:not(.hidden)')) return;
+    var b = document.getElementById('dd-dismiss');
+    if (b) b.click();
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    dismissDropdowns();
+    closeCatMenus();
+  });
+
+  document.addEventListener('click', function (e) {
+    if (!e.target || !e.target.closest) return;
+    if (e.target.closest('.composer-bar') || e.target.closest('.dd-pop')) return;
+    dismissDropdowns();
+  }, true);
+
   function enhanceAll() {
     resizeComposerIfNew();
     enhanceMarkdownTables(document);

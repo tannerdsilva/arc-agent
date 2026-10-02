@@ -1734,6 +1734,7 @@ extension AppState {
               \(sendButton)
             </div>
           </form>
+          <span id="dd-dismiss" data-component-id="dd-dismiss" data-event="click" hidden></span>
           \(filePop)
           <div id="slash-data" hidden>\(esc(slashDataJSON()))</div>
         </div>
