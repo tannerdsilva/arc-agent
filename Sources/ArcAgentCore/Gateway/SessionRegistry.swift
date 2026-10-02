@@ -76,6 +76,10 @@ public actor SessionRegistry {
         public let backgroundReviewWindow: Int
         /// External MCP servers (reference top-level `mcp_servers`).
         public let mcpServers: [String: MCPServerConfig]
+        /// Prebuilt process storage (the daemon resolves ONE pair for the whole
+        /// process). When nil, each session agent constructs its own — the
+        /// standalone gateway path.
+        public let storage: StorageRuntime?
 
         public init(
             model: String,
@@ -91,7 +95,8 @@ public actor SessionRegistry {
             verifyOnStop: Bool = false,
             skillInlineCommands: Bool = true,
             backgroundReviewAfter: Int = 0,
-            backgroundReviewWindow: Int = 8
+            backgroundReviewWindow: Int = 8,
+            storage: StorageRuntime? = nil
             ) {
             self.model = model
             self.provider = provider
@@ -107,6 +112,7 @@ public actor SessionRegistry {
             self.maxIterations = maxIterations
             self.toolLoopCap = toolLoopCap
             self.mcpServers = mcpServers
+            self.storage = storage
         }
     }
 

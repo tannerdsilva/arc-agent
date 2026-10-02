@@ -1,0 +1,464 @@
+[
+  {
+    "scheme": "ares",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#22171C"
+  },
+  {
+    "scheme": "ares",
+    "mode": "dark",
+    "property": "--color-primary-solid",
+    "value": "#E5484D"
+  },
+  {
+    "scheme": "ares",
+    "mode": "dark",
+    "property": "--color-text",
+    "value": "#E6E6EC"
+  },
+  {
+    "scheme": "ares",
+    "mode": "dark",
+    "property": "--user-bubble",
+    "value": "rgba(229, 72, 77, 0.13)"
+  },
+  {
+    "scheme": "ares",
+    "mode": "light",
+    "property": "--color-bg",
+    "value": "#F6EBED"
+  },
+  {
+    "scheme": "ares",
+    "mode": "light",
+    "property": "--color-primary-solid",
+    "value": "#E5484D"
+  },
+  {
+    "scheme": "ares",
+    "mode": "light",
+    "property": "--color-text",
+    "value": "#1D1D24"
+  },
+  {
+    "scheme": "ares",
+    "mode": "light",
+    "property": "--user-bubble",
+    "value": "rgba(229, 72, 77, 0.10)"
+  },
+  {
+    "scheme": "ares",
+    "mode": "system",
+    "property": "--color-bg",
+    "value": "#F6EBED"
+  },
+  {
+    "scheme": "ares",
+    "mode": "system",
+    "property": "--color-primary-solid",
+    "value": "#E5484D"
+  },
+  {
+    "scheme": "ares",
+    "mode": "system",
+    "property": "--color-text",
+    "value": "#1D1D24"
+  },
+  {
+    "scheme": "ares",
+    "mode": "system",
+    "property": "--user-bubble",
+    "value": "rgba(229, 72, 77, 0.10)"
+  },
+  {
+    "scheme": "catppuccin",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#1E1E2E"
+  },
+  {
+    "scheme": "charizard",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#231A18"
+  },
+  {
+    "scheme": "codex",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#151614"
+  },
+  {
+    "scheme": "default",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#17171B"
+  },
+  {
+    "scheme": "default",
+    "mode": "dark",
+    "property": "--color-primary-solid",
+    "value": "#D9A441"
+  },
+  {
+    "scheme": "default",
+    "mode": "dark",
+    "property": "--color-text",
+    "value": "#E8E6E1"
+  },
+  {
+    "scheme": "default",
+    "mode": "dark",
+    "property": "--user-bubble",
+    "value": "rgba(217, 164, 65, 0.13)"
+  },
+  {
+    "scheme": "default",
+    "mode": "light",
+    "property": "--color-bg",
+    "value": "#FDFBF7"
+  },
+  {
+    "scheme": "default",
+    "mode": "light",
+    "property": "--color-primary-solid",
+    "value": "#B8860B"
+  },
+  {
+    "scheme": "default",
+    "mode": "light",
+    "property": "--color-text",
+    "value": "#2A2723"
+  },
+  {
+    "scheme": "default",
+    "mode": "light",
+    "property": "--user-bubble",
+    "value": "rgba(184, 134, 11, 0.10)"
+  },
+  {
+    "scheme": "default",
+    "mode": "system",
+    "property": "--color-bg",
+    "value": "#FDFBF7"
+  },
+  {
+    "scheme": "default",
+    "mode": "system",
+    "property": "--color-primary-solid",
+    "value": "#B8860B"
+  },
+  {
+    "scheme": "default",
+    "mode": "system",
+    "property": "--color-text",
+    "value": "#2A2723"
+  },
+  {
+    "scheme": "default",
+    "mode": "system",
+    "property": "--user-bubble",
+    "value": "rgba(184, 134, 11, 0.10)"
+  },
+  {
+    "scheme": "dracula",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#282A36"
+  },
+  {
+    "scheme": "geist-contrast",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#000000"
+  },
+  {
+    "scheme": "github",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#151614"
+  },
+  {
+    "scheme": "graphite",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#151614"
+  },
+  {
+    "scheme": "gruvbox",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#282828"
+  },
+  {
+    "scheme": "gruvbox",
+    "mode": "dark",
+    "property": "--color-primary-solid",
+    "value": "#D79921"
+  },
+  {
+    "scheme": "gruvbox",
+    "mode": "dark",
+    "property": "--color-text",
+    "value": "#EBDBB2"
+  },
+  {
+    "scheme": "gruvbox",
+    "mode": "dark",
+    "property": "--user-bubble",
+    "value": "rgba(215, 153, 33, 0.15)"
+  },
+  {
+    "scheme": "gruvbox",
+    "mode": "light",
+    "property": "--color-bg",
+    "value": "#FBF1C7"
+  },
+  {
+    "scheme": "gruvbox",
+    "mode": "light",
+    "property": "--color-primary-solid",
+    "value": "#D79921"
+  },
+  {
+    "scheme": "gruvbox",
+    "mode": "light",
+    "property": "--color-text",
+    "value": "#3C3836"
+  },
+  {
+    "scheme": "gruvbox",
+    "mode": "light",
+    "property": "--user-bubble",
+    "value": "rgba(215, 153, 33, 0.10)"
+  },
+  {
+    "scheme": "gruvbox",
+    "mode": "system",
+    "property": "--color-bg",
+    "value": "#FBF1C7"
+  },
+  {
+    "scheme": "gruvbox",
+    "mode": "system",
+    "property": "--color-primary-solid",
+    "value": "#D79921"
+  },
+  {
+    "scheme": "gruvbox",
+    "mode": "system",
+    "property": "--color-text",
+    "value": "#3C3836"
+  },
+  {
+    "scheme": "gruvbox",
+    "mode": "system",
+    "property": "--user-bubble",
+    "value": "rgba(215, 153, 33, 0.10)"
+  },
+  {
+    "scheme": "hepburn",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#110a0f"
+  },
+  {
+    "scheme": "mono",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#1B1B21"
+  },
+  {
+    "scheme": "neon",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#0B0D12"
+  },
+  {
+    "scheme": "neon-paint",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#0D0A16"
+  },
+  {
+    "scheme": "neon-soft",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#181428"
+  },
+  {
+    "scheme": "nous",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#0A0E14"
+  },
+  {
+    "scheme": "one-dark",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#181E27"
+  },
+  {
+    "scheme": "poseidon",
+    "mode": "dark",
+    "property": "--bg",
+    "value": "var(--color-bg)"
+  },
+  {
+    "scheme": "poseidon",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#0E1B22"
+  },
+  {
+    "scheme": "poseidon",
+    "mode": "dark",
+    "property": "--color-primary-solid",
+    "value": "#4FC3E8"
+  },
+  {
+    "scheme": "poseidon",
+    "mode": "dark",
+    "property": "--color-text",
+    "value": "#DBE9EF"
+  },
+  {
+    "scheme": "poseidon",
+    "mode": "dark",
+    "property": "--text",
+    "value": "var(--color-text)"
+  },
+  {
+    "scheme": "poseidon",
+    "mode": "dark",
+    "property": "--user-bubble",
+    "value": "rgba(79, 195, 232, 0.13)"
+  },
+  {
+    "scheme": "poseidon",
+    "mode": "light",
+    "property": "--bg",
+    "value": "var(--color-bg)"
+  },
+  {
+    "scheme": "poseidon",
+    "mode": "light",
+    "property": "--color-bg",
+    "value": "#F4FAFC"
+  },
+  {
+    "scheme": "poseidon",
+    "mode": "light",
+    "property": "--color-primary-solid",
+    "value": "#0E7C9B"
+  },
+  {
+    "scheme": "poseidon",
+    "mode": "light",
+    "property": "--color-text",
+    "value": "#17313A"
+  },
+  {
+    "scheme": "poseidon",
+    "mode": "light",
+    "property": "--text",
+    "value": "var(--color-text)"
+  },
+  {
+    "scheme": "poseidon",
+    "mode": "light",
+    "property": "--user-bubble",
+    "value": "rgba(14, 124, 155, 0.10)"
+  },
+  {
+    "scheme": "poseidon",
+    "mode": "system",
+    "property": "--bg",
+    "value": "var(--color-bg)"
+  },
+  {
+    "scheme": "poseidon",
+    "mode": "system",
+    "property": "--color-bg",
+    "value": "#F4FAFC"
+  },
+  {
+    "scheme": "poseidon",
+    "mode": "system",
+    "property": "--color-primary-solid",
+    "value": "#0E7C9B"
+  },
+  {
+    "scheme": "poseidon",
+    "mode": "system",
+    "property": "--color-text",
+    "value": "#17313A"
+  },
+  {
+    "scheme": "poseidon",
+    "mode": "system",
+    "property": "--text",
+    "value": "var(--color-text)"
+  },
+  {
+    "scheme": "poseidon",
+    "mode": "system",
+    "property": "--user-bubble",
+    "value": "rgba(14, 124, 155, 0.10)"
+  },
+  {
+    "scheme": "rosepine",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#191724"
+  },
+  {
+    "scheme": "sienna",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#1F1E1C"
+  },
+  {
+    "scheme": "sisyphus",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#0D0D1A"
+  },
+  {
+    "scheme": "slate",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#171A21"
+  },
+  {
+    "scheme": "solarized-dark",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#141B25"
+  },
+  {
+    "scheme": "terracotta",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#141413"
+  },
+  {
+    "scheme": "tokyo-night",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#1A1D28"
+  },
+  {
+    "scheme": "verdigris",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#0F1714"
+  },
+  {
+    "scheme": "zeus",
+    "mode": "dark",
+    "property": "--color-bg",
+    "value": "#0F0F0F"
+  }
+]

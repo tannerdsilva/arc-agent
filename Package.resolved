@@ -1,5 +1,5 @@
 {
-  "originHash" : "5288d06d779ebf5a5eff4fd94968545acdbfb670af75ae8c1c64536d2b75a207",
+  "originHash" : "3c8d5e1e32e871d5c72efcee6eb4c64b71e0011c8ca37ed685326248182c12b0",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -42,8 +42,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/no-webui.git",
       "state" : {
-        "branch" : "dev",
-        "revision" : "db287d78bd9e8222c0de53952a4c0a3e11313c46"
+        "revision" : "61b8bddc5907094e0c087f288f105933f5bd9089"
       }
     },
     {

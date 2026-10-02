@@ -40,6 +40,16 @@ public final class EmailAdapter: PlatformAdapter {
     public var canEditMessages: Bool { false }
 
     public func run() async throws {
+        // `runUntilShutdown` bridges the enclosing group's graceful shutdown to
+        // the cancellation this loop already understands, so SIGTERM stops the
+        // poll promptly instead of waiting out the grace period.
+        try await runUntilShutdown {
+            try await self.pollLoop()
+        }
+    }
+
+    /// The IMAP poll loop; exits on task cancellation.
+    private func pollLoop() async throws {
         try await withTaskCancellationHandler {
             while !Task.isCancelled {
                 do {

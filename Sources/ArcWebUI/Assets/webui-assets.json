@@ -1,0 +1,11 @@
+{
+  "types": [
+    {
+      "name": "ArcOverlay",
+      "kind": "file",
+      "path": "overlay.js",
+      "contentType": "text/javascript",
+      "prose": "off"
+    }
+  ]
+}

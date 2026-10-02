@@ -3,7 +3,12 @@ import Testing
 import Foundation
 
 /// `tool_search` catalog search tests (reference `tools/tool_search.py` parity).
-@Suite("Tool search")
+///
+/// Serialized: the registry-backed tests set/clear the shared
+/// `ToolSearchTool.registry` static. Run in parallel they raced each other's
+/// deallocs — a boxed-existential release under concurrency segfaulted the
+/// test process (crash report 2026-10-01 21:02, `invalidForm` frames).
+@Suite("Tool search", .serialized)
 struct ToolSearchTests {
 
     @Test("search ranks name matches above description-only matches")

@@ -76,15 +76,13 @@ public func sanitizeImageURL(_ url: String) -> String? {
 /// rules, nested blockquotes, ordered/unordered lists with nesting, task-list
 /// checkboxes, pipe tables, and inline **bold**, __bold__, *emphasis*,
 /// _emphasis_, `code`, ~~strikethrough~~, [links](url), ![images](url),
-/// autolinked http(s) URLs, $inline$ / $$block$$ / \(...\) / \[...\] math, and
-/// raw `<br>` passthrough.
+/// autolinked http(s) URLs, and raw `<br>` passthrough.
 ///
 /// Every byte of input is html-escaped before any token is recognized, so raw
 /// HTML never reaches the document and link/image targets pass through
-/// `sanitizeURL`. Math emits `<equation-inline>` / `<equation-block>` elements
-/// holding the TeX source (HTML-escaped for transport; the client reads
-/// `textContent`, which the browser decodes) that the WebUI runtime hands to
-/// KaTeX — the same pattern as reference' smd + `renderKatexBlocks`.
+/// `sanitizeURL`. math is not a token: `$…$`, `$$…$$`, `\(…\)` and `\[…\]`
+/// render as escaped literal text — the math path and its client renderer left
+/// with the vendored payload, and a future math capability comes from no-webui.
 public func markdownToHTML(_ markdown: String) -> String {
     var parser = MarkdownBlockParser(lines: markdown.components(separatedBy: "\n"))
     return parser.parseBlocks().joined(separator: "\n")
@@ -113,10 +111,6 @@ private struct MarkdownBlockParser {
             let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty {
                 i += 1
-                continue
-            }
-            if let eq = parseDisplayMath(trimmed) {
-                out.append(eq)
                 continue
             }
             if let h = Self.heading(trimmed) {
@@ -159,7 +153,6 @@ private struct MarkdownBlockParser {
             if t.hasPrefix(">") { break }
             if Self.listItem(t) != nil { break }
             if Self.looksLikeTable(lines, at: i) { break }
-            if Self.isDisplayMathLine(t) { break }
             var line = lines[i]
             var hard = false
             if line.hasSuffix("\\") && line.count > 1 {
@@ -270,45 +263,6 @@ private struct MarkdownBlockParser {
         }
         return "<table>\n<thead>\n<tr>" + headCells + "</tr>\n</thead>\n<tbody>\n"
             + bodyHTML + "</tbody>\n</table>"
-    }
-
-    /// `$$...$$` (single or multi-line) and `\[...\]` display math.
-    mutating func parseDisplayMath(_ trimmed: String) -> String? {
-        if trimmed.hasPrefix("$$"), trimmed.count > 4, trimmed.hasSuffix("$$") {
-            let src = String(trimmed.dropFirst(2).dropLast(2)).trimmingCharacters(in: .whitespaces)
-            i += 1
-            return "<equation-block>" + src + "</equation-block>"
-        }
-        if trimmed.hasPrefix("\\["), trimmed.hasSuffix("\\]"), trimmed.count > 4 {
-            let src = String(trimmed.dropFirst(2).dropLast(2)).trimmingCharacters(in: .whitespaces)
-            i += 1
-            return "<equation-block>" + src + "</equation-block>"
-        }
-        if trimmed == "$$" || (trimmed.hasPrefix("$$") && !trimmed.hasSuffix("$$")) {
-            var src = trimmed == "$$" ? "" : String(trimmed.dropFirst(2))
-            i += 1
-            while i < lines.count {
-                let l = lines[i]
-                if l.hasSuffix("$$") && l != "$$" {
-                    src += String(l.dropLast(2))
-                    i += 1
-                    break
-                }
-                if l == "$$" {
-                    i += 1
-                    break
-                }
-                src += l + "\n"
-                i += 1
-            }
-            return "<equation-block>" + src + "</equation-block>"
-        }
-        return nil
-    }
-
-    static func isDisplayMathLine(_ trimmed: String) -> Bool {
-        trimmed == "$$" || (trimmed.hasPrefix("$$") && !trimmed.hasSuffix("$$"))
-            || (trimmed.hasPrefix("\\[") && !trimmed.hasSuffix("\\]"))
     }
 
     static func heading(_ trimmed: String) -> String? {
@@ -435,9 +389,8 @@ private func renderInlineMarkdown(_ text: String) -> String {
     // 3. Autolink bare http(s) URLs outside of links/images.
     carved = autolinkURLs(carved, into: &rich)
 
-    // 4. Inline math, strikethrough, emphasis (in that order).
-    var out = renderMathInline(carved)
-    out = renderStrikethrough(out)
+    // 4. Strikethrough, emphasis (in that order).
+    var out = renderStrikethrough(carved)
     out = renderEmphasis(out)
 
     // 5. Restore carved spans.
@@ -527,37 +480,6 @@ private func autolinkURLs(_ text: String, into rich: inout [String]) -> String {
                 rich.append("<a href=\"" + htmlEscape(url) + "\">" + url + "</a>")
                 result += "\u{3}\(rich.count - 1)\u{4}"
                 i = j
-                continue
-            }
-        }
-        result.append(text[i])
-        i = text.index(after: i)
-    }
-    return result
-}
-
-private func renderMathInline(_ text: String) -> String {
-    var result = ""
-    var i = text.startIndex
-    while i < text.endIndex {
-        if text[i] == "$" {
-            let after = text.index(after: i)
-            if after < text.endIndex, text[after] != "$" {
-                if let close = findInlineMarker(text, from: after, marker: "$") {
-                    let src = String(text[after..<close])
-                    if !src.isEmpty && src != " " {
-                        result += "<equation-inline>" + src + "</equation-inline>"
-                        i = text.index(after: close)
-                        continue
-                    }
-                }
-            }
-        } else if text[i] == "\\", text.index(after: i) < text.endIndex, text[text.index(after: i)] == "(" {
-            let after = text.index(i, offsetBy: 2)
-            if let close = findInlineMarker(text, from: after, marker: "\\)") {
-                let src = String(text[after..<close])
-                result += "<equation-inline>" + src + "</equation-inline>"
-                i = text.index(close, offsetBy: 2)
                 continue
             }
         }

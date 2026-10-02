@@ -56,6 +56,10 @@ public final class MCPServerAdapter: Service {
     // MARK: - Service
 
     public func run() async throws {
-        try await server.runService()
+        // `run()`, not `runService()`: the daemon root owns signals, and
+        // `run()` participates in the inherited graceful shutdown
+        // (`withGracefulShutdownHandler` → transport stop) instead of spinning
+        // up its own signal-trapping group nested in ours.
+        try await server.run()
     }
 }

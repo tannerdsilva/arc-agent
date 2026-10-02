@@ -10,8 +10,56 @@ import Foundation
 ///
 /// In execution contexts without a UI (CLI TUI, gateway, headless), invoking
 /// this tool returns an error — matching reference' clarify tool behaviour when
-/// no platform callback is injected.
+/// no platform callback is injected. A host that CAN ask a human (the web UI,
+/// a TUI) injects a ``Presenter`` through ``presenters`` before its turn
+/// dispatches tools; the answer then becomes the tool result.
 public enum ClarifyTool {
+
+    /// Presents a clarification question to a human and returns their answer.
+    /// `nil` (or an empty answer) means the question went unanswered — the
+    /// tool then tells the model to use its best judgement.
+    public typealias Presenter = @Sendable (_ question: String, _ choices: [String]) async -> String?
+
+    /// Actor holding the ambient presenter. Injected by the execution host
+    /// before a turn dispatches tools — the same pattern as
+    /// ``ExecuteCodeTool/Dispatcher``: the host binds a presenter for the
+    /// session whose turn is running, and the tool snapshots it per call.
+    public actor PresenterBox {
+        private var presenter: Presenter?
+
+        public func set(_ presenter: Presenter?) {
+            self.presenter = presenter
+        }
+
+        func current() -> Presenter? {
+            presenter
+        }
+    }
+
+    /// The process-wide presenter box (nil = headless: the tool errors).
+    public static let presenters = PresenterBox()
+
+    /// Answer used when a presenter is injected but the question went
+    /// unanswered (user stop, timeout with no fallback).
+    static let unansweredText = "No response from the user. Use your best judgement and proceed."
+
+    /// Ask through the ambient presenter (or report unavailability).
+    static func ask(args: [String: Any]) async -> String {
+        let question = ((args["question"] as? String) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty else {
+            return "Error: clarify requires a question."
+        }
+        let choices = Array(((args["choices"] as? [String]) ?? []).prefix(4))
+        guard let presenter = await presenters.current() else {
+            return "Error: Clarify tool is not available in this execution context."
+        }
+        guard let answer = await presenter(question, choices),
+              !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return unansweredText
+        }
+        return answer
+    }
 
     static let entry = ToolEntry(
         name: "clarify",
@@ -36,8 +84,8 @@ public enum ClarifyTool {
             ],
             required: ["question"]
         ),
-        handler: { _ in
-            "Error: Clarify tool is not available in this execution context."
+        handler: { args in
+            await ClarifyTool.ask(args: args)
         }
     )
 }

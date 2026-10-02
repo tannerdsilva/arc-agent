@@ -359,6 +359,19 @@ public actor ArcAgent: Service {
         }
     }
 
+    /// Register the human-approval presenter for this agent's turns.
+    ///
+    /// The presenter is consulted for dangerous commands in
+    /// ``ApprovalMode/manual`` and suspicious-or-worse commands in
+    /// ``ApprovalMode/smart``. It belongs to the renderer: the web UI wires a
+    /// permission card, a TUI wires a prompt. Without one the historic
+    /// headless behaviour stands — the tool result reports that manual
+    /// approval is required. The agent is per-session, so the presenter can
+    /// route its request to the right surface.
+    public func setApprovalPresenter(_ presenter: ApprovalPresenter?) async {
+        await approvalManager.setPresenter(presenter)
+    }
+
     /// Smart-approval risk classification via the `approval` auxiliary model.
     /// Returns nil when no approval override is configured or the call fails,
     /// letting the regex detector stand in.
@@ -1755,11 +1768,14 @@ public actor ArcAgent: Service {
 
     // MARK: - Streaming Turn Loop
 
-    /// Run the agent loop with streaming responses.
-    /// Yields tokens as they arrive from the LLM, then yields the final
-    /// response text. Tool calls are executed synchronously and their
-    /// results are yielded as single chunks.
-    nonisolated public func streamConversation(message: String) -> AsyncThrowingStream<String, Error> {
+    /// Run the agent loop and stream structured ``AgentTurnEvent`` values.
+    ///
+    /// This is the primary streaming surface: text deltas, reasoning deltas,
+    /// tool-call lifecycle, usage, and the terminal completion or error
+    /// notice. Text-only consumers (CLI, gateway, TUI) use
+    /// ``streamConversation(message:)`` — a projection over this same
+    /// execution, so both surfaces observe identical turns.
+    nonisolated public func streamTurn(message: String) -> AsyncThrowingStream<AgentTurnEvent, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 do {
@@ -1768,8 +1784,39 @@ public actor ArcAgent: Service {
                         await restoreSessionIfNeeded()
                         await resetTurnState()
                         await self.appendUserMessage(Message(role: .user, content: self.effectiveUserText(message)))
-                        try await runStreamingTurnLoop(continuation: continuation)
+                        try await runStreamingTurnLoop(emit: { event in continuation.yield(event) })
                     }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Run the agent loop with streaming responses, yielding plain text.
+    ///
+    /// A projection of ``streamTurn(message:)``: forwards ``AgentTurnEvent/textDelta(_:)``
+    /// and ``AgentTurnEvent/failed(_:)`` verbatim, and synthesises the historic
+    /// `[Tool: name] result` lines from ``AgentTurnEvent/toolCallFinished(id:name:result:)``.
+    /// Byte-compatible with the pre-event implementation for CLI and gateway
+    /// consumers.
+    nonisolated public func streamConversation(message: String) -> AsyncThrowingStream<String, Error> {
+        let events = streamTurn(message: message)
+        return AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    for try await event in events {
+                        switch event {
+                        case .textDelta(let text), .failed(let text):
+                            continuation.yield(text)
+                        case .toolCallFinished(_, let name, let result):
+                            continuation.yield("[Tool: \(name)] \(result)\n")
+                        case .reasoningDelta, .toolCallStarted, .usage, .completed:
+                            break
+                        }
+                    }
+                    continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
                 }
@@ -1779,12 +1826,11 @@ public actor ArcAgent: Service {
 
     /// The core streaming turn loop.
     private func runStreamingTurnLoop(
-        continuation: AsyncThrowingStream<String, Error>.Continuation
+        emit: @Sendable (AgentTurnEvent) -> Void
     ) async throws {
         await toolGuardrails.resetTurn()
         guard let hc = self.httpClient else {
-            continuation.yield("Error: Agent HTTP client not initialized.")
-            continuation.finish()
+            emit(.failed("Error: Agent HTTP client not initialized."))
             return
         }
         let fallbackClient = self.llmClient ?? OpenAICompatibleClient(
@@ -1814,8 +1860,8 @@ public actor ArcAgent: Service {
         for iteration in 0..<maxIters {
             if turnInterrupted {
                 turnInterrupted = false
-                continuation.yield("Interrupted by user.")
-                continuation.finish()
+                emit(.textDelta("Interrupted by user."))
+                emit(.completed(finalText: "Interrupted by user."))
                 return
             }
             // Reference gateway event: `agent:step` per tool-loop iteration.
@@ -1874,6 +1920,10 @@ public actor ArcAgent: Service {
                 for try await delta in stream {
                     if let usage = delta.usage {
                         streamUsage = usage
+                        emit(.usage(usage))
+                    }
+                    if let reasoning = delta.reasoning, !reasoning.isEmpty {
+                        emit(.reasoningDelta(reasoning))
                     }
                     if let content = delta.content {
                         // Strip streamed reasoning blocks with a stateful
@@ -1885,7 +1935,7 @@ public actor ArcAgent: Service {
                         let visible = streamThinkScrubber.feed(content)
                         accumulatedContent += visible
                         if !visible.isEmpty {
-                            continuation.yield(visible)
+                            emit(.textDelta(visible))
                         }
                     }
                     if let toolCallDeltas = delta.toolCalls {
@@ -1925,7 +1975,7 @@ public actor ArcAgent: Service {
                 let tail = streamThinkScrubber.flush()
                 if !tail.isEmpty {
                     accumulatedContent += tail
-                    continuation.yield(tail)
+                    emit(.textDelta(tail))
                 }
             } catch {
                 let errorClass = classifyError(error)
@@ -1946,8 +1996,9 @@ public actor ArcAgent: Service {
                 if error is StaleStreamError {
                     _ = await staleTracker.recordStale()
                     if await staleTracker.shouldGiveUp {
-                        continuation.yield("The model stream stalled repeatedly. Please try again.")
-                        continuation.finish()
+                        let text = "The model stream stalled repeatedly. Please try again."
+                        emit(.textDelta(text))
+                        emit(.completed(finalText: text))
                         return
                     }
                     if !turnRecoveryState.primaryRecoveryAttempted {
@@ -1989,8 +2040,7 @@ public actor ArcAgent: Service {
                         continue
                     }
                 }
-                continuation.yield("Error: \(error.localizedDescription)")
-                continuation.finish()
+                emit(.failed("Error: \(error.localizedDescription)"))
                 return
             }
 
@@ -2016,7 +2066,7 @@ public actor ArcAgent: Service {
                 messageHistory.append(Message(role: .assistant, content: content))
                 turnRecoveryState.markProviderSuccess()
                 if let streamUsage { await recordUsage(streamUsage) }
-                continuation.finish()
+                emit(.completed(finalText: content))
                 return
 
             case .toolCalls(let toolCalls):
@@ -2026,7 +2076,7 @@ public actor ArcAgent: Service {
                     toolCalls: toolCalls
                 ))
 
-                let outcomes = await executeToolCalls(toolCalls)
+                let outcomes = await executeToolCalls(toolCalls, emit: emit)
                 for (call, result) in outcomes {
                     messageHistory.append(Message(
                         role: .tool,
@@ -2034,7 +2084,6 @@ public actor ArcAgent: Service {
                         name: call.function.name,
                         toolCallID: call.id
                     ))
-                    continuation.yield("[Tool: \(call.function.name)] \(result)\n")
                 }
                 appendedToolResults = !outcomes.isEmpty
                 turnRecoveryState.markProviderSuccess()
@@ -2060,17 +2109,24 @@ public actor ArcAgent: Service {
                 // the empty-response storm guard (reference).
                 turnRecoveryState.emptyStormStreak += 1
                 if turnRecoveryState.emptyStormStreak >= TurnRecoveryState.emptyStormThreshold {
-                    continuation.yield(RecoveryNudges.emptyStormExhaustedMessage)
-                    continuation.finish()
+                    emit(.textDelta(RecoveryNudges.emptyStormExhaustedMessage))
+                    emit(.completed(finalText: RecoveryNudges.emptyStormExhaustedMessage))
                     return
                 }
                 continue
             }
 
+            if iteration == maxIters - 1 {
+                let text = "I encountered an issue processing your request. Please try again."
+                emit(.textDelta(text))
+                emit(.completed(finalText: accumulatedContent.isEmpty ? text : accumulatedContent + "\n" + text))
+                return
+            }
         }
 
-        continuation.yield("The conversation reached the maximum iteration limit. Please start a new session.")
-        continuation.finish()
+        let limitText = "The conversation reached the maximum iteration limit. Please start a new session."
+        emit(.textDelta(limitText))
+        emit(.completed(finalText: limitText))
     }
 
     /// Call the LLM with retry logic, circuit breaker, and exponential backoff.
@@ -2877,13 +2933,28 @@ public actor ArcAgent: Service {
     /// Maximal runs of parallel-safe calls run concurrently in a ``TaskGroup``
     /// (First Law — no hand-rolled threads); every other call runs alone so
     /// side effects stay ordered. Results are returned in emission order.
-    private func executeToolCalls(_ toolCalls: [ToolCall]) async -> [(ToolCall, String)] {
+    ///
+    /// Every call emits ``AgentTurnEvent/toolCallStarted(id:name:arguments:)``
+    /// before it runs and ``AgentTurnEvent/toolCallFinished(id:name:result:)``
+    /// with its laundered result afterwards. Non-streaming callers pass the
+    /// default no-op emitter.
+    private func executeToolCalls(
+        _ toolCalls: [ToolCall],
+        emit: @Sendable (AgentTurnEvent) -> Void = { _ in }
+    ) async -> [(ToolCall, String)] {
         var outcomes: [(ToolCall, String)] = []
         toolCallsThisTurn += toolCalls.count
         for segment in Self.planToolBatch(toolCalls) {
+            for call in segment {
+                emit(.toolCallStarted(
+                    id: call.id, name: call.function.name, arguments: call.function.arguments
+                ))
+            }
             if segment.count == 1 {
                 let call = segment[0]
-                outcomes.append((call, await Self.launderToolResult(call, await runToolCall(call))))
+                let result = await Self.launderToolResult(call, await runToolCall(call))
+                emit(.toolCallFinished(id: call.id, name: call.function.name, result: result))
+                outcomes.append((call, result))
                 continue
             }
             // reference concurrent-batch watchdog parity: capped concurrency
@@ -2899,9 +2970,10 @@ public actor ArcAgent: Service {
                     return await Self.launderToolResult(call, result)
                 }
             )
-            outcomes.append(contentsOf: zip(segment, batch).map { (call, outcome) in
-                (call, outcome.result)
-            })
+            for (call, outcome) in zip(segment, batch) {
+                emit(.toolCallFinished(id: call.id, name: call.function.name, result: outcome.result))
+                outcomes.append((call, outcome.result))
+            }
         }
         // Verification evidence (reference `verification_evidence`): collect the
         // changed paths terminal tools attached, for the verify-on-stop nudge.

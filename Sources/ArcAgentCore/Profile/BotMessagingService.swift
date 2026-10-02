@@ -118,8 +118,12 @@ public actor BotMessagingService: Service {
         logger.info("Bot messaging service started")
 
         // The service runs until cancelled — it holds the activity stream
-        // continuation and the session registry reference.
-        try await Task.sleep(nanoseconds: UInt64.max)
+        // continuation and the session registry reference. `runUntilShutdown`
+        // turns the group's graceful shutdown into that cancellation, so
+        // SIGTERM stops it promptly instead of waiting out the grace period.
+        try await runUntilShutdown {
+            try await Task.sleep(nanoseconds: UInt64.max)
+        }
     }
 
     // MARK: - Sending Messages

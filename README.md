@@ -4,7 +4,7 @@
 
 ARC Agent is a **precompiled, Swift-native AI agent harness** — architecturally inspired by [the reference agent](https://hermes-agent.nousresearch.com), but built from the ground up for Swift's concurrency model, type system, and distribution story. Single binary, zero interpreter overhead, no npm dependency chain, instant startup.
 
-**Status:** Vascular hardening. The core architecture is built across 141 source files with 414 passing tests and a clean build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. The web UI ships as the `arc-agent-webui` executable: all CSS/JS are Swift-embedded strings (no build pipeline, no external assets at runtime).
+**Status:** Vascular hardening. The core architecture is built across 185 source files with 704 tests (2 of them environment-gated) and a clean build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. **One daemon hosts everything** — `arc serve` composes the REST API, the platform adapters, the cron scheduler and the web UI in a single `ServiceGroup`; the UI's CSS and JS are compiled in as Swift (the theme sheet rendered, minified, stamped and gzipped from `Sources/ArcTheme/`, the client overlay embedded from `Assets/overlay.js`) and served by no-webui's `WebUIServer` from content-stamped, immutable-cached urls.
 
 ## Install
 
@@ -33,7 +33,7 @@ From a source checkout, `make install` performs the same release build + copy in
 | Distribution | pip + venv + 227MB repo | Single binary (~33MB) |
 | Concurrency | threading + asyncio hybrid | Structured async/await + actors |
 | Type safety | Runtime (duck typing) | Compile-time (strong typing) |
-| Dependencies | 100+ Python + npm | 11 Swift packages |
+| Dependencies | 100+ Python + npm | 14 Swift packages |
 | Tool schemas | Dicts at runtime | Codable at compile time |
 
 ## The Law of the Land
@@ -49,22 +49,24 @@ All code in this project must satisfy two non-negotiable constraints:
 The full architecture is documented in [VISION.md](VISION.md). At a high level:
 
 ```text
-GatewayService (Service Lifecycle tree)         — `arc serve`
-├── HTTPServerService (Hummingbird)
-│   ├── GET /health, POST /v1/chat → SessionAgent
-│   └── GET /ui → "Web UI not configured" (the UI is served by arc-agent-webui)
-├── WebSocketServerService (NIOWebSocket, port+1)
-├── TelegramAdapter (long polling)
-├── MCPServerAdapter (MCP protocol)
-├── SessionRegistry (actor)
-│   └── SessionAgent [N] (Service per session)
-│       └── ArcAgent (actor — prompt → LLM → tools → response)
-└── DeliveryManager (actor — response routing)
+arc serve  →  ArcDaemon.run   (one Service Lifecycle tree, one process)
+├── GatewayService                                        — REST API
+│   ├── HTTPServerService (Hummingbird)   GET /health, POST /v1/chat → SessionAgent
+│   ├── TelegramAdapter / EmailAdapter / SlackAdapter     (config-gated in gateway.json)
+│   ├── SessionRegistry (actor)
+│   │   └── SessionAgent [N] (Service per session)
+│   │       └── ArcAgent (actor — prompt → LLM → tools → response)
+│   └── DeliveryManager (actor — response routing)
+├── WebUIHost  (no-webui's WebUIServer + two streamers)   — web UI on :8890
+│   └── AppState/Actions/Views (Swift-generated HTML/CSS/JS, zero npm)
+├── CronScheduler (RuntimeCronStore)                      — one engine, one store
+├── MCPServerAdapter (swift-mcp, TCP)                     — `mcp_server` gate, default off
+└── KanbanDispatcher (core file board)                    — `kanban` gate, default off
 
-arc-agent-webui (executable)                     — web UI on :8890
-├── AppState/Actions/Views/Theme  (Swift-generated HTML/CSS/JS, zero npm)
-├── RuntimeAsset.swift            (runtime JS as embedded strings)
-└── Generated/KaTeXAssets.swift   (KaTeX CSS/JS/fonts, generated)
+The daemon owns the signals (SIGTERM/SIGINT → graceful shutdown), one shared
+storage pair, and one log sink; surfaces are gated by `~/.arc/gateway.json`
+(`api`, `webui`, the adapters). The standalone `arc-agent-webui` binary was
+retired in the daemon consolidation.
 ```
 
 **55 registered tools** across ~13 toolsets: `core`, `file`, `terminal`, `web`, `delegation`, `kanban`, `profile`, `media`, `webhooks`, `skills`, `mcp`, `project`, `tools`, `messaging` (arc-parity: `project_*`, unified `skill_manage` + `skills_list`, `tool_search`, `send_message`).
@@ -85,32 +87,40 @@ swift run arc-agent tools
 export ARC_API_KEY=sk-...
 swift run arc-agent chat -q "hello world"
 
-# Web UI (http://127.0.0.1:8890)
-swift run arc-agent-webui
-
-# Start the gateway server (HTTP + Telegram + MCP + WebSocket)
-swift run arc-agent serve --port 8080
+# The daemon — REST API + Web UI in one process (UI on http://127.0.0.1:8890)
+swift run arc-agent serve
 ```
 
 ## Web UI
 
-The web UI is a single Swift executable target, `Sources/ArcAgentWebUI/`, built on the declarative no-webui engine (Swift DSL → HTML/CSS/JS). There is no npm, no `package.json`, no node_modules, no build pipeline — every byte of CSS and JavaScript the UI needs is embedded in the binary:
+The web UI is a **library** target, `Sources/ArcWebUI/`, mounted by the daemon as a sibling of the REST API and the adapters (`WebUIHost`, one `ServiceGroup` per process). It is built on the declarative no-webui engine (Swift DSL → HTML/CSS/JS). There is no npm, no `package.json`, no node_modules, no build pipeline — every byte of CSS and JavaScript the UI needs is embedded in the binary:
 
-- **Theme.swift** — the full stylesheet as Swift string constants (27 color schemes)
-- **RuntimeAsset.swift** — the client runtime (event routing, flyouts, drag-and-drop) as embedded strings
-- **Generated/KaTeXAssets.swift** — KaTeX CSS/JS/fonts, regenerated by `python3 Scripts/gen_katex_assets.py`
+- **Theme** — `Sources/ArcTheme/` holds the chrome stylesheet and the 27 schemes as no-webui
+  providers (a shared base, token aliases, and a catalog the settings grid renders from); the
+  served sheet is a **build product** — `ArcAssetTool theme-sheet` renders it, stamps its sha256
+  into the url, and gzips it (271 kb → 30 kb on the wire)
+- **no-webui's engine** — the client runtime. A page loads exactly two scripts: the
+  engine (served by `WebUIServer` at `/ui/webui-engine.js`) and `init.js`, the
+  arc-specific overlay, which rides the engine's `on.afterPatch` seam
+- **Theme sheet** — rendered from `Sources/ArcTheme/` and emitted through no-webui's
+  `WebUIBuild` by `ArcAssetPlugin` (via the `ArcAssetTool` target): minified, prose-gated,
+  stamped and gzipped on every build
+- **Client overlay** — `Sources/ArcWebUI/Assets/overlay.js`, embedded by no-webui's
+  `WebUIEmbedPlugin` from its `Assets/webui-assets.json` manifest on every build, so the
+  served script is a build product too (gzipped, stamped, immutable)
 
-Markdown in chat is rendered server-side by the arc-parity renderer in `Sources/ArcAgentCore/WebUI/Utilities.swift` (ATX headings, pipe tables, nested blockquotes, task checkboxes, KaTeX math, sanitized images, autolinks) and enhanced client-side (table sort/filter).
+Markdown in chat is rendered server-side by the arc-parity renderer in `Sources/ArcAgentCore/WebUI/Utilities.swift` (ATX headings, pipe tables, nested blockquotes, task checkboxes, sanitized images, autolinks) and enhanced client-side (table sort/filter).
+
+The `model` block of `~/.arc/config.json` is **the UI's model authority**: one preset is managed (`source: "config.json"`) and refreshed on every boot — model, provider, endpoint and the env API key — renaming with the model and repointing every pinned chat; presets you create in the picker are untouched, and an explicit pick stays active until you choose another.
 
 ### Makefile
 
 ```bash
 make          → debug build
 make release  → optimized release build
-make assets   → regenerate KaTeX assets (Scripts/gen_katex_assets.py)
 make install  → release + copy to ~/.local/bin
-make update   → assets + release + install (full cycle)
-make dev      → debug build + web UI
+make update   → release + install (full cycle)
+make dev      → debug build + the daemon (API + web UI)
 make test     → run all tests
 make dist     → create release tarball
 make clean    → clean build artifacts
@@ -143,8 +153,8 @@ See [VISION.md](VISION.md) for the full roadmap and subsystem documentation.
 | Lifecycle | Swift Service Lifecycle |
 | Regex | Swift Regex (built-in) |
 | Web UI | Swift DSL → HTML/CSS/JS (zero npm) |
-| WebSocket | NIOWebSocket (standalone, port+1) |
-| Asset pipeline | Embedded Swift strings + generated KaTeX assets |
+| WebSocket | no-webui's `WebUIServer` (`/ws`) |
+| Asset pipeline | Embedded Swift strings + a generated theme sheet |
 
 ## Related
 

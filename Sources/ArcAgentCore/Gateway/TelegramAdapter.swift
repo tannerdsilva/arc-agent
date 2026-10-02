@@ -86,6 +86,16 @@ public final class TelegramAdapter: PlatformAdapter {
     // MARK: - Service
 
     public func run() async throws {
+        // `runUntilShutdown` bridges the enclosing group's graceful shutdown to
+        // the cancellation this loop already understands, so SIGTERM stops the
+        // poll promptly instead of waiting out the grace period.
+        try await runUntilShutdown {
+            try await self.pollLoop()
+        }
+    }
+
+    /// The long-poll loop; exits on task cancellation.
+    private func pollLoop() async throws {
         try await withTaskCancellationHandler {
             // Learn identity once (mention gating needs the bot's username).
             if botID == nil {

@@ -59,11 +59,17 @@ public protocol CronStore: Sendable {
     func listAll() async throws -> [CronJob]
 }
 
-/// A file-based cron job store.
+/// A file-based cron job store (JSON files under `~/.arc/cron/`).
+///
+/// Deliberately **stateless**: every read scans the directory and every write
+/// touches the file, so several processes (the daemon's scheduler, the CLI,
+/// `arc blueprint`, the web UI) all observe the same jobs with no per-instance
+/// cache to go stale — a cache here made a job created through one store
+/// instance invisible to another until restart. The job count is small and the
+/// access pattern is a 30 s poll, so the scan is free.
 public actor FileCronStore: CronStore {
 
     private let directory: URL
-    private var cache: [String: CronJob] = [:]
 
     public init(directory: URL? = nil) {
         let dir = directory ?? FileManager.default.homeDirectoryForCurrentUser
@@ -73,23 +79,19 @@ public actor FileCronStore: CronStore {
     }
 
     public func save(_ job: CronJob) async throws {
-        cache[job.id] = job
         let data = try JSONEncoder().encode(job)
         try data.write(to: directory.appendingPathComponent("\(job.id).json"), options: .atomic)
     }
 
     public func get(id: String) async throws -> CronJob? {
-        if let cached = cache[id] { return cached }
         let url = directory.appendingPathComponent("\(id).json")
         guard let data = try? Data(contentsOf: url),
               let job = try? JSONDecoder().decode(CronJob.self, from: data)
         else { return nil }
-        cache[id] = job
         return job
     }
 
     public func delete(id: String) async throws {
-        cache[id] = nil
         try? FileManager.default.removeItem(at: directory.appendingPathComponent("\(id).json"))
     }
 
@@ -98,18 +100,17 @@ public actor FileCronStore: CronStore {
     }
 
     public func listAll() async throws -> [CronJob] {
-        if cache.isEmpty {
-            let files = (try? FileManager.default.contentsOfDirectory(
-                at: directory,
-                includingPropertiesForKeys: nil
-            )) ?? []
-            for file in files where file.pathExtension == "json" {
-                if let data = try? Data(contentsOf: file),
-                   let job = try? JSONDecoder().decode(CronJob.self, from: data) {
-                    cache[job.id] = job
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        return files
+            .filter { $0.pathExtension == "json" }
+            .compactMap { url in
+                (try? Data(contentsOf: url)).flatMap { data in
+                    try? JSONDecoder().decode(CronJob.self, from: data)
                 }
             }
-        }
-        return Array(cache.values).sorted { $0.createdAt < $1.createdAt }
+            .sorted { $0.createdAt < $1.createdAt }
     }
 }

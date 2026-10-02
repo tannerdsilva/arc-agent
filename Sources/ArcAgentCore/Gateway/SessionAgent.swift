@@ -82,7 +82,13 @@ public actor SessionAgent: Service {
             logger.info("step: opening session storage")
             let sessionStore: any SessionStore
             let memoryProvider: any MemoryProvider
-            if let tessera = agentConfig.tessera {
+            if let storage = agentConfig.storage {
+                // the daemon prebuilt ONE storage pair for the whole process;
+                // constructing a second pair here would open a second env on
+                // the same store directories.
+                sessionStore = storage.store
+                memoryProvider = storage.memory
+            } else if let tessera = agentConfig.tessera {
                 await TesseraConnection.shared.configure(tessera)
                 sessionStore = TesseraSessionStore()
                 memoryProvider = TesseraMemoryProvider()
@@ -177,9 +183,27 @@ public actor SessionAgent: Service {
                 }
                 var streamError: Error? = nil
                 do {
-                    let stream = agent.streamConversation(message: message.text)
-                    for try await delta in stream {
-                        buffer += delta
+                    // Structured turn events: text deltas drive live
+                    // delivery. Tool results are re-projected as the historic
+                    // `[Tool: name] result` lines, so platform output stays
+                    // byte-identical; usage and reasoning feed diagnostics
+                    // instead of the visible reply.
+                    let stream = agent.streamTurn(message: message.text)
+                    for try await event in stream {
+                        switch event {
+                        case .textDelta(let delta), .failed(let delta):
+                            buffer += delta
+                        case .toolCallFinished(_, let name, let result):
+                            buffer += "[Tool: \(name)] \(result)\n"
+                        case .toolCallStarted(_, let name, _):
+                            logger.debug("gateway: tool started: \(name) (session \(sessionID))")
+                        case .reasoningDelta(let delta):
+                            logger.debug("gateway: reasoning delta \(delta.count) chars (session \(sessionID))")
+                        case .usage(let usage):
+                            logger.debug("gateway: usage prompt=\(usage.promptTokens) completion=\(usage.completionTokens) (session \(sessionID))")
+                        case .completed:
+                            break
+                        }
                         if editable, let id = latestID,
                            Date().timeIntervalSince(lastEditAt) > 0.8 {
                             do {

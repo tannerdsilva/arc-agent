@@ -1,5 +1,6 @@
 import ArgumentParser
 import ArcAgentCore
+import ArcDaemon
 import Foundation
 
 // MARK: - Ops CLIs (reference `prompt-size`, `doctor`, `status`)
@@ -120,14 +121,14 @@ struct DoctorCmd: AsyncParsableCommand {
     }
 }
 
-/// `arc status` — component liveness and store sizes.
+/// `arc status` — the daemon's surfaces and store sizes.
 struct StatusCmd: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "status",
-        abstract: "Show status of components (gateway, webui, stores)."
+        abstract: "Show the daemon's surfaces and stores."
     )
-    @Option() var gatewayPort: Int = 8080
-    @Option() var webuiPort: Int = 8890
+    @Option(help: "Override the API port to probe (default: gateway.json / API_PORT).")
+    var gatewayPort: Int?
 
     func run() async throws {
         print("arc-agent \(ArcAgentCore.version)")
@@ -136,8 +137,31 @@ struct StatusCmd: AsyncParsableCommand {
         print("baseURL:   \(config.model.baseURL ?? "(default)")")
         print("")
 
-        _ = await probe(port: webuiPort, path: "/")
-        _ = await probe(port: gatewayPort, path: "/health")
+        // The surfaces are the ones `arc serve` would compose: same file, same
+        // resolution (`DaemonPlan`), one probe per enabled surface.
+        let arcHome = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".arc", isDirectory: true)
+        let gateway = GatewayConfig.load(
+            home: arcHome,
+            environment: ProcessInfo.processInfo.environment
+        )
+        let plan = DaemonPlan.resolve(gateway: gateway, overrides: .init(port: gatewayPort))
+
+        print("daemon:    one process — `arc serve`")
+        if let api = plan.api {
+            await probe(label: "api  ", host: api.host, port: api.port, path: "/health")
+        } else {
+            print("  api    disabled (gateway.json)")
+        }
+        if let webui = plan.webui {
+            await probe(label: "webui", host: webui.host, port: webui.port, path: "/")
+        } else {
+            print("  webui  disabled (gateway.json)")
+        }
+        if gateway.telegram.enabled { print("  telegram: enabled (adapter)") }
+        if gateway.email.enabled { print("  email:    enabled (adapter)") }
+        if gateway.slack.enabled { print("  slack:    enabled (adapter)") }
+        print("")
 
         do {
             let sessions = try await FileSessionStore().list(limit: 100_000)
@@ -159,22 +183,21 @@ struct StatusCmd: AsyncParsableCommand {
         }
     }
 
-    private func probe(port: Int, path: String) async -> Bool {
-        let url = URL(string: "http://127.0.0.1:\(port)\(path)")!
+    private func probe(label: String, host: String, port: Int, path: String) async {
+        let url = URL(string: "http://\(host):\(port)\(path)")!
         var request = URLRequest(url: url)
         request.timeoutInterval = 1.5
         request.httpMethod = "GET"
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse, http.statusCode < 500 {
-                print("port \(port):  ✅ listening (\(http.statusCode))")
-                return true
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            if code < 500 {
+                print("  \(label) http://\(host):\(port)  ✅ listening (\(code))")
+            } else {
+                print("  \(label) http://\(host):\(port)  ⚠️ responding (\(code))")
             }
-            print("port \(port):  ⚠️ responding (\((response as? HTTPURLResponse)?.statusCode ?? -1))")
-            return false
         } catch {
-            print("port \(port):  ❌ not reachable (\(error.localizedDescription.prefix(48)))")
-            return false
+            print("  \(label) http://\(host):\(port)  ❌ not reachable")
         }
     }
 }

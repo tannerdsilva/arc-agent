@@ -8,19 +8,24 @@ import NIO
 /// adapters, session registry, and message routing.
 ///
 /// ``GatewayService`` is a ``Service`` that composes:
-/// - ``HTTPServerService`` — REST API endpoints + web UI
-/// - ``WebSocketServerService`` — real-time WebSocket for the web UI
+/// - ``HTTPServerService`` — REST API (`/health`, `POST /v1/chat`)
 /// - ``TelegramAdapter`` — Telegram Bot API long polling
 /// - ``SessionRegistry`` — active session agents (no cache, LMDB is source of truth)
 /// - ``DeliveryManager`` — routes responses to the correct platform
 /// - ``BotMessagingService`` — inter-agent messaging
 /// - ``GroupChatManager`` — multi-agent coordination rooms
 ///
+/// The web UI is not hosted here: it is a sibling service in the same daemon
+/// (`WebUIHost`, mounted by `ArcDaemon` on its own port via the `webui` block
+/// of `gateway.json`). The gateway used to carry a second, hand-rolled UI
+/// surface (three `/ui` pages behind an `onUI` closure that was never
+/// configured, plus a NIO WebSocket server on `port + 1`); that duplicate is
+/// long gone. This service is the API and the platform adapters.
+///
 /// All components are managed by a ``ServiceGroup``.
 public struct GatewayService: Service {
 
     private let httpServer: HTTPServerService
-    private let wsServer: WebSocketServerService
     private let platformAdapters: [any PlatformAdapter]
     private let registry: SessionRegistry
     private let deliveryManager: DeliveryManager
@@ -37,10 +42,10 @@ public struct GatewayService: Service {
     /// Chat→session binding (reference `session_router` parity): resolves every
     /// incoming chat to its deterministic session ID.
     private let sessionRouter: SessionRouter
-    /// Scheduled job runner (reference `cron` service parity): registered as a
-    /// Service; the injected runner executes each due job as a one-shot agent
-    /// session.
-    private let cronScheduler: CronScheduler
+    /// The cron job runner (reference `cron` service parity): executes a due
+    /// job as a one-shot agent session. The daemon owns the scheduler itself
+    /// (`ArcDaemon`) and picks this runner when the web UI is not hosted.
+    public let cronRunner: @Sendable (CronJob) async throws -> String
 
     public init(
         host: String = "127.0.0.1",
@@ -77,18 +82,8 @@ public struct GatewayService: Service {
             await gcm.setMessagingService(bm)
         }
 
-        // Create the WebSocket server on the next port
-        let wsPort = port + 1
-        self.wsServer = WebSocketServerService(
-            host: host,
-            port: wsPort,
-            registry: reg,
-            handlerFactory: { sessionID, registry in
-                WebSocketHandler(sessionID: sessionID, registry: registry)
-            }
-        )
-
-        // Build the HTTP server with bot-mode web UI
+        // Build the HTTP server. REST only: the web UI is `WebUIHost`, a
+        // sibling service in the daemon (same process, its own port).
         self.httpServer = HTTPServerService(
             config: .init(host: host, port: port),
             onChat: { [reg, routes = profileRouting.sortedRoutes, multiplex = profileRouting.multiplexProfiles] sessionID, message in
@@ -111,8 +106,7 @@ public struct GatewayService: Service {
                     break  // Take the first response
                 }
                 return responseText.isEmpty ? "Message received" : responseText
-            },
-            onUI: nil
+            }
         )
 
         // Build platform adapters from gateway config (or legacy token flag).
@@ -171,30 +165,26 @@ public struct GatewayService: Service {
 
         // Cron execution harness: each due job becomes a one-shot agent
         // session under the default profile; the first response lands in
-        // the job's `lastOutput` (capped by the scheduler).
-        let cron = CronScheduler(
-            store: RuntimeCronStore(),
-            pollIntervalSeconds: 30,
-            jobRunner: { job in
-                let sessionID = "cron-\(job.id)"
-                let handle = await reg.getOrCreate(sessionID: sessionID, profile: "default")
-                let incoming = IncomingMessage(
-                    id: UUID().uuidString,
-                    chat: ChatTarget(platform: "cron", chatID: job.id),
-                    text: job.prompt,
-                    senderID: "cron"
-                )
-                handle.inputContinuation.yield(incoming)
-                var output = ""
-                for await response in handle.responses {
-                    output = response
-                    break // First response is the job result.
-                }
-                await reg.remove(sessionID: sessionID)
-                return output.isEmpty ? "Job processed (no response)." : output
+        // the job's `lastOutput` (capped by the scheduler, which the daemon
+        // owns — this closure is its runner when the web UI is not hosted).
+        self.cronRunner = { job in
+            let sessionID = "cron-\(job.id)"
+            let handle = await reg.getOrCreate(sessionID: sessionID, profile: "default")
+            let incoming = IncomingMessage(
+                id: UUID().uuidString,
+                chat: ChatTarget(platform: "cron", chatID: job.id),
+                text: job.prompt,
+                senderID: "cron"
+            )
+            handle.inputContinuation.yield(incoming)
+            var output = ""
+            for await response in handle.responses {
+                output = response
+                break // First response is the job result.
             }
-        )
-        self.cronScheduler = cron
+            await reg.remove(sessionID: sessionID)
+            return output.isEmpty ? "Job processed (no response)." : output
+        }
     }
 
     // MARK: - Service
@@ -202,7 +192,7 @@ public struct GatewayService: Service {
     public func run() async throws {
         logger.info("Starting ARC Agent Gateway (Bot Mode)...")
 
-        var services: [any Service] = [httpServer, wsServer, botMessaging, cronScheduler]
+        var services: [any Service] = [httpServer, botMessaging]
 
         // Register adapters for delivery, then ingest their messages into
         // sessions — routing each chat to the profile its route table
