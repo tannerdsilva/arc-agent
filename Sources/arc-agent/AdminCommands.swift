@@ -12,7 +12,8 @@ struct SessionsCmd: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "sessions",
         abstract: "Inspect persisted sessions.",
-        subcommands: [SessionsList.self, SessionsShow.self, SessionsDelete.self]
+        subcommands: [SessionsList.self, SessionsShow.self, SessionsDelete.self,
+                      SessionsExport.self, SessionsPrune.self, SessionsRename.self]
     )
 }
 
@@ -26,22 +27,37 @@ struct SessionsList: AsyncParsableCommand {
     @Option(name: .shortAndLong, help: "Maximum sessions to show.")
     var limit: Int = 20
 
+    @Option(name: .long, help: "Filter by source platform (cli, telegram, …).")
+    var source: String?
+
+    @Option(name: .long, help: "Filter by workspace key subtarget (path or basename).")
+    var workspace: String?
+
     func run() async throws {
         let store = FileSessionStore()
         let sessions = try await store.list(limit: limit)
-        if sessions.isEmpty {
+        let filtered = sessions.filter { s in
+            if let source, s.source != source { return false }
+            if let needle = workspace, let key = s.workspaceKey {
+                let keyURL = URL(fileURLWithPath: key)
+                let base = keyURL.lastPathComponent
+                if !key.contains(needle) && base != needle { return false }
+            }
+            return true
+        }
+        if filtered.isEmpty {
             print("No persisted sessions.")
             return
         }
         print("⚡ ARC Agent — Sessions")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        for s in sessions {
-            let title = s.title ?? "(untitled)"
+        for s in filtered {
+            let title = s.title ?? "—"
             let date = ISO8601DateFormatter().string(from: s.updatedAt)
             print("  \(s.id)")
             print("     \(title) — \(s.messageCount) messages — \(s.model) [\(date)]")
         }
-        print("Total: \(sessions.count) session(s)")
+        print("Total: \(filtered.count) session(s)")
     }
 }
 
@@ -345,5 +361,139 @@ struct McpList: AsyncParsableCommand {
         for (name, server) in config.mcpServers {
             print("  \(name): \(server.command) \(server.args.joined(separator: " "))")
         }
+    }
+}
+
+// MARK: - Sessions export (reference `hermes sessions export`)
+
+struct SessionsExport: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "export",
+        abstract: "Export sessions (jsonl default, or trace; --redact scrubs secrets)."
+    )
+
+    @Argument(help: "Output file path (or `-` for stdout).")
+    var output: String
+
+    @Option(name: .long, help: "Export format: jsonl (default) or trace.")
+    var format: String = "jsonl"
+
+    @Option(name: .long, help: "Export a single session by ID.")
+    var sessionID: String?
+
+    @Flag(name: .long, help: "Scrub API keys/tokens/credentials from the export.")
+    var redact = false
+
+    func run() async throws {
+        let store = FileSessionStore()
+        let sessions: [Session]
+        if let id = sessionID {
+            guard let s = try await store.get(id: id) else {
+                throw ValidationError("Session \(id) not found.")
+            }
+            sessions = [s]
+        } else {
+            // Materialize full histories (list returns summaries).
+            var full: [Session] = []
+            for summary in try await store.list(limit: 5000) {
+                if let s = try await store.get(id: summary.id) { full.append(s) }
+            }
+            sessions = full
+        }
+        var bytes = Data()
+        for session in sessions {
+            switch format {
+            case "trace":
+                bytes.append(try SessionExporter.traceRecord(session: redact ? redacted(session) : session))
+            default:
+                bytes.append(try SessionExporter.jsonlRecord(session: session, redacted: redact))
+            }
+        }
+        if output == "-" {
+            FileHandle.standardOutput.write(bytes)
+        } else {
+            try bytes.write(to: URL(fileURLWithPath: output), options: .atomic)
+            print("Exported \(sessions.count) session(s) to \(output)")
+        }
+    }
+
+    private func redacted(_ session: Session) -> Session {
+        var s = session
+        s.systemPrompt = s.systemPrompt.map(SessionExporter.redact)
+        s.messages = s.messages.map { m in
+            Message(role: m.role, content: m.content.map(SessionExporter.redact), name: m.name,
+                    toolCalls: m.toolCalls, toolCallID: m.toolCallID, reasoning: m.reasoning,
+                    terminalReason: m.terminalReason)
+        }
+        return s
+    }
+}
+
+// MARK: - Sessions prune (reference `hermes sessions prune`)
+
+struct SessionsPrune: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "prune",
+        abstract: "Delete ended sessions inactive for N days (default 90)."
+    )
+
+    @Option(name: .long, help: "Minimum inactive days (default 90).")
+    var olderThan: Int?
+
+    @Option(name: .long, help: "Only prune sessions from this source platform.")
+    var source: String?
+
+    @Flag(name: .long, help: "Skip confirmation.")
+    var yes = false
+
+    func run() async throws {
+        let store = FileSessionStore()
+        let all = try await store.list(limit: 5000)
+        let filter = SessionPruneFilter(olderThanDays: olderThan, source: source)
+        let doomed = all.filter { filter.matches($0, now: Date()) }
+        if doomed.isEmpty {
+            print("Nothing to prune.")
+            return
+        }
+        print("Will delete \(doomed.count) ended session(s):")
+        for s in doomed.prefix(20) {
+            print("  \(s.id) — \(s.title ?? "(untitled)")")
+        }
+        guard yes else {
+            print("Run with --yes to confirm.")
+            return
+        }
+        for s in doomed {
+            try await store.delete(id: s.id)
+        }
+        print("Deleted \(doomed.count) session(s).")
+    }
+}
+
+// MARK: - Sessions rename (reference `hermes sessions rename`)
+
+struct SessionsRename: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "rename",
+        abstract: "Rename a session (title rules: unique, max 100 chars, sanitized)."
+    )
+
+    @Argument(help: "Session ID.")
+    var id: String
+
+    @Argument(help: "New title.")
+    var newTitle: String
+
+    func run() async throws {
+        let store = FileSessionStore()
+        guard var session = try await store.get(id: id) else {
+            throw ValidationError("Session \(id) not found.")
+        }
+        session.title = SessionTitle.sanitized(newTitle)
+        try await store.update(session)
+        print("Renamed to: \(session.title ?? "")")
     }
 }

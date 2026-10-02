@@ -21,6 +21,8 @@ struct Arc: AsyncParsableCommand {
             """,
         subcommands: [
             Chat.self,
+            BatchCmd.self,
+            HooksCmd.self,
             Serve.self,
             Setup.self,
             Tools.self,
@@ -71,8 +73,14 @@ struct Chat: AsyncParsableCommand {
     @Option(name: .shortAndLong, help: "API key.")
     var apiKey: String?
 
-    @Option(name: .long, help: "Resume a persisted session by ID.")
+    @Option(name: .long, help: "Resume a persisted session by ID, prefix, or title.")
     var session: String?
+
+    @Flag(name: .shortAndLong, help: "Continue the most recent CLI session (reference --continue).")
+    var continueSession = false
+
+    @Flag(name: .long, help: "Resume without restoring the session's working directory.")
+    var noRestoreCwd = false
 
     @Option(name: .long, help: "Agent profile name (isolated config/memory/skills).")
     var profile: String?
@@ -86,6 +94,9 @@ struct Chat: AsyncParsableCommand {
     @Flag(name: .shortAndLong, help: "Enable YOLO mode (no approval prompts).")
     var yolo: Bool = false
 
+    @Flag(name: .long, help: "Enable automatic checkpoints before file changes (reference --checkpoints).")
+    var checkpoints: Bool = false
+
     /// Parse a comma-separated flag value into a trimmed set.
     static func parseList(_ value: String) -> Set<String> {
         Set(value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
@@ -93,6 +104,17 @@ struct Chat: AsyncParsableCommand {
 
     func run() async throws {
         var arcConfig = loadConfig()
+
+        // Checkpoints: `--checkpoints` forces the safety net on for this
+        // session (reference `hermes chat --checkpoints`).
+        if checkpoints {
+            await CheckpointGuard.shared.setEnabled(true)
+        }
+
+        // Event hooks: outbound webhooks run in CLI sessions too (reference:
+        // plugin + outbound hooks fire in CLI + gateway; gateway file hooks
+        // load in `arc serve` only).
+        await HookBus.shared.configureOutbound(arcConfig.hooks.outbound)
 
         // Web search backend: env override > config (reference `web.search_backend`).
         let searchBackend = ProcessInfo.processInfo.environment["SEARCH_BACKEND"]
@@ -111,7 +133,7 @@ struct Chat: AsyncParsableCommand {
         if let profileName {
             let manager = ProfileManager()
             guard let p = try await manager.get(name: profileName) else {
-                print("Error: Profile '\\(profileName)' not found. Run `arc profile list`.")
+                print("Error: Profile '\(profileName)' not found. Run `arc profile list`.")
                 return
             }
             if let m = p.model { arcConfig.model.defaultModel = m }
@@ -187,6 +209,16 @@ struct Chat: AsyncParsableCommand {
             memoryProvider = memoryDir.map { FileMemoryProvider(directory: $0) } ?? FileMemoryProvider()
         }
 
+        // Resume resolution (reference `sessions.md` § CLI Session Resume):
+        // `-c` continues the most recent CLI session; `--resume` matches by
+        // ID, unique prefix, or title (lineage variants pick the newest).
+        let resolvedSession: String? = if session != nil || continueSession {
+            await Self.resolveResume(needle: session, continueMode: continueSession,
+                                     noRestoreCwd: noRestoreCwd, using: sessionStore)
+        } else {
+            session
+        }
+
         // Discover skills if enabled (profile-isolated directory when active).
         let skillsArg = skills
         let skillNames: Set<String>? = skillsArg.map { Self.parseList($0) }
@@ -200,7 +232,6 @@ struct Chat: AsyncParsableCommand {
             discoveredSkills.filter { filter.contains($0.name) }
         } ?? discoveredSkills
 
-        // Resolve approval mode
         let approvalMode: ApprovalMode = yolo ? .off
             : ApprovalMode(rawValue: arcConfig.security.approvalMode) ?? .manual
 
@@ -224,7 +255,7 @@ struct Chat: AsyncParsableCommand {
                 everyNTurns: arcConfig.agent.microCompactEveryNTurns,
                 defragThresholdTokens: arcConfig.agent.microCompactDefragThresholdTokens
             ),
-            sessionID: session,
+            sessionID: resolvedSession,
             contextLength: arcConfig.model.contextLength,
             moa: arcConfig.moa,
             skillInlineCommands: arcConfig.agent.skillInlineCommands,
@@ -304,6 +335,11 @@ struct Serve: AsyncParsableCommand {
         let arcConfig = loadConfig()
         let logger = Logger(label: "arc-agent.gateway")
 
+        // Event hooks: gateway hooks + outbound webhooks (reference
+        // HookRegistry discover/load + hooks.outbound registration).
+        await HookBus.shared.configureOutbound(arcConfig.hooks.outbound)
+        await HookBus.shared.loadFileHooks()
+
         // Tessera storage for the gateway: sessions, memory, and the profile
         // index all flow through the shared connection.
         if let tessera = arcConfig.tessera {
@@ -331,6 +367,16 @@ struct Serve: AsyncParsableCommand {
             home: arcHome,
             environment: ProcessInfo.processInfo.environment
         )
+
+        // Reference gateway event: `gateway:startup` (fires once per process
+        // start; platform list = active platform adapters).
+        let activePlatforms = [
+            gatewayConfig.telegram.enabled ? "telegram" : nil,
+            gatewayConfig.email.enabled ? "email" : nil,
+            gatewayConfig.slack.enabled ? "slack" : nil,
+            "http",
+        ].compactMap { $0 }
+        await HookBus.shared.emit("gateway:startup", ["platforms": .array(activePlatforms)])
 
         let gateway = GatewayService(
             host: host,
@@ -679,5 +725,40 @@ struct ProfileShow: AsyncParsableCommand {
             let preview = soul.prefix(200).trimmingCharacters(in: .whitespacesAndNewlines)
             print("  SOUL.md:     \(preview)...")
         }
+    }
+}
+
+extension Chat {
+    /// Resolve `--resume`/`--continue` to a concrete session (reference
+    /// `sessions.md`), printing the restore line and `cd`-ing back into the
+    /// session workspace unless `--no-restore-cwd`. Returns the session ID.
+    private static func resolveResume(
+        needle: String?,
+        continueMode: Bool,
+        noRestoreCwd: Bool,
+        using store: any SessionStore
+    ) async -> String? {
+        let all = (try? await store.list(limit: 5000)) ?? []
+        var target: Session?
+        if let needle, !needle.isEmpty {
+            // Unique ID prefix matches first, then exact title, then lineage
+            // (title prefix picking the most recent).
+            target = all.first { $0.id.hasPrefix(needle) }
+                ?? all.first { $0.title == needle }
+                ?? all.first { ($0.title ?? "").hasPrefix(needle) }
+        } else if continueMode {
+            target = all.first { ($0.source ?? "") == "cli" || ($0.source == nil) }
+        }
+        guard let resume = target else {
+            print("⚠️ No session found to resume (\(needle ?? "most recent CLI session")).")
+            return nil
+        }
+        let title = resume.title ?? "(untitled)"
+        if let workspace = resume.workspaceKey, !noRestoreCwd {
+            print("↪ restored workspace dir: \(workspace)")
+            FileManager.default.changeCurrentDirectoryPath(workspace)
+        }
+        print("↻ resuming session \(resume.id) — \(title)")
+        return resume.id
     }
 }
