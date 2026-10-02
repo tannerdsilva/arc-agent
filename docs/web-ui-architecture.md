@@ -92,6 +92,47 @@ something an entry has to remember to ask for.
    turns, the live log ring buffer, the workspace tree) go out through
    `WebUIServer.broadcast`.
 
+## Streaming turns
+
+A running turn renders into a dedicated live node, never by re-rendering the
+transcript. Measured before this contract (2026-10-01, one chat, Max thinking):
+the whole transcript was re-rendered on every push — 107–362 `#chat-inner`
+teardowns per turn, 108–368 view transitions, and every `<details>` open state,
+timestamp footer and hover node destroyed 2–8×/second.
+
+The contract now:
+
+- **Stable ids.** Every rendered unit is addressable: `msg-<rawIdx>` (assistant and
+  tool messages), `turn-<turnIndex>` (completed turn blocks), and `live-turn` /
+  `live-turn-body` / `live-turn-text` / `live-turn-thinking` (the running turn).
+  User messages keep `msg-user-<idx>` — the conversation outline anchors on it.
+- **Token pushes are text writes.** The streaming loop pushes
+  `FragmentUpdate.text(id: "live-turn-text" | "live-turn-thinking")`; in steady state
+  the engine mutates the text node's data, so the only mutations during a stream are
+  characterData writes. The `live-turn` node replace is reserved for structural
+  changes — status, tool chips, a row appearing or vanishing, the quantized TPS chip.
+- **Boundaries are chrome + transcript, never `#main`.** Turn start/end push
+  `turnChromeFragments()` (panel, chat header, composer, toasts) plus
+  `transcriptFragments()`; a message commit pushes the transcript; sending a message
+  only clears the composer. Replacing `#main` at a boundary killed scroll, selection
+  and focus — no turn path does it any more.
+- **Transitions are navigation-scale only.** Live fragments carry
+  `transition: false`; `append`/`text` ops never animate. A full turn animates at its
+  two boundaries at most.
+- **In-process polish.** The live header shows an elapsed clock, and the tool status
+  line names the running tool with its own client-ticked clock (`data-elapsed`, 1 s
+  tick in `overlay.js`) — both stable spans the server never re-renders. Live
+  reasoning renders in every activity mode except `hide_all_activity`.
+- **Push hygiene.** `PushDeduper` (in the push closure) drops fragment batches whose
+  HTML repeats the last push for the same id; empty html — the remove-the-node
+  signal — always passes.
+
+After (same chat, measured live): a complete turn = ~63 characterData writes, 5
+structural node swaps, 2 transcript renders, 2 transitions. Contract pins:
+`Tests/ArcAgentWebUITests/StreamingDomContractTests.swift` +
+`StreamingPushHygieneTests.swift`; the engine side is pinned by no-webui's browser
+smoke.
+
 ## Theming and icons
 
 - `ThemeCatalog.swift` holds the 27 schemes as no-webui `WebUIThemeProvider`s.

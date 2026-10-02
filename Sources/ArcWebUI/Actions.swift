@@ -675,21 +675,59 @@ extension AppState {
             Task { await self.maybeGenerateTitle(sessionID: sessionID, pusher: pusher) }
         }
 
-        // Full chat render at turn start: the composer flips to the red stop
-        // button and the running chat's row swaps ⋮ for a spinner.
-        await pusher(await chatFragments())
+        // Turn-start boundary: chrome (composer flips to the red stop button, the
+        // running chat's row swaps ⋮ for a spinner, the header meta) plus the
+        // transcript (the new user message + the live turn block). NOT `#main`.
+        let turnChrome = await turnChromeFragments()
+        let transcript = await transcriptFragments()
+        await pusher(turnChrome + transcript)
 
         // Streaming loop with ~90 ms push coalescing. Only push live
         // fragments while the user is viewing the chat that owns the turn —
         // otherwise the active chat's scroll container is needlessly replaced
         // every ~90 ms and its scroll position fights the user.
+        //
+        // Token pushes are text writes into the live block's stable spans
+        // (`FragmentUpdate.text`): the only mutations during a text stream are
+        // characterData writes. The node replace (`liveFragments`) is reserved
+        // for structural changes — status, tool chips, an appearing/vanishing
+        // thinking row, the quantized TPS chip.
         var lastPush = Date.distantPast
+        var lastStructure = ""
+        var lastLiveText = ""
+        var lastLiveThinking = ""
+        func liveStructureSignature(_ live: LiveTurn) -> String {
+            "\(live.status)|\(live.toolChips.joined(separator: "|"))|\(live.thinking.isEmpty)|\(live.assistantText.isEmpty)|\(Int((live.tps ?? 0) / 10))|\(live.steerText ?? "")|\(live.toolName ?? "")"
+        }
+        func pushLive() async {
+            guard let live = activeTurns[sessionID], activeSessionID == sessionID else { return }
+            let sig = liveStructureSignature(live)
+            if sig != lastStructure {
+                lastStructure = sig
+                lastLiveText = live.assistantText
+                lastLiveThinking = live.thinking
+                await pusher(await liveFragments())
+                return
+            }
+            var ops: [FragmentUpdate] = []
+            if live.assistantText != lastLiveText {
+                lastLiveText = live.assistantText
+                ops.append(FragmentUpdate.text(id: "live-turn-text", value: live.assistantText, transition: false))
+            }
+            if live.thinking != lastLiveThinking && !live.thinking.isEmpty {
+                lastLiveThinking = live.thinking
+                ops.append(FragmentUpdate.text(id: "live-turn-thinking", value: live.thinking, transition: false))
+            }
+            if !ops.isEmpty {
+                await pusher(ops)
+            }
+        }
         let throttle: () async -> Void = { [weak self] in
             guard let self else { return }
             let now = Date()
             if now.timeIntervalSince(lastPush) > 0.09, await self.activeSessionID == sessionID {
                 lastPush = now
-                await pusher(await self.liveFragments())
+                await pushLive()
             }
         }
         func flush() async {
@@ -859,19 +897,33 @@ extension AppState {
             let asstMsg = Message(role: .assistant, content: contentAccum.isEmpty ? nil : contentAccum, toolCalls: calls, createdAt: Date(), reasoning: reasoningAccum.isEmpty ? nil : reasoningAccum)
             history.append(asstMsg)
             if let store {
-                await persistMessage(asstMsg, sessionID: sessionID, store: store)
+                await persistMessage(asstMsg, sessionID: sessionID, store: store, healWith: history)
             }
             activeTurns[sessionID]?.toolChips = calls.map { "⚙ \($0.function.name)" }
             activeTurns[sessionID]?.status = "tool"
+            if activeSessionID == sessionID {
+                await pusher(await transcriptFragments())
+            }
             await flush()
 
             for call in calls {
                 if activeTurns[sessionID]?.stopped == true { break }
+                // Tool-progress boundary: name + start stamp drive the live
+                // status line ("Running web_search… 0:07") while the call runs.
+                activeTurns[sessionID]?.toolName = call.function.name
+                activeTurns[sessionID]?.toolStartedAt = Date()
+                await flush()
                 let result = await runTool(call, sessionID: sessionID, pusher: pusher, headless: headless)
+                activeTurns[sessionID]?.toolName = nil
+                activeTurns[sessionID]?.toolStartedAt = nil
                 let toolMsg = Message(role: .tool, content: result, name: call.function.name, toolCallID: call.id, createdAt: Date())
                 history.append(toolMsg)
                 if let store {
-                    await persistMessage(toolMsg, sessionID: sessionID, store: store)
+                    await persistMessage(toolMsg, sessionID: sessionID, store: store, healWith: history)
+                }
+                // Commit boundary: the tool result must appear in the transcript.
+                if activeSessionID == sessionID {
+                    await pusher(await transcriptFragments())
                 }
             }
             // Steer injection at the tool-result boundary (arc parity):
@@ -945,7 +997,27 @@ extension AppState {
             _ = toast("Turn failed: \(trunc(finalError, 140))", kind: "error")
         }
         await reloadSessions(selecting: selectAfter ? sessionID : nil)
-        await pusher(await refreshFragments())
+        // Turn-end boundary: transcript (final message in, live block out), the
+        // session row spinner cleared, composer back to send, header meta, toasts.
+        // NOT `#main` — a whole-chat replacement drops scroll and selection at
+        // every turn end.
+        let endChrome = await turnChromeFragments()
+        // The transcript re-render is what removes `#live-turn` and shows the
+        // persisted final message. It is only valid for the chat the client is
+        // actually displaying, and `activeSessionID` is that invariant's proxy:
+        // `reloadSessions` keeps the selection for a running turn's session (and
+        // never strands it at nil while this chat is on screen). If the check
+        // ever fails, make it visible in the Logs instead of leaving a stale
+        // live block on screen silently — the block clears on the next view
+        // switch, which re-renders this session's transcript from the store.
+        let endTranscript: [FragmentUpdate]
+        if activeSessionID == sessionID {
+            endTranscript = await transcriptFragments()
+        } else {
+            endTranscript = []
+            LogCollector.shared.append(level: .warning, text: "[turn] transcript push skipped for session \(String(sessionID.prefix(8))) — active is \(activeSessionID.map { String($0.prefix(8)) } ?? "nil")")
+        }
+        await pusher(endChrome + endTranscript)
         if let leftover = leftoverSteer, !leftover.isEmpty, !wasStopped {
             Task { await self.runTurn(userText: leftover, pusher: pusher, sessionID: sessionID) }
         }
@@ -973,21 +1045,39 @@ extension AppState {
         activeTurns[sessionID]?.status = "done"
     }
 
-    /// Live-region fragments: only the chat-scroll (and nothing else), so the
-    /// composer keeps focus and the panel keeps scrolling undisturbed.
-    /// MUST mirror chatMain()'s structure (chat-scroll > chat-inner > messages)
-    /// so the centered column, gutters and scrollbar-gutter survive streaming.
+    /// Live-region fragments: the in-progress turn node and the composer flyout —
+    /// and nothing else, so a streaming turn never re-renders the transcript it is
+    /// appending to. `live-turn` opts out of the client's view transition: a
+    /// full-page cross-fade per push reads as a shimmer at token rate.
     func liveFragments() async -> [FragmentUpdate] {
+        var u: [FragmentUpdate] = []
+        if let live = activeTurns[activeSessionID ?? ""] {
+            u.append(FragmentUpdate(id: "live-turn", html: liveMessageHTML(live), transition: false))
+        }
+        u.append(FragmentUpdate(id: "composer-flyout", html: "<div id=\"composer-flyout\">" + composerFlyoutHTML() + "</div>"))
+        return u
+    }
+
+    /// The transcript node alone. Pushed at message commits, where a committed
+    /// message must appear — stage 0 replaces the whole list; once the engine
+    /// carries the append op this becomes one inserted subtree.
+    func transcriptFragments() async -> [FragmentUpdate] {
         let session = activeSession()
         let scroll = messagesHTML(session?.messages ?? [])
+        return [FragmentUpdate(id: "chat-inner", html: "<div class=\"chat-inner\" id=\"chat-inner\">\(scroll)</div>")]
+    }
+
+    /// The chrome that changes at turn boundaries: the session row spinner, the chat
+    /// header meta, the composer (send ⇄ stop), and the toasts (compression hints,
+    /// turn-failure notices). Deliberately NOT `#main` — a whole-chat replacement
+    /// at a boundary kills selection, scroll and focus.
+    func turnChromeFragments() async -> [FragmentUpdate] {
+        let toastsDiv = "<div id=\"toasts\" data-component-id=\"toast-dismiss\" data-event=\"click\">\(toastsHTML())</div>"
         return [
-            // Stream into #chat-inner, not #chat-scroll: replacing the scroll
-            // container every ~90 ms destroys the user's scroll position and
-            // wheel state mid-turn (the scrollbar "stutters"). The container
-            // keeps its identity; the client follows the bottom only while
-            // the user is already there.
-            FragmentUpdate(id: "chat-inner", html: "<div class=\"chat-inner\" id=\"chat-inner\">\(scroll)</div>"),
-            FragmentUpdate(id: "composer-flyout", html: "<div id=\"composer-flyout\">" + composerFlyoutHTML() + "</div>"),
+            FragmentUpdate(id: "panel", html: panelHTML()),
+            FragmentUpdate(id: "chat-header", html: chatHeaderHTML()),
+            FragmentUpdate(id: "composer-wrap", html: composerHTML()),
+            FragmentUpdate(id: "toasts", html: toastsDiv),
         ]
     }
 
@@ -1154,6 +1244,11 @@ final class Controller {
             await self.newChat()
             return await self.app.refreshFragments()
         }
+        // Blank-canvas CTA: the same action as the sidebar "+".
+        wire(router, id: "blank-chat-new", events: ["click"]) { _ in
+            await self.newChat()
+            return await self.app.refreshFragments()
+        }
         // click-only: `#sess-list-body` declares data-event="click", and a change
         // event carries no targetId on the engine — identity rides `value`.
         wire(router, id: "sess-list", events: ["click"]) { event in
@@ -1182,17 +1277,17 @@ final class Controller {
             // `payload` (dynamic button, reference `_addNamedContextBlock`).
             guard let sel = event.string("payload"), !sel.isEmpty else { return [] }
             await self.app.addPendingContext(sel)
-            return await self.app.chatFragments()
+            return [FragmentUpdate(id: "composer-wrap", html: await self.app.composerHTML())]
         }
         wire(router, id: "selection-context-del", events: ["click"]) { event in
             let tid = event.string("targetId") ?? ""
             await self.app.removePendingContext(tid)
-            return await self.app.chatFragments()
+            return [FragmentUpdate(id: "composer-wrap", html: await self.app.composerHTML())]
         }
         wire(router, id: "stop-turn", events: ["click"]) { _ in
             let sid = await self.app.activeSessionID ?? ""
             await self.app.requestStopTurn(sessionID: sid)
-            return await self.app.chatFragments()
+            return await self.app.turnChromeFragments()
         }
         wire(router, id: "approval-once", events: ["click"]) { _ in
             await self.app.resolveApproval(.once)
@@ -1221,12 +1316,12 @@ final class Controller {
             let sid = await self.app.activeSessionID ?? ""
             await self.app.setYolo(sid, true)
             await self.app.resolveApproval(.once)
-            return await self.app.chatFragments()
+            return await self.app.turnChromeFragments()
         }
         wire(router, id: "yolo-off", events: ["click"]) { _ in
             let sid = await self.app.activeSessionID ?? ""
             await self.app.setYolo(sid, false)
-            return await self.app.chatFragments()
+            return [FragmentUpdate(id: "composer-wrap", html: await self.app.composerHTML())]
         }
         wire(router, id: "clarify-choice", events: ["click"]) { event in
             // Element ids are clarify-choice-0..3; the index maps to the
@@ -1581,8 +1676,11 @@ final class Controller {
         Task {
             await self.app.runTurn(userText: withContexts, pusher: pusher, sessionID: sid, displayText: displayOverride)
         }
-        // Immediately clear the composer for the sender.
-        return await self.app.chatFragments()
+        // Sender-side response: clear the composer. The transcript and the turn
+        // chrome reach every page through the turn-start broadcast a moment later
+        // (runTurn), so returning them here would only replace `#main` and kill
+        // the sender's scroll/selection for a frame.
+        return [FragmentUpdate(id: "composer-wrap", html: await self.app.composerHTML())]
     }
 
     /// Resolve the skill a typed invocation refers to and bump its usage

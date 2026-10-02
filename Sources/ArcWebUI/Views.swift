@@ -769,17 +769,11 @@ extension AppState {
 
     // MARK: Chat main
 
-    func chatMain() -> String {
-        guard activeSessionID != nil else {
-            return """
-            <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(WebUIIcon(.messageSquare, size: .extraLarge).render())</div><div>Select a chat, or start a new one.</div></div>
-            </div>
-            """
-        }
+    /// The chat header (title + meta + regenerate/delete) as its own node, so a turn
+    /// boundary can refresh it without replacing the whole chat region.
+    func chatHeaderHTML() -> String {
         let session = activeSession()
         let configName = configName(for: activeSessionID)
-
         let title = session.map { trunc(sessionTitle($0), 60) } ?? "Chat"
         let count = session.map { $0.messages.isEmpty ? $0.messageCount : $0.messages.count } ?? 0
         let model = settings.modelConfig(named: configName)?.model ?? configName
@@ -789,8 +783,8 @@ extension AppState {
         let regenBtn = """
         <button type="button" id="regen-btn" class="icon-mini" title="Regenerate last reply">\(WebUIIcon(.refreshCw, size: .small).render())</button>
         """
-        let header = """
-        <header class="chat-header">
+        return """
+        <header class="chat-header" id="chat-header">
           <div>
             <div class="chat-title">\(esc(title))</div>
             <div class="chat-meta">\(meta)</div>
@@ -801,6 +795,24 @@ extension AppState {
           </div>
         </header>
         """
+    }
+
+    func chatMain() -> String {
+        guard activeSessionID != nil else {
+            return """
+            <div class="main-view" style="justify-content:center">
+              <div class="blank">
+                <div class="blank-ico">\(WebUIIcon(.messageSquare, size: .extraLarge).render())</div>
+                <div class="blank-title">Welcome to ARC Agent</div>
+                <div class="blank-sub">Pick a conversation on the left, or start a new one.</div>
+                \(btn("blank-chat-new", "blank-chat-new", "primary-btn blank-cta", WebUIIcon(.plus, size: .small).render() + "<span>New chat</span>"))
+              </div>
+            </div>
+            """
+        }
+        let session = activeSession()
+
+        let header = chatHeaderHTML()
         let follow = forceScrollBottom ? " data-follow=\"bottom\"" : ""
         forceScrollBottom = false
         let scrollBtn = "<button type=\"button\" id=\"scroll-to-bottom\" class=\"scroll-to-bottom-btn\" data-component-id=\"scroll-to-bottom\" title=\"Jump to latest\" aria-label=\"Jump to latest\" hidden>&#8595;</button>"
@@ -926,6 +938,65 @@ extension AppState {
         return "\(m)m \(s)s"
     }
 
+    /// `0:42` style clock for the running turn. The live node re-renders on every
+    /// push, so the client repaints this label from `data-started` on a 1 s tick
+    /// (`overlay.js`) instead of the server recomputing it per push.
+    func fmtElapsed(_ since: Date) -> String {
+        let n = Int(max(0, Date().timeIntervalSince(since)))
+        return "\(n / 60):" + String(format: "%02d", n % 60)
+    }
+
+    /// One-line, escaped summary of a tool call's arguments: the first scalar
+    /// entries as `key: value · key: value` (keys sorted, so re-renders diff
+    /// clean); falls back to the raw text when the JSON does not parse.
+    func toolArgSummary(_ raw: String, limit: Int = 68) -> String {
+        let oneLine = raw.replacingOccurrences(of: "\n", with: " ")
+        let parsed = (try? JSONSerialization.jsonObject(with: Data(oneLine.utf8))) as? [String: Any]
+        guard let parsed, !parsed.isEmpty else { return esc(trunc(oneLine, limit)) }
+        let pairs = parsed.sorted { $0.key < $1.key }.prefix(3).map { key, value -> String in
+            let val: String
+            if let s = value as? String {
+                val = s.replacingOccurrences(of: "\n", with: " ")
+            } else if let n = value as? NSNumber {
+                // JSON numbers and booleans both bridge to NSNumber; the
+                // `objCType` "c" marks the boolean case.
+                val = String(cString: n.objCType) == "c" ? (n.boolValue ? "true" : "false") : n.stringValue
+            } else if value is NSNull {
+                val = "null"
+            } else {
+                val = "…"
+            }
+            return key + ": " + trunc(val, 24)
+        }
+        let joined = pairs.joined(separator: " · ")
+        return esc(trunc(joined.isEmpty ? oneLine : joined, limit))
+    }
+
+    /// `data-webui-key` attribute for a stable engine identity. Empty key in,
+    /// empty attribute out — the engine then falls back to its id/index keying,
+    /// exactly as before.
+    func webuiKeyAttr(_ key: String) -> String {
+        key.isEmpty ? "" : " data-webui-key=\"\(key)\""
+    }
+
+    /// Stable identity for a message-derived row: creation time in ms. Legacy
+    /// messages carry no timestamp and keep the engine's index keying.
+    func msgWebuiKey(_ m: Message) -> String {
+        guard let d = m.createdAt else { return "" }
+        return String(Int(d.timeIntervalSince1970 * 1000))
+    }
+
+    /// A collapsible reasoning row (icon + label + caret), shared by every
+    /// activity display mode. The key keeps its open state across re-renders.
+    func thinkingRowHTML(_ text: String, key: String, innerID: String? = nil) -> String {
+        let inner = innerID.map { "<span id=\"\($0)\">" + esc(text) + "</span>" } ?? esc(text)
+        return "<details class=\"thinking-row\"" + webuiKeyAttr(key) + "><summary>"
+            + WebUIIcon(.edit, size: .small).render()
+            + "<span class=\"tw-label\">Thinking</span><span class=\"tw-spacer\"></span>"
+            + "<span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).render() + "</span>"
+            + "</summary><div class=\"tc-detail\">" + inner + "</div></details>"
+    }
+
     /// arc-parity turn dropdown. Wraps a completed turn's supporting
     /// activity behind one `Processed Xm Ys` summary; only the final reply
     /// stays visible until the user opens it. `transparent_stream` renders the
@@ -964,7 +1035,7 @@ extension AppState {
             // per tool round with a copy button (reference worklog look).
             let allReasoning = reasons.filter { !$0.isEmpty }.joined(separator: "\n\n")
             if !allReasoning.isEmpty {
-                rows.append("<details class=\"thinking-row\"><summary>" + WebUIIcon(.edit, size: .small).render() + "<span>Thinking</span></summary><div class=\"tc-detail\">" + esc(allReasoning) + "</div></details>")
+                rows.append(thinkingRowHTML(allReasoning, key: "think-\(turnIndex)"))
             }
             for (idx, pair) in rounds.enumerated() {
                 let target = "twc-\(turnIndex)-\(idx)"
@@ -981,11 +1052,11 @@ extension AppState {
                 if let interim = m.content, !interim.isEmpty {
                     detail.append("<div class=\"msg-body interim\">" + mdBox(interim) + "</div>")
                 }
-                detail.append(toolChipsHTML(calls))
-                rows.append("<details class=\"worklog-summary\" id=\"\(target)\"><summary>" + WebUIIcon(.tool, size: .small).render()
+                detail.append(toolChipsHTML(calls, results: pair.1))
+                rows.append("<details class=\"worklog-summary\" id=\"\(target)\" data-webui-key=\"\(target)\"><summary>" + WebUIIcon(.tool, size: .small).render()
                     + "<span>" + esc(summary) + "</span><span class=\"tw-spacer\"></span>"
                     + "<button class=\"tw-copy\" type=\"button\" data-copy-target=\"\(target)\" title=\"Copy this activity\">" + WebUIIcon(.copy, size: .small).render() + "</button>"
-                    + WebUIIcon(.chevronRight, size: .small).render() + "</summary><div class=\"wl-detail\">" + detail.joined() + "</div></details>")
+                    + "<span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).render() + "</span></summary><div class=\"wl-detail\">" + detail.joined() + "</div></details>")
             }
         } else {
             // transparent_stream: full cards, block pre-opened.
@@ -995,16 +1066,17 @@ extension AppState {
             // Direct replies (no tool rounds) still stream reasoning: surface
             // it as a thinking row so the dropdown body is never empty.
             if let r = finalMsg.reasoning, !r.isEmpty {
-                rows.append("<details class=\"thinking-row\"><summary>" + WebUIIcon(.edit, size: .small).render() + "<span>Thinking</span></summary><div class=\"tc-detail\">" + esc(r) + "</div></details>")
+                rows.append(thinkingRowHTML(r, key: "think-\(turnIndex)-final"))
             }
         }
 
         let label = finalMsg.turnDuration.map { "Processed " + formatTurnDuration($0) } ?? "Turn activity"
         let terminalCard = finalMsg.terminalReason.map { terminalCardHTML(for: $0) } ?? ""
+        let worklogKey = "tw-\(turnIndex)-\(String(format: "%.3f", finalMsg.createdAt?.timeIntervalSince1970 ?? 0))"
         return """
-        <div class="assistant-turn" data-turn-duration="\(String(format: "%.0f", finalMsg.turnDuration ?? 0))">
+        <div class="assistant-turn" id="turn-\(turnIndex)" data-turn-duration="\(String(format: "%.0f", finalMsg.turnDuration ?? 0))">
           \(assistantRoleHeaderHTML(finalMsg))
-          <details class="turn-worklog" data-tw-session="\(esc(activeSessionID ?? ""))" data-tw-key="\(turnIndex)-\(String(format: "%.3f", finalMsg.createdAt?.timeIntervalSince1970 ?? 0))">
+          <details class="turn-worklog" data-tw-session="\(esc(activeSessionID ?? ""))" data-webui-key="\(worklogKey)">
             <summary>
               <span class="tw-dot"></span>
               <span class="tw-label">\(esc(label))</span>
@@ -1055,6 +1127,7 @@ extension AppState {
     /// text, tool calls + results) according to the persisted display mode
     /// (compact_worklog | transparent_stream | hide_all_activity).
     func activityGroupHTML(_ m: Message, calls: [ToolCall], results: [String: String], mode: String) -> String {
+        let mk = msgWebuiKey(m)
         switch mode {
         case "hide_all_activity":
             // Final answer only: drop the whole execution trace.
@@ -1062,7 +1135,7 @@ extension AppState {
         case "transparent_stream":
             var rows: [String] = []
             if let r = m.reasoning, !r.isEmpty {
-                rows.append("<details class=\"thinking-row\"><summary>" + WebUIIcon(.edit, size: .small).render() + "<span>Thinking</span></summary><div class=\"tc-detail\">" + esc(r) + "</div></details>")
+                rows.append(thinkingRowHTML(r, key: mk.isEmpty ? "" : "think-r\(mk)"))
             }
             if let interim = m.content, !interim.isEmpty {
                 rows.append("<div class=\"msg-body interim\">" + mdBox(interim) + "</div>")
@@ -1082,17 +1155,29 @@ extension AppState {
             if let interim = m.content, !interim.isEmpty {
                 detail.append("<div class=\"msg-body interim\">" + mdBox(interim) + "</div>")
             }
-            detail.append(toolChipsHTML(calls))
-            return "<details class=\"worklog-summary\"><summary>" + WebUIIcon(.tool, size: .small).render() + "<span>" + esc(summary) + "</span></summary><div class=\"wl-detail\">" + detail.joined() + "</div></details>"
+            detail.append(toolChipsHTML(calls, results: results))
+            return "<details class=\"worklog-summary\"" + webuiKeyAttr(mk.isEmpty ? "" : "ws-" + mk) + "><summary>" + WebUIIcon(.tool, size: .small).render() + "<span>" + esc(summary) + "</span><span class=\"tw-spacer\"></span><span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).render() + "</span></summary><div class=\"wl-detail\">" + detail.joined() + "</div></details>"
         }
     }
 
-    /// A single, expandable tool-call row used by Transparent Stream.
+    /// One tool call as a compact card: tool icon + name + one-line argument
+    /// summary; expands to the full arguments JSON and, when known, the result.
+    /// The card carries a stable `data-webui-key` so the engine restores its
+    /// open state across fragment re-renders with shifting row indices.
     func toolCardHTML(_ c: ToolCall, result: String?) -> String {
         let args = c.function.arguments
-        let preview = trunc(args.replacingOccurrences(of: "\n", with: " "), 64)
-        let resultText = esc(result ?? "(no result)")
-        return "<details class=\"tool-card\"><summary>" + WebUIIcon(.tool, size: .small).render() + "<span class=\"tc-name\">" + esc(c.function.name) + "</span><span class=\"tc-arg\">" + esc(preview) + "</span></summary><div class=\"tc-detail\"><div class=\"tc-label\">Arguments</div><pre class=\"tc-block\">" + esc(args) + "</pre><div class=\"tc-label\">Result</div><pre class=\"tc-block\">" + resultText + "</pre></div></details>"
+        var body = "<div class=\"tc-label\">Arguments</div><pre class=\"tc-block\">" + esc(args) + "</pre>"
+        if let result, !result.isEmpty {
+            body += "<div class=\"tc-label\">Result</div><pre class=\"tc-block\">" + esc(result) + "</pre>"
+        }
+        return "<details class=\"tool-card\" data-webui-key=\"tc-\(esc(c.id))\"><summary>"
+            + WebUIIcon(.tool, size: .small).render()
+            + "<span class=\"tc-name\">" + esc(c.function.name) + "</span>"
+            + "<span class=\"tc-arg\">" + toolArgSummary(args) + "</span>"
+            + "<span class=\"tw-spacer\"></span>"
+            + "<button class=\"tc-copy\" type=\"button\" data-copy=\"" + esc(args) + "\" title=\"Copy arguments\">" + WebUIIcon(.copy, size: .small).render() + "</button>"
+            + "<span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).render() + "</span>"
+            + "</summary><div class=\"tc-detail\">" + body + "</div></details>"
     }
 
     func messageHTML(_ m: Message, rawIdx: Int = -1) -> String {
@@ -1112,22 +1197,37 @@ extension AppState {
             // turn stopped, model connection lost) under the reply that ended
             // the turn.
             let terminalCard = m.terminalReason.map { terminalCardHTML(for: $0) } ?? ""
+            let anchor = rawIdx >= 0 ? " id=\"msg-\(rawIdx)\"" : ""
             return """
-            <div class="msg assistant">
+            <div class="msg assistant"\(anchor)>
               <div style="max-width:100%;width:100%">
                 \(assistantRoleHeaderHTML(m))
                 \(assistantBodyHTML(m))
-                \(usageFootHTML(m))
                 \(terminalCard)
                 \(msgFootHTML(m))
               </div>
             </div>
             """
         case .tool:
-            let content = trunc(m.content ?? "", 220)
+            // Tool results render as the same expandable card family as calls:
+            // icon + name + a one-line preview, expanding to the full output.
+            let content = m.content ?? ""
+            let preview = esc(trunc(content.replacingOccurrences(of: "\n", with: " "), 96))
+            let resultKey = m.toolCallID.map { "tr-\($0)" }
+                ?? m.createdAt.map { "tr-\(Int($0.timeIntervalSince1970 * 1000))" } ?? ""
+            let anchor = rawIdx >= 0 ? " id=\"msg-\(rawIdx)\"" : ""
+            let card = "<details class=\"tool-card\"" + webuiKeyAttr(resultKey) + "><summary>"
+                + WebUIIcon(.tool, size: .small).render()
+                + "<span class=\"tc-name\">" + esc(m.name ?? "tool") + "</span>"
+                + "<span class=\"tc-arg\">" + preview + "</span>"
+                + "<span class=\"tw-spacer\"></span>"
+                + "<span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).render() + "</span>"
+                + "</summary><div class=\"tc-detail\"><div class=\"tc-label\">Result</div><pre class=\"tc-block\">" + esc(content) + "</pre></div></details>"
             return """
-            <div class="msg assistant" style="justify-content:center">
-              <div class="tool-chip" style="max-width:90%"><span class="tc-name">\(esc(m.name ?? "tool"))</span><span>— \(esc(content))</span></div>
+            <div class="msg assistant"\(anchor)>
+              <div style="width:100%">
+                \(card)
+              </div>
             </div>
             """
         case .system:
@@ -1192,21 +1292,21 @@ extension AppState {
         """
     }
 
-    func toolChipsHTML(_ calls: [ToolCall]?) -> String {
+    /// Tool calls as compact cards (icon + name + argument summary, expanding
+    /// to the full JSON and — when paired — the result). `results` pairs a
+    /// call with the tool message carrying its output.
+    func toolChipsHTML(_ calls: [ToolCall]?, results: [String: String] = [:]) -> String {
         guard let calls, !calls.isEmpty else { return "" }
-        let chips = calls.map { c -> String in
-            let args = trunc(c.function.arguments.replacingOccurrences(of: "\n", with: " "), 40)
-            return "<span class=\"tool-chip\"><span class=\"tc-name\">\(esc(c.function.name))</span><span>\(esc(args))</span></span>"
-        }
-        return "<div class=\"tool-pills\">\(chips.joined())</div>"
+        let cards = calls.map { toolCardHTML($0, result: results[$0.id]) }
+        return "<div class=\"tool-pills\">\(cards.joined())</div>"
     }
 
     func liveMessageHTML(_ live: LiveTurn) -> String {
         let mode = settings.activityDisplay
-        let liveText = esc(live.assistantText).isEmpty ? " " : esc(live.assistantText).replacingOccurrences(of: "\n", with: "<br>")
+        let streamText = esc(live.assistantText).replacingOccurrences(of: "\n", with: "<br>")
         let cursor = live.status == "running" ? "<span class=\"stream-cursor\"></span>" : ""
-        let thinkingRow = mode == "transparent_stream" && !live.thinking.isEmpty
-            ? "<details class=\"thinking-row\"><summary>" + WebUIIcon(.edit, size: .small).render() + "<span>Thinking</span></summary><div class=\"tc-detail\">" + esc(live.thinking) + "</div></details>"
+        let thinkingRow = mode != "hide_all_activity" && !live.thinking.isEmpty
+            ? thinkingRowHTML(live.thinking, key: "live-think", innerID: "live-turn-thinking")
             : ""
         let chips = mode == "transparent_stream" && !live.toolChips.isEmpty
             ? "<div class=\"tool-pills\">" + live.toolChips.joined() + "</div>"
@@ -1214,8 +1314,10 @@ extension AppState {
         let status: String
         switch live.status {
         case "tool":
+            let name = live.toolName.map { " " + $0 } ?? ""
+            let started = live.toolStartedAt.map { "<span class=\"msg-elapsed\" data-elapsed data-started=\"\(Int($0.timeIntervalSince1970 * 1000))\">\(fmtElapsed($0))</span>" } ?? ""
             status = mode == "hide_all_activity" ? ""
-                : "<div class=\"live-status\"><span>" + WebUIIcon(.tool, size: .small).render() + " Running a tool…</span></div>"
+                : "<div class=\"live-status\"><span>" + WebUIIcon(.tool, size: .small).render() + " Running" + esc(name) + "…</span>" + started + "</div>"
         case "error":
             status = "<div class=\"live-status\" style=\"color:var(--danger)\"><span>" + WebUIIcon(.alertTriangle, size: .small).render() + " " + esc(live.error ?? "Turn failed") + "</span></div>"
         case "approval":
@@ -1226,21 +1328,24 @@ extension AppState {
             status = mode == "hide_all_activity" ? ""
                 : "<div class=\"live-status\"><span>" + WebUIIcon(.edit, size: .small).render() + " Responding…</span></div>"
         }
-        let body = liveText == " " && live.status == "running"
-            ? "<div class=\"msg-body\"><span class=\"stream-cursor\"></span></div>"
-            : "<div class=\"msg-body\" style=\"white-space:pre-wrap\">" + liveText + cursor + "</div>"
+        let body = "<div class=\"msg-body\" id=\"live-turn-body\" style=\"white-space:pre-wrap\"><span id=\"live-turn-text\">" + streamText + "</span>" + cursor + "</div>"
         // arc parity: live tokens-per-second chip in the streaming header.
         let liveTps = live.tps ?? 0
         let tpsChip = settings.showTps && liveTps > 0
             ? "<span class=\"msg-tps-inline\" title=\"Tokens per second\">\(esc(fmtTps(liveTps)))</span>" : ""
+        let elapsedSpan = "<span class=\"msg-elapsed\" data-elapsed data-started=\"\(Int(live.startedAt.timeIntervalSince1970 * 1000))\">\(fmtElapsed(live.startedAt))</span>"
+        // the status line sits first: everything that grows below it (reasoning,
+        // streamed text, tool pills) then reflows behind it, so nothing above
+        // the growth ever moves (CLS: the status line was being pushed down
+        // per token).
         return """
-        <div class="msg assistant">
+        <div class="msg assistant" id="live-turn" data-session="\(esc(live.sessionID))">
           <div style="width:100%">
-            <div class="msg-meta">ARC Agent\(tpsChip)</div>
+            <div class="msg-meta"><span class="mm-left">ARC Agent\(tpsChip)</span><span class="mm-spacer"></span><span class="mm-right">\(elapsedSpan)</span></div>
+            \(status)
             \(thinkingRow)
             \(body)
             \(chips)
-            \(status)
           </div>
         </div>
         """

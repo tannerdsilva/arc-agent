@@ -458,6 +458,10 @@ struct LiveTurn {
     var thinking: String = ""
     var toolChips: [String] = []
     var status: String = "running"   // running | tool | done | error
+    /// Name of the tool currently executing (nil outside a tool call) and when it
+    /// started — the live status line shows name + a client-ticked clock.
+    var toolName: String? = nil
+    var toolStartedAt: Date? = nil
     var error: String? = nil
     var startedAt = Date()
     /// Set by the Stop button; the turn's stream/tool loops poll it.

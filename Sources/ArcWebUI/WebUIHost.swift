@@ -5,6 +5,26 @@ import ServiceLifecycle
 import WebUI
 import WebUIServer
 
+/// Drops fragment updates whose HTML repeats the last push for the same id.
+///
+/// Streaming turns re-emit chrome that did not change between token pushes (the
+/// composer flyout, the session-row spinner), and the client would tear down and
+/// rebuild identical nodes for nothing. Empty html means "remove the node" and
+/// always passes: a skipped removal could strand a node an intervening parent
+/// push re-created.
+actor PushDeduper {
+    private var last: [String: String] = [:]
+
+    func filter(_ updates: [FragmentUpdate]) -> [FragmentUpdate] {
+        updates.filter { update in
+            if update.html.isEmpty { return true }
+            if last[update.id] == update.html { return false }
+            last[update.id] = update.html
+            return true
+        }
+    }
+}
+
 /// The Web UI host: boots the app state, serves the page through no-webui's
 /// `WebUIServer`, and streams logs + the workspace tree while it runs.
 ///
@@ -180,8 +200,9 @@ public struct WebUIHost: Service {
             logger: logger
         )
 
+        let deduper = PushDeduper()
         let controller = Controller(app: app, push: { updates in
-            await server.broadcast(updates)
+            await server.broadcast(await deduper.filter(updates))
         })
         controller.wireAll(router)
 
