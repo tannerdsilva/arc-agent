@@ -96,4 +96,62 @@ struct StorageSettingsTests {
             serverPublicKey: "", myPrivateKey: "")
         #expect(partial.tesseraConfig == nil)
     }
+
+@Test("web UI storage selection loads from the settings file (tolerant)")
+func storageSelectionLoadsTolerantly() throws {
+    let tmp = FileManager.default.temporaryDirectory
+        .appendingPathComponent("arc-wui-sel-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: tmp) }
+    // full shape
+    try """
+    {"activeStorage": "conn-1", "storageConnections": [
+      {"id": "conn-1", "name": "Relay One", "serverIP": "10.1.1.1", "serverPort": 51921,
+       "application": 1, "serverPublicKey": "aaaa", "myPrivateKey": "bbbb"}
+    ], "unrelated": "ignored"}
+    """.data(using: .utf8)!.write(to: tmp)
+
+    let loaded = WebUIStorageSelection.load(from: tmp)
+    #expect(loaded != nil)
+    #expect(loaded?.activeStorage == "conn-1")
+    #expect(loaded?.connections.count == 1)
+    #expect(loaded?.connections.first?.name == "Relay One")
+    #expect(loaded?.connections.first?.tesseraConfig != nil)
+}
+
+@Test("missing keys fall back to the CLI defaults")
+func storageSelectionMissingKeysFallsBack() {
+    let tmp = FileManager.default.temporaryDirectory
+        .appendingPathComponent("arc-wui-sel2-\(UUID().uuidString).json")
+    try? """
+    {"theme": "dark"}
+    """.data(using: .utf8)!.write(to: tmp)
+    defer { try? FileManager.default.removeItem(at: tmp) }
+    #expect(WebUIStorageSelection.load(from: tmp) == nil)
+}
+}
+
+@Test("legacy clientPrivateKey is tolerated on decode and re-encoded as myPrivateKey")
+func legacyKeyDecode() throws {
+    let json = """
+    {"id":"AB12","name":"RPI","serverIP":"10.0.0.1","serverPort":51921,"application":1,
+     "serverPublicKey":"pub","clientPrivateKey":"the-real-client-key"}
+    """.data(using: .utf8)!
+    let conn = try JSONDecoder().decode(TesseraStorageConnection.self, from: json)
+    #expect(conn.myPrivateKey == "the-real-client-key")
+    #expect(conn.isComplete)
+
+    let out = try JSONEncoder().encode(conn)
+    let obj = try JSONSerialization.jsonObject(with: out) as! [String: Any]
+    #expect(obj["myPrivateKey"] as? String == "the-real-client-key")
+    #expect(obj["clientPrivateKey"] == nil)
+}
+
+@Test("completenessNote names what is missing")
+func completenessNotes() {
+    var conn = TesseraStorageConnection(name: "X", serverIP: "", serverPort: 51921, application: 1, serverPublicKey: "p", myPrivateKey: "k")
+    #expect(conn.completenessNote?.contains("server IP") == true)
+    conn = TesseraStorageConnection(name: "X", serverIP: "1.2.3.4", serverPort: 51921, application: 1, serverPublicKey: "p", myPrivateKey: "")
+    #expect(conn.completenessNote?.contains("client private key") == true)
+    conn = TesseraStorageConnection(name: "X", serverIP: "1.2.3.4", serverPort: 51921, application: 1, serverPublicKey: "p", myPrivateKey: "k")
+    #expect(conn.completenessNote == nil)
 }

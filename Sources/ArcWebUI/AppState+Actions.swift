@@ -869,6 +869,40 @@ extension AppState {
         profiles = (try? await pm.list()) ?? []
     }
 
+    /// `reloadAll` for the storage-switch path: the session list is raced
+    /// against a bound so a relay that never sends end-of-history markers
+    /// (dead/federated/desynced) can't freeze the caller for the connection's
+    /// internal full timeout (~60s). Returns false when the bound wins. Skills
+    /// and profiles reload the same way as `reloadAll` either way.
+    func reloadAllBounded(seconds: UInt64 = 10) async -> Bool {
+        await ensureRuntime()
+        guard let store else { return true }
+        crumb("reloadAll(bounded): listing sessions (\(runtimeBackend))")
+        let stream = AsyncStream<Result<[Session], any Error>>.makeStream()
+        let continuation = stream.continuation
+        Task {
+            do {
+                continuation.yield(.success(try await store.list(limit: 500)))
+            } catch {
+                continuation.yield(.failure(error))
+            }
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: seconds * 1_000_000_000)
+            let bound = NSError(domain: "arc.agent.webui.storage", code: -1,
+                                userInfo: [NSLocalizedDescriptionKey: "relay did not answer in time"])
+            continuation.yield(.failure(bound))
+        }
+        guard case .success(let list) = await stream.stream.first(where: { _ in true }) else {
+            crumb("reloadAll(bounded): relay did not answer")
+            return false
+        }
+        sessions = list
+        sessionVersion += 1
+        crumb("reloadAll(bounded): sessions listed (\(sessions.count))")
+        return true
+    }
+
     /// The context overrides of the profile bound to a chat, if any.
     func profileContext(for sessionID: String?) -> ProfileContextConfig? {
         guard let pname = profileName(for: sessionID),
@@ -1081,6 +1115,13 @@ extension AppState {
     }
 
 
+    /// Display label for a storage medium id (matches the picker rows).
+    func storageMediumDisplay(_ medium: String) -> String {
+        if medium == "file" { return "Local file storage" }
+        if medium == "config" { return "Default (config.json)" }
+        return settings.storageConnections.first(where: { $0.id == medium })?.name ?? "Unknown storage"
+    }
+
     // MARK: Storage connections (Settings → Storage)
 
     /// Stage a storage-medium pick (picker only; nothing persists or connects
@@ -1118,6 +1159,7 @@ extension AppState {
         } else {
             settings.storageConnections.append(conn)
         }
+        connectionsRevision += 1
         saveSettings()
         storageEdit = nil
         return true
@@ -1135,6 +1177,7 @@ extension AppState {
             await reloadAll()
         }
         if stagedStorage == id { stagedStorage = nil }
+        connectionsRevision += 1
         saveSettings()
     }
 
@@ -1174,6 +1217,11 @@ extension AppState {
                 return false
             }
         }
+        // Effective-medium rule shared with the Views picker (see
+        // storageSettingsHTML): while hosted the daemon's pair is config/file.
+        let previousEffective: String = runtimeBackend == "file"
+            ? "file"
+            : (attachedStorage != nil ? "config" : settings.activeStorage)
         settings.activeStorage = staged
         // The picker is authoritative over the legacy toggle and any
         // transient boot-time fallback.
@@ -1188,6 +1236,22 @@ extension AppState {
         let wasHosted = attachedStorage != nil
         attachedStorage = nil
         await ensureRuntime()
+        crumb("storage: switching to \(settings.activeStorage) (backend=\(runtimeBackend))")
+        // Bounded reload: a federated relay that never answers end-of-history
+        // would otherwise freeze the wire (and the settings view) for a
+        // minute. If the relay does not respond in time, revert the switch so
+        // the UI state and the persisted selection stay consistent and the
+        // user gets immediate feedback instead of a hang.
+        let ok = await reloadAllBounded(seconds: 10)
+        if !ok {
+            crumb("storage: \(settings.activeStorage) unresponsive; reverting to \(previousEffective)")
+            await hint("That Tessera storage didn't answer within 10s — stayed on \(storageMediumDisplay(previousEffective)).")
+            settings.activeStorage = previousEffective
+            saveSettings()
+            await ensureRuntime()
+            await reloadAll()
+            return false
+        }
         crumb("storage: connected to \(settings.activeStorage) (backend=\(runtimeBackend))")
         await reloadAll()
         if wasHosted {

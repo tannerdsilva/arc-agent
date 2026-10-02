@@ -33,7 +33,7 @@ public struct StorageRuntime: Sendable {
     public static func resolve(tessera: TesseraConfig?, tesseraOff: Bool) async -> StorageRuntime {
         guard !tesseraOff, let tessera else { return .file() }
         await TesseraConnection.shared.configure(tessera)
-        guard await TesseraConnection.shared.healthCheck() else {
+        guard await TesseraConnection.shared.healthCheck(within: 10) else {
             Logger(label: "com.arc-agent.storage").warning(
                 "Tessera relay unreachable (handshake timed out); falling back to file storage for this process"
             )

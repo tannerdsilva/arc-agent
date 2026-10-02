@@ -713,7 +713,9 @@ actor AppState {
     var modelSelectQuery = ""
     var thinkSelectOpen = false
     /// Settings → Storage: staged medium, connection form, picker state.
-    var stagedStorage: String? = nil
+    var stagedStorage: String?
+    /// Bumped when a saved connection is added/edited/removed (cache bust).
+    var connectionsRevision = 0
     var storageEdit: TesseraStorageConnection? = nil
     var storagePickOpen = false
     /// True once the app's HTTP/WS server is bound (surfaced in the profile card).
@@ -1109,7 +1111,14 @@ actor AppState {
     /// Workspaces are per-chat working directories and no longer isolate the
     /// session store — all chats share one session pool.
     func ensureRuntime() async {
-        let key = "\(settings.tesseraOff)-\(runtimeTesseraOff)-\(settings.activeStorage)"
+        // The revision covers connection CONTENT: completing an edit (e.g.
+        // adding a missing client private key) must invalidate a previously
+        // built file/tessera runtime even when the selected medium id (and
+        // the toggles) did not change.
+        // The attach state is part of the key: a hosted daemon hands the UI
+        // its boot-time pair (store/memory set by `attachRuntime`), and a
+        // switch DETACHES so the rebuild must not reuse the hosted build.
+        let key = "\(attachedStorage != nil ? "hosted" : "own")-\(settings.tesseraOff)-\(runtimeTesseraOff)-\(settings.activeStorage)-\(connectionsRevision)"
 
         if httpClient == nil {
             httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
@@ -1172,6 +1181,7 @@ actor AppState {
                 connections: settings.storageConnections,
                 cliTessera: loadConfig().tessera
             )
+            crumb("ensureRuntime: active=\(settings.activeStorage) conns=\(settings.storageConnections.count) complete=\(settings.storageConnections.first { $0.id == settings.activeStorage }?.isComplete ?? false) -> \(resolution.backend)")
             if resolution.backend == "tessera", let cfg = resolution.config {
                 runtimeBackend = "tessera"
                 await TesseraConnection.shared.configure(cfg)
@@ -1202,8 +1212,11 @@ actor AppState {
     /// including the Tessera endpoint when connected.
     func storageDescription() -> String {
         if runtimeBackend == "tessera" {
+            // Mirrors the picker's effective-medium rule: a hosted daemon runs
+            // config.json's tessera, so describe THAT while attached.
+            let basis = attachedStorage == nil ? settings.activeStorage : "config"
             let resolution = resolveStorage(
-                active: settings.activeStorage,
+                active: basis,
                 connections: settings.storageConnections,
                 cliTessera: loadConfig().tessera
             )
@@ -1407,8 +1420,14 @@ actor AppState {
         await ensureRuntime()
         if let store {
             crumb("reloadAll: listing sessions (\(runtimeBackend))")
-            sessions = (try? await store.list(limit: 500)) ?? []
-            crumb("reloadAll: sessions listed (\(sessions.count))")
+            let t0 = Date()
+            do {
+                sessions = try await store.list(limit: 500)
+                crumb("reloadAll: sessions listed (\(sessions.count)) in \(Int(Date().timeIntervalSince(t0) * 1000))ms")
+            } catch {
+                sessions = []
+                crumb("reloadAll: list ERROR \(error)")
+            }
         }
         sessionVersion += 1
 

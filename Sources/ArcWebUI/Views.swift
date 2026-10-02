@@ -1945,7 +1945,7 @@ extension AppState {
         }
         return """
         <div class="main-view">
-          <div class="main-scroll" data-scroll-key="main-scroll">
+          <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
             <div class="detail-card">
               <div class="mem-head">
                 <div><h1 class="detail-title" style="margin:0">\(esc(skill.name))</h1>
@@ -1967,7 +1967,7 @@ extension AppState {
         let descV = formValues["sk-edit-desc-input"] ?? skill.description
         let contentV = formValues["sk-edit-content-input"] ?? skill.content
         return """
-        <div class="main-view"><div class="main-scroll" data-scroll-key="main-scroll">
+        <div class="main-view"><div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
           <form id="sk-edit-form" data-component-id="sk-edit-form" class="detail-card" style="max-width:720px">
             <h1 class="detail-title">Edit skill</h1>
             <div class="detail-sub">Editing \(esc(skill.name)) — saves back to \(esc(skill.path.path))</div>
@@ -2022,7 +2022,7 @@ extension AppState {
         """
         return """
         <div class="main-view">
-          <div class="main-scroll" data-scroll-key="main-scroll">\(form)</div>
+          <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">\(form)</div>
         </div>
         """
     }
@@ -2074,7 +2074,7 @@ extension AppState {
             """
             return """
             <div class="main-view">
-              <div class="main-scroll" data-scroll-key="main-scroll">\(form)</div>
+              <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">\(form)</div>
             </div>
             """
         }
@@ -2097,7 +2097,7 @@ extension AppState {
             + (isDefault ? "" : btn("pr-del-\(encName)", "", "icon-mini danger", WebUIIcon(.trash, size: .medium).render(), " title=\"Delete profile\""))
         return """
         <div class="main-view">
-          <div class="main-scroll" data-scroll-key="main-scroll">
+          <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
             <div class="detail-card">
               <div class="mem-head">
                 <div>
@@ -2195,7 +2195,7 @@ extension AppState {
         let params = schemaHTML(tool.schema)
         return """
         <div class="main-view">
-          <div class="main-scroll" data-scroll-key="main-scroll">
+          <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
             <div class="detail-card">
               <h1 class="detail-title">\(toolEmojiIcon(tool.emoji)) \(esc(tool.name))</h1>
               <div class="detail-sub">\(esc(tool.toolset)) toolset</div>
@@ -2330,7 +2330,7 @@ extension AppState {
             """
             return """
             <div class="main-view">
-              <div class="main-scroll" data-scroll-key="main-scroll">\(form)</div>
+              <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">\(form)</div>
             </div>
             """
         }
@@ -2338,7 +2338,7 @@ extension AppState {
         let path = workspacePath(for: nil)
         return """
         <div class="main-view">
-          <div class="main-scroll" data-scroll-key="main-scroll">
+          <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
             <div class="detail-card">
               <h1 class="detail-title">\(WebUIIcon(.grid, size: .large).render()) Workspaces</h1>
               <div class="detail-sub">Workspaces are folders on this computer. Each chat keeps its own workspace, chosen in the chat composer.</div>
@@ -2491,10 +2491,14 @@ extension AppState {
             if staged { b += "<span class=\"dd-badge\">SELECTED</span>" }
             return b
         }
-        // The effective medium: the legacy toggle (file) wins over a persisted
-        // pick while it is on; otherwise the picker's selection is the truth.
+        // The effective medium = what the RUNTIME is actually using. A hosted
+        // daemon always boots config.json's tessera (or file), so while the
+        // AppState is attached to the daemon's pair the truth is "config",
+        // NOT the persisted picker choice (which may be stale after the user
+        // saved a connection the daemon never applied). Once the picker has
+        // actually connected (attach detached), the choice is the truth.
         let effectiveFile = runtimeBackend == "file"
-        let effectiveMedium = effectiveFile ? "file" : settings.activeStorage
+        let effectiveMedium = effectiveFile ? "file" : (attachedStorage != nil ? "config" : settings.activeStorage)
         let storagePickVis = storagePickOpen ? "" : " hidden"
         var storagePickRows: [String] = []
         storagePickRows.append(ddRow(id: "storage-pick-file", body: """
@@ -2508,7 +2512,7 @@ extension AppState {
         for conn in settings.storageConnections {
             storagePickRows.append(ddRow(id: "storage-pick-conn-\(enc(conn.id))", body: """
             <span class="dd-row-title">\(esc(conn.name)) <span class="dd-badges">\(storageRowBadges(active: !effectiveFile && effectiveMedium == conn.id, staged: stagedStorage == conn.id))</span></span>
-            <span class="dd-row-sub">\(esc(conn.endpointLabel)) — app \(conn.application)</span>
+            <span class="dd-row-sub">\(esc(conn.endpointLabel)) — app \(conn.application)\(incompleteNote(conn))</span>
             """))
         }
         let storagePickerHTML = """
@@ -2520,7 +2524,7 @@ extension AppState {
           </div>
         </div>
         """
-        let storageCanConnect = stagedStorage != nil && stagedStorage != settings.activeStorage
+        let storageCanConnect = stagedStorage != nil && stagedStorage != effectiveMedium
         let storageStagedNote: String
         if let st = stagedStorage {
             storageStagedNote = "<div class=\"set-hint\" style=\"margin:2px 0 0 0\">Selected: <strong>\(esc(storagePickedLabel(st)))</strong> — not connected yet. Press <strong>Save and Connect</strong>.</div>"
@@ -2534,7 +2538,7 @@ extension AppState {
             return """
             <div class="mc-row">
               <span class="mc-name">\(esc(conn.name)) \(activeBadge)\(stagedBadge)</span>
-              <span class="mc-model">\(esc(conn.endpointLabel)) · app \(conn.application)</span>
+              <span class="mc-model">\(esc(conn.endpointLabel)) · app \(conn.application)\(incompleteNote(conn))</span>
               <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
                 <div data-component-id="storage-edit" data-event="click">\(btn("storage-edit-\(encID)", "", "ghost-btn", "Edit", " style=\"padding:4px 10px;font-size:0.8em\""))</div>
                 <div data-component-id="storage-del" data-event="click">\(btn("storage-del-\(encID)", "", "danger-btn", "Remove", " style=\"padding:4px 10px;font-size:0.8em\""))</div>
@@ -2544,6 +2548,12 @@ extension AppState {
         }.joined()
         let storageConnList = storageConnRows.isEmpty
             ? "<div class=\"empty-hint\">No tessera storages configured.</div>" : storageConnRows
+        func incompleteNote(_ conn: TesseraStorageConnection) -> String {
+            if let note = conn.completenessNote {
+                return " — <span class=\"set-warn\">\(esc(note))</span>"
+            }
+            return ""
+        }
         let se = storageEdit
         let storageConnForm = """
         <form id="storage-conn-form" data-component-id="storage-conn-form" class="form-grid" style="margin-top:14px;border-top:1px dashed var(--border);padding-top:14px">
@@ -2740,7 +2750,7 @@ extension AppState {
 
         return """
         <div class="main-view">
-          <div class="main-scroll settings-wrap" data-scroll-key="main-scroll">
+          <div id="main-scroll" class="main-scroll settings-wrap" data-scroll-key="main-scroll">
             <section class="set-section" id="appearance">
               <h2>Appearance</h2>
               <div class="detail-card">
@@ -3069,7 +3079,7 @@ extension AppState {
                 """
             }
             return """
-            <div class="main-view"><div class="main-scroll" data-scroll-key="main-scroll">
+            <div class="main-view"><div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
               <div class="detail-card">
                 <div class="mem-head"><div><h1 class="detail-title" style="margin:0">\(title)</h1><div class="detail-sub">\(esc(sub))</div></div></div>
                 <div class="detail-body" style="margin-top:14px">\(body)</div>
@@ -3081,7 +3091,7 @@ extension AppState {
         let title = meta.title, sub = meta.file
         if memoryEdit {
             return """
-            <div class="main-view"><div class="main-scroll" data-scroll-key="main-scroll">
+            <div class="main-view"><div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
               <form id="mem-save-form" data-component-id="mem-save-form" class="detail-card">
                 <h1 class="detail-title" style="margin:0">Edit \(esc(sub))</h1>
                 <div class="detail-sub">\(esc(meta.note))</div>
@@ -3099,7 +3109,7 @@ extension AppState {
             ? "<div class=\"empty-hint\">\(esc(sub)) is empty. Press " + WebUIIcon(.edit, size: .small).render() + " to start writing.</div>"
             : mdBox(memoryContent)
         return """
-        <div class="main-view"><div class="main-scroll" data-scroll-key="main-scroll">
+        <div class="main-view"><div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
           <div class="detail-card">
             <div class="mem-head">
               <div><h1 class="detail-title" style="margin:0">\(title)</h1><div class="detail-sub">\(esc(sub)) — \(esc(meta.note))</div></div>
@@ -3468,7 +3478,7 @@ extension AppState {
             : "<div class=\"gh-body\">\(esc(detail.body))</div>"
         return """
         <div class="main-view">
-          <div class="main-scroll" data-scroll-key="main-scroll">
+          <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
             <div class="detail-card gh-detail">
               <div class="gh-detail-subject">\(esc(detail.subject))</div>
               <div class="gh-detail-meta">

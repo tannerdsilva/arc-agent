@@ -41,7 +41,23 @@ public enum ArcDaemon {
         // ONE storage decision for the whole process: the gateway's session
         // agents and the web UI share this exact pair (no second env on the
         // same store directories).
-        let storage = await StorageRuntime.resolve(tessera: arc.tessera, tesseraOff: plan.tesseraOff)
+        // Storage decision: the web UI's Settings → Storage picker is the
+        // highest-priority selection when it has one (persisted in
+        // ~/.arc-agent-webui/settings.json). Falling back to the CLI config's
+        // tessera block when the picker has no selection, or when the user
+        // explicitly forced file mode on the command line.
+        var effectiveTessera = arc.tessera
+        var effectiveOff = plan.tesseraOff
+        if !plan.tesseraOff, let selection = WebUIStorageSelection.loadFromDisk() {
+            let resolution = resolveStorage(
+                active: selection.activeStorage,
+                connections: selection.connections,
+                cliTessera: arc.tessera
+            )
+            effectiveTessera = resolution.config
+            effectiveOff = resolution.backend == "file"
+        }
+        let storage = await StorageRuntime.resolve(tessera: effectiveTessera, tesseraOff: effectiveOff)
 
         let agentConfig = SessionRegistry.AgentConfig(
             model: arc.model.defaultModel,

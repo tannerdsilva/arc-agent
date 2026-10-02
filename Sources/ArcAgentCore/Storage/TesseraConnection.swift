@@ -170,13 +170,17 @@ public actor TesseraConnection {
     /// Probe the relay with a bounded handshake; tears the probe session
     /// down either way so the process never keeps a half-open client.
     /// Used by the CLI to fall back to file storage when the relay is down.
-    public func healthCheck() async -> Bool {
+    /// Bounded reachability probe. The connection's own internal bounds
+    /// (connect / subscribe / EOSE) keep this under ~30s worst case without
+    /// an outer race — an outer race would leak a half-open raw client into
+    /// the shared connection and wedge later shutdown() calls.
+    public func healthCheck(within seconds: UInt64 = 20) async -> Bool {
         do {
             try await ensureStarted()
             await shutdown()
             return true
         } catch {
-            await shutdown()
+            await hardShutdown()
             return false
         }
     }
@@ -199,6 +203,31 @@ public actor TesseraConnection {
                 try? await session.unsubscribe(subscriptionID: sub)
             }
             await session.disconnect()
+        }
+        session = nil
+        model = nil
+        nostrPrivateKey = nil
+        eoseTracker = nil
+        isStarted = false
+        nextSeq = 0
+        pendingRecords.removeAll()
+        recordIndex = TesseraRecordIndex()
+    }
+
+    /// Teardown that must not wait for relay round-trips. For a relay that just
+    /// failed its handshake/subscription (dead, desynced, wrong keys), polite
+    /// unsubscribes write CLOSE frames onto the same wedged channel; a single
+    /// bounded disconnect (the raw client cancels its consumer/connection
+    /// attempts and closes the interface) is all the recovery a failed relay
+    /// needs, and the caller never waits on the dead channel. The losing race
+    /// racer, if any, parks on its own pool thread — a bounded barnacle per
+    /// failed relay, capped by user action — instead of an unbounded caller
+    /// freeze (see `boundedOp`).
+    func hardShutdown() async {
+        if let session {
+            try? await Self.boundedOp(seconds: Self.writeTimeoutSeconds) {
+                await session.disconnect()
+            }
         }
         session = nil
         model = nil
@@ -389,7 +418,7 @@ public actor TesseraConnection {
             // fail the store after a bounded wait instead of hanging the process.
             // Race via TaskGroup per the First Law; the loser keeps its work but
             // never blocks the caller.
-            try await Self.boundedOp(seconds: 25) {
+            try await Self.boundedOp(seconds: 12) {
                 try await session.connect()
             }
             // The subscribe path waits on the same tunnel channel as connect; a
@@ -406,7 +435,7 @@ public actor TesseraConnection {
 
             // Wait for every end-of-history marker, then give the receiver a
             // moment to drain the decoded events into the model.
-            let deadline = Date().addingTimeInterval(20)
+            let deadline = Date().addingTimeInterval(8)
             while Date() < deadline {
                 if tracker.completed() { break }
                 try await Task.sleep(nanoseconds: 100_000_000)
@@ -427,7 +456,7 @@ public actor TesseraConnection {
             // CLI healthCheck already uses) so a retry starts from a clean
             // slate. pendingRecords are cleared too — unacked writes are
             // stale; their echoes replay under the fresh model on reconnect.
-            await shutdown()
+            await hardShutdown()
             throw error
         }
     }
@@ -508,7 +537,7 @@ public actor TesseraConnection {
     /// mid-session leaves the raw client's channel wait unresolved forever;
     /// without this bound the caller hangs (in the webui, one hung profile
     /// save freezes the whole UI because the WebSocket handler never returns).
-    static let writeTimeoutSeconds: UInt64 = 15
+    static let writeTimeoutSeconds: UInt64 = 10
 
     /// Run an async op under a bounded race (First Law) WITHOUT inheriting
     /// this actor's isolation. TaskGroup children created inside an actor
