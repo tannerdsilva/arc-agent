@@ -265,4 +265,7 @@ let package = Package(
 // embed ArcAgentCore in-process.
 package.products = [
     .library(name: "ArcAgentCore", targets: ["ArcAgentCore"]),
+    // The one CLI: chat/batch/serve (the daemon that hosts the web UI).
+    .executable(name: "arc", targets: ["arc-agent"]),
 ]
+
