@@ -2048,7 +2048,18 @@ public static let css: String = """
       max-height: 180px;
       line-height: 1.5;
     }
-    .composer-toolbar { display: flex; align-items: center; gap: 2px; padding: 2px 2px 0; }
+    .composer-toolbar { display: flex; align-items: center; gap: 2px; padding: 2px 2px 0; flex-wrap: wrap; row-gap: 6px; }
+    /* Below ~1180px the four selector chips no longer fit beside the send
+       button: the model chip is ~210px wide on its own, and at 820px the whole
+       row used to push `#cb-send` 200px off-screen. The chips go icon-only (the
+       full value is already in each trigger's `title`), and the wrap above is
+       the backstop so nothing can ever leave the viewport. */
+    .composer-toolbar .dd-trigger { min-width: 0; }
+    .composer-toolbar .send-btn { flex: 0 0 auto; }
+    @media (max-width: 1180px) {
+      .composer-toolbar .dd-trigger-label { display: none; }
+      .composer-toolbar .dd-trigger { padding: 6px 7px; }
+    }
     .tool-btn {
       width: 30px; height: 30px;
       display: flex; align-items: center; justify-content: center;
