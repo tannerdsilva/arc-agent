@@ -2861,7 +2861,11 @@ public actor ArcAgent: Service {
 
         // ── Volatile tier ──
         var volatile = ""
-        if !config.skills.isEmpty {
+        // The mandatory framing instructs the model to load skills with
+        // `skill_view`; inject the section only when the registry actually
+        // exposes the loader, so the prompt never advertises a tool the
+        // surface lacks.
+        if !config.skills.isEmpty, config.registry.lookup(name: "skill_view") != nil {
             volatile += "## Skills (mandatory)\n\n\(Self.skillsMandatoryFraming)\n\n<available_skills>\n\(buildSkillsIndex(config.skills))\n</available_skills>\n\n"
         }
         if let memory = config.memoryProvider {

@@ -36,9 +36,18 @@ struct BrowserExtrasTests {
         #expect(drained.isEmpty)
     }
 
-    @Test("browser tool family is registered with reference names")
+    @Test("browser tool family carries reference names when registered explicitly")
     func registeredSurface() throws {
-        let registry = try ArcAgentCore.buildDefaultRegistry()
+        // The default surface is file IO + shell; hosts opt the browser family
+        // in by registering its entries (exactly as this registry does).
+        var registry = CompileTimeToolRegistry()
+        for entry in [BrowserTools.navigate, BrowserTools.snapshot, BrowserTools.click,
+                      BrowserTools.type, BrowserTools.press, BrowserTools.scroll,
+                      BrowserTools.back, BrowserTools.console, BrowserTools.getImages,
+                      BrowserTools.vision, BrowserTools.dialog, BrowserTools.cdp,
+                      MCPClientTool.entry] {
+            try registry.register(entry)
+        }
         for name in ["browser_navigate", "browser_snapshot", "browser_console", "browser_get_images",
                      "browser_vision", "browser_dialog", "browser_cdp", "mcp_tool"] {
             #expect(registry.allTools.contains { $0.name == name }, "missing \(name)")
@@ -49,6 +58,22 @@ struct BrowserExtrasTests {
         #expect(dialog?.schema.asDictionary()["required"] as? [String] == ["action"])
     }
 
+    @Test("browser tools error clearly when no browser is reachable")
+    func browserUnavailable() async {
+        await #expect(throws: (any Error).self) {
+            _ = try await BrowserTools.snapshot.handler([:])
+        }
+    }
+
+    @Test("browser registry picks the configured provider or cdp default")
+    func browserRegistrySelection() async {
+        await BrowserRegistry.shared.register(CDPBrowserProvider())
+        let available = await BrowserRegistry.shared.available()
+        #expect(available.contains("cdp"))
+        let active = await BrowserRegistry.shared.active()
+        #expect(active?.name == "cdp")
+    }
+
     @Test("browser_vision errors cleanly without a provider")
     func visionToolErrorsWithoutProvider() async {
         // No provider registered in this test process → must throw a
@@ -56,9 +81,13 @@ struct BrowserExtrasTests {
         let out = await MCPProxy.runSuppressingErrors {
             try await BrowserTools.vision.handler(["question": "what is shown?"])
         }
-        // Full-suite runs register a real CDP provider (localhost:9222 is
-        // typically down) — accept the clean not-connected error family.
-        #expect(out.contains("CDP not connected") || out.contains("Could not connect"))
+        // Two legitimate process states:
+        //  - no provider registered → the tool's own clean not-connected error
+        //  - a sibling test registered the CDP provider and localhost:9222 is
+        //    not a live CDP endpoint → URLSession's clean transport error
+        // Either way the handler must surface a clean error, never crash.
+        #expect(out.contains("CDP not connected") || out.contains("NSURLErrorDomain"),
+            "out was: \(out)")
     }
 }
 

@@ -124,10 +124,11 @@ struct PluggabilityTests {
         let registry = MutableToolRegistry(builtIn: builtIn)
         #expect(registry.lookup(name: "read_file") != nil)
 
-        // No plugins dir → make() falls through cleanly.
+        // No plugins dir → make() falls through cleanly and the basic
+        // built-ins (file IO + shell) remain the whole surface.
         let made = try await MutableToolRegistry.make(pluginRegistry: PluginRegistry(pluginsDir: FileManager.default.temporaryDirectory.appendingPathComponent("none-\(UUID().uuidString)")))
         let schemas = made.buildToolSchemas(enabled: [], disabled: [])
-        #expect(schemas.count >= 36)
+        #expect(schemas.count == 6)
     }
 
     @Test("plugin manifest tools carry schema/toolset/requires_env and install with real parameters")

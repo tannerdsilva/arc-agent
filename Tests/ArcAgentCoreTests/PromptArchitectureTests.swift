@@ -144,8 +144,12 @@ struct PromptArchitectureTests {
             Skill(name: "alpha", description: "first skill description", content: "c", category: "dev", path: dir),
             Skill(name: "beta", description: "second skill description", content: "c", category: nil, path: dir),
         ]
+        // the skills section renders only when the registry exposes the skill
+        // loader (the default surface is file IO + shell).
+        var registry = CompileTimeToolRegistry()
+        try registry.register(SkillViewTool.entry)
         let box = ClientScripts(responses: [LLMResponse(content: "ok", finishReason: "stop")])
-        let config = makeConfig(contextDirectory: dir, injectProjectContext: true, skills: skills)
+        let config = makeConfig(registry: registry, contextDirectory: dir, injectProjectContext: true, skills: skills)
         _ = try await runOnce(config, box: box)
 
         guard let prompt = box.recordedCalls().first?.first(where: { $0.role == .system })?.content else {
@@ -170,6 +174,23 @@ struct PromptArchitectureTests {
         #expect(toolsIdx < ctxIdx, "stable tier must precede context tier")
         #expect(ctxIdx < skillsIdx, "context tier must precede volatile tier")
         #expect(skillsIdx < tsIdx, "session line must be last")
+    }
+
+    @Test("skills section is omitted when the registry has no skill loader")
+    func skillsSectionRequiresLoader() async throws {
+        let skills = [
+            Skill(name: "alpha", description: "first skill description", content: "c", category: "dev", path: URL(fileURLWithPath: "/tmp")),
+        ]
+        let box = ClientScripts(responses: [LLMResponse(content: "ok", finishReason: "stop")])
+        let config = makeConfig(injectProjectContext: false, skills: skills)
+        _ = try await runOnce(config, box: box)
+
+        guard let prompt = box.recordedCalls().first?.first(where: { $0.role == .system })?.content else {
+            Issue.record("no system prompt recorded"); return
+        }
+        #expect(!prompt.contains("skill_view"),
+            "the prompt must not advertise skill_view when the loader is unregistered")
+        #expect(!prompt.contains("## Skills (mandatory)"))
     }
 
     @Test("skills index is category-grouped (arc parity)")

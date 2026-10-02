@@ -11,81 +11,28 @@ public enum ArcAgentCore {
     /// The current library version.
     public static let version = "0.1.0"
 
-    /// Build a ``CompileTimeToolRegistry`` pre-loaded with the built-in tools.
+    /// Build a ``CompileTimeToolRegistry`` pre-loaded with the default tool
+    /// set: file IO and shell only.
     ///
-    /// This is the primary entry point for creating a tool registry with all
-    /// compiled-in tools. Additional tools can be registered after creation.
+    /// This is the primary entry point for creating a tool registry with the
+    /// built-in basic tools. Every other tool family compiled into the
+    /// library — skills, memory, kanban, delegation, browser, web, project,
+    /// profile, MCP — is deliberately NOT registered here; hosts opt in by
+    /// registering the entries they want on top of this registry.
     ///
     /// - Returns: A configured ``CompileTimeToolRegistry``.
     /// - Throws: If a built-in tool fails to register (should not happen in
     ///   normal operation since built-in tool names are unique by construction).
     public static func buildDefaultRegistry() throws -> CompileTimeToolRegistry {
         var registry = CompileTimeToolRegistry()
+        // file IO
         try registry.register(ReadFileTool.entry)
         try registry.register(WriteFileTool.entry)
-        try registry.register(TerminalTool.entry)
-        try registry.register(ProcessTool.entry)
-        try registry.register(WebSearchTool.entry)
-        try registry.register(WebExtractTool.entry)
-        try registry.register(MemoryTool.entry)
-        try registry.register(SessionSearchTool.entry)
-        try registry.register(TodoTool.entry)
-        try registry.register(SkillViewTool.entry)
-        try registry.register(SkillManageTool.entry)
-        try registry.register(SkillsListTool.entry)
-        try registry.register(ProfileEditTool.entry)
-        try registry.register(ClarifyTool.entry)
         try registry.register(PatchTool.entry)
         try registry.register(SearchFilesTool.entry)
-        try registry.register(ExecuteCodeTool.entry)
-        try registry.register(DelegateTaskTool.entry)
-        try registry.register(ProjectListTool.entry)
-        try registry.register(ProjectCreateTool.entry)
-        try registry.register(ProjectSwitchTool.entry)
-        try registry.register(ToolSearchTool.entry)
-        try registry.register(SendMessageTool.entry)
-        try registry.register(ListChildrenTool.entry)
-        try registry.register(SteerChildTool.entry)
-        try registry.register(StopChildTool.entry)
-        try registry.register(KanbanTools.create)
-        try registry.register(KanbanTools.list)
-        try registry.register(KanbanTools.show)
-        try registry.register(KanbanTools.complete)
-        try registry.register(KanbanTools.block)
-
-        // Profile/bot mode tools
-        try registry.register(ListProfilesTool.entry)
-        try registry.register(GetProfileTool.entry)
-        try registry.register(SendBotMessageTool.entry)
-        try registry.register(CreateProfileTool.entry)
-        try registry.register(DeleteProfileTool.entry)
-        try registry.register(SendGroupChatTool.entry)
-
-        // Media / integration tools (reference image_gen, tts, transcription,
-        // video, outbound webhooks, code_execution, shell hooks)
-        try registry.register(MediaTools.imageGenerate)
-        try registry.register(MediaTools.tts)
-        try registry.register(MediaTools.transcription)
-        try registry.register(MediaTools.videoGenerate)
-        try registry.register(WebhookTools.notify)
-        try registry.register(CodeExecutionTool.entry)
-
-        // Browser tools (CDP provider — no Playwright/Node required)
-        try registry.register(BrowserTools.navigate)
-        try registry.register(BrowserTools.snapshot)
-        try registry.register(BrowserTools.click)
-        try registry.register(BrowserTools.type)
-        try registry.register(BrowserTools.press)
-        try registry.register(BrowserTools.scroll)
-        try registry.register(BrowserTools.back)
-        try registry.register(BrowserTools.console)
-        try registry.register(BrowserTools.getImages)
-        try registry.register(BrowserTools.vision)
-        try registry.register(BrowserTools.dialog)
-        try registry.register(BrowserTools.cdp)
-        try registry.register(MCPClientTool.entry)
-        Task { await BrowserRegistry.shared.register(CDPBrowserProvider()) }
-
+        // shell
+        try registry.register(TerminalTool.entry)
+        try registry.register(ProcessTool.entry)
         return registry
     }
 }

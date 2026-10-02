@@ -458,7 +458,7 @@ public enum BrowserTools {
         schema: .object(properties: ["url": .string(description: "Absolute URL to open")], required: ["url"]),
         handler: { args in
             let provider = try await requireProvider()
-            let url: String = try MediaTools.required(args, key: "url")
+            let url: String = try ToolArguments.required(args, key: "url")
             return try await provider.navigate(url: url)
         },
         emoji: "🧭"
@@ -483,7 +483,7 @@ public enum BrowserTools {
         schema: .object(properties: ["selector": .string(description: "CSS selector")], required: ["selector"]),
         handler: { args in
             let provider = try await requireProvider()
-            let selector: String = try MediaTools.required(args, key: "selector")
+            let selector: String = try ToolArguments.required(args, key: "selector")
             return try await provider.click(selector: selector)
         },
         emoji: "🖱️"
@@ -499,8 +499,8 @@ public enum BrowserTools {
         ], required: ["selector", "text"]),
         handler: { args in
             let provider = try await requireProvider()
-            let selector: String = try MediaTools.required(args, key: "selector")
-            let text: String = try MediaTools.required(args, key: "text")
+            let selector: String = try ToolArguments.required(args, key: "selector")
+            let text: String = try ToolArguments.required(args, key: "text")
             return try await provider.type(selector: selector, text: text)
         },
         emoji: "⌨️"
@@ -513,7 +513,7 @@ public enum BrowserTools {
         schema: .object(properties: ["key": .string(description: "Key name, e.g. Enter")], required: ["key"]),
         handler: { args in
             let provider = try await requireProvider()
-            let key: String = try MediaTools.required(args, key: "key")
+            let key: String = try ToolArguments.required(args, key: "key")
             return try await provider.press(key: key)
         },
         emoji: "⌨️"
@@ -526,7 +526,7 @@ public enum BrowserTools {
         schema: .object(properties: ["direction": .string(description: "up or down")], required: ["direction"]),
         handler: { args in
             let provider = try await requireProvider()
-            let direction: String = try MediaTools.required(args, key: "direction")
+            let direction: String = try ToolArguments.required(args, key: "direction")
             return try await provider.scroll(direction: direction)
         },
         emoji: "📜"
@@ -624,7 +624,7 @@ public enum BrowserTools {
         ], required: ["action"]),
         handler: { args in
             let cdp = try await requireCDP()
-            let action: String = try MediaTools.required(args, key: "action")
+            let action: String = try ToolArguments.required(args, key: "action")
             let text: String = (args["prompt_text"] as? String) ?? ""
             return try await cdp.handleDialog(accept: action == "accept", promptText: text)
         },
@@ -645,7 +645,7 @@ public enum BrowserTools {
         ], required: ["method"]),
         handler: { args in
             let cdp = try await requireCDP()
-            let method: String = try MediaTools.required(args, key: "method")
+            let method: String = try ToolArguments.required(args, key: "method")
             let params = args["params"] as? [String: Any] ?? [:]
             return try await cdp.rawCDP(method: method, params: params)
         },

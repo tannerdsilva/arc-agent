@@ -82,8 +82,8 @@ public enum MCPClientTool {
                 }
                 return lines.joined(separator: "\n")
             case "call":
-                let server: String = try MediaTools.required(args, key: "server")
-                let toolName: String = try MediaTools.required(args, key: "tool_name")
+                let server: String = try ToolArguments.required(args, key: "server")
+                let toolName: String = try ToolArguments.required(args, key: "tool_name")
                 let arguments = args["arguments"] as? [String: Any] ?? [:]
                 let client = try await MCPClientManager.shared.client(named: server)
                 let tools = try await client.tools()

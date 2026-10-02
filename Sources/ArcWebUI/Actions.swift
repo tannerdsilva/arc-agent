@@ -73,7 +73,10 @@ extension AppState {
         let pname = profileName(for: sessionID)
         let disabledSkills = pname.flatMap { settings.profileSkills[$0] } ?? settings.disabledSkills
         var allowed: [Skill] = skills.filter { !disabledSkills.contains($0.name) }
-        if !allowed.isEmpty {
+        // The section's framing instructs the model to load skills with
+        // `skill_view`; render it only when this app's registry exposes the
+        // loader.
+        if !allowed.isEmpty, registry.lookup(name: "skill_view") != nil {
             parts.append(SkillsPrompt.section(index: buildSkillsIndex(allowed)))
         }
         // Memory

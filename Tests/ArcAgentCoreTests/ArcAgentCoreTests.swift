@@ -15,17 +15,27 @@ func coreVersion() {
 // MARK: - Tool Registry
 // =========================================================================
 
-@Test("default registry contains all built-in tools")
+@Test("default registry contains only the basic tools (file IO + shell)")
 func defaultRegistryTools() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
-    #expect(registry.allTools.count == 56)
+    #expect(registry.allTools.count == 6)
 
     #expect(registry.lookup(name: "read_file")?.toolset == "file")
     #expect(registry.lookup(name: "read_file")?.emoji == "📄")
     #expect(registry.lookup(name: "write_file")?.toolset == "file")
+    #expect(registry.lookup(name: "patch")?.toolset == "file")
+    #expect(registry.lookup(name: "search_files")?.toolset == "file")
     #expect(registry.lookup(name: "terminal")?.toolset == "terminal")
-    #expect(registry.lookup(name: "web_search")?.toolset == "web")
-    #expect(registry.lookup(name: "web_extract")?.toolset == "web")
+    #expect(registry.lookup(name: "process")?.toolset == "terminal")
+
+    // every other family stays compiled but unregistered by default
+    #expect(registry.lookup(name: "web_search") == nil)
+    #expect(registry.lookup(name: "skill_view") == nil)
+    #expect(registry.lookup(name: "memory") == nil)
+    #expect(registry.lookup(name: "delegate_task") == nil)
+    #expect(registry.lookup(name: "kanban_list") == nil)
+    #expect(registry.lookup(name: "browser_navigate") == nil)
+    #expect(registry.lookup(name: "mcp_tool") == nil)
 }
 
 @Test("lookup returns nil for unknown tool")
@@ -52,7 +62,7 @@ func emptyRegistry() {
 @Test("registry toolset filtering with all toolsets disabled")
 func allToolsetsDisabled() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
-    let schemas = registry.buildToolSchemas(enabled: [], disabled: ["file", "terminal", "web", "core", "delegation", "kanban", "profile", "media", "webhooks", "sandbox", "browser", "skills", "code_execution", "mcp", "project", "tools", "messaging", "todo"])
+    let schemas = registry.buildToolSchemas(enabled: [], disabled: ["file", "terminal"])
     #expect(schemas.isEmpty)
 }
 
@@ -164,11 +174,15 @@ func schemaFiltering() throws {
     #expect(fileSchemas.count == 4)
     #expect(fileSchemas[0]["type"] as? String == "function")
 
+    let terminalSchemas = registry.buildToolSchemas(enabled: ["terminal"], disabled: [])
+    #expect(terminalSchemas.count == 2)
+
+    // a stripped family has no schemas on the default surface
     let webSchemas = registry.buildToolSchemas(enabled: ["web"], disabled: [])
-    #expect(webSchemas.count == 2)
+    #expect(webSchemas.isEmpty)
 
     let disabled = registry.buildToolSchemas(enabled: [], disabled: ["file"])
-    #expect(disabled.count == 52)
+    #expect(disabled.count == 2)
 }
 
 // =========================================================================
@@ -834,11 +848,11 @@ func configSaveLoad() throws {
 // MARK: - CLI Tools Command
 // =========================================================================
 
-@Test("tools command output includes all tools")
+@Test("tools command output lists the basic default surface")
 func toolsCommand() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
     let names = registry.allTools.map(\.name).sorted()
-    #expect(names == ["browser_back", "browser_cdp", "browser_click", "browser_console", "browser_dialog", "browser_get_images", "browser_navigate", "browser_press", "browser_scroll", "browser_snapshot", "browser_type", "browser_vision", "clarify", "code_execution", "create_profile", "delegate_task", "delete_profile", "execute_code", "get_profile", "image_generate", "kanban_block", "kanban_complete", "kanban_create", "kanban_list", "kanban_show", "list_children", "list_profiles", "mcp_tool", "memory", "notify_webhook", "patch", "process", "profile_edit", "project_create", "project_list", "project_switch", "read_file", "search_files", "send_bot_message", "send_group_chat", "send_message", "session_search", "skill_manage", "skill_view", "skills_list", "steer_child", "stop_child", "terminal", "todo", "tool_search", "transcription", "tts", "video_generate", "web_extract", "web_search", "write_file"])
+    #expect(names == ["patch", "process", "read_file", "search_files", "terminal", "write_file"])
 }
 
 // =========================================================================

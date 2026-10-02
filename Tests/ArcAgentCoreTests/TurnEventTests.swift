@@ -392,7 +392,10 @@ struct TurnEventTests {
             first: .init(toolCalls: [toolCall]),
             final: .init(chunks: ["picked 2"])
         )
-        let registry = try ArcAgentCore.buildDefaultRegistry()
+        var registry = try ArcAgentCore.buildDefaultRegistry()
+        // the default surface is file IO + shell; the presenter seam needs
+        // clarify opted in explicitly.
+        try registry.register(ClarifyTool.entry)
         let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
 
         let recorder = ClarifyRecorder()
@@ -434,7 +437,10 @@ struct TurnEventTests {
             first: .init(toolCalls: [toolCall]),
             final: .init(chunks: ["ok"])
         )
-        let registry = try ArcAgentCore.buildDefaultRegistry()
+        var registry = try ArcAgentCore.buildDefaultRegistry()
+        // the default surface is file IO + shell; the unavailable-error path
+        // needs clarify opted in explicitly.
+        try registry.register(ClarifyTool.entry)
         let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
 
         let events = try await collect(agent, message: "ask me")
