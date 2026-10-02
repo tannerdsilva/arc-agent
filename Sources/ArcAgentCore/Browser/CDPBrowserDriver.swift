@@ -674,4 +674,39 @@ public enum BrowserTools {
         },
         emoji: "🔧"
     )
+
+    public static let connect = ToolEntry(
+        name: "browser_connect",
+        toolset: "browser",
+        description: "Connect the browser toolkit to a CDP endpoint. If 'endpoint' is omitted, "
+            + "BROWSER_CDP_URL (default ws://localhost:9222/devtools/browser) is used. "
+            + "Idempotent: registers the driver as the active provider (reference browser connect).",
+        schema: .object(properties: [
+            "endpoint": .string(description: "WebSocket CDP endpoint, e.g. ws://127.0.0.1:9222/devtools/browser"),
+        ], required: []),
+        handler: { args in
+            if args["endpoint"] != nil {
+                let endpoint: String = try MediaTools.required(args, key: "endpoint")
+                await BrowserRegistry.shared.register(CDPBrowserProvider(endpoint: URL(string: endpoint)))
+                return "Connected to \(endpoint)"
+            }
+            await BrowserRegistry.shared.register(CDPBrowserProvider())
+            let endpoint = ProcessInfo.processInfo.environment["BROWSER_CDP_URL"] ?? "ws://localhost:9222/devtools/browser"
+            return "Connected to \(endpoint)"
+        },
+        emoji: "🔌"
+    )
+
+    public static let close = ToolEntry(
+        name: "browser_close",
+        toolset: "browser",
+        description: "Close the active cloud browser session (Browserbase/Browser Use/Firecrawl) "
+            + "and fall back to the local CDP provider. No-op when a local session is active "
+            + "(reference browser_close).",
+        schema: .object(properties: [:]),
+        handler: { _ in
+            return await BrowserCloudCoordinator.shared.close()
+        },
+        emoji: "🪫"
+    )
 }
