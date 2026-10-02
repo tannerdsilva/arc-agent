@@ -516,6 +516,11 @@ struct Toast: Identifiable {
     let id: Int
     let text: String
     let kind: String   // info | success | error
+    /// When the toast was raised. Errors are transient by design: they clear
+    /// themselves after `AppState.toastTTL` so a stale bubble cannot sit on the
+    /// page it is reporting on (the old behaviour kept an error over a card
+    /// title until the user clicked ✕).
+    let createdAt: Date = Date()
 }
 
 // MARK: - AppState
@@ -1090,6 +1095,26 @@ actor AppState {
 
     func dismissToast(id: Int) {
         toasts.removeAll { $0.id == id }
+    }
+
+    /// How long a surfaced error stays on screen before it clears itself. Long
+    /// enough to read and act on, short enough that it never becomes furniture.
+    static let toastTTL: TimeInterval = 8
+
+    /// Drop toasts past their TTL. Returns true only when the set actually
+    /// changed, so the host broadcasts a fragment set that shrank and stays
+    /// silent on every other tick.
+    func expireToasts(now: Date = Date(), ttl: TimeInterval = AppState.toastTTL) -> Bool {
+        let before = toasts.count
+        toasts.removeAll { now.timeIntervalSince($0.createdAt) > ttl }
+        return toasts.count != before
+    }
+
+    /// The `#toasts` fragment every pusher emits. The engine replaces the node
+    /// by id, so the wrapper (id + routing attributes) must be re-emitted
+    /// verbatim — same shape as `toastsShell()` in the page.
+    func toastFragments() -> [FragmentUpdate] {
+        [FragmentUpdate(id: "toasts", html: toastsShell())]
     }
 
     // MARK: Runtime construction

@@ -230,6 +230,12 @@ public struct WebUIHost: Service {
             guard await app.scanWorkspaceTree() else { return }
             await server.broadcast(await app.liveWorkspaceFragments())
         }
+        // Error toasts expire on their own (AppState.toastTTL). The tick is
+        // silent unless a toast actually dropped, so an idle UI sees no traffic.
+        let toastStreamer = IntervalService(name: "toast-expiry", interval: .seconds(1)) { [app] in
+            guard await app.expireToasts() else { return }
+            await server.broadcast(await app.toastFragments())
+        }
 
         // The UI is only reachable once the server binds; record it so the
         // profile card can show the "Gateway running" badge truthfully.
@@ -249,6 +255,7 @@ public struct WebUIHost: Service {
                 WebUIServerService(server: server, logger: logger),
                 logStreamer,
                 wsStreamer,
+                toastStreamer,
             ],
             logger: logger
         )

@@ -2259,14 +2259,16 @@ public static let css: String = """
     }
 
     /* ─── Toasts ──────────────────────────────────────────────── */
+    /* Errors land in the top bar's right end: clear of the centred title pill and
+       of the content column (they used to sit over the very card they reported
+       on), still fixed so a scrolled page cannot hide them. */
     #toasts {
       position: fixed;
-      top: 50px;
-      left: 50%;
-      transform: translateX(-50%);
+      top: 6px;
+      right: 14px;
       display: flex; flex-direction: column; gap: 8px;
       z-index: 1000;
-      align-items: center;
+      align-items: flex-end;
       pointer-events: none;
     }
     .toast {

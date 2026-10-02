@@ -21,6 +21,28 @@
     }
   });
 
+  // ---- Enter sends; Shift+Enter keeps the newline.
+  // The engine only suppresses Enter's default on NON-textarea targets (its
+  // `editTarget` guard), so `data-prevent-enter="send"` on the composer
+  // textarea is inert and Enter used to insert a newline. Drive the form's own
+  // submit path instead: the engine's delegated submit listener flushes pending
+  // inputs and reads the live form values, so the server always sees the text
+  // that is on screen. Empty composers fall through to the server, which
+  // no-ops on blank text (same as clicking Send with nothing typed).
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+    var t = e.target;
+    if (!t || t.id !== 'composer-input') return;
+    var form = document.getElementById('composer-form');
+    if (!form) return;
+    e.preventDefault();
+    if (typeof form.requestSubmit === 'function') {
+      form.requestSubmit();
+    } else {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    }
+  });
+
   // ---- Image paste (arc parity): pasting an image (or image file)
   // into the composer uploads it and attaches it via the existing
   // attach wire, so it flows through describeImage on send. Text
