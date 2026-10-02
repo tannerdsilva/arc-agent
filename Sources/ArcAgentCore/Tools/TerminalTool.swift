@@ -44,8 +44,16 @@ public enum TerminalTool {
                 return "Error: " + refusal
             }
             let command: String = try Self.required(args, key: "command")
-            let timeout: Int = (args["timeout"] as? Int) ?? 180
             let workdir: String? = args["workdir"] as? String
+            // Reference checkpoints-and-rollback: snapshot before destructive
+            // terminal commands (rm, mv, sed -i, redirects, git reset/...).
+            if CheckpointGuard.isDestructive(command) {
+                _ = await CheckpointGuard.shared.ensure(
+                    directory: workdir ?? WorkspacePath.root ?? FileManager.default.currentDirectoryPath,
+                    label: "before terminal: " + String(command.prefix(60))
+                )
+            }
+            let timeout: Int = (args["timeout"] as? Int) ?? 180
             let background: Bool = (args["background"] as? Bool) ?? false
             return try await Self.runCommand(command: command, timeout: timeout, workdir: workdir, background: background)
         },

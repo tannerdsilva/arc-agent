@@ -29,8 +29,29 @@ public struct Session: Sendable, Codable {
     /// from the loaded messages. Not persisted — always populated by the store.
     public var messageCount: Int = 0
 
+    // MARK: - Reference session-standards fields (documented `sessions.md`)
+
+    /// Source platform tag (`cli`, `telegram`, `slack`, `email`, …).
+    public var source: String?
+    /// Originating user identifier (per-platform id).
+    public var userID: String?
+    /// Parent session for compression-triggered lineage splits.
+    public var parentSessionID: String?
+    /// Workspace key (git repo root else cwd) — resume restores the cwd.
+    public var workspaceKey: String?
+    /// End timestamp (archived/ended sessions).
+    public var endedAt: Date?
+    /// Accumulated input tokens (reference token counts).
+    public var inputTokens: Int?
+    /// Accumulated output tokens (reference token counts).
+    public var outputTokens: Int?
+    /// Snapshot of the system prompt at session start.
+    public var systemPrompt: String?
+
     private enum CodingKeys: String, CodingKey {
         case id, createdAt, updatedAt, model, provider, title, messages
+        case source, userID, parentSessionID, workspaceKey, endedAt
+        case inputTokens, outputTokens, systemPrompt
     }
 
     public init(
@@ -41,7 +62,15 @@ public struct Session: Sendable, Codable {
         provider: String = "",
         title: String? = nil,
         messageCount: Int = 0,
-        messages: [Message] = []
+        messages: [Message] = [],
+        source: String? = nil,
+        userID: String? = nil,
+        parentSessionID: String? = nil,
+        workspaceKey: String? = nil,
+        endedAt: Date? = nil,
+        inputTokens: Int? = nil,
+        outputTokens: Int? = nil,
+        systemPrompt: String? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -51,6 +80,34 @@ public struct Session: Sendable, Codable {
         self.title = title
         self.messageCount = messageCount
         self.messages = messages
+        self.source = source
+        self.userID = userID
+        self.parentSessionID = parentSessionID
+        self.workspaceKey = workspaceKey
+        self.endedAt = endedAt
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.systemPrompt = systemPrompt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+        model = try c.decode(String.self, forKey: .model)
+        provider = try c.decode(String.self, forKey: .provider)
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        messages = try c.decodeIfPresent([Message].self, forKey: .messages) ?? []
+        source = try c.decodeIfPresent(String.self, forKey: .source)
+        userID = try c.decodeIfPresent(String.self, forKey: .userID)
+        parentSessionID = try c.decodeIfPresent(String.self, forKey: .parentSessionID)
+        workspaceKey = try c.decodeIfPresent(String.self, forKey: .workspaceKey)
+        endedAt = try c.decodeIfPresent(Date.self, forKey: .endedAt)
+        inputTokens = try c.decodeIfPresent(Int.self, forKey: .inputTokens)
+        outputTokens = try c.decodeIfPresent(Int.self, forKey: .outputTokens)
+        systemPrompt = try c.decodeIfPresent(String.self, forKey: .systemPrompt)
+        messageCount = 0  // re-derived by the store (never persisted)
     }
 }
 

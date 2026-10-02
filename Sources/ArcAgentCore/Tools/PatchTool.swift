@@ -44,6 +44,11 @@ public enum PatchTool {
 
     private static func replace(path: String, old: String, new: String, replaceAll: Bool) async throws -> String {
         let (resolved, warning) = WorkspacePath.resolveChecked(path)
+        // Reference checkpoints-and-rollback: snapshot before file mutations.
+        _ = await CheckpointGuard.shared.ensure(
+            directory: URL(fileURLWithPath: resolved).deletingLastPathComponent().path,
+            label: "before patch"
+        )
         if FileSafety.isWriteDenied(resolved) {
             return "Error: Refusing to patch a protected path: \(path). Choose a different location."
         }
@@ -118,6 +123,13 @@ public enum PatchTool {
         }
         if operations.isEmpty {
             return "Error: No operations found in the patch (expected *** Begin Patch ... *** End Patch)."
+        }
+        // Reference checkpoints-and-rollback: snapshot before file mutations.
+        if let first = operations.first {
+            _ = await CheckpointGuard.shared.ensure(
+                directory: URL(fileURLWithPath: first.filePath).deletingLastPathComponent().path,
+                label: "before patch"
+            )
         }
         let ops = FileSystemV4AOps()
         let outcome = V4APatch.applyV4AOperations(operations, fileOps: ops)

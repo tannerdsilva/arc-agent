@@ -146,6 +146,42 @@ public enum CheckpointMaker {
         return outcome.0 == 0 ? outcome.1 : outcome.1
     }
 
+    /// Resolve a reasonable project root for `path`: the enclosing git
+    /// repository top-level when available, otherwise the directory itself.
+    static func projectRoot(for path: String) async -> String? {
+        let dir = URL(fileURLWithPath: path).standardizedFileURL.path
+        let outcome = await git(["rev-parse", "--show-toplevel"], directory: dir)
+        if outcome.0 == 0 {
+            let root = outcome.1.trimmingCharacters(in: .whitespacesAndNewlines)
+            let firstLine = root.split(separator: "\n").first.map(String.init) ?? root
+            if !firstLine.isEmpty { return firstLine }
+        }
+        return dir
+    }
+
+    /// `git show --stat` summary (commit vs its parent) — the change stats
+    /// shown by `/rollback`. Returns "" when unavailable.
+    public static func stats(commit: String, directory: String) async -> String {
+        let outcome = await git(["show", "--stat", "--format=", commit], directory: directory)
+        guard outcome.0 == 0 else { return "" }
+        // Parse the last line: " 1 file changed, 1 insertion(+), 1 deletion(-)"
+        let lastLine = outcome.1.split(separator: "\n").last.map(String.init) ?? ""
+        return lastLine.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Roll a single tracked file in the working directory back to the
+    /// checkpoint's commit. Returns (success, message).
+    public static func restoreFile(checkpoint: Checkpoint, directory: String, file: String) async -> (Bool, String) {
+        let outcome = await git(
+            ["restore", "--source=\(checkpoint.commit)", "--worktree", "--", file],
+            directory: directory
+        )
+        if outcome.0 == 0 {
+            return (true, "restored \(file) from \(checkpoint.name) (\(checkpoint.commit.prefix(8)))")
+        }
+        return (false, outcome.1)
+    }
+
     static func git(_ args: [String], directory: String) async -> (Int32, String) {
         var command = Command(absolutePath: Path("/usr/bin/git"), arguments: args)
         command.inheritCurrentEnvironment()

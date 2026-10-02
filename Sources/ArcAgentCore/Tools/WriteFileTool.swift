@@ -42,6 +42,11 @@ public enum WriteFileTool {
         // and report the RESOLVED path so a wrong-cwd mismatch is visible in
         // the response instead of silently routing the write elsewhere.
         let (resolved, warning) = WorkspacePath.resolveChecked(path)
+        // Reference checkpoints-and-rollback: snapshot before file mutations.
+        _ = await CheckpointGuard.shared.ensure(
+            directory: URL(fileURLWithPath: resolved).deletingLastPathComponent().path,
+            label: "before write_file"
+        )
 
         // reference `file_safety.py`: refuse to overwrite protected paths
         // (config/state files, cross-profile areas).

@@ -229,6 +229,8 @@ public actor ArcAgent: Service {
     private var persistedMessageCount = 0
     /// Whether the session metadata event has been created in the store.
     private var sessionCreatedInStore = false
+    /// Manual `/title` (reference: applied immediately; survives persistence).
+    private var sessionTitle: String = ""
     /// Whether persisted history has been loaded for this session. Guards the
     /// one-shot restore so repeated turns never re-read the store.
     private var sessionRestored = false
@@ -256,6 +258,8 @@ public actor ArcAgent: Service {
     private var streamThinkScrubber = StreamingThinkScrubber()
     /// Tool calls issued in the current turn (background-review cadence).
     private var toolCallsThisTurn = 0
+    /// Per-tool usage stats for the current turn (batch trajectories).
+    private var turnToolStats: [String: ToolCallStat] = [:]
     /// Guidance from a background review, injected at the start of the next
     /// user turn (reference `background_review`: reviews inject only on issues).
     private var pendingBackgroundGuidance: String?
@@ -311,6 +315,9 @@ public actor ArcAgent: Service {
     /// Anti-thrash: after two consecutive low-savings compressions, suspend
     /// compression for the remainder of the turn.
     private var compressionThrottled = false
+    /// Provider-reported prompt tokens of the previous request (real-token
+    /// gate — the strongest signal of context pressure when available).
+    private var lastRecordedPromptTokens: Int? = nil
 
     /// Micro-compaction session state (cursor, rolling summary, failure
     /// tracking). Lives across turns; the transcript is the source of truth
@@ -634,7 +641,95 @@ public actor ArcAgent: Service {
         let command = parts.first?.lowercased() ?? ""
         let args = parts.count > 1 ? parts[1] : ""
 
+        // Reference gateway event: `command:*` (wildcard subscription).
+        await HookBus.shared.emit("command:" + command, [
+            "command": .string(command),
+            "args": .string(args),
+            "platform": .string(config.platformHint),
+            "session_id": .string(sessionID),
+            "user_id": .string(sessionID),
+        ])
+
         switch command {
+        case "/title":
+            // Reference § Session Naming: `/title <name>` sets immediately;
+            // `/title` shows the current title.
+            let title = SessionTitle.sanitized(args)
+            if title.isEmpty {
+                print(sessionTitle.isEmpty ? "Current title: (none)" : "Current title: \(sessionTitle)")
+                print("")
+                return true
+            }
+            sessionTitle = title
+            print("Title set. \(sessionCreatedInStore ? "" : "(will be applied when the session is created)")")
+            print("")
+            return true
+
+        case "/rollback":
+            // Reference `/rollback [diff <N> | <N> [<file>]]` (checkpoints doc).
+            let root = WorkspacePath.root ?? FileManager.default.currentDirectoryPath
+            guard let store = try? CheckpointStore() else {
+                print("Checkpoint store unavailable.")
+                print("")
+                return true
+            }
+            let list = await store.list(projectPath: root)
+            let words = args.split(separator: " ").map(String.init)
+
+            func restoreTurnUndo() async {
+                // Reference: rollback also undoes the last conversation turn so
+                // the agent's context matches the restored filesystem.
+                if messageHistory.count >= 2 {
+                    let last = messageHistory[messageHistory.count - 1]
+                    if last.role == .assistant {
+                        messageHistory.removeLast()
+                    }
+                    if let lastUser = messageHistory.lastIndex(where: { $0.role == .user }) {
+                        messageHistory.removeSubrange(lastUser...)
+                    }
+                }
+                await persistConversationIfNeeded()
+            }
+
+            if words.first == "diff" {
+                guard words.count > 1, let n = Int(words[1]), list.indices.contains(n - 1) else {
+                    print("Usage: /rollback diff <N>")
+                    print("")
+                    return true
+                }
+                let stat = await CheckpointMaker.diffStat(checkpoint: list[n - 1], directory: root)
+                print(stat.isEmpty ? "No diff — working tree matches that checkpoint." : stat)
+                print("")
+                return true
+            }
+            if let n = Int(words.first ?? "") {
+                guard list.indices.contains(n - 1) else {
+                    print("No checkpoint #\(n) for \(root).")
+                    print("")
+                    return true
+                }
+                let checkpoint = list[n - 1]
+                if words.count > 1 {
+                    let (ok, msg) = await CheckpointMaker.restoreFile(
+                        checkpoint: checkpoint, directory: root, file: words[1])
+                    print(ok ? msg : "Restore failed: " + msg)
+                } else {
+                    // Pre-rollback snapshot of the current state so the undo
+                    // itself can be undone (reference behavior).
+                    _ = await CheckpointGuard.shared.ensure(directory: root, label: "before rollback \(n)")
+                    let (ok, msg) = await CheckpointMaker.restore(checkpoint: checkpoint, directory: root)
+                    print(ok ? msg : "Restore failed: " + msg)
+                    if ok {
+                        await restoreTurnUndo()
+                    }
+                }
+                print("")
+                return true
+            }
+            print(await RollbackFormatter.listText(list, root: root))
+            print("")
+            return true
+
         case "/quit", "/exit":
             return false
 
@@ -651,6 +746,7 @@ public actor ArcAgent: Service {
               /tokens          — Show estimated token usage
               /status          — Show agent status
               /clear           — Clear conversation history
+              /rollback        — List checkpoints; /rollback <N> restores
               /tools           — List available tools
               /profiles        — List agent profiles
               /quit            — Exit
@@ -821,12 +917,15 @@ public actor ArcAgent: Service {
     /// Reset per-turn recovery/interruption state at the start of a turn.
     /// ``turnInterrupted`` is intentionally NOT reset here: an interrupt
     /// request is sticky until a turn boundary consumes it.
-    private func resetTurnState() {
+    private func resetTurnState() async {
         compressionThrottled = false
         lastTwoCompressionSavings = []
         turnRecoveryState = TurnRecoveryState()
         turnChangedPaths = []
         toolCallsThisTurn = 0
+        turnToolStats = [:]
+        // Checkpoints: fresh per-turn snapshot scope (once per dir per turn).
+        await CheckpointGuard.shared.beginTurn()
     }
 
     private func appendUserMessage(_ message: Message) {
@@ -899,11 +998,21 @@ public actor ArcAgent: Service {
             }
 
             await restoreSessionIfNeeded()
-            resetTurnState()
+            await resetTurnState()
             let composed = await self.composeUserContent(self.effectiveUserText(message))
             messageHistory.append(Message(role: .user, content: composed))
 
             let response = try await runTurnLoop(client: llmClient)
+
+            // Reference gateway event: `agent:end` fires once per turn.
+            let endMessage = String((messageHistory.last { $0.role == Message.Role.user })?.content ?? "").prefix(500)
+            let endResponse = String(response).prefix(500)
+            await HookBus.shared.emit("agent:end", [
+                "session_id": .string(sessionID),
+                "platform": .string(config.platformHint),
+                "message": .string(String(endMessage)),
+                "response": .string(String(endResponse)),
+            ])
 
             await persistConversationIfNeeded()
 
@@ -925,6 +1034,35 @@ public actor ArcAgent: Service {
 
             return response
         }
+    }
+
+    // MARK: - Batch processing (reference `batch_runner.py`)
+
+    /// Tool index text for the ShareGPT trajectory system preamble.
+    public func toolsIndexText() async -> String {
+        config.registry.allTools
+            .filter { !config.disabledToolsets.contains($0.toolset) }
+            .map { "\($0.name): \($0.description)" }
+            .joined(separator: "\n")
+    }
+
+    /// Run one prompt to completion for batch/trajectory export: primes the
+    /// runtime, runs the normal turn loop, and returns the full history plus
+    /// per-tool stats. No session persistence — trajectories belong to the
+    /// batch runner, not the session archive.
+    public func runForBatch(prompt: String) async throws -> BatchTurnResult {
+        try await withSkillContext {
+            try await prime()
+        }
+        _ = try await runConversation(message: prompt)
+        let lastAssistant = messageHistory.last { $0.role == .assistant }
+        let terminalReason = lastAssistant?.terminalReason
+            ?? (messageHistory.last?.role == .tool ? "max_iterations" : nil)
+        return BatchTurnResult(
+            messages: messageHistory,
+            toolStats: turnToolStats,
+            terminalReason: terminalReason
+        )
     }
 
     /// Prepend pending background-review guidance to the next user turn
@@ -996,7 +1134,10 @@ public actor ArcAgent: Service {
                     updatedAt: Date(),
                     model: config.model,
                     provider: config.provider,
-                    messages: newMessages
+                    title: sessionTitle.isEmpty ? nil : SessionTitle.sanitized(sessionTitle),
+                    messages: newMessages,
+                    source: "cli",
+                    workspaceKey: WorkspacePath.root
                 ))
                 sessionCreatedInStore = true
             } else {
@@ -1067,11 +1208,34 @@ public actor ArcAgent: Service {
     /// summarized), token-budget tail (~20K), iterative summary updates,
     /// summary-model cool-down after rate limits, and anti-thrash that
     /// suspends compression after two consecutive low-savings rounds.
+    /// Compression decision (extracted for testability): compress when the
+    /// FULL *estimated* request exceeds the limit OR the provider-reported
+    /// prompt-token count of the previous request already did (real-token
+    /// gate — estimates can undershoot tool-heavy history, so the reference
+    /// gates on actual `prompt_tokens`, not only estimates). `force` bypasses
+    /// everything; anti-thrash throttling blocks only non-forced runs.
+    static func shouldAutoCompress(
+        estimated: Int,
+        lastRealPromptTokens: Int?,
+        limit: Int,
+        throttled: Bool,
+        force: Bool
+    ) -> Bool {
+        if force { return true }
+        if throttled { return false }
+        return estimated > limit || (lastRealPromptTokens ?? 0) > limit
+    }
+
     private func autoCompressIfNeeded(focus: String? = nil, force: Bool = false) async {
-        if !force { guard !compressionThrottled else { return } }
         let limit = effectiveContextLimit()
         let estimated = await estimateRequestTokens()
-        guard force || estimated > limit else { return }
+        guard Self.shouldAutoCompress(
+            estimated: estimated,
+            lastRealPromptTokens: lastRecordedPromptTokens,
+            limit: limit,
+            throttled: compressionThrottled,
+            force: force
+        ) else { return }
 
         // Pluggable context engines (reference context_engine): the
         // prune-tool-results variant trims tool output only; everything else
@@ -1296,6 +1460,7 @@ public actor ArcAgent: Service {
                 updatedAt: Date(),
                 model: config.model,
                 provider: config.provider,
+                title: sessionTitle.isEmpty ? nil : SessionTitle.sanitized(sessionTitle),
                 messages: messages
             ))
             persistedMessageCount = messages.count
@@ -1376,12 +1541,26 @@ public actor ArcAgent: Service {
         var appendedToolResults = false
 
         let maxIters = config.maxIterations > 0 ? config.maxIterations : Int.max
-        for _ in 0..<maxIters {
+        // Reference gateway event: `agent:start` fires once per turn.
+        let startSummary = String((messageHistory.last { $0.role == Message.Role.user })?.content ?? "").prefix(500)
+        await HookBus.shared.emit("agent:start", [
+            "session_id": .string(sessionID),
+            "platform": .string(config.platformHint),
+            "message": .string(String(startSummary)),
+        ])
+        for iteration in 0..<maxIters {
             if turnInterrupted {
                 turnInterrupted = false
                 return "Interrupted by user."
             }
             drainSteers()
+            // Reference gateway event: `agent:step` per tool-loop iteration.
+            let lastToolNames = (messageHistory.last { $0.toolCalls != nil })?.toolCalls?.map { $0.function.name } ?? []
+            await HookBus.shared.emit("agent:step", [
+                "session_id": .string(sessionID),
+                "iteration": .int(iteration + 1),
+                "tool_names": .array(lastToolNames),
+            ])
 
             // Auto-compress if context is too large
             await autoCompressIfNeeded()
@@ -1392,6 +1571,14 @@ public actor ArcAgent: Service {
             // 2. Build messages array
             var messages: [Message] = [Message(role: .system, content: systemPrompt)]
             messages.append(contentsOf: Self.sanitizeMessages(messageHistory))
+
+            // 2b. Plugin `pre_llm_call`: prepend hook-provided context once
+            // (reference: context injected before the tool-calling loop).
+            if let decision = await HookBus.shared.queryBlocking("pre_llm_call", [
+                "session_id": .string(sessionID),
+            ]), case .context(let injection) = decision, !injection.isEmpty {
+                messages.insert(Message(role: .system, content: "Hook context:\n\(injection)"), at: 1)
+            }
 
             // 3. Build tool schemas (progressive disclosure: deferred tools
             // appear as tool_search/tool_describe/tool_call + manifest).
@@ -1482,7 +1669,8 @@ public actor ArcAgent: Service {
                         content: scrubbed.isEmpty ? nil : scrubbed,
                         toolCalls: response.toolCalls,
                         finishReason: response.finishReason,
-                        usage: response.usage
+                        usage: response.usage,
+                        reasoning: response.reasoning
                     )
                 } else {
                     response2 = response
@@ -1507,7 +1695,7 @@ public actor ArcAgent: Service {
             // 6. Parse response — tool calls take precedence over content.
             switch Self.classifyTurn(content: response2.content, toolCalls: response2.toolCalls) {
             case .text(let content):
-                messageHistory.append(Message(role: .assistant, content: content))
+                messageHistory.append(Message(role: .assistant, content: content, reasoning: response2.reasoning))
                 turnRecoveryState.markProviderSuccess()
                 return content
 
@@ -1515,7 +1703,8 @@ public actor ArcAgent: Service {
                 messageHistory.append(Message(
                     role: .assistant,
                     content: response2.content,
-                    toolCalls: toolCalls
+                    toolCalls: toolCalls,
+                    reasoning: response2.reasoning
                 ))
 
                 let outcomes = await executeToolCalls(toolCalls)
@@ -1615,13 +1804,27 @@ public actor ArcAgent: Service {
         var appendedToolResults = false
 
         let maxIters = config.maxIterations > 0 ? config.maxIterations : Int.max
-        for _ in 0..<maxIters {
+        // Reference gateway event: `agent:start` fires once per turn.
+        let startSummary = String((messageHistory.last { $0.role == Message.Role.user })?.content ?? "").prefix(500)
+        await HookBus.shared.emit("agent:start", [
+            "session_id": .string(sessionID),
+            "platform": .string(config.platformHint),
+            "message": .string(String(startSummary)),
+        ])
+        for iteration in 0..<maxIters {
             if turnInterrupted {
                 turnInterrupted = false
                 continuation.yield("Interrupted by user.")
                 continuation.finish()
                 return
             }
+            // Reference gateway event: `agent:step` per tool-loop iteration.
+            let lastToolNames = (messageHistory.last { $0.toolCalls != nil })?.toolCalls?.map { $0.function.name } ?? []
+            await HookBus.shared.emit("agent:step", [
+                "session_id": .string(sessionID),
+                "iteration": .int(iteration + 1),
+                "tool_names": .array(lastToolNames),
+            ])
             drainSteers()
             await autoCompressIfNeeded()
             var streamFinishReason: String? = nil
@@ -2167,6 +2370,9 @@ public actor ArcAgent: Service {
     /// credits_tracker parity; local JSON — usage is not session data).
     private func recordUsage(_ usage: Usage?) async {
         guard let usage else { return }
+        // Real-token gate: the previous request's actual prompt tokens are the
+        // strongest available signal (estimates can undershoot).
+        lastRecordedPromptTokens = usage.promptTokens
         let route = BillingRoute(
             provider: config.provider,
             model: currentModelName,
@@ -2548,6 +2754,13 @@ public actor ArcAgent: Service {
         guard let entry = config.registry.lookup(name: toolCall.function.name) else {
             return "Error: Unknown tool '\(toolCall.function.name)'."
         }
+        // Disabled-toolset enforcement (reference `--toolsets`: disabled
+        // toolsets are removed from the registry). Schemas are filtered by
+        // ProgressiveToolDisclosure; dispatch must enforce the same set so a
+        // disabled tool can never execute even when the model names it.
+        guard !config.disabledToolsets.contains(entry.toolset) else {
+            return "Error: Tool '\(toolCall.function.name)' is disabled (toolset '\(entry.toolset)' is disabled by configuration)."
+        }
 
         // ── Tool gateway (reference `tool_gateway` / managed scope): policy is
         // evaluated before any approval/danger logic and before execution. ──
@@ -2762,13 +2975,39 @@ public actor ArcAgent: Service {
                 }
             }
         }
+        // Reference plugin hook `pre_tool_call`: a hook may veto the call
+        // (guardrails, policy, rate limits). The message becomes the result.
+        if let decision = await HookBus.shared.queryBlocking("pre_tool_call", [
+            "tool_name": .string(toolCall.function.name),
+            "tool_input": .string(toolCall.function.arguments),
+            "session_id": .string(sessionID),
+            "task_id": .string(sessionID),
+        ]), case .block(let message) = decision {
+            return "Error: \(message)"
+        }
         let result: String
+        let start = Date()
         do {
             result = try await dispatchToolCall(toolCall)
         } catch {
             result = "Error executing tool '\(toolCall.function.name)': \(error.localizedDescription)"
         }
         await Metrics.shared.recordToolCall()
+        // Reference plugin hook `post_tool_call` (observer; fire-and-forget).
+        let resultSummary = String(result).prefix(8000)
+        await HookBus.shared.emit("post_tool_call", [
+            "tool_name": .string(toolCall.function.name),
+            "tool_input": .string(toolCall.function.arguments),
+            "result": .string(String(resultSummary)),
+            "duration_ms": .int(Int(Date().timeIntervalSince(start) * 1000)),
+            "session_id": .string(sessionID),
+            "task_id": .string(sessionID),
+        ])
+        // Batch trajectory stats: reference success/failure semantics applied
+        // to the (redaction-agnostic) raw result.
+        var stat = turnToolStats[toolCall.function.name] ?? ToolCallStat()
+        stat.record(ToolCallStat.resultIsError(result))
+        turnToolStats[toolCall.function.name] = stat
         return Self.redactSecrets(result)
     }
 
@@ -2920,7 +3159,10 @@ public actor ArcAgent: Service {
     }
 
     private func buildToolsIndex() -> String {
-        let tools = config.registry.allTools
+        // Parity with the schema disclosure: disabled toolsets are not
+        // advertised in the tool index either (ProgressiveToolDisclosure
+        // filters the same set for schemas).
+        let tools = config.registry.allTools.filter { !config.disabledToolsets.contains($0.toolset) }
         return tools.map { tool in
             let emoji = tool.emoji ?? "🔧"
             return "\(emoji) `\(tool.name)` [\(tool.toolset)] — \(tool.description)"

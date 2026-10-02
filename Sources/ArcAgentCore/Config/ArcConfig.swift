@@ -97,6 +97,10 @@ public struct ArcConfig: Codable, Sendable, Equatable {
 
     /// Standing-goal loop configuration (reference `goals.max_turns`).
     public var goals: GoalsConfig
+    /// Checkpoint/rollback safety net (reference `checkpoints.*` — opt-in).
+    public var checkpoints: CheckpointsConfig?
+    /// Event hooks: outbound webhook targets (reference `hooks.outbound`).
+    public var hooks: HooksConfig = HooksConfig()
 
     /// Configuration for web search/extract backends (reference `web` block).
     public struct WebConfig: Codable, Sendable, Equatable {
@@ -150,6 +154,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         case mcpServers = "mcp_servers"
         case web
         case toolSearch = "tool_search"
+        case checkpoints
+        case hooks
     }
 
     // MARK: - Init
@@ -172,7 +178,9 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         mcpServers: [String: MCPServerConfig] = [:],
         web: WebConfig = WebConfig(),
         toolSearch: ToolSearchConfig = ToolSearchConfig(),
-        goals: GoalsConfig = GoalsConfig()
+        goals: GoalsConfig = GoalsConfig(),
+        checkpoints: CheckpointsConfig? = nil,
+        hooks: HooksConfig = HooksConfig()
     ) {
         self.model = model
         self.agent = agent
@@ -192,6 +200,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.web = web
         self.toolSearch = toolSearch
         self.goals = goals
+        self.checkpoints = checkpoints
+        self.hooks = hooks
     }
 
     /// Decode each section independently, defaulting any that are absent.
@@ -216,6 +226,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.mcpServers = try container.decodeIfPresent([String: MCPServerConfig].self, forKey: .mcpServers) ?? [:]
         self.web = try container.decodeIfPresent(WebConfig.self, forKey: .web) ?? WebConfig()
         self.toolSearch = try container.decodeIfPresent(ToolSearchConfig.self, forKey: .toolSearch) ?? ToolSearchConfig()
+        self.checkpoints = try container.decodeIfPresent(CheckpointsConfig.self, forKey: .checkpoints)
+        self.hooks = try container.decodeIfPresent(HooksConfig.self, forKey: .hooks) ?? HooksConfig()
     }
 }
 
@@ -275,6 +287,59 @@ public struct ModelConfig: Codable, Sendable, Equatable {
         self.baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL)
         self.contextLength = try container.decodeIfPresent(Int.self, forKey: .contextLength)
         self.maxOutputTokens = try container.decodeIfPresent(Int.self, forKey: .maxOutputTokens)
+    }
+}
+
+// MARK: - Hooks (reference `hooks.outbound`)
+
+/// Event-hook configuration (reference `hooks:` block).
+public struct HooksConfig: Codable, Sendable, Equatable {
+    /// Outbound webhook targets (reference `hooks.outbound`).
+    public var outbound: [OutboundWebhookTarget]
+
+    public init(outbound: [OutboundWebhookTarget] = []) {
+        self.outbound = outbound
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.outbound = try container.decodeIfPresent([OutboundWebhookTarget].self, forKey: .outbound) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case outbound
+    }
+}
+
+// MARK: - Checkpoints (reference `checkpoints.*`, opt-in)
+
+/// Checkpoint/rollback configuration (reference Hermes `checkpoints` block).
+public struct CheckpointsConfig: Codable, Sendable, Equatable {
+    /// Master switch. Default: false (opt-in, like Hermes v2).
+    public var enabled: Bool?
+    /// Max checkpoints per project (default 20; enforced on snapshot).
+    public var maxSnapshots: Int?
+    /// Skip any single file larger than this (MB, default 10). Hints only —
+    /// stash snapshots are whole-tree; the cap keeps the guard honest.
+    public var maxFileSizeMB: Int?
+
+    public init(enabled: Bool? = nil, maxSnapshots: Int? = nil, maxFileSizeMB: Int? = nil) {
+        self.enabled = enabled
+        self.maxSnapshots = maxSnapshots
+        self.maxFileSizeMB = maxFileSizeMB
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled)
+        self.maxSnapshots = try container.decodeIfPresent(Int.self, forKey: .maxSnapshots)
+        self.maxFileSizeMB = try container.decodeIfPresent(Int.self, forKey: .maxFileSizeMB)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled
+        case maxSnapshots
+        case maxFileSizeMB
     }
 }
 
