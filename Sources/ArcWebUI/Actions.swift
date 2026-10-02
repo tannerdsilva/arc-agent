@@ -430,15 +430,87 @@ extension AppState {
     /// same nudge reference uses (`chat_completion_helpers.py`), take ONE final
     /// no-tools call for the closing summary, and mark the reply with
     /// `terminalReason = "max_iterations"` so the UI shows the status card.
-    /// Persist a message to the store, surfacing failures to the Logs panel.
-    /// Append failures used to be silent `try?` swallows — a write could be
-    /// lost (and its Turn/Processed label dropped) without any trace.
-    func persistMessage(_ message: Message, sessionID: String, store: (any SessionStore)?) async {
+    /// Persist a message to the store, surfacing failures to the Logs panel AND
+    /// healing the one recoverable case: a "ghost" session — the UI still renders
+    /// it from the in-memory cache while its store file is gone, so every append
+    /// fails `notFound` and the turn is lost silently. The heal rebuilds the
+    /// store entry from the most complete in-memory snapshot (the running turn's
+    /// `healWith` history when given, else the materialized cache) and retries
+    /// the append once.
+    func persistMessage(
+        _ message: Message,
+        sessionID: String,
+        store: (any SessionStore)?,
+        healWith history: [Message]? = nil
+    ) async {
         guard let store else { return }
         do {
             try await store.appendMessage(sessionID: sessionID, message: message)
+        } catch SessionError.notFound {
+            switch await healGhostSession(sessionID: sessionID, store: store, history: history, pending: message) {
+            case .landed:
+                break
+            case .retry:
+                do {
+                    try await store.appendMessage(sessionID: sessionID, message: message)
+                } catch {
+                    LogCollector.shared.append(level: .error, text: "[store] persist still failing after ghost recovery for session \(String(sessionID.prefix(8))): \(error)")
+                    _ = toast("A message could not be saved — see Logs.", kind: "error")
+                }
+            case .dropped:
+                LogCollector.shared.append(level: .error, text: "[store] ghost-session recovery failed for \(String(sessionID.prefix(8))) — message dropped: \(message.role.rawValue)")
+                _ = toast("A message could not be saved — the chat's store file was missing and recovery failed. See Logs.", kind: "error")
+            }
         } catch {
             LogCollector.shared.append(level: .error, text: "[store] failed to persist \(message.role.rawValue) message for session \(String(sessionID.prefix(8))): \(error)")
+            _ = toast("A message could not be saved (store error) — see Logs.", kind: "error")
+        }
+    }
+
+    /// Outcome of a ghost-session heal attempt.
+    private enum GhostHealOutcome {
+        /// The store entry exists again and already contains the pending message
+        /// (the in-memory transcript included it) — nothing further to append.
+        case landed
+        /// The store entry exists again but lacks the pending message — retry the append.
+        case retry
+        /// The store entry could not be re-created.
+        case dropped
+    }
+
+    /// Rebuild a missing session file from the best in-memory snapshot: the
+    /// running turn's history when it is a superset of the cached transcript,
+    /// else the materialized cache. Also keeps the session in `sessions` so its
+    /// sidebar row does not vanish while the chat is open.
+    private func healGhostSession(
+        sessionID: String,
+        store: any SessionStore,
+        history: [Message]?,
+        pending: Message
+    ) async -> GhostHealOutcome {
+        var snapshot = sessions.first(where: { $0.id == sessionID })
+            ?? Session(id: sessionID, title: "Recovered chat")
+        if let history, history.count >= snapshot.messages.count, !history.isEmpty {
+            snapshot.messages = history
+        }
+        if snapshot.messages.isEmpty { snapshot.messages = [pending] }
+        snapshot.updatedAt = Date()
+        snapshot.messageCount = snapshot.messages.count
+        // Callers append to their in-memory transcript before persisting, so the
+        // snapshot usually already ends with the message that failed to land — a
+        // retry would duplicate it. Only retry when it is genuinely absent.
+        let alreadyLanded = snapshot.messages.last == pending
+        do {
+            try await store.create(snapshot)
+            if !sessions.contains(where: { $0.id == sessionID }) {
+                sessions.insert(snapshot, at: 0)
+                sessionVersion += 1
+            }
+            LogCollector.shared.append(level: .warning, text: "[store] session \(String(sessionID.prefix(8))) was missing from the store — re-created from memory (\(snapshot.messages.count) messages)")
+            return alreadyLanded ? .landed : .retry
+        } catch {
+            LogCollector.shared.append(level: .error, text: "[store] ghost-session re-create failed for \(String(sessionID.prefix(8))): \(error)")
+            return .dropped
         }
     }
 
@@ -579,6 +651,10 @@ extension AppState {
         activeTurns[sessionID] = turn
         pendingDelete = false
         attachments = []
+        // Remember what this submit consumed before clearing the draft: a
+        // trailing input frame still carrying the sent text must not
+        // resurrect it (the engine's debounce can land it after this clear).
+        noteSubmittedDraft(settings.composerDrafts[sessionID] ?? "", sessionID: sessionID)
         storeComposerDraft("", sessionID: sessionID)
 
         let userMsg = Message(role: .user, content: userContent, createdAt: Date(), displayText: displayText)
@@ -588,7 +664,7 @@ extension AppState {
         }
         sessionVersion += 1
         if let store {
-            await persistMessage(userMsg, sessionID: sessionID, store: store)
+            await persistMessage(userMsg, sessionID: sessionID, store: store, healWith: session.messages)
         }
 
         // arc-parity: when a title_gen auxiliary model is assigned, name the
@@ -770,7 +846,7 @@ extension AppState {
                 )
                 history.append(asstMsg)
                 if let store {
-                    await persistMessage(asstMsg, sessionID: sessionID, store: store)
+                    await persistMessage(asstMsg, sessionID: sessionID, store: store, healWith: history)
                 }
                 if let u = roundUsage {
                     await Self.recordUsage(u, preset: preset)
@@ -842,7 +918,7 @@ extension AppState {
             )
             history.append(interrupt)
             if let store {
-                await persistMessage(interrupt, sessionID: sessionID, store: store)
+                await persistMessage(interrupt, sessionID: sessionID, store: store, healWith: history)
             }
             turnCompleted = true
         }
@@ -916,9 +992,21 @@ extension AppState {
     }
 
     /// Reload sessions from the store, optionally selecting one.
+    ///
+    /// Ghost tolerance: a session the store list no longer carries but the
+    /// in-memory cache still materializes is kept (its row stays, the selection
+    /// survives) — the persist path re-creates its store entry. A list failure
+    /// keeps the previous array instead of blanking the sidebar. With no
+    /// selection at all, the newest real chat is opened rather than the blank
+    /// canvas.
     func reloadSessions(selecting wanted: String? = nil) async {
+        let previous = sessions
         if let store {
-            sessions = (try? await store.list(limit: 500)) ?? []
+            do {
+                sessions = try await store.list(limit: 500)
+            } catch {
+                LogCollector.shared.append(level: .error, text: "[store] session list failed: \(error) — keeping \(previous.count) cached sessions")
+            }
         }
         sessionVersion += 1
         // list() returns metadata-only summaries: drop the lazy cache and
@@ -930,7 +1018,15 @@ extension AppState {
             }
         }
         if let current = activeSessionID, !sessions.contains(where: { $0.id == current }) {
-            activeSessionID = nil
+            if let cached = previous.first(where: { $0.id == current }) {
+                sessions.insert(cached, at: 0)
+                LogCollector.shared.append(level: .warning, text: "[store] session \(String(current.prefix(8))) missing from the store list — kept from cache")
+            } else {
+                activeSessionID = nil
+            }
+        }
+        if activeSessionID == nil, let newest = newestSessionID() {
+            activeSessionID = newest
         }
         if let keep = activeSessionID {
             await ensureSessionMessages(keep)
@@ -1397,9 +1493,20 @@ final class Controller {
 
     private func newChat() async {
         await app.ensureRuntime()
-        guard let store = await app.storeRef() else { return }
+        guard let store = await app.storeRef() else {
+            _ = await app.toast("No storage available — cannot create a chat.", kind: "error")
+            return
+        }
         let session = Session()
-        try? await store.create(session)
+        do {
+            try await store.create(session)
+        } catch {
+            // Never select a session the store refused: that is the phantom-
+            // session path (blank canvas now, lost turns later).
+            LogCollector.shared.append(level: .error, text: "[store] failed to create session \(String(session.id.prefix(8))): \(error)")
+            _ = await app.toast("Could not create the chat — storage error (see Logs).", kind: "error")
+            return
+        }
         await app.reloadSessions(selecting: session.id)
         await app.setActiveSession(session.id)
         _ = await app.hint("New chat created.")

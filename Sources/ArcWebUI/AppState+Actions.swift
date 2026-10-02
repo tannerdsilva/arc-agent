@@ -146,7 +146,18 @@ extension AppState {
 
     /// Per-chat composer draft (arc parity). Persisted with a 1.5 s
     /// debounce so keystrokes don't hammer the settings file.
+    ///
+    /// A submit consumes the draft: a trailing input frame that still carries
+    /// the just-sent text (the engine's input debounce can land up to
+    /// `debounceMaxWaitMs` after the keystroke) is dropped instead of
+    /// resurrecting it — the ghost-draft defect put the sent text back in the
+    /// composer after a reload. Any different text is a real edit and passes.
     func storeComposerDraft(_ text: String, sessionID: String) {
+        if let submitted = submittedDrafts[sessionID],
+           Date().timeIntervalSince(submitted.at) < Self.draftSubmitGuardWindow,
+           submitted.text == text {
+            return
+        }
         settings.composerDrafts[sessionID] = text
         draftSaveTask?.cancel()
         draftSaveTask = Task { [weak self] in
@@ -155,6 +166,17 @@ extension AppState {
             guard !Task.isCancelled else { return }
             await self.saveSettings()
         }
+    }
+
+    /// Window after a submit in which input frames carrying the submitted text
+    /// are ignored (see `storeComposerDraft`).
+    static let draftSubmitGuardWindow: TimeInterval = 10
+
+    /// Record what a submit consumed for `sessionID` (see
+    /// `storeComposerDraft`); called from the send path just before the draft
+    /// is cleared.
+    func noteSubmittedDraft(_ text: String, sessionID: String) {
+        submittedDrafts[sessionID] = (text, Date())
     }
 
     func readFormValue(_ key: String) -> String {
@@ -347,6 +369,10 @@ extension AppState {
         } catch {
             LogCollector.shared.append(level: .error, text: "[store] failed to delete session \(String(id.prefix(8))): \(error)")
         }
+        // Drop it from the cache too: a deliberate delete must not be
+        // resurrected by the ghost-tolerance path in `reloadSessions`.
+        sessions.removeAll { $0.id == id }
+        if activeSessionID == id { activeSessionID = nil }
         settings.sessionWorkspaces.removeValue(forKey: id)
         settings.sessionCategories.removeValue(forKey: id)
         settings.sessionProfile.removeValue(forKey: id)

@@ -598,6 +598,10 @@ actor AppState {
     }
     var activeSessionID: String?
     var sessionVersion = 0
+    /// Text of the last submit per session, for the draft guard window (see
+    /// `storeComposerDraft`): a trailing debounced input frame carrying the
+    /// just-sent text must not resurrect the cleared draft.
+    var submittedDrafts: [String: (text: String, at: Date)] = [:]
 
     var skills: [Skill] = []
     var selectedSkill: String?
