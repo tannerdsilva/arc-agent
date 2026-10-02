@@ -319,11 +319,9 @@ extension AppState {
                 : (showArchived ? "No archived chats." : "No chats yet — press + to start one.")
             rows.append("<div class=\"empty-hint\">\(msg)</div>")
         }
-        let stamp = liveHintHTML()
         return """
         \(head)
         <div class="panel-body" id="sess-list-body" data-component-id="sess-list" data-event="click">
-          \(stamp)
           \(rows.joined())
         </div>
         """
@@ -389,17 +387,25 @@ extension AppState {
         return chips
     }
 
-    func liveHintHTML() -> String {
-        guard let live = activeTurns[activeSessionID ?? ""] else { return "" }
-        let label: String
+    /// The running turn's state as a one-line label (`Responding…`, `Running
+    /// <tool>…`, `Awaiting approval…`), shared by the sidebar's status pill.
+    func liveStatusLabel(_ live: LiveTurn) -> String {
         switch live.status {
-        case "tool": label = "Running a tool…"
-        case "error": label = "Turn failed"
-        case "done": label = ""
-        default: label = "Responding…"
+        case "tool": return live.toolName.map { "Running \(trunc($0, 18))…" } ?? "Running a tool…"
+        case "approval": return "Awaiting approval…"
+        case "error": return "Turn failed"
+        case "done": return ""
+        default: return "Responding…"
         }
+    }
+
+    /// Sidebar live-status pill: the running turn shown on its own session row
+    /// (replaces the floating "Responding…" hint that read as list noise).
+    func liveStatusPill(_ sessionID: String) -> String {
+        guard let live = activeTurns[sessionID] else { return "" }
+        let label = liveStatusLabel(live)
         guard !label.isEmpty else { return "" }
-        return "<div class=\"empty-hint\">\(label)</div>"
+        return "<span class=\"sess-status\"><span class=\"sess-status-dot\"></span>\(esc(label))</span>"
     }
 
     /// arc-parity relative time: 1m / 12m / 3h / 4d / Aug 28 (+year if older
@@ -465,7 +471,7 @@ extension AppState {
         // Summaries carry the metadata count; loaded sessions use the live array.
         let count = s.messages.isEmpty ? s.messageCount : s.messages.count
         let epochMs = Int(s.updatedAt.timeIntervalSince1970 * 1000)
-        let meta = "\(count) msg • <span class=\"rel-time\" data-reltime=\"\(epochMs)\">\(relTimeLabel(s.updatedAt))</span>" + (archived.isEmpty ? "" : " • Archived")
+        let meta = "\(count) msg • <span class=\"rel-time\" data-reltime=\"\(epochMs)\">\(relTimeLabel(s.updatedAt))</span>" + (archived.isEmpty ? "" : " • Archived") + liveStatusPill(s.id)
         let pinBadge = booked ? "<span class=\"pin-badge\" title=\"Pinned\">" + WebUIIcon(.bookmark, size: .small).render() + "</span>" : ""
         let pinLabel = booked ? "Unpin conversation" : "Pin conversation"
         let arcLabel = archived.isEmpty ? "Archive conversation" : "Unarchive conversation"
@@ -899,21 +905,34 @@ extension AppState {
             html.append(liveMessageHTML(live))
         }
         if html.isEmpty {
-            html.append("<div class=\"blank\"><div class=\"big\">\(WebUIIcon(.messageSquare, size: .extraLarge).render())</div><div>Start a conversation below.</div></div>")
+            html.append("""
+            <div class="blank">
+              <div class="blank-ico">\(WebUIIcon(.messageSquare, size: .extraLarge).render())</div>
+              <div class="blank-title">This chat is empty</div>
+              <div class="blank-sub">Say hello below — or type / for the command list.</div>
+              <button type="button" class="ghost-btn blank-cta" data-focus-composer>\(WebUIIcon(.edit, size: .small).render())<span>Start typing</span></button>
+            </div>
+            """)
         }
         return html.joined()
     }
 
-    /// The role header for an assistant reply: sparkle icon + "ARC Agent" +
-    /// the tokens-per-second chip when TPS display is on (arc parity).
+    /// The role header for an assistant reply: sparkle icon + "ARC Agent" on
+    /// the left; the grouped meta row carries the tokens-per-second chip, the
+    /// token usage and the produced-at time on the right (arc parity).
     func assistantRoleHeaderHTML(_ m: Message) -> String {
         let tp = m.tps ?? 0
         let tpsChip = settings.showTps && tp > 0
             ? "<span class=\"msg-tps-inline\" title=\"Tokens per second\">\(esc(fmtTps(tp)))</span>" : ""
-        return "<div class=\"msg-meta\"><span class=\"role-icon assistant\">\(WebUIIcon(.star, size: .small).render())</span> ARC Agent\(tpsChip)</div>"
+        let usage = usageInlineHTML(m)
+        let ts = fmtMessageTime(m.createdAt)
+        let timeSpan = ts.isEmpty ? "" : "<span class=\"msg-time\">\(esc(ts))</span>"
+        let right = usage.isEmpty && timeSpan.isEmpty
+            ? "" : "<span class=\"mm-right\">\(usage)\(timeSpan)</span>"
+        return "<div class=\"msg-meta\"><span class=\"mm-left\"><span class=\"role-icon assistant\">\(WebUIIcon(.star, size: .small).render())</span> ARC Agent\(tpsChip)</span><span class=\"mm-spacer\"></span>\(right)</div>"
     }
 
-    /// The body (markdown + tool chips) of an assistant reply.
+    /// The body (markdown + tool cards) of an assistant reply.
     func assistantBodyHTML(_ m: Message) -> String {
         let content = m.content ?? ""
         let chips = toolChipsHTML(m.toolCalls)
@@ -921,10 +940,10 @@ extension AppState {
         return "<div class=\"msg-body\">\(mdBox(content))</div>" + chips
     }
 
-    /// arc parity: input/output token usage line below a reply.
-    func usageFootHTML(_ m: Message) -> String {
+    /// arc parity: input/output token usage, rendered inside the meta row.
+    func usageInlineHTML(_ m: Message) -> String {
         guard settings.showTokenUsage, let u = m.usage else { return "" }
-        return "<div class=\"msg-foot-inline\"><span class=\"msg-usage-inline\">\(fmtTokens(u.promptTokens)) in · \(fmtTokens(u.completionTokens)) out</span></div>"
+        return "<span class=\"msg-usage-inline\">\(fmtTokens(u.promptTokens)) in · \(fmtTokens(u.completionTokens)) out</span>"
     }
 
     /// reference `_formatTurnDuration`: <60s → "Ns"; else "Xh Ym" / "Xm Ys".
@@ -1090,7 +1109,6 @@ extension AppState {
           <div class="msg assistant">
             <div style="max-width:100%;width:100%">
               \(assistantBodyHTML(finalMsg))
-              \(usageFootHTML(finalMsg))
               \(terminalCard)
               \(msgFootHTML(finalMsg))
             </div>
@@ -1459,13 +1477,11 @@ extension AppState {
         return f.string(from: d)
     }
 
-    /// Hover footer for completed assistant responses: produced-at time + copy.
+    /// Hover footer for completed assistant responses: copy only — the
+    /// produced-at time now lives in the message meta row.
     func msgFootHTML(_ m: Message) -> String {
-        let ts = fmtMessageTime(m.createdAt)
-        let timeSpan = ts.isEmpty ? "" : "<span class=\"msg-time\" title=\"\(esc(ts))\">\(esc(ts))</span>"
         return """
         <div class="msg-foot">
-          \(timeSpan)
           <span class="msg-actions">
             <button type="button" class="msg-copy-btn msg-action-btn" data-copy="\(esc(m.content ?? ""))" title="Copy response">\(WebUIIcon(.copy, size: .small).render())</button>
           </span>
@@ -1732,9 +1748,14 @@ extension AppState {
     }
 
     private func ddTrigger(id: String, icon: String, label: String, title: String) -> String {
-        """
-        <button type="button" id="\(id)" data-component-id="\(id)" class="dd-trigger" title="\(esc(title))">
-          \(icon)<span class="dd-trigger-label">\(esc(trunc(label, 26)))</span>\(WebUIIcon(.chevronDown, size: .small).render())
+        // the full label rides the DOM — the chip's CSS ellipsis handles
+        // overflow and `title` carries the whole name, so a clipped chip stays
+        // hover-readable (the old server-side truncation lost the tail of the
+        // name permanently, mid-word).
+        let tip = label.isEmpty ? title : "\(title) — \(label)"
+        return """
+        <button type="button" id="\(id)" data-component-id="\(id)" class="dd-trigger" title="\(esc(tip))">
+          \(icon)<span class="dd-trigger-label">\(esc(label))</span>\(WebUIIcon(.chevronDown, size: .small).render())
         </button>
         """
     }

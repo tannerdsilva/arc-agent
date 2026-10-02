@@ -50,6 +50,11 @@ public static let css: String = """
       --shadow: 0 2px 12px rgba(60, 50, 30, 0.08);
       --user-bubble: rgba(184, 134, 11, 0.10);
       --code-bg: #F4EFE3;
+      --code-text: #1D1D24;
+      --code-inline-bg: rgba(0, 0, 0, 0.05);
+      --input-bg: rgba(0, 0, 0, 0.02);
+      --hover-bg: rgba(0, 0, 0, 0.04);
+      --border-subtle: rgba(0, 0, 0, 0.08);
       --scroll-thumb: #D8D0BE;
     }
 
@@ -103,6 +108,11 @@ public static let css: String = """
       --shadow: 0 2px 12px rgba(60, 50, 30, 0.08);
       --user-bubble: rgba(184, 134, 11, 0.10);
       --code-bg: #F4EFE3;
+      --code-text: #1D1D24;
+      --code-inline-bg: rgba(0, 0, 0, 0.05);
+      --input-bg: rgba(0, 0, 0, 0.02);
+      --hover-bg: rgba(0, 0, 0, 0.04);
+      --border-subtle: rgba(0, 0, 0, 0.08);
       --scroll-thumb: #D8D0BE;
     }
     @media (prefers-color-scheme: dark) {
@@ -126,6 +136,11 @@ public static let css: String = """
         --shadow: 0 2px 14px rgba(0, 0, 0, 0.35);
         --user-bubble: rgba(217, 164, 65, 0.13);
         --code-bg: #2A2A31;
+        --code-text: #E2E8F0;
+        --code-inline-bg: rgba(0, 0, 0, 0.35);
+        --input-bg: rgba(255, 255, 255, 0.04);
+        --hover-bg: rgba(255, 255, 255, 0.06);
+        --border-subtle: rgba(255, 255, 255, 0.075);
         --scroll-thumb: #3A3A44;
       }
     }
@@ -367,6 +382,7 @@ public static let css: String = """
     }
     .sess-row:hover { background: var(--hover-bg); }
     .sess-row.active { background: var(--accent-soft); }
+    .sess-row.active:hover { box-shadow: inset 0 0 0 1px var(--accent-border); }
     .sess-row.active::before {
       content: ""; position: absolute; left: 2px; top: 8px; bottom: 8px;
       width: 2px; border-radius: 999px; background: var(--accent-strong); opacity: 0.55;
@@ -384,7 +400,22 @@ public static let css: String = """
     }
     .sess-row.active .sess-open { color: var(--text); }
     .sess-title { font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sess-meta { font-size: 10.5px; color: var(--muted); display: flex; gap: 6px; opacity: 0.85; }
+    .sess-meta { font-size: 10.5px; color: var(--muted); display: flex; gap: 6px; }
+    /* Sidebar live-status pill: the running turn on its own session row
+       (replaces the floating "Responding…" hint that read as list noise). */
+    .sess-status {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 0 7px 0 5px; border-radius: 999px;
+      background: var(--accent-soft); border: 1px solid var(--accent-border);
+      color: var(--accent-strong); font-size: 10px; font-weight: 600;
+      line-height: 1.7; white-space: nowrap;
+    }
+    .sess-status-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--accent-strong);
+      animation: sess-pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes sess-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
     .row-actions { display: flex; flex-direction: column; justify-content: center; gap: 2px; padding-right: 4px; }
     .icon-mini {
       width: 24px; height: 24px;
@@ -436,6 +467,7 @@ public static let css: String = """
     }
     .cat-chip:hover { background: var(--hover-bg); color: var(--text); }
     .cat-chip.active { background: var(--accent-soft); border-color: var(--accent-border); color: var(--accent-strong); }
+    .cat-chip.active:hover { border-color: var(--accent-strong); }
     .cat-chip-btn {
       display: inline-flex; align-items: center; gap: 6px;
       border: none; background: transparent; color: inherit;
@@ -730,6 +762,9 @@ public static let css: String = """
       padding: 8px 16px; font-size: 0.92em; cursor: pointer;
     }
     .row-actions-main { display: flex; gap: 8px; margin-top: 12px; }
+    /* Approaching an action cluster brings its icon buttons to full strength
+       (the cluster is an interactive signature for hover coverage). */
+    .row-actions-main:hover .icon-mini:not(.danger) { color: var(--text); }
 
     /* ─── Settings sections ───────────────────────────────────── */
     .settings-wrap { max-width: 720px; margin: 0 auto; }
@@ -1025,10 +1060,12 @@ public static let css: String = """
     .chat-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
     .chat-scroll-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
-    .chat-scroll { flex: 1; height: 100%; overflow-y: auto; padding: 0 20px; scrollbar-gutter: stable both-edges; }
+    .chat-scroll { flex: 1; height: 100%; overflow-y: auto; padding: 0 56px 0 20px; scrollbar-gutter: stable both-edges; }
     /* Streaming turns re-render #main per token; the gutter must never be
-       overridden or lost mid-response (padding is only ever set here). */
-    #main .chat-scroll { padding: 0 20px !important; }
+       overridden or lost mid-response (padding is only ever set here). The
+       56px right reserve is the lane for the floating circles (jump-to-latest
+       + conversation outline) so they never sit on the text column. */
+    #main .chat-scroll { padding: 0 56px 0 20px !important; }
     .chat-scroll::-webkit-scrollbar { width: 8px; }
     .chat-scroll::-webkit-scrollbar-track { background: transparent; }
     .chat-scroll::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 4px; }
@@ -1065,12 +1102,23 @@ public static let css: String = """
       padding: 12px 16px;
       white-space: pre-wrap;
     }
-    .msg.assistant .msg-body { text-align: left; max-width: 100%; }
-    /* Role header: avatar rail + name, reference msg-role style */
+    /* Reading measure: assistant prose caps at ~46rem for line length; code
+       blocks and tables keep the full body width and scroll horizontally
+       rather than wrapping inside the narrower measure. */
+    .msg.assistant .msg-body { text-align: left; max-width: 46rem; }
+    .msg.assistant .msg-body table { display: block; overflow-x: auto; max-width: 100%; }
+    /* Role header: avatar rail + name (left); usage + time grouped right. */
     .msg-meta {
       font-size: 12px; font-weight: 500; color: var(--muted);
       margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
     }
+    .msg-meta .mm-left { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+    .msg-meta .mm-spacer { flex: 1 1 auto; }
+    .msg-meta .mm-right {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-weight: 400; flex: 0 0 auto;
+    }
+    .msg-meta .msg-time { font-size: 11px; }
     .msg.assistant .msg-meta { text-align: left; }
     .role-icon {
       width: 22px; height: 22px; border-radius: 50%;
@@ -1079,33 +1127,53 @@ public static let css: String = """
     }
     .role-icon.assistant { background: var(--accent-strong); color: #fff; }
     .role-icon svg { width: 11px; height: 11px; }
-    /* arc-parity chips: TPS pill in the role header, token usage foot */
+    /* arc-parity chips: TPS pill in the meta row, token usage right-aligned.
+       Both numbers change per push, so they occupy fixed slots (tabular-nums +
+       min-width): text growth re-renders in place and never shifts the row. */
     .msg-tps-inline {
-      display: inline-flex; align-items: center;
+      display: inline-flex; align-items: center; justify-content: center;
       margin-left: 6px; padding: 1px 6px;
+      min-width: 52px; box-sizing: border-box;
       border: 1px solid var(--border);
       border-radius: 999px;
       color: var(--muted);
       background: var(--surface);
       font-size: 10.5px; font-weight: 500;
+      font-variant-numeric: tabular-nums;
       vertical-align: 1px; line-height: 1.4;
     }
     .msg-usage-inline {
-      font-size: 11px; color: var(--muted); opacity: .7;
+      display: inline-block;
+      font-size: 11px; color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      min-width: 17ch; text-align: right;
+    }
+    /* streaming turn elapsed clock (client-ticked; the node re-renders per push) */
+    .msg-elapsed {
+      display: inline-flex; align-items: center; justify-content: flex-end;
+      margin-left: 6px; min-width: 34px;
+      color: var(--muted);
+      font-size: 10.5px; font-weight: 500;
       font-variant-numeric: tabular-nums;
     }
     /* ── Conversation outline (reference #2124 parity) ───────────── */
+    /* Second circle of the bottom-right lane, stacked above the jump button.
+       The transcript reserves a 56px right gutter (`.chat-scroll`), so neither
+       circle ever sits on the text column. One source of truth for the toggle:
+       this id rule — the markup's class is intentionally unstyled. */
     #outline-toggle {
-      position: absolute; bottom: 60px; right: 20px; z-index: 12;
-      width: 38px; height: 38px; border-radius: 50%;
+      position: absolute; bottom: 56px; right: 12px; z-index: 12;
+      width: 32px; height: 32px; box-sizing: border-box; padding: 0;
+      border-radius: 50%;
       background: var(--surface); border: 1px solid var(--border-strong);
       color: var(--text); cursor: pointer;
       display: flex; align-items: center; justify-content: center;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
-      font-size: 16px; line-height: 1;
+      font-size: 14px; line-height: 1;
       transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
     }
-    #outline-toggle:hover {
+    #outline-toggle:hover,
+    #outline-toggle:focus-visible {
       background: var(--accent-soft);
       border-color: var(--accent-border);
       color: var(--accent-strong);
@@ -1179,7 +1247,7 @@ public static let css: String = """
       vertical-align: middle; line-height: 1.6;
       font-style: normal; flex-shrink: 0;
     }
-    .msg-foot-inline { margin-top: 6px; }
+    /* Token usage renders in `.msg-meta` (see `.msg-usage-inline`). */
 
     /* Message body markdown scaling (reference msg-body rules) */
     .msg-body p { margin: 0 0 10px; }
@@ -1199,9 +1267,11 @@ public static let css: String = """
     .msg-body th, .msg-body td { border: 1px solid var(--border); padding: 6px 10px; }
 
     /* ─── Supporting activity rows (activity display modes) ───── */
+    /* One width for every activity row: thinking, summaries and tool cards all
+       span the transcript measure (they sit in one column in the dropdown). */
     .thinking-row, .tool-card, .worklog-summary {
       display: block;
-      max-width: 86%;
+      max-width: 100%;
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
       background: var(--surface-2);
@@ -1222,6 +1292,13 @@ public static let css: String = """
     .tool-card summary::-webkit-details-marker,
     .worklog-summary summary::-webkit-details-marker { display: none; }
     .thinking-row summary svg, .tool-card summary svg, .worklog-summary summary svg { flex: 0 0 auto; opacity: 0.8; }
+    /* Shared affordances for every activity row: summary hover + caret rotation. */
+    .thinking-row summary:hover,
+    .tool-card summary:hover,
+    .worklog-summary summary:hover { background: var(--hover-bg); color: var(--text); }
+    .thinking-row[open] .tw-caret,
+    .tool-card[open] .tw-caret,
+    .worklog-summary[open] .tw-caret { transform: rotate(90deg); }
     /* --- Turn dropdown (arc parity: "Processed Xm Ys" worklog) --- */
     .assistant-turn { display: block; }
     .assistant-turn > .msg-meta { margin: 14px 0 2px; }
@@ -1265,7 +1342,7 @@ public static let css: String = """
     .turn-worklog[open] .tw-caret { transform: rotate(90deg); }
     .turn-worklog .tw-body { padding: 8px 0 0; }
     .turn-worklog .worklog-summary { max-width: 100%; margin: 6px 0; }
-    .tw-copy {
+    .tw-copy, .tc-copy {
       flex: 0 0 auto;
       display: inline-flex;
       align-items: center;
@@ -1277,8 +1354,8 @@ public static let css: String = """
       cursor: pointer;
       opacity: 0.8;
     }
-    .tw-copy:hover { color: var(--text); background: var(--surface-1); opacity: 1; }
-    .tw-copy.copied { color: var(--text); opacity: 1; }
+    .tw-copy:hover, .tc-copy:hover { color: var(--text); background: var(--surface-1); opacity: 1; }
+    .tw-copy.copied, .tc-copy.copied { color: var(--text); opacity: 1; }
     .thinking-row .tc-detail, .worklog-summary .wl-detail {
       padding: 4px 14px 10px;
       max-height: 320px;
@@ -1387,7 +1464,7 @@ public static let css: String = """
     /* ── Message hover footer: produced-at time + copy (arc parity) ── */
     .msg-foot { display: flex; align-items: center; gap: 8px; margin-top: 5px; opacity: 0; transition: opacity 0.15s; }
     .msg:hover .msg-foot { opacity: 1; }
-    .msg-time { font-size: 0.72em; color: var(--muted); opacity: 0.9; }
+    .msg-time { font-size: 0.72em; color: var(--muted); }
     .msg-actions { display: inline-flex; align-items: center; gap: 2px; }
     .msg-action-btn { background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 5px; border-radius: 5px; display: inline-flex; align-items: center; transition: color 0.12s, background 0.12s; }
     .msg-action-btn:hover { color: var(--text); background: var(--surface-2); }
@@ -1404,7 +1481,8 @@ public static let css: String = """
       font-family: ui-monospace, Menlo, monospace;
     }
     .tool-chip .tc-name { color: var(--accent-strong); font-weight: 600; }
-    .tool-pills { display: flex; flex-wrap: wrap; margin: 6px 0 2px; }
+    .tool-pills { display: flex; flex-direction: column; align-items: stretch; gap: 2px; margin: 6px 0 4px; }
+    /* Each tool call expands independently; cards stack vertically. */
     /* arc parity: tool call rows are bubble-like pills. */
     .tool-card {
       display: block; max-width: 100%; margin: 6px 0;
@@ -1417,10 +1495,23 @@ public static let css: String = """
       background: transparent;
       border-radius: 12px;
     }
+    /* Focus visibility for the fields the design system's global ring misses:
+       element-level `outline: none` resets (e.g. `.composer-bar textarea`) are
+       (0,1,1) and out-specify the global `:focus-visible` (0,1,0), so the
+       composer and bare fields re-declare the ring at equal specificity, later
+       in the cascade. Classed `.input`/`.button` controls keep the design
+       system's own `--ring-focus` treatment. */
+    .composer-bar textarea:focus-visible,
+    input:not(.input):focus-visible,
+    textarea:not(.input):focus-visible {
+      outline: var(--border-width-2) solid var(--accent);
+      outline-offset: 2px;
+    }
     /* Jump-to-latest circle button (reference .scroll-to-bottom-btn mirror). */
     .scroll-to-bottom-btn {
-      position: absolute; right: 18px; bottom: 14px;
+      position: absolute; right: 12px; bottom: 14px;
       width: 32px; height: 32px;
+      box-sizing: border-box; padding: 0;
       border-radius: 50%;
       border: 1px solid var(--border);
       background: var(--code-bg);
@@ -1439,6 +1530,10 @@ public static let css: String = """
       transform: translateY(-1px);
     }
     .scroll-to-bottom-btn[hidden] { display: none; }
+
+    /* The outline toggle's lane geometry and states live with `#outline-toggle`
+       (see the conversation-outline block above) — the markup's class stays
+       unstyled on purpose, one source of truth. */
     .stream-cursor::after {
       content: "▍";
       animation: blink 1s steps(1) infinite;
@@ -1994,6 +2089,8 @@ public static let css: String = """
     .send-btn.stop svg { display: block; }
 
     .attach-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 6px 6px; }
+    /* An empty strip is nothing but reserved space above the composer. */
+    .attach-chips:empty { display: none; }
     .chip {
       display: inline-flex; align-items: center; gap: 6px;
       background: var(--surface-2);
@@ -2008,8 +2105,11 @@ public static let css: String = """
     .chip .chip-x {
       border: none; background: none; color: var(--muted);
       cursor: pointer; padding: 0; font-size: 0.9em; line-height: 1;
+      opacity: 0.7; transition: opacity 0.12s, color 0.12s;
     }
-    .chip .chip-x:hover { color: var(--danger); }
+    .chip .chip-x:hover { color: var(--danger); opacity: 1; }
+    /* Strip-level hover lifts every remove control (the strip's only action). */
+    .attach-chips:hover .chip-x { opacity: 1; }
 
     .file-pop {
       background: var(--surface);
@@ -2054,7 +2154,7 @@ public static let css: String = """
       white-space: nowrap; overflow: hidden;
     }
     .dd-trigger:hover { background: var(--surface-2); color: var(--text); }
-    .dd-trigger-label { overflow: hidden; text-overflow: ellipsis; }
+    .dd-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
     .dd-trigger svg { flex-shrink: 0; opacity: 0.85; }
     .dd-pop {
       position: absolute; bottom: calc(100% + 10px); left: 0;
@@ -2482,7 +2582,10 @@ public static let css: String = """
     .mem-textarea:focus { border-color: var(--accent-border); }
 
     /* ─── Workspace panel (right side) ───────────────────────── */
-    #ws-dock { position: fixed; right: 6px; top: 50%; transform: translateY(-50%); z-index: 60; }
+    /* The handle hides until the pointer is in the right-edge strip: it lives
+       over the transcript's edge and should never earn attention until wanted.
+       Keyboard focus reveals it too. */
+    #ws-dock { position: fixed; right: 0; top: 50%; transform: translateY(-50%); z-index: 60; padding: 10px 6px; }
     .ws-dock-btn {
       width: 38px; height: 38px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
@@ -2490,7 +2593,11 @@ public static let css: String = """
       background: var(--surface-2); color: var(--text);
       border: 1px solid var(--border-strong);
       box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+      opacity: 0;
+      transition: opacity .15s ease, background .12s, color .12s, border-color .12s;
     }
+    #ws-dock:hover .ws-dock-btn,
+    .ws-dock-btn:focus-visible { opacity: 1; }
     .ws-dock-btn:hover { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent-border); }
     .ws-panel {
       width: var(--panel-w); flex: 0 0 var(--panel-w);
@@ -2550,13 +2657,26 @@ public static let css: String = """
     .kb-col-actions svg, .kb-card-actions svg { vertical-align: -2px; }
     .row-actions svg { vertical-align: -3px; }
 
-    /* Blank states */
+    /* Blank states: an icon medallion, a headline, a line of copy, and — where
+       the state has one — its single call to action. `.big` stays for the
+       "select an item" canvases (skills / profiles / tools). */
     .blank {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       height: 100%; color: var(--muted); gap: 6px;
-      padding: 40px;
+      padding: 40px; text-align: center;
     }
     .blank .big { font-size: 2.2em; }
+    .blank-ico {
+      width: 84px; height: 84px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--accent-soft); color: var(--accent-strong);
+      border: 1px solid var(--accent-border);
+      margin-bottom: 6px;
+    }
+    .blank-ico svg { width: 36px; height: 36px; }
+    .blank-title { font-size: 17px; font-weight: 650; color: var(--text); }
+    .blank-sub { font-size: 13px; color: var(--muted); max-width: 38ch; }
+    .blank-cta { margin-top: 12px; display: inline-flex; align-items: center; gap: 7px; }
 
     /* ── Slash autocomplete (reference commands.js parity) ── */
     .cmd-dropdown { display: none; position: fixed; width: min(560px, calc(100vw - 24px));

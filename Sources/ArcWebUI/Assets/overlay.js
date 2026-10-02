@@ -113,10 +113,21 @@
   // ---- Scroll-to-bottom. Follows new content while the user is at the
   // bottom, and always jumps to the bottom when a fresh chat is opened
   // (the server tags #chat-scroll with data-follow="bottom" on open).
-  var SCROLL_PAD = 120;
+  //
+  // The stick is USER INTENT, not distance. A wheel-up, a reading key
+  // (Up/PageUp/Home), a touch drag, or any net upward movement releases it —
+  // even one line from the bottom — and only arriving back at the very bottom
+  // re-engages. The old distance-only rule (release only beyond a 120px pad)
+  // made a short scroll-up impossible mid-stream: the next push snapped the
+  // viewport back to the live text (measured: 80px up -> +309px re-pin).
+  // Distance still guards the degenerate case: a content-shrink clamp must
+  // not read as a scroll-up, so the bottom test runs first.
+  var RESTICK_EPS = 6;   // px from the bottom that re-engages follow
+  var KEY_STEP = 48;     // ArrowUp/ArrowDown step
   function chatScroller() { return document.getElementById('chat-scroll'); }
-  function nearBottom(s) { return s.scrollHeight - s.scrollTop - s.clientHeight < SCROLL_PAD; }
+  function atBottom(s) { return s.scrollHeight - s.scrollTop - s.clientHeight <= RESTICK_EPS; }
   var stick = true;
+  var lastTop = null;
   var seenChatScroll = null;
   // ---- Pipe-table enhancement (arc-specific).
   // Lived in the forked runtime until that fork was deleted; it belongs in the
@@ -219,14 +230,33 @@
     if (!s.__bound) {
       s.__bound = true;
       s.addEventListener('scroll', function () {
-        stick = nearBottom(s);
+        var top = s.scrollTop;
+        var prev = lastTop === null ? top : lastTop;
+        lastTop = top;
+        if (atBottom(s)) {
+          // Back at the very bottom (a deliberate return, the jump button,
+          // End, or a content-shrink clamp): follow again. Must run before
+          // the up-move test — a clamp reads as "moved up".
+          stick = true;
+        } else if (top < prev - 1) {
+          // Net upward movement without a wheel/key signal (scrollbar or
+          // touch drag): the user is reading back.
+          stick = false;
+        }
         updateJumpBtn(s);
       });
+      // Intent signals beat distance. Wheel events fire for wheels and
+      // trackpad gestures; touch and scrollbar drags land in the up-move
+      // rule above (they emit no wheel events).
+      s.addEventListener('wheel', function (e) {
+        if (e.deltaY < 0) { stick = false; updateJumpBtn(s); }
+      }, { passive: true });
     }
     if (s !== seenChatScroll) {
       // The scroll container was (re)created — a chat open or a
       // streaming refresh. Respect data-follow only for chat opens.
       seenChatScroll = s;
+      lastTop = s.scrollTop;
       if (s.getAttribute('data-follow') === 'bottom') {
         stick = true;
         var forceBottom = function () {
@@ -279,12 +309,13 @@
     bootOverlay();
   }
 
-  // ---- Jump-to-latest circle button (arc parity): appears when the
-  // user has scrolled away from the bottom; click returns to the end.
+  // ---- Jump-to-latest circle button (arc parity): appears the moment the
+  // stick releases — not at some distance threshold, so a one-line scroll-up
+  // surfaces it too; click returns to the end.
   function updateJumpBtn(s) {
     var b = document.getElementById('scroll-to-bottom');
     if (!b) return;
-    b.hidden = nearBottom(s);
+    b.hidden = stick || atBottom(s);
   }
   document.addEventListener('click', function (e) {
     var b = e.target && e.target.closest ? e.target.closest('#scroll-to-bottom') : null;
@@ -293,6 +324,92 @@
     if (!s) return;
     stick = true;
     s.scrollTo({ top: s.scrollHeight, behavior: 'smooth' });
+    updateJumpBtn(s);
+  });
+
+  // ---- Reading keys: the transcript scrolls on Up/PageUp/Home and returns on
+  // End/PageDown, with the stick following the intent. Never while a text
+  // field has focus — the composer owns those keys.
+  document.addEventListener('keydown', function (e) {
+    if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+    var t = e.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''))) return;
+    var s = chatScroller();
+    if (!s) return;
+    var k = e.key;
+    var page = Math.round(s.clientHeight * 0.9);
+    if (k === 'ArrowUp' || k === 'PageUp' || k === 'Home') {
+      stick = false;
+      s.scrollTop = k === 'Home' ? 0 : Math.max(0, s.scrollTop - (k === 'PageUp' ? page : KEY_STEP));
+      updateJumpBtn(s);
+      e.preventDefault();
+    } else if (k === 'ArrowDown' || k === 'PageDown' || k === 'End') {
+      s.scrollTop = k === 'End' ? s.scrollHeight
+        : Math.min(s.scrollHeight, s.scrollTop + (k === 'PageDown' ? page : KEY_STEP));
+      if (atBottom(s)) stick = true; // the scroll listener settles this too
+      updateJumpBtn(s);
+      e.preventDefault();
+    }
+  });
+
+  // ---- Conversation outline (reference #2124): the toggle opens the panel;
+  // entries are the open chat's user messages, built on demand from the
+  // rendered anchors. Jumping releases the stick — the reader is choosing a
+  // position and must not be yanked back to the live text. Delegated, so it
+  // survives every re-render.
+  function buildOutline() {
+    var entries = document.getElementById('outline-entries');
+    if (!entries) return;
+    entries.textContent = '';
+    var msgs = document.querySelectorAll('.chat-inner .msg.user[id^="msg-user-"]');
+    for (var i = 0; i < msgs.length; i++) {
+      (function (m, idx) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'outline-entry';
+        var num = document.createElement('span');
+        num.className = 'outline-entry-num';
+        num.textContent = '#' + (idx + 1);
+        var txt = document.createElement('span');
+        txt.className = 'outline-entry-text';
+        var raw = (m.innerText || '').replace(/\s+/g, ' ').trim();
+        txt.textContent = raw.slice(0, 90) + (raw.length > 90 ? '\u2026' : '');
+        b.title = raw.slice(0, 240);
+        b.appendChild(num);
+        b.appendChild(txt);
+        b.addEventListener('click', function () {
+          stick = false;
+          m.scrollIntoView({ block: 'start', behavior: 'smooth' });
+          m.classList.remove('outline-jump-flash');
+          void m.offsetWidth;
+          m.classList.add('outline-jump-flash');
+          setTimeout(function () { m.classList.remove('outline-jump-flash'); }, 1400);
+          var s = chatScroller();
+          if (s) updateJumpBtn(s);
+          var panel = document.getElementById('outline-panel');
+          if (panel) panel.hidden = true;
+        });
+        entries.appendChild(b);
+      })(msgs[i], i);
+    }
+    if (!msgs.length) {
+      var empty = document.createElement('div');
+      empty.className = 'outline-empty';
+      empty.textContent = 'No user messages yet.';
+      entries.appendChild(empty);
+    }
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target && e.target.closest ? e.target.closest('#outline-toggle, #outline-close') : null;
+    if (!t) return;
+    var panel = document.getElementById('outline-panel');
+    if (!panel) return;
+    if (t.id === 'outline-toggle') {
+      if (panel.hidden) buildOutline();
+      panel.hidden = !panel.hidden;
+    } else {
+      panel.hidden = true;
+    }
   });
 
   // ---- Session group headers (Today / Last Week / Older): collapse
@@ -388,6 +505,21 @@
       if (!isNaN(ts)) els[i].textContent = relLabel(ts);
     }
   }, 60000);
+
+  // ---- Streaming turn elapsed clock (arc parity): the live node re-renders on
+  // every push, so the server stamps data-started (epoch ms) and this single
+  // interval repaints the label from it — no per-push render, no layout work.
+  function paintElapsed() {
+    var els = document.querySelectorAll('[data-elapsed]');
+    for (var i = 0; i < els.length; i++) {
+      var start = parseInt(els[i].getAttribute('data-started'), 10);
+      if (isNaN(start)) continue;
+      var s = Math.max(0, Math.floor((Date.now() - start) / 1000));
+      var text = Math.floor(s / 60) + ':' + (s % 60 < 10 ? '0' : '') + (s % 60);
+      if (els[i].textContent !== text) els[i].textContent = text;
+    }
+  }
+  setInterval(paintElapsed, 1000);
 
   // ---- Chat row "..." menu: open/close is client-side so the open
   // menu survives the click that opened it; edge actions still go to
@@ -806,10 +938,21 @@
       console.error('arc-agent init failed:', err);
     }
   }
-  // ---- Copy code blocks + message responses (delegated).
+  // ---- Blank-canvas CTA: focus the composer (delegated).
+  document.addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('[data-focus-composer]') : null;
+    if (!b) return;
+    e.preventDefault();
+    var ta = document.getElementById('composer-input');
+    if (ta) ta.focus();
+  });
+
+  // ---- Copy code blocks + message responses (delegated). Copy buttons inside
   document.addEventListener('click', function (e) {
     var b = e.target && e.target.closest ? e.target.closest('[data-copy]') : null;
     if (!b) return;
+    // Copy buttons inside <summary> must not toggle the disclosure.
+    e.preventDefault();
     var text = b.getAttribute('data-copy') || '';
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(function () {
@@ -827,6 +970,8 @@
     var b = e.target && e.target.closest ? e.target.closest('.tw-copy') : null;
     if (!b) return;
     e.stopPropagation();
+    // Copy must not toggle the enclosing disclosure.
+    e.preventDefault();
     var tgt = b.getAttribute('data-copy-target');
     var host = tgt ? document.getElementById(tgt) : null;
     var body = host ? host.querySelector('.wl-detail') : null;
