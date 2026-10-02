@@ -387,4 +387,40 @@ struct AgentPowersTests {
         let normal = TerminalTool.lockdownRefusal(command: "ls -la /tmp")
         #expect(normal == nil)
     }
+
+    // MARK: ownership of the process-global gate
+
+    /// A plainly-constructed agent (the gateway's shape, and the daemon's
+    /// session agents) must never reset an active lockdown. The daemon installs
+    /// the gate once at boot from config.json.
+    ///
+    /// It lives in this serialized suite because the gate is process-global:
+    /// it and the lockdown tests above mutate the same static, and when they
+    /// were separate suites Swift Testing ran them in parallel with each other
+    /// (serialization is within-suite) — this assert lost its window to a
+    /// sibling test's `restore()` often enough to redden full suite runs.
+    @Test("a default-powers agent does not clobber an active lockdown")
+    func defaultAgentPreservesGate() throws {
+        AgentPowers.configure(AgentPowersConfig(
+            skillsManage: false,
+            lockedSkills: ["secret"],
+            profileEdit: false
+        ))
+        defer { AgentPowers.configure(AgentPowersConfig()) }
+
+        let registry = try ArcAgentCore.buildDefaultRegistry()
+        _ = ArcAgent(config: ArcAgent.Configuration(
+            model: "test-model",
+            provider: "test",
+            baseURL: URL(string: "http://127.0.0.1:9/v1")!,
+            apiKey: "",
+            registry: registry,
+            sessionStore: FileSessionStore(),
+            memoryProvider: FileMemoryProvider(),
+            skills: []
+        ))
+
+        #expect(AgentPowers.canManageSkills() == false)
+        #expect(AgentPowers.skillIsLocked("secret"))
+    }
 }
