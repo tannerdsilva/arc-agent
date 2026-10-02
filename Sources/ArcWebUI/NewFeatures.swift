@@ -502,7 +502,7 @@ extension AppState {
               <input type="text" id="task-title" name="task-title" placeholder="e.g. Morning digest" autocomplete="off">
             </label>
             <div class="task-add-row">
-              <label class="task-field">Start
+              <label class="task-field">Start <span class="task-opt">optional — empty starts now</span>
                 <input type="datetime-local" id="task-start" name="task-start">
               </label>
               <label class="task-field">Every
@@ -520,6 +520,7 @@ extension AppState {
               <textarea id="task-prompt" name="task-prompt" rows="4" placeholder="What should the agent run?"></textarea>
             </label>
             <button type="submit" class="primary-btn">Schedule task</button>
+            <p class="task-preview">Runs on the interval you pick, starting immediately unless a Start time is set. Each run gets its own chat, kept out of the main list.</p>
           </form>
         </div>
         """

@@ -337,6 +337,7 @@
     enhanceMarkdownTables(document);
     stickToChat();
     syncModalFocus();
+    bootSettingsSpy();
   }
 
   function enhancePatched(changed) {
@@ -351,6 +352,46 @@
     }
     stickToChat();
     syncModalFocus();
+    bootSettingsSpy();
+  }
+
+  // ---- Settings sub-nav: mark the section in view.
+  // The Settings page is one long scroll container, so the anchor rows gave no
+  // sense of place. An IntersectionObserver keeps the matching row highlighted;
+  // sections with no nav row of their own (assistance, agent limits, agent
+  // powers) leave the previous mark in place, which is where they belong.
+  var settingsSpy = null;
+
+  function bootSettingsSpy() {
+    if (!window.IntersectionObserver) return;
+    var wrap = document.querySelector('.settings-wrap');
+    var panel = document.querySelector('#panel');
+    if (!wrap || !panel) { settingsSpy = null; return; }
+    if (settingsSpy && settingsSpy.wrap === wrap && wrap.isConnected) return;
+    var rows = {};
+    var anchors = panel.querySelectorAll('a[href^="#"]');
+    for (var i = 0; i < anchors.length; i++) {
+      var id = (anchors[i].getAttribute('href') || '').slice(1);
+      var row = anchors[i].closest ? anchors[i].closest('.list-row') : null;
+      if (id && row) rows[id] = row;
+    }
+    var sections = wrap.querySelectorAll('section[id]');
+    if (!Object.keys(rows).length || !sections.length) return;
+    var apply = function (id) {
+      for (var k in rows) rows[k].classList.toggle('active', k === id);
+    };
+    var obs = new IntersectionObserver(function (entries) {
+      var best = null;
+      for (var n = 0; n < entries.length; n++) {
+        var e = entries[n];
+        if (!e.isIntersecting || !rows[e.target.id]) continue;
+        if (!best || e.boundingClientRect.top < best.boundingClientRect.top) best = e;
+      }
+      if (best) apply(best.target.id);
+    }, { root: wrap, rootMargin: '0px 0px -60% 0px', threshold: 0 });
+    for (var j = 0; j < sections.length; j++) obs.observe(sections[j]);
+    apply('appearance');
+    settingsSpy = { wrap: wrap, observer: obs };
   }
 
   function bootOverlay() {

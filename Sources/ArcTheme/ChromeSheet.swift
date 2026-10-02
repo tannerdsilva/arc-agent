@@ -663,10 +663,10 @@ public static let css: String = """
     .switch input:checked + .track { background: var(--accent); }
     .switch input:checked + .track + .knob { transform: translateX(14px); }
     /* Compact switches inside skill rows */
-    .skill-row .switch { width: 26px; height: 16px; flex: 0 0 26px; }
-    .skill-row .switch .track { border-radius: 16px; }
-    .skill-row .switch .knob { top: 2px; left: 2px; width: 12px; height: 12px; }
-    .skill-row .switch input:checked + .track + .knob { transform: translateX(10px); }
+    .skill-row .switch { width: 30px; height: 18px; flex: 0 0 30px; }
+    .skill-row .switch .track { border-radius: 18px; }
+    .skill-row .switch .knob { top: 2px; left: 2px; width: 14px; height: 14px; }
+    .skill-row .switch input:checked + .track + .knob { transform: translateX(12px); }
 
     /* ─── Profile / tool / workspace rows ─────────────────────── */
     .list-row {
@@ -719,6 +719,9 @@ public static let css: String = """
     .kv:last-child { border-bottom: none; }
     .kv .k { color: var(--muted); flex: 0 0 110px; }
     .kv .v { color: var(--text); word-break: break-word; }
+    /* Path-like values: one line with an ellipsis, full value on hover. A wrapped
+       mid-token path used to end flush against the row's edge, unreadable. */
+    .kv .v.nowrap { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     .form-grid { display: flex; flex-direction: column; gap: 10px; margin: 14px 0; }
     .form-grid label { font-size: 0.8em; color: var(--muted); font-weight: 550; display: block; margin-bottom: 3px; }
@@ -909,6 +912,10 @@ public static let css: String = """
        `.task-add` a flex basis is a HEIGHT, so the old rule stretched the
        Title label to 220px and left a dead gap above Start. */
     .task-add-row .task-field { flex: 1 1 220px; }
+    .task-add > .primary-btn { align-self: flex-start; }
+    /* "Optional" reads as part of the label, not as a headline. */
+    .task-field .task-opt { color: var(--muted); font-weight: 400; }
+    .task-preview { color: var(--muted); font-size: 0.82em; margin: 0; }
     .task-field input, .task-field textarea, .task-field select {
       background: var(--code-bg); color: var(--text); border: 1px solid var(--border);
       border-radius: 6px; padding: 8px 10px; font-size: 13px; font-family: inherit; width: 100%;

@@ -620,14 +620,14 @@ extension AppState {
         let dis = enabled ? "" : " disabled"
         return """
         <div class="skill-row\(active)\(dis)">
-          <label class="switch" title="\(enabled ? "Enabled" : "Disabled")">
-            <input type="checkbox" id="sk-toggle-\(encName)" value="sk-toggle-\(encName)" data-event="change" data-no-restore \(enabled ? "checked" : "")>
-            <span class="track"></span><span class="knob"></span>
-          </label>
           <button type="button" id="sk-open-\(encName)" class="sess-open skill-open">
             <span class="sk-name">\(esc(skill.name))</span>
             <span class="sk-desc">\(esc(trunc(skill.description, 64)))</span>
           </button>
+          <label class="switch" title="\(enabled ? "Included in this chat" : "Excluded from this chat")">
+            <input type="checkbox" id="sk-toggle-\(encName)" value="sk-toggle-\(encName)" data-event="change" data-no-restore aria-label="\(enabled ? "Included in this chat" : "Excluded from this chat")" \(enabled ? "checked" : "")>
+            <span class="track"></span><span class="knob"></span>
+          </label>
         </div>
         """
     }
@@ -2187,8 +2187,8 @@ extension AppState {
         let providerName = p.provider ?? "custom"
         let keyCount = settings.modelConfigs.filter { !$0.apiKey.isEmpty }.count
         let keyLabel = keyCount > 0 ? "\(keyCount) \(keyCount == 1 ? "key" : "keys") configured" : "None"
-        let statusBadges = (isActive ? "<span class=\"pl-badge badge-active\">ACTIVE</span>" : "<span class=\"pl-badge badge-inactive\">INACTIVE</span>")
-            + (isDefault ? " <span class=\"pl-badge badge-default\">(default)</span>" : "")
+        let statusBadges = (isActive ? "<span class=\"pl-badge badge-active\">ACTIVE</span>" : "<span class=\"pl-badge badge-inactive\">IDLE</span>")
+            + (isDefault ? " <span class=\"pl-badge badge-default\">DEFAULT</span>" : "")
         let gateway = gatewayRunning
             ? "<span class=\"pl-badge badge-green\"><span class=\"pl-dot\"></span>Gateway running</span>"
             : "<span class=\"pl-badge badge-red\">Gateway stopped</span>"
@@ -2200,7 +2200,7 @@ extension AppState {
           <div class="pl-row"><span class="pl-k">Model</span><span class="pl-v"><code class="pl-code">\(esc(modelName))</code></span></div>
           <div class="pl-row"><span class="pl-k">Provider</span><span class="pl-v">\(esc(providerName))</span></div>
           <div class="pl-row"><span class="pl-k">API key</span><span class="pl-v">\(esc(keyLabel))</span></div>
-          <div class="pl-row"><span class="pl-k">Skills</span><span class="pl-v">\(skillCount) / \(skills.count) skills</span></div>
+          <div class="pl-row"><span class="pl-k">Skills</span><span class="pl-v">\(skillCount) of \(skills.count) active</span></div>
         </div>
         """
     }
@@ -2598,7 +2598,7 @@ extension AppState {
                       <label class="aux-field">Provider<input type="hidden" name="aux-task" value="\(task.key)"><input name="aux-provider" id="aux-provider-\(task.key)" value="\(esc(pv))" placeholder="auto"></label>
                       <label class="aux-field">Model<input name="aux-model" id="aux-model-\(task.key)" value="\(esc(mv))" placeholder="(main model)"></label>
                       <label class="aux-field">Base URL<input name="aux-base-url" id="aux-base-url-\(task.key)" value="\(esc(bv))" placeholder="(main base URL)"></label>
-                      <label class="aux-field">API key<input name="aux-api-key" id="aux-api-key-\(task.key)" type="password" value="\(esc(kv))" placeholder="(main API key)"></label>
+                      <label class="aux-field">API key<input name="aux-api-key" id="aux-api-key-\(task.key)" type="password" autocomplete="new-password" spellcheck="false" value="\(esc(kv))" placeholder="(main API key)"></label>
                     </div>
                     <div class="aux-actions" data-component-id="aux-edit" data-event="click">
                       <button type="submit" class="primary-btn">Save</button>
@@ -2708,15 +2708,15 @@ extension AppState {
                 <div data-component-id="modelcfg-list" data-event="click">\(mcRows.isEmpty ? "<div class=\"empty-hint\">No model configurations.</div>" : mcRows)</div>
                 <form id="modelcfg-add-form" data-component-id="modelcfg-add-form" class="form-grid" style="margin-top:14px;border-top:1px dashed var(--border);padding-top:14px">
                   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
-                    <div><label for="mc-name">Name</label><input id="mc-name" name="mc-name" data-component-id="mc-name" placeholder="deepseek-v4-flash"></div>
-                    <div><label for="mc-model">Model</label><input id="mc-model" name="mc-model" data-component-id="mc-model" placeholder="deepseek-v4-flash"></div>
-                    <div><label for="mc-provider">Provider</label><input id="mc-provider" name="mc-provider" data-component-id="mc-provider" placeholder="custom"></div>
+                    <div><label for="mc-name">Name</label><input id="mc-name" name="mc-name" data-component-id="mc-name" autocomplete="off" spellcheck="false" placeholder="deepseek-v4-flash"></div>
+                    <div><label for="mc-model">Model</label><input id="mc-model" name="mc-model" data-component-id="mc-model" autocomplete="off" spellcheck="false" placeholder="deepseek-v4-flash"></div>
+                    <div><label for="mc-provider">Provider</label><input id="mc-provider" name="mc-provider" data-component-id="mc-provider" autocomplete="off" spellcheck="false" placeholder="custom"></div>
                   </div>
-                  <div><label for="mc-baseurl">Base URL</label><input id="mc-baseurl" name="mc-baseurl" data-component-id="mc-baseurl" placeholder="https://api.openai.com/v1"></div>
+                  <div><label for="mc-baseurl">Base URL</label><input id="mc-baseurl" name="mc-baseurl" data-component-id="mc-baseurl" autocomplete="off" spellcheck="false" placeholder="https://api.openai.com/v1"></div>
                   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-                    <div><label for="mc-apikey">API key (optional)</label><input id="mc-apikey" name="mc-apikey" data-component-id="mc-apikey" type="password" placeholder="sk-…"></div>
-                    <div><label for="mc-ctx">Context length (optional)</label><input id="mc-ctx" name="mc-ctx" data-component-id="mc-ctx" type="text" placeholder="128000"></div>
-                    <div><label for="mc-maxtok">Max output tokens (optional)</label><input id="mc-maxtok" name="mc-maxtok" data-component-id="mc-maxtok" type="text" placeholder="32768"></div>
+                    <div><label for="mc-apikey">API key (optional)</label><input id="mc-apikey" name="mc-apikey" data-component-id="mc-apikey" type="password" autocomplete="new-password" spellcheck="false" placeholder="sk-…"></div>
+                    <div><label for="mc-ctx">Context length (optional)</label><input id="mc-ctx" name="mc-ctx" data-component-id="mc-ctx" type="text" autocomplete="off" placeholder="128000"></div>
+                    <div><label for="mc-maxtok">Max output tokens (optional)</label><input id="mc-maxtok" name="mc-maxtok" data-component-id="mc-maxtok" type="text" autocomplete="off" placeholder="32768"></div>
                   </div>
                   <div class="row-actions-main" style="margin:0">
                     <button type="submit" class="primary-btn">Add configuration</button>
@@ -2789,7 +2789,7 @@ extension AppState {
               <h2>About</h2>
               <div class="detail-card">
                 <div class="kv"><span class="k">Version</span><span class="v">\(esc(ArcAgentCore.version)) (webui \(esc(WebUIVersion.version)))</span></div>
-                <div class="kv"><span class="k">Workspace</span><span class="v">\(esc(workspaceName(for: activeSessionID))) — \(esc(workspacePath(for: activeSessionID)))</span></div>
+                <div class="kv"><span class="k">Workspace</span><span class="v nowrap" title="\(esc(workspacePath(for: activeSessionID)))">\(esc(workspaceName(for: activeSessionID))) — \(esc(workspacePath(for: activeSessionID)))</span></div>
                 <div class="kv"><span class="k">Sessions</span><span class="v">\(sessions.count)</span></div>
                 <div class="kv"><span class="k">Skills</span><span class="v">\(skills.count)</span></div>
                 <div class="kv"><span class="k">Tools</span><span class="v">\(registry.allTools.count)</span></div>

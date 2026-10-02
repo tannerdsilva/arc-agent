@@ -289,7 +289,7 @@ extension AppState {
         }.joined()
 
         // x-axis: label every day for short ranges, sparse for long ones.
-        let step = insightsRangeDays > 90 ? 15 : (insightsRangeDays > 30 ? 5 : 1)
+        let step = insightsRangeDays > 90 ? 15 : (insightsRangeDays >= 30 ? 5 : 1)
         let labels = days.enumerated().map { (idx, day) -> String in
             let text = idx % step == 0 ? Self.dayLabel(day) : ""
             return "<div class=\"ins-xlabel\" data-sparse=\"\(idx % step == 0 ? "0" : "1")\">\(text)</div>"

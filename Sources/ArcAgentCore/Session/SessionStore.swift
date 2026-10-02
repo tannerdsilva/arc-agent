@@ -165,6 +165,19 @@ public struct FileSessionStore: SessionStore {
         for file in files {
             let data = try Data(contentsOf: file)
             if var session = try? JSONDecoder().decode(Session.self, from: data) {
+                // The message bodies are in hand right here, and the summaries
+                // UIs render carry only metadata — so keep a display hint for
+                // the sidebar, which otherwise showed "New chat" for every row
+                // (`AppState.sessionTitle` can only fall back to `title` for an
+                // unloaded summary). Never written back: a generated title
+                // still wins downstream, and `TesseraSessionStore` already
+                // ships the same hint via its metadata.
+                if (session.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let first = session.messages.first(where: { $0.role == .user }),
+                   let text = first.content,
+                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    session.title = String(text.replacingOccurrences(of: "\n", with: " ").prefix(64))
+                }
                 session.messageCount = session.messages.count
                 session.messages = []
                 sessions.append(session)
