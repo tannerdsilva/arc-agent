@@ -1080,117 +1080,15 @@ extension AppState {
         saveSettings()
     }
 
-    // MARK: Storage connections (Settings → Storage)
-
-    /// Stage a storage-medium pick (picker only; nothing persists or connects
-    /// until "Save and Connect").
-    func setStagedStorage(_ value: String?) {
-        stagedStorage = value
-    }
-
-    /// Persist the connection form as a new or updated entry. Does NOT switch
-    /// the active medium — that is "Save and Connect" only.
-    func saveStorageConnection(
-        id: String?,
-        name: String,
-        serverIP: String,
-        serverPort: Int,
-        application: UInt16,
-        serverPublicKey: String,
-        myPrivateKey: String
-    ) -> Bool {
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedIP = serverIP.trimmingCharacters(in: .whitespaces)
-        guard !trimmedName.isEmpty, !trimmedIP.isEmpty,
-              serverPort > 0, serverPort <= 65535 else { return false }
-        let conn = TesseraStorageConnection(
-            id: id ?? UUID().uuidString,
-            name: trimmedName,
-            serverIP: trimmedIP,
-            serverPort: serverPort,
-            application: application,
-            serverPublicKey: serverPublicKey,
-            myPrivateKey: myPrivateKey
-        )
-        if let idx = settings.storageConnections.firstIndex(where: { $0.id == conn.id }) {
-            settings.storageConnections[idx] = conn
-        } else {
-            settings.storageConnections.append(conn)
-        }
-        // The runtime key fingerprints the active connection's fields, so
-        // editing the connection in use rebuilds on the next ensureRuntime.
-        saveSettings()
-        storageEdit = nil
-        return true
-    }
-
-    /// Remove a configured connection. If it was the active medium, file
-    /// storage becomes the active selection and the runtime rebuilds so the
-    /// session list reflects the change immediately.
-    func removeStorageConnection(id: String) async {
-        settings.storageConnections.removeAll { $0.id == id }
-        if settings.activeStorage == id {
-            settings.activeStorage = "file"
-            runtimeTesseraOff = false
-            await ensureRuntime()
-            await reloadAll()
-        }
-        if stagedStorage == id { stagedStorage = nil }
-        saveSettings()
-    }
-
-    func beginStorageEdit(id: String) {
-        storageEdit = settings.storageConnections.first(where: { $0.id == id })
-    }
-
-    func cancelStorageEdit() {
-        storageEdit = nil
-    }
-
-    func setStoragePickOpen(_ open: Bool) {
-        storagePickOpen = open
-    }
-
-    /// Drop the storage form's transient field values (after save/cancel).
-    func clearStorageForm() {
-        for k in ["sc-name", "sc-ip", "sc-port", "sc-app", "sc-pub", "sc-priv"] {
-            formValues[k] = nil
-        }
-    }
-
-    /// "Save and Connect": persist the staged medium and rebuild the runtime
-    /// against it. Returns true when the switch happened.
-    func connectStagedStorage() async -> Bool {
-        guard let staged = stagedStorage else { return false }
-        if staged == "config", loadConfig().tessera == nil {
-            await hint("Default (config.json) has no tessera section — add one there or use a connection below.", kind: "")
-            stagedStorage = nil
-            return false
-        }
-        if staged != "file", staged != "config" {
-            guard let conn = settings.storageConnections.first(where: { $0.id == staged }),
-                  conn.tesseraConfig != nil else {
-                await hint("That Tessera storage connection is incomplete (server IP, port, public key and client private key are required).", kind: "")
-                stagedStorage = nil
-                return false
-            }
-        }
-        settings.activeStorage = staged
-        // The picker is authoritative over the legacy toggle and any
-        // transient boot-time fallback (parity with setTesseraOff).
-        settings.tesseraOff = false
-        runtimeTesseraOff = false
-        stagedStorage = nil
-        saveSettings()
-        await ensureRuntime()
-        crumb("storage: connected to \(settings.activeStorage) (backend=\(runtimeBackend))")
-        await reloadAll()
-        return true
-    }
-
     func setMoaEnabled(_ on: Bool) {
         settings.moaEnabled = on
         saveSettings()
+    }
+
+    /// Settings → Auxiliary models: open one task's picker at a time (tapping
+    /// the open trigger closes it again).
+    func setAuxEditing(_ key: String?) {
+        auxEditingTask = key
     }
 
     func addModelConfig(_ preset: ModelConfigPreset) {
@@ -1320,19 +1218,6 @@ extension AppState {
             ),
         ]
     }
-
-    // MARK: Settings model pickers (Main model + Auxiliary models)
-
-    /// Composer-style toggle for the Settings → Main model picker. AppState-
-    /// backed so the open state survives fragment re-renders.
-    func toggleMainModelPick() { mainModelPickOpen.toggle() }
-    func setMainModelPickOpen(_ open: Bool) { mainModelPickOpen = open }
-    func setMainModelPickQuery(_ query: String) { mainModelPickQuery = query }
-
-    /// Settings → Auxiliary models: open one task's picker at a time (tapping
-    /// the open trigger closes it again).
-    func toggleAuxPick(_ key: String) { auxPickTask = (auxPickTask == key) ? nil : key }
-    func closeAuxPick() { auxPickTask = nil }
 
     /// Apply a model configuration as an auxiliary task's override: copies
     /// provider/model/base URL (and the config's own API key, when present).

@@ -86,18 +86,17 @@ struct CheckpointStoreTests {
     func lifecycle() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("arc-checkpoint-tests-\(UUID().uuidString).json")
-        CheckpointStore.setStorageURL(url)
-        let store = try CheckpointStore()
+        let store = try CheckpointStore(storageURL: url)
         let cp = Checkpoint(name: "before-refactor", commit: "abc1234", createdAt: Date(),
                             message: "pre change", projectPath: "/work/proj")
         await store.add(cp, projectPath: "/work/proj")
         try await store.save()
-        let loaded = try CheckpointStore()
+        let loaded = try CheckpointStore(storageURL: url)
         #expect(await loaded.list(projectPath: "/work/proj").count == 1)
         #expect(await loaded.find(name: "before-refactor", projectPath: "/work/proj")?.commit == "abc1234")
         _ = await loaded.remove(name: "before-refactor", projectPath: "/work/proj")
         try await loaded.save()
-        let final = try CheckpointStore()
+        let final = try CheckpointStore(storageURL: url)
         #expect(await final.list(projectPath: "/work/proj").isEmpty)
     }
 }

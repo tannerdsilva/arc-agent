@@ -33,9 +33,17 @@ public actor CheckpointStore {
     public static func setStorageURL(_ url: URL) { storageURL = url }
 
     private var entries: [String: [Checkpoint]] = [:]
+    private let registryURL: URL
 
     public init() throws {
-        let data = try? Data(contentsOf: Self.storageURL)
+        try self.init(storageURL: Self.storageURL)
+    }
+
+    /// Registry at an explicit URL — the test seam, and the one used by guard
+    /// callers that want per-context registries (no process-global racing).
+    public init(storageURL url: URL) throws {
+        registryURL = url
+        let data = try? Data(contentsOf: url)
         if let data {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
@@ -50,10 +58,10 @@ public actor CheckpointStore {
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(entries)
         try FileManager.default.createDirectory(
-            at: Self.storageURL.deletingLastPathComponent(),
+            at: registryURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try data.write(to: Self.storageURL)
+        try data.write(to: registryURL)
     }
 
     public func list(projectPath: String) -> [Checkpoint] {

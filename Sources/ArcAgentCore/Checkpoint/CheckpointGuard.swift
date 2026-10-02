@@ -53,7 +53,7 @@ public actor CheckpointGuard {
     /// All storage failures are swallowed: checkpoints must never break the
     /// tool that triggered them.
     @discardableResult
-    public func ensure(directory: String, label: String) async -> Checkpoint? {
+    public func ensure(directory: String, label: String, storageURL: URL? = nil) async -> Checkpoint? {
         guard isEnabled() else { return nil }
         guard let root = await CheckpointMaker.projectRoot(for: directory) else { return nil }
         guard Self.scopeOK(root) else { return nil }
@@ -65,7 +65,13 @@ public actor CheckpointGuard {
             return nil // no repo / no changes — non-fatal
         }
         do {
-            let store = try CheckpointStore()
+            let store: CheckpointStore?
+            if let url = storageURL {
+                store = try? CheckpointStore(storageURL: url)
+            } else {
+                store = try? CheckpointStore()
+            }
+            guard let store else { return checkpoint }
             await store.add(checkpoint, projectPath: root)
             try await store.save()
             await pruneToCap(root: root, store: store)

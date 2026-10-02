@@ -1985,8 +1985,9 @@ public actor ArcAgent: Service {
                 // stream this is terminal for the turn — reconnecting restarts
                 // the same clock.
                 if error is StreamTotalTimeoutError {
-                    continuation.yield("The model request exceeded the maximum turn duration. Please try again or shorten the context.")
-                    continuation.finish()
+                    let text = "The model request exceeded the maximum turn duration. Please try again or shorten the context."
+                    emit(.textDelta(text))
+                    emit(.completed(finalText: text))
                     return
                 }
 

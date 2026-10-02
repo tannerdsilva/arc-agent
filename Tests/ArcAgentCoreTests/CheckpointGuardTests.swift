@@ -72,6 +72,7 @@ struct CheckpointGuardTests {
 
     @Test("scope guard rejects root and home directories")
     func scopeChecks() async throws {
+        let cg = CheckpointGuard()
         #expect(CheckpointGuard.scopeOK("/tmp/arc-cp-test"))
         #expect(!CheckpointGuard.scopeOK("/"))
         #expect(!CheckpointGuard.scopeOK(FileManager.default.homeDirectoryForCurrentUser.path))
@@ -81,68 +82,74 @@ struct CheckpointGuardTests {
 
     @Test("disabled guard never snapshots")
     func disabledIsNoop() async throws {
+        let cg = CheckpointGuard()
         let dir = try await makeRepo()
         // Uncommitted change exists — snapshot would be possible.
         try Data("v2\n".utf8).write(to: URL(fileURLWithPath: dir).appendingPathComponent("file.txt"))
-        await CheckpointGuard.shared.setEnabled(false)
-        await CheckpointGuard.shared.beginTurn()
-        let cp = await CheckpointGuard.shared.ensure(directory: dir, label: "before write_file")
+        await cg.setEnabled(false)
+        await cg.beginTurn()
+        let cp = await cg.ensure(directory: dir, label: "before write_file")
         #expect(cp == nil)
-        await CheckpointGuard.shared.setEnabled(true)
+        await cg.setEnabled(true)
     }
 
     @Test("enabled guard snapshots once per directory per turn")
     func oncePerTurn() async throws {
+        let cg = CheckpointGuard()
         let dir = try await makeRepo()
         let storeURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("arc-cp-reg-\(UUID().uuidString).json")
-        CheckpointStore.setStorageURL(storeURL)
         defer { try? FileManager.default.removeItem(at: storeURL) }
 
         try Data("v2\n".utf8).write(to: URL(fileURLWithPath: dir).appendingPathComponent("file.txt"))
 
-        await CheckpointGuard.shared.setEnabled(true)
-        await CheckpointGuard.shared.beginTurn()
+        await cg.setEnabled(true)
+        await cg.beginTurn()
 
-        let first = await CheckpointGuard.shared.ensure(directory: dir, label: "before write_file")
+        let first = await cg.ensure(directory: dir, label: "before write_file", storageURL: storeURL)
         #expect(first != nil, "expected a snapshot")
-        let second = await CheckpointGuard.shared.ensure(directory: dir, label: "before patch")
+        let second = await cg.ensure(directory: dir, label: "before patch", storageURL: storeURL)
         #expect(second == nil, "second snapshot in the same turn must be skipped")
 
-        let store = try CheckpointStore()
+        let store = try CheckpointStore(storageURL: storeURL)
         let list = await store.list(projectPath: dir)
         #expect(list.count == 1)
 
         // Next turn: a snapshot is allowed again.
-        await CheckpointGuard.shared.beginTurn()
-        let third = await CheckpointGuard.shared.ensure(directory: dir, label: "before patch")
+        await cg.beginTurn()
+        let third = await cg.ensure(directory: dir, label: "before patch", storageURL: storeURL)
         #expect(third != nil)
         // Fresh instance: the store re-reads the registry (the guard reloads
         // per ensure, and a stale instance would still show the old list).
-        let fresh = try CheckpointStore()
+        let fresh = try CheckpointStore(storageURL: storeURL)
         let list2 = await fresh.list(projectPath: dir)
         #expect(list2.count == 2, "registry has \(list2.count): \(list2.map(\.name))")
     }
 
     @Test("clean tree yields no checkpoint (no-change skip)")
     func noChangeSkipped() async throws {
+        let cg = CheckpointGuard()
         let dir = try await makeRepo()
-        await CheckpointGuard.shared.setEnabled(true)
-        await CheckpointGuard.shared.beginTurn()
-        let cp = await CheckpointGuard.shared.ensure(directory: dir, label: "before write_file")
+        await cg.setEnabled(true)
+        await cg.beginTurn()
+        let cp = await cg.ensure(directory: dir, label: "before write_file")
         #expect(cp == nil, "clean tree must not produce a snapshot")
     }
 
     @Test("rollback restores the working tree to the snapshot")
     func restoreRoundTrip() async throws {
+        let cg = CheckpointGuard()
         let dir = try await makeRepo()
         let path = URL(fileURLWithPath: dir).appendingPathComponent("file.txt")
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("arc-cp-restore-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: storeURL) }
 
         // Uncommitted state -> snapshot
         try Data("version-2\n".utf8).write(to: path)
-        await CheckpointGuard.shared.setEnabled(true)
-        await CheckpointGuard.shared.beginTurn()
-        let cp = await CheckpointGuard.shared.ensure(directory: dir, label: "before patch")
+        await cg.setEnabled(true)
+        await cg.beginTurn()
+        let cp = await cg.ensure(directory: dir, label: "before patch", storageURL: storeURL)
         #expect(cp != nil)
 
         // Mutate after the snapshot
@@ -157,16 +164,20 @@ struct CheckpointGuardTests {
 
     @Test("single-file restore only affects the requested file")
     func singleFileRestore() async throws {
+        let cg = CheckpointGuard()
         let dir = try await makeRepo()
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("arc-cp-single-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: storeURL) }
         try Data("keep\n".utf8).write(to: URL(fileURLWithPath: dir).appendingPathComponent("other.txt"))
         _ = try await runGit(["add", "."], dir: dir)
         _ = try await runGit(["commit", "-qm", "b"], dir: dir)
 
         let path = URL(fileURLWithPath: dir).appendingPathComponent("file.txt")
         try Data("snap\n".utf8).write(to: path)
-        await CheckpointGuard.shared.setEnabled(true)
-        await CheckpointGuard.shared.beginTurn()
-        let cp = await CheckpointGuard.shared.ensure(directory: dir, label: "before patch")
+        await cg.setEnabled(true)
+        await cg.beginTurn()
+        let cp = await cg.ensure(directory: dir, label: "before patch", storageURL: storeURL)
         #expect(cp != nil)
 
         try Data("after\n".utf8).write(to: path)
@@ -181,6 +192,7 @@ struct CheckpointGuardTests {
 
     @Test("project root resolves to the git top level")
     func projectRoot() async throws {
+        let cg = CheckpointGuard()
         let dir = try await makeRepo()
         let sub = dir + "/sub"
         try FileManager.default.createDirectory(atPath: sub, withIntermediateDirectories: true)
