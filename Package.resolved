@@ -1,5 +1,5 @@
 {
-  "originHash" : "1e3c4e1c0e265dd78e48a79a2a1f402f2eb037271fda9b945b296560d906c423",
+  "originHash" : "3c8d5e1e32e871d5c72efcee6eb4c64b71e0011c8ca37ed685326248182c12b0",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -35,6 +35,14 @@
       "state" : {
         "revision" : "55bc9025a4825ee2a234b1f82b51b87be6ef74e4",
         "version" : "2.26.0"
+      }
+    },
+    {
+      "identity" : "no-webui",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tannerdsilva/no-webui.git",
+      "state" : {
+        "revision" : "61b8bddc5907094e0c087f288f105933f5bd9089"
       }
     },
     {

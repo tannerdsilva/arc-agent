@@ -59,11 +59,10 @@ let package = Package(
             url: "https://github.com/apple/swift-log.git",
             from: "1.6.0"
         ),
-        // local co-development pin: the ../no-webui checkout carries the server
-        // seams this migration needs (WebUIServerService, host assets, a
-        // request-aware render, and server-initiated broadcast). swap back to
-        // the remote pin once those land.
-        .package(path: "../no-webui"),
+	.package(
+		url: "https://github.com/tannerdsilva/no-webui.git",
+		revision: "61b8bddc5907094e0c087f288f105933f5bd9089"
+	)
     ],
 
     targets: [
