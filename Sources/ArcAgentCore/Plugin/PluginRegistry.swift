@@ -272,7 +272,9 @@ public struct PluginTool: Sendable {
         command.workingDirectory = Path(cwd.path)
 
         let payload: [String: Any] = ["tool": name, "args": args]
-        let payloadBytes = Array(try JSONSerialization.data(withJSONObject: payload))
+        // newline-terminated frame: the plugin protocol is newline-delimited
+        // (the tool side delivers a frame on its terminating newline).
+        let payloadBytes = Array(try JSONSerialization.data(withJSONObject: payload)) + [0x0A]
 
         let outcome = try await SubprocessRunner.runBytes(
             command, timeout: 60, captureCap: 1_000_000, stdin: payloadBytes)
