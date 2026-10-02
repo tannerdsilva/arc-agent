@@ -1601,6 +1601,19 @@ final class Controller {
             await self.app.setShowArchived(!self.app.showArchived)
             return await self.app.refreshFragments()
         }
+        // Conversation outline: the open state is server-owned, so the control
+        // is a normal wired component (the engine used to log it as an unwired
+        // click) and the panel stays open across a reload. The overlay still
+        // fills the entries from the rendered message anchors and owns the
+        // scroll-to-message jump.
+        wire(router, id: "outline-toggle", events: ["click"]) { _ in
+            await self.app.toggleOutline()
+            return [FragmentUpdate(id: "outline-panel", html: await self.app.outlinePanelHTML)]
+        }
+        wire(router, id: "outline-close", events: ["click"]) { _ in
+            await self.app.closeOutline()
+            return [FragmentUpdate(id: "outline-panel", html: await self.app.outlinePanelHTML)]
+        }
     }
 
     private func newChat() async {

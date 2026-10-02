@@ -420,6 +420,12 @@ extension AppState {
         _ = hint("Chat deleted.")
     }
 
+    func toggleOutline() { outlineOpen.toggle() }
+
+    func closeOutline() { outlineOpen = false }
+
+    func isOutlineOpen() -> Bool { outlineOpen }
+
     // MARK: Rename / archive / duplicate
 
     func renameSession(_ id: String, to name: String) {

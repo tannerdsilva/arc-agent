@@ -350,6 +350,11 @@
     if (e.key !== 'Escape') return;
     dismissDropdowns();
     closeCatMenus();
+    var outline = document.getElementById('outline-panel');
+    if (outline && !outline.hidden) {
+      var close = document.getElementById('outline-close');
+      if (close) close.click();
+    }
   });
 
   document.addEventListener('click', function (e) {
@@ -363,6 +368,7 @@
     enhanceMarkdownTables(document);
     stickToChat();
     syncModalFocus();
+    syncOutline();
     bootSettingsSpy();
   }
 
@@ -378,6 +384,7 @@
     }
     stickToChat();
     syncModalFocus();
+    syncOutline();
     bootSettingsSpy();
   }
 
@@ -514,8 +521,11 @@
           setTimeout(function () { m.classList.remove('outline-jump-flash'); }, 1400);
           var s = chatScroller();
           if (s) updateJumpBtn(s);
-          var panel = document.getElementById('outline-panel');
-          if (panel) panel.hidden = true;
+          // The panel's open state is server-owned now, so closing is a click
+          // on the server-wired close control (it used to flip `hidden` here,
+          // which the next fragment push would have undone).
+          var close = document.getElementById('outline-close');
+          if (close) close.click();
         });
         entries.appendChild(b);
       })(msgs[i], i);
@@ -527,18 +537,15 @@
       entries.appendChild(empty);
     }
   }
-  document.addEventListener('click', function (e) {
-    var t = e.target && e.target.closest ? e.target.closest('#outline-toggle, #outline-close') : null;
-    if (!t) return;
+
+  // ---- The panel's shell (and its open/closed state) comes from the server;
+  // the overlay only fills the entries once the shell is visible. Called from
+  // the post-patch seam so a streamed turn keeps the list current.
+  function syncOutline() {
     var panel = document.getElementById('outline-panel');
-    if (!panel) return;
-    if (t.id === 'outline-toggle') {
-      if (panel.hidden) buildOutline();
-      panel.hidden = !panel.hidden;
-    } else {
-      panel.hidden = true;
-    }
-  });
+    if (!panel || panel.hidden) return;
+    buildOutline();
+  }
 
   // ---- Session group headers (Today / Last Week / Older): collapse
   // and expand entirely client-side.

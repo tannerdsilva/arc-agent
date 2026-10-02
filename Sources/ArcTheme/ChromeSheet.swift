@@ -1210,6 +1210,16 @@ public static let css: String = """
       display: flex; flex-direction: column; overflow: hidden;
     }
     #outline-panel[hidden] { display: none; }
+    /* The panel floats over the transcript; while it is open, move the reading
+       column clear of it instead of letting it sit on top of the text. Below
+       1200px there is not enough room to shift, so the panel overlays (it has a
+       close button and Escape routes to it). `!important` + the id in :has()
+       are needed to outrank the `#main .chat-scroll { padding: … !important }`
+       rule that pins the transcript's gutters. */
+    .chat-scroll-wrap:has(#outline-panel:not([hidden])) .chat-scroll { padding-right: 348px !important; }
+    @media (max-width: 1200px) {
+      .chat-scroll-wrap:has(#outline-panel:not([hidden])) .chat-scroll { padding-right: 20px !important; }
+    }
     .outline-header {
       display: flex; align-items: center; justify-content: space-between;
       padding: 10px 12px 8px;

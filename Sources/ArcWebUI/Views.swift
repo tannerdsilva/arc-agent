@@ -865,18 +865,19 @@ extension AppState {
     /// entirely when the appearance setting is off.
     var outlineToggleHTML: String {
         guard settings.showConversationOutline else { return "" }
-        return "<button type=\"button\" id=\"outline-toggle\" class=\"outline-toggle-btn\" title=\"Conversation outline\" aria-label=\"Toggle conversation outline\">&#9776;</button>"
+        return "<button type=\"button\" id=\"outline-toggle\" data-component-id=\"outline-toggle\" data-event=\"click\" class=\"outline-toggle-btn\" title=\"Conversation outline\" aria-label=\"Toggle conversation outline\">&#9776;</button>"
     }
 
     /// The outline panel itself (server-rendered shell; the JS fills entries
-    /// from the rendered user message anchors and handles jumps).
+    /// from the rendered user message anchors and handles jumps). Open state is
+    /// server-owned — see `AppState.outlineOpen`.
     var outlinePanelHTML: String {
         guard settings.showConversationOutline else { return "" }
         return """
-        <div id="outline-panel" role="navigation" aria-label="Conversation outline" hidden>
+        <div id="outline-panel" role="navigation" aria-label="Conversation outline"\(outlineOpen ? "" : " hidden")>
           <div class="outline-header">
             <span>Outline</span>
-            <button type="button" id="outline-close" class="outline-close-btn" title="Close outline" aria-label="Close outline">&#215;</button>
+            <button type="button" id="outline-close" data-component-id="outline-close" data-event="click" class="outline-close-btn" title="Close outline" aria-label="Close outline">&#215;</button>
           </div>
           <div id="outline-entries" class="outline-entries"></div>
         </div>
