@@ -27,6 +27,7 @@ struct PromptArchitectureTests {
         maxContextTokens: Int = 64_000,
         contextDirectory: URL? = nil,
         injectProjectContext: Bool = true,
+        disabledToolsets: Set<String> = [],
         skills: [Skill] = [],
         fallbackAPIKeys: [String] = []
     ) -> ArcAgent.Configuration {
@@ -50,7 +51,8 @@ struct PromptArchitectureTests {
             fallbackAPIKeys: fallbackAPIKeys,
             injectProjectContext: injectProjectContext,
             contextDirectory: contextDirectory,
-            platformHint: "cli"
+            platformHint: "cli",
+            disabledToolsets: disabledToolsets
         )
     }
 
@@ -375,5 +377,98 @@ struct PromptArchitectureTests {
         // Single-key pool still yields its only key.
         let single = CredentialPool(credentials: ["only"])
         #expect(await single.acquireLease() == "only")
+    }
+
+    // MARK: - Disabled toolsets (P1)
+
+    @Test("disabled toolset is excluded from the tool index")
+    func disabledToolsetExcludedFromIndex() async throws {
+        let registry = try ArcAgentCore.buildDefaultRegistry()
+        let box = ClientScripts(responses: [LLMResponse(content: "ok", finishReason: "stop")])
+        let config = makeConfig(registry: registry, injectProjectContext: false, disabledToolsets: ["terminal"])
+        _ = try await runOnce(config, box: box)
+        guard let prompt = box.recordedCalls().first?.first(where: { $0.role == .system })?.content else {
+            Issue.record("no system prompt recorded"); return
+        }
+        #expect(prompt.contains("## Available Tools"))
+        guard let idxStart = prompt.range(of: "## Available Tools"),
+              let idxEnd = prompt.range(of: "## Rules") else {
+            Issue.record("tool index or rules section missing"); return
+        }
+        let indexSection = prompt[idxStart.upperBound..<idxEnd.lowerBound]
+        #expect(indexSection.contains("`read_file`"))
+        #expect(!indexSection.contains("`terminal`"),
+            "disabled toolset must not be advertised in the tool index")
+    }
+
+    @Test("disabled toolset tool cannot be dispatched")
+    func disabledToolsetRejectedAtDispatch() async throws {
+        let registry = try ArcAgentCore.buildDefaultRegistry()
+        let box = ClientScripts(responses: [
+            LLMResponse(content: nil, toolCalls: [
+                ToolCall(id: "d1", function: ToolCallFunction(name: "terminal", arguments: "{}")),
+            ]),
+            LLMResponse(content: "done", finishReason: "stop"),
+        ])
+        let config = makeConfig(registry: registry, injectProjectContext: false, disabledToolsets: ["terminal"])
+        _ = try await runOnce(config, box: box)
+        let calls = box.recordedCalls()
+        #expect(calls.count == 2, "expected tool call + final answer, got \(calls.count)")
+        guard calls.count == 2 else { return }
+        let toolMsg = calls[1].last { $0.role == .tool }
+        #expect(toolMsg?.content?.contains("is disabled") == true,
+            "disabled tool must yield a disabled error: \(toolMsg?.content ?? "nil")")
+    }
+
+    // MARK: - Real-token compression gate (P2)
+
+    @Test("provider-reported prompt tokens trigger compression when the estimate is under the limit")
+    func realTokenGateCompresses() async throws {
+        let store = tempStore()
+        let sid = "real-token-gate"
+        // A history that is sizable but still under the estimate limit
+        // (contextLength 20_000 -> limit 10_000), so only the real-token
+        // gate can fire compression.
+        var initial: [Message] = []
+        for i in 0..<30 {
+            initial.append(Message(role: .user, content: "old user request \(i): please implement the feature with all the details, the long description of expected behavior including the edge cases and error handling paths, the precise acceptance criteria, and the verification steps numbered \(i) carefully for the record"))
+            initial.append(Message(role: .assistant, content: "old answer \(i): completed the work; here are the specifics, the outcomes, the follow-up notes, the exact test evidence, the changed files list, and the residual risks for step \(i) in full detail as recorded"))
+        }
+        try await store.create(Session(id: sid, messages: initial))
+        // The first request reports 12_000 real prompt tokens — above the
+        // 10_000 limit — which must compress BEFORE the next request, even
+        // though the calibrated estimate of this history is under it.
+        let box = ClientScripts(responses: [
+            LLMResponse(
+                content: nil,
+                toolCalls: [
+                    ToolCall(id: "r1", function: ToolCallFunction(name: "read_file", arguments: #"{"path":"/tmp/nonexistent-arc-xyz"}"#)),
+                ],
+                usage: Usage(promptTokens: 12_000, completionTokens: 50, totalTokens: 12_050)
+            ),
+            LLMResponse(content: "done", finishReason: "stop"),
+        ])
+        let config = makeConfig(
+            store: store, sessionID: sid, persistSessions: false,
+            contextLength: 20_000, maxContextTokens: 64_000,
+            injectProjectContext: false
+        )
+        _ = try await runOnce(config, box: box)
+        let calls = box.recordedCalls()
+        #expect(calls.count == 2, "expected two LLM calls, got \(calls.count)")
+        guard calls.count == 2 else { return }
+        // The summarization path must have run (compression actually fired).
+        let summary = calls[1].filter {
+            $0.role == .system && ($0.content ?? "").hasPrefix(ArcAgent.compressionSummaryPrefix)
+        }
+        #expect(summary.count == 1,
+            "real prompt tokens above the limit must compress before the next request")
+        // Compression must not destroy the last tool result (orphanCleanup
+        // regression): the r1 row survives as its real result, not a
+        // "never executed" stub.
+        let toolMsg = calls[1].last { $0.role == .tool }
+        #expect(toolMsg?.toolCallID == "r1", "tool result row must survive compression")
+        #expect(toolMsg?.content?.contains("never executed") != true,
+            "tool result must not be replaced by a stub: \(toolMsg?.content ?? "nil")")
     }
 }

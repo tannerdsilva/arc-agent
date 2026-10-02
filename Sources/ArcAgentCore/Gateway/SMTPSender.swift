@@ -53,7 +53,7 @@ public final class SMTPSender: @unchecked Sendable {
                     try channel.pipeline.syncOperations.addHandler(LineCodec())
                     if self.useTLS {
                         try channel.pipeline.syncOperations.addHandler(
-                            try! NIOSSLClientHandler(context: try! self.tlsContext(), serverHostname: self.host),
+                            try NIOSSLClientHandler(context: try self.tlsContext(), serverHostname: self.host),
                             position: .first
                         )
                     }
@@ -148,7 +148,11 @@ public final class SMTPSender: @unchecked Sendable {
                 try await ContinuousClock().sleep(for: .seconds(15))
                 throw MailError.timeout("\(command ?? "<greeting>")")
             }
-            let first = try await group.next()!
+            guard let first = try await group.next() else {
+                // Defensive: an empty task group cannot deliver a reply.
+                group.cancelAll()
+                throw MailError.timeout("\(command ?? "<greeting>"): exchange task group produced no result")
+            }
             group.cancelAll()
             return first
         }

@@ -117,7 +117,75 @@ public final class TelegramAdapter: PlatformAdapter {
             let result = try await baseSend(text: chunk, to: target, replyTo: replyID)
             if firstID == nil { firstID = result }
         }
+        // Deliverable mode: native attachments (document upload).
+        if let attachments = message.attachments, !attachments.isEmpty {
+            var failures: [String] = []
+            for attachment in attachments {
+                guard let path = attachment.localPath else {
+                    failures.append("\(attachment.filename): no local path")
+                    continue
+                }
+                do {
+                    try await sendDocument(path: path, caption: attachment.filename, to: target)
+                } catch {
+                    failures.append("\(attachment.filename): \(error.localizedDescription)")
+                }
+            }
+            if !failures.isEmpty {
+                _ = try? await baseSend(
+                    text: "⚠️ Upload failed: " + failures.joined(separator: "; "),
+                    to: target, replyTo: nil
+                )
+            }
+        }
         return SendResult(messageID: firstID)
+    }
+
+    // MARK: - Deliverables (reference `features/deliverable-mode.md`)
+
+    /// Upload one local file as a Telegram document (multipart/form-data).
+    func sendDocument(path: String, caption: String, to target: ChatTarget) async throws {
+        let data = try Self.buildMultipart(
+            fields: ["chat_id": target.chatID, "caption": caption],
+            fileField: "document",
+            filePath: path
+        )
+        var request = HTTPClientRequest(url: "\(baseURL)/sendDocument")
+        request.method = .POST
+        request.headers.add(name: "Content-Type", value: "multipart/form-data; boundary=\(Self.multipartBoundary)")
+        request.headers.add(name: "Content-Length", value: "\(data.count)")
+        request.body = .bytes(data)
+        let response = try await httpClient.execute(request, timeout: .seconds(120))
+        let body = Data(buffer: try await response.body.collect(upTo: 4 * 1024 * 1024))
+        guard let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else {
+            throw TelegramError.badPayload
+        }
+        if let ok = json["ok"] as? Bool, !ok {
+            let desc = json["description"] as? String ?? "unknown"
+            throw TelegramError.rejected(desc)
+        }
+    }
+
+    static let multipartBoundary = "arc-agent-deliverable-boundary"
+
+    /// Multipart/form-data body with one file field (only for the Telegram
+    /// Bot API `sendDocument` shape; unit-tested without network).
+    static func buildMultipart(fields: [String: String], fileField: String, filePath: String) throws -> Data {
+        let fileData = try Data(contentsOf: URL(fileURLWithPath: filePath), options: .mappedIfSafe)
+        let filename = URL(fileURLWithPath: filePath).lastPathComponent
+        var body = Data()
+        func append(_ s: String) { body.append(Data(s.utf8)) }
+        for (key, value) in fields {
+            append("--\(multipartBoundary)\r\n")
+            append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n")
+            append("\(value)\r\n")
+        }
+        append("--\(multipartBoundary)\r\n")
+        append("Content-Disposition: form-data; name=\"\(fileField)\"; filename=\"\(filename)\"\r\n")
+        append("Content-Type: application/octet-stream\r\n\r\n")
+        body.append(fileData)
+        append("\r\n--\(multipartBoundary)--\r\n")
+        return body
     }
 
     public func sendTyping(to target: ChatTarget) async throws {

@@ -211,6 +211,13 @@ public actor SessionRegistry {
         agents[sessionID] = agent
         handles[sessionID] = handle
 
+        // Reference gateway event: `session:start`.
+        await HookBus.shared.emit("session:start", [
+            "platform": .string("gateway"),
+            "session_id": .string(sessionID),
+            "session_key": .string(sessionID),
+        ])
+
         // Start the agent loop in a detached task. The task is retained so a
         // superseding getOrCreate can await this generation's completion, and
         // so a crash can be supervised via `handleAgentCrash`.
@@ -232,6 +239,14 @@ public actor SessionRegistry {
 
     /// Remove a session agent from the registry (called by the agent on shutdown).
     func remove(sessionID: String) {
+        // Reference gateway event: `session:end` (before reset).
+        let bus = HookBus.shared
+        Task {
+            await bus.emit("session:end", [
+                "session_id": .string(sessionID),
+                "session_key": .string(sessionID),
+            ])
+        }
         agents.removeValue(forKey: sessionID)
         handles[sessionID]?.inputContinuation.finish()
         handles[sessionID]?.responseContinuation.finish()

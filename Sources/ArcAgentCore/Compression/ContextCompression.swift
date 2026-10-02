@@ -59,7 +59,12 @@ public enum ContextCompression {
     public static func orphanCleanup(_ messages: [Message]) -> [Message] {
         var callIDs = Set<String>()
         for msg in messages where msg.role == .assistant {
+            // Assistant messages declare calls via `toolCalls`; some legacy
+            // shapes also set `toolCallID` directly — accept both.
             if let id = msg.toolCallID { callIDs.insert(id) }
+            for call in msg.toolCalls ?? [] {
+                callIDs.insert(call.id)
+            }
         }
         return messages.filter { msg in
             if msg.role == .tool, let id = msg.toolCallID {

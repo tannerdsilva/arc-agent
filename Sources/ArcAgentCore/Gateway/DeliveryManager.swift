@@ -35,6 +35,18 @@ public actor DeliveryManager {
     /// client — wiping conversation context on every turn.
     private let localPlatforms: Set<String> = ["api", "webui"]
 
+    /// Response-silence convention (reference stream-consumer silence): a
+    /// final assistant response that is exactly `NO_REPLY` or `[SILENT]`
+    /// (after trimming whitespace) means "intentional silence" — the turn
+    /// happened, but nothing is delivered to the platform. This mirrors the
+    /// Hermes gateway's whole-response filter for messaging platforms.
+    /// Local request/response platforms (`api`, `webui`) are not filtered
+    /// here: their caller sees the raw response text on its own channel.
+    public static func isSilentResponse(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed == "NO_REPLY" || trimmed == "[SILENT]"
+    }
+
     /// Send a message to the appropriate platform adapter.
     ///
     /// For local request/response platforms (`api`, `webui`) this is a no-op:
@@ -47,10 +59,68 @@ public actor DeliveryManager {
         guard !localPlatforms.contains(target.platform) else {
             return SendResult(messageID: nil)
         }
+        // Response-silence convention: NO_REPLY / [SILENT] → no delivery.
+        if Self.isSilentResponse(message.text) {
+            return SendResult(messageID: nil)
+        }
         guard let adapter = adapters[target.platform] else {
             throw GatewayError.unknownPlatform(target.platform)
         }
+        // Deliverable mode (reference `features/deliverable-mode.md`):
+        // final messages carrying absolute file paths ship the files as
+        // native attachments; failures keep the path + a note (never silent).
+        var message = message
+        if !message.isPartial {
+            let extracted = DeliverableExtractor.extract(message.text)
+            if !extracted.paths.isEmpty {
+                let plan = Self.makeDeliverablePlan(paths: extracted.paths, platform: target.platform)
+                var text = extracted.clean.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !plan.notes.isEmpty {
+                    text += "\n\n" + plan.notes.joined(separator: "\n")
+                }
+                var attachments = message.attachments ?? []
+                attachments.append(contentsOf: plan.files)
+                message = OutgoingMessage(
+                    text: text,
+                    parseMode: message.parseMode,
+                    isPartial: false,
+                    attachments: attachments,
+                    metadata: message.metadata
+                )
+            }
+        }
         return try await adapter.send(message: message, to: target)
+    }
+
+    /// Platform file-size caps (reference: Telegram 50 MB, Slack 16 MB …).
+    static func deliverableLimits(platform: String) -> Int {
+        switch platform {
+        case "telegram": return 50 * 1024 * 1024
+        case "slack": return 16 * 1024 * 1024
+        default: return 25 * 1024 * 1024
+        }
+    }
+
+    /// Resolve deliverable paths to attachment files; missing/oversized
+    /// entries become visible notes (reference failure handling).
+    static func makeDeliverablePlan(paths: [String], platform: String) -> (files: [OutgoingMessage.Attachment], notes: [String]) {
+        let limit = deliverableLimits(platform: platform)
+        var files: [OutgoingMessage.Attachment] = []
+        var notes: [String] = []
+        for path in paths {
+            guard FileManager.default.fileExists(atPath: path) else {
+                notes.append("⚠️ Could not attach \(path): file not found.")
+                continue
+            }
+            let attrs = try? FileManager.default.attributesOfItem(atPath: path)
+            let size = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
+            if size > Int64(limit) {
+                notes.append("⚠️ Could not attach \(path): file is \(size / 1_048_576) MB (limit \(limit / 1_048_576) MB).")
+                continue
+            }
+            files.append(.local(path: path))
+        }
+        return (files, notes)
     }
 
     /// Whether the adapter for `target.platform` supports in-place edits

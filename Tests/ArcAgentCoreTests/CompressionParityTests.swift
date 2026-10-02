@@ -69,6 +69,20 @@ struct CompressionParityTests {
         let cleaned = ContextCompression.orphanCleanup([kept, orphan, assistant])
         #expect(cleaned.contains { $0.toolCallID == "keep" })
         #expect(!cleaned.contains { $0.toolCallID == "gone" })
+        // Real message shape: assistant declares its calls through `toolCalls`
+        // (regression: the old code only read `toolCallID`, so every tool
+        // result was dropped as an orphan after a compression).
+        let kept2 = msg(.tool, "result", id: "keep2", name: "search")
+        let assistant2 = Message(
+            role: .assistant, content: nil,
+            toolCalls: [ToolCall(id: "keep2", function: ToolCallFunction(name: "search", arguments: "{}"))]
+        )
+        let cleaned2 = ContextCompression.orphanCleanup([kept2, assistant2])
+        #expect(cleaned2.contains { $0.toolCallID == "keep2" },
+            "tool results declared via toolCalls must be kept")
+        let orphan2 = msg(.tool, "result", id: "gone2", name: "search")
+        let cleaned3 = ContextCompression.orphanCleanup([orphan2, assistant2])
+        #expect(!cleaned3.contains { $0.toolCallID == "gone2" })
     }
 
     @Test("first summary prompt uses the reference structured template")

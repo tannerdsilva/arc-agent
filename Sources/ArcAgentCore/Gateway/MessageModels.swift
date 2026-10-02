@@ -82,6 +82,30 @@ public struct IncomingMessage: Sendable {
     }
 }
 
+// MARK: - MIME helpers
+
+/// Small extension→MIME map for deliverable attachments.
+public enum MimeTypes {
+    static let map: [String: String] = [
+        "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif",
+        "webp": "image/webp", "svg": "image/svg+xml", "bmp": "image/bmp",
+        "mp4": "video/mp4", "mov": "video/quicktime", "webm": "video/webm",
+        "mp3": "audio/mpeg", "wav": "audio/wav", "ogg": "audio/ogg", "m4a": "audio/mp4",
+        "pdf": "application/pdf", "txt": "text/plain", "md": "text/markdown",
+        "html": "text/html", "htm": "text/html", "json": "application/json",
+        "csv": "text/csv", "xml": "application/xml", "yaml": "application/yaml", "yml": "application/yaml",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "zip": "application/zip", "tar": "application/x-tar", "gz": "application/gzip",
+    ]
+
+    public static func guess(from path: String) -> String? {
+        let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
+        return map[ext]
+    }
+}
+
 /// An outgoing message to be delivered through a platform adapter.
 public struct OutgoingMessage: Sendable {
     /// The text content to send.
@@ -99,11 +123,24 @@ public struct OutgoingMessage: Sendable {
         public let filename: String
         public let url: String
         public let mimeType: String?
+        /// Local filesystem path for native upload (deliverable mode).
+        public let localPath: String?
 
-        public init(filename: String, url: String, mimeType: String? = nil) {
+        public init(filename: String, url: String = "", mimeType: String? = nil, localPath: String? = nil) {
             self.filename = filename
             self.url = url
             self.mimeType = mimeType
+            self.localPath = localPath
+        }
+
+        /// Convenience: attachment backed by a local file (deliverable mode).
+        public static func local(path: String) -> Attachment {
+            Attachment(
+                filename: URL(fileURLWithPath: path).lastPathComponent,
+                url: "",
+                mimeType: MimeTypes.guess(from: path),
+                localPath: path
+            )
         }
     }
 

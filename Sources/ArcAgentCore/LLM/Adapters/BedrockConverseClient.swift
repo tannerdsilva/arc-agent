@@ -33,17 +33,24 @@ public struct BedrockConverseClient: LLMClient {
         self.transport = WireTransport(httpClient: httpClient, defaultTimeoutSeconds: 300)
     }
 
-    func endpoint(stream: Bool) -> URL {
+    func endpoint(stream: Bool) throws -> URL {
         let modelID = model.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? model
         let path = stream ? "/model/\(modelID)/converse-stream" : "/model/\(modelID)/converse"
-        return URL(string: "https://bedrock-runtime.\(region).amazonaws.com\(path)")!
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "bedrock-runtime.\(region).amazonaws.com"
+        components.path = path
+        guard let url = components.url else {
+            throw LLMError.decodingError("Invalid Bedrock endpoint for model '\(model)'")
+        }
+        return url
     }
 
     // MARK: - LLMClient
 
     public func complete(messages: [Message], tools: [[String: Any]]?) async throws -> LLMResponse {
         let body = try buildConverseRequest(messages: messages, tools: tools)
-        let url = endpoint(stream: false)
+        let url = try endpoint(stream: false)
         let signed = signer.signedHeaders(method: "POST", url: url, payload: body)
         let headers: [String: String] = [
             "Content-Type": "application/json",
@@ -66,7 +73,7 @@ public struct BedrockConverseClient: LLMClient {
         return AsyncThrowingStream { continuation in
             Task {
                 do {
-                    let url = self.endpoint(stream: true)
+                    let url = try self.endpoint(stream: true)
                     let signed = self.signer.signedHeaders(method: "POST", url: url, payload: body)
                     let headers: [String: String] = [
                         "Content-Type": "application/json",

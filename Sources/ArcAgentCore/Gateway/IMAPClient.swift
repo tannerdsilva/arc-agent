@@ -78,7 +78,7 @@ public final class IMAPClient: @unchecked Sendable {
                     try channel.pipeline.syncOperations.addHandler(LineCodec())
                     if self.useTLS {
                         try channel.pipeline.syncOperations.addHandler(
-                            try! NIOSSLClientHandler(context: try! self.tlsContext(), serverHostname: self.host),
+                            try NIOSSLClientHandler(context: try self.tlsContext(), serverHostname: self.host),
                             position: .first
                         )
                     }
@@ -131,7 +131,7 @@ public final class IMAPClient: @unchecked Sendable {
         conn.literals = []
         return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<CommandResponse, Error>) in
             conn.continuation = cont
-            channel.writeAndFlush(ByteBuffer(string: "\\(tag) \\(rawCommand)\\r\\n")).whenFailure { error in
+            channel.writeAndFlush(ByteBuffer(string: "\(tag) \(rawCommand)\r\n")).whenFailure { error in
                 conn.continuation?.resume(throwing: error)
                 conn.continuation = nil
             }

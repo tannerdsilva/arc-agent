@@ -45,4 +45,39 @@ struct MailTransportTests {
         try channel.finish()
     }
 
+    @Test("TLS connect to a non-TLS server fails cleanly instead of crashing")
+    func tlsToPlainServerFailsCleanly() async throws {
+        let group = MultiThreadedEventLoopGroup.singleton
+        let server = try await ServerBootstrap(group: group)
+            .childChannelInitializer { channel in
+                // Accept nothing: close immediately so the TLS client sees an
+                // EOF/error during the handshake.
+                channel.close(promise: nil)
+                return channel.eventLoop.makeSucceededVoidFuture()
+            }
+            .bind(host: "127.0.0.1", port: 0)
+            .get()
+        defer { try? server.close().wait() }
+        guard let port = server.localAddress?.port else {
+            Issue.record("loopback server did not bind a port")
+            return
+        }
+        let sender = SMTPSender(
+            host: "127.0.0.1", port: port,
+            username: "u", password: "p",
+            useTLS: true,
+            eventLoopGroup: group
+        )
+        // A TLS client against a server that immediately closes must surface
+        // as a thrown error — never a `try!` process crash. (Suite timeout is
+        // bounded by the sender's 15s exchange deadline in the worst case.)
+        var threw = false
+        do {
+            try await sender.connect()
+        } catch {
+            threw = true // graceful failure path (TLS/IO/timeout error)
+        }
+        #expect(threw, "TLS connect to a closed server must throw, not crash")
+    }
+
 }
