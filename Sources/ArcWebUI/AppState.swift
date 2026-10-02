@@ -572,14 +572,20 @@ actor AppState {
             touchSessionLoaded(id)
             return
         }
-        if !loadedSessionOrder.contains(id) {
-            guard let full = try? await store.get(id: id) else { return }
-            guard let i = sessions.firstIndex(where: { $0.id == id }) else { return }
-            sessions[i].messages = full.messages
-            sessions[i].messageCount = full.messages.count
-            sessions[i].title = full.title
-            touchSessionLoaded(id)
+        // A session still listed in the LRU but carrying no bodies means the
+        // `sessions` array was replaced with fresh summaries (storage switch,
+        // reloadAll) while the LRU kept stale ids. Trust the bodies, not the
+        // LRU membership: refetch — otherwise the chat stays blank until a
+        // new turn force-reloads it.
+        if loadedSessionOrder.contains(id) {
+            loadedSessionOrder.removeAll { $0 == id }
         }
+        guard let full = try? await store.get(id: id) else { return }
+        guard let i = sessions.firstIndex(where: { $0.id == id }) else { return }
+        sessions[i].messages = full.messages
+        sessions[i].messageCount = full.messages.count
+        sessions[i].title = full.title
+        touchSessionLoaded(id)
         evictOverloadedCache()
     }
 
@@ -1429,6 +1435,10 @@ actor AppState {
                 crumb("reloadAll: list ERROR \(error)")
             }
         }
+        // The array was replaced with fresh metadata-only summaries: the
+        // stale LRU from the previous store is invalid (a session that
+        // remains listed would skip its refetch in ensureSessionMessages).
+        loadedSessionOrder.removeAll()
         sessionVersion += 1
 
         skills = discoverSkills()
@@ -1436,6 +1446,13 @@ actor AppState {
 
         let pm = ProfileManager()
         profiles = (try? await pm.list()) ?? []
+
+        // The active chat's bodies were just dropped with the summaries;
+        // re-materialize it so an open chat never sits blank after a
+        // storage switch (mirrors reloadSessions).
+        if let keep = activeSessionID {
+            await ensureSessionMessages(keep)
+        }
     }
 
     // MARK: Per-chat selections

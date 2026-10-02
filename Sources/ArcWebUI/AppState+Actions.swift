@@ -898,6 +898,10 @@ extension AppState {
             return false
         }
         sessions = list
+        // Fresh summaries: the previous store's materialized bodies (and the
+        // LRU that tracked them) no longer apply — see ensureSessionMessages
+        // for why a stale LRU entry would blank a reopened chat.
+        loadedSessionOrder.removeAll()
         sessionVersion += 1
         crumb("reloadAll(bounded): sessions listed (\(sessions.count))")
         return true
