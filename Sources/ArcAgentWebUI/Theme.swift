@@ -996,6 +996,8 @@ static let css: String = """
       transition: background 0.15s;
     }
     .primary-btn:hover { background: var(--accent-strong); }
+    .primary-btn:disabled, .primary-btn[disabled] { opacity: 0.45; cursor: default; }
+    .primary-btn:disabled:hover { background: var(--accent); }
     .ghost-btn {
       background: transparent;
       color: var(--muted);

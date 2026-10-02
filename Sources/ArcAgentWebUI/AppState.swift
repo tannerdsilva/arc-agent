@@ -231,6 +231,12 @@ struct AppSettings: Codable, Equatable {
     /// without an entry fall back to `activeWorkspace`.
     var sessionWorkspaces: [String: String] = [:]
     var tesseraOff: Bool = false
+    /// Configured Tessera storage connections (Settings → Storage).
+    var storageConnections: [TesseraStorageConnection] = []
+    /// The storage medium in use: "file", "config" (the `tessera` block of
+    /// ~/.arc/config.json), or a `TesseraStorageConnection.id`. Written only
+    /// by "Save and Connect" — staging a pick never persists.
+    var activeStorage: String = "config"
     /// Mixture-of-Agents advisory passes, when reference models are configured.
     var moaEnabled: Bool = false
     /// Smart approval: when on, flagged commands are assessed by the
@@ -343,6 +349,7 @@ struct AppSettings: Codable, Equatable {
         case auxiliaryModels
         case disabledToolsets, disabledSkills, bookmarkedSessions
         case workspaces, activeWorkspace, sessionWorkspaces, tesseraOff, moaEnabled
+        case storageConnections, activeStorage
         case recentFiles
         case sessionConfig, sessionProfile, sessionThinking, sessionTitles, sessionCompressions, archivedSessions
         case chatCategories, sessionCategories
@@ -385,6 +392,8 @@ struct AppSettings: Codable, Equatable {
         activeWorkspace = try c.decodeIfPresent(String.self, forKey: .activeWorkspace) ?? "main"
         sessionWorkspaces = try c.decodeIfPresent([String: String].self, forKey: .sessionWorkspaces) ?? [:]
         tesseraOff = try c.decodeIfPresent(Bool.self, forKey: .tesseraOff) ?? false
+        storageConnections = try c.decodeIfPresent([TesseraStorageConnection].self, forKey: .storageConnections) ?? []
+        activeStorage = try c.decodeIfPresent(String.self, forKey: .activeStorage) ?? (tesseraOff ? "file" : "config")
         moaEnabled = try c.decodeIfPresent(Bool.self, forKey: .moaEnabled) ?? false
         recentFiles = try c.decodeIfPresent([String].self, forKey: .recentFiles) ?? []
         sessionConfig = try c.decodeIfPresent([String: String].self, forKey: .sessionConfig) ?? [:]
@@ -885,6 +894,15 @@ actor AppState {
     /// "file". Honest label vs `settings.tesseraOff` because the boot-time
     /// fallback can differ from the persisted setting within a process.
     var runtimeBackend: String = "file"
+    /// Endpoint of the Tessera connection actually built (when tessera mode).
+    var runtimeTesseraEndpoint: String = ""
+    /// The storage medium **staged** in Settings → Storage (picker selection
+    /// awaiting "Save and Connect"). nil = nothing staged (active is shown).
+    var stagedStorage: String? = nil
+    /// Connection being edited in the Tessera storages form (nil = adding).
+    var storageEdit: TesseraStorageConnection? = nil
+    /// Settings → Storage medium picker open state (survives re-renders).
+    var storagePickOpen: Bool = false
     var memory: (any MemoryProvider)?
     var runtimeKey: String?
     /// In-memory storage fallback flag (never persisted): set by
@@ -926,6 +944,15 @@ actor AppState {
         // inside the nonisolated initializer; memory state is already final.
         if needsSettingsSave {
             Task { await self.saveSettings() }
+        }
+    }
+
+    deinit {
+        // Release NIO resources when the last reference drops (test processes
+        // construct AppState per test). syncShutdown is non-throwing-to-caller
+        // here: the singleton ELG is process-wide and never shut down by us.
+        if let hc = httpClient {
+            try? hc.syncShutdown()
         }
     }
 
@@ -1154,8 +1181,24 @@ actor AppState {
     /// (Re)build the store + memory provider when the storage mode changes.
     /// Workspaces are per-chat working directories and no longer isolate the
     /// session store — all chats share one session pool.
+    /// Key covering everything that determines the runtime stores: the active
+    /// medium, the transient boot fallback, and the selected connection's own
+    /// fields (editing the active connection while connected rebuilds).
+    func storageRuntimeKey() -> String {
+        if settings.activeStorage == "file" {
+            return "file-\(runtimeTesseraOff)"
+        }
+        if settings.activeStorage == "config" {
+            return "config-\(runtimeTesseraOff)-\(loadConfig().tessera.map { "\($0.serverIP):\($0.serverPort)" } ?? "-")"
+        }
+        if let conn = settings.storageConnections.first(where: { $0.id == settings.activeStorage }) {
+            return "conn-\(conn.id)-\(runtimeTesseraOff)-\(conn.serverIP):\(conn.serverPort)-\(conn.application)-\(conn.serverPublicKey.hashValue)"
+        }
+        return "unknown-\(settings.activeStorage)-\(runtimeTesseraOff)"
+    }
+
     func ensureRuntime() async {
-        let key = "\(settings.tesseraOff)-\(runtimeTesseraOff)"
+        let key = storageRuntimeKey()
 
         if httpClient == nil {
             httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
@@ -1193,27 +1236,59 @@ actor AppState {
 
         if runtimeKey == key, store != nil { return }
         runtimeKey = key
-        let tesseraOff = settings.tesseraOff || runtimeTesseraOff
-
-        if tesseraOff || loadConfig().tessera == nil {
+        // A boot-time relay probe timeout forces file for this process; the
+        // user's persisted medium (activeStorage) still resolves next boot.
+        if runtimeTesseraOff {
             runtimeBackend = "file"
+            runtimeTesseraEndpoint = ""
             store = FileSessionStore()
             memory = FileMemoryProvider()
-        } else {
+            return
+        }
+        let resolution = resolveStorage(
+            active: settings.activeStorage,
+            connections: settings.storageConnections,
+            cliTessera: loadConfig().tessera
+        )
+        if resolution.backend == "tessera", let cfg = resolution.config {
             runtimeBackend = "tessera"
-            await TesseraConnection.shared.configure(loadConfig().tessera!)
+            runtimeTesseraEndpoint = "\(cfg.serverIP):\(cfg.serverPort)"
+            await TesseraConnection.shared.configure(cfg)
             store = TesseraSessionStore()
             memory = TesseraMemoryProvider()
+        } else {
+            runtimeBackend = "file"
+            runtimeTesseraEndpoint = ""
+            store = FileSessionStore()
+            memory = FileMemoryProvider()
         }
     }
 
     /// Human-readable description of the storage backend actually in use,
     /// including the Tessera endpoint when connected.
     func storageDescription() -> String {
-        if runtimeBackend == "tessera", let t = loadConfig().tessera {
-            return "Tessera @ \(t.serverIP):\(t.serverPort) (signed NOSTR events)"
+        if runtimeBackend == "tessera", !runtimeTesseraEndpoint.isEmpty {
+            if let conn = settings.storageConnections.first(where: { $0.id == settings.activeStorage }) {
+                return "Tessera @ \(conn.endpointLabel) — \(conn.name) (signed NOSTR events)"
+            }
+            return "Tessera @ \(runtimeTesseraEndpoint) (config.json, signed NOSTR events)"
         }
         return "File storage"
+    }
+
+    /// Short label of the active storage medium (Settings picker trigger).
+    func storageMediumLabel() -> String {
+        if settings.activeStorage == "file" { return "Local file storage" }
+        if settings.activeStorage == "config" {
+            if let t = loadConfig().tessera {
+                return "Default (config.json) — \(t.serverIP):\(t.serverPort)"
+            }
+            return "Default (config.json) — not configured"
+        }
+        if let conn = settings.storageConnections.first(where: { $0.id == settings.activeStorage }) {
+            return conn.name
+        }
+        return "Local file storage"
     }
 
     /// Build an OpenAI-compatible client for the given config preset,

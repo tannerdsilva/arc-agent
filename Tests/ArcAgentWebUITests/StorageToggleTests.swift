@@ -16,15 +16,17 @@ struct StorageToggleTests {
 
     /// Settings persistence must never touch the user's real settings file
     /// during tests.
-    private func withTempSettings<T>(_ body: @MainActor () async throws -> T) async throws -> T {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("arc-webui-test-settings-\(UUID().uuidString).json")
-        AppState.settingsURLOverride = url
-        defer {
-            AppState.settingsURLOverride = nil
-            try? FileManager.default.removeItem(at: url)
+    private func withTempSettings<T: Sendable>(_ body: @escaping @MainActor () async throws -> T) async throws -> T {
+        try await WebUITestSeamLock.shared.run {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("arc-webui-test-settings-\(UUID().uuidString).json")
+            AppState.settingsURLOverride = url
+            defer {
+                AppState.settingsURLOverride = nil
+                try? FileManager.default.removeItem(at: url)
+            }
+            return try await body()
         }
-        return try await body()
     }
 
     @Test("Explicit toggle to Tessera clears the boot-time fallback flag")
