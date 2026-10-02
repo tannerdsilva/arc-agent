@@ -83,6 +83,9 @@ public enum ArcAgentCore {
         try registry.register(BrowserTools.vision)
         try registry.register(BrowserTools.dialog)
         try registry.register(BrowserTools.cdp)
+        try registry.register(BrowserTools.connect)
+        try registry.register(BrowserTools.close)
+        try registry.register(ComputerUseTool.entry)
         try registry.register(MCPClientTool.entry)
         Task { await BrowserRegistry.shared.register(CDPBrowserProvider()) }
 

@@ -299,6 +299,16 @@ public enum BuiltinSearchProviders {
         if !tavilyKey.isEmpty {
             providers.append(TavilySearchProvider(apiKey: tavilyKey))
         }
+        // Reference `plugins/web/firecrawl` + `plugins/web/exa`
+        // (search + extract backends, legacy-preference order first).
+        let firecrawlKey = SearchEnv.get("FIRECRAWL_API_KEY")
+        if !firecrawlKey.isEmpty {
+            providers.append(FirecrawlProvider(apiKey: firecrawlKey))
+        }
+        let exaKey = SearchEnv.get("EXA_API_KEY")
+        if !exaKey.isEmpty {
+            providers.append(ExaSearchProvider(apiKey: exaKey))
+        }
         providers.append(DuckDuckGoSearchProvider())
         return providers
     }
