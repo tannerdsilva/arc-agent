@@ -927,6 +927,24 @@ public static let css: String = """
     .task-every select { flex: 1; }
     .ap-skills-scroll { max-height: 250px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 2px; padding-right: 6px; }
     .set-row .aux-right { display: flex; gap: 8px; flex-shrink: 0; }
+    /* Auxiliary models: 15 two-line rows stacked into ~1000px of scroll read as
+       a wall. `auto-fit` gives as many columns as actually FIT the card (two on
+       a wide settings pane, one when it narrows) — a fixed 2-column grid
+       overflowed the card at 1440 and clipped the right column. Rows go
+       single-line; the full description rides the row's `title`. */
+    .aux-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); column-gap: 24px; }
+    .aux-list .set-row { padding: 7px 0; min-width: 0; }
+    .aux-list .set-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .aux-list .set-label small { display: inline; margin-left: 4px; }
+    /* Segmented control (Storage backend): two named states, no implied ON. */
+    .seg { display: inline-flex; gap: 2px; padding: 2px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 9px; flex-shrink: 0; }
+    .seg-btn {
+      border: none; background: transparent; color: var(--muted);
+      font: inherit; font-size: 0.86em; font-weight: 600;
+      padding: 5px 12px; border-radius: 7px; cursor: pointer;
+    }
+    .seg-btn:hover { color: var(--text); }
+    .seg-btn.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18); }
     .aux-editing { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin: 6px 0; background: var(--surface-2); }
     .aux-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 10px; }
     .aux-field { display: flex; flex-direction: column; gap: 3px; font-size: 0.84em; color: var(--muted); }

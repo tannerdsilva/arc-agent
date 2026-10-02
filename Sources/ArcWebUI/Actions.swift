@@ -2499,8 +2499,13 @@ final class Controller {
             await self.app.setAuxEditing(nil)
             return await self.app.refreshFragments()
         }
-        wire(router, id: "set-tessera", events: ["change"]) { event in
-            let off = event.string("checked") == "true"
+        wire(router, id: "set-backend", events: ["click"]) { event in
+            // Two named states instead of an unlabelled switch whose ON meant
+            // "file storage" (it read backwards: everything else on this page
+            // treated ON as "the feature is on").
+            guard let tid = event.string("targetId"), tid.hasPrefix("set-backend-") else { return [] }
+            let off = tid == "set-backend-file"
+            guard await self.app.currentTesseraOff() != off else { return [] }
             await self.app.setTesseraOff(off)
             await self.app.rebuildAndReload()
             _ = await self.app.hint(off ? "Switched to file storage." : "Switched to Tessera storage.", kind: off ? "" : "success")

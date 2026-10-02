@@ -2625,7 +2625,7 @@ extension AppState {
                 summary = "Main model"
             }
             return """
-            <div class="set-row">
+            <div class="set-row" title="\(esc(task.detail))">
               <div class="set-label">\(esc(task.displayName))<small>\(esc(task.detail)). Currently: \(esc(summary)).</small></div>
               <div class="aux-right" data-component-id="aux-edit" data-event="click">
                 \(btn("aux-edit-\(task.key)", "", "ghost-btn", has ? "Edit" : "Configure"))
@@ -2729,7 +2729,7 @@ extension AppState {
               <div class="detail-card" style="margin-top:12px">
                 <h3 style="margin:0 0 6px">Auxiliary models</h3>
                 <div class="detail-sub" style="margin-bottom:10px">Auxiliary tasks (vision, compression, approval, titles, …) use a dedicated model from the <code>auxiliary</code> block of ~/.arc/config.json. Empty overrides fall back to the chat's main model.</div>
-                \(auxRows)
+                <div class="aux-list">\(auxRows)</div>
               </div>
             </section>
 
@@ -2761,11 +2761,11 @@ extension AppState {
               <h2>Storage</h2>
               <div class="detail-card">
                 <div class="set-row">
-                  <div class="set-label">Backend<small>\(esc(tesseraLabel)). Toggling rebuilds the session store.</small></div>
-                  <label class="switch">
-                    <input type="checkbox" id="set-tessera" data-component-id="set-tessera" data-event="change" data-no-restore \(settings.tesseraOff ? "checked" : "")>
-                    <span class="track"></span><span class="knob"></span>
-                  </label>
+                  <div class="set-label">Storage backend<small>Currently \(esc(tesseraLabel)). Switching rebuilds the session store.</small></div>
+                  <div class="seg" data-component-id="set-backend" data-event="click">
+                    <button type="button" id="set-backend-file" class="seg-btn\(settings.tesseraOff ? " active" : "")">File</button>
+                    <button type="button" id="set-backend-tessera" class="seg-btn\(settings.tesseraOff ? "" : " active")">Tessera</button>
+                  </div>
                 </div>
                 <div class="set-row">
                   <div class="set-label">Mixture of Agents<small>Fan out reference-model advice before the main call. Reference models come from the <code>moa</code> block of ~/.arc/config.json; without them this does nothing.</small></div>

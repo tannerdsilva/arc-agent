@@ -426,6 +426,10 @@ extension AppState {
 
     func isOutlineOpen() -> Bool { outlineOpen }
 
+    /// Storage backend, for the Settings segmented control (the old switch read
+    /// its own state backwards).
+    func currentTesseraOff() -> Bool { settings.tesseraOff }
+
     // MARK: Rename / archive / duplicate
 
     func renameSession(_ id: String, to name: String) {
