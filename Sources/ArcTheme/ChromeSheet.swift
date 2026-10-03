@@ -785,7 +785,7 @@ public static let css: String = """
     }
     .set-row { display: flex; align-items: center; gap: 14px; padding: 7px 0; }
     .set-row .set-label { flex: 1; font-size: 0.92em; }
-    .set-row .set-label small { display: block; color: var(--muted); font-size: 0.86em; margin-top: 1px; }
+    .set-row .set-label small { display: block; color: var(--muted); font-size: 0.92em; margin-top: 1px; }
     .set-row select, .set-row input[type="text"], .set-row input[type="password"] {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--radius-sm); color: var(--text);

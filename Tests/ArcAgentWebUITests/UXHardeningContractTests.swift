@@ -201,6 +201,10 @@ struct UXHardeningContractTests {
         #expect(css.contains(".md { font-size: 1em;"), "chat body was 13.44px (0.96em of 14px)")
         #expect(css.contains(".dd-trigger {\n      display: inline-flex; align-items: center; gap: 5px;\n      background: transparent; border: none; color: var(--muted);\n      font-family: inherit; font-size: 0.86em;"),
                 "composer chip labels were 11.89px")
+        // a caption inside a 0.92em label needs 0.92em itself to clear 12px;
+        // 0.86em computed to 11.47px on a real page (measured in light theme).
+        #expect(css.contains(".set-row .set-label small { display: block; color: var(--muted); font-size: 0.92em;"),
+                "Settings captions fell back under the floor")
         // the Small text-size variant was the other way a sub-12px size could
         // reach a reader; it must stay at the floor, not below it.
         #expect(!css.contains("data-size=\"sm\"] .sess-meta { font-size: 10px; }"))
