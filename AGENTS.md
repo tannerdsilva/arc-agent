@@ -5,13 +5,13 @@
 This project has completed five feature-build phases and is now in **vascular hardening** — strengthening the internal data flow, session integrity, error recovery, and observability before adding new capabilities.
 
 The core architecture is built and proven:
-- **177 Swift source files** across four built modules (ArcAgentCore library, ArcTheme library, arc-agent CLI, arc-agent-webui) plus the `ArcAssetTool` generator
-- **668 tests** — 663 core (74 suites) + 5 web UI (1 suite). two of the core tests are environment-gated: they assert the live `~/.arc/config.json` aux layout and need a CDP provider, and fail without them
+- **188 Swift source files** across five built targets (ArcAgentCore library, ArcWebUI library, ArcTheme library, ArcDaemon library, the `arc-agent` CLI) plus the `ArcAssetTool` generator
+- **823 tests** — 679 core (79 suites) + 83 web UI (14 suites) + 61 daemon (13 suites). Two of the core tests are environment-gated: they assert the live `~/.arc/config.json` aux layout and the reference oMLX models, and fail on a machine configured with a different provider — that is the only expected red
 - **14 dependencies** (AsyncHTTPClient, ArgumentParser, System, ServiceLifecycle, tessera, Hummingbird, swift-mcp, swift-nio, swift-nio-ssl, swift-nio-extras, swift-http-types, SwiftSlash, swift-log, no-webui — tessera and no-webui are **local path pins** while they are co-developed)
 - **55 registered tools** across ~13 toolsets (arc parity incl. `project_*`, `skill_manage`, `skills_list`, `tool_search`, `send_message`)
 - **Gateway stack** — HTTP server, Telegram adapter, MCP server, session management
 - **Tessera-backed persistence** — sessions and memory stored as signed NOSTR events through the tessera-client library
-- **Swift-native web UI** — `arc-agent-webui` executable, declarative Swift DSL generating HTML/CSS/JS, served from its own Hummingbird server. Zero npm, zero hand-written web code. All assets (styles, runtime JS, KaTeX) are embedded Swift strings.
+- **Swift-native web UI** — declarative Swift DSL generating HTML/CSS/JS, embedded in the binary and served by the daemon itself (`arc serve` mounts `Sources/ArcWebUI/WebUIHost.swift` on no-webui's `WebUIServer`: web UI on :8890, HTTP API on :8080). Zero npm, zero hand-written web code. All assets (styles, the engine client, arc's overlay, KaTeX) are compiled in — the sheet is a build product of `ArcAssetPlugin` + `ArcAssetTool`
 
 ## What This Means for an AI Agent Reading This
 
@@ -29,8 +29,8 @@ When asked to produce code, assume it is:
 | VISION.md | Updated with hardening roadmap + web UI architecture |
 | AGENTS.md | This file |
 | README.md | Updated |
-| Source files | 177 Swift files in `Sources/` (ArcAgentCore, ArcTheme, arc-agent CLI, arc-agent-webui, ArcAssetTool) |
-| Tests | 668 (663 core in 74 suites + 5 web UI in 1 suite); 2 core tests are environment-gated |
+| Source files | 188 Swift files in `Sources/` (ArcAgentCore, ArcWebUI, ArcTheme, ArcDaemon, arc-agent CLI, ArcAssetTool) |
+| Tests | 823 (679 core in 79 suites + 83 web UI in 14 suites + 61 daemon in 13 suites); 2 core tests are environment-gated |
 | Build | Clean |
 | Branch | `nowebui` (active — the no-webui transplant); `tessera` is its base |
 
@@ -54,7 +54,7 @@ When asked to produce code, assume it is:
 | **Gateway** — GatewayService, HTTPServerService, SessionRegistry, SessionAgent, TelegramAdapter, DeliveryManager, SessionRouter, PlatformAdapter, ProfileRouting | `Gateway/` | Built |
 | **MCP** — MCPServerAdapter, DynamicMCPTool | `Gateway/MCP/` | Built |
 | **Tessera** — TesseraConnection (shared tunnel), TesseraSessionStore, TesseraMemoryProvider | `Storage/` | Built |
-| **Web UI** — AppState, Actions, Views, Theme (chrome), ThemeCatalog (27 schemes), Queue, NewFeatures, Insights, Entry; hosted on no-webui's `WebUIServer` | `Sources/ArcAgentWebUI/` + `Sources/ArcTheme/` | Built |
+| **Web UI** — AppState, Actions, Views, Theme (chrome), ThemeCatalog (27 schemes), Queue, NewFeatures, Insights, GitHub, WebUIHost; hosted on no-webui's `WebUIServer` by the daemon | `Sources/ArcWebUI/` + `Sources/ArcTheme/` | Built |
 | **Shared renderers** — arc-parity markdownToHTML + MarkdownRenderer, WebSocket server/handler | `ArcAgentCore/WebUI/` (3 files) | Built |
 | **Compression** — MicroCompactor (per-turn transcript absorption) | `Compression/` | Built |
 | **Bot Mode** — Profile struct, ProfileManager, BotMessagingService, GroupChatRoom | `Profile/` | Built |
@@ -85,13 +85,13 @@ This is the contract. This is the foundation. Everything else is negotiable.
 
 ## Web UI Law (Subsystem-Specific)
 
-**Second Law (Web UI) — No npm, No Exceptions.** There shall be no `npm install`, no `package.json`, no `node_modules`, no webpack, no vite, no tailwind, no react, no vue, no svelte, no solid, no alpine, no stimulus, no htmx, no turbolinks, no hotwire, no stimulus_reflex. There shall be no JavaScript framework, no CSS preprocessor, no build pipeline. The web UI is generated by Swift code in `Sources/ArcAgentWebUI/` — the CSS and JS it needs are Swift string constants:
+**Second Law (Web UI) — No npm, No Exceptions.** There shall be no `npm install`, no `package.json`, no `node_modules`, no webpack, no vite, no tailwind, no react, no vue, no svelte, no solid, no alpine, no stimulus, no htmx, no turbolinks, no hotwire, no stimulus_reflex. There shall be no JavaScript framework, no CSS preprocessor, no build pipeline. The web UI is generated by Swift code in `Sources/ArcWebUI/` — the CSS and JS it needs are Swift string constants:
 
 - `Theme.swift` — arc's chrome stylesheet, pure Swift strings; `Sources/ArcTheme/ThemeCatalog.swift`
   — the 27 schemes as no-webui providers
 - The client runtime is **no-webui's engine** (`/ui/webui-engine.js`, routed by `WebUIServer`):
-  the former `RuntimeAsset.swift` fork was deleted, and arc's own client behaviour is the
-  `init.js` overlay string in `Entry.swift`
+  arc's own client behaviour lives in `Sources/ArcWebUI/Assets/overlay.js`, embedded at build
+  time by the framework's asset plugin (`Assets/webui-assets.json`) and served as `/ui/init.js`
 - Generated assets are **build products, never checked in**: `ArcAssetPlugin` runs `ArcAssetTool`
   before every build of the web UI target — `katex` embeds the vendored KaTeX files, and
   `theme-sheet` embeds the rendered stylesheet with its sha256 content address and its gzip
