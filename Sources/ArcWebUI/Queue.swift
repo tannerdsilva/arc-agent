@@ -141,24 +141,6 @@ extension AppState {
         saveSettings()
     }
 
-    /// Move a single queue entry relative to another ("move:<srcID>:<b|a>:<refID>").
-    /// The runtime only reports source + hovered ref + direction during a drag;
-    /// the reorder itself happens here so drag-and-drop never depends on the
-    /// DOM order having been mutated mid-drag.
-    func reorderQueueMove(_ move: String) {
-        let parts = move.split(separator: ":", maxSplits: 3).map(String.init)
-        guard parts.count == 4 else { return }
-        let src = parts[1]
-        let before = parts[2] == "b"
-        let refID = parts[3]
-        guard let si = settings.queuePlan.firstIndex(where: { $0.id == src }) else { return }
-        guard let ri = settings.queuePlan.firstIndex(where: { $0.id == refID }), ri != si else { return }
-        let entry = settings.queuePlan.remove(at: si)
-        let ni = settings.queuePlan.firstIndex(where: { $0.id == refID }) ?? settings.queuePlan.count
-        settings.queuePlan.insert(entry, at: before ? ni : ni + 1)
-        saveSettings()
-    }
-
     /// Display names of the entries feeding this one ("Task 1", "Task 3"…).
     func queueInputLabels(_ entryID: String) -> [String] {
         guard let e = settings.queuePlan.first(where: { $0.id == entryID }) else { return [] }
@@ -466,7 +448,7 @@ extension AppState {
             let later = loopOn && i > myIdx
             let checked = queueLinkSel.contains(prev.id) ? " checked" : ""
             let laterTag = later ? "<span class='queue-link-loop'>loops back</span>" : ""
-            rows.append("<label class='queue-link-row'><input type='checkbox' id='qlink-\(prev.id)' data-component-id='queue' data-event='change'\(checked)><span class='queue-link-num'>Task \(i + 1)</span><span class='queue-link-title' title='\(esc(queueTodo(prev)?.text ?? ""))'>\(esc(trunc(queueTodo(prev)?.text ?? "…", 80)))</span>\(laterTag)</label>")
+            rows.append("<label class='queue-link-row'><input type='checkbox' id='qlink-\(prev.id)' value='\(prev.id)' data-component-id='qlink' data-event='change'\(checked)><span class='queue-link-num'>Task \(i + 1)</span><span class='queue-link-title' title='\(esc(queueTodo(prev)?.text ?? ""))'>\(esc(trunc(queueTodo(prev)?.text ?? "…", 80)))</span>\(laterTag)</label>")
         }
         let body: String
         if rows.isEmpty {
@@ -502,7 +484,7 @@ extension AppState {
             guard !list.isEmpty else { continue }
             let cbs = list.map { t -> String in
                 let checked = queueCandidates.contains(t.id) ? " checked" : ""
-                return "<label class='queue-pick-row'><input type='checkbox' id='qpick-\(t.id)' data-component-id='queue' data-event='change'\(checked)><span class='queue-pick-text'>\(esc(t.text))</span></label>"
+                return "<label class='queue-pick-row'><input type='checkbox' id='qpick-\(t.id)' value='\(t.id)' data-component-id='qpick' data-event='change'\(checked)><span class='queue-pick-text'>\(esc(t.text))</span></label>"
             }.joined()
             sections.append("<div class='queue-pick-chat'><div class='queue-pick-title'>\(esc(queueChatLabel(s.id)))</div>\(cbs)</div>")
         }
@@ -551,7 +533,7 @@ extension AppState {
             let countField = loopOn ? """
             <label class="queue-loop-count" title="How many times to run the queue (1 = no loop)">
               <span class="queue-loop-count-label">Loops</span>
-              <input type="number" id="queue-loop-count" data-component-id="queue" data-event="change" min="1" max="99" value="\(settings.queueLoopCount)" class="queue-loop-count-input">
+              <input type="number" id="queue-loop-count" data-component-id="queue-loop-count" data-event="change" min="1" max="99" value="\(settings.queueLoopCount)" class="queue-loop-count-input">
             </label>
             """ : ""
             runBtns = """
@@ -566,7 +548,7 @@ extension AppState {
             </div>
             <div class="queue-loop-row">
               <label class="queue-loop-toggle" title="Repeat the sequential run; linked later tasks feed back on the next pass">
-                <span class="switch"><input type="checkbox" id="queue-loop-toggle" data-component-id="queue" data-event="change"\(checked)><span class="track"></span><span class="knob"></span></span>
+                <span class="switch"><input type="checkbox" id="queue-loop-toggle" value="1" data-component-id="queue-loop-toggle" data-event="change"\(checked)><span class="track"></span><span class="knob"></span></span>
                 <span class="queue-loop-label">Loop sequential</span>
               </label>
               \(countField)
@@ -587,7 +569,7 @@ extension AppState {
             \(rows)
           </div>
           \(picker)
-          <button type="button" id="queue-reorder" class="queue-hidden-btn">reorder</button>
+          <input type="hidden" id="queue-order" data-component-id="queue-order" data-event="change" data-no-restore value="">
         </div>
         """
     }
@@ -598,29 +580,10 @@ extension AppState {
 extension Controller {
 
     func wireQueue(_ router: EventRouter) {
-        wire(router, id: "queue", events: ["click", "submit", "change"]) { event in
-            if event.event == "change" {
-                guard let tid = event.string("targetId") else { return [] }
-                if tid == "queue-loop-toggle" {
-                    await self.app.setQueueLoopEnabled(!(await self.app.settings.queueLoopEnabled))
-                    return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-                }
-                if tid == "queue-loop-count" {
-                    await self.app.setQueueLoopCount(event.string("value") ?? "")
-                    return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-                }
-                if tid.hasPrefix("qpick-") {
-                    let todoID = String(tid.dropFirst("qpick-".count))
-                    await self.app.queueToggleCandidate(todoID)
-                    return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-                }
-                if tid.hasPrefix("qlink-") {
-                    let entryID = String(tid.dropFirst("qlink-".count))
-                    await self.app.queueToggleLinkSel(entryID)
-                    return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-                }
-                return []
-            }
+        // click/submit only: change frames carry `{value, checked}` (no
+        // targetId), so every queue change control owns its own component id
+        // (see wireQueueChangeControls).
+        wire(router, id: "queue", events: ["click", "submit"]) { event in
             guard let tid = event.string("targetId") else { return [] }
 
             if tid == "queue-tab-tasks" || tid == "queue-tab-queue" {
@@ -641,17 +604,6 @@ extension Controller {
                     } else {
                         await self.app.runQueueParallel(pusher: pusher)
                     }
-                }
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid == "queue-reorder" {
-                let payload = event.string("payload") ?? ""
-                if payload.hasPrefix("move:") {
-                    await self.app.reorderQueueMove(payload)
-                } else {
-                    let order = payload.split(separator: ",").map(String.init)
-                    guard !order.isEmpty else { return [] }
-                    await self.app.reorderQueue(order)
                 }
                 return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
             }
@@ -690,6 +642,39 @@ extension Controller {
                 await self.app.removeQueueEntry(id)
                 return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
             }
+            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+        }
+        wireQueueChangeControls(router)
+    }
+
+    /// Change controls in the Run queue. Change frames carry `{value, checked}`
+    /// only (no `targetId`), so each control owns its own component id and the
+    /// handler reads identity from `value` (the markup emits each row id there).
+    func wireQueueChangeControls(_ router: EventRouter) {
+        wire(router, id: "queue-order", events: ["change"]) { event in
+            let order = (event.string("value") ?? "").split(separator: ",").map(String.init)
+            guard !order.isEmpty else { return [] }
+            await self.app.reorderQueue(order)
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "queue-loop-toggle", events: ["change"]) { _ in
+            await self.app.setQueueLoopEnabled(!(await self.app.settings.queueLoopEnabled))
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "queue-loop-count", events: ["change"]) { event in
+            await self.app.setQueueLoopCount(event.string("value") ?? "")
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "qpick", events: ["change"]) { event in
+            let todoID = event.string("value") ?? ""
+            guard !todoID.isEmpty else { return [] }
+            await self.app.queueToggleCandidate(todoID)
+            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+        }
+        wire(router, id: "qlink", events: ["change"]) { event in
+            let entryID = event.string("value") ?? ""
+            guard !entryID.isEmpty else { return [] }
+            await self.app.queueToggleLinkSel(entryID)
             return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
         }
     }

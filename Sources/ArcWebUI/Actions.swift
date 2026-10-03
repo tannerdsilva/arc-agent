@@ -19,6 +19,7 @@ extension AppState {
             ]
         }
         var u: [FragmentUpdate] = [
+            FragmentUpdate(id: "iconbar", html: "<aside id=\"iconbar\">\(iconbarHTML())</aside>"),
             FragmentUpdate(id: "topbar", html: topbarHTML()),
             FragmentUpdate(id: "panel", html: await panelHTML()),
             FragmentUpdate(id: "main", html: await mainContentHTML()),
@@ -40,9 +41,9 @@ extension AppState {
     /// tab visibility or order changes — refreshFragments alone leaves the
     /// rail untouched.
     func fragmentsWithIconbar() async -> [FragmentUpdate] {
-        var u = await refreshFragments()
-        u.append(FragmentUpdate(id: "iconbar", html: "<aside id=\"iconbar\">\(iconbarHTML())</aside>"))
-        return u
+        // refreshFragments already carries the rail (iconbar), so the standard
+        // targeted refresh is the full shell now.
+        return await refreshFragments()
     }
 
     func logsFragments() async -> [FragmentUpdate] {
@@ -1199,7 +1200,7 @@ final class Controller {
             wire(router, id: "nav-\(id)", events: ["click"]) { _ in
                 await self.app.switchTab(id)
                 await self.app.notifyTabActivated(id)
-                return await self.app.refreshFragments(includeApp: true)
+                return await self.app.refreshFragments()
             }
         }
     }
@@ -1212,7 +1213,7 @@ final class Controller {
             let tid = event.string("targetId") ?? event.string("value") ?? ""
             guard tid.hasPrefix("sbpl-") else { return [] }
             let key = dec(String(tid.dropFirst("sbpl-".count))) ?? ""
-            let on = event.string("checked") == "true"
+            let on = event.checked == true
             await self.app.setSidebarPluginHidden(key, hidden: !on)
             return await self.app.fragmentsWithIconbar()
         }
@@ -1419,7 +1420,7 @@ final class Controller {
                   let name = dec(String(tid.dropFirst("ws-pick-".count))) else { return [] }
             await self.app.closeComposerSelectors()
             await self.app.setChatWorkspace(name)
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "profile-pick", events: ["click"]) { event in
             guard let tid = event.string("targetId"), tid.hasPrefix("pp-"),
@@ -1444,17 +1445,17 @@ final class Controller {
         wire(router, id: "ws-choose-path", events: ["click"]) { _ in
             await self.app.closeComposerSelectors()
             await self.app.openWorkspaceCreate(forChat: true)
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "ws-manage", events: ["click"]) { _ in
             await self.app.closeComposerSelectors()
             await self.app.switchView(.workspaces)
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "pp-manage", events: ["click"]) { _ in
             await self.app.closeComposerSelectors()
             await self.app.switchView(.profiles)
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "chat-search-input", events: ["input"]) { event in
             await self.app.setChatFilter(event.string("value") ?? "")
@@ -1907,7 +1908,7 @@ final class Controller {
             // a checkbox change carries no targetId, so the row identity rides
             // the input's `value` instead.
             let tid = event.string("targetId") ?? event.string("value") ?? ""
-            return await self.skillListAction(tid, checked: event.string("checked"))
+            return await self.skillListAction(tid, checked: event.checked)
         }
         wire(router, id: "skill-create-form", events: ["submit"]) { event in
             let name = (event.string("skill-name-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1930,7 +1931,7 @@ final class Controller {
             let tid = event.string("targetId") ?? event.string("value") ?? ""
             guard tid.hasPrefix("st-") else { return [] }
             let key = dec(String(tid.dropFirst("st-".count))) ?? ""
-            let on = event.string("checked") == "true"
+            let on = event.checked == true
             await self.app.setSidebarTab(key, visible: on)
             return await self.app.fragmentsWithIconbar()
         }
@@ -2008,14 +2009,14 @@ final class Controller {
         return await app.refreshFragments()
     }
 
-    private func skillListAction(_ tid: String, checked: String? = nil) async -> [FragmentUpdate] {
+    private func skillListAction(_ tid: String, checked: Bool? = nil) async -> [FragmentUpdate] {
         if tid.hasPrefix("sk-open-"), let name = dec(String(tid.dropFirst("sk-open-".count))) {
             await self.app.selectSkill(name)
             await self.app.recordSkillEvent(name: name, views: 1)
             return await self.app.refreshFragments()
         }
         if tid.hasPrefix("sk-toggle-"), let name = dec(String(tid.dropFirst("sk-toggle-".count))) {
-            await self.app.toggleSkill(name, enable: checked == "true")
+            await self.app.toggleSkill(name, enable: checked == true)
             return await self.app.refreshFragments()
         }
         if tid.hasPrefix("sk-del-"), let name = dec(String(tid.dropFirst("sk-del-".count))) {
@@ -2108,7 +2109,7 @@ final class Controller {
             let parts = rest.split(separator: "-", maxSplits: 1).map(String.init)
             guard parts.count == 2, let pname = dec(parts[0]) else { return [] }
             let skillName = dec(parts[1]) ?? ""
-            let on = event.string("checked") == "true"
+            let on = event.checked == true
             await self.app.toggleProfileSkill(profile: pname, skill: skillName, on: on)
             return await self.app.refreshFragments()
         }
@@ -2241,7 +2242,7 @@ final class Controller {
             let tid = event.string("targetId") ?? event.string("value") ?? ""
             guard tid.hasPrefix("ts-") else { return [] }
             let ts = dec(String(tid.dropFirst("ts-".count))) ?? ""
-            let on = event.string("checked") == "true"
+            let on = event.checked == true
             await self.app.setToolset(ts, enabled: on)
             return await self.app.refreshFragments()
         }
@@ -2254,7 +2255,7 @@ final class Controller {
             let tid = event.string("targetId") ?? event.string("value") ?? ""
             guard tid.hasPrefix("plgl-") else { return [] }
             let name = dec(String(tid.dropFirst("plgl-".count))) ?? ""
-            let on = event.string("checked") == "true"
+            let on = event.checked == true
             await self.app.setPluginEnabled(name, enabled: on)
             return await self.app.refreshFragments()
         }
@@ -2339,7 +2340,7 @@ final class Controller {
         await app.clearWorkspaceCreateFields()
         let effect = bindToChat ? "this chat now uses it" : "it is now the default"
         _ = await app.hint("Workspace '\(entry.name)' created at \(entry.path) — \(effect).")
-        return await self.app.refreshFragments(includeApp: true)
+        return await self.app.refreshFragments()
     }
 
     private func switchWorkspace(_ name: String) async -> [FragmentUpdate] {
@@ -2348,7 +2349,7 @@ final class Controller {
         await app.setWorkspace(active: name)
         await app.rebuildAndReload()
         _ = await app.hint("Default workspace is now '\(name)'. Chats without their own workspace use it.")
-        return await self.app.refreshFragments(includeApp: true)
+        return await self.app.refreshFragments()
     }
 
     private func deleteWorkspace(_ name: String) async {
@@ -2366,33 +2367,33 @@ final class Controller {
     private func wireSettings(_ router: EventRouter) {
         wire(router, id: "set-theme", events: ["change"]) { event in
             await self.app.setTheme(event.string("value") ?? "light")
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "set-size", events: ["change"]) { event in
             await self.app.setTextSize(event.string("value") ?? "md")
             _ = await self.app.hint("Text size updated.")
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "theme-pick", events: ["click"]) { event in
             guard let tid = event.string("targetId"), tid.hasPrefix("thm-") else { return [] }
             let theme = String(tid.dropFirst("thm-".count))
             await self.app.setTheme(theme)
             _ = await self.app.hint("Theme set to \(theme).")
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "font-size-pick", events: ["click"]) { event in
             guard let tid = event.string("targetId"), tid.hasPrefix("fsz-") else { return [] }
             let size = String(tid.dropFirst("fsz-".count))
             await self.app.setTextSize(size)
             _ = await self.app.hint("Text size updated.")
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "scheme-pick", events: ["click"]) { event in
             guard let tid = event.string("targetId"), tid.hasPrefix("scheme-") else { return [] }
             if let name = dec(String(tid.dropFirst("scheme-".count))) {
                 await self.app.setColorScheme(name)
             }
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "activity-display", events: ["click"]) { event in
             guard let tid = event.string("targetId"), tid.hasPrefix("actdisp-") else { return [] }
@@ -2407,23 +2408,23 @@ final class Controller {
             return await self.app.refreshFragments()
         }
         wire(router, id: "set-showtokens", events: ["change"]) { event in
-            await self.app.setShowTokenUsage(event.string("checked") == "true")
+            await self.app.setShowTokenUsage(event.checked == true)
             return await self.app.refreshFragments()
         }
         wire(router, id: "set-showoutline", events: ["change"]) { event in
-            await self.app.setShowConversationOutline(event.string("checked") == "true")
+            await self.app.setShowConversationOutline(event.checked == true)
             return await self.app.refreshFragments()
         }
         wire(router, id: "set-showtps", events: ["change"]) { event in
-            await self.app.setShowTps(event.string("checked") == "true")
+            await self.app.setShowTps(event.checked == true)
             return await self.app.refreshFragments()
         }
         wire(router, id: "set-smart-approval", events: ["change"]) { event in
-            await self.app.setSmartApproval(event.string("checked") == "true")
+            await self.app.setSmartApproval(event.checked == true)
             return await self.app.refreshFragments()
         }
         wire(router, id: "set-smart-pickapath", events: ["change"]) { event in
-            await self.app.setSmartPickAPath(event.string("checked") == "true")
+            await self.app.setSmartPickAPath(event.checked == true)
             return await self.app.refreshFragments()
         }
         wire(router, id: "set-pinlimit", events: ["change"]) { event in
@@ -2453,36 +2454,69 @@ final class Controller {
         }
         wire(router, id: "aux-form", events: ["submit"]) { event in
             guard let key = event.string("aux-task"), let task = AuxiliaryTask(configKey: key) else { return [] }
-            await self.app.setAuxOverride(
-                task: task,
-                provider: event.string("aux-provider") ?? "",
-                model: event.string("aux-model") ?? "",
-                baseURL: event.string("aux-base-url") ?? "",
-                apiKey: event.string("aux-api-key") ?? ""
-            )
+            let staged = await self.app.auxStagedConfig[key] ?? ""
+            if staged.isEmpty {
+                await self.app.clearAuxOverride(task: task)
+            } else {
+                await self.app.setAuxOverrideFromConfig(task: task, configName: staged)
+            }
+            await self.app.clearAuxStage(task: key)
             await self.app.setAuxEditing(nil)
             return await self.app.refreshFragments()
         }
+        wire(router, id: "auxmc-toggle", events: ["click"]) { _ in
+            await self.app.setAuxConfigPickerOpen(!(await self.app.auxConfigPickerOpen))
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "auxmc", events: ["click"]) { event in
+            guard let tid = event.string("targetId") else { return [] }
+            if tid.hasPrefix("auxmc-main-") {
+                let key = String(tid.dropFirst("auxmc-main-".count))
+                await self.app.stageAuxConfig(task: key, name: "")
+            } else if tid.hasPrefix("auxmc-") {
+                let rest = String(tid.dropFirst("auxmc-".count))
+                if let dash = rest.firstIndex(of: "-") {
+                    let key = String(rest[..<dash])
+                    let name = dec(String(rest[rest.index(after: dash)...])) ?? ""
+                    await self.app.stageAuxConfig(task: key, name: name)
+                }
+            }
+            await self.app.setAuxConfigPickerOpen(false)
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "mainmc-toggle", events: ["click"]) { _ in
+            await self.app.setMainModelPickerOpen(!(await self.app.mainModelPickerOpen))
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "mainmc", events: ["click"]) { event in
+            guard let tid = event.string("targetId"), tid.hasPrefix("mainmc-pick-") else { return [] }
+            if let name = dec(String(tid.dropFirst("mainmc-pick-".count))) {
+                await self.app.useModelConfig(name)
+                _ = await self.app.hint("Active configuration: \(name)")
+            }
+            await self.app.setMainModelPickerOpen(false)
+            return await self.app.refreshFragments()
+        }
         wire(router, id: "set-tessera", events: ["change"]) { event in
-            let off = event.string("checked") == "true"
+            let off = event.checked == true
             await self.app.setTesseraOff(off)
             await self.app.rebuildAndReload()
             _ = await self.app.hint(off ? "Switched to file storage." : "Switched to Tessera storage.", kind: off ? "" : "success")
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "set-moa", events: ["change"]) { event in
-            let on = event.string("checked") == "true"
+            let on = event.checked == true
             await self.app.setMoaEnabled(on)
             _ = await self.app.hint(on
                 ? "Mixture of Agents enabled — reference models must be configured in ~/.arc/config.json."
                 : "Mixture of Agents disabled.")
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
 
         wire(router, id: "storage-pick-toggle", events: ["click"]) { event in
             let next = !(await self.app.storagePickOpen)
             await self.app.setStoragePickOpen(next)
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "storage-pick", events: ["click"]) { event in
             guard let tid = event.string("targetId") else { return [] }
@@ -2496,15 +2530,15 @@ final class Controller {
             } else {
                 return []
             }
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "storage-connect", events: ["click"]) { event in
             let ok = await self.app.connectStagedStorage()
             if !ok {
                 _ = await self.app.hint("Pick a different storage medium first — Save and Connect needs a change.")
-                return await self.app.refreshFragments(includeApp: true)
+                return await self.app.refreshFragments()
             }
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "storage-conn-form", events: ["submit"]) { event in
             let editID = (event.string("storage-edit-id") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2524,47 +2558,47 @@ final class Controller {
             } else {
                 _ = await self.app.hint("Check the storage name, IP and port (1–65535).")
             }
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "storage-edit", events: ["click"]) { event in
             guard let tid = event.string("targetId"),
                   let cid = dec(String(tid.dropFirst("storage-edit-".count))) else { return [] }
             await self.app.beginStorageEdit(id: cid)
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "storage-del", events: ["click"]) { event in
             guard let tid = event.string("targetId"),
                   let cid = dec(String(tid.dropFirst("storage-del-".count))) else { return [] }
             await self.app.removeStorageConnection(id: cid)
             _ = await self.app.hint("Tessera storage removed.", kind: "success")
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "storage-cancel-edit", events: ["click"]) { event in
             await self.app.cancelStorageEdit()
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         // Agent powers (lockdown) — Settings → Agent powers.
         wire(router, id: "ap-skills-global", events: ["change"]) { event in
-            let on = event.string("checked") == "true"
+            let on = event.checked == true
             await self.app.updateAgentPowers { $0.skillsManage = on }
             _ = await self.app.hint(
                 on ? "Agent can create/edit skills." : "Skill creation/editing locked — only skill_creation / skill_edit while unlocked.",
                 kind: "success")
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "ap-profile-global", events: ["change"]) { event in
-            let on = event.string("checked") == "true"
+            let on = event.checked == true
             await self.app.updateAgentPowers { $0.profileEdit = on }
             _ = await self.app.hint(
                 on ? "Agent can edit MEMORY/USER/SOUL/AGENTS." : "Profile editing locked — only profile_edit while unlocked.",
                 kind: "success")
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "ap-skill-locks", events: ["change"]) { event in
             let tid = event.string("targetId") ?? event.string("value") ?? ""
             guard tid.hasPrefix("ap-skill-lock-") else { return [] }
             let name = String(tid.dropFirst("ap-skill-lock-".count))
-            let locked = event.string("checked") == "true"
+            let locked = event.checked == true
             await self.app.updateAgentPowers { cfg in
                 if locked {
                     if !cfg.lockedSkills.contains(name) { cfg.lockedSkills.append(name) }
@@ -2572,14 +2606,14 @@ final class Controller {
                     cfg.lockedSkills.removeAll { $0 == name }
                 }
             }
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "ap-profilefile-locks", events: ["change"]) { event in
             let tid = event.string("targetId") ?? event.string("value") ?? ""
             guard tid.hasPrefix("ap-profilefile-lock-") else { return [] }
             let key = String(tid.dropFirst("ap-profilefile-lock-".count))
             guard ["memory", "user", "soul", "agents"].contains(key) else { return [] }
-            let locked = event.string("checked") == "true"
+            let locked = event.checked == true
             await self.app.updateAgentPowers { cfg in
                 if locked {
                     if !cfg.lockedProfileFiles.contains(key) { cfg.lockedProfileFiles.append(key) }
@@ -2587,7 +2621,7 @@ final class Controller {
                     cfg.lockedProfileFiles.removeAll { $0 == key }
                 }
             }
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
 
 
@@ -2595,29 +2629,29 @@ final class Controller {
             guard let v = Int(event.string("value") ?? ""), v > 0 else { return [] }
             await self.app.setToolIterationLimit(v)
             _ = await self.app.hint("Tool iteration limit set to \(v) (agent.max_turns).", kind: "success")
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "al-max-turns-unlimited", events: ["change"]) { event in
-            let on = event.string("checked") == "true"
+            let on = event.checked == true
             await self.app.setToolIterationLimit(on ? -1 : 90)
             _ = await self.app.hint(
                 on ? "Tool iteration limit disabled — turns run until the prompt finishes." : "Tool iteration limit restored to 90.",
                 kind: "success")
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "al-tool-cap", events: ["change"]) { event in
             guard let v = Int(event.string("value") ?? ""), v > 0 else { return [] }
             await self.app.setToolLoopCap(v)
             _ = await self.app.hint("Per-tool call cap set to \(v) (guardrails.toolLoopCap).", kind: "success")
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "al-tool-cap-unlimited", events: ["change"]) { event in
-            let on = event.string("checked") == "true"
+            let on = event.checked == true
             await self.app.setToolLoopCap(on ? -1 : 25)
             _ = await self.app.hint(
                 on ? "Per-tool call cap disabled." : "Per-tool call cap restored to 25.",
                 kind: "success")
-            return await self.app.refreshFragments(includeApp: true)
+            return await self.app.refreshFragments()
         }
         wire(router, id: "modelcfg-add-form", events: ["submit"]) { event in
             let name = (event.string("mc-name") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2824,15 +2858,10 @@ final class Controller {
     }
 
     private func modelConfigAction(_ tid: String) async -> [FragmentUpdate] {
-        if tid.hasPrefix("mc-use-") {
-            if let name = dec(String(tid.dropFirst("mc-use-".count))) {
-                await self.app.useModelConfig(name)
-                _ = await app.hint("Active configuration: \(name)")
-            }
-        } else if tid.hasPrefix("mc-del-") {
+        if tid.hasPrefix("mc-del-") {
             if let name = dec(String(tid.dropFirst("mc-del-".count))) {
                 await self.app.removeModelConfig(name)
-                _ = await app.hint("Removed configuration '\(name)'.")
+                _ = await self.app.hint("Removed configuration '\(name)'.")
             }
         }
         return await self.app.refreshFragments()

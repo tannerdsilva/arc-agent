@@ -1786,6 +1786,49 @@ extension AppState {
         """
     }
 
+    /// The model configuration whose values match an auxiliary override
+    /// (name for the row summary), or nil when the override is custom/empty.
+    func auxOverrideConfigName(_ ov: AuxiliaryOverride?) -> String? {
+        guard let ov, ov.isSet else { return nil }
+        return settings.modelConfigs.first { c in
+            !c.model.isEmpty
+                && c.model == ov.model
+                && (ov.provider.isEmpty || c.provider == ov.provider)
+                && (ov.baseURL.isEmpty || c.baseURL == ov.baseURL)
+        }?.name
+    }
+
+    /// Preferences → Main model: styled dropdown over the model configs. The
+    /// trigger shows the active configuration; choosing a row switches it
+    /// (same state the old per-row "Use" buttons set).
+    func mainModelDropdown() -> String {
+        let active = settings.modelConfigs.first(where: { $0.name == settings.activeConfig })
+        let label = active.map { "\($0.name) · \($0.model)" } ?? "No configuration selected"
+        let trigger = ddTrigger(id: "mainmc-toggle", icon: WebUIIcon(.zap, size: .medium).render(), label: label, title: "Main model")
+        let vis = mainModelPickerOpen ? "" : " hidden"
+        var rows: [String] = []
+        for c in settings.modelConfigs {
+            let sel = c.name == settings.activeConfig
+            let selBadge = sel ? "<span class=\"dd-badge sel\">SELECTED</span>" : ""
+            rows.append(ddRow(id: "mainmc-pick-\(enc(c.name))", body: """
+            <span class="dd-model-main">
+              <span class="dd-row-title">\(esc(c.name))\(selBadge)</span>
+              <span class="dd-row-sub">\(esc(c.model))\(c.provider.isEmpty ? "" : " @ " + esc(c.provider))</span>
+            </span>
+            """))
+        }
+        let empty = rows.isEmpty
+            ? "<div class=\"dd-empty\">No model configurations yet — add one above.</div>" : ""
+        return """
+        <div class="dd">
+          \(trigger)
+          <div class="dd-pop dd-pop-ws\(vis)" data-component-id="mainmc" data-event="click">
+            <div class="dd-list">\(rows.joined())\(empty)</div>
+          </div>
+        </div>
+        """
+    }
+
     /// Workspace dropdown: search + list + (Choose path | Manage spaces).
     func wsDropdown(trigger: String) -> String {
         let vis = wsSelectOpen ? "" : " hidden"
@@ -2127,6 +2170,9 @@ extension AppState {
               <div class="detail-sub">Overrides configured on the profile: \(esc(toolsetsNote))</div>
               <h3 style="margin:16px 0 6px">Context parameters</h3>
               \(profileContextHTML(p))
+              <h3 style="margin:16px 0 6px">Agent powers</h3>
+              <div class="detail-sub">Lockdowns for this profile's skills and profile files (MEMORY / USER / SOUL).</div>
+              \(agentPowersSection())
             </div>
           </div>
         </div>
@@ -2492,7 +2538,6 @@ extension AppState {
             ("memory", "MEMORY.md", "the agent's persistent notes (memory tool, profile_edit)"),
             ("user", "USER.md", "the user profile"),
             ("soul", "SOUL.md", "the profile persona/prompt"),
-            ("agents", "AGENTS.md", "workspace project instructions"),
         ]
         var profileRows = ""
         for (key, label, detail) in profileFiles {
@@ -2501,8 +2546,7 @@ extension AppState {
         }
         profileRows = "<div id=\"ap-profilefile-locks\" data-component-id=\"ap-profilefile-locks\" data-event=\"change\">" + profileRows + "</div>"
         return """
-        <section class="set-section" id="agent-powers">
-          <h2>Agent powers</h2>
+        <div id="agent-powers">
           <div class="detail-card">
             <h3 style="margin:0 0 6px">Skills</h3>
             <div class="set-row">
@@ -2513,15 +2557,15 @@ extension AppState {
             \(skillRows)
           </div>
           <div class="detail-card" style="margin-top:12px">
-            <h3 style="margin:0 0 6px">Profile (MEMORY / USER / SOUL / AGENTS)</h3>
+            <h3 style="margin:0 0 6px">Profile (MEMORY / USER / SOUL)</h3>
             <div class="set-row">
-              <div class="set-label">Agent can edit the profile<small>When off, profile_edit and the memory tool refuse writes to MEMORY/USER/SOUL/AGENTS, and write_file/terminal refuse those files.</small></div>
+              <div class="set-label">Agent can edit the profile<small>When off, profile_edit and the memory tool refuse writes to MEMORY/USER/SOUL, and write_file/terminal refuse those files.</small></div>
               \(sw("ap-profile-global", powers.profileEdit))
             </div>
-            <div class="detail-sub" style="margin:10px 0 4px">Locked profile files<small>These cannot be edited by the agent while locked.</small></div>
+            <div class="detail-sub" style="margin:10px 0 4px">Locked profile files<small>These cannot be edited by the agent while locked. AGENTS.md is workspace-scoped and stays outside the profile.</small></div>
             \(profileRows)
           </div>
-        </section>
+        </div>
         """
     }
 
@@ -2747,7 +2791,6 @@ extension AppState {
               <span class="mc-name">\(esc(c.name)) \(badge)</span>
               <span class="mc-model">\(esc(c.model))</span>
               <div class="row-actions-main" style="margin:0">
-                \(btn("mc-use-\(encName)", "", "ghost-btn", "Use", " style=\"padding:4px 10px;font-size:0.8em\""))
                 \(btn("mc-del-\(encName)", "", "danger-btn", "Remove", " style=\"padding:4px 10px;font-size:0.8em\""))
               </div>
             </div>
@@ -2765,18 +2808,56 @@ extension AppState {
             let ov = arcConfig.auxiliary.override(for: task)
             let has = ov?.isSet == true
             if auxEditingTask == task.key {
-                let pv = ov?.provider ?? ""
-                let mv = ov?.model ?? ""
-                let bv = ov?.baseURL ?? ""
-                let kv = ov?.apiKey ?? ""
+                let stagedName = auxStagedConfig[task.key] ?? auxOverrideConfigName(ov) ?? ""
+                let stagedKnown = settings.modelConfigs.contains { $0.name == stagedName }
+                let triggerLabel: String
+                if stagedName.isEmpty || !stagedKnown {
+                    triggerLabel = "Main model (auto)"
+                } else {
+                    triggerLabel = stagedName
+                }
+                let pickVis = auxConfigPickerOpen ? "" : " hidden"
+                var pkRows: [String] = []
+                let mainCheck = (stagedName.isEmpty || !stagedKnown) ? "<span class=\"dd-badge sel\">SELECTED</span>" : ""
+                pkRows.append(ddRow(id: "auxmc-main-\(task.key)", body: """
+                <span class="dd-model-main">
+                  <span class="dd-row-title">Main model (auto)\(mainCheck)</span>
+                  <span class="dd-row-sub">Use the chat's main model</span>
+                </span>
+                """))
+                for c in settings.modelConfigs {
+                    let sel = c.name == stagedName
+                    let selBadge = sel ? "<span class=\"dd-badge sel\">SELECTED</span>" : ""
+                    pkRows.append(ddRow(id: "auxmc-\(task.key)-\(enc(c.name))", body: """
+                    <span class="dd-model-main">
+                      <span class="dd-row-title">\(esc(c.name))\(selBadge)</span>
+                      <span class="dd-row-sub">\(esc(c.model))\(c.provider.isEmpty ? "" : " @ " + esc(c.provider))</span>
+                    </span>
+                    """))
+                }
+                let customNote: String
+                if let ov, has, auxOverrideConfigName(ov) == nil {
+                    let raw = ov.model.isEmpty ? (ov.provider.isEmpty ? "custom override" : "provider: \(ov.provider)") : ov.model + (ov.provider.isEmpty ? "" : " @ " + ov.provider)
+                    customNote = "<div class=\"aux-custom-note\">Currently: <code>\(esc(raw))</code> — pick a configuration below (or Main model) and Save to replace it; Cancel keeps it.</div>"
+                } else {
+                    customNote = ""
+                }
                 return """
                 <div class="aux-editing">
                   <form id="aux-form-\(task.key)" data-component-id="aux-form">
                     <div class="aux-fields">
-                      <label class="aux-field">Provider<input type="hidden" name="aux-task" value="\(task.key)"><input name="aux-provider" id="aux-provider-\(task.key)" value="\(esc(pv))" placeholder="auto"></label>
-                      <label class="aux-field">Model<input name="aux-model" id="aux-model-\(task.key)" value="\(esc(mv))" placeholder="(main model)"></label>
-                      <label class="aux-field">Base URL<input name="aux-base-url" id="aux-base-url-\(task.key)" value="\(esc(bv))" placeholder="(main base URL)"></label>
-                      <label class="aux-field">API key<input name="aux-api-key" id="aux-api-key-\(task.key)" type="password" value="\(esc(kv))" placeholder="(main API key)"></label>
+                      <input type="hidden" name="aux-task" value="\(task.key)">
+                      <label class="aux-field">Model configuration
+                        <div class="dd">
+                          <button type="button" id="auxmc-toggle-\(task.key)" data-component-id="auxmc-toggle" class="dd-trigger" title="Auxiliary model configuration">
+                            <span class="dd-trigger-label">\(esc(triggerLabel))</span>\(WebUIIcon(.chevronDown, size: .small).render())
+                          </button>
+                          <div class="dd-pop dd-pop-ws\(pickVis)" data-component-id="auxmc" data-event="click">
+                            <div class="dd-list">\(pkRows.joined())</div>
+                          </div>
+                        </div>
+                      </label>
+                      \(customNote)
                     </div>
                     <div class="aux-actions" data-component-id="aux-edit" data-event="click">
                       <button type="submit" class="primary-btn">Save</button>
@@ -2788,7 +2869,9 @@ extension AppState {
             }
             let summary: String
             if let ov, has {
-                if !ov.model.isEmpty {
+                if let cfgName = auxOverrideConfigName(ov) {
+                    summary = cfgName
+                } else if !ov.model.isEmpty {
                     summary = ov.model + (ov.provider.isEmpty ? "" : " @ " + ov.provider)
                 } else if !ov.provider.isEmpty {
                     summary = "provider: " + ov.provider
@@ -2902,6 +2985,14 @@ extension AppState {
               </div>
 
               <div class="detail-card" style="margin-top:12px">
+                <h3 style="margin:0 0 6px">Main model</h3>
+                <div class="detail-sub" style="margin-bottom:10px">The model used for new chats by default. Picked from the Model configurations above.</div>
+                <div class="set-row" style="flex-direction:column;align-items:stretch;gap:8px">
+                  \(mainModelDropdown())
+                </div>
+              </div>
+
+              <div class="detail-card" style="margin-top:12px">
                 <h3 style="margin:0 0 6px">Auxiliary models</h3>
                 <div class="detail-sub" style="margin-bottom:10px">Auxiliary tasks (vision, compression, approval, titles, …) use a dedicated model from the <code>auxiliary</code> block of ~/.arc/config.json. Empty overrides fall back to the chat's main model.</div>
                 \(auxRows)
@@ -2929,8 +3020,6 @@ extension AppState {
             </section>
 
             \(agentLimitsSection())
-
-            \(agentPowersSection())
 
             \(storageSettingsHTML())
 

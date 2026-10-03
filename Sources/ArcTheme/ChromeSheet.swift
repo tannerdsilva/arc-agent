@@ -918,6 +918,9 @@ public static let css: String = """
     .aux-editing { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin: 6px 0; background: var(--surface-2); }
     .aux-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 10px; }
     .aux-field { display: flex; flex-direction: column; gap: 3px; font-size: 0.78em; color: var(--muted); }
+    .aux-field .dd-trigger { width: 100%; }
+    .aux-custom-note { font-size: 0.78em; color: var(--muted); margin-top: 2px; }
+    .aux-custom-note code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
     .aux-field input {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--radius-sm); color: var(--text);
@@ -1900,11 +1903,6 @@ public static let css: String = """
     @keyframes queuePulse {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.25; }
-    }
-    .queue-hidden-btn {
-      position: absolute; width: 0; height: 0;
-      border: 0; padding: 0; margin: 0;
-      opacity: 0; pointer-events: none; overflow: hidden;
     }
 
     /* ── Link popup (feed earlier output) ── */

@@ -481,6 +481,68 @@
     if (src) src.classList.remove('drag-src');
   });
 
+  // ---- Run queue (Todos → Run queue): HTML5 drag to reorder. The rows are
+  // draggable; dropping moves the DOM node and pushes the new order through
+  // the hidden #queue-order input (the queue wire reorders + persists it).
+  document.addEventListener('dragstart', function (e) {
+    var row = e.target && e.target.closest ? e.target.closest('.queue-row') : null;
+    if (!row) return;
+    e.dataTransfer.setData('text/plain', 'queue-row');
+    e.dataTransfer.effectAllowed = 'move';
+    row.classList.add('dragging');
+  });
+  document.addEventListener('dragover', function (e) {
+    var list = e.target && e.target.closest ? e.target.closest('.queue-list') : null;
+    if (!list) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    var row = e.target.closest ? e.target.closest('.queue-row') : null;
+    clearQueueDragMarkers(list);
+    if (!row) return;
+    var src = list.querySelector('.queue-row.dragging');
+    if (!src || src === row) return;
+    var after = (row.compareDocumentPosition(src) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    row.classList.add(after ? 'drop-before' : 'drop-after');
+  });
+  document.addEventListener('drop', function (e) {
+    var list = e.target && e.target.closest ? e.target.closest('.queue-list') : null;
+    if (!list) return;
+    var target = e.target.closest ? e.target.closest('.queue-row') : null;
+    e.preventDefault();
+    var src = list.querySelector('.queue-row.dragging');
+    var before = !!(target && target.classList.contains('drop-before'));
+    if (src && src !== target) {
+      try {
+        if (!target) { list.appendChild(src); }
+        else if (before) { target.before(src); }
+        else { target.after(src); }
+      } catch (err) { }
+    }
+    var markers = list.querySelectorAll('.queue-row.dragging, .queue-row.drop-before, .queue-row.drop-after');
+    for (var i = 0; i < markers.length; i++) markers[i].classList.remove('dragging', 'drop-before', 'drop-after');
+    var order = [];
+    list.querySelectorAll('.queue-row').forEach(function (row) {
+      if (row.getAttribute('data-qid')) order.push(row.getAttribute('data-qid'));
+    });
+    var hidden = document.getElementById('queue-order');
+    if (hidden && order.length) {
+      hidden.value = order.join(',');
+      hidden.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  });
+  function clearQueueDragMarkers(list) {
+    var m = list.querySelectorAll('.queue-row.drop-before, .queue-row.drop-after');
+    for (var i = 0; i < m.length; i++) m[i].classList.remove('drop-before', 'drop-after');
+  }
+  document.addEventListener('dragend', function (e) {
+    var row = e.target && e.target.closest ? e.target.closest('.queue-row') : null;
+    if (row) {
+      row.classList.remove('dragging', 'drop-before', 'drop-after');
+      var list = row.closest('.queue-list');
+      if (list) clearQueueDragMarkers(list);
+    }
+  });
+
   // ---- Relative session times: refresh every 60s (arc parity).
   function relLabel(ms) {
     if (!ms) return '';

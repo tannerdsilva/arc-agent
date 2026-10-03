@@ -846,6 +846,13 @@ actor AppState {
     var guardrails = ToolGuardrails()
     /// Which auxiliary task is currently being edited in Preferences.
     var auxEditingTask: String? = nil
+    /// Main-model dropdown (Preferences → Main model): open state.
+    var mainModelPickerOpen = false
+    /// Auxiliary-edit dropdown: open state for the current editing form.
+    var auxConfigPickerOpen = false
+    /// Auxiliary-edit staged selection: task key → config name, or "" for
+    /// "Main model" (clear the override). Applied on Save.
+    var auxStagedConfig: [String: String] = [:]
     /// Durable insights analytics (skill usage, daily token burn).
     var insights: InsightsData = InsightsData()
     /// Daily-token graph range selected in the Insights panel (7/30/90/365).

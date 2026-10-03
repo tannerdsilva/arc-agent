@@ -1258,7 +1258,32 @@ extension AppState {
     /// Settings → Auxiliary models: open one task's picker at a time (tapping
     /// the open trigger closes it again).
     func setAuxEditing(_ key: String?) {
+        if auxEditingTask != key {
+            // Drop any staged selection carried over from the previous form.
+            if let prev = auxEditingTask { auxStagedConfig.removeValue(forKey: prev) }
+            if let next = key { auxStagedConfig.removeValue(forKey: next) }
+        }
         auxEditingTask = key
+        auxConfigPickerOpen = false
+    }
+
+    /// Preferences → Main model: open/close the dropdown.
+    func setMainModelPickerOpen(_ open: Bool) {
+        mainModelPickerOpen = open
+    }
+
+    /// Auxiliary-edit form: open/close the configuration dropdown.
+    func setAuxConfigPickerOpen(_ open: Bool) {
+        auxConfigPickerOpen = open
+    }
+
+    /// Stage the aux form selection ("" = Main model).
+    func stageAuxConfig(task: String, name: String) {
+        auxStagedConfig[task] = name
+    }
+
+    func clearAuxStage(task: String) {
+        auxStagedConfig.removeValue(forKey: task)
     }
 
     func addModelConfig(_ preset: ModelConfigPreset) {
