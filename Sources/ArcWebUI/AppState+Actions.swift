@@ -9,24 +9,7 @@ extension AppState {
     // MARK: Navigation + mode flags
 
     func switchView(_ v: ViewID) async {
-        activeView = v
-        createSkill = false
-        skillEdit = false
-        createProfile = false
-        closeWorkspaceCreate()
-        pendingDelete = false
-        filePopOpen = false
-        confirmDeleteID = nil
-        if v == .tasks {
-            // the panel renders from the store-backed cache; refresh on open.
-            await refreshScheduledJobs()
-        }
-        // Materialize the selected scheduled task's chat when opening Tasks so
-        // the thread renders (messages are lazily loaded from the store).
-        if v == .tasks, let sel = tasksSelectedID,
-           let job = settings.scheduledJobs.first(where: { $0.id == sel }) {
-            await ensureSessionMessages(jobSessionID(job))
-        }
+        await switchTab(v.rawValue)
     }
 
     func setLogFilter(_ f: String) {
@@ -34,7 +17,7 @@ extension AppState {
     }
 
     func isLogsView() -> Bool {
-        activeView == .logs
+        activeTabID == "logs"
     }
 
     /// Chat-region fragments (panel + main + toasts).
@@ -55,7 +38,7 @@ extension AppState {
 
     /// Panel-only fragment (used by filter search + skill panels).
     func skillPanelFragment() async -> [FragmentUpdate] {
-        [FragmentUpdate(id: "panel", html: panelHTML())]
+        [FragmentUpdate(id: "panel", html: await panelHTML())]
     }
 
     func setCreateSkill(_ on: Bool) {
@@ -75,7 +58,7 @@ extension AppState {
     /// any open create form, so setting the flag before switching views (as
     /// `ws-choose-path` once did) left nothing open.
     func openWorkspaceCreate(forChat: Bool) async {
-        if activeView != .workspaces {
+        if activeTabID != "workspaces" {
             await switchView(.workspaces)
         }
         createWorkspace = true
@@ -784,7 +767,8 @@ extension AppState {
     // MARK: Sidebar tabs
 
     func setSidebarTab(_ key: String, visible: Bool) {
-        guard let v = ViewID(rawValue: key), v != .chat, v != .settings else { return }
+        guard key != "chat", key != "settings",
+              (ViewID(rawValue: key) != nil || pluginTabs[key] != nil) else { return }
         if visible {
             settings.hiddenSidebarTabs.removeAll { $0 == key }
             // Re-insert at its canonical slot if it ever left the list, so the
@@ -797,7 +781,7 @@ extension AppState {
                 settings.hiddenSidebarTabs.append(key)
             }
             // Never strand the user on a view they just hid.
-            if activeView == v { activeView = .chat }
+            if activeTabID == key { activeTabID = "chat" }
         }
         saveSettings()
     }

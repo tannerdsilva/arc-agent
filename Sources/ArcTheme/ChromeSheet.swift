@@ -213,6 +213,11 @@ public static let css: String = """
       background: var(--accent-soft);
       color: var(--accent-strong);
     }
+    /* Plugin tabs may use an emoji rail icon; size it like the svg glyphs. */
+    .rail-emoji {
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 20px; line-height: 1; font-style: normal;
+    }
     /* Hover tooltip pill to the right of each iconbar button */
     .icon-btn { position: relative; }
     .icon-btn[data-tip]::after {

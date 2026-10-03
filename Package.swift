@@ -60,10 +60,12 @@ let package = Package(
             from: "1.6.0"
         ),
 	.package(
-		url: "https://github.com/tannerdsilva/no-webui.git",
-		revision: "61b8bddc5907094e0c087f288f105933f5bd9089"
-	)
-    ],
+	    url: "https://github.com/tannerdsilva/no-webui.git",
+	    revision: "61b8bddc5907094e0c087f288f105933f5bd9089"
+	),
+	.package(path: "Plugins/ArcSidebarTabs"),
+	.package(path: "Plugins/GitHubSidebarTab"),
+	],
 
     targets: [
         // ── Theme (shared with the asset tool) ────────────────────
@@ -136,6 +138,10 @@ let package = Package(
                 .target(name: "ArcAgentCore"),
                 // the UI host mounts here (phase 2); core stays UI-free.
                 .target(name: "ArcWebUI"),
+                .product(name: "ArcSidebarTabs", package: "ArcSidebarTabs"),
+                // the reference third-party sidebar-tab plugin, registered by
+                // the daemon at startup (see `docs/sidebar-tab-plugins.md`).
+                .product(name: "GitHubSidebarTab", package: "GitHubSidebarTab"),
                 .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
                 .product(name: "Logging", package: "swift-log"),
             ],
@@ -150,6 +156,7 @@ let package = Package(
             dependencies: [
                 .target(name: "ArcTheme"),
                 .target(name: "ArcAgentCore"),
+                .product(name: "ArcSidebarTabs", package: "ArcSidebarTabs"),
                 .product(name: "WebUI", package: "no-webui"),
                 .product(name: "WebUIServer", package: "no-webui"),
                 .product(name: "WebUIDesignSystem", package: "no-webui"),
@@ -245,6 +252,9 @@ let package = Package(
                 .target(name: "ArcTheme"),
                 // the cron-store migration test constructs a FileCronStore.
                 .target(name: "ArcAgentCore"),
+                // sidebar-tab protocol + plugin packages under test.
+                .product(name: "ArcSidebarTabs", package: "ArcSidebarTabs"),
+                .product(name: "GitHubSidebarTab", package: "GitHubSidebarTab"),
                 // the minifier the emitted sheet goes through: the drift test compares the
                 // product against `minifyCSS(source)`.
                 .product(name: "WebUICore", package: "no-webui"),

@@ -1,6 +1,7 @@
 import ArcAgentCore
 import ArcWebUI
 import Foundation
+import GitHubSidebarTab
 import Logging
 import ServiceLifecycle
 
@@ -89,7 +90,8 @@ public enum ArcDaemon {
                 host: webui.host,
                 port: webui.port,
                 tesseraOff: plan.tesseraOff,
-                storage: storage
+                storage: storage,
+                thirdPartyPlugins: [GitHubSidebarTabPlugin()]
             )
         }
 

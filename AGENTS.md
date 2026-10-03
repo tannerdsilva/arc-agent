@@ -54,7 +54,8 @@ When asked to produce code, assume it is:
 | **Gateway** — GatewayService, HTTPServerService, SessionRegistry, SessionAgent, TelegramAdapter, DeliveryManager, SessionRouter, PlatformAdapter, ProfileRouting | `Gateway/` | Built |
 | **MCP** — MCPServerAdapter, DynamicMCPTool | `Gateway/MCP/` | Built |
 | **Tessera** — TesseraConnection (shared tunnel), TesseraSessionStore, TesseraMemoryProvider | `Storage/` | Built |
-| **Web UI** — AppState, Actions, Views, Theme (chrome), ThemeCatalog (27 schemes), Queue, NewFeatures, Insights, Entry; hosted on no-webui's `WebUIServer` | `Sources/ArcAgentWebUI/` + `Sources/ArcTheme/` | Built |
+| **Web UI** — AppState, Actions, Views, Theme (chrome), ThemeCatalog (27 schemes), Queue, NewFeatures, Insights, Entry; hosted on no-webui's `WebUIServer` | `Sources/ArcWebUI/` + `Sources/ArcTheme/` | Built |
+| **Sidebar Tab Plugins** — `SidebarTab` protocol kit (`Plugins/ArcSidebarTabs`, dependency-free), reference GitHub plugin (`Plugins/GitHubSidebarTab`, shipped as a third-party package), host bridge + built-in adapters (`SidebarTabBridge.swift`, `BuiltInSidebarTabs.swift`), Settings → Sidebar plugins | `Plugins/` + `Sources/ArcWebUI/` | Built |
 | **Shared renderers** — arc-parity markdownToHTML + MarkdownRenderer, WebSocket server/handler | `ArcAgentCore/WebUI/` (3 files) | Built |
 | **Compression** — MicroCompactor (per-turn transcript absorption) | `Compression/` | Built |
 | **Bot Mode** — Profile struct, ProfileManager, BotMessagingService, GroupChatRoom | `Profile/` | Built |

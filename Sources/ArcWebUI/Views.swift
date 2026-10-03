@@ -60,10 +60,10 @@ extension AppState {
 
     /// The complete application shell (topbar + iconbar + panel + main). Toasts
     /// are rendered separately so each region is a single-rooted fragment.
-    func appShell() -> String {
+    func appShell() async -> String {
         let iconbar = iconbarHTML()
-        let panel = panelHTML()
-        let main = mainContentHTML()
+        let panel = await panelHTML()
+        let main = await mainContentHTML()
 
         return """
         <div id="app" data-size="\(esc(settings.textSize))">
@@ -99,7 +99,7 @@ extension AppState {
     /// The chat name the top bar shows: the active conversation's title when
     /// one is open, otherwise a short app label.
     func topbarLabel() -> String {
-        if activeView == .chat, let s = activeSession() {
+        if activeTabID == "chat", let s = activeSession() {
             let t = sessionTitle(s)
             return t.isEmpty ? "ARC Agent" : t
         }
@@ -111,23 +111,21 @@ extension AppState {
     }
 
     func iconbarHTML() -> String {
-        // Chat is always first; the rest follow settings.sidebarTabs order.
-        // Hidden tabs are simply absent; Chat and Settings can never be hidden.
-        var topIDs: [ViewID] = [.chat]
-        for key in settings.sidebarTabs {
-            if let v = ViewID(rawValue: key), v != .chat, v != .settings, !topIDs.contains(v),
-               !settings.hiddenSidebarTabs.contains(key) {
-                topIDs.append(v)
-            }
-        }
-        let top = topIDs
-            .map { v -> String in
-                let cls = v == activeView ? "icon-btn active" : "icon-btn"
-                return btn("nav-\(v.rawValue)", "nav-\(v.rawValue)", cls, v.icon, " title=\"\(v.title)\" data-tip=\"\(v.tip)\"")
+        // Registry-driven: Chat is always first, Settings is pinned in the
+        // bottom slot, the rest follow the user's settings order minus the
+        // tabs they hid. Built-ins and plugin tabs render alike.
+        let top = railTabIDs()
+            .filter { $0 != "settings" }
+            .map { id -> String in
+                guard let tab = sidebarTab(id) else { return "" }
+                let cls = id == activeTabID ? "icon-btn active" : "icon-btn"
+                let iconHTML = SidebarTabIconRenderer.render(tab.icon)
+                return btn("nav-\(id)", "nav-\(id)", cls, iconHTML,
+                           " title=\"\(esc(tab.title))\" data-tip=\"\(esc(tab.tooltip))\"")
             }
             .joined()
         let settingsBtn = btn("nav-settings", "nav-settings",
-                              activeView == .settings ? "icon-btn active" : "icon-btn",
+                              activeTabID == "settings" ? "icon-btn active" : "icon-btn",
                               ViewID.settings.icon, " title=\"Settings\" data-tip=\"Settings\"")
         return """
         <div class="iconbar-top" style="display:flex;flex-direction:column;gap:6px;align-items:center;">\(top)</div>
@@ -230,35 +228,43 @@ extension AppState {
 
     // MARK: - Panel
 
-    func panelHTML() -> String {
+    func panelHTML() async -> String {
         let id = "panel"
-        switch activeView {
+        if let tab = sidebarTab(activeTabID) {
+            let inner = await tab.panelHTML()
+            return "<div id=\"\(id)\">\(inner)</div>"
+        }
+        return "<div id=\"\(id)\">\(chatPanel())</div>"
+    }
+
+    /// Panel content for a built-in view id (dispatched through the tab
+    /// protocol adapter).
+    func renderPanel(for kind: ViewID) -> String {
+        switch kind {
         case .chat:
-            return "<div id=\"\(id)\">\(chatPanel())</div>"
+            return chatPanel()
         case .skills:
-            return "<div id=\"\(id)\">\(skillsPanel())</div>"
+            return skillsPanel()
         case .profiles:
-            return "<div id=\"\(id)\">\(profilesPanel())</div>"
+            return profilesPanel()
         case .tools:
-            return "<div id=\"\(id)\">\(toolsPanel())</div>"
+            return toolsPanel()
         case .workspaces:
-            return "<div id=\"\(id)\">\(workspacesPanel())</div>"
-        case .github:
-            return "<div id=\"\(id)\">\(githubPanel())</div>"
+            return workspacesPanel()
         case .kanban:
-            return "<div id=\"\(id)\">\(kanbanPanel())</div>"
+            return kanbanPanel()
         case .memory:
-            return "<div id=\"\(id)\">\(memoryPanel())</div>"
+            return memoryPanel()
         case .insights:
-            return "<div id=\"\(id)\">\(insightsPanel())</div>"
+            return insightsPanel()
         case .settings:
-            return "<div id=\"\(id)\">\(settingsPanel())</div>"
+            return settingsPanel()
         case .logs:
-            return "<div id=\"\(id)\">\(logsPanel())</div>"
+            return logsPanel()
         case .tasks:
-            return "<div id=\"\(id)\">\(tasksPanel())</div>"
+            return tasksPanel()
         case .todos:
-            return "<div id=\"\(id)\">\(chatPanel(todos: true))</div>"
+            return chatPanel(todos: true)
         }
     }
 
@@ -733,6 +739,7 @@ extension AppState {
           <div class="list-row"><a href="#preferences" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">Preferences</span></a></div>
           <div class="list-row"><a href="#storage" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">Storage</span></a></div>
           <div class="list-row"><a href="#tool-plugins" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">Tool plugins</span></a></div>
+          <div class="list-row"><a href="#sidebar-plugins" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">Sidebar plugins</span></a></div>
           <div class="list-row"><a href="#about" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">About</span></a></div>
         </div>
         """
@@ -741,35 +748,44 @@ extension AppState {
 
     // MARK: - Main
 
-    func mainContentHTML() -> String {
+    func mainContentHTML() async -> String {
         let id = "main"
-        switch activeView {
+        if let tab = sidebarTab(activeTabID) {
+            let inner = await tab.mainHTML()
+            let cls = activeTabID == "chat" ? " class=\"chat-main\"" : ""
+            return "<div id=\"\(id)\"\(cls)>\(inner)</div>"
+        }
+        return "<div id=\"\(id)\">\(chatMain())</div>"
+    }
+
+    /// Main content for a built-in view id (dispatched through the tab
+    /// protocol adapter).
+    func renderMain(for kind: ViewID) -> String {
+        switch kind {
         case .chat:
-            return "<div id=\"\(id)\" class=\"chat-main\">\(chatMain())</div>"
+            return chatMain()
         case .skills:
-            return "<div id=\"\(id)\">\(skillsMain())</div>"
+            return skillsMain()
         case .profiles:
-            return "<div id=\"\(id)\">\(profilesMain())</div>"
+            return profilesMain()
         case .tools:
-            return "<div id=\"\(id)\">\(toolsMain())</div>"
+            return toolsMain()
         case .workspaces:
-            return "<div id=\"\(id)\">\(workspacesMain())</div>"
-        case .github:
-            return "<div id=\"\(id)\">\(githubMain())</div>"
+            return workspacesMain()
         case .kanban:
-            return "<div id=\"\(id)\">\(kanbanMain())</div>"
+            return kanbanMain()
         case .memory:
-            return "<div id=\"\(id)\">\(memoryMain())</div>"
+            return memoryMain()
         case .insights:
-            return "<div id=\"\(id)\">\(insightsMain())</div>"
+            return insightsMain()
         case .settings:
-            return "<div id=\"\(id)\">\(settingsMain())</div>"
+            return settingsMain()
         case .logs:
-            return "<div id=\"\(id)\">\(logsMain())</div>"
+            return logsMain()
         case .tasks:
-            return "<div id=\"\(id)\">\(tasksMain())</div>"
+            return tasksMain()
         case .todos:
-            return "<div id=\"\(id)\">\(todosPanelHTML())</div>"
+            return todosPanelHTML()
         }
     }
 
@@ -2210,6 +2226,46 @@ extension AppState {
         """
     }
 
+    /// Settings → Sidebar plugins: one card per registered plugin bundle,
+    /// listing its tabs with a show/hide switch. Mirrors the tool-plugin
+    /// cards (name/version/description + enable toggle).
+    func sidebarPluginsSettingsHTML() -> String {
+        guard !sidebarPlugins.isEmpty else {
+            return """
+            <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
+              <div class="set-label">No third-party sidebar tabs registered.</div>
+              <div class="set-hint">Add a sidebar-tab package to the arc-agent build and pass its tabs to the application at startup — see <code>docs/sidebar-tab-plugins.md</code>.</div>
+            </div>
+            """
+        }
+        let cards = sidebarPlugins.map { plugin -> String in
+            let tabs = plugin.tabs()
+            let tabRows = tabs.map { tab -> String in
+                let on = !settings.hiddenSidebarTabs.contains(tab.id)
+                return """
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                  <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                    \(SidebarTabIconRenderer.render(tab.icon, size: .medium))
+                    <span class="set-label">\(esc(tab.title)) <small>\(esc(tab.id))</small></span>
+                  </div>
+                  <label class="switch">
+                    <input type="checkbox" id="sbpl-\(enc(tab.id))" value="sbpl-\(enc(tab.id))" data-component-id="sidebar-plugin-toggle" data-event="change" data-no-restore \(on ? "checked" : "")>
+                    <span class="track"></span><span class="knob"></span>
+                  </label>
+                </div>
+                """
+            }.joined()
+            return """
+            <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
+              <div class="set-label">\(esc(plugin.name)) <small>v\(esc(plugin.version))</small></div>
+              <div class="set-hint">\(esc(plugin.description))</div>
+              \(tabRows)
+            </div>
+            """
+        }.joined()
+        return cards
+    }
+
     func pluginSettingsHTML() -> String {
         let names = pluginManifests.keys.sorted()
         guard !names.isEmpty else {
@@ -2655,12 +2711,19 @@ extension AppState {
             return "<button type=\"button\" id=\"actdisp-\(mode)\" class=\"bubble-opt\(active)\">\(label)</button>"
         }.joined()
 
-        // Sidebar tabs (arc-style chips; Chat + Settings are always visible)
-        let tabDefs: [(key: String, label: String)] = [
+        // Sidebar tabs (arc-style chips; Chat + Settings are always
+        // visible). Registered plugin tabs join the chips, so users can
+        // hide/show and reorder third-party tabs exactly like built-ins.
+        var tabDefs: [(key: String, label: String)] = [
             ("skills", "Skills"), ("profiles", "Profiles"), ("tools", "Tools"),
-            ("workspaces", "Workspace"), ("github", "GitHub"), ("kanban", "Kanban"), ("memory", "Memory"),
+            ("workspaces", "Workspace"), ("kanban", "Kanban"), ("memory", "Memory"),
             ("insights", "Insights"), ("logs", "Logs"), ("tasks", "Tasks"), ("todos", "Todos"),
         ]
+        for id in pluginTabs.keys.sorted() {
+            if let tab = pluginTabs[id] {
+                tabDefs.append((id, tab.title))
+            }
+        }
         // Chips follow the canonical sidebar order; state = hidden set.
         let chipKeys = settings.sidebarTabs.filter { key in tabDefs.contains { $0.key == key } }
             + tabDefs.map(\.key).filter { key in !settings.sidebarTabs.contains(key) }
@@ -2878,6 +2941,16 @@ extension AppState {
                   <div class="set-label">Integrate tools<small>Tools written as Python scripts or Swift executables, discovered from <code>~/.arc/plugins/</code> (arc plugin parity). Enablement is stored in the <code>plugins.enabled</code> allow-list of <code>~/.arc/config.json</code>.</small></div>
                 </div>
                 \(pluginSettingsHTML())
+              </div>
+            </section>
+
+            <section class="set-section" id="sidebar-plugins">
+              <h2>Sidebar plugins</h2>
+              <div class="detail-card">
+                <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
+                  <div class="set-label">Third-party sidebar tabs<small>Tab packages added to the arc-agent build (see <code>docs/sidebar-tab-plugins.md</code>). Each tab appears in the rail and renders through the <code>SidebarTab</code> protocol. Hide/show any plugin tab; reordering happens in the Sidebar tabs chips above.</small></div>
+                </div>
+                \(sidebarPluginsSettingsHTML())
               </div>
             </section>
 
@@ -3377,131 +3450,6 @@ extension AppState {
 
     /// Left panel: repository summary + commit list (newest first). Unpushed
     /// commits carry the theme-accent badge; the selected commit is active.
-    func githubPanel() -> String {
-        let refreshBtn = btn("gh-refresh", "gh-refresh", "icon-btn",
-                             WebUIIcon(.refreshCw, size: .medium).render(), " title=\"Refresh repository\" data-tip=\"Refresh\"")
-        let head = """
-        <div class="panel-head">
-          <span class="panel-title">GitHub</span>
-          <div class="panel-actions">\(refreshBtn)</div>
-        </div>
-        """
-        let body: String
-        switch githubPage {
-        case .idle, .loading:
-            body = "<div class=\"empty-hint\">Loading repository…</div>"
-        case .notARepo(let path):
-            body = """
-            <div class="gh-notice">
-              <div class="gh-notice-title">Not a git project</div>
-              <div class="gh-notice-body">The workspace <code>\(esc(path))</code> is not a git repository, so there is nothing to show. Open a chat whose workspace is a git project, or change the default workspace under Settings → Workspaces.</div>
-            </div>
-            """
-        case .error(let msg):
-            body = "<div class=\"empty-hint\">\(esc(msg))</div>"
-        case .repo(let path, let branch, let remote):
-            var meta: [String] = []
-            if let branch { meta.append("branch <b>\(esc(branch))</b>") }
-            if let remote { meta.append("<span class=\"gh-remote\">\(esc(remote))</span>") }
-            let unpushedCount = githubCommits.filter(\.unpushed).count
-            var sub = "\(esc(path)) · \(githubCommits.count) commits"
-            if unpushedCount > 0 {
-                sub += " · <span class=\"gh-unpushed\">\(unpushedCount) unpushed</span>"
-            }
-            let summary = """
-            <div class="gh-summary">
-              <div class="gh-summary-meta">\(meta.joined(separator: " · "))</div>
-              <div class="gh-summary-sub">\(sub)</div>
-            </div>
-            """
-            let rows = githubCommits.map { githubCommitRow($0) }.joined()
-            if githubCommits.isEmpty {
-                body = summary + "<div class=\"empty-hint\">No commits found.</div>"
-            } else {
-                body = summary + "<div class=\"gh-list\" data-component-id=\"gh-commit\" data-event=\"click\">\(rows)</div>"
-            }
-        }
-        return head + "<div class=\"panel-body gh-panel-body\" id=\"gh-list-body\">\(body)</div>"
-    }
-
-    /// Standard panel-body padding + spacing so the GitHub page sizes like
-    /// the Workspaces/Todos sections (width comes from `#panel`/`--panel-w`).
-
-    private func githubCommitRow(_ c: GitHubCommit) -> String {
-        let active = c.sha == githubSelectedSHA ? " active" : ""
-        let unpushed = c.unpushed ? "<span class=\"gh-unpushed-badge\">↑ unpushed</span>" : ""
-        let refs = c.refs.isEmpty
-            ? ""
-            : "<span class=\"gh-refs\">\(esc(trunc(c.refs, 40)))</span>"
-        let date = ghShortDate(c.dateISO)
-        return """
-        <button type="button" id="gh-commit-\(c.sha)" class="gh-commit\(active)">
-          <span class="gh-commit-row">
-            <span class="gh-sha">\(esc(c.short))</span>
-            <span class="gh-commit-subject">\(esc(trunc(c.subject, 56)))</span>
-          </span>
-          <span class="gh-commit-meta">\(esc(c.author)) · \(date)\(unpushed)</span>
-          \(refs.isEmpty ? "" : "<span class=\"gh-commit-refs\">\(refs)</span>")
-        </button>
-        """
-    }
-
-    /// Main pane: the selected commit's message + file changes.
-    func githubMain() -> String {
-        guard let sha = githubSelectedSHA else {
-            return """
-            <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(WebUIIcon(.gitBranch, size: .extraLarge).render())</div><div>Select a commit on the left to see its message and files.</div></div>
-            </div>
-            """
-        }
-        guard let detail = githubDetail else {
-            return """
-            <div class="main-view" style="justify-content:center">
-              <div class="blank"><div>Loading commit \(esc(sha))…</div></div>
-            </div>
-            """
-        }
-        let filesHTML = detail.files.map { f -> String in
-            let plus = f.insertions > 0 ? "<span class=\"gh-num-add\">+\(f.insertions)</span>" : ""
-            let minus = f.deletions > 0 ? "<span class=\"gh-num-del\">−\(f.deletions)</span>" : ""
-            return """
-            <div class="gh-file">
-              <span class="gh-status \(f.statusClass)">\(esc(f.statusLabel))</span>
-              <span class="gh-file-path">\(esc(f.path))</span>
-              <span class="gh-nums">\(plus)\(minus)</span>
-            </div>
-            """
-        }.joined()
-        let bodyHTML = detail.body.isEmpty
-            ? ""
-            : "<div class=\"gh-body\">\(esc(detail.body))</div>"
-        return """
-        <div class="main-view">
-          <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
-            <div class="detail-card gh-detail">
-              <div class="gh-detail-subject">\(esc(detail.subject))</div>
-              <div class="gh-detail-meta">
-                <span class="gh-sha">\(esc(detail.sha))</span> · \(esc(detail.author)) · \(ghShortDate(detail.dateISO))
-              </div>
-              \(bodyHTML)
-              <div class="gh-files-head">Files changed <span class="gh-files-count">\(detail.files.count)</span></div>
-              <div class="gh-files">\(filesHTML.isEmpty ? "<div class=\"empty-hint\">No file changes (merge or empty commit).</div>" : filesHTML)</div>
-            </div>
-          </div>
-        </div>
-        """
-    }
-
-    /// Compact display date for a git ISO-8601 timestamp (%aI).
-    private func ghShortDate(_ iso: String) -> String {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        guard let date = f.date(from: iso) else { return iso }
-        let out = DateFormatter()
-        out.dateFormat = "MMM d, HH:mm"
-        return out.string(from: date)
-    }
 }
 
 /// Map a harness tool emoji to its colorless line-drawing equivalent.

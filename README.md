@@ -111,6 +111,8 @@ The web UI is a **library** target, `Sources/ArcWebUI/`, mounted by the daemon a
 
 Markdown in chat is rendered server-side by the arc-parity renderer in `Sources/ArcAgentCore/WebUI/Utilities.swift` (ATX headings, pipe tables, nested blockquotes, task checkboxes, sanitized images, autolinks) and enhanced client-side (table sort/filter).
 
+Sidebar tabs — built-in and third-party alike — implement one protocol, `SidebarTab` (`Plugins/ArcSidebarTabs`). Third-party tab packages are linked as additional libraries and registered by the daemon; Settings → Sidebar plugins lists them with a per-tab show/hide switch. The GitHub tab ships that way (`Plugins/GitHubSidebarTab`). See `docs/sidebar-tab-plugins.md` for the protocol and the plugin-authoring walkthrough.
+
 The `model` block of `~/.arc/config.json` is **the UI's model authority**: one preset is managed (`source: "config.json"`) and refreshed on every boot — model, provider, endpoint and the env API key — renaming with the model and repointing every pinned chat; presets you create in the picker are untouched, and an explicit pick stays active until you choose another.
 
 ### Makefile

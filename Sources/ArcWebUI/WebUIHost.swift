@@ -1,4 +1,5 @@
 import ArcAgentCore
+import ArcSidebarTabs
 import Foundation
 import Logging
 import ServiceLifecycle
@@ -49,13 +50,14 @@ public struct WebUIHost: Service {
         host: String = "127.0.0.1",
         port: Int = 8890,
         tesseraOff: Bool = false,
-        storage: StorageRuntime? = nil
+        storage: StorageRuntime? = nil,
+        thirdPartyPlugins: [any SidebarTabPlugin] = []
     ) throws {
         self.host = host
         self.port = port
         self.tesseraOff = tesseraOff
         self.storage = storage
-        self.app = try AppState()
+        self.app = try AppState(thirdPartyPlugins: thirdPartyPlugins)
     }
 
     /// Run one scheduled job headless and return its output — the daemon's
@@ -204,7 +206,7 @@ public struct WebUIHost: Service {
         let controller = Controller(app: app, push: { updates in
             await server.broadcast(await deduper.filter(updates))
         })
-        controller.wireAll(router)
+        await controller.wireAll(router)
 
         // the boot page is rendered here, once the stamped asset urls exist, purely
         // so the log line reports a real byte count.

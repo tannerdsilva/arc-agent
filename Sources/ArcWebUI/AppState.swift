@@ -1,5 +1,6 @@
 import ArcAgentCore
 import AsyncHTTPClient
+import ArcSidebarTabs
 import Foundation
 import WebUI
 
@@ -11,7 +12,6 @@ enum ViewID: String, CaseIterable {
     case profiles = "profiles"
     case tools = "tools"
     case workspaces = "workspaces"
-    case github = "github"
     case kanban = "kanban"
     case memory = "memory"
     case insights = "insights"
@@ -27,7 +27,6 @@ enum ViewID: String, CaseIterable {
         case .profiles: return "Profiles"
         case .tools: return "Tools"
         case .workspaces: return "Workspaces"
-        case .github: return "GitHub"
         case .kanban: return "Kanban"
         case .memory: return "Personal Memory"
         case .insights: return "Insights"
@@ -46,7 +45,6 @@ enum ViewID: String, CaseIterable {
         case .profiles: return "Profiles"
         case .tools: return "Tools"
         case .workspaces: return "Workspace"
-        case .github: return "GitHub"
         case .kanban: return "Kanban"
         case .memory: return "Memory"
         case .insights: return "Insights"
@@ -57,6 +55,25 @@ enum ViewID: String, CaseIterable {
         }
     }
 
+    /// Catalog symbol name for the rail icon (matches the no-webui icon
+    /// manifest; the host resolves it through `SidebarTabIcon.named`).
+    var symbolName: String {
+        switch self {
+        case .chat: return "message-square"
+        case .skills: return "star"
+        case .profiles: return "user"
+        case .tools: return "tool"
+        case .workspaces: return "grid"
+        case .kanban: return "columns"
+        case .memory: return "database"
+        case .insights: return "chart-bar"
+        case .logs: return "list"
+        case .tasks: return "clock"
+        case .todos: return "check"
+        case .settings: return "settings"
+        }
+    }
+
     var icon: String {
         switch self {
         case .chat: return WebUIIcon(.messageSquare, size: .large).render()
@@ -64,7 +81,6 @@ enum ViewID: String, CaseIterable {
         case .profiles: return WebUIIcon(.user, size: .large).render()
         case .tools: return WebUIIcon(.tool, size: .large).render()
         case .workspaces: return WebUIIcon(.grid, size: .large).render()
-        case .github: return WebUIIcon(.gitBranch, size: .large).render()
         case .kanban: return WebUIIcon(.columns, size: .large).render()
         case .memory: return WebUIIcon(.database, size: .large).render()
         case .insights: return WebUIIcon(.chartBar, size: .large).render()
@@ -328,7 +344,7 @@ struct AppSettings: Codable, Equatable {
     /// Sessions where approvals are skipped (reference "/api/session/yolo" parity):
     /// the user tapped "Skip all this session" in an approval card.
     var yoloSessions: [String] = []
-    static let defaultSidebarTabs = ["skills", "profiles", "tools", "workspaces", "github", "kanban", "memory", "insights", "logs", "tasks", "todos"]
+    static let defaultSidebarTabs = ["skills", "profiles", "tools", "workspaces", "kanban", "memory", "insights", "logs", "tasks", "todos"]
     static var defaultSidebarTabsKeys: [String] { defaultSidebarTabs }
     /// Rebuild a canonical sidebar list from a possibly-partial stored list:
     /// present keys keep their relative order; keys missing from the stored
@@ -544,7 +560,7 @@ actor AppState {
     func themeDefaults() -> (scheme: String, mode: String) {
         (settings.colorScheme, settings.theme)
     }
-    var activeView: ViewID = .chat
+    var activeTabID: String = "chat"
 
     /// Logs view: active severity filter ("all" | "info" | "warn" | "error").
     var logFilter = "all"
@@ -767,15 +783,8 @@ actor AppState {
     /// attaches the slide-in animation class; consumed by workspacePanelHTML.
     var wsEnterAnim = false
 
-    // MARK: GitHub integration page
-    /// Load state of the GitHub page (repo / not-a-repo / error / loading).
-    var githubPage: GitHubPageState = .idle
-    /// Commit rows for the left panel (newest first).
-    var githubCommits: [GitHubCommit] = []
-    /// Selected commit (short SHA) driving the main detail pane.
-    var githubSelectedSHA: String? = nil
-    /// Loaded detail for the selected commit.
-    var githubDetail: GitHubDetail? = nil
+    // MARK: GitHub integration page (provided by the GitHubSidebarTab plugin
+// package; no state lives in the application anymore)
 
     /// Scheduled-tasks page: the job whose controls + chat are open in the main pane.
     var tasksSelectedID: String? = nil
@@ -846,6 +855,12 @@ actor AppState {
 
     var registry: MutableToolRegistry
 
+    /// Third-party sidebar tab plugins registered at startup, in order.
+    let sidebarPlugins: [any SidebarTabPlugin]
+    /// All third-party tabs keyed by id (validated at init; invalid ones
+    /// are dropped with a log line).
+    let pluginTabs: [String: any SidebarTab]
+
     /// Discovered tool plugins (`~/.arc/plugins/<name>/manifest.json`),
     /// refreshed by ``refreshPlugins()`` — the Settings → Tool plugins view
     /// data source (arc plugin metadata parity).
@@ -880,13 +895,44 @@ actor AppState {
 
     // MARK: Init
 
-    init() throws {
+    init(thirdPartyPlugins: [any SidebarTabPlugin] = []) throws {
         self.registry = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
         let grouped = Dictionary(grouping: self.registry.allTools, by: { $0.toolset })
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
         self.settings = Self.loadSettings()
         let rawConfig = Self.rawArcConfig()
         self.arcConfig = rawConfig
+        // Sidebar tab plugins: validate ids, reject collisions with
+        // built-ins, and make new tabs visible by default.
+        self.sidebarPlugins = thirdPartyPlugins
+        var pluginTabs: [String: any SidebarTab] = [:]
+        var registerableIDs: [String] = []
+        var pluginWarnings: [String] = []
+        for plugin in thirdPartyPlugins {
+            for tab in plugin.tabs() {
+                let tid = tab.id
+                guard SidebarTabID.isValid(tid) else {
+                    pluginWarnings.append("sidebar plugin \(plugin.name): dropped tab '\(tid)' (invalid id)")
+                    continue
+                }
+                guard ViewID(rawValue: tid) == nil else {
+                    pluginWarnings.append("sidebar plugin \(plugin.name): dropped tab '\(tid)' (collides with built-in)")
+                    continue
+                }
+                guard pluginTabs[tid] == nil else {
+                    pluginWarnings.append("sidebar plugin \(plugin.name): dropped duplicate tab '\(tid)'")
+                    continue
+                }
+                pluginTabs[tid] = tab
+                registerableIDs.append(tid)
+            }
+        }
+        self.pluginTabs = pluginTabs
+        for tid in registerableIDs {
+            if !settings.sidebarTabs.contains(tid), !settings.hiddenSidebarTabs.contains(tid) {
+                settings.sidebarTabs.append(tid)
+            }
+        }
         // Install the agent-powers lockdown gate so tools in THIS process
         // (the webui turn loop runs its own tool dispatch) consult it live.
         AgentPowers.configure(rawConfig.agentPowers)
@@ -911,6 +957,9 @@ actor AppState {
             saveSettings()
         }
         self.selectedWorkspace = self.settings.activeWorkspace
+        for w in pluginWarnings {
+            crumb(w)
+        }
         Task { await self.refreshPlugins() }
     }
 

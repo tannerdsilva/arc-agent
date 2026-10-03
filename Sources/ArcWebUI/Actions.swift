@@ -1,4 +1,5 @@
 import ArcAgentCore
+import ArcSidebarTabs
 import ArcTheme
 import Foundation
 import WebUI
@@ -10,7 +11,7 @@ extension AppState {
     /// Render fragments for the panels/main/toasts after a state change.
     func refreshFragments(includeApp: Bool = false) async -> [FragmentUpdate] {
         if includeApp {
-            let shell = appShell()
+            let shell = await appShell()
             let toasts = toastsShell()
             return [
                 FragmentUpdate(id: "app", html: shell),
@@ -19,8 +20,8 @@ extension AppState {
         }
         var u: [FragmentUpdate] = [
             FragmentUpdate(id: "topbar", html: topbarHTML()),
-            FragmentUpdate(id: "panel", html: panelHTML()),
-            FragmentUpdate(id: "main", html: mainContentHTML()),
+            FragmentUpdate(id: "panel", html: await panelHTML()),
+            FragmentUpdate(id: "main", html: await mainContentHTML()),
         ]
         // The right-hand workspace panel follows the active chat's workspace,
         // so re-render it on session switches and workspace changes too.
@@ -47,7 +48,7 @@ extension AppState {
     func logsFragments() async -> [FragmentUpdate] {
         [
             FragmentUpdate(id: "topbar", html: topbarHTML()),
-            FragmentUpdate(id: "panel", html: panelHTML()),
+            FragmentUpdate(id: "panel", html: await panelHTML()),
             FragmentUpdate(id: "log-lines", html: "<div id=\"log-lines\" class=\"logs-lines\">\(logLinesHTML())</div>"),
         ]
     }
@@ -1074,7 +1075,7 @@ extension AppState {
     func turnChromeFragments() async -> [FragmentUpdate] {
         let toastsDiv = "<div id=\"toasts\" data-component-id=\"toast-dismiss\" data-event=\"click\">\(toastsHTML())</div>"
         return [
-            FragmentUpdate(id: "panel", html: panelHTML()),
+            FragmentUpdate(id: "panel", html: await panelHTML()),
             FragmentUpdate(id: "chat-header", html: chatHeaderHTML()),
             FragmentUpdate(id: "composer-wrap", html: composerHTML()),
             FragmentUpdate(id: "toasts", html: toastsDiv),
@@ -1157,17 +1158,17 @@ final class Controller {
         }, for: ComponentID(id))
     }
 
-    func wireAll(_ router: EventRouter) {
-        wireNav(router)
+    func wireAll(_ router: EventRouter) async {
+        await wireNav(router)
         wireChat(router)
         wireChatMenu(router)
         wireSkills(router)
         wireProfiles(router)
         wireTools(router)
         wireWorkspaces(router)
-        wireGitHub(router)
         wireSettings(router)
         wirePlugins(router)
+        wireSidebarPluginToggles(router)
         wireToasts(router)
         wireLogs(router)
         wireInsights(router)
@@ -1175,19 +1176,29 @@ final class Controller {
         wireQueue(router)
         wireCron(router)
         wireRegen(router)
+        await installSidebarTabPlugins(router)
+    }
+
+    /// Install the event registrations of every third-party sidebar tab
+    /// (see `SidebarTab.install`). Built-in tabs are wired natively in
+    /// the functions above.
+    private func installSidebarTabPlugins(_ router: EventRouter) async {
+        let registrar = AppSidebarTabRegistrar(router: router)
+        for id in app.pluginTabs.keys.sorted() {
+            if let tab = app.pluginTabs[id] {
+                await tab.install(SidebarTabRegistration(registrar))
+            }
+        }
     }
 
     // MARK: Nav
 
-    private func wireNav(_ router: EventRouter) {
-        for v in ViewID.allCases {
-            wire(router, id: "nav-\(v.rawValue)", events: ["click"]) { _ in
-                await self.app.switchView(v)
-                if v == .github {
-                    // First open inspects the workspace (git or not) + loads
-                    // the commit list; subsequent opens are instant.
-                    await self.app.githubEnsureLoaded()
-                }
+    private func wireNav(_ router: EventRouter) async {
+        let ids = await app.railTabIDs()
+        for id in ids {
+            wire(router, id: "nav-\(id)", events: ["click"]) { _ in
+                await self.app.switchTab(id)
+                await self.app.notifyTabActivated(id)
                 return await self.app.refreshFragments(includeApp: true)
             }
         }
@@ -1195,18 +1206,15 @@ final class Controller {
 
     // MARK: GitHub page
 
-    private func wireGitHub(_ router: EventRouter) {
-        // Refresh button: re-inspect the repo + reload commits.
-        wire(router, id: "gh-refresh", events: ["click"]) { _ in
-            await self.app.githubReload()
-            return await self.app.githubFragments()
-        }
-        // Commit rows: load the selected commit's message + file changes.
-        wire(router, id: "gh-commit", events: ["click"]) { event in
-            guard let tid = event.string("targetId"), tid.hasPrefix("gh-commit-") else { return [] }
-            let sha = String(tid.dropFirst("gh-commit-".count))
-            await self.app.githubSelect(sha: sha)
-            return await self.app.githubFragments()
+    /// Settings → Sidebar plugins: show/hide toggles for third-party tabs.
+    private func wireSidebarPluginToggles(_ router: EventRouter) {
+        wire(router, id: "sidebar-plugin-toggle", events: ["change"]) { event in
+            let tid = event.string("targetId") ?? event.string("value") ?? ""
+            guard tid.hasPrefix("sbpl-") else { return [] }
+            let key = dec(String(tid.dropFirst("sbpl-".count))) ?? ""
+            let on = event.string("checked") == "true"
+            await self.app.setSidebarPluginHidden(key, hidden: !on)
+            return await self.app.fragmentsWithIconbar()
         }
     }
 

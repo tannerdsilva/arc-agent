@@ -268,7 +268,7 @@ extension AppState {
     }
 
     func notifyQueueView(_ pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void) async {
-        guard activeView == .todos else { return }
+        guard activeTabID == "todos" else { return }
         await pusher([FragmentUpdate(id: "main", html: await self.todosPanelHTML())])
     }
 
