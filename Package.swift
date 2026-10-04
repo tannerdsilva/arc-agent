@@ -61,7 +61,7 @@ let package = Package(
         ),
 	.package(
 		url: "https://github.com/tannerdsilva/no-webui.git",
-		revision: "61b8bddc5907094e0c087f288f105933f5bd9089"
+		branch: "dev"
 	)
     ],
 
