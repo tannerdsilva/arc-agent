@@ -48,7 +48,11 @@ extension AppState {
 
     func setCreateProfile(_ on: Bool) {
         createProfile = on
-        if on { selectedProfile = nil }
+        if on {
+            selectedProfile = nil
+            profileSkillsDraft = []
+            profileSkillsPickerOpen = false
+        }
     }
 
     /// Open the Workspaces create form. `forChat` records the intent behind
@@ -846,6 +850,27 @@ extension AppState {
     func setEditingProfile(_ name: String?) {
         editingProfile = name
         createProfile = false
+        profileSkillsPickerOpen = false
+        if let name,
+           let p = profiles.first(where: { $0.name == name }) {
+            profileSkillsDraft = p.contextSkills ?? []
+        } else {
+            profileSkillsDraft = []
+        }
+    }
+
+    /// Add/remove a skill in the profile context-skills draft (picker rows).
+    func profileSkillsDraftAdd(_ skillName: String) {
+        guard !profileSkillsDraft.contains(skillName) else { return }
+        profileSkillsDraft.append(skillName)
+    }
+
+    func profileSkillsDraftRemove(_ skillName: String) {
+        profileSkillsDraft.removeAll { $0 == skillName }
+    }
+
+    func setProfileSkillsPickerOpen(_ open: Bool) {
+        profileSkillsPickerOpen = open
     }
 
     func reloadProfiles() async {

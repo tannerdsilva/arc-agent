@@ -25,4 +25,19 @@ public enum SkillsPrompt {
     public static func section(index: String) -> String {
         "## Skills (mandatory)\n\n\(mandatoryFraming)\n\n<available_skills>\n\(index)\n</available_skills>"
     }
+
+    /// The `## Pinned profile skills` section: skills a profile pins into
+    /// context, injected with their full SKILL.md content on every prompt.
+    ///
+    /// Equivalent to the user having loaded each skill explicitly — the model
+    /// must treat them as mandatory instructions without having to scan first.
+    public static func pinnedSection(skills: [Skill]) -> String {
+        let framing =
+            "The following skills are pinned to this profile and are ALWAYS in your context. "
+            + "Follow their instructions exactly — no need to load them separately."
+        let body = skills.map { skill in
+            "### \(skill.name)\n\n\(skill.content)"
+        }.joined(separator: "\n\n")
+        return "## Pinned Profile Skills (always loaded)\n\n\(framing)\n\n\(body)"
+    }
 }

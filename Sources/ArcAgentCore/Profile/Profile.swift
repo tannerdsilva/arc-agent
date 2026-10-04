@@ -121,6 +121,11 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
     /// sampling). Nil fields inherit the session's model config or defaults.
     public var context: ProfileContextConfig?
 
+    /// Skill names pinned to this profile: their SKILL.md content is injected
+    /// into every prompt built for chats bound to this profile (equivalent to
+    /// the user having loaded each skill explicitly).
+    public var contextSkills: [String]?
+
     /// Visual avatar configuration.
     public var avatar: AvatarConfig?
 
@@ -151,6 +156,7 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
         disabledToolsets: Set<String>? = nil,
         soulMD: String? = nil,
         context: ProfileContextConfig? = nil,
+        contextSkills: [String]? = nil,
         avatar: AvatarConfig? = nil,
         group: String? = nil,
         isPinned: Bool = false
@@ -166,6 +172,7 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
         self.disabledToolsets = disabledToolsets
         self.soulMD = soulMD
         self.context = context
+        self.contextSkills = contextSkills
         self.avatar = avatar
         self.group = group
         self.isPinned = isPinned

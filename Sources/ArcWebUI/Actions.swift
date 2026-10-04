@@ -67,6 +67,15 @@ extension AppState {
            let soul = p.soulMD, !soul.isEmpty {
             parts.append("[Profile: \(pname)]\n\(soul)")
         }
+        // Pinned profile skills: full SKILL.md content, always in context.
+        if let pname2 = profileName(for: sessionID),
+           let p = profiles.first(where: { $0.name == pname2 }),
+           let pinned = p.contextSkills, !pinned.isEmpty {
+            let pinnedSkills = skills.filter { pinned.contains($0.name) }
+            if !pinnedSkills.isEmpty {
+                parts.append(SkillsPrompt.pinnedSection(skills: pinnedSkills))
+            }
+        }
         parts.append("Active configuration: model \(preset.model) via \(preset.provider.isEmpty ? "custom" : preset.provider).")
         parts.append("Working directory: \(workspacePath(for: sessionID))")
         // Skills — arc-parity mandatory section (framing + index), per-profile
@@ -2080,12 +2089,31 @@ final class Controller {
             let temperature = AppState.optDouble(event.string("profile-ctx-temp") ?? "")
             let topP = AppState.optDouble(event.string("profile-ctx-topp") ?? "")
             let budget = AppState.optInt(event.string("profile-ctx-budget") ?? "")
+            let skillsDraft = await self.app.profileSkillsDraft
             return await self.submitProfileForm(
                 name: name, title: title, desc: desc,
                 contextLength: ctxLength, maxOutputTokens: maxOutput,
                 reasoningEffort: effort, temperature: temperature,
-                topP: topP, compressionBudget: budget
+                topP: topP, compressionBudget: budget,
+                contextSkills: skillsDraft.isEmpty ? nil : skillsDraft
             )
+        }
+        wire(router, id: "pcs-toggle", events: ["click"]) { _ in
+            await self.app.setProfileSkillsPickerOpen(!(await self.app.profileSkillsPickerOpen))
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "pcs", events: ["click"]) { event in
+            guard let tid = event.string("targetId"), tid.hasPrefix("pcs-pick-") else { return [] }
+            guard let name = dec(String(tid.dropFirst("pcs-pick-".count))) else { return [] }
+            await self.app.profileSkillsDraftAdd(name)
+            await self.app.setProfileSkillsPickerOpen(false)
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "pcs-rm", events: ["click"]) { event in
+            guard let tid = event.string("targetId"), tid.hasPrefix("pcs-rm-") else { return [] }
+            guard let name = dec(String(tid.dropFirst("pcs-rm-".count))) else { return [] }
+            await self.app.profileSkillsDraftRemove(name)
+            return await self.app.refreshFragments()
         }
         for field in ["profile-name-input", "profile-title-input", "profile-desc-input"] {
             wire(router, id: field, events: ["input"]) { event in
@@ -2181,7 +2209,8 @@ final class Controller {
         reasoningEffort: String? = nil,
         temperature: Double? = nil,
         topP: Double? = nil,
-        compressionBudget: Int? = nil
+        compressionBudget: Int? = nil,
+        contextSkills: [String]? = nil
     ) async -> [FragmentUpdate] {
         let pm = ProfileManager()
         let ctx = ProfileContextConfig(
@@ -2202,6 +2231,7 @@ final class Controller {
                 p.title = title
                 p.description = desc
                 p.context = cleaned
+                p.contextSkills = contextSkills
                 try await pm.update(p)
                 await self.app.setEditingProfile(nil)
                 await app.reloadProfiles()
@@ -2216,6 +2246,7 @@ final class Controller {
                 p.title = title
                 p.description = desc
                 p.context = cleaned
+                p.contextSkills = contextSkills
                 try await pm.update(p)
                 await app.reloadProfiles()
                 await app.setCreateProfile(false)

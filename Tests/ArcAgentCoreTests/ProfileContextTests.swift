@@ -27,10 +27,28 @@ struct ProfileContextConfigTests {
 
     @Test("a profile without context decodes back to nil (backward compatible)")
     func contextNilBackCompat() throws {
-        let p = Profile(name: "plain")
+        let json = """
+        {
+          "name": "legacy",
+          "title": "",
+          "description": "",
+          "hasCustomKey": false,
+          "isPinned": false,
+          "createdAt": 0,
+          "updatedAt": 0
+        }
+        """
+        let p = try JSONDecoder().decode(Profile.self, from: Data(json.utf8))
+        #expect(p.context == nil)
+        #expect(p.contextSkills == nil)
+    }
+
+    @Test("contextSkills round-trip through Codable and keep order")
+    func contextSkillsRoundTrip() throws {
+        let p = Profile(name: "skillspinned", contextSkills: ["git-branch-recovery", "swift-testing-tests"])
         let data = try JSONEncoder().encode(p)
         let decoded = try JSONDecoder().decode(Profile.self, from: data)
-        #expect(decoded.context == nil)
+        #expect(decoded.contextSkills == ["git-branch-recovery", "swift-testing-tests"])
     }
 
     @Test("isEmpty is true only when no overrides are set")

@@ -2125,6 +2125,9 @@ extension AppState {
                 <div><label for="profile-ctx-topp">Top P</label><input id="profile-ctx-topp" name="profile-ctx-topp" type="number" min="0" max="1" step="0.05" placeholder="e.g. 0.9" value="\(topPVal)"></div>
                 <div><label for="profile-ctx-budget">Compress at (tokens)</label><input id="profile-ctx-budget" name="profile-ctx-budget" type="number" min="1024" step="1024" placeholder="e.g. 32000" value="\(budgetVal)"></div>
               </div>
+              <h3 style="margin:16px 0 6px">Context skills</h3>
+              <div class="detail-sub">Skills pinned to this profile: their full content is loaded into every prompt for chats bound to this profile (as if the user had asked for them).</div>
+              \(profileContextSkillsHTML())
               <div class="row-actions-main">
                 <button type="submit" class="primary-btn">\(formSubmit)</button>
                 \(btn("profile-cancel", "profile-cancel", "ghost-btn", "Cancel"))
@@ -2188,19 +2191,73 @@ extension AppState {
         return rows
     }
 
-    /// Per-profile context parameters summary (kv rows; "inherit" when unset).
+    /// Per-profile context parameters summary (kv rows; "inherit" when unset)
+    /// plus the pinned context skills, if any.
     func profileContextHTML(_ p: Profile) -> String {
-        guard let ctx = p.context, !ctx.isEmpty else {
-            return "<div class=\"kv\"><span class=\"k\">Context</span><span class=\"v\">inherit (no overrides)</span></div>"
-        }
         var rows = ""
-        rows += "<div class=\"kv\"><span class=\"k\">Context window</span><span class=\"v\">\(ctx.contextLength.map { "\($0) tokens" } ?? "inherit")</span></div>"
-        rows += "<div class=\"kv\"><span class=\"k\">Max output</span><span class=\"v\">\(ctx.maxOutputTokens.map { "\($0) tokens" } ?? "inherit")</span></div>"
-        rows += "<div class=\"kv\"><span class=\"k\">Reasoning effort</span><span class=\"v\">\(esc(ctx.reasoningEffort ?? "inherit"))</span></div>"
-        rows += "<div class=\"kv\"><span class=\"k\">Temperature</span><span class=\"v\">\(ctx.temperature.map { String($0) } ?? "inherit")</span></div>"
-        rows += "<div class=\"kv\"><span class=\"k\">Top P</span><span class=\"v\">\(ctx.topP.map { String($0) } ?? "inherit")</span></div>"
-        rows += "<div class=\"kv\"><span class=\"k\">Compress at</span><span class=\"v\">\(ctx.compressionBudget.map { "\($0) tokens" } ?? "inherit")</span></div>"
+        if let ctx = p.context, !ctx.isEmpty {
+            rows += "<div class=\"kv\"><span class=\"k\">Context window</span><span class=\"v\">\(ctx.contextLength.map { "\($0) tokens" } ?? "inherit")</span></div>"
+            rows += "<div class=\"kv\"><span class=\"k\">Max output</span><span class=\"v\">\(ctx.maxOutputTokens.map { "\($0) tokens" } ?? "inherit")</span></div>"
+            rows += "<div class=\"kv\"><span class=\"k\">Reasoning effort</span><span class=\"v\">\(esc(ctx.reasoningEffort ?? "inherit"))</span></div>"
+            rows += "<div class=\"kv\"><span class=\"k\">Temperature</span><span class=\"v\">\(ctx.temperature.map { String($0) } ?? "inherit")</span></div>"
+            rows += "<div class=\"kv\"><span class=\"k\">Top P</span><span class=\"v\">\(ctx.topP.map { String($0) } ?? "inherit")</span></div>"
+            rows += "<div class=\"kv\"><span class=\"k\">Compress at</span><span class=\"v\">\(ctx.compressionBudget.map { "\($0) tokens" } ?? "inherit")</span></div>"
+        } else {
+            rows += "<div class=\"kv\"><span class=\"k\">Context</span><span class=\"v\">inherit (no overrides)</span></div>"
+        }
+        if let pinned = p.contextSkills, !pinned.isEmpty {
+            let names = pinned.map { esc($0) }.joined(separator: ", ")
+            rows += "<div class=\"kv\"><span class=\"k\">Context skills</span><span class=\"v\">\(names)</span></div>"
+        }
         return rows
+    }
+
+    /// The profile edit form's "Context skills" section: pinned-skill rows
+    /// with remove buttons, an "Add skill" dropdown over the discovered
+    /// skills, and a hidden CSV field the submit wire reads.
+    func profileContextSkillsHTML() -> String {
+        let draft = profileSkillsDraft
+        var rows = ""
+        for name in draft {
+            let known = skills.first(where: { $0.name == name })
+            let label = known?.name ?? name
+            let desc = known?.description ?? "missing"
+            rows += """
+            <div class="pn-draft-row">
+              <span class="pn-draft-name">\(esc(label))</span>
+              <span class="pn-draft-desc">\(esc(desc))</span>
+              \(btn("pcs-rm-\(enc(name))", "", "icon-mini danger", WebUIIcon(.x, size: .small).render(), " title=\"Remove skill\""))
+            </div>
+            """
+        }
+        let empty = draft.isEmpty ? "<div class=\"pn-draft-empty\">No pinned skills — every prompt uses the regular skill index.</div>" : ""
+        let open = profileSkillsPickerOpen ? "" : " hidden"
+        let chosen = Set(draft)
+        let available = skills.filter { !chosen.contains($0.name) }
+        var optRows = ""
+        for s in available {
+            optRows += ddRow(id: "pcs-pick-\(enc(s.name))", body: """
+            <span class="dd-row-title">\(esc(s.name))</span>
+            <span class="dd-row-sub">\(esc(s.description))</span>
+            """)
+        }
+        let noOpts = available.isEmpty
+            ? "<div class=\"dd-empty\">All discovered skills are already pinned.</div>"
+            : ""
+        let picker = """
+        <div class="dd pn-picker">
+          \(ddTrigger(id: "pcs-toggle", icon: WebUIIcon(.plus, size: .medium).render(), label: "Add skill", title: "Pin a skill into this profile's context"))
+          <div class="dd-pop dd-pop-ws\(open)" data-component-id="pcs" data-event="click">
+            <div class="dd-list">\(optRows)\(noOpts)</div>
+          </div>
+        </div>
+        """
+        return """
+        <div class="pn-draft" data-component-id="pcs-rm" data-event="click">
+          \(rows)\(empty)
+        </div>
+        \(picker)
+        """
     }
 
     /// <option> tags for the reasoning-effort picker ("" = inherit).

@@ -2253,6 +2253,14 @@ public static let css: String = """
 
     /* ── arc-style profile card (Profile Box) ─────────────────────── */
     .pl-card { margin: 14px 0 4px; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: var(--surface); }
+
+    /* ── Profile context skills (pinned skills) ── */
+    .pn-draft { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 10px; }
+    .pn-draft-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+    .pn-draft-name { font-size: 0.85em; font-weight: 600; color: var(--text); }
+    .pn-draft-desc { font-size: 0.78em; color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pn-draft-empty { font-size: 0.78em; color: var(--muted); padding: 2px 2px 4px; }
+    .pn-picker { max-width: 320px; margin-bottom: 4px; }
     .pl-eyebrow { font-size: 0.66em; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
     .pl-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--border); }
     .pl-row:first-of-type { border-top: none; }

@@ -48,4 +48,27 @@ struct SkillsPromptTests {
         #expect(section.contains("<available_skills>"))
         #expect(section.contains("No skills available."))
     }
+
+    @Test("pinned section carries every skill's full content")
+    func pinnedSectionContent() {
+        let a = Skill(name: "swift-testing-tests", description: "Write Swift tests.", content: "# Swift Testing\n\n```swift\n@Test\n```\n", path: URL(fileURLWithPath: "/tmp/a/SKILL.md"))
+        let b = Skill(name: "git-branch-recovery", description: "Move git work.", content: "# Git Branch Recovery\n\ncommands here\n", path: URL(fileURLWithPath: "/tmp/b/SKILL.md"))
+        let section = SkillsPrompt.pinnedSection(skills: [a, b])
+        #expect(section.hasPrefix("## Pinned Profile Skills (always loaded)"))
+        #expect(section.contains("ALWAYS in your context"))
+        #expect(section.contains("### swift-testing-tests"))
+        #expect(section.contains("# Swift Testing"))
+        #expect(section.contains("### git-branch-recovery"))
+        #expect(section.contains("commands here"))
+    }
+
+    @Test("pinned section preserves order and drops nothing")
+    func pinnedSectionOrder() {
+        let s = Skill(name: "x", description: "d", content: "c", path: URL(fileURLWithPath: "/tmp/x/SKILL.md"))
+        let t = Skill(name: "y", description: "d", content: "c", path: URL(fileURLWithPath: "/tmp/y/SKILL.md"))
+        let section = SkillsPrompt.pinnedSection(skills: [s, t])
+        let x = section.range(of: "### x")!.lowerBound
+        let y = section.range(of: "### y")!.lowerBound
+        #expect(x < y)
+    }
 }
