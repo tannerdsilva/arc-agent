@@ -106,11 +106,23 @@ struct SettingsLayoutContractTests {
 
     // MARK: Refresh behaviour
 
-    @Test("no whole-app includeApp swaps remain")
+    @Test("no whole-app includeApp swaps remain anywhere")
     func targetedRefreshesOnly() {
+        // Scan every UI source file (Actions, SidebarTabBridge, …) — this
+        // pin exists because the offender once hid in a file outside Actions.
+        let dir = "Sources/ArcWebUI"
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: dir))?
+            .filter { $0.hasSuffix(".swift") } ?? []
+        var offenders: [String] = []
+        for f in files {
+            let src = (try? String(contentsOfFile: "\(dir)/\(f)", encoding: .utf8)) ?? ""
+            if src.contains("refreshFragments(includeApp: true)") {
+                offenders.append(f)
+            }
+        }
+        #expect(offenders.isEmpty,
+                "whole-app swaps remain in: \(offenders.joined(separator: ", "))")
         let actions = Self.source("Actions.swift")
-        #expect(!actions.contains("refreshFragments(includeApp: true)"),
-                "all handlers must refresh targeted fragments (the app swap reads as a page refresh)")
         #expect(actions.contains("FragmentUpdate(id: \"iconbar\""),
                 "the targeted refresh carries the rail so view switches stay in place")
     }

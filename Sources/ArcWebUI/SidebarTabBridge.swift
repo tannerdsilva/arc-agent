@@ -25,7 +25,10 @@ struct AppSidebarTabHost: SidebarTabHost {
     func navigate(to tabID: String) async {
         await state.switchTab(tabID)
         await state.notifyTabActivated(tabID)
-        _ = await state.refreshFragments(includeApp: true)
+        // Targeted: plugin tabs render inside #main via the tab protocol
+        // adapter, so the rail + main updates carry the switch — no whole-app
+        // swap (that reads as a page refresh).
+        _ = await state.refreshFragments()
     }
 
     func refreshTab(_ tabID: String) async {

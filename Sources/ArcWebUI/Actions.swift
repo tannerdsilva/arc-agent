@@ -61,15 +61,16 @@ extension AppState {
             "You are ARC, a Swift-native AI agent harness.",
             "You assist the user directly and precisely. When a task calls for a tool, use it confidently — tools are safe, isolated, and expected.",
         ]
-        // Profile SOUL
-        if let pname = profileName(for: sessionID),
-           let p = profiles.first(where: { $0.name == pname }),
+        // Profile SOUL + pinned context skills. The bound profile is resolved
+        // once; both blocks share it.
+        let boundName = profileName(for: sessionID)
+        let boundProfile = boundName.flatMap { n in profiles.first { $0.name == n } }
+        if let p = boundProfile,
            let soul = p.soulMD, !soul.isEmpty {
-            parts.append("[Profile: \(pname)]\n\(soul)")
+            parts.append("[Profile: \(p.name)]\n\(soul)")
         }
         // Pinned profile skills: full SKILL.md content, always in context.
-        if let pname2 = profileName(for: sessionID),
-           let p = profiles.first(where: { $0.name == pname2 }),
+        if let p = boundProfile,
            let pinned = p.contextSkills, !pinned.isEmpty {
             let pinnedSkills = skills.filter { pinned.contains($0.name) }
             if !pinnedSkills.isEmpty {
