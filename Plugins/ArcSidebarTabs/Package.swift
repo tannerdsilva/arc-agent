@@ -9,5 +9,9 @@ let package = Package(
     ],
     targets: [
         .target(name: "ArcSidebarTabs"),
+        .testTarget(
+            name: "ArcSidebarTabsTests",
+            dependencies: [.target(name: "ArcSidebarTabs")]
+        ),
     ]
 )

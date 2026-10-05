@@ -6,6 +6,10 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .library(name: "GitHubSidebarTab", targets: ["GitHubSidebarTab"]),
+        // The sidecar: `swift build --product github-sidebar-tab` produces the
+        // `~/.arc/plugins/github-sidebar-tab/github-sidebar-tab` binary the
+        // host spawns (see docs/sidebar-tab-plugins.md).
+        .executable(name: "github-sidebar-tab", targets: ["GitHubSidebarTabRunner"]),
     ],
     dependencies: [
         .package(path: "../ArcSidebarTabs"),
@@ -22,6 +26,20 @@ let package = Package(
                 .product(name: "ArcSidebarTabs", package: "ArcSidebarTabs"),
                 .product(name: "SwiftSlash", package: "SwiftSlash"),
                 .product(name: "WebUI", package: "no-webui"),
+            ]
+        ),
+        .executableTarget(
+            name: "GitHubSidebarTabRunner",
+            dependencies: [
+                .target(name: "GitHubSidebarTab"),
+                .product(name: "ArcSidebarTabs", package: "ArcSidebarTabs"),
+            ]
+        ),
+        .testTarget(
+            name: "GitHubSidebarTabPluginTests",
+            dependencies: [
+                .target(name: "GitHubSidebarTab"),
+                .product(name: "ArcSidebarTabs", package: "ArcSidebarTabs"),
             ]
         ),
     ]

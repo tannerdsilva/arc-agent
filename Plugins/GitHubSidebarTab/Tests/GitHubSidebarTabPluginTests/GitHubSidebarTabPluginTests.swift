@@ -1,6 +1,7 @@
 import ArcSidebarTabs
 import Foundation
 import GitHubSidebarTab
+import Synchronization
 import Testing
 
 // MARK: - GitHubSidebarTab plugin package contract
@@ -48,12 +49,15 @@ struct GitHubSidebarTabPluginTests {
     func installRegistersWires() async throws {
         let plugin = GitHubSidebarTabPlugin()
         let tab = try #require(plugin.tabs().first)
-        var ids: [String] = []
-        let registrar = CollectRegistrar { id, _, _ in ids.append(id) }
+        let ids = Mutex<[String]>([])
+        let registrar = CollectRegistrar { id, _, _ in
+            ids.withLock { $0.append(id) }
+        }
         await tab.install(SidebarTabRegistration(registrar))
-        #expect(ids.contains("gh-refresh"))
-        #expect(ids.contains("gh-commit"))
-        #expect(ids.count == 2)
+        let collected = ids.withLock { $0 }
+        #expect(collected.contains("gh-refresh"))
+        #expect(collected.contains("gh-commit"))
+        #expect(collected.count == 2)
     }
 }
 

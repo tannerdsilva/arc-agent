@@ -44,11 +44,19 @@ struct SidebarTabConformanceContractTests {
         #expect(!source("AppState.swift").contains("githubCommits"))
     }
 
-    @Test("the daemon registers the GitHub plugin at startup")
+    @Test("the daemon discovers sidecar plugins at startup")
     func daemonRegistersPlugin() {
         let daemon = source("ArcDaemon.swift", inRoot: "Sources/ArcDaemon")
-        #expect(daemon.contains("import GitHubSidebarTab"))
-        #expect(daemon.contains("thirdPartyPlugins: [GitHubSidebarTabPlugin()]"))
+        // Plugins ship as separate processes now (no compile-time package).
+        #expect(!daemon.contains("import GitHubSidebarTab"))
+        #expect(!daemon.contains("thirdPartyPlugins: [GitHubSidebarTabPlugin()]"))
+        #expect(daemon.contains("sidecarManager.discover()"))
+        #expect(daemon.contains("thirdPartyPlugins: sidecarPlugins"))
+        #expect(daemon.contains("SidecarPluginService(manager: sidecarManager)"))
+        // The host attaches its own app state to the manager at run() time.
+        let host = source("WebUIHost.swift")
+        #expect(host.contains("sidecarManager.attachHost"))
+        #expect(host.contains("sidecarManager: SidecarPluginManager? = nil"))
     }
 
     @Test("plugin tab registrations are installed at wire time")

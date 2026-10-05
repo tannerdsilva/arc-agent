@@ -64,7 +64,6 @@ let package = Package(
 	    revision: "61b8bddc5907094e0c087f288f105933f5bd9089"
 	),
 	.package(path: "Plugins/ArcSidebarTabs"),
-	.package(path: "Plugins/GitHubSidebarTab"),
 	],
 
     targets: [
@@ -139,9 +138,6 @@ let package = Package(
                 // the UI host mounts here (phase 2); core stays UI-free.
                 .target(name: "ArcWebUI"),
                 .product(name: "ArcSidebarTabs", package: "ArcSidebarTabs"),
-                // the reference third-party sidebar-tab plugin, registered by
-                // the daemon at startup (see `docs/sidebar-tab-plugins.md`).
-                .product(name: "GitHubSidebarTab", package: "GitHubSidebarTab"),
                 .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
                 .product(name: "Logging", package: "swift-log"),
             ],
@@ -252,9 +248,8 @@ let package = Package(
                 .target(name: "ArcTheme"),
                 // the cron-store migration test constructs a FileCronStore.
                 .target(name: "ArcAgentCore"),
-                // sidebar-tab protocol + plugin packages under test.
+                // sidebar-tab protocol kit under test.
                 .product(name: "ArcSidebarTabs", package: "ArcSidebarTabs"),
-                .product(name: "GitHubSidebarTab", package: "GitHubSidebarTab"),
                 // the minifier the emitted sheet goes through: the drift test compares the
                 // product against `minifyCSS(source)`.
                 .product(name: "WebUICore", package: "no-webui"),

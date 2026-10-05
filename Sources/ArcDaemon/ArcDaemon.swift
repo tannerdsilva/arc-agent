@@ -1,7 +1,6 @@
 import ArcAgentCore
 import ArcWebUI
 import Foundation
-import GitHubSidebarTab
 import Logging
 import ServiceLifecycle
 
@@ -74,6 +73,13 @@ public enum ArcDaemon {
         )
 
         // ── surfaces ────────────────────────────────────────────────
+        // Sidecar plugins: every valid install under ~/.arc/plugins/
+        // spawns its own process and shows up as ordinary sidebar tabs
+        // (the reference GitHub plugin ships this way). Discovery happens
+        // before the host boots so the tab registry is complete at
+        // startup; the host state is attached afterwards for the
+        // plugin→host channel (workspace path, toasts, navigation).
+        let sidecarManager = SidecarPluginManager()
         var gateway: GatewayService?
         if let api = plan.api {
             gateway = GatewayService(
@@ -86,12 +92,14 @@ public enum ArcDaemon {
         }
         var uiHost: WebUIHost?
         if let webui = plan.webui {
+            let sidecarPlugins = await sidecarManager.discover()
             uiHost = try WebUIHost(
                 host: webui.host,
                 port: webui.port,
                 tesseraOff: plan.tesseraOff,
                 storage: storage,
-                thirdPartyPlugins: [GitHubSidebarTabPlugin()]
+                thirdPartyPlugins: sidecarPlugins,
+                sidecarManager: sidecarManager
             )
         }
 
@@ -134,6 +142,10 @@ public enum ArcDaemon {
 
         // cron rides with a surface: jobs need a runner.
         services.append(cronScheduler)
+
+        // Sidecar plugin processes ride the same lifecycle: graceful stop
+        // terminates every plugin before the daemon exits.
+        services.append(SidecarPluginService(manager: sidecarManager))
 
         if let mcp = plan.mcpServer {
             // TCP only — stdio is meaningless for a daemon. Exposes every

@@ -46,17 +46,23 @@ public struct WebUIHost: Service {
     /// cron runner) without racing the boot.
     let app: AppState
 
+    /// Sidecar plugin manager owned by the daemon; attached in `run()` so
+    /// the plugin processes' host-side requests resolve while serving.
+    let sidecarManager: SidecarPluginManager?
+
     public init(
         host: String = "127.0.0.1",
         port: Int = 8890,
         tesseraOff: Bool = false,
         storage: StorageRuntime? = nil,
-        thirdPartyPlugins: [any SidebarTabPlugin] = []
+        thirdPartyPlugins: [any SidebarTabPlugin] = [],
+        sidecarManager: SidecarPluginManager? = nil
     ) throws {
         self.host = host
         self.port = port
         self.tesseraOff = tesseraOff
         self.storage = storage
+        self.sidecarManager = sidecarManager
         self.app = try AppState(thirdPartyPlugins: thirdPartyPlugins)
     }
 
@@ -74,6 +80,13 @@ public struct WebUIHost: Service {
         WebUILogging.install()
         let logger = Logger(label: "arc-agent.webui")
         logger.info("starting (pid \(ProcessInfo.processInfo.processIdentifier))")
+
+        // Sidecar plugins answer host-side channel requests through the
+        // app state; attach before the first render (their activate/render
+        // calls can arrive as soon as the UI is up).
+        if let sidecarManager {
+            await sidecarManager.attachHost(self.app)
+        }
 
         let app = self.app
         if let storage {
