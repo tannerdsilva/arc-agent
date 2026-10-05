@@ -86,6 +86,10 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// OFF (agent may create/edit); enabling any of them makes the dedicated
     /// tools refuse. See ``AgentPowersConfig``.
     public var agentPowers: AgentPowersConfig
+
+    /// `processWatch` — scoped local process watching/control (plan B).
+    public var processWatch: ProcessWatchConfig
+
     /// External MCP servers (reference top-level `mcp_servers`): name → launch config.
     public var mcpServers: [String: MCPServerConfig]
 
@@ -156,6 +160,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         case toolSearch = "tool_search"
         case checkpoints
         case hooks
+        case processWatch = "process_watch"
     }
 
     // MARK: - Init
@@ -180,7 +185,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         toolSearch: ToolSearchConfig = ToolSearchConfig(),
         goals: GoalsConfig = GoalsConfig(),
         checkpoints: CheckpointsConfig? = nil,
-        hooks: HooksConfig = HooksConfig()
+        hooks: HooksConfig = HooksConfig(),
+        processWatch: ProcessWatchConfig = ProcessWatchConfig()
     ) {
         self.model = model
         self.agent = agent
@@ -202,6 +208,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.goals = goals
         self.checkpoints = checkpoints
         self.hooks = hooks
+        self.processWatch = processWatch
     }
 
     /// Decode each section independently, defaulting any that are absent.
@@ -228,6 +235,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.toolSearch = try container.decodeIfPresent(ToolSearchConfig.self, forKey: .toolSearch) ?? ToolSearchConfig()
         self.checkpoints = try container.decodeIfPresent(CheckpointsConfig.self, forKey: .checkpoints)
         self.hooks = try container.decodeIfPresent(HooksConfig.self, forKey: .hooks) ?? HooksConfig()
+        self.processWatch = try container.decodeIfPresent(ProcessWatchConfig.self, forKey: .processWatch)
+            ?? ProcessWatchConfig()
     }
 }
 

@@ -4,7 +4,23 @@ How an agent can watch the active processes of the machine it runs on
 (and machines reachable over SSH), react to lifecycle and health
 changes, and stay correctly scoped and safe doing it. This document
 scopes the capability for arc-agent and contrasts it with the reference
-(Hermes) behavior. It is a design/planning document — no code herein.
+(Hermes) behavior.
+
+> **Status (implemented):** Plans A and B are in the tree.
+> - **Plan A** (`ProcessRegistry` + `ApprovalManager` + agent gate):
+>   `process:spawned` / `process:exited` HookBus events for every owned
+>   background session; `kill`/`pkill`/`killall` classify dangerous;
+>   `process` kill and `process_watch` signal tool actions route through
+>   the approval gate.
+> - **Plan B** (`ArcAgentCore/Process/ProcessWatch.swift` +
+>   `Tools/ProcessWatchTool.swift` + daemon wiring): scoped local
+>   watcher (`ProcessWatchService`), `ps`-collector (Darwin/Linux),
+>   allowlist+deny+identity scoping, `process:started`/`exited`/
+>   `threshold` events via HookBus, `process_watch list|inspect|signal|
+>   targets|status` tool, `processWatch` config block. Fail-closed,
+>   observe-only default, control requires `control: true` + approval.
+>   Plans C/D/E (remote observers, native events, process jobs) remain
+>   scoped but unimplemented — see sections 4–6.
 
 ## 1. What exists today
 

@@ -68,6 +68,7 @@ public enum ProcessTool {
                         "command": summary.command,
                         "status": summary.status,
                         "exit_code": summary.exitCode ?? NSNull(),
+                        "pid": summary.pid ?? NSNull(),
                     ] as [String: Any]
                 }
             return try json(["processes": processes])

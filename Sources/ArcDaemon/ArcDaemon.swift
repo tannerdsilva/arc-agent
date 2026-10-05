@@ -38,6 +38,17 @@ public enum ArcDaemon {
         // stay authoritative for the whole process.
         AgentPowers.configure(arc.agentPowers)
 
+        // Plan B: scoped process watcher. Configured always (so the
+        // `process_watch` tool sees the rules even when disabled); the
+        // service joins the tree only when enabled. Owned background
+        // sessions are excluded from observation — they emit their own
+        // `process:*` lifecycle events (plan A).
+        await ProcessWatchService.shared.configure(arc.processWatch)
+        let ownedPIDs = Set(await ProcessRegistry.shared.summaries().compactMap { summary in
+            summary.status == "running" ? summary.pid : nil
+        })
+        await ProcessWatchService.shared.setAgentPIDs(ownedPIDs)
+
         // ONE storage decision for the whole process: the gateway's session
         // agents and the web UI share this exact pair (no second env on the
         // same store directories).
@@ -144,8 +155,14 @@ public enum ArcDaemon {
         services.append(cronScheduler)
 
         // Sidecar plugin processes ride the same lifecycle: graceful stop
-        // terminates every plugin before the daemon exits.
+        // terminates every plugin child before the host exits.
         services.append(SidecarPluginService(manager: sidecarManager))
+
+        // Plan B: scoped process watcher (Second Law — one Service in the
+        // tree; polls, diffs, emits `process:*` HookBus events).
+        if arc.processWatch.enabled {
+            services.append(ProcessWatchService.shared)
+        }
 
         if let mcp = plan.mcpServer {
             // TCP only — stdio is meaningless for a daemon. Exposes every

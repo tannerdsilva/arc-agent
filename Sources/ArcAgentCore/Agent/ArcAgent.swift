@@ -2663,8 +2663,42 @@ public actor ArcAgent: Service {
     /// tools the approval manager gates: a manual/smart approval policy is
     /// meaningless if a process-execution path can sidestep it entirely.
     /// (Read-only tools deliberately stay ungated.)
-    static func requiresApprovalForTool(named name: String) -> Bool {
-        name == "terminal" || name == "execute_code"
+    /// Which tools route through the approval gate. Control actions on
+    /// processes (agent-owned `process kill`, machine `process_watch
+    /// signal`) are gated like destructive shell commands.
+    static func requiresApprovalForTool(named name: String, arguments: String) -> Bool {
+        switch name {
+        case "terminal", "execute_code":
+            return true
+        case "process":
+            return actionIs("kill", in: arguments)
+        case "process_watch":
+            return actionIs("signal", in: arguments)
+        default:
+            return false
+        }
+    }
+
+    /// Tolerant scan of a tool-arguments JSON string for
+    /// `"action" : "signal"` (any whitespace between tokens).
+    static func actionIs(_ action: String, in arguments: String) -> Bool {
+        guard let range = arguments.range(of: "\"action\"") else { return false }
+        var i = range.upperBound
+        let chars = arguments[i...]
+        var idx = chars.startIndex
+        func skipWhitespace() {
+            while idx < chars.endIndex, chars[idx].isWhitespace { idx = chars.index(after: idx) }
+        }
+        skipWhitespace()
+        guard idx < chars.endIndex, chars[idx] == ":" else { return false }
+        idx = chars.index(after: idx)
+        skipWhitespace()
+        guard idx < chars.endIndex, chars[idx] == "\"" else { return false }
+        idx = chars.index(after: idx)
+        let valueStart = idx
+        while idx < chars.endIndex, chars[idx] != "\"" { idx = chars.index(after: idx) }
+        let value = String(chars[valueStart..<min(idx, chars.endIndex)])
+        return value == action
     }
 
     /// Tools that are safe to run concurrently within one batch: read-only,
@@ -3029,7 +3063,7 @@ public actor ArcAgent: Service {
     /// Run one tool call end to end: terminal approval gate, dispatch, and
     /// metrics. Returns the string that becomes the tool result message.
     private func runToolCall(_ toolCall: ToolCall) async -> String {
-        if Self.requiresApprovalForTool(named: toolCall.function.name) {
+        if Self.requiresApprovalForTool(named: toolCall.function.name, arguments: toolCall.function.arguments) {
             let args = toolCall.function.arguments
             if await approvalManager.needsApproval(command: args, sessionKey: sessionID) {
                 switch await approvalManager.requestApproval(
