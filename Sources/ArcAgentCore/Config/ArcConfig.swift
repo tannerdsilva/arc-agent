@@ -406,6 +406,15 @@ public struct AgentConfig: Codable, Sendable, Equatable {
     /// appended to the base prompt (reference `agent.system_prompt`). Empty =
     /// no overlay.
     public var systemPrompt: String
+    /// Inject the "Finishing the job" task-completion guidance (arc parity:
+    /// reference `agent.task_completion_guidance`). Default ON.
+    public var taskCompletionGuidance: Bool
+    /// Inject the "Parallel tool calls" batching guidance (arc parity:
+    /// reference `agent.parallel_tool_call_guidance`). Default ON.
+    public var parallelToolCallGuidance: Bool
+    /// Inject tool-aware guidance for memory/session_search/skills tools
+    /// (arc parity: reference `agent.tool_aware_guidance`). Default ON.
+    public var toolAwareGuidance: Bool
     /// Named personality overlays (reference `agent.personalities`): each entry
     /// is either a plain string or `{description, system_prompt, tone, style}`.
     public var personalities: [String: PersonalityOverlay]
@@ -434,6 +443,9 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         microCompactEveryNTurns: Int = 1,
         microCompactDefragThresholdTokens: Int = 2000,
         systemPrompt: String = "",
+        taskCompletionGuidance: Bool = true,
+        parallelToolCallGuidance: Bool = true,
+        toolAwareGuidance: Bool = true,
         personalities: [String: PersonalityOverlay] = [:],
         verifyOnStop: Bool = false,
         skillInlineCommands: Bool = true,
@@ -449,6 +461,9 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         self.microCompactEveryNTurns = microCompactEveryNTurns
         self.microCompactDefragThresholdTokens = microCompactDefragThresholdTokens
         self.systemPrompt = systemPrompt
+        self.taskCompletionGuidance = taskCompletionGuidance
+        self.parallelToolCallGuidance = parallelToolCallGuidance
+        self.toolAwareGuidance = toolAwareGuidance
         self.personalities = personalities
         self.verifyOnStop = verifyOnStop
         self.skillInlineCommands = skillInlineCommands
@@ -468,6 +483,9 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         self.microCompactEveryNTurns = try container.decodeIfPresent(Int.self, forKey: .microCompactEveryNTurns) ?? AgentConfig().microCompactEveryNTurns
         self.microCompactDefragThresholdTokens = try container.decodeIfPresent(Int.self, forKey: .microCompactDefragThresholdTokens) ?? AgentConfig().microCompactDefragThresholdTokens
         self.systemPrompt = try container.decodeIfPresent(String.self, forKey: .systemPrompt) ?? ""
+        self.taskCompletionGuidance = try container.decodeIfPresent(Bool.self, forKey: .taskCompletionGuidance) ?? true
+        self.parallelToolCallGuidance = try container.decodeIfPresent(Bool.self, forKey: .parallelToolCallGuidance) ?? true
+        self.toolAwareGuidance = try container.decodeIfPresent(Bool.self, forKey: .toolAwareGuidance) ?? true
         self.personalities = try container.decodeIfPresent([String: PersonalityOverlay].self, forKey: .personalities) ?? [:]
 
         // Note: `CodingKeys` is synthesized from property names; use the

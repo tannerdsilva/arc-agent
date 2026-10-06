@@ -252,6 +252,9 @@ struct Chat: AsyncParsableCommand {
             approvalMode: approvalMode,
             query: query,
             personalityPrompt: arcConfig.agent.systemPrompt,
+            taskCompletionGuidance: arcConfig.agent.taskCompletionGuidance,
+            parallelToolCallGuidance: arcConfig.agent.parallelToolCallGuidance,
+            toolAwareGuidance: arcConfig.agent.toolAwareGuidance,
             microCompact: MicroCompactConfig(
                 enabled: arcConfig.agent.microCompactEnabled,
                 everyNTurns: arcConfig.agent.microCompactEveryNTurns,

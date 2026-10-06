@@ -65,6 +65,16 @@ public actor ArcAgent: Service {
         /// system prompt as a `## Personality` section. Empty = no overlay.
         public var personalityPrompt: String = ""
 
+        /// Inject the "Finishing the job" task-completion guidance (arc
+        /// parity: reference `agent.task_completion_guidance`). Default ON.
+        public var taskCompletionGuidance: Bool = true
+        /// Inject the "Parallel tool calls" batching guidance (arc parity:
+        /// reference `agent.parallel_tool_call_guidance`). Default ON.
+        public var parallelToolCallGuidance: Bool = true
+        /// Inject tool-aware guidance for memory/session_search/skills tools
+        /// (arc parity: reference `agent.tool_aware_guidance`). Default ON.
+        public var toolAwareGuidance: Bool = true
+
         /// reference micro-compaction (docs/micro-compaction.md): after each
         /// completed turn, absorb one exchange into a rolling summary. Off by
         /// default; enabled via `compression.micro_compact`.
@@ -151,6 +161,9 @@ public actor ArcAgent: Service {
             maxContextTokens: Int = 64_000,
             auxiliary: AuxiliaryModelSet = AuxiliaryModelSet(),
             personalityPrompt: String = "",
+            taskCompletionGuidance: Bool = true,
+            parallelToolCallGuidance: Bool = true,
+            toolAwareGuidance: Bool = true,
             microCompact: MicroCompactConfig = MicroCompactConfig(),
             sessionID: String? = nil,
             contextLength: Int? = nil,
@@ -188,6 +201,9 @@ public actor ArcAgent: Service {
             self.maxContextTokens = maxContextTokens
             self.auxiliary = auxiliary
             self.personalityPrompt = personalityPrompt
+            self.taskCompletionGuidance = taskCompletionGuidance
+            self.parallelToolCallGuidance = parallelToolCallGuidance
+            self.toolAwareGuidance = toolAwareGuidance
             self.microCompact = microCompact
             self.agentPowers = agentPowers
             self.sessionID = sessionID
@@ -3158,6 +3174,27 @@ public actor ArcAgent: Service {
             - When you say you will perform an action, do it immediately.
             - Keep working until the task is actually complete.
             """
+
+        // ── Universal guidance (arc parity: hermes prompt_builder guides) ──
+        if config.taskCompletionGuidance {
+            stable += "\n\n" + PromptGuidance.taskCompletion
+        }
+        if config.parallelToolCallGuidance {
+            stable += "\n\n" + PromptGuidance.parallelToolCalls
+        }
+        if config.toolAwareGuidance {
+            let toolNames = Set(config.registry.allTools.map(\.name))
+            let blocks = PromptGuidance.toolAware(
+                hasMemory: toolNames.contains("memory"),
+                hasSessionSearch: toolNames.contains("session_search"),
+                hasSkillTools: toolNames.contains("skill_manage")
+                    || toolNames.contains("skills_list")
+                    || toolNames.contains("skill_view")
+            )
+            if !blocks.isEmpty {
+                stable += "\n\n" + blocks.joined(separator: "\n\n")
+            }
+        }
 
         // Environment hints (stable per machine).
         let osDescription: String
