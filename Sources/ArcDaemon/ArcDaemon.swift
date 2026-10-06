@@ -114,6 +114,27 @@ public enum ArcDaemon {
             )
         }
 
+        // ── tool plugins ──────────────────────────────────────────
+        // Executable plugin tools under ~/.arc/plugins/<name>/ are loaded
+        // per-session by MutableToolRegistry.make() (SessionAgent). Warm
+        // discovery here so malformed installs and tool-set surprises show
+        // up in the daemon log at boot (never blocking) instead of on the
+        // first session.
+        let pluginRegistry = PluginRegistry.shared
+        do {
+            try await pluginRegistry.loadAll()
+        } catch {
+            logger.warning("tool plugin discovery failed: \(error)")
+        }
+        let pluginManifests = await pluginRegistry.plugins()
+        let pluginTools = await pluginRegistry.tools()
+        let pluginIssues = await pluginRegistry.discoveryIssues()
+        if !pluginManifests.isEmpty {
+            logger.info("tool plugins: \(pluginManifests.count) plugin(s), \(pluginTools.count) tool(s) [\(pluginManifests.keys.sorted().joined(separator: ", "))]")
+        } else if !pluginIssues.isEmpty {
+            logger.warning("tool plugin discovery found \(pluginIssues.count) issue(s): \(pluginIssues.joined(separator: "; "))")
+        }
+
         // ── cron: ONE engine, ONE store ─────────────────────────────
         // The daemon owns the scheduler; job execution prefers the web UI's
         // approval-aware headless runner and falls back to the gateway's

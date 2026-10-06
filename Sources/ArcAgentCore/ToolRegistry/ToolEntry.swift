@@ -105,3 +105,10 @@ public typealias ToolHandler = @Sendable (sending [String: Any]) async throws ->
 ///
 /// - Returns: `true` if the tool is available, `false` otherwise.
 public typealias ToolRequirementCheck = @Sendable () -> Bool
+
+// MARK: - AgentTool Conformance
+
+/// ``ToolEntry`` is the canonical built-in ``AgentTool``: everything its
+/// stored properties declare is exactly what the protocol requires, so the
+/// conformance is a plain structural match (no additional behavior).
+extension ToolEntry: AgentTool {}

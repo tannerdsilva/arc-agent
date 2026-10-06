@@ -22,7 +22,7 @@
 public struct CompileTimeToolRegistry: ToolRegistry {
 
     /// The internal storage, keyed by tool name.
-    private var tools: [String: ToolEntry] = [:]
+    private var tools: [String: any AgentTool] = [:]
 
     /// Create an empty registry.
     public init() {}
@@ -33,7 +33,7 @@ public struct CompileTimeToolRegistry: ToolRegistry {
     ///
     /// - Throws: ``ToolRegistryError.duplicateName`` if a tool named
     ///   `tool.name` is already registered.
-    public mutating func register(_ tool: ToolEntry) throws {
+    public mutating func register(_ tool: any AgentTool) throws {
         guard tools[tool.name] == nil else {
             throw ToolRegistryError.duplicateName(tool.name)
         }
@@ -41,12 +41,12 @@ public struct CompileTimeToolRegistry: ToolRegistry {
     }
 
     /// Look up a tool by name.
-    public func lookup(name: String) -> ToolEntry? {
+    public func lookup(name: String) -> (any AgentTool)? {
         tools[name]
     }
 
     /// All registered tools, in registration order.
-    public var allTools: [ToolEntry] {
+    public var allTools: [any AgentTool] {
         // Dictionary values are not ordered, but for deterministic schema
         // output we sort by name.
         tools.values.sorted { $0.name < $1.name }

@@ -644,7 +644,7 @@ actor AppState {
     var profiles: [Profile] = []
     var selectedProfile: String?
 
-    var toolsets: [(name: String, tools: [ToolEntry])] = []
+    var toolsets: [(name: String, tools: [any AgentTool])] = []
     var selectedTool: String?
 
     var selectedWorkspace: String?

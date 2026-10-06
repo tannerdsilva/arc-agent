@@ -24,22 +24,22 @@ public protocol ToolRegistry: Sendable {
 
     /// Register a tool with the registry.
     ///
-    /// - Parameter tool: The tool entry to register.
+    /// - Parameter tool: The tool entry to register (built-in or plugin —
+    ///   anything conforming to ``AgentTool``).
     /// - Throws: ``ToolRegistryError.duplicateName`` if a tool with the same
     ///   name is already registered.
-    mutating func register(_ tool: ToolEntry) throws
+    mutating func register(_ tool: any AgentTool) throws
 
     /// Look up a tool by name.
     ///
     /// - Parameter name: The tool's unique name.
-    /// - Returns: The tool entry, or `nil` if no tool with that name is
-    ///   registered.
-    func lookup(name: String) -> ToolEntry?
+    /// - Returns: The tool, or `nil` if no tool with that name is registered.
+    func lookup(name: String) -> (any AgentTool)?
 
     /// All registered tools.
     ///
     /// The order is insertion order — tools registered first appear first.
-    var allTools: [ToolEntry] { get }
+    var allTools: [any AgentTool] { get }
 
     /// Build the OpenAI-compatible function-calling schema array.
     ///

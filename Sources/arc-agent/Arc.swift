@@ -27,6 +27,7 @@ struct Arc: AsyncParsableCommand {
             Serve.self,
             Setup.self,
             Tools.self,
+            PluginsCmd.self,
             Profile.self,
             SessionsCmd.self,
             ApprovalsCmd.self,
