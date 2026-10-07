@@ -204,7 +204,10 @@ public actor ProfileManager {
 
     public func get(name: String) async throws -> Profile? {
         try await seedCache()
-        return cache[name]
+        guard let cached = cache[name] else { return nil }
+        // The cache may be newer than the index but older than a hand-edited
+        // config.json; always overlay the authoritative config record.
+        return Self.overlayWithConfig(cached)
     }
 
     /// List all profiles, sorted by creation date (newest first).
@@ -366,7 +369,37 @@ public actor ProfileManager {
               let index = try? JSONDecoder().decode([String: Profile].self, from: data) else {
             return [:]
         }
-        return index
+        // The index is a list cache; `profiles/<name>/config.json` is the
+        // authoritative full record (persistProfile writes both, and users
+        // may edit config.json directly). Overlay the config.json fields so
+        // the documented "active profile overrides model/provider/context
+        // from ~/.arc/profiles/<name>/config.json" actually takes effect
+        // even when the index entry is stale (e.g. a profile created with
+        // `arc profile create` and then hand-edited).
+        return index.mapValues { Self.overlayWithConfig($0) }
+    }
+
+    /// Merge the non-nil fields of `profiles/<name>/config.json` over `base`
+    /// (the index/cache entry), so hand-edited config.json values win.
+    static func overlayWithConfig(_ base: Profile) -> Profile {
+        let cfgPath = configPath(for: base.name)
+        guard let configData = try? Data(contentsOf: URL(fileURLWithPath: cfgPath)),
+              let full = try? JSONDecoder().decode(Profile.self, from: configData) else {
+            return base
+        }
+        var merged = base
+        merged.title = full.title
+        merged.description = full.description
+        if let v = full.model { merged.model = v }
+        if let v = full.provider { merged.provider = v }
+        if let v = full.baseURL { merged.baseURL = v }
+        if let v = full.context { merged.context = v }
+        if let v = full.contextSkills { merged.contextSkills = v }
+        if let v = full.enabledToolsets { merged.enabledToolsets = v }
+        if let v = full.disabledToolsets { merged.disabledToolsets = v }
+        if let v = full.soulMD { merged.soulMD = v }
+        merged.hasCustomKey = merged.hasCustomKey || full.hasCustomKey
+        return merged
     }
 
     /// Write the profile index to `~/.arc/profiles/index.json`.

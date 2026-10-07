@@ -36,6 +36,29 @@ struct ProfileDistributionTests {
         }
     }
 
+    @Test("get() overlays model/baseURL from config.json when the index entry is stale")
+    func getOverlaysConfigOverIndex() async throws {
+        try await withTempRoot {
+            let manager = ProfileManager()
+            var p = try await manager.create(name: "prod")
+            p.model = "gpt-5"
+            try await manager.update(p)
+
+            // Simulate a user hand-editing profiles/prod/config.json (the
+            // benchmark scenario: `arc profile create` then patch config.json;
+            // the index entry still carries the created-at values).
+            let configURL = URL(fileURLWithPath: ProfileManager.configPath(for: "prod"))
+            var cfg = try JSONDecoder().decode(Profile.self, from: Data(contentsOf: configURL))
+            cfg.model = "gpt-9"
+            cfg.baseURL = "http://127.0.0.1:8000/v1"
+            try JSONEncoder().encode(cfg).write(to: configURL, options: .atomic)
+
+            let loaded = try await manager.get(name: "prod")
+            #expect(loaded?.model == "gpt-9")
+            #expect(loaded?.baseURL == "http://127.0.0.1:8000/v1")
+        }
+    }
+
     @Test("export → delete → import round-trips the profile record")
     func exportImportRoundTrip() async throws {
         try await withTempRoot {
