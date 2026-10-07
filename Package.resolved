@@ -1,5 +1,5 @@
 {
-  "originHash" : "3c8d5e1e32e871d5c72efcee6eb4c64b71e0011c8ca37ed685326248182c12b0",
+  "originHash" : "d175ff091c8fa437cb60f012a4287ea29677954c6a7f76cddbb64dd490ccb78f",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -75,7 +75,7 @@
     {
       "identity" : "quicklmdb",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/tannerdsilva/QuickLMDB",
+      "location" : "https://github.com/tannerdsilva/QuickLMDB.git",
       "state" : {
         "revision" : "588b11d6de70e4a610ae8934d0e293c7301ac28b",
         "version" : "16.0.0"
@@ -322,15 +322,6 @@
       "state" : {
         "revision" : "89654221a526ad4496f59c32746025067d72491a",
         "version" : "5.0.1"
-      }
-    },
-    {
-      "identity" : "wireguard-swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/tannerdsilva/wireguard-swift",
-      "state" : {
-        "revision" : "c44539e0e8fc2b1513d1d9bfeb6e963982f23bde",
-        "version" : "0.1.1"
       }
     },
     {
