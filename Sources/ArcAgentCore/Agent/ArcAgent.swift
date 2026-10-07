@@ -1878,6 +1878,7 @@ public actor ArcAgent: Service {
                 turnInterrupted = false
                 emit(.textDelta("Interrupted by user."))
                 emit(.completed(finalText: "Interrupted by user."))
+                await persistConversationIfNeeded()
                 return
             }
             // Reference gateway event: `agent:step` per tool-loop iteration.
@@ -2004,6 +2005,7 @@ public actor ArcAgent: Service {
                     let text = "The model request exceeded the maximum turn duration. Please try again or shorten the context."
                     emit(.textDelta(text))
                     emit(.completed(finalText: text))
+                    await persistConversationIfNeeded()
                     return
                 }
 
@@ -2016,6 +2018,7 @@ public actor ArcAgent: Service {
                         let text = "The model stream stalled repeatedly. Please try again."
                         emit(.textDelta(text))
                         emit(.completed(finalText: text))
+                        await persistConversationIfNeeded()
                         return
                     }
                     if !turnRecoveryState.primaryRecoveryAttempted {
@@ -2058,6 +2061,7 @@ public actor ArcAgent: Service {
                     }
                 }
                 emit(.failed("Error: \(error.localizedDescription)"))
+                await persistConversationIfNeeded()
                 return
             }
 
@@ -2084,6 +2088,7 @@ public actor ArcAgent: Service {
                 turnRecoveryState.markProviderSuccess()
                 if let streamUsage { await recordUsage(streamUsage) }
                 emit(.completed(finalText: content))
+                await persistConversationIfNeeded()
                 return
 
             case .toolCalls(let toolCalls):
@@ -2128,6 +2133,7 @@ public actor ArcAgent: Service {
                 if turnRecoveryState.emptyStormStreak >= TurnRecoveryState.emptyStormThreshold {
                     emit(.textDelta(RecoveryNudges.emptyStormExhaustedMessage))
                     emit(.completed(finalText: RecoveryNudges.emptyStormExhaustedMessage))
+                    await persistConversationIfNeeded()
                     return
                 }
                 continue
@@ -2144,6 +2150,7 @@ public actor ArcAgent: Service {
         let limitText = "The conversation reached the maximum iteration limit. Please start a new session."
         emit(.textDelta(limitText))
         emit(.completed(finalText: limitText))
+        await persistConversationIfNeeded()
     }
 
     /// Call the LLM with retry logic, circuit breaker, and exponential backoff.
