@@ -13,8 +13,11 @@ public enum WebExtractTool {
         name: "web_extract",
         toolset: "web",
         description: "Extract content from web pages (URLs) as clean markdown/text. "
-            + "Accepts a single URL or a list of URLs; each page is returned with "
-            + "content, truncated to char_limit with full text cached for read_file.",
+            + "Accepts a single URL or a list of URLs; each page is returned with a "
+            + "grounding envelope ([TITLE]/[H1]/[LENGTH] — explicit (none) when absent), "
+            + "content, truncated to char_limit with full text cached for read_file. "
+            + "Report only structure actually present in the returned content; never assert "
+            + "headings or other page elements the output does not show.",
         schema: .object(
             description: "Extract content from URLs",
             properties: [
@@ -73,6 +76,48 @@ public enum WebExtractTool {
         )
     }
 
+    /// Structured page metadata for the model: explicit `(none)` markers
+    /// ground page structure, so the agent cannot assert headings or other
+    /// elements the fetch never saw.
+    static func pageEnvelope(url: String, title: String?, h1: String?, length: Int) -> String {
+        "### \(url)\n"
+            + "[TITLE] \(title ?? "(none)")\n"
+            + "[H1] \(h1 ?? "(none)")\n"
+            + "[LENGTH] \(length)\n"
+            + "---"
+    }
+
+    /// First capture group of the pattern, or nil.
+    static func firstMatch(_ pattern: String, in text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, range: range) else { return nil }
+        let groupRange = match.range(at: 1)
+        guard groupRange.location != NSNotFound else { return nil }
+        return (text as NSString).substring(with: groupRange)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// First `# ` heading in markdown content, or nil.
+    static func markdownH1(_ content: String) -> String? {
+        for line in content.split(separator: "\n") where line.hasPrefix("# ") {
+            return String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+        }
+        return nil
+    }
+
+    /// Extract the HTML `<title>` — nil when absent.
+    static func htmlTitle(_ body: String) -> String? {
+        firstMatch("<title[^>]*>(.*?)</title>", in: body)
+    }
+
+    /// Extract the HTML first `<h1>` — nil when absent.
+    static func htmlH1(_ body: String) -> String? {
+        firstMatch("<h1[^>]*>(.*?)</h1>", in: body)
+    }
+
     private static func extract(urls: [String], format: String?, charLimit: Int) async throws -> String {
         // Resolve the extract backend (reference `_resolve_provider`).
         let config = loadConfig()
@@ -98,6 +143,13 @@ public enum WebExtractTool {
                 page = try await fallbackExtract(url: url, format: format)
             }
             var content = replaceInlineBase64(page.content)
+            // Grounding envelope: for provider markdown, derive the first
+            // heading; the raw-HTML fallback already stamped title/H1 from
+            // the page body (explicit (none) when absent).
+            if extractor != nil {
+                content = pageEnvelope(url: url, title: nil, h1: markdownH1(content), length: content.count)
+                    + "\n\n" + content
+            }
             if format == "html" && page.format != "html" {
                 content = stripHTML(content)
             }
@@ -148,7 +200,16 @@ public enum WebExtractTool {
         let data = try await response.body.collect(upTo: 1_000_000)
         let body = String(data: Data(buffer: data), encoding: .utf8) ?? ""
         if urlString.contains(".html") || body.contains("<!DOCTYPE") || body.contains("<html") {
-            return ExtractedPage(url: urlString, content: stripHTML(body), format: "text")
+            let stripped = stripHTML(body)
+            // Grounding envelope stamped from the raw body (before strip) so
+            // page structure is explicit — including (none) when absent.
+            let envelope = pageEnvelope(
+                url: urlString,
+                title: htmlTitle(body),
+                h1: htmlH1(body),
+                length: body.count
+            )
+            return ExtractedPage(url: urlString, content: envelope + "\n\n" + stripped, format: "text")
         }
         return ExtractedPage(url: urlString, content: body, format: "text")
     }
