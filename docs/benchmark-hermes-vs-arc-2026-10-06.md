@@ -158,3 +158,23 @@ The guidance port from today (`0025bf9b`: TASK_COMPLETION / PARALLEL_TOOL_CALL /
 - Transcriptions: `/tmp/transcripts-arc.jsonl`, `/tmp/transcripts-hermes.jsonl`.
 - Artifacts: `/tmp/arc-bench/`, `/tmp/hermes-bench/` (bench.md, p/q/p1/p3/merged, gitbench, longdoc.txt).
 - Sessions retained: Hermes `20261006_190807_200313`, arc `E7354C9E-8B28-4AB3-9350-1A1C5F3A4920` — both titled BENCHMARK TEST.
+
+---
+
+## 9. Fix status (2026-10-07)
+
+All four headline findings have been fixed in `arc-agent` on the `tessera` branch
+(commits `2699c209`, `ba8a54a0`, `0407af76`, + delegation commit):
+
+| Finding | Status | Verification |
+|---|---|---|
+| F1 delegation stub | **Fixed** | `DelegationManager` now spawns a real isolated `ArcAgent` child (own context, filtered registry, volatile store); `delegate_task` awaits the child's final answer. Live: parent relayed `delegated-pong-42` verbatim. Unit tests: real-summary, toolset stripping, steering, cancel, cap (5 tests). |
+| F2 web fabrication | **Fixed** | `web_extract` returns a grounding envelope (`[TITLE]`/`[H1]`/`[LENGTH]`, explicit `(none)`), plus description guidance. Live: example.com reported `[H1] (none)` and the model answered "no heading elements" (previous run invented `<h1>`). 4 new tests. |
+| F3 session plumbing | **Fixed** | `runStreamingTurnLoop` persists at every exit (`arc chat -q` no longer skips persistence; verified: new session file with 4 structured messages). `arc sessions list/show/delete/export/prune/rename` now resolve the same store as the chat path via `SessionStoreResolver` (tessera-first with bounded handshake + file fallback). 5 new tests. |
+| F4 per-tool metadata | Open | Not implemented in this pass; the store already records tool call/result structure — disposition/duration metadata remains future work. |
+
+An additional root-cause fix landed while closing F3: `ProfileManager.get()` now
+overlays `profiles/<name>/config.json` over the index entry (commit `0407af76`).
+This was the loading bug that made the benchmark's `--profile bench` model/baseURL
+override silently inert — the reason the arc side ran `deepseek-v4-flash-vision-exp`
+remotely instead of the local Qwen model (see section 3.5).
