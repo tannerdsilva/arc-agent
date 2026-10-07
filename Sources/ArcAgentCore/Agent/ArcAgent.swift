@@ -182,7 +182,9 @@ public actor ArcAgent: Service {
             maxOutputTokens: Int? = nil,
             agentPowers: AgentPowersConfig = AgentPowersConfig(),
             mcpServers: [String: MCPServerConfig] = [:],
-            disabledToolsets: Set<String> = []
+            disabledToolsets: Set<String> = [],
+            delegation: DelegationConfig = DelegationConfig(),
+            llmClient: (any LLMClient)? = nil
         ) {
             self.model = model
             self.provider = provider
@@ -223,6 +225,8 @@ public actor ArcAgent: Service {
             self.verifyOnStop = verifyOnStop
             self.mcpServers = mcpServers
             self.disabledToolsets = disabledToolsets
+            self.delegation = delegation
+            self.llmClient = llmClient
         }
 
         /// External MCP servers (reference `mcp_servers`).
@@ -230,6 +234,14 @@ public actor ArcAgent: Service {
 
         /// Toolsets to disable for this agent run (reference `--toolsets`).
         public var disabledToolsets: Set<String>
+
+        /// Delegation settings (child concurrency, turn budget, timeout).
+        public var delegation: DelegationConfig
+
+        /// Optional pre-built LLM client (tests, delegation children).
+        /// When set, ``prime()`` uses it instead of building one from the
+        /// config's baseURL/apiKey.
+        public var llmClient: (any LLMClient)?
     }
 
     // MARK: - State
@@ -363,7 +375,12 @@ public actor ArcAgent: Service {
         // (once the agent's own state is fully initialized).
         self.approvalManager = ApprovalManager(mode: config.approvalMode)
         self.toolGuardrails = ToolGuardrails(limits: .init(loopCap: config.toolLoopCap))
-        self.delegationManager = DelegationManager(maxChildren: 10)
+        self.delegationManager = DelegationManager(
+            maxChildren: config.delegation.maxConcurrentChildren,
+            parentConfiguration: config,
+            childMaxTurns: config.delegation.maxTurns,
+            childTimeout: config.delegation.defaultTimeout
+        )
     }
 
     /// Wire the `approval` auxiliary model into smart approval mode.
@@ -566,7 +583,7 @@ public actor ArcAgent: Service {
                     ?? 32_768
             )
         )
-        self.llmClient = client
+        self.llmClient = config.llmClient ?? client
 
         // Wire delegation tools to the manager
         DelegateTaskTool.manager = delegationManager
@@ -599,6 +616,14 @@ public actor ArcAgent: Service {
         }
 
         try? await httpClient?.shutdown()
+    }
+
+    /// One-shot execution for delegation children: prime (idempotent), run
+    /// the conversation, and return the final response text without
+    /// printing. The caller owns teardown (`shutdownHTTPClient()`).
+    func runOneShot(query: String) async throws -> String {
+        try await prime()
+        return try await runConversation(message: query)
     }
 
     // MARK: - Interactive REPL

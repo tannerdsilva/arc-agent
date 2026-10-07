@@ -59,6 +59,10 @@ public enum DelegationError: Error, Sendable, CustomStringConvertible {
     case notSteerable(String)
     /// The subagent limit was reached.
     case tooManyChildren(max: Int)
+    /// The delegation manager has no parent configuration to clone.
+    case notConfigured
+    /// The child exceeded the delegation timeout.
+    case timeout(seconds: Int)
 
     public var description: String {
         switch self {
@@ -68,6 +72,10 @@ public enum DelegationError: Error, Sendable, CustomStringConvertible {
             return "Subagent '\(id)' is not steerable (status: not running)."
         case .tooManyChildren(let max):
             return "Maximum number of children (\(max)) reached."
+        case .notConfigured:
+            return "Delegation manager was not configured with a parent configuration."
+        case .timeout(let seconds):
+            return "Subagent timed out after \(seconds)s."
         }
     }
 }

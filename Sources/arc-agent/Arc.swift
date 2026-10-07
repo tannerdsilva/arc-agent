@@ -263,7 +263,8 @@ struct Chat: AsyncParsableCommand {
             maxOutputTokens: arcConfig.model.maxOutputTokens,
             agentPowers: arcConfig.agentPowers,
             mcpServers: arcConfig.mcpServers,
-            disabledToolsets: disabledToolsets
+            disabledToolsets: disabledToolsets,
+            delegation: arcConfig.delegation
         )
 
         let agent = ArcAgent(config: agentConfig)

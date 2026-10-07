@@ -540,10 +540,21 @@ public struct DelegationConfig: Codable, Sendable, Equatable {
     public var maxConcurrentChildren: Int
     /// Maximum spawn depth.
     public var maxSpawnDepth: Int
+    /// Per-child turn-loop iteration budget (tool + LLM rounds).
+    public var maxTurns: Int
+    /// Wall-clock budget in seconds for a child before it is cancelled.
+    public var defaultTimeout: Int
 
-    public init(maxConcurrentChildren: Int = 12, maxSpawnDepth: Int = 3) {
+    public init(
+        maxConcurrentChildren: Int = 12,
+        maxSpawnDepth: Int = 3,
+        maxTurns: Int = 25,
+        defaultTimeout: Int = 600
+    ) {
         self.maxConcurrentChildren = maxConcurrentChildren
         self.maxSpawnDepth = maxSpawnDepth
+        self.maxTurns = maxTurns
+        self.defaultTimeout = defaultTimeout
     }
 
     /// Decode each field independently, defaulting any that are absent.
@@ -551,6 +562,8 @@ public struct DelegationConfig: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.maxConcurrentChildren = try container.decodeIfPresent(Int.self, forKey: .maxConcurrentChildren) ?? DelegationConfig().maxConcurrentChildren
         self.maxSpawnDepth = try container.decodeIfPresent(Int.self, forKey: .maxSpawnDepth) ?? DelegationConfig().maxSpawnDepth
+        self.maxTurns = try container.decodeIfPresent(Int.self, forKey: .maxTurns) ?? DelegationConfig().maxTurns
+        self.defaultTimeout = try container.decodeIfPresent(Int.self, forKey: .defaultTimeout) ?? DelegationConfig().defaultTimeout
     }
 }
 
