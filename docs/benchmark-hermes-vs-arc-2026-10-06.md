@@ -10,7 +10,12 @@
 
 Both harnesses were driven via their CLIs, one at a time, against a **single identical 17-prompt suite** (`/tmp/bench-suite.jsonl`, one JSON prompt per line, byte-identical text for both agents). Every prompt targeted a distinct surface: formatting, file R/W/search/patch, terminal, blocked-path honesty, delegation, skills, memory, session search, progressive tool disclosure, code execution, error recovery, planning, git, parallel batching, long-context precision, cross-turn recall, and meta-introspection.
 
-**Model caveat (important):** the normal benchmark model box (deepseek-v4-flash-vision-exp, served by oMLX at `[fdfd:a87e:…]:8888` via the WireGuard tunnel to a Raspberry Pi) was **offline** for the entire run (no ARP/ICMP/SSH; LAN IP unreachable). Both agents were re-pointed at the **same local oMLX server on this Mac** (`127.0.0.1:8000`) serving **Qwen3.6-35B-A3B-OptiQ-4bit** (262k context) for the whole suite — so the comparison stays apples-to-apples on model, but is not the usual flash model. Configs were backed up before and restored after (arc `~/.arc/config.json`, hermes `~/.hermes/config.yaml` — both verified restored; daemon never restarted and remains on its in-memory tessera config, HTTP 200).
+**Model caveat (IMPORTANT — discovered post-run, see §3):** the comparison was **NOT** model-identical. The normal benchmark model box (`[fdfd:a87e:5fad:9b12:ea5d:b134:3a21:dd1b]:8888`, the tessera/WG peer serving `deepseek-v4-flash-vision-exp`) was briefly unreachable during setup, so Hermes was pointed at a **local oMLX on this Mac (`127.0.0.1:8000`, Qwen3.6-35B-A3B-OptiQ-4bit)** and stayed there. arc-agent, however, never actually used the local server: the profile's local `baseURL` override did not take effect at runtime (empirically proven — ZERO arc requests appear in the local oMLX log; arc's session record and its own p17 answer both correctly identify `deepseek-v4-flash-vision-exp`; every arc CLI run brings up the tessera WG/KCP tunnel). So:
+
+- **arc-agent → deepseek-v4-flash-vision-exp, served remotely through the tessera relay/WG tunnel** (per-prompt process boot + tunnel bring-up + relay round-trips)
+- **hermes-agent → Qwen3.6-35B-A3B-OptiQ-4bit, served locally on `127.0.0.1:8000`** (no tunnel; 56 Qwen3.6 completions in the local server log 20:07–20:16 exactly matching per-prompt times)
+
+Every other control (suite bytes, workdirs, yolo, per-prompt timing) is identical as described. This makes the speed comparison *conservative in arc's favor on model speed* — a flash MoE model is typically faster per token than a 35B, and arc still lost on wall time — while clearly attributing the gaps to harness/tunnel factors (see §6). Configs were backed up before and restored after (verified).
 
 - Both runs: `--yolo` (no approval prompts), same workdir pattern (`/tmp/arc-bench`, `/tmp/hermes-bench`), per-prompt wall-clock captured by the runner.
 - arc was driven through its **interactive** mode (piped prompt + `/quit`) because `arc chat -q` does not persist sessions (see Finding F3); Hermes through `chat --resume … -q --quiet`.
@@ -48,7 +53,7 @@ Legend: ✅ pass · ⚠️ pass with caveat · ❌ fail
 
 **Totals: arc 16/17 effective (1 delegation fail, 1 fabrication, 1 metadata slip) · hermes 17/17 with 1 scope overshoot and 1 web-truth nuance.**
 
-## 3. Timing (same model, wall clock)
+## 3. Timing (wall clock; arc=remote flash via relay, hermes=local Qwen 35B — see §1)
 
 | | arc-agent | hermes-agent |
 |---|---|---|
@@ -57,15 +62,41 @@ Legend: ✅ pass · ⚠️ pass with caveat · ❌ fail
 | Median | 40.7 s | 27.4 s |
 | Fastest / slowest | 17.0 / 105.2 s | 14.2 / 68.1 s |
 
-Hermes was **~31% faster on the same model** despite doing *more* real work (real sub-agent, real DB search, browser-based fetch). Arc's interactive-REPL overhead, extra verification passes, and heavier tool surface contribute.
+Hermes was **~31% faster overall** despite doing *more* real work (real sub-agent, real DB search, browser-verified fetch) and despite serving a **bigger 35B model locally** (arc was on a flash MoE over a relay tunnel).
 
-## 4. Tool coverage
+## 3.5 Why arc-agent was slower and did less real work
 
-**arc (15 distinct, self-reported + artifact-verified):** `terminal, write_file, read_file, patch, search_files, skills_list, skill_view, delegate_task, memory, session_search, tool_search, tool_describe, execute_code, web_extract, todo` — all succeeded except the delegation path (stub).
+**Slower — ranked contributing factors:**
 
-**hermes (16 distinct, 45 structured tool messages from state.db):** `terminal ×8, write_file ×6, read_file ×6, session_search ×4, tool_search ×3, browser_console ×3, todo ×3, search_files ×2, skills_list ×2, memory ×2, patch, delegate_task, skill_view, execute_code, browser_navigate, browser_snapshot` — all succeeded.
+1. **Remote model through the tessera relay/tunnel (dominant).** Every arc CLI invocation brings up its own WireGuard/KCP interface and tunnels every LLM request through the local relay (`127.0.0.1:51921`) to the WG peer/model box, while Hermes called `127.0.0.1:8000` directly. Observable in every run (WG handshake + `TesseraClient connected` logs) and in the timing shape: the single-call baseline was nearly equal (p01: 17.1 s vs 15.7 s), but arc's deficit grows precisely with tool/multi-call prompts — p15 +78 s, p06 +33 s, p12 +30 s, p17 +30 s, p13 +25 s, p10 +15 s. Each extra round trip on arc carries tunnel setup + relay latency + KCP encode/decode.
+2. **Per-run re-boot + full session restore.** arc's interactive mode restored the *entire growing transcript* from the file store at every prompt (18+ messages by p17), re-ran the tool-registry build + plugin scan, and re-sent everything through the tunnel each call. Hermes resumed from `state.db` locally and paid no tunnel for its ~55k-token request (p17: 26 s, with a 55,331-token prompt measured in the local log — served in ~17 s).
+3. **Bigger request payloads per call.** arc's schemas surface ~60 tools; Hermes' `tools` array is 31. Combined with #1–#2, every arc call costs more latency per token over the relay.
+4. **Per-call cost even with equal call counts (call volume is NOT the driver).** Structured post-run counts: arc 33 calls / 15 tools vs hermes 45 calls / 16 tools. On identical prompts both made the *same* number of calls (p02 5=5, p03 2=2, p06 3=3, p14 3=3, p15 3=3, p13 1=1) — and arc was still 26–78 s slower on them. Even p15, where arc's loop+grep choice is aesthetically worse, had the same call count as hermes' read+search+terminal. The divergence is per-request latency/volume, not round-trip quantity. (The one exception: p11 arc 2 calls vs hermes 6 — the "saving" that produced the fabricated h1.)
 
-Notable: Hermes used **browser_*** for the web fetch (3 calls) — heavier than arc's single `web_extract`; arc's web tooling is leaner but produced a fabrication in that same prompt. arc session-store data contains **no structured tool-call records** (see F4) — its tool stats are only recoverable from the model's own narration + artifacts.
+**Less real work — ranked contributing factors:**
+
+1. **`delegate_task` is a stub (F1).** The single biggest item: arc produced *zero* real sub-agent work (0.5 s fake + `goal.prefix(80)` summary). Hermes spawned a genuine isolated sub-agent whose literal answer (`delegated-pong-42`) came back. Purely harness-side, independent of model.
+2. **Web fidelity over the shortcut.** arc's single `web_extract` + summary layer produced an invented `<h1>`; Hermes' 3 browser calls verified the truth. Precisely the "less work" trade that failed.
+3. **Depth of investigation:** arc's session-search was fast but shallow; Hermes' DB search found the *authoring* session and reasoned about provenance, and netted correct, cite-able output for p17 (exact model, 31 tools by name).
+4. **Observability of the work itself:** arc's store keeps no structured tool records (F4), so its work is not auditable post-hoc; Hermes' `state.db` records 45 tool messages with names/args. Less recorded work = less *verifiable* work.
+5. **Skill universe:** 93 vs 113 skills (arc discovers fewer sources) — a smaller capability surface per prompt.
+6. **Scope discipline is a wash:** Hermes overshot (did step 3 unasked); arc respected the boundary. "More real work" ≠ better work here.
+
+**Bottom line:** arc's deficit is architectural, not cleverness: a remote model behind a relay tunnel, heavier per-call payloads, a restore-everything-each-prompt loop, and a stubbed delegation path — while Hermes' speed and work come from local serving, a leaner tool surface, better tool selection, and real sub-agency.
+
+## 4. Tool coverage (structured records — verified post-run)
+
+| | arc-agent | hermes-agent |
+|---|---|---|
+| Tool calls | **33** | **45** |
+| Distinct tools | 15 | 16 |
+| Records | `toolCalls` in assistant msgs (26) + `.tool` result msgs (33, with `name`/`toolCallID`/content) | `state.db` rows: `tool_name`, `tool_calls`, `tool_call_id`, `effect_disposition`, `timestamp`, `token_count`, `finish_reason` |
+
+arc: `terminal ×10, write_file ×5, read_file ×3, skills_list ×2, tool_search ×2, todo ×2, search_files ×1, patch ×1, delegate_task ×1, skill_view ×1, memory ×1, session_search ×1, tool_describe ×1, execute_code ×1, web_extract ×1`.
+
+hermes: `terminal ×8, write_file ×6, read_file ×6, session_search ×4, tool_search ×3, browser_console ×3, todo ×3, search_files ×2, skills_list ×2, memory ×2, patch ×1, delegate_task ×1, skill_view ×1, execute_code ×1, browser_navigate ×1, browser_snapshot ×1`.
+
+**Same calls on identical prompts:** p02 both did patch+read×2+search+write (5); p03 both terminal×2; p04 both terminal×1; p06 both 3; p10 both execute_code×1; p13 both terminal×1; p14 both 3; p15 both 3 (arc terminal×2+read, hermes read+search+terminal). **Hermes' extra 12 calls are depth, not noise:** session-search ×4 (arc 1), browser ×5 vs arc's web_extract×1 (p11), planning 8 vs 4 (p12 — where it also overshot), memory ×2, and a post-delegation read_file. Meanwhile p17 arc used terminal+tool_search while hermes answered from memory. **Conclusion: arc did *less* work with *fewer* calls and was still slower → per-call cost, not call volume, is the driver.**
 
 ## 5. Findings for arc-agent (prioritized)
 
@@ -91,8 +122,8 @@ Two related gaps:
 ### F4 — Correction: tool records ARE persisted; per-call metadata is not (P2, observability)
 **Correction (post-analysis):** arc's session store *does* persist structured tool records as first-class messages: 26 assistant messages with `toolCalls` (including serialized `arguments`), matched to 33 `.tool`-role result messages carrying `name`, `toolCallID`, and result content. (The earlier draft assertion that the store kept only text was wrong — the initial transcript parse skipped tool-role rows. The per-prompt cluster analysis also joined only assistant segments.) The genuine remaining gaps vs Hermes `state.db` rows (which carry `tool_name`, `tool_calls`, `tool_call_id`, `effect_disposition`, `timestamp`, `token_count`, `finish_reason`): arc's tool messages lack (a) an **effect classification** (`effect_disposition`: destructive/approval/denied — the column Hermes uses for safety analytics) and (b) **per-tool latency**. arc does store richer text-side metadata than Hermes (`reasoning`, `usage`, `tps`, `turnDuration`, `terminalReason`). Recommendation (small): add optional `toolDisposition`/`toolDuration` fields to `Message` (tolerant decode), populated in the tool-executor path.
 
-### F5 — Session metadata records the creation-time model, not the run model (P2)
-Both harnesses did this (arc p17: "deepseek-v4-flash-vision-exp"; hermes p17 uses the same metadata while actually running Qwen3.6-35B) — but arc's answer **trusted** the metadata. Minor; worth a `model_override` field or runtime value in `/status`.
+### F5 — Session metadata records the creation-time model; arc's answer was actually correct (P2, corrected)
+Post-run discovery (§1) proved arc really ran `deepseek-v4-flash-vision-exp` — so arc's p17 answer (deepseek) was **true**, not a metadata slip as originally suspected. The general finding stands, flipped: both harnesses persist the *creation-time* model in the session record (hermes' record says deepseek while it actually ran Qwen3.6-35B via `-m`), and neither refreshes it per message. Hermes' p17 happened to report the runtime model correctly (from live config); arc reported its (accurate) metadata. Recommendation: record actual model per message (or a `model_override` field), so introspection never depends on metadata luck.
 
 ### F6 — Tool surface size (P2)
 arc exposes ~60 catalogued tools (with deferred `tool_search` on top); Hermes exposes 31 core + deferred. Larger schema = more tokens/turn and more choice collisions; arc's progressive disclosure exists but the initial set is bigger. Not a defect — a tuning consideration.
