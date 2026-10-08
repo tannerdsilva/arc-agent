@@ -20,12 +20,14 @@ struct PromptGuidanceTests {
 
     private func makeConfig(
         registry: any ToolRegistry,
+        model: String = "test-model",
         taskCompletionGuidance: Bool = true,
         parallelToolCallGuidance: Bool = true,
-        toolAwareGuidance: Bool = true
+        toolAwareGuidance: Bool = true,
+        toolUseEnforcement: Bool = true
     ) -> ArcAgent.Configuration {
         ArcAgent.Configuration(
-            model: "test-model",
+            model: model,
             provider: "openai",
             baseURL: URL(string: "https://api.openai.com/v1")!,
             apiKey: "test-key",
@@ -42,6 +44,7 @@ struct PromptGuidanceTests {
             taskCompletionGuidance: taskCompletionGuidance,
             parallelToolCallGuidance: parallelToolCallGuidance,
             toolAwareGuidance: toolAwareGuidance,
+            toolUseEnforcement: toolUseEnforcement,
             sessionID: "guidance-test",
             injectProjectContext: false,
             platformHint: "cli"
@@ -104,6 +107,59 @@ struct PromptGuidanceTests {
         #expect(prompt.contains("## Parallel tool calls"))
         #expect(!prompt.contains("persistent memory across sessions"))
         #expect(!prompt.contains("skill_manage(action='patch')"))
+    }
+
+    @Test("default prompt contains tool-use-enforcement guidance")
+    func defaultPromptHasToolUseEnforcement() async throws {
+        let prompt = try await runOnce(makeConfig(registry: try ArcAgentCore.buildDefaultRegistry()))
+        #expect(prompt.contains("## Tool use enforcement"))
+        #expect(prompt.contains("call it and act on its real result"))
+        #expect(prompt.contains("not merely describe"))
+    }
+
+    @Test("tool-use-enforcement gains a per-model discipline note")
+    func perModelToolUseEnforcementNote() async throws {
+        let gemini = try await runOnce(makeConfig(
+            registry: try ArcAgentCore.buildDefaultRegistry(),
+            model: "gemini-2.5-pro"
+        ))
+        #expect(gemini.contains("## Tool use enforcement"))
+        #expect(gemini.contains("Gemini/Gemma models"))
+
+        let gpt = try await runOnce(makeConfig(
+            registry: try ArcAgentCore.buildDefaultRegistry(),
+            model: "gpt-4o"
+        ))
+        #expect(gpt.contains("GPT/Codex/Grok models"))
+
+        // Unknown model: generic core only, no per-model note.
+        let plain = try await runOnce(makeConfig(
+            registry: try ArcAgentCore.buildDefaultRegistry(),
+            model: "qwen3.6-35b"
+        ))
+        #expect(plain.contains("## Tool use enforcement"))
+        #expect(!plain.contains("Gemini/Gemma models"))
+        #expect(!plain.contains("GPT/Codex/Grok models"))
+    }
+
+    @Test("tool-use-enforcement drops out when the config gate is off")
+    func toolUseEnforcementGateOff() async throws {
+        let prompt = try await runOnce(makeConfig(
+            registry: try ArcAgentCore.buildDefaultRegistry(),
+            toolUseEnforcement: false
+        ))
+        #expect(!prompt.contains("## Tool use enforcement"))
+        #expect(prompt.contains("You are ARC Agent"))
+        #expect(prompt.contains("## Rules"))
+    }
+
+    @Test("AgentConfig toolUseEnforcement decodes with ON default")
+    func agentConfigDecodeToolUseEnforcement() throws {
+        let empty = try JSONDecoder().decode(ArcConfig.self, from: Data(#"{"agent":{}}"#.utf8))
+        #expect(empty.agent.toolUseEnforcement)
+
+        let off = try JSONDecoder().decode(ArcConfig.self, from: Data(#"{"agent":{"toolUseEnforcement":false}}"#.utf8))
+        #expect(!off.agent.toolUseEnforcement)
     }
 
     @Test("AgentConfig guidance flags decode with ON defaults")

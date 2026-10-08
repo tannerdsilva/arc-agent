@@ -415,6 +415,10 @@ public struct AgentConfig: Codable, Sendable, Equatable {
     /// Inject tool-aware guidance for memory/session_search/skills tools
     /// (arc parity: reference `agent.tool_aware_guidance`). Default ON.
     public var toolAwareGuidance: Bool
+    /// Inject tool-use-enforcement guidance (arc parity: reference
+    /// `agent.tool_use_enforcement`) with per-model discipline notes.
+    /// Default ON.
+    public var toolUseEnforcement: Bool
     /// Named personality overlays (reference `agent.personalities`): each entry
     /// is either a plain string or `{description, system_prompt, tone, style}`.
     public var personalities: [String: PersonalityOverlay]
@@ -446,6 +450,7 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         taskCompletionGuidance: Bool = true,
         parallelToolCallGuidance: Bool = true,
         toolAwareGuidance: Bool = true,
+        toolUseEnforcement: Bool = true,
         personalities: [String: PersonalityOverlay] = [:],
         verifyOnStop: Bool = false,
         skillInlineCommands: Bool = true,
@@ -464,6 +469,7 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         self.taskCompletionGuidance = taskCompletionGuidance
         self.parallelToolCallGuidance = parallelToolCallGuidance
         self.toolAwareGuidance = toolAwareGuidance
+        self.toolUseEnforcement = toolUseEnforcement
         self.personalities = personalities
         self.verifyOnStop = verifyOnStop
         self.skillInlineCommands = skillInlineCommands
@@ -486,6 +492,7 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         self.taskCompletionGuidance = try container.decodeIfPresent(Bool.self, forKey: .taskCompletionGuidance) ?? true
         self.parallelToolCallGuidance = try container.decodeIfPresent(Bool.self, forKey: .parallelToolCallGuidance) ?? true
         self.toolAwareGuidance = try container.decodeIfPresent(Bool.self, forKey: .toolAwareGuidance) ?? true
+        self.toolUseEnforcement = try container.decodeIfPresent(Bool.self, forKey: .toolUseEnforcement) ?? true
         self.personalities = try container.decodeIfPresent([String: PersonalityOverlay].self, forKey: .personalities) ?? [:]
 
         // Note: `CodingKeys` is synthesized from property names; use the

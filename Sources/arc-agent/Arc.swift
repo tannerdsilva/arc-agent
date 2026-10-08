@@ -245,6 +245,7 @@ struct Chat: AsyncParsableCommand {
             taskCompletionGuidance: arcConfig.agent.taskCompletionGuidance,
             parallelToolCallGuidance: arcConfig.agent.parallelToolCallGuidance,
             toolAwareGuidance: arcConfig.agent.toolAwareGuidance,
+            toolUseEnforcement: arcConfig.agent.toolUseEnforcement,
             microCompact: MicroCompactConfig(
                 enabled: arcConfig.agent.microCompactEnabled,
                 everyNTurns: arcConfig.agent.microCompactEveryNTurns,

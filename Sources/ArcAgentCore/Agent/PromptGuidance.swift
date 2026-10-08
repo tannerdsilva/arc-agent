@@ -95,6 +95,47 @@ enum PromptGuidance {
            and do not need further action.
         """
 
+    /// `TOOL_USE_ENFORCEMENT` — act via the tool, never narrate the action.
+    /// Reference parity: hermes-agent `agent.tool_use_enforcement` guidance.
+    /// Model-agnostic core (works for hosted and local/open models alike).
+    static let toolUseEnforcement = """
+        ## Tool use enforcement
+
+        When a tool can accomplish the user's request, call it and act on its real result — do
+        not merely describe, plan, or promise the action in prose. The deliverable is a working
+        artifact backed by real tool output, not a narration of what you would do.
+
+        Prefer the tool that does the task over the one that talks about it. If several tools
+        could do the job, choose the one with the most direct, verifiable effect on the user's
+        actual goal. Executing the real command and reporting its actual output beats an
+        imagined walkthrough every time.
+        """
+
+    /// Per-model execution-discipline addendum (reference parity:
+    /// `agent.tool_use_enforcement` per-model operational notes). Different
+    /// model families have different failure modes: some emit a plan instead
+    /// of calling a tool. Returns nil for models that get no special note.
+    static func toolUseEnforcementNote(for model: String) -> String? {
+        let m = model.lowercased()
+        if m.contains("gemini") || m.contains("gemma") {
+            return "On Gemini/Gemma models, reach for a tool that runs real work rather than writing a plan — these models are prone to describing an action instead of executing it."
+        }
+        if m.contains("gpt") || m.contains("codex") || m.contains("grok") {
+            return "On GPT/Codex/Grok models, follow execution discipline: call the tool before summarizing, and report the tool's actual output rather than an assumed result."
+        }
+        return nil
+    }
+
+    /// The full tool-use-enforcement block for a given model, combining the
+    /// generic core with any per-model note.
+    static func toolUseEnforcement(for model: String) -> String {
+        let core = toolUseEnforcement
+        if let note = toolUseEnforcementNote(for: model) {
+            return core + "\n\n" + note
+        }
+        return core
+    }
+
     /// The tool-aware blocks, concatenated (Hermes joins them into one block).
     static func toolAware(hasMemory: Bool, hasSessionSearch: Bool, hasSkillTools: Bool) -> [String] {
         var blocks: [String] = []

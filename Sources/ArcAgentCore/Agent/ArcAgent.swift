@@ -74,6 +74,10 @@ public actor ArcAgent: Service {
         /// Inject tool-aware guidance for memory/session_search/skills tools
         /// (arc parity: reference `agent.tool_aware_guidance`). Default ON.
         public var toolAwareGuidance: Bool = true
+        /// Inject the tool-use-enforcement guidance (arc parity: reference
+        /// `agent.tool_use_enforcement`), with per-model discipline notes.
+        /// Default ON.
+        public var toolUseEnforcement: Bool = true
 
         /// reference micro-compaction (docs/micro-compaction.md): after each
         /// completed turn, absorb one exchange into a rolling summary. Off by
@@ -164,6 +168,7 @@ public actor ArcAgent: Service {
             taskCompletionGuidance: Bool = true,
             parallelToolCallGuidance: Bool = true,
             toolAwareGuidance: Bool = true,
+            toolUseEnforcement: Bool = true,
             microCompact: MicroCompactConfig = MicroCompactConfig(),
             sessionID: String? = nil,
             contextLength: Int? = nil,
@@ -206,6 +211,7 @@ public actor ArcAgent: Service {
             self.taskCompletionGuidance = taskCompletionGuidance
             self.parallelToolCallGuidance = parallelToolCallGuidance
             self.toolAwareGuidance = toolAwareGuidance
+            self.toolUseEnforcement = toolUseEnforcement
             self.microCompact = microCompact
             self.agentPowers = agentPowers
             self.sessionID = sessionID
@@ -3226,6 +3232,9 @@ public actor ArcAgent: Service {
             if !blocks.isEmpty {
                 stable += "\n\n" + blocks.joined(separator: "\n\n")
             }
+        }
+        if config.toolUseEnforcement {
+            stable += "\n\n" + PromptGuidance.toolUseEnforcement(for: config.model)
         }
 
         // Environment hints (stable per machine).
