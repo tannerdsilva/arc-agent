@@ -1632,12 +1632,13 @@ public actor ArcAgent: Service {
             var messages: [Message] = [Message(role: .system, content: systemPrompt)]
             messages.append(contentsOf: Self.sanitizeMessages(messageHistory))
 
-            // 2b. Plugin `pre_llm_call`: prepend hook-provided context once
-            // (reference: context injected before the tool-calling loop).
+            // 2b. Plugin `pre_llm_call`: inject hook context into the current
+            // user message (reference: Hermes injects into the user message
+            // only, so the cached system prompt stays byte-stable).
             if let decision = await HookBus.shared.queryBlocking("pre_llm_call", [
                 "session_id": .string(sessionID),
             ]), case .context(let injection) = decision, !injection.isEmpty {
-                messages.insert(Message(role: .system, content: "Hook context:\n\(injection)"), at: 1)
+                Self.injectTurnAdvisories(into: &messages, blocks: ["Hook context:\n\(injection)"])
             }
 
             // 3. Build tool schemas (progressive disclosure: deferred tools
@@ -1657,10 +1658,7 @@ public actor ArcAgent: Service {
                     apiMessages: Self.apiForm(messages)
                 )
                 if !moaResult.advisoryBlock.isEmpty {
-                    messages.append(Message(
-                        role: .system,
-                        content: "Advisory context from reference models (Mixture of Agents):\n\(moaResult.advisoryBlock)"
-                    ))
+                    Self.injectTurnAdvisories(into: &messages, blocks: ["Advisory context from reference models (Mixture of Agents):\n\(moaResult.advisoryBlock)"])
                 }
             }
 
@@ -1934,17 +1932,24 @@ public actor ArcAgent: Service {
                 contextLength: config.maxContextTokens
             )
 
-            // MoA advisory context (reference moa_loop parity).
+            // 2b. Plugin `pre_llm_call`: inject hook context into the current
+            // user message (reference: Hermes injects into the user message
+            // only, so the cached system prompt stays byte-stable).
+            if let decision = await HookBus.shared.queryBlocking("pre_llm_call", [
+                "session_id": .string(sessionID),
+            ]), case .context(let injection) = decision, !injection.isEmpty {
+                Self.injectTurnAdvisories(into: &messages, blocks: ["Hook context:\n\(injection)"])
+            }
+
+            // MoA advisory context (reference moa_loop parity) — injected into
+            // the current user message, not an extra system message.
             if config.moa.enabled {
                 let moaResult = await moaService.aggregate(
                     userPrompt: messageHistory.last(where: { $0.role == .user })?.content ?? "",
                     apiMessages: Self.apiForm(messages)
                 )
                 if !moaResult.advisoryBlock.isEmpty {
-                    messages.append(Message(
-                        role: .system,
-                        content: "Advisory context from reference models (Mixture of Agents):\n\(moaResult.advisoryBlock)"
-                    ))
+                    Self.injectTurnAdvisories(into: &messages, blocks: ["Advisory context from reference models (Mixture of Agents):\n\(moaResult.advisoryBlock)"])
                 }
             }
 
@@ -2572,6 +2577,22 @@ public actor ArcAgent: Service {
             }
             return dict
         }
+    }
+
+    /// Inject per-turn advisory context (plugin `pre_llm_call` context, MoA
+    /// advisory) into the LAST user message rather than as an extra system
+    /// message — keeping the cached system prompt byte-stable (reference:
+    /// Hermes injects these into the user message only). Advisories are
+    /// per-turn and deliberately NOT persisted into messageHistory.
+    static func injectTurnAdvisories(into messages: inout [Message], blocks: [String]) {
+        let joined = blocks
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+        guard !joined.isEmpty, let idx = messages.lastIndex(where: { $0.role == .user }) else { return }
+        let existing = messages[idx].content ?? ""
+        let combined = existing.isEmpty ? joined : existing + "\n\n" + joined
+        messages[idx] = Message(role: .user, content: combined)
     }
 
     /// Post-execution laundering (reference `redact.py` parity): terminal tool
