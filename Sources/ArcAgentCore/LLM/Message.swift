@@ -66,6 +66,13 @@ public struct Message: Sendable, Codable, Equatable {
     /// nil for legacy messages and replies that did not end a turn.
     public let turnDuration: Double?
 
+    /// Byte-exact wire-content sidecar (reference `api_content`): the exact
+    /// content string that was sent on the wire for this message, recorded at
+    /// send time. On replay, ``replayAPI()`` prefers it so the provider's
+    /// prompt-cache prefix stays warm and the model sees byte-identical bytes.
+    /// nil for legacy stored messages and messages without a recorded sidecar.
+    public let apiContent: String?
+
     public init(
         role: Role,
         content: String? = nil,
@@ -78,7 +85,8 @@ public struct Message: Sendable, Codable, Equatable {
         tps: Double? = nil,
         terminalReason: String? = nil,
         displayText: String? = nil,
-        turnDuration: Double? = nil
+        turnDuration: Double? = nil,
+        apiContent: String? = nil
     ) {
         self.role = role
         self.content = content
@@ -92,6 +100,50 @@ public struct Message: Sendable, Codable, Equatable {
         self.terminalReason = terminalReason
         self.displayText = displayText
         self.turnDuration = turnDuration
+        self.apiContent = apiContent
+    }
+}
+
+extension Message {
+
+    /// The canonical wire representation of this message (mirrors the client's
+    /// message encoder: role / content / name / tool_calls / tool_call_id).
+    /// Used to derive the ``apiContent`` sidecar.
+    public func apiDict() -> [String: Any] {
+        var dict: [String: Any] = ["role": role.rawValue]
+        if let content = content { dict["content"] = content }
+        if let name = name { dict["name"] = name }
+        if let calls = toolCalls, !calls.isEmpty {
+            dict["tool_calls"] = calls.map { $0.apiDict() }
+        }
+        if let toolCallID = toolCallID { dict["tool_call_id"] = toolCallID }
+        return dict
+    }
+
+    /// Return a copy with ``apiContent`` set to the exact content that goes on
+    /// the wire — i.e. record "what was actually sent" (reference `api_content`).
+    public func snapshotAPI() -> Message {
+        Message(
+            role: role, content: content, name: name, toolCalls: toolCalls,
+            toolCallID: toolCallID, createdAt: createdAt, reasoning: reasoning,
+            usage: usage, tps: tps, terminalReason: terminalReason,
+            displayText: displayText, turnDuration: turnDuration,
+            apiContent: content
+        )
+    }
+
+    /// Replay fidelity: if an ``apiContent`` sidecar is present, prefer it as the
+    /// wire content so the replayed prefix matches exactly what was sent. Returns
+    /// `self` unchanged when no sidecar is recorded.
+    public func replayAPI() -> Message {
+        guard let sidecar = apiContent else { return self }
+        return Message(
+            role: role, content: sidecar, name: name, toolCalls: toolCalls,
+            toolCallID: toolCallID, createdAt: createdAt, reasoning: reasoning,
+            usage: usage, tps: tps, terminalReason: terminalReason,
+            displayText: displayText, turnDuration: turnDuration,
+            apiContent: sidecar
+        )
     }
 }
 
@@ -126,6 +178,18 @@ public struct ToolCallFunction: Sendable, Codable, Equatable {
     public init(name: String, arguments: String) {
         self.name = name
         self.arguments = arguments
+    }
+
+    /// The canonical wire dict for this function block.
+    public func apiDict() -> [String: Any] {
+        ["name": name, "arguments": arguments]
+    }
+}
+
+extension ToolCall {
+    /// The canonical wire dict for this tool call (reused by ``Message.apiDict()``).
+    public func apiDict() -> [String: Any] {
+        ["id": id, "type": type, "function": function.apiDict()]
     }
 }
 

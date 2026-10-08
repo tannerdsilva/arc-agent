@@ -1060,7 +1060,7 @@ public actor ArcAgent: Service {
             await restoreSessionIfNeeded()
             await resetTurnState()
             let composed = await self.composeUserContent(self.effectiveUserText(message))
-            messageHistory.append(Message(role: .user, content: composed))
+            messageHistory.append(Message(role: .user, content: composed, apiContent: composed))
 
             let response = try await runTurnLoop(client: llmClient)
 
@@ -1630,7 +1630,7 @@ public actor ArcAgent: Service {
 
             // 2. Build messages array
             var messages: [Message] = [Message(role: .system, content: systemPrompt)]
-            messages.append(contentsOf: Self.sanitizeMessages(messageHistory))
+            messages.append(contentsOf: Self.sanitizeMessages(messageHistory).map { $0.replayAPI() })
 
             // 2b. Plugin `pre_llm_call`: inject hook context into the current
             // user message (reference: Hermes injects into the user message
@@ -1668,7 +1668,9 @@ public actor ArcAgent: Service {
                 response = try await callWithRetry(
                     client: currentClient,
                     makeClient: { await self.freshClient() ?? fallbackClient },
-                    messages: messages,
+                    // Snapshot each message's wire content (api_content sidecar)
+                    // so the exact bytes sent are recorded for replay fidelity.
+                    messages: messages.map { $0.snapshotAPI() },
                     tools: toolSchemas,
                     timeout: config.maxTurnDuration,
                     reasoningEffort: currentReasoningEffort
@@ -1744,7 +1746,7 @@ public actor ArcAgent: Service {
                (response2.toolCalls ?? []).isEmpty,
                let partial = response2.content, !partial.isEmpty,
                truncationContinuations < Self.maxTruncationContinuations {
-                messageHistory.append(Message(role: .assistant, content: partial))
+                messageHistory.append(Message(role: .assistant, content: partial, apiContent: partial))
                 messageHistory.append(Message(role: .system, content: Self.truncationNudge))
                 truncationContinuations += 1
                 continue
@@ -1753,7 +1755,7 @@ public actor ArcAgent: Service {
             // 6. Parse response — tool calls take precedence over content.
             switch Self.classifyTurn(content: response2.content, toolCalls: response2.toolCalls) {
             case .text(let content):
-                messageHistory.append(Message(role: .assistant, content: content, reasoning: response2.reasoning))
+                messageHistory.append(Message(role: .assistant, content: content, reasoning: response2.reasoning, apiContent: content))
                 turnRecoveryState.markProviderSuccess()
                 return content
 
@@ -1762,7 +1764,8 @@ public actor ArcAgent: Service {
                     role: .assistant,
                     content: response2.content,
                     toolCalls: toolCalls,
-                    reasoning: response2.reasoning
+                    reasoning: response2.reasoning,
+                    apiContent: response2.content
                 ))
 
                 let outcomes = await executeToolCalls(toolCalls)
@@ -1771,7 +1774,8 @@ public actor ArcAgent: Service {
                         role: .tool,
                         content: result,
                         name: call.function.name,
-                        toolCallID: call.id
+                        toolCallID: call.id,
+                        apiContent: result
                     ))
                 }
                 appendedToolResults = !outcomes.isEmpty
@@ -1923,7 +1927,7 @@ public actor ArcAgent: Service {
 
             let systemPrompt = try await buildSystemPrompt()
             var messages: [Message] = [Message(role: .system, content: systemPrompt)]
-            messages.append(contentsOf: Self.sanitizeMessages(messageHistory))
+            messages.append(contentsOf: Self.sanitizeMessages(messageHistory).map { $0.replayAPI() })
 
             let toolSchemas = ProgressiveToolDisclosure.buildPromptSchemas(
                 registry: config.registry,
@@ -1964,7 +1968,9 @@ public actor ArcAgent: Service {
                 let stream = try await callStreamWithRetry(
                     client: currentClient,
                     makeClient: { await self.freshClient() ?? fallbackClient },
-                    messages: messages,
+                    // Snapshot each message's wire content (api_content sidecar)
+                    // so the exact bytes sent are recorded for replay fidelity.
+                    messages: messages.map { $0.snapshotAPI() },
                     tools: toolSchemas,
                     timeout: config.maxTurnDuration,
                     reasoningEffort: currentReasoningEffort
@@ -2120,7 +2126,7 @@ public actor ArcAgent: Service {
                 toolCalls: accumulatedToolCalls.isEmpty ? nil : accumulatedToolCalls
             ) {
             case .text(let content):
-                messageHistory.append(Message(role: .assistant, content: content))
+                messageHistory.append(Message(role: .assistant, content: content, apiContent: content))
                 turnRecoveryState.markProviderSuccess()
                 if let streamUsage { await recordUsage(streamUsage) }
                 emit(.completed(finalText: content))
@@ -2131,7 +2137,8 @@ public actor ArcAgent: Service {
                 messageHistory.append(Message(
                     role: .assistant,
                     content: accumulatedContent.isEmpty ? nil : accumulatedContent,
-                    toolCalls: toolCalls
+                    toolCalls: toolCalls,
+                    apiContent: accumulatedContent.isEmpty ? nil : accumulatedContent
                 ))
 
                 let outcomes = await executeToolCalls(toolCalls, emit: emit)
@@ -2140,7 +2147,8 @@ public actor ArcAgent: Service {
                         role: .tool,
                         content: result,
                         name: call.function.name,
-                        toolCallID: call.id
+                        toolCallID: call.id,
+                        apiContent: result
                     ))
                 }
                 appendedToolResults = !outcomes.isEmpty
