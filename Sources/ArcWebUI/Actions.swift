@@ -2856,7 +2856,9 @@ final class Controller {
         } else if tid.hasPrefix("w-toggle-"), let path = dec(String(tid.dropFirst("w-toggle-".count))) {
             await app.togglePath(path)
         } else if tid.hasPrefix("w-file-"), let path = dec(String(tid.dropFirst("w-file-".count))) {
-            _ = await app.hint("Workspace file: \(path)")
+            await app.openWorkspaceFile(path)
+        } else if tid == "w-preview-back" {
+            await app.closeWorkspacePreview()
         } else {
             return []
         }

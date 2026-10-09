@@ -783,6 +783,14 @@ actor AppState {
     /// attaches the slide-in animation class; consumed by workspacePanelHTML.
     var wsEnterAnim = false
 
+    /// The workspace-relative path of a file open in the panel's preview pane,
+    /// its read content, and an optional notice (binary / oversized / unreadable).
+    /// nil = the panel shows the file tree. (Hermes parity: the right
+    /// "workspace" panel shows both a file tree and a file preview.)
+    var previewPath: String? = nil
+    var previewContent: String? = nil
+    var previewNote: String? = nil
+
     // MARK: GitHub integration page (provided by the GitHubSidebarTab plugin
 // package; no state lives in the application anymore)
 

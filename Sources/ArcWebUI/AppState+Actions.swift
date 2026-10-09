@@ -699,6 +699,58 @@ extension AppState {
         }
     }
 
+    /// Open a workspace file in the panel's preview pane. Resolves `relPath`
+    /// under `root` (default: the active chat's workspace path), guards path
+    /// traversal, and reads best-effort UTF-8 text (binary / oversized files
+    /// get a notice instead of content). Returns nothing; the caller re-renders.
+    func openWorkspaceFile(_ relPath: String, root: String? = nil) {
+        guard WorkspaceRules.isSafeRelativePath(relPath) else {
+            previewPath = nil; previewContent = nil
+            previewNote = "Cannot preview: invalid path."
+            return
+        }
+        let rootPath = root ?? panelWorkspacePath()
+        let url = URL(fileURLWithPath: rootPath).appendingPathComponent(relPath)
+        let fm = FileManager.default
+        let sizeLimit = 1_048_576            // 1 MiB
+        let previewChars = 200_000           // render cap
+        let size = ((try? fm.attributesOfItem(atPath: url.path)[.size]) as? NSNumber)?.intValue ?? 0
+        guard size <= sizeLimit else {
+            previewPath = relPath; previewContent = nil
+            previewNote = "\(size) bytes — too large to preview."
+            return
+        }
+        guard let data = fm.contents(atPath: url.path) else {
+            previewPath = relPath; previewContent = nil
+            previewNote = "Could not read file."
+            return
+        }
+        // A NUL byte in the first chunk marks an obviously-binary file.
+        if data.prefix(4096).contains(0) {
+            previewPath = relPath; previewContent = nil
+            previewNote = "Binary file — no text preview."
+            return
+        }
+        guard var text = String(data: data, encoding: .utf8) else {
+            previewPath = relPath; previewContent = nil
+            previewNote = "File is not UTF-8 text."
+            return
+        }
+        if text.count > previewChars {
+            text = String(text.prefix(previewChars)) + "\n… (preview trimmed)"
+        }
+        previewPath = relPath
+        previewContent = text
+        previewNote = nil
+    }
+
+    /// Return to the file tree, closing any open preview pane.
+    func closeWorkspacePreview() {
+        previewPath = nil
+        previewContent = nil
+        previewNote = nil
+    }
+
     // MARK: Skills
 
     func setSkillFilter(_ text: String) {

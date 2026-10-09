@@ -2655,6 +2655,23 @@ public static let css: String = """
     .ws-tools { display: flex; gap: 3px; align-items: center; }
     .ws-menu-wrap { position: relative; }
     .ws-body { flex: 1; overflow: auto; }
+    /* Workspace file preview (right panel) */
+    .ws-preview { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+    .ws-preview-head {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 10px; border-bottom: 1px solid var(--border);
+    }
+    .ws-preview-name {
+      flex: 1; min-width: 0; font-size: 0.85em; font-weight: 600;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .ws-preview-scroll { flex: 1; overflow: auto; min-height: 0; }
+    .ws-preview-body {
+      margin: 0; padding: 10px 12px;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 0.8em; line-height: 1.45; white-space: pre;
+      color: var(--text);
+    }
     .ws-path {
       font-size: 0.7em; color: var(--muted); padding: 6px 12px 8px;
       border-bottom: 1px solid var(--border);

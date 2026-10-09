@@ -3497,9 +3497,32 @@ extension AppState {
           </div>
           \(create)
           <div class="ws-body" id="ws-tree" data-component-id="workspace" data-event="click" data-root="\(esc(panelWorkspacePath()))">
+            \(workspaceBodyHTML())
+          </div>
+        </div>
+        """
+    }
+
+    /// The workspace panel body: a file preview pane when a file is open,
+    /// otherwise the breadcrumb + file tree (Hermes parity: the right panel
+    /// shows both the tree and a preview of the selected file).
+    func workspaceBodyHTML() -> String {
+        guard let path = previewPath else {
+            return """
             <div class="ws-path" title="\(esc(panelWorkspacePath()))">\(esc(panelWorkspacePath()))</div>
             \(workspaceTreeHTML())
+            """
+        }
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        let body = previewContent.map { "<pre class=\"ws-preview-body\">\(esc($0))</pre>" }
+            ?? "<div class=\"empty-hint\">\(esc(previewNote ?? "No preview."))</div>"
+        return """
+        <div class="ws-preview">
+          <div class="ws-preview-head">
+            <button type="button" id="w-preview-back" class="icon-mini" title="Back to files">\(WebUIIcon(.chevronLeft, size: .small).render())</button>
+            <span class="ws-preview-name" title="\(esc(path))">\(esc(name))</span>
           </div>
+          <div class="ws-preview-scroll">\(body)</div>
         </div>
         """
     }

@@ -97,6 +97,14 @@ enum WorkspaceRules {
         return WorkspaceEntry(name: name, path: path)
     }
 
+    /// True when `relPath` is a safe workspace-relative path: non-empty, not
+    /// absolute, and free of `..` traversal. Used by the workspace panel's
+    /// file-open/preview paths so a crafted row can never escape the root.
+    static func isSafeRelativePath(_ relPath: String) -> Bool {
+        guard !relPath.isEmpty, !relPath.hasPrefix("/") else { return false }
+        return !relPath.components(separatedBy: "/").contains("..")
+    }
+
     /// Location comparison for duplicate detection: stored entries may carry
     /// unnormalized text (hand-edited settings), so both sides are loosely
     /// canonicalized before comparing.
