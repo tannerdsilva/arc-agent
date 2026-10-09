@@ -325,6 +325,15 @@
       }
     },
     {
+      "identity" : "wireguard-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tannerdsilva/wireguard-swift",
+      "state" : {
+        "revision" : "c44539e0e8fc2b1513d1d9bfeb6e963982f23bde",
+        "version" : "0.1.1"
+      }
+    },
+    {
       "identity" : "yyjson",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ibireme/yyjson.git",

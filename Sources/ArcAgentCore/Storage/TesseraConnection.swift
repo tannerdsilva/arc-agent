@@ -466,6 +466,32 @@ public actor TesseraConnection {
 
             nextSeq = globalMaxSequence() + 1
             isStarted = true
+
+            // Recover a partial/empty history after a reconnect. Reconnecting to
+            // a long-running relay can land while it is still recreating its KCP
+            // control blocks, which drops the initial EOSE markers (observed as
+            // "end-of-history markers incomplete (0/6)"). The store proceeds on
+            // the established tunnel but would otherwise boot with an empty
+            // history and "forget" previously stored chats. Keep re-subscribing
+            // in the background — each REQ makes the relay re-emit the stored
+            // events + EOSE into the shared model — until every end-of-history
+            // marker lands. Fire-and-forget per the First Law; ArcModel is keyed
+            // by NOSTR event id, so re-received events overwrite in place (no
+            // duplicate chats).
+            if !tracker.completed() {
+                let recSession = session
+                let recConfig = config
+                Task { [weak tracker] in
+                    while !(tracker?.completed() ?? true) {
+                        // Back off so the re-subscribe lands after the relay's KCP
+                        // control blocks settle (they are recreated on connect/roam).
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind]) {
+                            try? await recSession.subscribe(subscriptionID: sub, filters: [Filter(applications: [recConfig.application], kinds: [kind])])
+                        }
+                    }
+                }
+            }
         } catch {
             // A failed start must never leave a half-open tunnel behind: the
             // stale session/model/eose-tracker stay set, and the next retry
