@@ -221,12 +221,6 @@ public actor WebhookEngine {
         .split(separator: ",").map(String.init).filter { !$0.isEmpty }
     let secret = ProcessInfo.processInfo.environment["WEBHOOK_SECRET"] ?? ""
 
-    private struct Pending {
-        let url: String
-        let payload: [String: Any]
-    }
-    private var queue: [Pending] = []
-
     public func notify(event: String, payload: [String: Any]) async -> String {
         guard !urls.isEmpty else {
             return "Error: No webhook URLs configured (set WEBHOOK_URLS)."

@@ -2194,10 +2194,6 @@ final class Controller {
         return await self.app.refreshFragments()
     }
 
-    private func createProfile(name: String, title: String, desc: String) async -> [FragmentUpdate] {
-        return await self.submitProfileForm(name: name, title: title, desc: desc)
-    }
-
     /// Create or update a profile from the profile form (the form doubles as
     /// the edit form; `editingProfile` selects the mode). Context parameters
     /// are stored per-profile via the core `Profile.context`.

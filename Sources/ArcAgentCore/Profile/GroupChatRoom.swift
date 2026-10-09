@@ -104,8 +104,6 @@ public actor GroupChatRoom {
     private var log: [Entry] = []
     /// Per-member watermark: index into `log` that each member has seen.
     private var watermarks: [String: Int] = [:]
-    /// Per-member per-group session IDs.
-    private var sessions: [String: String] = [:]
     /// Whether a turn is currently running.
     private var running = false
     /// Epoch counter — bumped on every user send to supersede stale loops.

@@ -61,8 +61,6 @@ public actor DelegationManager {
     /// Continuations for the result streams.
     private var continuations: [String: AsyncThrowingStream<String, Error>.Continuation] = [:]
 
-    private let logger = Logger(label: "arc-agent.delegation")
-
     /// Create a delegation manager.
     ///
     /// - Parameters:
