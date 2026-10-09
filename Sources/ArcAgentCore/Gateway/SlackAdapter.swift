@@ -95,7 +95,7 @@ public final class SlackAdapter: PlatformAdapter {
 
     /// The events-socket loop; exits on task cancellation.
     private func socketLoop() async throws {
-        try await withTaskCancellationHandler {
+        await withTaskCancellationHandler {
             await identify()
             while !Task.isCancelled {
                 do {
