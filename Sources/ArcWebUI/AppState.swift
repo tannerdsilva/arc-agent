@@ -914,7 +914,7 @@ actor AppState {
 
     // MARK: Init
 
-    init(thirdPartyPlugins: [any SidebarTabPlugin] = []) throws {
+    init(thirdPartyPlugins: [any SidebarTabPlugin] = []) async throws {
         self.registry = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
         let grouped = Dictionary(grouping: self.registry.allTools, by: { $0.toolset })
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
@@ -1343,7 +1343,7 @@ actor AppState {
     /// the client is unavailable or the call fails, letting the regex
     /// detector stand in.
     func classifyApprovalRisk(_ command: String) async -> DangerLevel? {
-        guard let hc = httpClient,
+        guard httpClient != nil,
               let client = makeAuxClient(for: .approval, sessionID: nil) else { return nil }
         let prompt = """
         You classify shell commands for an autonomous coding agent. Reply with exactly one word from: safe, suspicious, dangerous, critical. Consider destructive or exfiltrating operations (rm -rf, mkfs, dd, diskutil erase, curl | sh) critical or dangerous.
@@ -1429,7 +1429,7 @@ actor AppState {
     /// the client is unavailable, the call fails, or the answer is empty —
     /// the caller then falls back to the best-judgement notice.
     func smartClarifyChoice(question: String, choices: [String]) async -> String? {
-        guard let hc = httpClient,
+        guard httpClient != nil,
               let client = makeAuxClient(for: .clarify, sessionID: nil) else { return nil }
         let choiceBlock = choices.isEmpty
             ? "(No choices were offered — answer the question directly, briefly.)"

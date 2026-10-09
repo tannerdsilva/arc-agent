@@ -104,7 +104,7 @@ public enum ArcDaemon {
         var uiHost: WebUIHost?
         if let webui = plan.webui {
             let sidecarPlugins = await sidecarManager.discover()
-            uiHost = try WebUIHost(
+            uiHost = try await WebUIHost(
                 host: webui.host,
                 port: webui.port,
                 tesseraOff: plan.tesseraOff,

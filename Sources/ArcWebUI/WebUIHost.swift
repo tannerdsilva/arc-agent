@@ -57,13 +57,13 @@ public struct WebUIHost: Service {
         storage: StorageRuntime? = nil,
         thirdPartyPlugins: [any SidebarTabPlugin] = [],
         sidecarManager: SidecarPluginManager? = nil
-    ) throws {
+    ) async throws {
         self.host = host
         self.port = port
         self.tesseraOff = tesseraOff
         self.storage = storage
         self.sidecarManager = sidecarManager
-        self.app = try AppState(thirdPartyPlugins: thirdPartyPlugins)
+        self.app = try await AppState(thirdPartyPlugins: thirdPartyPlugins)
     }
 
     /// Run one scheduled job headless and return its output — the daemon's
