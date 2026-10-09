@@ -6,7 +6,17 @@
 set -u
 
 TESSERA_DIR="${TESSERA_DIR:-$HOME/Documents/SwiftProjects/tessera}"
-RELAY_BIN="${RELAY_BIN:-$TESSERA_DIR/.build/debug/tessera}"
+# Production binary home: ~/.local/bin/tessera. RELAY_BIN overrides it (point
+# it at a dev .build/debug/tessera while developing). Falls back to PATH,
+# then the repo dev build.
+RELAY_BIN="${RELAY_BIN:-$HOME/.local/bin/tessera}"
+if [ ! -x "$RELAY_BIN" ]; then
+  if command -v tessera >/dev/null 2>&1; then
+    RELAY_BIN="$(command -v tessera)"
+  elif [ -x "$TESSERA_DIR/.build/debug/tessera" ]; then
+    RELAY_BIN="$TESSERA_DIR/.build/debug/tessera"
+  fi
+fi
 RELAY_DB="${RELAY_DB:-$HOME/.arc/tessera/db}"
 RELAY_CFG="${RELAY_CFG:-$HOME/.arc/tessera/cfg}"
 RELAY_KEY="${RELAY_KEY:-0PKKUSzUpiV7c23b134QmtsBXKD0Os1xG69cRmJp9lw=}"
@@ -15,11 +25,12 @@ RELAY_LOG="${RELAY_LOG:-/private/tmp/relay-federated.log}"
 
 if [ ! -x "$RELAY_BIN" ]; then
   echo "error: relay binary not found/executable: $RELAY_BIN" >&2
-  echo "       build it first: (cd $TESSERA_DIR && swift build)" >&2
+  echo "       build a release binary and install it: (cd $TESSERA_DIR && swift build -c release && install -m 0755 .build/release/tessera ~/.local/bin/tessera)" >&2
+  echo "       or point RELAY_BIN at a dev build:  RELAY_BIN=\$TESSERA_DIR/.build/debug/tessera" >&2
   exit 1
 fi
 
-if pgrep -f 'debug/tessera run' >/dev/null 2>&1; then
+if pgrep -f '[t]essera run' >/dev/null 2>&1; then
   echo "tessera relay: already running."
   exit 0
 fi
@@ -34,7 +45,7 @@ nohup "$RELAY_BIN" run \
 disown
 
 sleep 1
-if pgrep -f 'debug/tessera run' >/dev/null 2>&1; then
+if pgrep -f '[t]essera run' >/dev/null 2>&1; then
   echo "tessera relay: started. (log: $RELAY_LOG)"
 else
   echo "tessera relay: FAILED to start — see $RELAY_LOG" >&2
