@@ -1218,14 +1218,14 @@ extension AppState {
     func connectStagedStorage() async -> Bool {
         guard let staged = stagedStorage else { return false }
         if staged == "config", loadConfig().tessera == nil {
-            await hint("Default (config.json) has no tessera section - add one there or use a connection below.")
+            hint("Default (config.json) has no tessera section - add one there or use a connection below.")
             stagedStorage = nil
             return false
         }
         if staged != "file", staged != "config" {
             guard let conn = settings.storageConnections.first(where: { $0.id == staged }),
                   conn.tesseraConfig != nil else {
-                await hint("That Tessera storage connection is incomplete (server IP, port, public key and client private key are required).")
+                hint("That Tessera storage connection is incomplete (server IP, port, public key and client private key are required).")
                 stagedStorage = nil
                 return false
             }
@@ -1258,7 +1258,7 @@ extension AppState {
         let ok = await reloadAllBounded(seconds: 10)
         if !ok {
             crumb("storage: \(settings.activeStorage) unresponsive; reverting to \(previousEffective)")
-            await hint("That Tessera storage didn't answer within 10s — stayed on \(storageMediumDisplay(previousEffective)).")
+            hint("That Tessera storage didn't answer within 10s — stayed on \(storageMediumDisplay(previousEffective)).")
             settings.activeStorage = previousEffective
             saveSettings()
             await ensureRuntime()
@@ -1268,9 +1268,9 @@ extension AppState {
         crumb("storage: connected to \(settings.activeStorage) (backend=\(runtimeBackend))")
         await reloadAll()
         if wasHosted {
-            await hint("Storage connected. Gateway/bot services keep their boot-time backend until the daemon restarts.", kind: "success")
+            hint("Storage connected. Gateway/bot services keep their boot-time backend until the daemon restarts.", kind: "success")
         } else {
-            await hint("Storage connected.", kind: "success")
+            hint("Storage connected.", kind: "success")
         }
         return true
     }

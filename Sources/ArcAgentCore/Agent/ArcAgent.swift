@@ -2766,7 +2766,7 @@ public actor ArcAgent: Service {
     /// `"action" : "signal"` (any whitespace between tokens).
     static func actionIs(_ action: String, in arguments: String) -> Bool {
         guard let range = arguments.range(of: "\"action\"") else { return false }
-        var i = range.upperBound
+        let i = range.upperBound
         let chars = arguments[i...]
         var idx = chars.startIndex
         func skipWhitespace() {

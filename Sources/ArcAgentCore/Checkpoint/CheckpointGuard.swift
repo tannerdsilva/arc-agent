@@ -89,7 +89,7 @@ public actor CheckpointGuard {
         guard cap > 0 else { return }
         let list = await store.list(projectPath: root)
         for checkpoint in list.dropFirst(cap) {
-            await store.remove(name: checkpoint.name, projectPath: root)
+            _ = await store.remove(name: checkpoint.name, projectPath: root)
         }
         try? await store.save()
     }

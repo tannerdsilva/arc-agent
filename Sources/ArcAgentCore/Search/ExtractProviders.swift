@@ -196,7 +196,7 @@ public extension SearchRegistry {
     /// Resolve the active extract backend: `web.extract_backend` /
     /// `web.backend` wins, then the first available extract-capable provider
     /// in legacy preference order (reference `_resolve_provider`).
-    public func resolveExtractor(configured: String?) -> (ExtractProvider, String)? {
+    func resolveExtractor(configured: String?) -> (ExtractProvider, String)? {
         let extractors = listProviders().compactMap { $0 as? ExtractProvider }
         if let backend = configured, !backend.isEmpty {
             if let exact = extractors.first(where: { $0.name == backend }) {

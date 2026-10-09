@@ -218,7 +218,7 @@ public struct SidecarPluginService: Service {
         // The group's graceful shutdown cancels this task; the loop exits
         // and the manager disconnects every plugin process (same
         // runUntilShutdown pattern as CronScheduler).
-        try await runUntilShutdown { [manager] in
+        try await runUntilShutdown {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
             }

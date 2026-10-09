@@ -156,12 +156,8 @@ public actor HookBus {
     /// agent awaits the decision before proceeding).
     public func queryBlocking(_ event: String, _ context: [String: HookValue] = [:]) async -> HookDecision? {
         for (registered, handler) in blockingHandlers where registered == event {
-            do {
-                if let decision = await handler(event, HookContext(context)) {
-                    return decision
-                }
-            } catch {
-                LoggerHolder.log("blocking hook \(event) error: \(error)")
+            if let decision = await handler(event, HookContext(context)) {
+                return decision
             }
         }
         return nil
@@ -222,11 +218,7 @@ public actor HookBus {
     private func consume(_ job: HookJob) async {
         // 1. Programmatic handlers (plugin hooks).
         for (events, handler) in handlers where matchesAny(events, job.event) {
-            do {
-                await handler(job.event, job.context)
-            } catch {
-                LoggerHolder.log("hook \(job.event): handler error: \(error)")
-            }
+            await handler(job.event, job.context)
         }
         // 2. File-backed gateway hooks.
         for hook in fileHooks where hook.matches(job.event) {
@@ -275,7 +267,7 @@ public actor HookBus {
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
                 if process.isRunning { process.terminate() }
             }
-            _ = try? await process.waitUntilExit()
+            process.waitUntilExit()
             deadline.cancel()
 
             let stderr = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
@@ -345,7 +337,7 @@ public actor HookBus {
                 let status = response.status.code
                 if (200..<300).contains(status) { return }
                 if (300..<400).contains(status) {
-                    LoggerHolder.log("outbound \(target.name): 3xx redirect, not following (status \(status))")
+                    LoggerHolder.log("outbound \(String(describing: target.name)): 3xx redirect, not following (status \(status))")
                     return
                 }
                 if status >= 500, attempt == 0 {
@@ -358,7 +350,7 @@ public actor HookBus {
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                     continue
                 }
-                LoggerHolder.log("outbound \(target.name): \(error)")
+                LoggerHolder.log("outbound \(String(describing: target.name)): \(error)")
             }
         }
     }

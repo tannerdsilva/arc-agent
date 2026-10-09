@@ -84,7 +84,7 @@ extension AppState {
         // list (inherited by profiles without overrides).
         let pname = profileName(for: sessionID)
         let disabledSkills = pname.flatMap { settings.profileSkills[$0] } ?? settings.disabledSkills
-        var allowed: [Skill] = skills.filter { !disabledSkills.contains($0.name) }
+        let allowed: [Skill] = skills.filter { !disabledSkills.contains($0.name) }
         if !allowed.isEmpty {
             parts.append(SkillsPrompt.section(index: buildSkillsIndex(allowed)))
         }
@@ -117,7 +117,7 @@ extension AppState {
                 function: .init(
                     name: name,
                     arguments: String(data: data, encoding: .utf8) ?? "{}"))
-            return try await self.runTool(
+            return await self.runTool(
                 ambient, sessionID: sessionID, pusher: { _ in }, headless: true)
         }
         guard let tool = registry.lookup(name: call.function.name) else {
@@ -338,14 +338,14 @@ extension AppState {
         }
         let nonSystem = msgs.filter { $0.role != .system }
         let minRecent = min(10, nonSystem.count)
-        let recent = Array(nonSystem.suffix(minRecent))
+        _ = Array(nonSystem.suffix(minRecent))
         let compressible = Array(nonSystem.prefix(nonSystem.count - minRecent))
         guard !compressible.isEmpty else { return (msgs, false) }
 
         let record = extractiveRecord(compressible)
         var summary = record
         if arcConfig.auxiliary.override(for: .compression)?.isSet == true,
-           let hc = httpClient,
+           httpClient != nil,
            let client = makeAuxClient(for: .compression, sessionID: sessionID) {
             let prompt = """
             You are the context compressor for a long agent conversation. Produce a dense summary
@@ -1295,7 +1295,7 @@ final class Controller {
             // "Reply with selection" button: the selected chat text rides in
             // `payload` (dynamic button, reference `_addNamedContextBlock`).
             guard let sel = event.string("payload"), !sel.isEmpty else { return [] }
-            await self.app.addPendingContext(sel)
+            _ = await self.app.addPendingContext(sel)
             return [FragmentUpdate(id: "composer-wrap", html: await self.app.composerHTML())]
         }
         wire(router, id: "selection-context-del", events: ["click"]) { event in

@@ -115,12 +115,8 @@ public struct WebUIHost: Service {
             // overwrites the store state the fallback just built, blanking the
             // sidebar, and leaks the tunnel it spawned.
             let bootTask = Task {
-                do {
-                    await app.boot()
-                    c.yield(.success(())); c.finish()
-                } catch {
-                    c.yield(.failure(error)); c.finish()
-                }
+                await app.boot()
+                c.yield(.success(())); c.finish()
             }
             Task {
                 do { try await Task.sleep(nanoseconds: 12_000_000_000) } catch {}

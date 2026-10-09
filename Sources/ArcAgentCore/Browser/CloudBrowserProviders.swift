@@ -83,7 +83,7 @@ public struct BrowserbaseSessionProvider: BrowserSessionProvider {
             body: config
         )
         let sessionID = data.string("id")
-        let cdpURL = data.string("connectUrl") ?? data.string("cdpUrl") ?? ""
+        let cdpURL = data.string("connectUrl").isEmpty ? data.string("cdpUrl") : data.string("connectUrl")
         guard !sessionID.isEmpty, !cdpURL.isEmpty else {
             throw CDPError.commandFailed("Browserbase session created without connect URL")
         }
@@ -129,7 +129,7 @@ public struct BrowserUseSessionProvider: BrowserSessionProvider {
             body: [:]
         )
         let sessionID = data.string("id")
-        let cdpURL = data.string("cdpUrl") ?? data.string("connectUrl") ?? ""
+        let cdpURL = data.string("cdpUrl").isEmpty ? data.string("connectUrl") : data.string("cdpUrl")
         guard !sessionID.isEmpty, !cdpURL.isEmpty else {
             throw CDPError.commandFailed("Browser Use session created without CDP URL")
         }

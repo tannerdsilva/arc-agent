@@ -1742,11 +1742,11 @@ extension AppState {
     /// model, thinking) as trigger buttons with server-rendered popovers,
     /// matching the arc agent webui look.
     func composerSelectorsHTML() -> String {
-        let ws = (workspaceName(for: activeSessionID) ?? "")
+        let ws = workspaceName(for: activeSessionID)
         let profile = (profileName(for: activeSessionID) ?? "")
-        let config = (configName(for: activeSessionID) ?? "")
+        let config = configName(for: activeSessionID)
         let model = settings.modelConfig(named: config)?.model ?? config
-        let think = (thinkingLevel(for: activeSessionID) ?? "")
+        let think = thinkingLevel(for: activeSessionID)
 
         let wsTrigger = ddTrigger(id: "cb-ws-toggle", icon: WebUIIcon(.folder, size: .small).render(),
                                   label: ws.isEmpty ? "Workspace" : ws, title: "Workspace")

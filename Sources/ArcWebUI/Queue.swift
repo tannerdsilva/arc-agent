@@ -251,7 +251,7 @@ extension AppState {
 
     func notifyQueueView(_ pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void) async {
         guard activeTabID == "todos" else { return }
-        await pusher([FragmentUpdate(id: "main", html: await self.todosPanelHTML())])
+        await pusher([FragmentUpdate(id: "main", html: self.todosPanelHTML())])
     }
 
     /// Run one queue task in its own chat (waiting for the chat to be free).

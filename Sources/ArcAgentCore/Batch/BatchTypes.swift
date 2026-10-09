@@ -147,7 +147,7 @@ public enum ShareGPTTrajectory {
                     var toolIndex = 0
                     while j < messages.count, messages[j].role == .tool {
                         let toolMessage = messages[j]
-                        var payload: [String: Any] = [
+                        let payload: [String: Any] = [
                             "tool_call_id": toolMessage.toolCallID ?? "",
                             "name": toolIndex < toolCalls.count ? toolCalls[toolIndex].function.name : "unknown",
                             "content": rawContent(toolMessage.content ?? ""),
