@@ -1751,7 +1751,7 @@ extension AppState {
         let wsTrigger = ddTrigger(id: "cb-ws-toggle", icon: WebUIIcon(.folder, size: .small).render(),
                                   label: ws.isEmpty ? "Workspace" : ws, title: "Workspace")
         let ppTrigger = ddTrigger(id: "cb-profile-toggle", icon: WebUIIcon(.user, size: .small).render(),
-                                  label: profile.isEmpty ? "Profile" : profile, title: "Profile")
+                                  label: profile.isEmpty ? "Default" : profile, title: "Profile")
         let mdTrigger = ddTrigger(id: "cb-model-toggle", icon: WebUIIcon(.box, size: .small).render(),
                                   label: model.isEmpty ? "Model" : model, title: "Model")
         let thTrigger = ddTrigger(id: "cb-think-toggle", icon: WebUIIcon(.circleGauge, size: .small).render(),
