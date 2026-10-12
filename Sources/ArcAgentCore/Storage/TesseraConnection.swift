@@ -185,6 +185,10 @@ public actor TesseraConnection {
             // connection lets all store operations reuse the same settled tunnel.
             return true
         } catch {
+            // A relay outage must be visible: log the actual thrown error
+            // (operator Logs panel) instead of swallowing it into a bare `false`.
+            let desc = String(reflecting: error)
+            Logger(label: "arc-agent.tessera").error("Tessera health check failed: \(desc)")
             await hardShutdown()
             return false
         }
