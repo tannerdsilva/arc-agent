@@ -783,6 +783,13 @@ actor AppState {
     /// attaches the slide-in animation class; consumed by workspacePanelHTML.
     var wsEnterAnim = false
 
+    /// Render-path cache for the workspace file tree, keyed by
+    /// (path, showHidden, expanded set). Repeated shell re-renders of an
+    /// OPEN panel reuse this instead of rescanning the directory. Cleared
+    /// when the panel is (re)opened or on a file/folder mutation.
+    var workspaceTreeCacheKey: String? = nil
+    var workspaceTreeCacheHTML: String? = nil
+
     /// The workspace-relative path of a file open in the panel's preview pane,
     /// its read content, and an optional notice (binary / oversized / unreadable).
     /// nil = the panel shows the file tree. (Hermes parity: the right

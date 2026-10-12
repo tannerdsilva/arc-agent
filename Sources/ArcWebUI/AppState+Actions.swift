@@ -638,6 +638,9 @@ extension AppState {
         wsNewMode = ""
         // One-shot slide-in for the open transition (consumed by the render).
         if workspaceOpen { wsEnterAnim = true }
+        // A fresh open always reflects the current disk: drop the render cache
+        // so the panel rescans (it was never scanned while hidden).
+        if workspaceOpen { clearWorkspaceTreeCache() }
     }
 
     func closeWorkspace() {
@@ -672,6 +675,7 @@ extension AppState {
                 try Data("".utf8).write(to: url)
             }
             wsNewMode = ""
+            clearWorkspaceTreeCache()
             _ = hint("Created '\(name)'.")
         } catch {
             _ = hint("Could not create '\(name)': \(error.localizedDescription)", kind: "error")
@@ -693,6 +697,7 @@ extension AppState {
         do {
             try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: dest)
+            clearWorkspaceTreeCache()
             _ = hint("Uploaded \(dest.lastPathComponent).")
         } catch {
             _ = hint("Upload failed for \(name): \(error.localizedDescription)", kind: "error")
@@ -1466,7 +1471,7 @@ extension AppState {
     /// actually changed since the last scan (the fresh HTML is cached either
     /// way; the first scan only warms the cache to avoid a redundant push).
     func scanWorkspaceTree() async -> Bool {
-        let fresh = workspaceTreeHTML()
+        let fresh = freshWorkspaceTreeHTML()
         guard !cachedWSTreeHTML.isEmpty else {
             cachedWSTreeHTML = fresh
             return false

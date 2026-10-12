@@ -3507,66 +3507,112 @@ extension AppState {
     /// otherwise the breadcrumb + file tree (Hermes parity: the right panel
     /// shows both the tree and a preview of the selected file).
     func workspaceBodyHTML() -> String {
-        guard let path = previewPath else {
+        // Never scan the directory for a hidden panel: `workspacePanelHTML`
+        // is rendered on every shell build, and the tree walk is synchronous
+        // disk I/O — doing it when the panel isn't visible caused the lag
+        // spikes. The scan happens on first render after the panel opens.
+        guard workspaceOpen else { return "" }
+        if let path = previewPath {
+            let name = URL(fileURLWithPath: path).lastPathComponent
+            let body = previewContent.map { "<pre class=\"ws-preview-body\">\(esc($0))</pre>" }
+                ?? "<div class=\"empty-hint\">\(esc(previewNote ?? "No preview."))</div>"
             return """
-            <div class="ws-path" title="\(esc(panelWorkspacePath()))">\(esc(panelWorkspacePath()))</div>
-            \(workspaceTreeHTML())
+            <div class="ws-preview">
+              <div class="ws-preview-head">
+                <button type="button" id="w-preview-back" class="icon-mini" title="Back to files">\(WebUIIcon(.chevronLeft, size: .small).render())</button>
+                <span class="ws-preview-name" title="\(esc(path))">\(esc(name))</span>
+              </div>
+              <div class="ws-preview-scroll">\(body)</div>
+            </div>
             """
         }
-        let name = URL(fileURLWithPath: path).lastPathComponent
-        let body = previewContent.map { "<pre class=\"ws-preview-body\">\(esc($0))</pre>" }
-            ?? "<div class=\"empty-hint\">\(esc(previewNote ?? "No preview."))</div>"
         return """
-        <div class="ws-preview">
-          <div class="ws-preview-head">
-            <button type="button" id="w-preview-back" class="icon-mini" title="Back to files">\(WebUIIcon(.chevronLeft, size: .small).render())</button>
-            <span class="ws-preview-name" title="\(esc(path))">\(esc(name))</span>
-          </div>
-          <div class="ws-preview-scroll">\(body)</div>
-        </div>
+        <div class="ws-path" title="\(esc(panelWorkspacePath()))">\(esc(panelWorkspacePath()))</div>
+        \(workspaceTreeHTML())
         """
     }
 
     func workspaceTreeHTML() -> String {
-        let root = URL(fileURLWithPath: panelWorkspacePath())
-        let fm = FileManager.default
+        // Render-path cache: repeated shell re-renders of an OPEN panel reuse
+        // the last listing instead of rescanning the directory. Keyed by
+        // (path, showHidden, expanded set), so switching the workspace,
+        // toggling hidden files, or expanding/collapsing a folder all change
+        // the key and force a rescan; content mutations clear the cache.
+        let path = panelWorkspacePath()
+        let key = wsTreeCacheKey(path: path)
+        if let k = workspaceTreeCacheKey, k == key, let html = workspaceTreeCacheHTML {
+            return html
+        }
+        let html = Self.renderWorkspaceTree(
+            root: URL(fileURLWithPath: path),
+            showHidden: showHiddenFiles,
+            expanded: expandedPaths
+        )
+        workspaceTreeCacheKey = key
+        workspaceTreeCacheHTML = html
+        return html
+    }
+
+    /// Fresh (non-cached) listing, used by the live workspace scanner so it
+    /// detects real filesystem changes rather than serving the render cache.
+    func freshWorkspaceTreeHTML() -> String {
+        Self.renderWorkspaceTree(
+            root: URL(fileURLWithPath: panelWorkspacePath()),
+            showHidden: showHiddenFiles,
+            expanded: expandedPaths
+        )
+    }
+
+    /// Clear the render-path tree cache (called on open + on mutations).
+    func clearWorkspaceTreeCache() {
+        workspaceTreeCacheKey = nil
+        workspaceTreeCacheHTML = nil
+    }
+
+    private func wsTreeCacheKey(path: String) -> String {
+        "\(path)|\(showHiddenFiles)|\(expandedPaths.sorted().joined(separator: "\u{1F}"))"
+    }
+
+    /// The workspace file tree, bounded (depth ≤ 8, ≤ 600 entries). Reads
+    /// `.isDirectory` once per entry and sorts by the cached bool — the old
+    /// code re-stat'ed every entry on every sort comparison (O(n·log n) stats),
+    /// the dominant cost of an otherwise small listing.
+    static func renderWorkspaceTree(root: URL, showHidden: Bool, expanded: Set<String>) -> String {
         var lines: [String] = []
         var count = 0
-        func walk(_ dir: URL, rel: String, depth: Int) {
+        func rel(_ prefix: String, _ name: String) -> String { prefix.isEmpty ? name : prefix + "/" + name }
+        func walk(_ dir: URL, prefix: String, depth: Int) {
             guard depth <= 8, count < 600 else { return }
-            let all = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: [])) ?? []
+            guard let all = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: []) else { return }
             var entries = all
-            if !showHiddenFiles {
-                entries = entries.filter { !$0.lastPathComponent.hasPrefix(".") }
+            if !showHidden { entries = entries.filter { !$0.lastPathComponent.hasPrefix(".") } }
+            let tagged = entries.compactMap { u -> (URL, Bool)? in
+                let isDir = (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                return (u, isDir)
             }
-            entries.sort { a, b in
-                let ada = (try? a.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                let adb = (try? b.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                if ada != adb { return ada }
-                return a.lastPathComponent.localizedCaseInsensitiveCompare(b.lastPathComponent) == .orderedAscending
+            let sorted = tagged.sorted { a, b in
+                if a.1 != b.1 { return a.1 }
+                return a.0.lastPathComponent.localizedCaseInsensitiveCompare(b.0.lastPathComponent) == .orderedAscending
             }
             let pad = 12 + depth * 15
-            for entry in entries {
+            for (entry, isDir) in sorted {
                 let name = entry.lastPathComponent
-                let relPath = rel.isEmpty ? name : rel + "/" + name
-                let isDir = (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                let encPath = enc(relPath)
+                let rp = rel(prefix, name)
                 count += 1
                 if count > 600 { return }
+                let encPath = enc(rp)
                 if isDir {
-                    let expanded = expandedPaths.contains(relPath)
-                    let caret = expanded ? WebUIIcon(.chevronDown, size: .small).render() : WebUIIcon(.chevronRight, size: .small).render()
-                    lines.append("<button type=\"button\" id=\"w-toggle-\(encPath)\" class=\"ws-row\" style=\"padding-left:\(pad)px\" title=\"\(esc(relPath))\"><span class=\"ws-caret\">\(caret)</span><span class=\"ws-ic\">\(WebUIIcon(.folder, size: .small).render())</span><span class=\"ws-name\">\(esc(name))</span></button>")
-                    if expanded { walk(entry, rel: relPath, depth: depth + 1) }
+                    let isExp = expanded.contains(rp)
+                    let caret = isExp ? WebUIIcon(.chevronDown, size: .small).render() : WebUIIcon(.chevronRight, size: .small).render()
+                    lines.append("<button type=\"button\" id=\"w-toggle-\(encPath)\" class=\"ws-row\" style=\"padding-left:\(pad)px\" title=\"\(esc(rp))\"><span class=\"ws-caret\">\(caret)</span><span class=\"ws-ic\">\(WebUIIcon(.folder, size: .small).render())</span><span class=\"ws-name\">\(esc(name))</span></button>")
+                    if isExp { walk(entry, prefix: rp, depth: depth + 1) }
                 } else {
-                    lines.append("<button type=\"button\" id=\"w-file-\(encPath)\" class=\"ws-row\" style=\"padding-left:\(pad + 4)px\" title=\"\(esc(relPath))\"><span class=\"ws-ic\">\(wsFileIcon(name))</span><span class=\"ws-name\">\(esc(name))</span></button>")
+                    lines.append("<button type=\"button\" id=\"w-file-\(encPath)\" class=\"ws-row\" style=\"padding-left:\(pad + 4)px\" title=\"\(esc(rp))\"><span class=\"ws-ic\">\(WebUIIcon(.file, size: .small).render())</span><span class=\"ws-name\">\(esc(name))</span></button>")
                 }
             }
         }
-        walk(root, rel: "", depth: 0)
-        if lines.isEmpty {
-            lines.append("<div class=\"empty-hint\">This workspace is empty.</div>")
-        }
+        walk(root, prefix: "", depth: 0)
+        if lines.isEmpty { lines.append("<div class=\"empty-hint\">This workspace is empty.</div>") }
         return lines.joined()
     }
 
