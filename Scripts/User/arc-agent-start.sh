@@ -16,7 +16,7 @@ if [ ! -x "$ARC_BIN" ]; then
     ARC_BIN="$ARC_DIR/.build/debug/arc"
   fi
 fi
-ARC_LOG="${ARC_LOG:-/private/tmp/arc-serve.log}"
+ARC_LOG="${ARC_LOG:-${TMPDIR:-/tmp}/arc-serve.log}"
 
 if [ ! -x "$ARC_BIN" ]; then
   echo "error: arc binary not found/executable: $ARC_BIN" >&2
