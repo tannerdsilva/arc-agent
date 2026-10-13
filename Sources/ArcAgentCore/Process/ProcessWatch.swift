@@ -373,7 +373,7 @@ public enum ProcessRedaction {
     ]
 
     static func pattern(_ s: String) -> NSRegularExpression {
-        (try? NSRegularExpression(pattern: s)) ?? NSRegularExpression()
+        (try? NSRegularExpression(pattern: s)) ?? (try! NSRegularExpression(pattern: ""))
     }
 
     public static func redact(_ command: String) -> String {

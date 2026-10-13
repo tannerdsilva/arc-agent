@@ -1,5 +1,9 @@
 import Foundation
 
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 // MARK: - Usage ledger (reference `usage_pricing.py` + `credits_tracker.py` +
 // `account_usage.py`), local-JSON persistence.
 

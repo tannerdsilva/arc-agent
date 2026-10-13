@@ -1,5 +1,9 @@
 import Foundation
 
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 // MARK: - Browser provider registry + CDP driver (reference browser_registry)
 
 /// A browser provider drives a browser; implementations are HTTP/WebSocket

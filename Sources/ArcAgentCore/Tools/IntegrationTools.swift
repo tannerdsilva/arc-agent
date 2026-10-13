@@ -2,6 +2,10 @@ import Foundation
 import SwiftSlash
 import Crypto
 
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 // MARK: - Media tools (reference image_gen/tts/transcription/video provider
 // registry, HTTP-only providers — no heavyweight SDKs)
 

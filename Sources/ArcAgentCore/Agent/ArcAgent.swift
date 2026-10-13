@@ -637,6 +637,21 @@ public actor ArcAgent: Service {
     /// Readline handle for async stdin access.
     private let stdinHandle = FileHandle.standardInput
 
+    /// Cross-platform async line reader for interactive stdin. `FileHandle.bytes`
+    /// (macOS) is unavailable on Linux; `readLine()` reads fd 0 on both.
+    private func arcStdinLines() -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                while let line = readLine() {
+                    continuation.yield(line)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+
     /// Run the interactive readline REPL with slash commands.
     private func runInteractive() async throws {
         print("⚡ ARC Agent — interactive mode")
@@ -645,7 +660,7 @@ public actor ArcAgent: Service {
         print("   Prefix with ! to run a shell command directly.\n")
         print("> ", terminator: "")
 
-        for try await input in stdinHandle.bytes.lines {
+        for try await input in arcStdinLines() {
             if input.hasPrefix("/") {
                 let handled = try await handleSlashCommand(input)
                 if handled {
@@ -3271,7 +3286,7 @@ public actor ArcAgent: Service {
         #if os(macOS)
         osDescription = "macOS (\(ProcessInfo.processInfo.operatingSystemVersionString))"
         #else
-        osDescription = "\(ProcessInfo.processInfo.operatingSystemName) \(ProcessInfo.processInfo.operatingSystemVersionString)"
+        osDescription = "Linux (\(ProcessInfo.processInfo.operatingSystemVersionString))"
         #endif
         stable += """
 

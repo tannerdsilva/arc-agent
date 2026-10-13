@@ -3,6 +3,10 @@ import ArcAgentCore
 import ArcDaemon
 import Foundation
 
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 // MARK: - Ops CLIs (reference `prompt-size`, `doctor`, `status`)
 
 /// `arc prompt-size` — token breakdown of the model-visible prompt surface.
