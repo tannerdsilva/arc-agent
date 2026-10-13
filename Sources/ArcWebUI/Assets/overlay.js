@@ -389,6 +389,15 @@
   var stick = true;
   var lastTop = null;
   var seenChatScroll = null;
+  // Round-4 scroll/draft memory (UX-39/40/41): a rail switch re-renders the
+  // chat and panel fragments, and the engine's input preservation keeps the
+  // old chat's composer text across the swap. These maps live for the page's
+  // lifetime so a return can put the reader back where they were.
+  var chatScrollMemory = {};
+  var panelScrollMemory = {};
+  var panelSeen = {};
+  var lastComposerSession = null;
+  var focusComposerWanted = false;
   // ---- Pipe-table enhancement (arc-specific).
   // Lived in the forked runtime until that fork was deleted; it belongs in the
   // overlay and is driven from the engine's afterPatch seam below — pipe tables
@@ -493,6 +502,8 @@
         var top = s.scrollTop;
         var prev = lastTop === null ? top : lastTop;
         lastTop = top;
+        var sid = s.getAttribute('data-session') || '';
+        if (sid) chatScrollMemory[sid] = top; // per-session position (UX-39)
         if (atBottom(s)) {
           // Back at the very bottom (a deliberate return, the jump button,
           // End, or a content-shrink clamp): follow again. Must run before
@@ -513,8 +524,8 @@
       }, { passive: true });
     }
     if (s !== seenChatScroll) {
-      // The scroll container was (re)created — a chat open or a
-      // streaming refresh. Respect data-follow only for chat opens.
+      // The scroll container was (re)created — a chat open, a streaming
+      // refresh, or a rail return. Respect data-follow only for chat opens.
       seenChatScroll = s;
       lastTop = s.scrollTop;
       if (s.getAttribute('data-follow') === 'bottom') {
@@ -527,10 +538,76 @@
         setTimeout(forceBottom, 60);
       } else if (stick) {
         s.scrollTop = s.scrollHeight;
+      } else {
+        // A rail return re-renders the chat fragment WITHOUT data-follow:
+        // put the reader back where they were for THIS session instead of
+        // at the top of the thread (UX-39). Clamped; re-applied after the
+        // layout settles.
+        var returnSid = s.getAttribute('data-session') || '';
+        if (returnSid && chatScrollMemory[returnSid] != null) {
+          var restoreTop = chatScrollMemory[returnSid];
+          var restore = function () {
+            var cur = chatScroller();
+            if (cur !== s) return;
+            var max = Math.max(0, s.scrollHeight - s.clientHeight);
+            s.scrollTop = Math.min(restoreTop, max);
+            lastTop = s.scrollTop;
+          };
+          restore();
+          requestAnimationFrame(restore);
+          setTimeout(restore, 60);
+        }
       }
     } else if (stick) {
       s.scrollTop = s.scrollHeight;
     }
+    // Re-evaluate the jump button on every (re)render, not just on scroll:
+    // a finalize patch can shrink the thread under the fold, and the stale
+    // "Jump to latest" must not linger with nowhere to jump (UX-42).
+    updateJumpBtn(s);
+  }
+
+  // ---- Panel scroll memory (UX-41): a rail switch swaps the panel fragment,
+  // so each keyed scroller forgets where it was. Remember it in the overlay
+  // (per `data-scroll-key`) and restore it when a fresh node for the key
+  // arrives. The chat scroller is exempt — stickToChat owns that one.
+  function syncPanelScroll() {
+    var els = document.querySelectorAll('[data-scroll-key]');
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      var key = el.getAttribute('data-scroll-key');
+      if (!key || key === 'chat') continue;
+      if (panelSeen[key] !== el) {
+        panelSeen[key] = el;
+        if (!el.__scrollMemBound) {
+          el.__scrollMemBound = true;
+          el.addEventListener('scroll', (function (node, k) {
+            return function () { panelScrollMemory[k] = node.scrollTop; };
+          })(el, key));
+        }
+        var mem = panelScrollMemory[key];
+        if (mem != null) {
+          var max = Math.max(0, el.scrollHeight - el.clientHeight);
+          el.scrollTop = Math.min(mem, max);
+        }
+      }
+    }
+  }
+
+  // ---- Composer draft seam (UX-40): the engine preserves the pre-patch
+  // textarea value across fragment patches, so a session switch used to keep
+  // the OLD chat's text. The server renders the intended draft as
+  // `data-draft` on #composer-input; when the composer's session actually
+  // changes, re-assert it. Same-session patches (typing protected mid-turn,
+  // chip toggles) are left strictly alone.
+  function syncComposerDraft() {
+    var el = document.getElementById('composer-input');
+    if (!el) return;
+    var sid = el.getAttribute('data-session') || '';
+    if (sid === lastComposerSession) return;
+    lastComposerSession = sid;
+    var want = el.getAttribute('data-draft') || '';
+    if (el.value !== want) el.value = want;
   }
 
   // ---- Confirmation dialog: focus, Escape, and a light focus trap.
@@ -761,6 +838,8 @@
     resizeComposerIfNew();
     enhanceMarkdownTables(document);
     stickToChat();
+    syncPanelScroll();
+    syncComposerDraft();
     syncModalFocus();
     syncOutline();
     bootSettingsSpy();
@@ -778,6 +857,8 @@
       enhanceMarkdownTables(document);
     }
     stickToChat();
+    syncPanelScroll();
+    syncComposerDraft();
     syncModalFocus();
     syncOutline();
     bootSettingsSpy();
@@ -786,6 +867,17 @@
     // activated — return focus to its equivalent so the keyboard trail does
     // not reset to <body>.
     restoreFocusAfterPatch();
+    // UX-45: `+` (new chat) leaves focus on the button; the app asked for the
+    // composer and the new chat's fragment just landed — put the caret in it.
+    if (focusComposerWanted) {
+      var ci = document.getElementById('composer-input');
+      if (ci) {
+        focusComposerWanted = false;
+        ci.focus();
+        ci.setSelectionRange(ci.value.length, ci.value.length);
+        resizeComposerIfNew();
+      }
+    }
   }
 
   // ---- Settings sub-nav: mark the section in view.
@@ -827,6 +919,15 @@
     settingsSpy = { wrap: wrap, observer: obs };
   }
 
+  // UX-45: `+` (new chat) leaves focus on the button; remember the intent and
+  // land the caret in the composer once the new chat's fragment arrives.
+  document.addEventListener('click', function (e) {
+    if (e.target && e.target.closest && e.target.closest('#chat-new')) {
+      focusComposerWanted = true;
+      setTimeout(function () { focusComposerWanted = false; }, 2500);
+    }
+  }, true);
+
   function bootOverlay() {
     if (window.WebUIEngine && WebUIEngine.on) {
       WebUIEngine.on.afterPatch(enhancePatched);
@@ -836,6 +937,12 @@
     // handler, so `ready` may never fire — the initial pass runs here, and
     // covers anything that arrived before registration.
     enhanceAll();
+    // A resize changes what fits under the fold; keep the jump button honest
+    // about whether there is anywhere to jump (UX-42).
+    window.addEventListener('resize', function () {
+      var s = chatScroller();
+      if (s) updateJumpBtn(s);
+    });
   }
 
   if (document.readyState === 'loading') {

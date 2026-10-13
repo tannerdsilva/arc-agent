@@ -226,7 +226,7 @@ extension AppState {
             let title = trunc(sessionTitle(s), 48)
             return ConfirmRequest(
                 kind: "chat", id: mid, title: "Delete conversation?",
-                body: "The chat “\(title)” will be permanently deleted. This cannot be undone.")
+                body: "The chat “\(title)” will be deleted. You can undo this for a few seconds.")
         }
         return pendingConfirm
     }
@@ -393,7 +393,7 @@ extension AppState {
         }
         return """
         \(head)
-        <div class="panel-body" id="sess-list-body" data-component-id="sess-list" data-event="click">
+        <div class="panel-body" id="sess-list-body" data-scroll-key="sessions" data-component-id="sess-list" data-event="click">
           \(rows.joined())
         </div>
         """
@@ -920,7 +920,7 @@ extension AppState {
         // of the scroll viewport.
         let scroll = """
         <div class="chat-scroll-wrap">
-          <div class="chat-scroll" id="chat-scroll" data-scroll-key="chat"\(follow)>
+          <div class="chat-scroll" id="chat-scroll" data-scroll-key="chat" data-session="\(esc(activeSessionID ?? ""))"\(follow)>
             <div class="chat-inner" id="chat-inner">
               \(messagesHTML(session?.messages ?? []))
             </div>
@@ -1796,7 +1796,7 @@ extension AppState {
           \(selectionChipsHTML())
           <form id="composer-form" data-component-id="composer-form" class="composer-bar\(selOpen ? " sel-open" : "")">
             <div class="attach-chips" id="attach-chips" data-component-id="att-chips" data-event="click">\(attachmentsHTML)</div>
-            <textarea id="composer-input" name="composer-input" data-component-id="composer-input" data-session="\(esc(sid))" data-prevent-enter="send" placeholder="\(running ? "Send another message — queued after this reply." : "Message ARC…")" rows="1" style="min-height:24px">\(esc(draft))</textarea>
+            <textarea id="composer-input" name="composer-input" data-component-id="composer-input" data-session="\(esc(sid))" data-draft="\(esc(draft))" data-prevent-enter="send" placeholder="\(running ? "Send another message — queued after this reply." : "Message ARC…")" rows="1" style="min-height:24px">\(esc(draft))</textarea>
             <div class="composer-toolbar">
               \(btn("cb-file", "cb-file", "tool-btn" + (filePopOpen ? " on" : ""), WebUIIcon(.paperclip, size: .medium).markup.html, " data-tip=\"Attach a file\""))
               \(btn("cb-bookmark", "cb-bookmark", "tool-btn" + (isBooked ? " on" : ""), bookLabel, " data-tip=\"Bookmark this chat\""))
@@ -2844,13 +2844,13 @@ extension AppState {
         <form id="storage-conn-form" data-component-id="storage-conn-form" class="form-grid" style="margin-top:14px;border-top:1px dashed var(--border);padding-top:14px">
           <input type="hidden" id="storage-edit-id" name="storage-edit-id" data-component-id="storage-edit-id" value="\(esc(se?.id ?? ""))">
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
-            <div><label for="sc-name">Name</label><input id="sc-name" name="sc-name" data-component-id="sc-name" placeholder="Home relay" value="\(esc(se?.name ?? ""))"></div>
-            <div><label for="sc-ip">Server IP / host</label><input id="sc-ip" name="sc-ip" data-component-id="sc-ip" placeholder="10.0.0.1" value="\(esc(se?.serverIP ?? ""))"></div>
-            <div><label for="sc-port">Port</label><input id="sc-port" name="sc-port" data-component-id="sc-port" type="number" min="1" max="65535" placeholder="51820" value="\(se.map { String($0.serverPort) } ?? "")"></div>
+            <div><label for="sc-name">Name</label><input id="sc-name" name="sc-name" data-component-id="sc-name" autocomplete="off" placeholder="Home relay" value="\(esc(se?.name ?? ""))"></div>
+            <div><label for="sc-ip">Server IP / host</label><input id="sc-ip" name="sc-ip" data-component-id="sc-ip" autocomplete="off" placeholder="10.0.0.1" value="\(esc(se?.serverIP ?? ""))"></div>
+            <div><label for="sc-port">Port</label><input id="sc-port" name="sc-port" data-component-id="sc-port" type="number" min="1" max="65535" autocomplete="off" placeholder="51820" value="\(se.map { String($0.serverPort) } ?? "")"></div>
           </div>
           <div><label for="sc-app">Application id</label><input id="sc-app" name="sc-app" data-component-id="sc-app" type="number" min="0" max="65535" placeholder="1" value="\(se.map { String($0.application) } ?? "")"></div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-            <div><label for="sc-pub">Server public key</label><input id="sc-pub" name="sc-pub" data-component-id="sc-pub" placeholder="base64 (32 bytes)" value="\(esc(se?.serverPublicKey ?? ""))"></div>
+            <div><label for="sc-pub">Server public key</label><input id="sc-pub" name="sc-pub" data-component-id="sc-pub" autocomplete="off" placeholder="base64 (32 bytes)" value="\(esc(se?.serverPublicKey ?? ""))"></div>
             <div><label for="sc-priv">Client private key</label><input id="sc-priv" name="sc-priv" data-component-id="sc-priv" type="password" autocomplete="new-password" placeholder="base64 (32 bytes)" value="\(esc(se?.myPrivateKey ?? ""))"></div>
           </div>
           <div class="row-actions-main" style="margin:0">

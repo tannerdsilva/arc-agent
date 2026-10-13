@@ -3008,6 +3008,11 @@ final class Controller: Sendable {
                     let ok = await self.app.undoDeleteChat()
                     if !ok {
                         _ = await self.app.surfaceToast("Could not restore the conversation.", kind: "error")
+                    } else if let toastID = Int(rest[rest.index(after: lastDash)...]) {
+                        // The Undo was consumed — retire its own toast so it
+                        // cannot offer a second, dead undo (refreshFragments
+                        // below re-renders #toasts from the shorter list).
+                        await self.app.dismissToast(id: toastID)
                     }
                     return await self.app.refreshFragments()
                 }
