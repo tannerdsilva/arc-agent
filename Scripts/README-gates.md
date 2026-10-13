@@ -61,7 +61,15 @@ Artifacts (all gitignored — regenerate, don't commit):
 4. **regression (T17)** — round-2 re-run: scroll read-back stays pinned
    mid-stream (SCROLL_PAD), composer ghost draft survives reload, `dd-pop`
    closes on Escape, Enter-to-send works.
-5. **schemes (T18)** — enumerate the schemes from the app's own settings grid
+5. **round4 (T34)** — the navigation/scroll fundamentals the round-4 fix wave
+   landed: a rail return restores the chat scroll position (UX-39), the
+   composer shows the CURRENT chat's draft across a live session switch
+   (UX-40), the session list keeps its position across a rail round-trip
+   (UX-41), and `+` lands the caret in the composer (UX-45). Needs a chat with
+   real scroll room for the scroll checks (otherwise those report SKIP — open
+   a long conversation first or run with `--only=regression` in the same
+   session so the streaming check leaves content behind).
+6. **schemes (T18)** — enumerate the schemes from the app's own settings grid
    (`[data-scheme-choice]` tiles — registry-driven, never hardcoded), click
    each, screenshot chat + settings, record computed tokens.
 

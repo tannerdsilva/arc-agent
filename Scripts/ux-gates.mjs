@@ -1,6 +1,6 @@
 // ux-gates.mjs — one-command UX gate suite for the arc web UI.
 //
-//   node Scripts/ux-gates.mjs [--only=contrast|interactions|motion|regression|schemes]
+//   node Scripts/ux-gates.mjs [--only=contrast|interactions|motion|regression|round4|schemes]
 //
 // Zero-dependency: native fetch + WebSocket via Scripts/ux-drive.mjs.
 // Assertions LIVE IN THE PAGE (Scripts/ux-contrast.js, ux-gates.js,
@@ -70,6 +70,7 @@ const RUN = {
   interactions: !opts.only || opts.only.includes('interactions'),
   motion: !opts.only || opts.only.includes('motion'),
   regression: !opts.only || opts.only.includes('regression'),
+  round4: !opts.only || opts.only.includes('round4'),
   schemes: !opts.only || opts.only.includes('schemes'),
 };
 
@@ -1004,6 +1005,150 @@ async function runRegression() {
 }
 
 // ---------------------------------------------------------------------------
+// T34 — round-4 fundamentals (navigation & scroll). Cheap DOM checks, no model
+// turns: rail-return scroll restore, draft isolation between sessions, list
+// position memory, and new-chat focus. A check whose precondition is missing
+// (no scrollable room) is a SKIP, never a pass.
+
+async function openSessionRow(sid) {
+  const did = await ev(`(() => {
+    const row = [...document.querySelectorAll('.sess-row')].find((r) => r.getAttribute('data-sid') === '${sid}');
+    const open = row && row.querySelector('[id^="s-open-"]');
+    if (open) { open.click(); return true; }
+    return false;
+  })()`);
+  await settle(900);
+  return did;
+}
+
+async function runRound4() {
+  console.log('\n— gate: round4 (navigation & scrolling fundamentals, no model turns) —');
+  const out = {};
+  await chatView();
+  await settle(300);
+  const startSid = await ev(`uxGates.sessions().activeSid`);
+
+  // 1. UX-39 — a rail return puts the reader back where they were.
+  let roomRes = await ev(`(() => { const s = document.getElementById('chat-scroll'); return s ? { sh: s.scrollHeight, ch: s.clientHeight } : null; })()`);
+  let room = roomRes ? roomRes.sh - roomRes.ch : -1;
+  if (room < 240) {
+    // No room in the open chat: try the gate's own probe chat — it carries
+    // real content when the regression gate ran first in the same session.
+    await ensureProbeSession();
+    await settle(400);
+    await openSessionRow(probeSid);
+    await settle(500);
+    roomRes = await ev(`(() => { const s = document.getElementById('chat-scroll'); return s ? { sh: s.scrollHeight, ch: s.clientHeight } : null; })()`);
+    room = roomRes ? roomRes.sh - roomRes.ch : -1;
+  }
+  if (!roomRes || room < 240) {
+    out.scrollRestore = { skipped: `the open chat has no usable scroll range (room=${room}) — run with --only=regression in the same session so the streaming chat leaves content, or open a long conversation first` };
+    record('round4', 'rail return restores chat scroll (UX-39)', 'skip', out.scrollRestore);
+  } else {
+    const mid = Math.min(900, Math.round(room * 0.45));
+    await ev(`(() => { const s = document.getElementById('chat-scroll'); s.scrollTop = ${mid}; return s.scrollTop; })()`);
+    await settle(300);
+    const before = await ev(`document.getElementById('chat-scroll').scrollTop`);
+    await ev(`document.getElementById('nav-skills')?.click()`);
+    await settle(650);
+    await ev(`document.getElementById('nav-chat')?.click()`);
+    await settle(600);
+    const after = await ev(`(() => { const s = document.getElementById('chat-scroll'); return s ? s.scrollTop : -1; })()`);
+    await settle(250);
+    const after2 = await ev(`(() => { const s = document.getElementById('chat-scroll'); return s ? s.scrollTop : -1; })()`);
+    const pass = Math.abs(before - mid) <= 8 && Math.abs(after - mid) <= 40 && Math.abs(after2 - mid) <= 40;
+    out.scrollRestore = { room, mid, before, after, after2, pass };
+    record('round4', 'rail return restores chat scroll (UX-39)', pass, out.scrollRestore);
+    await ev(`(() => { const s = document.getElementById('chat-scroll'); if (s) s.scrollTop = s.scrollHeight; return true; })()`);
+    await settle(250);
+  }
+
+  // 2. UX-40 — the composer shows the CURRENT chat's draft across a switch.
+  await ensureProbeSession();
+  await settle(400);
+  const other = await ev(`(() => {
+    const rows = [...document.querySelectorAll('.sess-row')];
+    const o = rows.filter((r) => r.getAttribute('data-sid') !== '${probeSid}').pop();
+    return o ? { sid: o.getAttribute('data-sid') } : null;
+  })()`);
+  if (!other) {
+    record('round4', "composer shows the current chat's draft (UX-40)", 'skip', { skipped: 'fewer than two conversations to switch between' });
+  } else {
+    const marker = 'UXGATE-DRAFT-' + (Date.now() % 100000);
+    await openSessionRow(probeSid);
+    await settle(400);
+    await ev(`(() => {
+      const t = document.getElementById('composer-input');
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(t, ${JSON.stringify(marker)});
+      t.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    await settle(1800); // draft autosave debounce
+    await openSessionRow(other.sid);
+    await settle(400);
+    const switched = await ev(`(() => ({ v: document.getElementById('composer-input')?.value || '', s: document.getElementById('composer-input')?.getAttribute('data-session') || null }))()`);
+    await openSessionRow(probeSid);
+    await settle(400);
+    const returned = await ev(`document.getElementById('composer-input')?.value || ''`);
+    await ev(`(() => {
+      const t = document.getElementById('composer-input');
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(t, '');
+      t.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    await settle(1800);
+    const cleared = await ev(`document.getElementById('composer-input')?.value || ''`);
+    const pass = switched.s === other.sid && switched.v !== marker && returned === marker && cleared === '';
+    out.draftIsolation = { marker, otherSid: other.sid, switched, returned, cleared, pass };
+    record('round4', "composer shows the current chat's draft (UX-40)", pass, out.draftIsolation);
+  }
+
+  // 3. UX-41 — the session list keeps its position across a rail round-trip.
+  const listRoom = await ev(`(() => { const el = document.getElementById('sess-list-body'); return el ? el.scrollHeight - el.clientHeight : -1; })()`);
+  if (listRoom < 120) {
+    record('round4', 'rail return keeps the session-list position (UX-41)', 'skip', { skipped: `the list has no usable scroll range (room=${listRoom})` });
+  } else {
+    const target = Math.min(340, listRoom - 40);
+    await ev(`(() => { const el = document.getElementById('sess-list-body'); el.scrollTop = ${target}; return el.scrollTop; })()`);
+    await settle(300);
+    const before = await ev(`document.getElementById('sess-list-body').scrollTop`);
+    await ev(`document.getElementById('nav-insights')?.click()`);
+    await settle(650);
+    await ev(`document.getElementById('nav-chat')?.click()`);
+    await settle(700);
+    const after = await ev(`(() => { const el = document.getElementById('sess-list-body'); return el ? el.scrollTop : -1; })()`);
+    const pass = Math.abs(after - before) <= 40;
+    out.listMemory = { target, before, after, pass };
+    record('round4', 'rail return keeps the session-list position (UX-41)', pass, out.listMemory);
+    await ev(`(() => { const el = document.getElementById('sess-list-body'); if (el) el.scrollTop = 0; return true; })()`);
+    await settle(250);
+  }
+
+  // 4. UX-45 — `+` lands the caret in the composer; clean the chat up after.
+  await chatView();
+  await settle(250);
+  await ev(`document.getElementById('chat-new')?.click()`);
+  await settle(1000);
+  const nc = await ev(`(() => ({ active: (document.activeElement || {}).id || null, sid: (document.querySelector('.sess-row.active') || {}).getAttribute?.('data-sid') || null }))()`);
+  const ncPass = nc.active === 'composer-input' && !!nc.sid && nc.sid !== probeSid;
+  out.newChatFocus = Object.assign({}, nc, { pass: ncPass });
+  record('round4', 'new chat lands the caret in the composer (UX-45)', ncPass, out.newChatFocus);
+  if (nc.sid && nc.sid !== probeSid) {
+    await openMenu(nc.sid);
+    await clickMenuDanger(nc.sid);
+    if (await ev(`uxGates.modal().open`)) {
+      await ev(`document.getElementById('modal-confirm')?.click()`);
+      await settle(700);
+    }
+    out.newChatDeleted = !(await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some((r) => r.getAttribute('data-sid') === '${nc.sid}'); })()`));
+    record('round4', 'new-chat probe cleaned up via the app delete flow', out.newChatDeleted, { sid: nc.sid });
+  }
+
+  // Leave the owner's session active, as found.
+  if (startSid) await openSessionRow(startSid);
+}
+
+// ---------------------------------------------------------------------------
 // T18 — 27-scheme contact sheet
 
 
@@ -1102,6 +1247,7 @@ async function main() {
     if (RUN.interactions) await runInteractions();
     if (RUN.motion) await runMotion();
     if (RUN.regression) await runRegression();
+    if (RUN.round4) await runRound4();
     if (RUN.schemes) await runSchemes();
 
     const refused = results.filter((r) => r.ok === false);
@@ -1114,6 +1260,7 @@ async function main() {
       interactions: results.filter((r) => r.gate === 'interactions'),
       motion: results.filter((r) => r.gate === 'motion'),
       regression: results.filter((r) => r.gate === 'regression'),
+      round4: results.filter((r) => r.gate === 'round4'),
       allPass: refused.length === 0,
       skippedCount: skp.length,
       strict: opts.strict,
