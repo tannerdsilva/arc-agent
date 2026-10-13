@@ -1,5 +1,6 @@
 # Swift
 .build/
+.swiftpm/
 DerivedData/
 *.xcworkspace
 *.xcodeproj
@@ -26,3 +27,6 @@ DerivedData/
 # Logs
 *.log
 .build-audit/
+
+# Working notes (plans, scratch) — kept local, like no-webui's
+.hermes/

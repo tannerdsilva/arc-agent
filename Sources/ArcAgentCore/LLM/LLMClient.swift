@@ -41,6 +41,41 @@ public protocol LLMClient: Sendable {
         messages: [Message],
         tools: [[String: Any]]?
     ) -> AsyncThrowingStream<LLMDelta, Error>
+
+    /// Send messages with a reasoning-effort request (arc-style levels:
+    /// low / medium / high / max). Implementations that support effort send
+    /// it; conformers that don't ignore the parameter (default impl).
+    func complete(
+        messages: [Message],
+        tools: [[String: Any]]?,
+        reasoningEffort: String?
+    ) async throws -> LLMResponse
+
+    func stream(
+        messages: [Message],
+        tools: [[String: Any]]?,
+        reasoningEffort: String?
+    ) -> AsyncThrowingStream<LLMDelta, Error>
+}
+
+extension LLMClient {
+    /// Default reasoning-effort passthrough: ignore the parameter and use
+    /// the plain two-argument requirement.
+    public func complete(
+        messages: [Message],
+        tools: [[String: Any]]?,
+        reasoningEffort: String?
+    ) async throws -> LLMResponse {
+        try await complete(messages: messages, tools: tools)
+    }
+
+    public func stream(
+        messages: [Message],
+        tools: [[String: Any]]?,
+        reasoningEffort: String?
+    ) -> AsyncThrowingStream<LLMDelta, Error> {
+        stream(messages: messages, tools: tools)
+    }
 }
 
 // MARK: - Errors
@@ -69,6 +104,11 @@ public enum LLMError: Error, Sendable, CustomStringConvertible {
     /// The response could not be parsed.
     case decodingError(String)
 
+    /// The provider returned an empty response (no choices / no content /
+    /// no tool calls). Transient by nature — reference treats this as retryable
+    /// with a storm guard, not as a permanent failure.
+    case emptyResponse
+
     /// The context length was exceeded — messages need compression.
     case contextLengthExceeded(limit: Int)
 
@@ -91,6 +131,8 @@ public enum LLMError: Error, Sendable, CustomStringConvertible {
             return "Network error: \(message)"
         case .decodingError(let message):
             return "Failed to decode response: \(message)"
+        case .emptyResponse:
+            return "Provider returned an empty response"
         case .contextLengthExceeded(let limit):
             return "Context length exceeded (limit: \(limit) tokens). Compress history."
         case .contentPolicyViolation(let message):

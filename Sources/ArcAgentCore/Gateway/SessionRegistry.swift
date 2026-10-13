@@ -30,7 +30,7 @@ public struct SessionHandle: Sendable {
 ///
 /// The registry is a routing table that maps session IDs to running
 /// ``SessionAgent`` Services. It is NOT a cache — the agents are live
-/// Services managed by the Service Lifecycle framework. LMDB is the
+/// Services managed by the Service Lifecycle framework. Tessera is the
 /// single source of truth for all durable data.
 ///
 /// ## Profile-Aware Sessions
@@ -51,12 +51,68 @@ public actor SessionRegistry {
         public let provider: String
         public let baseURL: String
         public let apiKey: String
+        /// Tessera storage configuration. When set, sessions and memory are
+        /// persisted to the Tessera server instead of local files.
+        public let tessera: TesseraConfig?
+        /// Whether session transcripts should be persisted each turn (only
+        /// applies when `tessera` is set).
+        public let persistSessions: Bool
+        /// Tool-iteration budget for gateway sessions (nil = default 25;
+        /// 0/negative = unlimited).
+        public let maxIterations: Int?
+        /// Per-tool call cap for gateway sessions (nil = default 25;
+        /// 0/negative = unlimited).
+        public let toolLoopCap: Int?
+        /// Mixture-of-Agents configuration (reference `moa` config block).
+        public let moa: MoAConfig
+        /// Verify work at turn end (reference `verify_on_stop`).
+        public let verifyOnStop: Bool
+        /// Run inline `!`cmd`` blocks in skills at load time (reference
+        /// `skill_preprocessing`). Default ON.
+        public let skillInlineCommands: Bool
+        /// Background-review cadence: aux review every N tool calls (0 = off).
+        public let backgroundReviewAfter: Int
+        /// Background-review call window.
+        public let backgroundReviewWindow: Int
+        /// External MCP servers (reference top-level `mcp_servers`).
+        public let mcpServers: [String: MCPServerConfig]
+        /// Prebuilt process storage (the daemon resolves ONE pair for the whole
+        /// process). When nil, each session agent constructs its own — the
+        /// standalone gateway path.
+        public let storage: StorageRuntime?
 
-        public init(model: String, provider: String, baseURL: String, apiKey: String) {
+        public init(
+            model: String,
+            provider: String,
+            baseURL: String,
+            apiKey: String,
+            tessera: TesseraConfig? = nil,
+            persistSessions: Bool = true,
+            moa: MoAConfig = MoAConfig(),
+            maxIterations: Int? = nil,
+            toolLoopCap: Int? = nil,
+            mcpServers: [String: MCPServerConfig] = [:],
+            verifyOnStop: Bool = false,
+            skillInlineCommands: Bool = true,
+            backgroundReviewAfter: Int = 0,
+            backgroundReviewWindow: Int = 8,
+            storage: StorageRuntime? = nil
+            ) {
             self.model = model
             self.provider = provider
             self.baseURL = baseURL
             self.apiKey = apiKey
+            self.tessera = tessera
+            self.persistSessions = persistSessions
+            self.moa = moa
+            self.verifyOnStop = verifyOnStop
+            self.skillInlineCommands = skillInlineCommands
+            self.backgroundReviewAfter = backgroundReviewAfter
+            self.backgroundReviewWindow = backgroundReviewWindow
+            self.maxIterations = maxIterations
+            self.toolLoopCap = toolLoopCap
+            self.mcpServers = mcpServers
+            self.storage = storage
         }
     }
 
@@ -117,7 +173,7 @@ public actor SessionRegistry {
     /// there is no window in which ``removeIfCurrent(sessionID:agent:)`` can
     /// resolve against the wrong generation.
     func getOrCreate(sessionID: String, profile: String = "default") async -> SessionHandle {
-        if let existing = agents[sessionID] {
+        if agents[sessionID] != nil {
             handles[sessionID]?.inputContinuation.finish()
             handles[sessionID]?.responseContinuation.finish()
             // Wait for the previous generation to exit and release the
@@ -161,6 +217,13 @@ public actor SessionRegistry {
         agents[sessionID] = agent
         handles[sessionID] = handle
 
+        // Reference gateway event: `session:start`.
+        await HookBus.shared.emit("session:start", [
+            "platform": .string("gateway"),
+            "session_id": .string(sessionID),
+            "session_key": .string(sessionID),
+        ])
+
         // Start the agent loop in a detached task. The task is retained so a
         // superseding getOrCreate can await this generation's completion, and
         // so a crash can be supervised via `handleAgentCrash`.
@@ -182,6 +245,14 @@ public actor SessionRegistry {
 
     /// Remove a session agent from the registry (called by the agent on shutdown).
     func remove(sessionID: String) {
+        // Reference gateway event: `session:end` (before reset).
+        let bus = HookBus.shared
+        Task {
+            await bus.emit("session:end", [
+                "session_id": .string(sessionID),
+                "session_key": .string(sessionID),
+            ])
+        }
         agents.removeValue(forKey: sessionID)
         handles[sessionID]?.inputContinuation.finish()
         handles[sessionID]?.responseContinuation.finish()

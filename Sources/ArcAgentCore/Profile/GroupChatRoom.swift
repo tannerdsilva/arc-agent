@@ -8,7 +8,7 @@ import Logging
 ///
 /// ``GroupChatRoom`` is an **actor** that manages a single group conversation.
 /// Each group has:
-/// - A persistent room log stored in LMDB
+/// - A persistent room log stored via the profile store
 /// - Per-member watermark tracking (each bot sees only new messages)
 /// - Round-robin turn execution with @mention routing
 /// - Epoch-based superseding (a new user message bumps the epoch)
@@ -24,7 +24,7 @@ import Logging
 /// 6. `(pass)` = silence; a full round of passes = conversation settled
 /// 7. Hard caps: 10 messages per turn, 3 rounds max
 ///
-/// ## Improvements Over Hermes Bot Mode
+/// ## Improvements Over arc bot mode
 ///
 /// - **No polling**: Each member turn is a direct ``SessionRegistry`` route
 ///   with ``AsyncThrowingStream`` for the response, not a 2-second poll loop
@@ -357,7 +357,7 @@ public actor GroupChatRoom {
 ///
 /// ``GroupChatManager`` is an actor that owns the lifecycle of all
 /// ``GroupChatRoom`` instances. Rooms are created on demand and persist
-/// in LMDB.
+/// via the profile store.
 public actor GroupChatManager {
 
     /// All active rooms.

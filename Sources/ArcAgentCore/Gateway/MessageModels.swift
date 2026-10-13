@@ -13,11 +13,25 @@ public struct ChatTarget: Sendable, Codable, Hashable {
     public let chatID: String
     /// Optional thread/topic identifier within the chat.
     public let threadID: String?
+    /// Optional guild/server identifier (Discord etc.) — profile-routing
+    /// discriminator.
+    public let guildID: String?
+    /// Optional parent channel of a thread/post — allows route tables keyed
+    /// on a channel to match messages in its threads (hierarchical matching).
+    public let parentChatID: String?
 
-    public init(platform: String, chatID: String, threadID: String? = nil) {
+    public init(
+        platform: String,
+        chatID: String,
+        threadID: String? = nil,
+        guildID: String? = nil,
+        parentChatID: String? = nil
+    ) {
         self.platform = platform
         self.chatID = chatID
         self.threadID = threadID
+        self.guildID = guildID
+        self.parentChatID = parentChatID
     }
 }
 
@@ -40,6 +54,8 @@ public struct IncomingMessage: Sendable {
     public let isReply: Bool
     /// The message ID this is replying to, if applicable.
     public let replyToID: String?
+    /// Whether the message @-mentions the bot (used by mention gating).
+    public let isMention: Bool
     /// Raw platform-specific metadata.
     public let raw: [String: AnySendable]?
 
@@ -51,6 +67,7 @@ public struct IncomingMessage: Sendable {
         senderName: String? = nil,
         isReply: Bool = false,
         replyToID: String? = nil,
+        isMention: Bool = false,
         raw: [String: AnySendable]? = nil
     ) {
         self.id = id
@@ -60,7 +77,32 @@ public struct IncomingMessage: Sendable {
         self.senderName = senderName
         self.isReply = isReply
         self.replyToID = replyToID
+        self.isMention = isMention
         self.raw = raw
+    }
+}
+
+// MARK: - MIME helpers
+
+/// Small extension→MIME map for deliverable attachments.
+public enum MimeTypes {
+    static let map: [String: String] = [
+        "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif",
+        "webp": "image/webp", "svg": "image/svg+xml", "bmp": "image/bmp",
+        "mp4": "video/mp4", "mov": "video/quicktime", "webm": "video/webm",
+        "mp3": "audio/mpeg", "wav": "audio/wav", "ogg": "audio/ogg", "m4a": "audio/mp4",
+        "pdf": "application/pdf", "txt": "text/plain", "md": "text/markdown",
+        "html": "text/html", "htm": "text/html", "json": "application/json",
+        "csv": "text/csv", "xml": "application/xml", "yaml": "application/yaml", "yml": "application/yaml",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "zip": "application/zip", "tar": "application/x-tar", "gz": "application/gzip",
+    ]
+
+    public static func guess(from path: String) -> String? {
+        let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
+        return map[ext]
     }
 }
 
@@ -74,16 +116,31 @@ public struct OutgoingMessage: Sendable {
     public let isPartial: Bool
     /// Optional attachments (file URLs or data references).
     public let attachments: [Attachment]?
+    /// Free-form metadata carried with the send (e.g. email reply threading).
+    public let metadata: [String: String]?
 
     public struct Attachment: Sendable {
         public let filename: String
         public let url: String
         public let mimeType: String?
+        /// Local filesystem path for native upload (deliverable mode).
+        public let localPath: String?
 
-        public init(filename: String, url: String, mimeType: String? = nil) {
+        public init(filename: String, url: String = "", mimeType: String? = nil, localPath: String? = nil) {
             self.filename = filename
             self.url = url
             self.mimeType = mimeType
+            self.localPath = localPath
+        }
+
+        /// Convenience: attachment backed by a local file (deliverable mode).
+        public static func local(path: String) -> Attachment {
+            Attachment(
+                filename: URL(fileURLWithPath: path).lastPathComponent,
+                url: "",
+                mimeType: MimeTypes.guess(from: path),
+                localPath: path
+            )
         }
     }
 
@@ -91,12 +148,14 @@ public struct OutgoingMessage: Sendable {
         text: String,
         parseMode: String? = "markdown",
         isPartial: Bool = false,
-        attachments: [Attachment]? = nil
+        attachments: [Attachment]? = nil,
+        metadata: [String: String]? = nil
     ) {
         self.text = text
         self.parseMode = parseMode
         self.isPartial = isPartial
         self.attachments = attachments
+        self.metadata = metadata
     }
 }
 

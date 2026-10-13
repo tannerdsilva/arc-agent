@@ -41,8 +41,9 @@ final class StubAdapter: PlatformAdapter, @unchecked Sendable {
         _sentCount += 1
     }
 
-    func send(message: OutgoingMessage, to target: ChatTarget) async throws {
+    func send(message: OutgoingMessage, to target: ChatTarget) async throws -> SendResult {
         record()
+        return SendResult(messageID: nil)
     }
 
     var incomingMessages: AsyncStream<IncomingMessage> {
@@ -87,7 +88,7 @@ func registeredPushRoutes() async {
     await dm.register(adapter: stub)
     let target = ChatTarget(platform: "telegram", chatID: "chat-99")
     let msg = OutgoingMessage(text: "ping")
-    try? await dm.send(message: msg, to: target)
+    _ = try? await dm.send(message: msg, to: target)
     #expect(stub.sentCount == 1)
 }
 
@@ -113,4 +114,32 @@ func unregisteredPushThrows() async {
     } catch {
         #expect(Bool(false), "expected GatewayError, got \(error)")
     }
+}
+
+// MARK: - Response-silence convention (reference stream-consumer silence)
+
+@Test("isSilentResponse matches only the exact whole-response markers")
+func silenceMarkerExactMatch() {
+    #expect(DeliveryManager.isSilentResponse("NO_REPLY"))
+    #expect(DeliveryManager.isSilentResponse("[SILENT]"))
+    #expect(DeliveryManager.isSilentResponse("  NO_REPLY\n"))
+    #expect(DeliveryManager.isSilentResponse("\n[SILENT]\n"))
+    #expect(!DeliveryManager.isSilentResponse(""))
+    #expect(!DeliveryManager.isSilentResponse("no reply"))
+    #expect(!DeliveryManager.isSilentResponse("NO_REPLY, actually..."))
+}
+
+@Test("silent responses (NO_REPLY / [SILENT]) are never delivered to push adapters")
+func silentResponsesSuppressed() async {
+    let dm = DeliveryManager()
+    let stub = StubAdapter(name: "telegram")
+    await dm.register(adapter: stub)
+    let target = ChatTarget(platform: "telegram", chatID: "chat-77")
+    for text in ["NO_REPLY", "  NO_REPLY  ", "[SILENT]", "\n[SILENT]\n"] {
+        _ = try? await dm.send(message: OutgoingMessage(text: text), to: target)
+    }
+    #expect(stub.sentCount == 0, "silent markers must never reach the adapter")
+    // Near-miss text (a real reply containing the marker) is delivered normally.
+    _ = try? await dm.send(message: OutgoingMessage(text: "NO_REPLY please"), to: target)
+    #expect(stub.sentCount == 1, "non-silent text must still be delivered")
 }

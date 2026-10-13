@@ -37,6 +37,51 @@ public enum ApprovalMode: String, Sendable, Codable {
     case off
 }
 
+/// A pending approval request handed to an injected ``ApprovalPresenter``.
+public struct ApprovalRequest: Sendable {
+
+    /// The raw command or action text under review.
+    public let command: String
+
+    /// A human-readable description of the action.
+    public let description: String
+
+    /// The session the request belongs to.
+    public let sessionKey: String
+
+    public init(command: String, description: String, sessionKey: String) {
+        self.command = command
+        self.description = description
+        self.sessionKey = sessionKey
+    }
+}
+
+/// The user's answer to an ``ApprovalRequest``.
+public enum ApprovalDecision: Sendable {
+
+    /// Approve this request only.
+    case approve
+
+    /// Approve, and remember the exact command as always-allowed
+    /// (persisted through the ``ApprovalManager/setAlwaysAllowSink(_:)`` sink).
+    case alwaysAllow
+
+    /// Approve, and pre-approve the rest of the session. Critical commands
+    /// still require approval in a pre-approved session.
+    case allowSession
+
+    /// Deny the request.
+    case deny
+}
+
+/// Presents approval requests to a human (web UI permission card, TUI prompt,
+/// …) and returns their decision.
+///
+/// Injected with ``ApprovalManager/setPresenter(_:)``. Without a presenter a
+/// manual-mode request resolves to ``ApprovalResult/requiresReview`` — the
+/// historic behaviour — so headless consumers are unaffected.
+public typealias ApprovalPresenter = @Sendable (ApprovalRequest) async -> ApprovalDecision
+
 /// Manages approval for dangerous commands and actions.
 ///
 /// ``ApprovalManager`` implements three modes:
@@ -58,14 +103,81 @@ public actor ApprovalManager {
     /// The approval mode, frozen at initialization.
     public let mode: ApprovalMode
 
+    /// Optional LLM risk classifier (reference "smart command approval"),
+    /// injected by the agent and fed by the `approval` auxiliary model.
+    /// A nil result means "classifier unavailable" → regex detection is used.
+    private var classifier: (@Sendable (String) async -> DangerLevel?)?
+
     /// Per-session approval state.
     private var sessionStates: [String: SessionApprovalState] = [:]
 
+    /// Commands the user has explicitly marked "Always allow" (persisted in
+    /// the security config). Matched by exact, trimmed command string.
+    private var alwaysAllowed: Set<String>
+
+    /// Optional sink invoked when the user picks "Always allow" so the caller
+    /// can persist the pattern (e.g. into ~/.arc/config.json). nil = no-op.
+    private var alwaysAllowSink: (@Sendable (String) async -> Void)?
+
+    /// Optional approval presenter (web UI card, TUI prompt, …). When nil a
+    /// manual-mode request resolves to ``ApprovalResult/requiresReview``.
+    private var presenter: ApprovalPresenter?
+
     /// Create an approval manager.
     ///
-    /// - Parameter mode: The approval mode. Defaults to `.manual`.
-    public init(mode: ApprovalMode = .manual) {
+    /// - Parameters:
+    ///   - mode: The approval mode. Defaults to `.manual`.
+    ///   - classifier: Optional LLM classifier used by `.smart` mode to
+    ///     classify command risk. When nil (or when it returns nil), the
+    ///     built-in regex detector stands in.
+    ///   - alwaysAllowedCommands: Commands pre-exempted from approval
+    ///     (exact trimmed match). Loaded from the persisted allowlist.
+    public init(
+        mode: ApprovalMode = .manual,
+        classifier: (@Sendable (String) async -> DangerLevel?)? = nil,
+        alwaysAllowedCommands: [String] = []
+    ) {
         self.mode = mode
+        self.classifier = classifier
+        self.alwaysAllowed = Set(alwaysAllowedCommands.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+    }
+
+    /// Assign the LLM classifier after initialization (used by the agent to
+    /// wire smart approval without capturing `self` mid-init).
+    public func setClassifier(_ classifier: @escaping @Sendable (String) async -> DangerLevel?) {
+        self.classifier = classifier
+    }
+
+    /// Register the persistence sink for "Always allow" choices.
+    public func setAlwaysAllowSink(_ sink: @escaping @Sendable (String) async -> Void) {
+        self.alwaysAllowSink = sink
+    }
+
+    /// Register the presenter that asks a human for approval decisions.
+    ///
+    /// The presenter is consulted in ``ApprovalMode/manual`` for dangerous
+    /// commands and in ``ApprovalMode/smart`` for suspicious-or-worse commands,
+    /// mirroring the existing ``setClassifier(_:)`` seam. Passing nil restores
+    /// the headless behaviour (`.requiresReview`).
+    public func setPresenter(_ presenter: ApprovalPresenter?) {
+        self.presenter = presenter
+    }
+
+    /// Record a command as always-allowed for this and future sessions, and
+    /// persist it through the registered sink (if any).
+    public func alwaysAllow(command: String) async {
+        let normalized = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return }
+        alwaysAllowed.insert(normalized)
+        await alwaysAllowSink?(normalized)
+    }
+
+    /// Pre-approve every approval for the session ("Allow session"). Critical
+    /// commands still require approval even in a pre-approved session.
+    public func preApproveSession(_ sessionKey: String) {
+        var st = sessionStates[sessionKey] ?? SessionApprovalState()
+        st.isPreApproved = true
+        sessionStates[sessionKey] = st
     }
 
     /// Check whether an action needs approval.
@@ -73,19 +185,44 @@ public actor ApprovalManager {
     /// - Parameters:
     ///   - command: The command or action to check.
     ///   - sessionKey: A session identifier for state tracking.
+    ///   - yolo: When true the session is in "skip all approvals" mode;
+    ///     only critical commands require approval.
     /// - Returns: `true` if the action needs approval.
-    public func needsApproval(command: String, sessionKey: String) async -> Bool {
+    public func needsApproval(command: String, sessionKey: String, yolo: Bool = false) async -> Bool {
+        let normalized = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        if alwaysAllowed.contains(normalized) {
+            return false
+        }
+        // Allow-session and yolo both bypass approvals, but critical commands
+        // (destructive / irreversible) always require human approval.
+        let preApproved = sessionStates[sessionKey]?.isPreApproved == true
+        if preApproved || yolo {
+            return await detectDangerLevel(command) >= .critical
+        }
         switch mode {
         case .off:
             return false
         case .manual:
             return await detectDangerLevel(command) >= .dangerous
         case .smart:
-            return await detectDangerLevel(command) >= .dangerous
+            // arc parity: hardline (critical) patterns are always caught
+            // by the built-in detector — a permissive classifier can never
+            // wave through a fork bomb or `rm -rf /`. Below critical the
+            // classifier arbitrates; anything it deems suspicious or worse
+            // goes to the user (reference: ESCALATE → prompt).
+            if await detectDangerLevel(command) >= .critical {
+                return true
+            }
+            return await smartLevel(command) >= .suspicious
         }
     }
 
     /// Request approval for a command.
+    ///
+    /// With a presenter registered the human decision is awaited; `alwaysAllow`
+    /// and `allowSession` decisions update the manager's own state (and fire
+    /// the persistence sink) before resolving to `.approved`. Without a
+    /// presenter the historic results are returned unchanged.
     ///
     /// - Parameters:
     ///   - command: The command to approve.
@@ -101,21 +238,67 @@ public actor ApprovalManager {
         case .off:
             return .approved
         case .manual:
-            // In manual mode, we always require review for dangerous commands.
-            // In a CLI context, this would prompt the user.
-            return .requiresReview
+            // In manual mode, every dangerous command is a human decision:
+            // with a presenter we ask; without one the caller (CLI, gateway)
+            // gets `.requiresReview` and decides how to surface it.
+            guard let presenter else { return .requiresReview }
+            let decision = await presenter(
+                ApprovalRequest(command: command, description: description, sessionKey: sessionKey)
+            )
+            return await resolve(decision, command: command, sessionKey: sessionKey)
         case .smart:
-            // Smart mode uses an auxiliary LLM call to classify risk.
-            // For now, fall back to requiresReview for dangerous commands.
-            let level = await detectDangerLevel(command)
+            // arc parity: critical/hardline is always denied by the
+            // detector before the classifier is consulted. Suspicious and
+            // dangerous both escalate to the user (reference: ESCALATE →
+            // prompt, DENY still prompts interactively).
+            if await detectDangerLevel(command) >= .critical {
+                return .denied
+            }
+            let level = await smartLevel(command)
             if level >= .critical {
                 return .denied
             }
-            if level >= .dangerous {
-                return .requiresReview
+            if level >= .suspicious {
+                guard let presenter else { return .requiresReview }
+                let decision = await presenter(
+                    ApprovalRequest(command: command, description: description, sessionKey: sessionKey)
+                )
+                return await resolve(decision, command: command, sessionKey: sessionKey)
             }
             return .approved
         }
+    }
+
+    /// Apply a presenter's decision to manager state (always-allow and
+    /// session pre-approval both persist before resolving).
+    private func resolve(
+        _ decision: ApprovalDecision,
+        command: String,
+        sessionKey: String
+    ) async -> ApprovalResult {
+        switch decision {
+        case .approve:
+            return .approved
+        case .deny:
+            return .denied
+        case .alwaysAllow:
+            await alwaysAllow(command: command)
+            return .approved
+        case .allowSession:
+            preApproveSession(sessionKey)
+            return .approved
+        }
+    }
+
+    /// Smart-mode risk level: LLM classifier first, regex detector as the
+    /// fallback (classifier nil, or the call failed).
+    private func smartLevel(_ command: String) async -> DangerLevel {
+        if let classifier {
+            if let level = await classifier(command) {
+                return level
+            }
+        }
+        return await detectDangerLevel(command)
     }
 }
 

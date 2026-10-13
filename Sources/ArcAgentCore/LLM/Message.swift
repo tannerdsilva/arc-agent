@@ -3,6 +3,8 @@
 /// Mirrors the OpenAI Chat Completions message format. Each message has a
 /// ``Role`` and optional content. Assistant messages may also carry tool call
 /// requests, and tool messages carry the result of a tool execution.
+import Foundation
+
 public struct Message: Sendable, Codable, Equatable {
 
     /// The role of the message author.
@@ -28,18 +30,68 @@ public struct Message: Sendable, Codable, Equatable {
     /// The ID of the tool call this message is responding to (tool role only).
     public let toolCallID: String?
 
+    /// The moment this message was created. Used by UIs for send-time
+    /// timestamps; nil for legacy stored conversations.
+    public let createdAt: Date?
+
+    /// Hidden chain-of-thought / reasoning text (assistant role only), set when
+    /// the model streams it (e.g. DeepSeek's `reasoning_content`). nil for
+    /// legacy messages and models that do not expose reasoning.
+    public let reasoning: String?
+
+    /// Real token usage reported by the API for this message (assistant role
+    /// only). nil for legacy messages and messages without a usage report.
+    public let usage: Usage?
+
+    /// Tokens per second for this reply (assistant role only), computed as
+    /// output tokens / wall-clock duration. nil when unknown.
+    public let tps: Double?
+
+    /// Terminal-state reason for assistant replies that ended the turn
+    /// abnormally (e.g. `"max_iterations"` when the tool-iteration budget was
+    /// exhausted). nil for normal replies and legacy stored messages.
+    /// mirrors the reference client `_terminal_reason` so UIs can surface a status card.
+    public let terminalReason: String?
+
+    /// Optional short text shown in the UI transcript instead of ``content``.
+    /// Used by slash-command rewrites that expand a `/cmd` into a large
+    /// model-facing payload (e.g. skill invocation scaffolding): the model
+    /// sees ``content``, the user sees ``displayText``. mirrors the reference client'
+    /// webui `_slashDisplayTextOverride`. nil for normal messages.
+    public let displayText: String?
+
+    /// Wall-clock duration of the whole turn (user prompt → this final reply),
+    /// in seconds. Set on the assistant reply that ends a turn so the UI can
+    /// render reference' "Processed Xm Ys" label on the turn's activity dropdown.
+    /// nil for legacy messages and replies that did not end a turn.
+    public let turnDuration: Double?
+
     public init(
         role: Role,
         content: String? = nil,
         name: String? = nil,
         toolCalls: [ToolCall]? = nil,
-        toolCallID: String? = nil
+        toolCallID: String? = nil,
+        createdAt: Date? = nil,
+        reasoning: String? = nil,
+        usage: Usage? = nil,
+        tps: Double? = nil,
+        terminalReason: String? = nil,
+        displayText: String? = nil,
+        turnDuration: Double? = nil
     ) {
         self.role = role
         self.content = content
         self.name = name
         self.toolCalls = toolCalls
         self.toolCallID = toolCallID
+        self.createdAt = createdAt
+        self.reasoning = reasoning
+        self.usage = usage
+        self.tps = tps
+        self.terminalReason = terminalReason
+        self.displayText = displayText
+        self.turnDuration = turnDuration
     }
 }
 
@@ -83,10 +135,15 @@ public struct Usage: Sendable, Codable, Equatable {
     public let completionTokens: Int
     public let totalTokens: Int
 
-    public init(promptTokens: Int, completionTokens: Int, totalTokens: Int) {
+    /// Prompt tokens served from the provider's KV cache (`prompt_tokens_details.cached_tokens`),
+    /// when the provider reports it (e.g. vLLM). `nil` when unknown.
+    public let cachedPromptTokens: Int?
+
+    public init(promptTokens: Int, completionTokens: Int, totalTokens: Int, cachedPromptTokens: Int? = nil) {
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
         self.totalTokens = totalTokens
+        self.cachedPromptTokens = cachedPromptTokens
     }
 }
 
@@ -105,16 +162,22 @@ public struct LLMResponse: Sendable {
     /// Usage statistics, if provided by the API.
     public let usage: Usage?
 
+    /// Thinking/reasoning text (assistant only; DeepSeek `reasoning_content`).
+    /// nil for legacy providers that do not expose reasoning non-streamed.
+    public let reasoning: String?
+
     public init(
         content: String?,
         toolCalls: [ToolCall]? = nil,
         finishReason: String? = nil,
-        usage: Usage? = nil
+        usage: Usage? = nil,
+        reasoning: String? = nil
     ) {
         self.content = content
         self.toolCalls = toolCalls
         self.finishReason = finishReason
         self.usage = usage
+        self.reasoning = reasoning
     }
 }
 
@@ -126,11 +189,18 @@ public struct LLMDelta: Sendable {
     public let toolCalls: [ToolCallDelta]?
     /// The finish reason, if this is the final chunk.
     public let finishReason: String?
+    /// Thinking/reasoning text delta (assistant only; DeepSeek `reasoning_content`).
+    public let reasoning: String?
+    /// Real usage from the API, when the server includes it (OpenAI-compatible
+    /// servers typically attach `usage` to the final stream chunk).
+    public let usage: Usage?
 
-    public init(content: String?, toolCalls: [ToolCallDelta]? = nil, finishReason: String? = nil) {
+    public init(content: String?, toolCalls: [ToolCallDelta]? = nil, finishReason: String? = nil, reasoning: String? = nil, usage: Usage? = nil) {
         self.content = content
         self.toolCalls = toolCalls
         self.finishReason = finishReason
+        self.reasoning = reasoning
+        self.usage = usage
     }
 }
 

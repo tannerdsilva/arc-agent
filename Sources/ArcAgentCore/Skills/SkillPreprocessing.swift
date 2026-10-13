@@ -1,0 +1,108 @@
+import Foundation
+import SwiftSlash
+
+// MARK: - Skill preprocessing (reference `skill_preprocessing.py`)
+
+/// Template variables + inline shell execution in skill content, applied at
+/// load time (the agent sees the EXPANDED skill, not the raw file).
+public enum SkillPreprocessing {
+
+    public static let maxInlineOutputBytes = 4_000
+    public static let inlineCommandTimeoutSeconds = 10.0
+
+    /// Expand `${ARC_SKILL_DIR}` and `${ARC_SESSION_ID}` template
+    /// variables (reference supports these two plus environment passthrough).
+    public static func expandTemplates(_ content: String, skillDir: URL?, sessionID: String) -> String {
+        var result = content
+        if let skillDir {
+            result = result.replacingOccurrences(of: "${ARC_SKILL_DIR}", with: skillDir.path)
+        }
+        result = result.replacingOccurrences(of: "${ARC_SESSION_ID}", with: sessionID)
+        for (key, value) in ProcessInfo.processInfo.environment {
+            result = result.replacingOccurrences(of: "${\(key)}", with: value)
+        }
+        return result
+    }
+
+    /// Execute inline `!`cmd`` blocks in skill content (reference runs them at
+    /// load; output is capped at 4000 bytes and substituted back).
+    ///
+    /// An inline block is a backtick span immediately preceded by `!`
+    /// (`!`command``). Plain backtick spans stay verbatim.
+    public static func runInlineCommands(_ content: String) async throws -> String {
+        let chars = Array(content)
+        var result = ""
+        var i = 0
+        while i < chars.count {
+            if chars[i] == "`" {
+                let isInline = i > 0 && chars[i - 1] == "!"
+                // Find the closing backtick.
+                var j = i + 1
+                while j < chars.count && chars[j] != "`" { j += 1 }
+                if j >= chars.count {
+                    // Unterminated: keep the raw text as-is.
+                    result += String(chars[i...])
+                    return result
+                }
+                let span = String(chars[(i + 1)..<j])
+                if isInline {
+                    // Drop the leading "!" already captured into result.
+                    result = String(result.dropLast())
+                    let output = try await runShell(span.trimmingCharacters(in: .whitespaces))
+                    result += output
+                } else {
+                    result += "`\(span)`"
+                }
+                i = j + 1
+            } else {
+                result.append(chars[i])
+                i += 1
+            }
+        }
+        return result
+    }
+
+    /// Run one shell command via /bin/sh, capturing stdout, capped at
+    /// `maxInlineOutputBytes`, with a hard timeout (SwiftSlash: posix_spawn,
+    /// concurrent byte-exact capture, process-group kill + reap on timeout).
+    public static func runShell(_ command: String) async throws -> String {
+        var shell = Command(absolutePath: Path("/bin/sh"), arguments: ["-c", command])
+        shell.inheritCurrentEnvironment()
+        let outcome = try await SubprocessRunner.runBytes(
+            shell,
+            timeout: inlineCommandTimeoutSeconds,
+            captureCap: maxInlineOutputBytes)
+        if outcome.timedOut {
+            throw SkillPreprocessingError.inlineCommandFailed("timed out: \(command.prefix(80))")
+        }
+        return String(data: outcome.stdout, encoding: .utf8) ?? ""
+    }
+
+    /// Full preprocessing pipeline: templates, then inline commands.
+    ///
+    /// Template expansion always runs; inline `!`cmd`` execution only when
+    /// ``allowInlineCommands`` (default true — skills are trusted, reference
+    /// runs them at load; the agent turn gates it via config
+    /// `agent.skill_inline_commands`, default off outside a turn).
+    public static func preprocess(
+        _ content: String,
+        skillDir: URL?,
+        sessionID: String,
+        allowInlineCommands: Bool = true
+    ) async throws -> String {
+        let expanded = expandTemplates(content, skillDir: skillDir, sessionID: sessionID)
+        guard allowInlineCommands else { return expanded }
+        return try await runInlineCommands(expanded)
+    }
+}
+
+/// Errors from the skill preprocessing pipeline (inline-command half).
+public enum SkillPreprocessingError: Error, CustomStringConvertible {
+    case inlineCommandFailed(String)
+
+    public var description: String {
+        switch self {
+        case .inlineCommandFailed(let message): return "Skill inline command failed: \(message)"
+        }
+    }
+}

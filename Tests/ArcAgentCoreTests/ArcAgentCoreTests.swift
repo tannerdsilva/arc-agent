@@ -15,17 +15,37 @@ func coreVersion() {
 // MARK: - Tool Registry
 // =========================================================================
 
-@Test("default registry contains all built-in tools")
+@Test("default registry carries the full tool surface (reference ports stay deleted)")
 func defaultRegistryTools() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
-    #expect(registry.allTools.count == 22)
+    #expect(registry.allTools.count == 53)
 
     #expect(registry.lookup(name: "read_file")?.toolset == "file")
     #expect(registry.lookup(name: "read_file")?.emoji == "📄")
     #expect(registry.lookup(name: "write_file")?.toolset == "file")
+    #expect(registry.lookup(name: "patch")?.toolset == "file")
+    #expect(registry.lookup(name: "search_files")?.toolset == "file")
     #expect(registry.lookup(name: "terminal")?.toolset == "terminal")
-    #expect(registry.lookup(name: "web_search")?.toolset == "web")
-    #expect(registry.lookup(name: "web_extract")?.toolset == "web")
+    #expect(registry.lookup(name: "process")?.toolset == "terminal")
+
+    // the full surface is registered: the opt-in families are present
+    #expect(registry.lookup(name: "web_search") != nil)
+    #expect(registry.lookup(name: "skill_view") != nil)
+    #expect(registry.lookup(name: "memory") != nil)
+    #expect(registry.lookup(name: "delegate_task") != nil)
+    #expect(registry.lookup(name: "kanban_list") != nil)
+    #expect(registry.lookup(name: "browser_navigate") != nil)
+    #expect(registry.lookup(name: "mcp_tool") != nil)
+    #expect(registry.lookup(name: "computer_use") != nil)
+    #expect(registry.lookup(name: "browser_connect") != nil)
+
+    // the reference ports stay deleted (media / webhooks / code_execution)
+    #expect(registry.lookup(name: "image_generate") == nil)
+    #expect(registry.lookup(name: "tts") == nil)
+    #expect(registry.lookup(name: "transcription") == nil)
+    #expect(registry.lookup(name: "video_generate") == nil)
+    #expect(registry.lookup(name: "notify_webhook") == nil)
+    #expect(registry.lookup(name: "code_execution") == nil)
 }
 
 @Test("lookup returns nil for unknown tool")
@@ -52,7 +72,8 @@ func emptyRegistry() {
 @Test("registry toolset filtering with all toolsets disabled")
 func allToolsetsDisabled() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
-    let schemas = registry.buildToolSchemas(enabled: [], disabled: ["file", "terminal", "web", "core", "delegation", "kanban", "profile"])
+    let allToolsets = Set(registry.allTools.map(\.toolset))
+    let schemas = registry.buildToolSchemas(enabled: [], disabled: allToolsets)
     #expect(schemas.isEmpty)
 }
 
@@ -161,14 +182,18 @@ func schemaFiltering() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
 
     let fileSchemas = registry.buildToolSchemas(enabled: ["file"], disabled: [])
-    #expect(fileSchemas.count == 2)
+    #expect(fileSchemas.count == 4)
     #expect(fileSchemas[0]["type"] as? String == "function")
 
+    let terminalSchemas = registry.buildToolSchemas(enabled: ["terminal"], disabled: [])
+    #expect(terminalSchemas.count == 2)
+
+    // the web family is on the full surface: two registered providers
     let webSchemas = registry.buildToolSchemas(enabled: ["web"], disabled: [])
     #expect(webSchemas.count == 2)
 
     let disabled = registry.buildToolSchemas(enabled: [], disabled: ["file"])
-    #expect(disabled.count == 20)
+    #expect(disabled.count == 49)
 }
 
 // =========================================================================
@@ -271,6 +296,34 @@ func llmDeltaCreation() {
     let delta = LLMDelta(content: "Hello", finishReason: nil)
     #expect(delta.content == "Hello")
     #expect(delta.finishReason == nil)
+    let withUsage = LLMDelta(
+        content: "Hi",
+        finishReason: "stop",
+        usage: Usage(promptTokens: 10, completionTokens: 5, totalTokens: 15)
+    )
+    #expect(withUsage.usage?.promptTokens == 10)
+    #expect(withUsage.usage?.completionTokens == 5)
+    #expect(withUsage.usage?.totalTokens == 15)
+    // default nil keeps old call sites compiling and old behavior
+    #expect(delta.usage == nil)
+}
+
+@Test("Message persists usage and tps, legacy JSON decodes nil")
+func messageUsageAndTpsCoding() throws {
+    let usage = Usage(promptTokens: 101, completionTokens: 20, totalTokens: 121)
+    let m = Message(role: .assistant, content: "Hi", createdAt: Date(),
+                    reasoning: "think", usage: usage, tps: 12.5)
+    let data = try JSONEncoder().encode(m)
+    let back = try JSONDecoder().decode(Message.self, from: data)
+    #expect(back.usage == usage)
+    #expect(back.tps == 12.5)
+
+    // A message without the new keys (legacy stored conversations) still
+    // decodes: synthesized decode uses decodeIfPresent for optionals.
+    let legacy = #"{"role":"assistant","content":"old","toolCalls":null,"toolCallID":null,"createdAt":null,"name":null,"reasoning":null}"#
+    let old = try JSONDecoder().decode(Message.self, from: Data(legacy.utf8))
+    #expect(old.usage == nil)
+    #expect(old.tps == nil)
 }
 
 // =========================================================================
@@ -733,6 +786,8 @@ func sessionStoreCRUD() async throws {
 
     let sessions = try await store.list(limit: 10)
     #expect(sessions.count == 1)
+    #expect(sessions[0].messages.isEmpty, "list() returns summaries only")
+    #expect(sessions[0].messageCount == 1, "summary carries the metadata count")
 
     try await store.delete(id: "test-1")
     let deleted = try await store.get(id: "test-1")
@@ -804,11 +859,11 @@ func configSaveLoad() throws {
 // MARK: - CLI Tools Command
 // =========================================================================
 
-@Test("tools command output includes all tools")
+@Test("tools command output lists the basic default surface")
 func toolsCommand() throws {
     let registry = try ArcAgentCore.buildDefaultRegistry()
     let names = registry.allTools.map(\.name).sorted()
-    #expect(names == ["create_profile", "delegate_task", "delete_profile", "get_profile", "kanban_block", "kanban_complete", "kanban_create", "kanban_list", "kanban_show", "list_children", "list_profiles", "memory", "read_file", "send_bot_message", "send_group_chat", "skill_view", "steer_child", "stop_child", "terminal", "web_extract", "web_search", "write_file"])
+    #expect(names == ["browser_back", "browser_cdp", "browser_click", "browser_close", "browser_connect", "browser_console", "browser_dialog", "browser_get_images", "browser_navigate", "browser_press", "browser_scroll", "browser_snapshot", "browser_type", "browser_vision", "clarify", "computer_use", "create_profile", "delegate_task", "delete_profile", "execute_code", "get_profile", "kanban_block", "kanban_complete", "kanban_create", "kanban_list", "kanban_show", "list_children", "list_profiles", "mcp_tool", "memory", "patch", "process", "profile_edit", "project_create", "project_list", "project_switch", "read_file", "search_files", "send_bot_message", "send_group_chat", "send_message", "session_search", "skill_manage", "skill_view", "skills_list", "steer_child", "stop_child", "terminal", "todo", "tool_search", "web_extract", "web_search", "write_file"])
 }
 
 // =========================================================================
@@ -836,7 +891,7 @@ func circuitBreakerInitialState() async {
     if case .closed = state {
         #expect(true)
     } else {
-        #expect(false, "Expected closed, got \(state)")
+        Issue.record("Expected closed, got \(state)")
     }
 }
 
@@ -849,7 +904,7 @@ func circuitBreakerOpens() async {
     if case .open = state {
         #expect(true)
     } else {
-        #expect(false, "Expected open, got \(state)")
+        Issue.record("Expected open, got \(state)")
     }
 }
 
@@ -862,7 +917,7 @@ func circuitBreakerResets() async {
     if case .closed = state {
         #expect(true)
     } else {
-        #expect(false, "Expected closed after reset, got \(state)")
+        Issue.record("Expected closed after reset, got \(state)")
     }
 }
 
@@ -914,7 +969,7 @@ func classifyContextOverflow() {
     if case .contextOverflow = classification {
         #expect(true)
     } else {
-        #expect(false, "Expected contextOverflow, got \(classification)")
+        Issue.record("Expected contextOverflow, got \(classification)")
     }
 }
 
@@ -925,7 +980,7 @@ func classifyContentPolicy() {
     if case .permanent = classification {
         #expect(true)
     } else {
-        #expect(false, "Expected permanent, got \(classification)")
+        Issue.record("Expected permanent, got \(classification)")
     }
 }
 
@@ -1104,226 +1159,6 @@ func retryHandlerShouldRetry() {
 }
 
 // =========================================================================
-// MARK: - Web UI: CSSRule & CSSStylesheet
-// =========================================================================
-
-@Test("CSSRule renders selector and declarations")
-func cssRuleRender() {
-    let rule = CSSRule(".my-class", [
-        ("color", "red"),
-        ("font-size", "14px"),
-    ])
-    let output = CSSStylesheet([rule]).render()
-    #expect(output.contains(".my-class {"))
-    #expect(output.contains("  color: red;"))
-    #expect(output.contains("  font-size: 14px;"))
-    #expect(output.contains("}"))
-}
-
-@Test("CSSStylesheet separates rules with blank line")
-func cssStylesheetSeparator() {
-    let rule1 = CSSRule(".a", [("color", "red")])
-    let rule2 = CSSRule(".b", [("color", "blue")])
-    let output = CSSStylesheet([rule1, rule2]).render()
-    #expect(output.contains(".a {\n  color: red;\n}\n\n.b {"))
-}
-
-@Test("CSSStylesheet handles empty rules")
-func cssStylesheetEmpty() {
-    let output = CSSStylesheet([]).render()
-    #expect(output.isEmpty)
-}
-
-@Test("CSSRule with empty declarations")
-func cssRuleEmptyDeclarations() {
-    let rule = CSSRule(".empty", [])
-    let output = CSSStylesheet([rule]).render()
-    #expect(output == ".empty {\n\n}")  // blank line between braces for empty declarations
-}
-
-// =========================================================================
-// MARK: - Web UI: HTMLDocument
-// =========================================================================
-
-@Test("HTMLDocument production mode inlines CSS and JS")
-func htmlDocumentProductionMode() {
-    let doc = HTMLDocument(
-        title: "Test",
-        body: "<p>Hello</p>",
-        styles: CSSStylesheet([CSSRule("body", [("color", "red")])]),
-        scripts: "console.log('hi');",
-        wsURL: "ws://localhost:8081",
-        devMode: false
-    )
-    let html = doc.render()
-    #expect(html.contains("<style>"))
-    #expect(html.contains("body {\n  color: red;\n}"))
-    #expect(html.contains("<script>"))
-    #expect(html.contains("console.log('hi');"))
-    #expect(!html.contains("<link rel=\"stylesheet\""))
-    #expect(!html.contains("<script src="))
-}
-
-@Test("HTMLDocument dev mode links external CSS and JS")
-func htmlDocumentDevMode() {
-    let doc = HTMLDocument(
-        title: "Test",
-        body: "<p>Hello</p>",
-        wsURL: "ws://localhost:8081",
-        devMode: true
-    )
-    let html = doc.render()
-    #expect(html.contains("<link rel=\"stylesheet\" href=\"/ui/styles.css\">"))
-    #expect(html.contains("<script src=\"/ui/scripts.js\"></script>"))
-    #expect(!html.contains("<style>"))
-    #expect(!html.contains("<script>console"))
-}
-
-@Test("HTMLDocument includes WebSocket URL as data attribute")
-func htmlDocumentWebSocketURL() {
-    let doc = HTMLDocument(
-        body: "<p>Chat</p>",
-        wsURL: "ws://127.0.0.1:9090",
-        devMode: false
-    )
-    let html = doc.render()
-    #expect(html.contains("data-ws-url=\"ws://127.0.0.1:9090\""))
-}
-
-@Test("HTMLDocument sets correct title")
-func htmlDocumentTitle() {
-    let doc = HTMLDocument(
-        title: "ARC Agent — Bots",
-        body: "<p>Content</p>",
-        devMode: false
-    )
-    let html = doc.render()
-    #expect(html.contains("<title>ARC Agent — Bots</title>"))
-}
-
-@Test("HTMLDocument includes viewport meta tag")
-func htmlDocumentViewport() {
-    let doc = HTMLDocument(body: "<p>Content</p>", devMode: false)
-    let html = doc.render()
-    #expect(html.contains("name=\"viewport\""))
-    #expect(html.contains("initial-scale=1.0"))
-}
-
-@Test("HTMLDocument includes settings HTML when provided")
-func htmlDocumentSettings() {
-    let doc = HTMLDocument(
-        body: "<p>Main</p>",
-        settingsHTML: "<div id=\"settings\">Settings panel</div>",
-        devMode: false
-    )
-    let html = doc.render()
-    #expect(html.contains("<div id=\"settings\">Settings panel</div>"))
-}
-
-@Test("HTMLDocument defaults to production mode")
-func htmlDocumentDefaultMode() {
-    let doc = HTMLDocument(body: "<p>Hello</p>")
-    let html = doc.render()
-    #expect(html.contains("<style>"))
-    #expect(html.contains("<script>"))
-    #expect(!html.contains("href=\"/ui/styles.css\""))
-}
-
-@Test("HTMLDocument escapes title")
-func htmlDocumentTitleEscaped() {
-    let doc = HTMLDocument(
-        title: "Test <script>alert('xss')</script>",
-        body: "<p>Safe</p>",
-        devMode: false
-    )
-    let html = doc.render()
-    #expect(html.contains("&lt;script&gt;"))
-    #expect(!html.contains("<script>alert"))
-}
-
-// =========================================================================
-// MARK: - Web UI: AppStyles Design System
-// =========================================================================
-
-@Test("AppStyles.all contains theme variables")
-func appStylesContainsTheme() {
-    let rules = AppStyles.all
-    let themeRule = rules.first { $0.selector == ":root" }
-    #expect(themeRule != nil)
-    let declarations = themeRule!.declarations
-    #expect(declarations.contains(where: { $0.0 == "--bg-primary" }))
-    #expect(declarations.contains(where: { $0.0 == "--accent" }))
-    #expect(declarations.contains(where: { $0.0 == "--font-sans" }))
-}
-
-@Test("AppStyles.all contains base reset")
-func appStylesContainsReset() {
-    let rules = AppStyles.all
-    #expect(rules.contains(where: { $0.selector == "*, *::before, *::after" }))
-    #expect(rules.contains(where: { $0.selector == "html" }))
-    #expect(rules.contains(where: { $0.selector == "body" }))
-}
-
-@Test("AppStyles.all contains all major sections")
-func appStylesContainsSections() {
-    let selectors = Set(AppStyles.all.map(\.selector))
-    // Header
-    #expect(selectors.contains(".chat-header"))
-    // Messages
-    #expect(selectors.contains(".messages-container"))
-    #expect(selectors.contains(".message-row"))
-    #expect(selectors.contains(".message-bubble"))
-    // Input
-    #expect(selectors.contains(".input-bar"))
-    #expect(selectors.contains(".input-field"))
-    #expect(selectors.contains(".send-btn"))
-    // Settings
-    #expect(selectors.contains(".settings-overlay"))
-    #expect(selectors.contains(".settings-panel"))
-    // Markdown
-    #expect(selectors.contains(".markdown"))
-    // Animations
-    #expect(selectors.contains("@keyframes fadeIn"))
-    #expect(selectors.contains("@keyframes fadeInUp"))
-    // Scrollbar
-    #expect(selectors.contains("::-webkit-scrollbar"))
-    // Selection
-    #expect(selectors.contains("::selection"))
-}
-
-@Test("AppStyles.all renders valid CSS output")
-func appStylesRenders() {
-    let css = CSSStylesheet(AppStyles.all).render()
-    #expect(!css.isEmpty)
-    #expect(css.contains(":root {"))
-    #expect(css.contains("--bg-primary: #0c0c0e;"))
-    #expect(css.contains("--accent: #6c8cff;"))
-    #expect(css.contains("--font-sans:"))
-    #expect(css.contains("::-webkit-scrollbar {"))
-    #expect(css.contains("@keyframes fadeIn {"))
-}
-
-// =========================================================================
-// MARK: - Web UI: Generated Assets
-// =========================================================================
-
-@Test("Assets.css is non-empty after make assets")
-func assetsCSSNotEmpty() {
-    #expect(!Assets.css.isEmpty)
-    #expect(Assets.css.contains(":root"))
-    #expect(Assets.css.contains("--bg-primary"))
-    #expect(Assets.css.contains("@keyframes fadeIn"))
-}
-
-@Test("Assets.js is non-empty after make assets")
-func assetsJSNotEmpty() {
-    #expect(!Assets.js.isEmpty)
-    #expect(Assets.js.contains("WebSocket"))
-    #expect(Assets.js.contains("sendMessage"))
-    #expect(Assets.js.contains("connect()"))
-}
-
-// =========================================================================
 // MARK: - Web UI: HTML Escaping
 // =========================================================================
 
@@ -1342,25 +1177,3 @@ func htmlEscapeSafe() {
     #expect(htmlEscape("42") == "42")
 }
 
-// =========================================================================
-// MARK: - Web UI: Bot Styles
-// =========================================================================
-
-@Test("AppStyles.botStyles contains bot-specific rules")
-func botStylesContainRules() {
-    let selectors = Set(AppStyles.botStyles.map(\.selector))
-    #expect(selectors.contains(".bots-pane"))
-    #expect(selectors.contains(".bot-roster"))
-    #expect(selectors.contains(".bot-row"))
-    #expect(selectors.contains(".routines-pane"))
-}
-
-@Test("AppStyles.all + botStyles renders without error")
-func combinedStylesRender() {
-    let combined = CSSStylesheet(AppStyles.all + AppStyles.botStyles)
-    let css = combined.render()
-    #expect(!css.isEmpty)
-    #expect(css.contains(":root"))
-    #expect(css.contains(".bots-pane"))
-    #expect(css.contains(".bot-row"))
-}

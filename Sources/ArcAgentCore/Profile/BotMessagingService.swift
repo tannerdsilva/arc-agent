@@ -15,7 +15,7 @@ import Logging
 ///
 /// ## Architecture
 ///
-/// Unlike Hermes Bot Mode (which uses CLI invocation for bot-to-bot delivery),
+/// Unlike arc bot mode (which uses CLI invocation for bot-to-bot delivery),
 /// ARC Agent uses **direct actor method calls**. When Bot A sends a message to
 /// Bot B, the message is routed through ``BotMessagingService``, which delivers
 /// it directly into Bot B's canonical session via the ``SessionRegistry``.
@@ -118,15 +118,19 @@ public actor BotMessagingService: Service {
         logger.info("Bot messaging service started")
 
         // The service runs until cancelled — it holds the activity stream
-        // continuation and the session registry reference.
-        try await Task.sleep(nanoseconds: UInt64.max)
+        // continuation and the session registry reference. `runUntilShutdown`
+        // turns the group's graceful shutdown into that cancellation, so
+        // SIGTERM stops it promptly instead of waiting out the grace period.
+        try await runUntilShutdown {
+            try await Task.sleep(nanoseconds: UInt64.max)
+        }
     }
 
     // MARK: - Sending Messages
 
     /// Send a message from one bot to another.
     ///
-    /// Unlike Hermes Bot Mode (which shells out to `hermes -p <target> chat ...`),
+    /// Unlike arc bot mode (which shells out to `reference -p <target> chat ...`),
     /// this delivers the message directly into the recipient's canonical session
     /// via the ``SessionRegistry``. The recipient bot sees it as a normal incoming
     /// message on its next turn.

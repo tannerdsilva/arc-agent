@@ -61,7 +61,7 @@ public struct MemoryEntry: Sendable, Codable, Hashable {
 /// ## Usage
 ///
 /// ```swift
-/// let provider = StructuredMemoryProvider(wrapping: LMDBMemoryProvider())
+/// let provider = StructuredMemoryProvider(wrapping: TesseraMemoryProvider())
 /// try await provider.addEntry(.fact, "Server runs Ubuntu 24.04")
 /// let memory = try await provider.readFormatted()
 /// // Returns:
@@ -80,7 +80,7 @@ public struct StructuredMemoryProvider: Sendable {
     public var maxFormattedLength: Int = 2000
 
     /// Create a structured memory provider wrapping an underlying provider.
-    /// - Parameter underlying: The base memory provider (LMDB or file).
+    /// - Parameter underlying: The base memory provider (Tessera or file).
     public init(wrapping underlying: any MemoryProvider) {
         self.underlying = underlying
         self.tokenCounter = TokenCounter()

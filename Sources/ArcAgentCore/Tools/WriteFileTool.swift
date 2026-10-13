@@ -26,6 +26,9 @@ public enum WriteFileTool {
         ], required: ["path", "content"]),
         handler: { args in
             let path: String = try Self.required(args, key: "path")
+            if let refusal = AgentPowers.blockedWriteReason(path: path) {
+                return "Error: " + refusal
+            }
             let content: String = try Self.required(args, key: "content")
             return try await Self.writeFile(path: path, content: content)
         },
@@ -35,10 +38,26 @@ public enum WriteFileTool {
     // MARK: - Handler
 
     private static func writeFile(path: String, content: String) async throws -> String {
-        // Expand leading "~" (e.g. "~/Desktop/hello.txt") so models can use
-        // home-relative paths without knowing the absolute home directory.
-        let expanded = (path as NSString).expandingTildeInPath
-        let filePath = FilePath(expanded)
+        // arc parity: anchor relative paths to the conversation workspace,
+        // and report the RESOLVED path so a wrong-cwd mismatch is visible in
+        // the response instead of silently routing the write elsewhere.
+        let (resolved, warning) = WorkspacePath.resolveChecked(path)
+        // Reference checkpoints-and-rollback: snapshot before file mutations.
+        _ = await CheckpointGuard.shared.ensure(
+            directory: URL(fileURLWithPath: resolved).deletingLastPathComponent().path,
+            label: "before write_file"
+        )
+
+        // reference `file_safety.py`: refuse to overwrite protected paths
+        // (config/state files, cross-profile areas).
+        if FileSafety.isWriteDenied(resolved) {
+            return "Error: Refusing to write to a protected path: \(path). Choose a different location."
+        }
+        if let w = FileSafety.sandboxMirrorWarning(resolved) {
+            return "Error: \(w)"
+        }
+
+        let filePath = FilePath(resolved)
 
         // Ensure the parent directory exists.
         try createParentDirectory(for: filePath)
@@ -71,7 +90,11 @@ public enum WriteFileTool {
         }
 
         let byteCount = data.count
-        return "Successfully wrote \(byteCount) byte(s) to '\(expanded)'."
+        var message = "Successfully wrote \(byteCount) byte(s) to '\(resolved)'."
+        if let warning {
+            message = warning + "\n" + message
+        }
+        return message
     }
 
     // MARK: - Helpers

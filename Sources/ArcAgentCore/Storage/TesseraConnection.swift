@@ -1,0 +1,752 @@
+import Foundation
+import NIOCore
+import tessera_client
+
+/// Errors thrown by the Tessera storage layer.
+public enum TesseraStoreError: Swift.Error, CustomStringConvertible {
+    /// No ``TesseraConfig`` has been configured for this process.
+    case notConfigured
+    /// The configured WireGuard keys are not valid 32-byte base64.
+    case invalidKeys
+    /// The connection has not been started.
+    case notStarted
+    /// Timed out waiting for the server's end-of-history markers.
+    case eoseTimeout
+    /// The WireGuard handshake did not complete within the bound.
+    case connectTimeout
+    /// The tunnel write did not complete within the bound (e.g. the relay
+    /// died after startup — the channel wait never resolves).
+    case publishTimeout
+    /// The tunnel deletion did not complete within the bound.
+    case deleteTimeout
+
+    public var description: String {
+        switch self {
+        case .notConfigured:
+            return "Tessera storage is not configured (set the `tessera` section in ~/.arc/config.json or ARC_TESSERA_* env vars)"
+        case .invalidKeys:
+            return "Tessera WireGuard keys must each be exactly 32 bytes of base64"
+        case .notStarted:
+            return "Tessera connection has not been started"
+        case .eoseTimeout:
+            return "timed out waiting for the server's end-of-history markers"
+        case .connectTimeout:
+            return "Tessera relay handshake timed out"
+        case .publishTimeout:
+            return "Tessera relay write timed out"
+        case .deleteTimeout:
+            return "Tessera relay delete timed out"
+        }
+    }
+
+    /// Whether this error means the relay/tunnel is unavailable (vs a
+    /// configuration problem). Consumers fall back to file storage for the
+    /// unavailable family — the same degradation as the boot-time fallback.
+    public var isUnavailable: Bool {
+        switch self {
+        case .notConfigured, .notStarted, .connectTimeout, .eoseTimeout,
+             .publishTimeout, .deleteTimeout:
+            return true
+        case .invalidKeys:
+            return false
+        }
+    }
+}
+
+/// A single decoded event from the connection's cached model.
+public struct TesseraRecord: Sendable {
+    /// The NOSTR event id (also the model-storage key). Nil for records
+    /// that have been written but whose echo has not yet landed.
+    public let id: NOSTR_id?
+    /// The `d` tag value (e.g. `arc/s/<session>/<seq>`), if the event has one.
+    public let dTag: String?
+    /// The event content decoded from UTF-8.
+    public let content: String
+
+    public init(id: NOSTR_id?, dTag: String?, content: String) {
+        self.id = id
+        self.dTag = dTag
+        self.content = content
+    }
+}
+
+/// A write this connection published before its echo returned from the
+/// server. Merged into snapshots so reads are consistent with writes.
+private struct PendingRecord {
+    let id: NOSTR_id
+    let kind: UInt32
+    let dTag: String
+    let content: String
+}
+
+/// The process-wide connection to a Tessera server.
+///
+/// One WireGuard tunnel serves all ARC Agent storage (sessions, memory,
+/// profiles). It mirrors the role `GlobalEnvironment` played for the LMDB
+/// backend: a single shared handle, opened lazily, reused for the process
+/// lifetime, and closed via ``shutdown()`` at gateway teardown. Opening a
+/// second tunnel to the same server under the same WireGuard identity would
+/// race on the server's per-peer state, so every consumer funnels through
+/// this actor.
+///
+/// ## Event schema
+///
+/// All stored data is signed NOSTR events in the non-replaceable kind band
+/// (0...9,999), which needs no access level beyond a registered user. Each
+/// event carries a `d` tag whose value names the record plus a GLOBAL
+/// sequence number, so numbers are unique across kinds, sessions, and
+/// writers:
+///
+/// ```
+/// kind 3001  arc/s/<sessionID>/<seq>   session messages
+/// kind 3002  arc/m/<key>/<seq>          memory records (key = agent|user)
+/// kind 3003  arc/meta/<sessionID>/<seq> session metadata
+/// kind 3004  arc/p/<name>/<seq>         profile records
+/// kind 3005  arc/cron/<jobID>/<seq>     cron jobs
+/// kind 3006  arc/goals/<sessionID>/<seq> standing goals
+/// ```
+public actor TesseraConnection {
+
+    /// The shared instance. Configure once at process start.
+    public static let shared = TesseraConnection()
+
+    // MARK: - Kinds & tags
+
+    /// Session message events.
+    public static let messageKind: UInt32 = 3_001
+    /// Memory record events.
+    public static let memoryKind: UInt32 = 3_002
+    /// Session metadata events.
+    public static let metadataKind: UInt32 = 3_003
+    /// Profile record events.
+    public static let profileKind: UInt32 = 3_004
+    /// Cron job events (TesseraCronStore).
+    public static let cronKind: UInt32 = 3_005
+    /// Standing goal events (TesseraGoalStore).
+    public static let goalKind: UInt32 = 3_006
+    /// The prefix on every `d` tag value.
+    public static let dTagPrefix = "arc/"
+    /// One subscription per kind; the model receives all six.
+    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles", "arc-cron", "arc-goals"]
+
+    // MARK: - State
+
+    private var config: TesseraConfig?
+    private var session: TesseraSession?
+    private var model: ArcModel?
+    private var nostrPublicKey: PublicKey?
+    private var nostrPrivateKey: MemoryGuarded<RAW_ed25519.PrivateKey>?
+    private var eoseTracker: EOSETracker?
+    private var isStarted = false
+
+    /// Whether the connection is currently up (probe-free snapshot for
+    /// store selection; never shuts the connection down).
+    public var isStartedNow: Bool { isStarted }
+
+    /// The next global sequence number to hand out.
+    private var nextSeq = 0
+    /// Events this client has published whose echo has not yet arrived.
+    ///
+    /// Reads go straight to the model, but the server's echo travels back
+    /// over the tunnel asynchronously — a read issued immediately after a
+    /// write would miss it. These pending records give deterministic
+    /// read-after-write semantics; they are dropped once the echo lands.
+    private var pendingRecords: [PendingRecord] = []
+
+    // MARK: Record index (fix #1 — bounded per-kind queries)
+
+    /// The actor's record index (see ``TesseraRecordIndex``). Updated in
+    /// O(1) on every local publish and on rare external reconciliations, so
+    /// per-message metadata/memory lookups no longer walk the entire
+    /// `modelStorage` (which holds every kind and every session — the old
+    /// O(n) per operation made long sessions quadratic).
+    private var recordIndex = TesseraRecordIndex()
+
+    private init() {}
+
+    /// Whether a Tessera configuration has been provided.
+    public var isConfigured: Bool { config != nil }
+
+    /// Probe the relay with a bounded handshake; tears the probe session
+    /// down either way so the process never keeps a half-open client.
+    /// Used by the CLI to fall back to file storage when the relay is down.
+    /// Bounded reachability probe. The connection's own internal bounds
+    /// (connect / subscribe / EOSE) keep this under ~30s worst case without
+    /// an outer race — an outer race would leak a half-open raw client into
+    /// the shared connection and wedge later shutdown() calls.
+    public func healthCheck(within seconds: UInt64 = 20) async -> Bool {
+        do {
+            try await ensureStarted()
+            await shutdown()
+            return true
+        } catch {
+            await hardShutdown()
+            return false
+        }
+    }
+
+    // MARK: - Configuration
+
+    /// Configure (or replace) the Tessera connection for this process.
+    /// A no-op when the configuration is unchanged.
+    public func configure(_ newConfig: TesseraConfig) async {
+        if config == newConfig { return }
+        await shutdown()
+        config = newConfig
+    }
+
+    /// Tear down the connection. Safe to call on a never-started connection.
+    /// Anything using the stores afterwards re-opens lazily.
+    public func shutdown() async {
+        if let session {
+            for sub in Self.subscriptionIDs {
+                try? await session.unsubscribe(subscriptionID: sub)
+            }
+            await session.disconnect()
+        }
+        session = nil
+        model = nil
+        nostrPrivateKey = nil
+        eoseTracker = nil
+        isStarted = false
+        nextSeq = 0
+        pendingRecords.removeAll()
+        recordIndex = TesseraRecordIndex()
+    }
+
+    /// Teardown that must not wait for relay round-trips. For a relay that just
+    /// failed its handshake/subscription (dead, desynced, wrong keys), polite
+    /// unsubscribes write CLOSE frames onto the same wedged channel; a single
+    /// bounded disconnect (the raw client cancels its consumer/connection
+    /// attempts and closes the interface) is all the recovery a failed relay
+    /// needs, and the caller never waits on the dead channel. The losing race
+    /// racer, if any, parks on its own pool thread — a bounded barnacle per
+    /// failed relay, capped by user action — instead of an unbounded caller
+    /// freeze (see `boundedOp`).
+    func hardShutdown() async {
+        if let session {
+            try? await Self.boundedOp(seconds: Self.writeTimeoutSeconds) {
+                await session.disconnect()
+            }
+        }
+        session = nil
+        model = nil
+        nostrPrivateKey = nil
+        eoseTracker = nil
+        isStarted = false
+        nextSeq = 0
+        pendingRecords.removeAll()
+        recordIndex = TesseraRecordIndex()
+    }
+
+    // MARK: - Sequence numbers
+
+    /// Allocate the next global sequence number.
+    public func takeSequence() -> Int {
+        let seq = nextSeq
+        nextSeq += 1
+        return seq
+    }
+
+    /// The highest sequence number found in the cached model. Used to seed
+    /// the global counter so new events never collide with stored ones.
+    private func globalMaxSequence() -> Int {
+        guard let model else { return 0 }
+        var maxSeq = 0
+        for (_, event) in model.modelStorage {
+            guard let dTag = findTag(tags: event.tags.array, as: DTag.self),
+                  let key = Self.stringValue(dTag.value),
+                  key.hasPrefix(Self.dTagPrefix),
+                  let seq = Self.sequenceNumber(fromTagKey: key) else {
+                continue
+            }
+            maxSeq = max(maxSeq, seq)
+        }
+        return maxSeq
+    }
+
+    /// Extracts the trailing sequence number from a `d` tag key such as
+    /// `arc/s/demo/12`. Returns nil when the key has no numeric tail or the
+    /// tail is not a non-negative integer (sequence numbers never go
+    /// negative, and a bare number without a `/` is not a valid tag key).
+    public static func sequenceNumber(fromTagKey key: String) -> Int? {
+        guard key.contains("/") else { return nil }
+        guard let last = key.split(separator: "/").last,
+              let seq = Int(last),
+              seq >= 0 else {
+            return nil
+        }
+        return seq
+    }
+
+    /// Group key for a d-tag value: the tag minus its trailing `/<seq>`
+    /// segment. `arc/meta/<session>/12` → `arc/meta/<session>`; a tag without
+    /// a numeric tail has no group (nil). The group key is how "the latest
+    /// record belonging to this session/key" is looked up in O(1).
+    static func groupKey(fromDTag dTag: String) -> String? {
+        guard let slash = dTag.lastIndex(of: "/") else { return nil }
+        let tail = dTag[dTag.index(after: slash)...]
+        guard let seq = Int(tail), seq >= 0 else { return nil }
+        return String(dTag[..<slash])
+    }
+
+    // MARK: - Record index maintenance
+
+    /// Insert (or replace) a record in the index. O(1). Sequence numbers come
+    /// from the d-tag tail; for a group, only the higher-seq record is kept.
+    private func indexRecord(_ record: TesseraRecord, kind: UInt32, seq: Int) {
+        recordIndex.index(record, kind: kind, seq: seq)
+    }
+
+    /// Remove every index entry whose d-tag falls under a prefix (used by
+    /// `deleteAll` after the model deletion was applied).
+    private func unindex(dTagPrefix prefix: String, kind: UInt32) {
+        recordIndex.unindex(dTagPrefix: prefix, kind: kind)
+    }
+
+    /// Bring the index up to date with the model before serving a query.
+    ///
+    /// The steady-state cost is O(pending): our own echoes land and their
+    /// pendings are evicted — nothing else changes count, so the fast path
+    /// returns after one array filter. An O(model) reconcile runs only when
+    /// something genuinely external arrived (another writer on the relay), a
+    /// deletion reached the model, or the cache was cleared — all rare
+    /// relative to local message traffic.
+    private func reconcileIndex(_ model: ArcModel) {
+        let storage = model.modelStorage
+        // Evict pendings whose echo landed; every landed echo is already in
+        // the index (we indexed it at publish time), so nothing to add.
+        var unlanded: [PendingRecord] = []
+        unlanded.reserveCapacity(pendingRecords.count)
+        for pending in pendingRecords {
+            if storage[pending.id] != nil { continue }
+            unlanded.append(pending)
+        }
+        pendingRecords = unlanded
+
+        let expected = recordIndex.count - unlanded.count
+        if storage.count == expected { return } // converged: O(pending) only
+
+        if storage.count < expected {
+            // A record our index still holds is gone from the model (kind-5
+            // deletion / clearCache). Rebuild from the model — rare.
+            recordIndex = TesseraRecordIndex()
+            for (id, event) in storage {
+                let dTag = findTag(tags: event.tags.array, as: DTag.self)
+                    .flatMap { Self.stringValue($0.value) }
+                let content = Self.stringValue(event.content) ?? ""
+                let seq = dTag.flatMap(Self.sequenceNumber(fromTagKey:)) ?? 0
+                indexRecord(
+                    TesseraRecord(id: id, dTag: dTag, content: content),
+                    kind: event.kind.RAW_native(),
+                    seq: seq
+                )
+            }
+            for pending in pendingRecords {
+                let seq = Self.sequenceNumber(fromTagKey: pending.dTag) ?? 0
+                indexRecord(
+                    TesseraRecord(id: pending.id, dTag: pending.dTag, content: pending.content),
+                    kind: pending.kind,
+                    seq: seq
+                )
+            }
+            return
+        }
+
+        // Additions: external events that arrived since the last reconcile.
+        // Delta-add only the unknown ids (O(model) iteration, but this fires
+        // only on genuinely external arrivals).
+        for (id, event) in storage {
+            guard !recordIndex.ids.contains(id) else { continue }
+            let dTag = findTag(tags: event.tags.array, as: DTag.self)
+                .flatMap { Self.stringValue($0.value) }
+            let content = Self.stringValue(event.content) ?? ""
+            let seq = dTag.flatMap(Self.sequenceNumber(fromTagKey:)) ?? 0
+            indexRecord(
+                TesseraRecord(id: id, dTag: dTag, content: content),
+                kind: event.kind.RAW_native(),
+                seq: seq
+            )
+        }
+    }
+
+    // MARK: - Connection lifecycle
+
+    /// Connect and subscribe if not already started. Idempotent.
+    func ensureStarted() async throws {
+        if isStarted { return }
+        // Any writes tracked against a previous connection are stale once we
+        // reconnect (their echoes are replayed under the fresh model).
+        pendingRecords.removeAll()
+        guard let config else { throw TesseraStoreError.notConfigured }
+        guard let configuration = TesseraClientConfiguration(
+            serverIP: config.serverIP,
+            serverPort: config.serverPort,
+            serverPublicKeyBase64: config.serverPublicKey,
+            myPrivateKeyBase64: config.myPrivateKey
+        ) else {
+            throw TesseraStoreError.invalidKeys
+        }
+
+        do {
+            let (publicKey, privateKey) = try RAW_ed25519.generateKeys(secretKey: configuration.myPrivateKey)
+            nostrPublicKey = publicKey
+            nostrPrivateKey = privateKey
+
+            let model = ArcModel()
+            let receiver = TesseraClientReceiverStore()
+            receiver.models.append(model)
+
+            let session = TesseraSession(
+                client: TesseraClient(configuration: configuration),
+                receiver: receiver,
+                application: config.application,
+                myNostrPublicKey: publicKey
+            )
+            let tracker = EOSETracker(expected: Self.subscriptionIDs)
+            session.onEOSE = { [weak tracker] eose in
+                tracker?.mark(String(eose.subscriptionID))
+            }
+            session.onNotice = { text in
+                FileHandle.standardError.write(Data("[tessera] notice: \(text)\n".utf8))
+            }
+            self.model = model
+            self.session = session
+            self.eoseTracker = tracker
+
+            // Bound the connect: a wedged relay (handshake never completing) must
+            // fail the store after a bounded wait instead of hanging the process.
+            // Race via TaskGroup per the First Law; the loser keeps its work but
+            // never blocks the caller.
+            try await Self.boundedOp(seconds: 12) {
+                try await session.connect()
+            }
+            // The subscribe path waits on the same tunnel channel as connect; a
+            // relay that dies mid-handshake leaves it unresolved forever, so
+            // bound the whole subscribe phase (mirror of the connect race above).
+            // The raw client's channel wait cannot be cancelled once entered, so
+            // the losing task stays blocked inside the client's own pool — a
+            // bounded leak beats an unbounded caller freeze.
+            try await Self.boundedOp(seconds: Self.writeTimeoutSeconds) {
+                for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind]) {
+                    try await session.subscribe(subscriptionID: sub, filters: [Filter(applications: [config.application], kinds: [kind])])
+                }
+            }
+
+            // Wait for every end-of-history marker, then give the receiver a
+            // moment to drain the decoded events into the model.
+            let deadline = Date().addingTimeInterval(8)
+            while Date() < deadline {
+                if tracker.completed() { break }
+                try await Task.sleep(nanoseconds: 100_000_000)
+            }
+            try await Task.sleep(nanoseconds: 500_000_000)
+            guard tracker.completed() else {
+                throw TesseraStoreError.eoseTimeout
+            }
+
+            nextSeq = globalMaxSequence() + 1
+            isStarted = true
+        } catch {
+            // A failed start must never leave a half-open tunnel behind: the
+            // stale session/model/eose-tracker stay set, and the next retry
+            // would build a FRESH session over the old one, accumulating
+            // subscriptions and sockets on the shared client channel. Tear
+            // everything down (shutdown is idempotent, and is the same path
+            // CLI healthCheck already uses) so a retry starts from a clean
+            // slate. pendingRecords are cleared too — unacked writes are
+            // stale; their echoes replay under the fresh model on reconnect.
+            await hardShutdown()
+            throw error
+        }
+    }
+
+    // MARK: - Publishing
+
+    /// Build, sign, and publish an event with the given kind, `d` tag value,
+    /// and UTF-8 content.
+    public func publish(kind: UInt32, dTagValue: String, content: String) async throws {
+        guard isStarted, let session, let nostrPublicKey, let nostrPrivateKey else {
+            throw TesseraStoreError.notStarted
+        }
+        // Sign locally so the event id is known up front: snapshots merge
+        // the pending record for same-connection read consistency, and
+        // `deleteAll` can still reference an event whose echo has not yet
+        // landed.
+        let unsigned = try UnsignedEvent(
+            publicKey: nostrPublicKey,
+            tags: [DTag(value: Encoded.String(dTagValue.unicodeScalars))],
+            application: session.application,
+            kind: kind,
+            content: ByteBuffer(string: content)
+        )
+        let signed = try unsigned.sign(as: nostrPrivateKey)
+        let seq = Self.sequenceNumber(fromTagKey: dTagValue) ?? 0
+        // Index immediately (read-after-write: snapshots serve from the
+        // index, so writes are visible before their echo arrives).
+        indexRecord(
+            TesseraRecord(id: signed.unsignedEvent.id, dTag: dTagValue, content: content),
+            kind: kind,
+            seq: seq
+        )
+        pendingRecords.append(PendingRecord(
+            id: signed.unsignedEvent.id,
+            kind: kind,
+            dTag: dTagValue,
+            content: content
+        ))
+        try await Self.boundedPublish(session, event: signed)
+    }
+
+    /// Publish kind-5 deletion events for every known event whose `d` tag
+    /// matches the given prefix, and drop them from the model and pending
+    /// queue. Events still awaiting their echo are referenced by the id we
+    /// signed locally, so the server can still apply the deletion.
+    public func deleteAll(dTagPrefix prefix: String, kind: UInt32) async throws {
+        guard let session, let nostrPrivateKey, var model else { return }
+        var ids = model.modelStorage.compactMap { (id, event) -> NOSTR_id? in
+            guard event.kind.RAW_native() == kind,
+                  let dTag = findTag(tags: event.tags.array, as: DTag.self),
+                  let key = Self.stringValue(dTag.value),
+                  key.hasPrefix(prefix) else {
+                return nil
+            }
+            return id
+        }
+        // Events we published whose echo has not landed yet.
+        ids.append(contentsOf: pendingRecords
+            .filter { $0.kind == kind && $0.dTag.hasPrefix(prefix) }
+            .map(\.id))
+        pendingRecords.removeAll { $0.kind == kind && $0.dTag.hasPrefix(prefix) }
+
+        for id in Set(ids) {
+            // Propagate a delete timeout so callers (ProfileManager etc.) can
+            // fall back (the `try?` here would hide the unavailable tunnel
+            // and leave the removal half-applied).
+            guard await Self.boundedDelete(session, eventID: id, signedBy: nostrPrivateKey) else {
+                throw TesseraStoreError.deleteTimeout
+            }
+            try? model.delete(id: id)
+        }
+        unindex(dTagPrefix: prefix, kind: kind)
+    }
+
+    // MARK: - Timeout guards
+
+    /// Bound for one tunnel write/delete/episode. A relay that dies
+    /// mid-session leaves the raw client's channel wait unresolved forever;
+    /// without this bound the caller hangs (in the webui, one hung profile
+    /// save freezes the whole UI because the WebSocket handler never returns).
+    static let writeTimeoutSeconds: UInt64 = 10
+
+    /// Run an async op under a bounded race (First Law) WITHOUT inheriting
+    /// this actor's isolation. TaskGroup children created inside an actor
+    /// method inherit its isolation, so a child that blocks synchronously
+    /// (the raw client's channel wait) deadlocks the very timer that should
+    /// rescue the caller. Static helpers are nonisolated and avoid that trap
+    /// entirely.
+    ///
+    /// - Important: do NOT implement this via `withThrowingTaskGroup`+
+    ///   `group.next()`. When a group's first child stays suspended forever
+    ///   (the no-channel case), Swift 6.3 silently swallows a later child's
+    ///   throw — `next()` never returns and the caller deadlocks (observed
+    ///   live on macOS 26). The AsyncStream race has no such dependency:
+    ///   whichever racer reports first wins.
+    nonisolated static func boundedOp(seconds: UInt64, _ body: @escaping @Sendable () async throws -> Void) async throws {
+        try await Self.race(seconds: seconds, timeout: .connectTimeout, body)
+    }
+
+    /// Race `body` against a deadline; first report wins (see `boundedOp`).
+    nonisolated static func race(
+        seconds: UInt64,
+        timeout: TesseraStoreError,
+        _ body: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        let stream = AsyncStream<Result<Void, Swift.Error>>.makeStream()
+        let c = stream.continuation
+        Task {
+            do {
+                try await body()
+                c.yield(.success(())); c.finish()
+            } catch {
+                c.yield(.failure(error)); c.finish()
+            }
+        }
+        Task {
+            do { try await Task.sleep(nanoseconds: seconds * 1_000_000_000) } catch {}
+            c.yield(.failure(timeout)); c.finish()
+        }
+        guard let first = await stream.stream.first(where: { _ in true }) else { throw timeout }
+        switch first {
+        case .success: return
+        case .failure(let error): throw error
+        }
+    }
+
+    /// Run a session publish under a bounded race. The raw client's channel
+    /// wait cannot be cancelled once entered, so the losing task stays blocked
+    /// inside the client's own pool; bounded leakage is preferred to an
+    /// unbounded caller freeze. (Stream race — see `race(_:timeout:_:)`.)
+    static func boundedPublish(
+        _ session: TesseraSession,
+        event: NOSTR_event_signed<UnsignedEvent<ByteBuffer>>
+    ) async throws {
+        try await Self.race(seconds: Self.writeTimeoutSeconds, timeout: .publishTimeout) {
+            try await session.publish(event)
+        }
+    }
+
+    static func boundedDelete(
+        _ session: TesseraSession,
+        eventID: NOSTR_id,
+        signedBy: MemoryGuarded<RAW_ed25519.PrivateKey>
+    ) async -> Bool {
+        do {
+            try await Self.race(seconds: Self.writeTimeoutSeconds, timeout: .deleteTimeout) {
+                try await session.delete(eventID: eventID, signedBy: signedBy)
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    // MARK: - Reading
+
+    /// A snapshot of every cached event of the given kind, with tags decoded.
+    ///
+    /// Pending (just-published, not-yet-echoed) records of this kind are
+    /// merged in so reads are immediately consistent with writes; they are
+    /// evicted as their echoes land in the model.
+    public func snapshot(kind: UInt32) -> [TesseraRecord] {
+        guard let model else { return [] }
+        reconcileIndex(model)
+        return recordIndex.snapshot(kind: kind)
+    }
+
+    /// O(1) latest-record lookup for a d-tag *group* (e.g.
+    /// `arc/meta/<session>` or `arc/m/<key>`). Returns the record with the
+    /// greatest sequence number in that group, or nil when none exists.
+    public func latestRecord(groupKey: String) -> TesseraRecord? {
+        guard let model else { return nil }
+        reconcileIndex(model)
+        return recordIndex.latest(groupKey: groupKey)
+    }
+
+    /// Every indexed group (record per group key) — O(#sessions) instead of
+    /// O(store). Used by the session store's `list` to decode only the
+    /// current metas.
+    public func latestGroups(prefix: String) -> [String: TesseraRecord] {
+        guard let model else { return [:] }
+        reconcileIndex(model)
+        return recordIndex.latestGroups(prefix: prefix)
+    }
+
+    /// Reads a RAW string-like value as a Swift `String` from its bytes.
+    static func stringValue(_ value: any RAW_accessible) -> String? {
+        var out = ""
+        value.RAW_access_immutable(UnsafeRawBufferPointer.self) { buffer in
+            out = String(decoding: buffer, as: UTF8.self)
+        }
+        return out.isEmpty ? nil : out
+    }
+}
+
+// MARK: - Model
+
+/// The concrete model the receiver decodes inbound events into. One model
+/// declares all four subscription ids, so every kind lands in one storage
+/// dictionary.
+private final class ArcModel: TesseraModel<StringContent> {
+    override init() {
+        super.init()
+        subscriptionIDs = TesseraConnection.subscriptionIDs
+    }
+
+    /// Serializes access to the decoded-event storage.
+    ///
+    /// The receiver writes into the model from its NIO pipeline thread while
+    /// connection methods (``snapshot``/``globalMaxSequence``/``deleteAll``)
+    /// read from the actor. Iterating a dictionary that another thread is
+    /// mutating is a data race — the ObjC-bridged `NSDictionary` raises
+    /// `NSInvalidArgumentException` mid-enumeration (observed as a hard
+    /// crash of the whole process on a live turn). The backing stores are
+    /// only touched under this lock, and every read hands out an independent
+    /// CoW copy, so readers always iterate a private snapshot.
+    private let storageLock = NSLock()
+    private var storage: [NOSTR_id: UnsignedEvent<StringContent>] = [:]
+    private var latestByKey: [ReplaceableKey: NOSTR_id] = [:]
+    private var historyByKey: [ReplaceableKey: [NOSTR_id]] = [:]
+
+    override var modelStorage: [NOSTR_id: UnsignedEvent<StringContent>] {
+        get {
+            storageLock.lock()
+            defer { storageLock.unlock() }
+            return storage
+        }
+        set {
+            storageLock.lock()
+            defer { storageLock.unlock() }
+            storage = newValue
+        }
+    }
+
+    override var latestByReplaceableKey: [ReplaceableKey: NOSTR_id] {
+        get {
+            storageLock.lock()
+            defer { storageLock.unlock() }
+            return latestByKey
+        }
+        set {
+            storageLock.lock()
+            defer { storageLock.unlock() }
+            latestByKey = newValue
+        }
+    }
+
+    override var historyByReplaceableKey: [ReplaceableKey: [NOSTR_id]] {
+        get {
+            storageLock.lock()
+            defer { storageLock.unlock() }
+            return historyByKey
+        }
+        set {
+            storageLock.lock()
+            defer { storageLock.unlock() }
+            historyByKey = newValue
+        }
+    }
+}
+
+// MARK: - EOSE tracking
+
+/// Records which subscriptions have signalled end-of-stored-events. Updated
+/// from the session's `onEOSE` callback, which fires on the connection's
+/// consumer task — hence the lock.
+private final class EOSETracker: @unchecked Sendable {
+    private let lock = NSLock()
+    private let expected: [String]
+    private var seen: Set<String> = []
+
+    init(expected: [String]) {
+        self.expected = expected
+    }
+
+    func mark(_ subscriptionID: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        seen.insert(subscriptionID)
+    }
+
+    func completed() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return expected.allSatisfy { seen.contains($0) }
+    }
+
+    func reset() {
+        lock.lock()
+        defer { lock.unlock() }
+        seen.removeAll()
+    }
+}

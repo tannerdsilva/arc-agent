@@ -4,7 +4,8 @@ import Foundation
 ///
 /// ``KanbanBoard`` is a **protocol** — the abstraction for task storage.
 /// The default implementation is ``FileKanbanBoard`` (JSON files).
-/// An LMDB-backed implementation will replace it once QuickLMDB is added.
+/// A Tessera-backed implementation may replace it once the Tessera store
+/// surface covers kanban boards.
 ///
 /// ## Status Lifecycle
 ///

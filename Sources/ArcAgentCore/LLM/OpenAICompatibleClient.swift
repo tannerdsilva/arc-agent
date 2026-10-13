@@ -28,6 +28,14 @@ import Logging
 /// )
 /// let response = try await client.complete(messages: [...], tools: nil)
 /// ```
+/// Extracts `prompt_tokens_details.cached_tokens` when the provider reports it
+/// (vLLM and some OpenAI-compatible gateways do); `nil` when unavailable.
+private func cachedTokens(from raw: [String: Any]) -> Int? {
+    guard let details = raw["prompt_tokens_details"] as? [String: Any],
+          let cached = details["cached_tokens"] as? Int else { return nil }
+    return cached
+}
+
 public struct OpenAICompatibleClient: LLMClient {
 
     /// The base URL of the API (e.g. `https://api.openai.com/v1`).
@@ -77,11 +85,21 @@ public struct OpenAICompatibleClient: LLMClient {
 
     // MARK: - LLMClient
 
+    /// Plain two-argument form (protocol witness): delegates to the
+    /// reasoning-effort variant with no effort.
     public func complete(
         messages: [Message],
         tools: [[String: Any]]?
     ) async throws -> LLMResponse {
-        let body = try buildRequestBody(messages: messages, tools: tools, stream: false)
+        try await complete(messages: messages, tools: tools, reasoningEffort: nil)
+    }
+
+    public func complete(
+        messages: [Message],
+        tools: [[String: Any]]?,
+        reasoningEffort: String? = nil
+    ) async throws -> LLMResponse {
+        let body = try buildRequestBody(messages: messages, tools: tools, stream: false, reasoningEffort: reasoningEffort)
         let response = try await sendRequest(body: body)
 
         guard let json = try JSONSerialization.jsonObject(with: response) as? [String: Any] else {
@@ -91,9 +109,19 @@ public struct OpenAICompatibleClient: LLMClient {
         return try parseResponse(json: json)
     }
 
+    /// Plain two-argument form (protocol witness): delegates to the
+    /// reasoning-effort variant with no effort.
     public func stream(
         messages: [Message],
         tools: [[String: Any]]?
+    ) -> AsyncThrowingStream<LLMDelta, Error> {
+        stream(messages: messages, tools: tools, reasoningEffort: nil)
+    }
+
+    public func stream(
+        messages: [Message],
+        tools: [[String: Any]]?,
+        reasoningEffort: String? = nil
     ) -> AsyncThrowingStream<LLMDelta, Error> {
         // Serialize tools to Data before entering the closure to avoid
         // capturing non-Sendable types across a Task boundary.
@@ -112,9 +140,9 @@ public struct OpenAICompatibleClient: LLMClient {
                         guard let decoded = try JSONSerialization.jsonObject(with: toolsData) as? [[String: Any]] else {
                             throw LLMError.decodingError("Failed to re-decode tools data")
                         }
-                        body = try buildRequestBody(messages: messages, tools: decoded, stream: true)
+                        body = try buildRequestBody(messages: messages, tools: decoded, stream: true, reasoningEffort: reasoningEffort)
                     } else {
-                        body = try buildRequestBody(messages: messages, tools: nil, stream: true)
+                        body = try buildRequestBody(messages: messages, tools: nil, stream: true, reasoningEffort: reasoningEffort)
                     }
                     try await streamRequest(body: body, continuation: continuation)
                 } catch {
@@ -129,7 +157,8 @@ public struct OpenAICompatibleClient: LLMClient {
     private func buildRequestBody(
         messages: [Message],
         tools: [[String: Any]]?,
-        stream: Bool
+        stream: Bool,
+        reasoningEffort: String? = nil
     ) throws -> Data {
         var body: [String: Any] = [
             "model": model,
@@ -144,6 +173,16 @@ public struct OpenAICompatibleClient: LLMClient {
         if let stop = defaultParameters.stop { body["stop"] = stop }
         if let presencePenalty = defaultParameters.presencePenalty { body["presence_penalty"] = presencePenalty }
         if let frequencyPenalty = defaultParameters.frequencyPenalty { body["frequency_penalty"] = frequencyPenalty }
+        // Reasoning effort (arc parity: off omits the field; low/medium/
+        // high/max are sent through for providers that honor reasoning_effort).
+        if let effort = reasoningEffort, !effort.isEmpty {
+            body["reasoning_effort"] = effort
+        }
+        // Ask for usage in stream chunks: OpenAI-compatible servers only emit
+        // a final `usage` block when `stream_options.include_usage` is set.
+        if stream {
+            body["stream_options"] = ["include_usage": true]
+        }
 
         // Attach tools if provided
         if let tools, !tools.isEmpty {
@@ -282,14 +321,34 @@ public struct OpenAICompatibleClient: LLMClient {
                 }
 
                 guard let jsonData = data.data(using: .utf8),
-                      let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                      let choice = (json["choices"] as? [[String: Any]])?.first
+                      let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any]
                 else { continue }
+
+                // Some servers send a trailing chunk carrying only `usage`
+                // (no choices) — surface it so consumers can account tokens.
+                let usage = (json["usage"] as? [String: Any]).map { raw in
+                    Usage(
+                        promptTokens: raw["prompt_tokens"] as? Int ?? 0,
+                        completionTokens: raw["completion_tokens"] as? Int ?? 0,
+                        totalTokens: raw["total_tokens"] as? Int ?? 0,
+                        cachedPromptTokens: cachedTokens(from: raw)
+                    )
+                }
+                guard let choice = (json["choices"] as? [[String: Any]])?.first else {
+                    if let usage {
+                        continuation.yield(LLMDelta(content: nil, usage: usage))
+                    }
+                    continue
+                }
 
                 let rawDelta = choice["delta"] as? [String: Any] ?? [:]
                 let finishReason = choice["finish_reason"] as? String
 
                 let content = rawDelta["content"] as? String
+                // DeepSeek streams chain-of-thought as `reasoning_content`;
+                // some OpenAI-compatible servers use `reasoning`.
+                let reasoning = rawDelta["reasoning_content"] as? String
+                    ?? rawDelta["reasoning"] as? String
                 let toolCallDeltas = (rawDelta["tool_calls"] as? [[String: Any]])?.map { tcDelta -> ToolCallDelta in
                     let index = tcDelta["index"] as? Int ?? 0
                     let id = tcDelta["id"] as? String
@@ -305,14 +364,11 @@ public struct OpenAICompatibleClient: LLMClient {
                 let delta = LLMDelta(
                     content: content,
                     toolCalls: toolCallDeltas,
-                    finishReason: finishReason
+                    finishReason: finishReason,
+                    reasoning: reasoning,
+                    usage: usage
                 )
                 continuation.yield(delta)
-
-                if finishReason != nil {
-                    continuation.finish()
-                    return
-                }
             }
         }
         continuation.finish()
@@ -321,15 +377,22 @@ public struct OpenAICompatibleClient: LLMClient {
     // MARK: - Response Parsing
 
     private func parseResponse(json: [String: Any]) throws -> LLMResponse {
-        guard let choices = json["choices"] as? [[String: Any]],
-              let choice = choices.first
-        else {
+        guard let choices = json["choices"] as? [[String: Any]] else {
+            // Missing the key entirely is a malformed response (decode fail);
+            // an empty array is a provider empty response (retryable).
             throw LLMError.decodingError("Missing 'choices' in response")
+        }
+        guard let choice = choices.first else {
+            throw LLMError.emptyResponse
         }
 
         let message = choice["message"] as? [String: Any] ?? [:]
         let finishReason = choice["finish_reason"] as? String
         let content = message["content"] as? String
+        // DeepSeek (and some compatible servers) attach chain-of-thought to
+        // non-streamed completions as `reasoning_content` / `reasoning`.
+        let reasoning = message["reasoning_content"] as? String
+            ?? message["reasoning"] as? String
 
         let toolCalls: [ToolCall]?
         if let rawToolCalls = message["tool_calls"] as? [[String: Any]] {
@@ -353,7 +416,8 @@ public struct OpenAICompatibleClient: LLMClient {
             usage = Usage(
                 promptTokens: rawUsage["prompt_tokens"] as? Int ?? 0,
                 completionTokens: rawUsage["completion_tokens"] as? Int ?? 0,
-                totalTokens: rawUsage["total_tokens"] as? Int ?? 0
+                totalTokens: rawUsage["total_tokens"] as? Int ?? 0,
+                cachedPromptTokens: cachedTokens(from: rawUsage)
             )
         } else {
             usage = nil
@@ -363,7 +427,8 @@ public struct OpenAICompatibleClient: LLMClient {
             content: content,
             toolCalls: toolCalls,
             finishReason: finishReason,
-            usage: usage
+            usage: usage,
+            reasoning: reasoning
         )
     }
 }

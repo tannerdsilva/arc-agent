@@ -99,7 +99,7 @@ public struct ToolEntry: Sendable {
 /// - Parameter arguments: The parsed arguments dictionary.
 /// - Returns: The tool's output as a string (fed back to the LLM).
 /// - Throws: Any error that should be reported to the LLM as a tool failure.
-public typealias ToolHandler = @Sendable ([String: Any]) async throws -> String
+public typealias ToolHandler = @Sendable (sending [String: Any]) async throws -> String
 
 /// A closure that checks whether a tool's runtime requirements are met.
 ///

@@ -2,40 +2,62 @@ import Foundation
 import AsyncHTTPClient
 import ServiceLifecycle
 import Logging
+import NIO
 
 /// The top-level gateway service that manages the HTTP server, platform
 /// adapters, session registry, and message routing.
 ///
 /// ``GatewayService`` is a ``Service`` that composes:
-/// - ``HTTPServerService`` — REST API endpoints + web UI
-/// - ``WebSocketServerService`` — real-time WebSocket for the web UI
+/// - ``HTTPServerService`` — REST API (`/health`, `POST /v1/chat`)
 /// - ``TelegramAdapter`` — Telegram Bot API long polling
 /// - ``SessionRegistry`` — active session agents (no cache, LMDB is source of truth)
 /// - ``DeliveryManager`` — routes responses to the correct platform
 /// - ``BotMessagingService`` — inter-agent messaging
 /// - ``GroupChatManager`` — multi-agent coordination rooms
 ///
+/// The web UI is not hosted here: it is a sibling service in the same daemon
+/// (`WebUIHost`, mounted by `ArcDaemon` on its own port via the `webui` block
+/// of `gateway.json`). The gateway used to carry a second, hand-rolled UI
+/// surface (three `/ui` pages behind an `onUI` closure that was never
+/// configured, plus a NIO WebSocket server on `port + 1`); that duplicate is
+/// long gone. This service is the API and the platform adapters.
+///
 /// All components are managed by a ``ServiceGroup``.
 public struct GatewayService: Service {
 
     private let httpServer: HTTPServerService
-    private let wsServer: WebSocketServerService
-    private let telegramAdapter: TelegramAdapter?
+    private let platformAdapters: [any PlatformAdapter]
     private let registry: SessionRegistry
     private let deliveryManager: DeliveryManager
     private let botMessaging: BotMessagingService
     private let groupChatManager: GroupChatManager
     private let profileManager: ProfileManager
     private let logger: Logger
+    private let profileRoutes: [ProfileRoute]
+    private let multiplexProfiles: Bool
+    /// Shared adapter HTTP client (nil when no adapter needs one); shut down
+    /// explicitly in `run()` on both success and failure — an unshutdown
+    /// AsyncHTTPClient traps on deinit.
+    private let httpClient: HTTPClient?
+    /// Chat→session binding (reference `session_router` parity): resolves every
+    /// incoming chat to its deterministic session ID.
+    private let sessionRouter: SessionRouter
+    /// The cron job runner (reference `cron` service parity): executes a due
+    /// job as a one-shot agent session. The daemon owns the scheduler itself
+    /// (`ArcDaemon`) and picks this runner when the web UI is not hosted.
+    public let cronRunner: @Sendable (CronJob) async throws -> String
 
     public init(
         host: String = "127.0.0.1",
         port: Int = 8080,
         telegramToken: String? = nil,
-        agentConfig: SessionRegistry.AgentConfig
+        gatewayConfig: GatewayConfig? = nil,
+        agentConfig: SessionRegistry.AgentConfig,
+        profileRouting: ProfileRoutingConfig = ProfileRoutingConfig()
     ) {
         let pm = ProfileManager()
         let dm = DeliveryManager()
+        SendMessageTool.delivery = dm
         let bm = BotMessagingService(profileManager: pm)
         let gcm = GroupChatManager(profileManager: pm)
         let reg = SessionRegistry(
@@ -51,6 +73,8 @@ public struct GatewayService: Service {
         self.groupChatManager = gcm
         self.registry = reg
         self.logger = log
+        self.profileRoutes = profileRouting.sortedRoutes
+        self.multiplexProfiles = profileRouting.multiplexProfiles
 
         // Wire up the messaging service
         Task {
@@ -58,22 +82,16 @@ public struct GatewayService: Service {
             await gcm.setMessagingService(bm)
         }
 
-        // Create the WebSocket server on the next port
-        let wsPort = port + 1
-        self.wsServer = WebSocketServerService(
-            host: host,
-            port: wsPort,
-            registry: reg,
-            handlerFactory: { sessionID, registry in
-                WebSocketHandler(sessionID: sessionID, registry: registry)
-            }
-        )
-
-        // Build the HTTP server with bot-mode web UI
+        // Build the HTTP server. REST only: the web UI is `WebUIHost`, a
+        // sibling service in the daemon (same process, its own port).
         self.httpServer = HTTPServerService(
             config: .init(host: host, port: port),
-            onChat: { [reg] sessionID, message in
-                let handle = await reg.getOrCreate(sessionID: sessionID)
+            onChat: { [reg, routes = profileRouting.sortedRoutes, multiplex = profileRouting.multiplexProfiles] sessionID, message in
+                let chat = ChatTarget(platform: "api", chatID: sessionID)
+                let profile = ProfileRouteResolver.profile(
+                    for: chat, routes: routes, multiplexProfiles: multiplex
+                ) ?? "default"
+                let handle = await reg.getOrCreate(sessionID: sessionID, profile: profile)
                 let incoming = IncomingMessage(
                     id: UUID().uuidString,
                     chat: ChatTarget(platform: "api", chatID: sessionID),
@@ -88,116 +106,84 @@ public struct GatewayService: Service {
                     break  // Take the first response
                 }
                 return responseText.isEmpty ? "Message received" : responseText
-            },
-            onUI: { [pm, wsPort, host] mode in
-                // Build the web UI based on mode
-                let wsURL = "ws://\(host):\(wsPort)"
-                let allStyles: CSSStylesheet
-                let allScripts: String
-                let body: String
-                let title: String
-                let settingsHTML: String
-#if DEBUG
-                let devMode = true
-#else
-                let devMode = false
-#endif
-
-                if mode == "bots" {
-                    // Bot mode: show the full bots page
-                    let profiles = (try? await pm.list()) ?? []
-                    let profileData = profiles.map { p in
-                        ProfileData(
-                            name: p.name,
-                            title: p.title,
-                            description: p.description,
-                            avatarShape: p.avatar?.shape ?? "circle",
-                            avatarColor: p.avatar?.color ?? "#8b5cf6",
-                            avatarImage: p.avatar?.imageDataURL,
-                            isActive: false,
-                            isPinned: p.isPinned,
-                            group: p.group
-                        )
-                    }
-
-                    let botsPage = BotsPage(
-                        profiles: profileData,
-                        selectedBot: "default",
-                        welcomeMessage: "Select a bot to start chatting, or create a new one."
-                    )
-
-                    allStyles = CSSStylesheet(AppStyles.all + AppStyles.botStyles)
-                    allScripts = Scripts.runtime + "\n" + Scripts.botMode
-                    body = botsPage.render()
-                    title = "ARC Agent — Bots"
-                    // Bot mode has its own settings entry point (/ui/settings).
-                    settingsHTML = ""
-                } else if mode == "settings" {
-                    // Settings page
-                    let profiles = (try? await pm.list()) ?? []
-                    let profileData = profiles.map { p in
-                        ProfileData(
-                            name: p.name,
-                            title: p.title,
-                            description: p.description,
-                            avatarShape: p.avatar?.shape ?? "circle",
-                            avatarColor: p.avatar?.color ?? "#8b5cf6",
-                            avatarImage: p.avatar?.imageDataURL,
-                            isActive: false,
-                            isPinned: p.isPinned,
-                            group: p.group
-                        )
-                    }
-
-                    let settingsPage = SettingsPage(
-                        profiles: profileData,
-                        selectedBot: "default"
-                    )
-
-                    allStyles = CSSStylesheet(AppStyles.all + AppStyles.botStyles)
-                    allScripts = Scripts.runtime + "\n" + Scripts.botMode
-                    body = settingsPage.render()
-                    title = "ARC Agent — Settings"
-                    // The settings page IS the settings surface.
-                    settingsHTML = ""
-                } else {
-                    // Chat mode: show the clean chat interface
-                    let chatPage = ChatPage(
-                        welcomeMessage: "How can I help you today?",
-                        modelName: "default",
-                        models: [],
-                        activeMode: "chat"
-                    )
-
-                    allStyles = CSSStylesheet(AppStyles.all)
-                    allScripts = Scripts.runtime
-                    body = chatPage.render()
-                    title = "ARC Agent"
-                    // The chat header's gear button toggles this overlay.
-                    settingsHTML = SettingsPanel(isOpen: false).render()
-                }
-
-                let doc = HTMLDocument(
-                    title: title,
-                    body: body,
-                    styles: allStyles,
-                    scripts: allScripts,
-                    wsURL: wsURL,
-                    settingsHTML: settingsHTML,
-                    devMode: devMode
-                )
-                return doc.render()
             }
         )
 
-        // Set up Telegram adapter if token is provided
-        if let token = telegramToken {
-            self.telegramAdapter = TelegramAdapter(
-                botToken: token,
-                httpClient: HTTPClient(eventLoopGroupProvider: .singleton)
+        // Build platform adapters from gateway config (or legacy token flag).
+        // The AsyncHTTPClient is created ONLY when an adapter consumes it and
+        // is retained: a discarded client deinits with a fatal ("Client not
+        // shut down before the deinit"), and with no adapters configured the
+        // old unretained local trapped the gateway at init.
+        var httpClient: HTTPClient?
+        var adapters: [any PlatformAdapter] = []
+        if let config = gatewayConfig {
+            if config.telegram.enabled, !config.telegram.botToken.isEmpty {
+                let client = HTTPClient(eventLoopGroupProvider: .singleton)
+                httpClient = client
+                let adapter = TelegramAdapter(
+                    botToken: config.telegram.botToken,
+                    allowedUsers: config.telegram.allowedUsers,
+                    allowAllUsers: config.telegram.allowAllUsers,
+                    homeChannel: config.telegram.homeChannel,
+                    typingIndicator: config.telegram.typingIndicator,
+                    replyToMode: config.telegram.replyToMode,
+                    requireMention: config.telegram.requireMention,
+                    pollInterval: .seconds(config.telegram.pollIntervalSeconds),
+                    httpClient: client
+                )
+                adapters.append(adapter)
+            }
+            if config.email.enabled, !config.email.address.isEmpty, !config.email.password.isEmpty {
+                let adapter = EmailAdapter(config: config.email)
+                adapters.append(adapter)
+            }
+            if config.slack.enabled, !config.slack.botToken.isEmpty, !config.slack.appToken.isEmpty {
+                let client = HTTPClient(eventLoopGroupProvider: .singleton)
+                httpClient = client
+                let adapter = SlackAdapter(
+                    botToken: config.slack.botToken,
+                    appToken: config.slack.appToken,
+                    allowedUsers: config.slack.allowedUsers,
+                    allowAllUsers: config.slack.allowAllUsers,
+                    homeChannel: config.slack.homeChannel,
+                    replyToMode: config.slack.replyToMode,
+                    requireMention: config.slack.requireMention,
+                    httpClient: client,
+                    eventLoopGroup: MultiThreadedEventLoopGroup.singleton
+                )
+                adapters.append(adapter)
+            }
+        } else if let token = telegramToken {
+            let client = HTTPClient(eventLoopGroupProvider: .singleton)
+            httpClient = client
+            let adapter = TelegramAdapter(botToken: token, httpClient: client)
+            adapters.append(adapter)
+        }
+        self.httpClient = httpClient
+        self.platformAdapters = adapters
+        self.sessionRouter = SessionRouter()
+
+        // Cron execution harness: each due job becomes a one-shot agent
+        // session under the default profile; the first response lands in
+        // the job's `lastOutput` (capped by the scheduler, which the daemon
+        // owns — this closure is its runner when the web UI is not hosted).
+        self.cronRunner = { job in
+            let sessionID = "cron-\(job.id)"
+            let handle = await reg.getOrCreate(sessionID: sessionID, profile: "default")
+            let incoming = IncomingMessage(
+                id: UUID().uuidString,
+                chat: ChatTarget(platform: "cron", chatID: job.id),
+                text: job.prompt,
+                senderID: "cron"
             )
-        } else {
-            self.telegramAdapter = nil
+            handle.inputContinuation.yield(incoming)
+            var output = ""
+            for await response in handle.responses {
+                output = response
+                break // First response is the job result.
+            }
+            await reg.remove(sessionID: sessionID)
+            return output.isEmpty ? "Job processed (no response)." : output
         }
     }
 
@@ -206,9 +192,27 @@ public struct GatewayService: Service {
     public func run() async throws {
         logger.info("Starting ARC Agent Gateway (Bot Mode)...")
 
-        var services: [any Service] = [httpServer, wsServer, botMessaging]
-        if let telegram = telegramAdapter {
-            services.append(telegram)
+        var services: [any Service] = [httpServer, botMessaging]
+
+        // Register adapters for delivery, then ingest their messages into
+        // sessions — routing each chat to the profile its route table
+        // specifies (default when unmatched). The consumption tasks' lifetime
+        // is bounded by each adapter's AsyncStream.
+        for adapter in platformAdapters {
+            await deliveryManager.register(adapter: adapter)
+            services.append(adapter)
+            Task {
+                for await incoming in adapter.incomingMessages {
+                    let profile = ProfileRouteResolver.profile(
+                        for: incoming.chat,
+                        routes: self.profileRoutes,
+                        multiplexProfiles: self.multiplexProfiles
+                    ) ?? "default"
+                    let sessionID = await self.sessionRouter.resolve(chat: incoming.chat)
+                    let handle = await self.registry.getOrCreate(sessionID: sessionID, profile: profile)
+                    handle.inputContinuation.yield(incoming)
+                }
+            }
         }
 
         let serviceGroup = ServiceGroup(
@@ -221,11 +225,16 @@ public struct GatewayService: Service {
         do {
             try await serviceGroup.run()
         } catch {
-            // Release the process-shared global .mdb handle at teardown.
-            await GlobalEnvironment.shared.close()
+            // Release the shared Tessera connection (WireGuard tunnel) at
+            // teardown, and the adapter HTTP client — an unshutdown
+            // AsyncHTTPClient traps on deinit.
+            if let httpClient { try? await httpClient.shutdown() }
+            await TesseraConnection.shared.shutdown()
             throw error
         }
-        // Release the process-shared global .mdb handle at teardown.
-        await GlobalEnvironment.shared.close()
+        // Release the shared Tessera connection (WireGuard tunnel) at
+        // teardown.
+        if let httpClient { try? await httpClient.shutdown() }
+        await TesseraConnection.shared.shutdown()
     }
 }

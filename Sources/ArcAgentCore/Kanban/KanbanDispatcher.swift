@@ -32,25 +32,31 @@ public actor KanbanDispatcher: Service {
     public func run() async throws {
         logger.info("Kanban dispatcher started (poll interval: \(pollInterval / 1_000_000_000)s)")
 
-        while !Task.isCancelled {
-            do {
-                try await board.recomputeReady()
-                let readyTasks = try await board.list(status: .ready, assignee: nil, limit: 10)
+        // the loop exits on cancellation; `runUntilShutdown` converts the
+        // enclosing group's graceful shutdown into that cancellation, so
+        // SIGTERM stops the poll instead of waiting out the grace period.
+        let interval = pollInterval
+        try await runUntilShutdown { [self] in
+            while !Task.isCancelled {
+                do {
+                    try await self.board.recomputeReady()
+                    let readyTasks = try await self.board.list(status: .ready, assignee: nil, limit: 10)
 
-                for task in readyTasks {
-                    logger.info("Dispatching task: \(task.title.prefix(60))")
-                    try await board.transition(id: task.id, to: .running)
+                    for task in readyTasks {
+                        self.logger.info("Dispatching task: \(task.title.prefix(60))")
+                        try await self.board.transition(id: task.id, to: .running)
 
-                    // In a full implementation, this would spawn a subagent.
-                    // For now, simulate work and mark as done.
-                    try await Task.sleep(nanoseconds: 1_000_000_000) // 1s placeholder
-                    try await board.transition(id: task.id, to: .done)
+                        // In a full implementation, this would spawn a subagent.
+                        // For now, simulate work and mark as done.
+                        try await Task.sleep(nanoseconds: 1_000_000_000) // 1s placeholder
+                        try await self.board.transition(id: task.id, to: .done)
+                    }
+                } catch {
+                    // Log and continue on transient errors
                 }
-            } catch {
-                // Log and continue on transient errors
-            }
 
-            try await Task.sleep(nanoseconds: pollInterval)
+                try await Task.sleep(nanoseconds: interval)
+            }
         }
 
         logger.info("Kanban dispatcher stopped.")

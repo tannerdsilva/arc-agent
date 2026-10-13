@@ -39,6 +39,13 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// Agent behavior configuration.
     public var agent: AgentConfig
 
+    /// Legacy root-level tool-iteration limit (reference `max_turns` in flat
+    /// configs). `agent.max_turns` takes precedence; `0`/negative = unlimited.
+    public var max_turns: Int?
+
+    /// Guardrail loop limits (arc tool-loop caps).
+    public var guardrails: GuardrailsConfig
+
     /// Terminal tool configuration.
     public var terminal: TerminalConfig
 
@@ -51,22 +58,150 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// Security/approval configuration.
     public var security: SecurityConfig
 
+    /// Tessera storage configuration. When set, sessions, memory, and the
+    /// profile index are persisted as signed NOSTR events to a Tessera
+    /// server instead of local files.
+    public var tessera: TesseraConfig?
+    /// Mixture-of-Agents configuration (reference `moa` config block).
+    public var moa: MoAConfig
+
+    /// arc-parity auxiliary-model overrides (`auxiliary.<task>`), routing
+    /// secondary tasks (vision, web extract, compression, approval, titles, …)
+    /// to dedicated model configurations. Tasks without an override use the
+    /// main model.
+    public var auxiliary: AuxiliaryModelSet
+
+    /// Tool-plugin enablement (reference `plugins.enabled` parity). `nil` = the
+    /// key is absent (grandfathered: all discovered plugins are enabled);
+    /// `[]` = explicitly none; a list = allow-list of plugin names.
+    public var plugins: PluginsConfig
+
+    /// Profile-based inbound routing (reference `profile_routes` /
+    /// `gateway.multiplex_profiles`): routes inbound platform messages by
+    /// platform/guild/channel/thread to a dedicated profile. Ignored unless
+    /// `multiplexProfiles` is true.
+    public var profileRouting: ProfileRoutingConfig
+
+    /// Agent-powers lockdown (skills + profile files). All locks default to
+    /// OFF (agent may create/edit); enabling any of them makes the dedicated
+    /// tools refuse. See ``AgentPowersConfig``.
+    public var agentPowers: AgentPowersConfig
+    /// External MCP servers (reference top-level `mcp_servers`): name → launch config.
+    public var mcpServers: [String: MCPServerConfig]
+
+    /// Web capabilities (reference `web` block): search/extract backend selection.
+    public var web: WebConfig
+
+    /// Progressive tool disclosure (reference `tools.tool_search`).
+    public var toolSearch: ToolSearchConfig
+
+    /// Standing-goal loop configuration (reference `goals.max_turns`).
+    public var goals: GoalsConfig
+    /// Checkpoint/rollback safety net (reference `checkpoints.*` — opt-in).
+    public var checkpoints: CheckpointsConfig?
+    /// Event hooks: outbound webhook targets (reference `hooks.outbound`).
+    public var hooks: HooksConfig = HooksConfig()
+
+    /// Configuration for web search/extract backends (reference `web` block).
+    public struct WebConfig: Codable, Sendable, Equatable {
+        /// Backend used by `web_search` (reference `web.search_backend`).
+        public var searchBackend: String?
+        /// Backend used by `web_extract` (reference `web.extract_backend`).
+        public var extractBackend: String?
+        /// Legacy catch-all (reference `web.backend`).
+        public var backend: String?
+
+        public init(searchBackend: String? = nil, extractBackend: String? = nil, backend: String? = nil) {
+            self.searchBackend = searchBackend
+            self.extractBackend = extractBackend
+            self.backend = backend
+        }
+
+        /// Effective search backend: explicit > legacy.
+        public var effectiveSearchBackend: String? {
+            searchBackend ?? backend
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case searchBackend = "search_backend"
+            case extractBackend = "extract_backend"
+            case backend
+        }
+    }
+
+    // MARK: - Coding keys
+
+    /// Explicit keys so the Herm...[truncated]
+
+    /// Explicit keys so the arc-style `mcp_servers` underscore key can be
+    /// decoded alongside the camelCase property names.
+    private enum CodingKeys: String, CodingKey {
+        case model
+        case agent
+        case max_turns
+        case guardrails
+        case terminal
+        case delegation
+        case memory
+        case security
+        case tessera
+        case moa
+        case auxiliary
+        case plugins
+        case profileRouting
+        case agentPowers
+        case goals
+        case mcpServers = "mcp_servers"
+        case web
+        case toolSearch = "tool_search"
+        case checkpoints
+        case hooks
+    }
+
     // MARK: - Init
 
     public init(
         model: ModelConfig = ModelConfig(),
         agent: AgentConfig = AgentConfig(),
+        max_turns: Int? = nil,
+        guardrails: GuardrailsConfig = GuardrailsConfig(),
         terminal: TerminalConfig = TerminalConfig(),
         delegation: DelegationConfig = DelegationConfig(),
         memory: MemoryConfig = MemoryConfig(),
-        security: SecurityConfig = SecurityConfig()
+        security: SecurityConfig = SecurityConfig(),
+        tessera: TesseraConfig? = nil,
+        moa: MoAConfig = MoAConfig(),
+        auxiliary: AuxiliaryModelSet = AuxiliaryModelSet(),
+        plugins: PluginsConfig = PluginsConfig(),
+        profileRouting: ProfileRoutingConfig = ProfileRoutingConfig(),
+        agentPowers: AgentPowersConfig = AgentPowersConfig(),
+        mcpServers: [String: MCPServerConfig] = [:],
+        web: WebConfig = WebConfig(),
+        toolSearch: ToolSearchConfig = ToolSearchConfig(),
+        goals: GoalsConfig = GoalsConfig(),
+        checkpoints: CheckpointsConfig? = nil,
+        hooks: HooksConfig = HooksConfig()
     ) {
         self.model = model
         self.agent = agent
+        self.max_turns = max_turns
+        self.guardrails = guardrails
         self.terminal = terminal
         self.delegation = delegation
         self.memory = memory
         self.security = security
+        self.tessera = tessera
+        self.moa = moa
+        self.auxiliary = auxiliary
+        self.plugins = plugins
+        self.profileRouting = profileRouting
+        self.agentPowers = agentPowers
+        self.mcpServers = mcpServers
+        self.web = web
+        self.toolSearch = toolSearch
+        self.goals = goals
+        self.checkpoints = checkpoints
+        self.hooks = hooks
     }
 
     /// Decode each section independently, defaulting any that are absent.
@@ -74,14 +209,47 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.model = try container.decodeIfPresent(ModelConfig.self, forKey: .model) ?? ModelConfig()
         self.agent = try container.decodeIfPresent(AgentConfig.self, forKey: .agent) ?? AgentConfig()
+        self.max_turns = try container.decodeIfPresent(Int.self, forKey: .max_turns)
+        self.goals = try container.decodeIfPresent(GoalsConfig.self, forKey: .goals) ?? GoalsConfig()
+        self.guardrails = try container.decodeIfPresent(GuardrailsConfig.self, forKey: .guardrails) ?? GuardrailsConfig()
         self.terminal = try container.decodeIfPresent(TerminalConfig.self, forKey: .terminal) ?? TerminalConfig()
         self.delegation = try container.decodeIfPresent(DelegationConfig.self, forKey: .delegation) ?? DelegationConfig()
         self.memory = try container.decodeIfPresent(MemoryConfig.self, forKey: .memory) ?? MemoryConfig()
         self.security = try container.decodeIfPresent(SecurityConfig.self, forKey: .security) ?? SecurityConfig()
+        self.tessera = try container.decodeIfPresent(TesseraConfig.self, forKey: .tessera)
+        self.moa = try container.decodeIfPresent(MoAConfig.self, forKey: .moa) ?? MoAConfig()
+        self.auxiliary = try container.decodeIfPresent(AuxiliaryModelSet.self, forKey: .auxiliary) ?? AuxiliaryModelSet()
+        self.plugins = try container.decodeIfPresent(PluginsConfig.self, forKey: .plugins) ?? PluginsConfig()
+        self.profileRouting = try container.decodeIfPresent(ProfileRoutingConfig.self, forKey: .profileRouting) ?? ProfileRoutingConfig()
+        self.agentPowers = try container.decodeIfPresent(AgentPowersConfig.self, forKey: .agentPowers) ?? AgentPowersConfig()
+        // reference top-level `mcp_servers` (underscored key → ``CodingKeys/mcpServers``).
+        self.mcpServers = try container.decodeIfPresent([String: MCPServerConfig].self, forKey: .mcpServers) ?? [:]
+        self.web = try container.decodeIfPresent(WebConfig.self, forKey: .web) ?? WebConfig()
+        self.toolSearch = try container.decodeIfPresent(ToolSearchConfig.self, forKey: .toolSearch) ?? ToolSearchConfig()
+        self.checkpoints = try container.decodeIfPresent(CheckpointsConfig.self, forKey: .checkpoints)
+        self.hooks = try container.decodeIfPresent(HooksConfig.self, forKey: .hooks) ?? HooksConfig()
     }
 }
 
 // MARK: - Sub-Configs
+
+/// Tool-plugin enablement (reference `plugins.enabled` parity). See
+/// ``ArcConfig/plugins`` for the `nil` vs `[]` vs allow-list semantics.
+public struct PluginsConfig: Codable, Sendable, Equatable {
+    /// Allow-list of enabled plugin names. `nil` (key absent) means all
+    /// discovered plugins are enabled (grandfathered); `[]` means none.
+    public var enabled: [String]?
+
+    public init(enabled: [String]? = nil) {
+        self.enabled = enabled
+    }
+
+    /// Decode each field independently, defaulting any that are absent.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.enabled = try container.decodeIfPresent([String].self, forKey: .enabled)
+    }
+}
 
 /// Model and provider configuration.
 public struct ModelConfig: Codable, Sendable, Equatable {
@@ -93,17 +261,22 @@ public struct ModelConfig: Codable, Sendable, Equatable {
     public var baseURL: String?
     /// Context length for the default model.
     public var contextLength: Int?
+    /// Explicit generation budget (reference `max_tokens` override). nil = use
+    /// the registry's per-model max output.
+    public var maxOutputTokens: Int?
 
     public init(
         defaultModel: String = "gpt-4o",
         provider: String = "openai",
         baseURL: String? = nil,
-        contextLength: Int? = nil
+        contextLength: Int? = nil,
+        maxOutputTokens: Int? = nil
     ) {
         self.defaultModel = defaultModel
         self.provider = provider
         self.baseURL = baseURL
         self.contextLength = contextLength
+        self.maxOutputTokens = maxOutputTokens
     }
 
     /// Decode each field independently, defaulting any that are absent.
@@ -113,6 +286,86 @@ public struct ModelConfig: Codable, Sendable, Equatable {
         self.provider = try container.decodeIfPresent(String.self, forKey: .provider) ?? ModelConfig().provider
         self.baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL)
         self.contextLength = try container.decodeIfPresent(Int.self, forKey: .contextLength)
+        self.maxOutputTokens = try container.decodeIfPresent(Int.self, forKey: .maxOutputTokens)
+    }
+}
+
+// MARK: - Hooks (reference `hooks.outbound`)
+
+/// Event-hook configuration (reference `hooks:` block).
+public struct HooksConfig: Codable, Sendable, Equatable {
+    /// Outbound webhook targets (reference `hooks.outbound`).
+    public var outbound: [OutboundWebhookTarget]
+
+    public init(outbound: [OutboundWebhookTarget] = []) {
+        self.outbound = outbound
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.outbound = try container.decodeIfPresent([OutboundWebhookTarget].self, forKey: .outbound) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case outbound
+    }
+}
+
+// MARK: - Checkpoints (reference `checkpoints.*`, opt-in)
+
+/// Checkpoint/rollback configuration (reference Hermes `checkpoints` block).
+public struct CheckpointsConfig: Codable, Sendable, Equatable {
+    /// Master switch. Default: false (opt-in, like Hermes v2).
+    public var enabled: Bool?
+    /// Max checkpoints per project (default 20; enforced on snapshot).
+    public var maxSnapshots: Int?
+    /// Skip any single file larger than this (MB, default 10). Hints only —
+    /// stash snapshots are whole-tree; the cap keeps the guard honest.
+    public var maxFileSizeMB: Int?
+
+    public init(enabled: Bool? = nil, maxSnapshots: Int? = nil, maxFileSizeMB: Int? = nil) {
+        self.enabled = enabled
+        self.maxSnapshots = maxSnapshots
+        self.maxFileSizeMB = maxFileSizeMB
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled)
+        self.maxSnapshots = try container.decodeIfPresent(Int.self, forKey: .maxSnapshots)
+        self.maxFileSizeMB = try container.decodeIfPresent(Int.self, forKey: .maxFileSizeMB)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled
+        case maxSnapshots
+        case maxFileSizeMB
+    }
+}
+
+// MARK: - Effective limits (reference `max_turns` precedence)
+
+extension ArcConfig {
+
+    /// Effective tool-iteration budget. Precedence (reference `api/streaming.py`):
+    /// `agent.max_turns` → legacy root `max_turns` → `agent.maxIterations` →
+    /// 90 (reference `AIAgent` default). A value of 0 or negative means
+    /// **unlimited** — the agent runs until the prompt finishes.
+    public func effectiveMaxTurns() -> Int {
+        if let n = agent.max_turns ?? max_turns {
+            return n > 0 ? n : Int.max
+        }
+        return agent.maxIterations > 0 ? agent.maxIterations : Int.max
+    }
+
+    /// Effective per-tool call cap: `guardrails.toolLoopCap` when present and
+    /// positive; `Int.max` (unlimited) when 0/negative; otherwise arc's
+    /// default loop cap (25).
+    public func effectiveToolLoopCap() -> Int {
+        guard let cap = guardrails.toolLoopCap else {
+            return ToolGuardrails.defaultLoopCap
+        }
+        return cap > 0 ? cap : Int.max
     }
 }
 
@@ -120,27 +373,117 @@ public struct ModelConfig: Codable, Sendable, Equatable {
 public struct AgentConfig: Codable, Sendable, Equatable {
     /// Maximum iterations per conversation.
     public var maxIterations: Int
+    /// reference `agent.max_turns` — tool-iteration budget override. Takes
+    /// precedence over `maxIterations`; `0`/negative = unlimited.
+    public var max_turns: Int?
     /// Whether to persist sessions.
     public var persistSessions: Bool
     /// Whether to load skills on startup.
     public var loadSkills: Bool
+    /// Reasoning effort passed to the provider (reference `agent.reasoning_effort`:
+    /// "minimal"/"low"/"medium"/"high"/"max"). nil = provider default.
+    public var reasoningEffort: String?
+    /// Micro-compaction on/off (reference `compression.micro_compact`). Off by
+    /// default; when on, one exchange is absorbed into a rolling summary after
+    /// every completed turn (or every N turns, see ``microCompactEveryNTurns``).
+    public var microCompactEnabled: Bool
+    /// Micro-compaction cadence: one pass every N turns (reference
+    /// `compression.micro_compact_every_n_turns`).
+    public var microCompactEveryNTurns: Int
+    /// Rolling-summary size that triggers a defrag pass (reference
+    /// `compression.micro_compact_defrag_threshold_tokens`).
+    public var microCompactDefragThresholdTokens: Int
+    /// Personality overlay (`/personality <name>`): extra system-prompt text
+    /// appended to the base prompt (reference `agent.system_prompt`). Empty =
+    /// no overlay.
+    public var systemPrompt: String
+    /// Named personality overlays (reference `agent.personalities`): each entry
+    /// is either a plain string or `{description, system_prompt, tone, style}`.
+    public var personalities: [String: PersonalityOverlay]
+    /// Verify work at turn end (reference `verify_on_stop`): an aux verification
+    /// pass is appended when enabled.
+    public var verifyOnStop: Bool
+
+    /// Run inline `!`cmd`` blocks in skills at load time (reference
+    /// `skill_preprocessing`). Default ON.
+    public var skillInlineCommands: Bool
+
+    /// Background-review cadence: run an aux review every N tool calls
+    /// (reference `background_review.after_tool_calls`). 0 = off.
+    public var backgroundReviewAfter: Int
+
+    /// Background-review call window (reference `background_review.window`).
+    public var backgroundReviewWindow: Int
 
     public init(
         maxIterations: Int = 25,
+        max_turns: Int? = nil,
         persistSessions: Bool = true,
-        loadSkills: Bool = true
+        loadSkills: Bool = true,
+        reasoningEffort: String? = nil,
+        microCompactEnabled: Bool = false,
+        microCompactEveryNTurns: Int = 1,
+        microCompactDefragThresholdTokens: Int = 2000,
+        systemPrompt: String = "",
+        personalities: [String: PersonalityOverlay] = [:],
+        verifyOnStop: Bool = false,
+        skillInlineCommands: Bool = true,
+        backgroundReviewAfter: Int = 0,
+        backgroundReviewWindow: Int = 8
     ) {
         self.maxIterations = maxIterations
+        self.max_turns = max_turns
         self.persistSessions = persistSessions
         self.loadSkills = loadSkills
+        self.reasoningEffort = reasoningEffort
+        self.microCompactEnabled = microCompactEnabled
+        self.microCompactEveryNTurns = microCompactEveryNTurns
+        self.microCompactDefragThresholdTokens = microCompactDefragThresholdTokens
+        self.systemPrompt = systemPrompt
+        self.personalities = personalities
+        self.verifyOnStop = verifyOnStop
+        self.skillInlineCommands = skillInlineCommands
+        self.backgroundReviewAfter = backgroundReviewAfter
+        self.backgroundReviewWindow = backgroundReviewWindow
     }
 
     /// Decode each field independently, defaulting any that are absent.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.maxIterations = try container.decodeIfPresent(Int.self, forKey: .maxIterations) ?? AgentConfig().maxIterations
+        self.max_turns = try container.decodeIfPresent(Int.self, forKey: .max_turns)
         self.persistSessions = try container.decodeIfPresent(Bool.self, forKey: .persistSessions) ?? AgentConfig().persistSessions
         self.loadSkills = try container.decodeIfPresent(Bool.self, forKey: .loadSkills) ?? AgentConfig().loadSkills
+        self.reasoningEffort = try container.decodeIfPresent(String.self, forKey: .reasoningEffort)
+        self.microCompactEnabled = try container.decodeIfPresent(Bool.self, forKey: .microCompactEnabled) ?? AgentConfig().microCompactEnabled
+        self.microCompactEveryNTurns = try container.decodeIfPresent(Int.self, forKey: .microCompactEveryNTurns) ?? AgentConfig().microCompactEveryNTurns
+        self.microCompactDefragThresholdTokens = try container.decodeIfPresent(Int.self, forKey: .microCompactDefragThresholdTokens) ?? AgentConfig().microCompactDefragThresholdTokens
+        self.systemPrompt = try container.decodeIfPresent(String.self, forKey: .systemPrompt) ?? ""
+        self.personalities = try container.decodeIfPresent([String: PersonalityOverlay].self, forKey: .personalities) ?? [:]
+
+        // Note: `CodingKeys` is synthesized from property names; use the
+        // camelCase names that match the property declarations.
+        self.verifyOnStop = try container.decodeIfPresent(Bool.self, forKey: .verifyOnStop) ?? false
+        self.skillInlineCommands = try container.decodeIfPresent(Bool.self, forKey: .skillInlineCommands) ?? true
+        self.backgroundReviewAfter = try container.decodeIfPresent(Int.self, forKey: .backgroundReviewAfter) ?? 0
+        self.backgroundReviewWindow = try container.decodeIfPresent(Int.self, forKey: .backgroundReviewWindow) ?? 8
+    }
+}
+
+/// Guardrail loop limits (`guardrails` block).
+public struct GuardrailsConfig: Codable, Sendable, Equatable {
+    /// Per-tool call cap before synthetic results (arc's default loop cap is
+    /// 25). `0`/negative = unlimited (no synthetic limit for any tool).
+    public var toolLoopCap: Int?
+
+    public init(toolLoopCap: Int? = nil) {
+        self.toolLoopCap = toolLoopCap
+    }
+
+    /// Decode each field independently, defaulting any that are absent.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.toolLoopCap = try container.decodeIfPresent(Int.self, forKey: .toolLoopCap)
     }
 }
 
@@ -184,6 +527,22 @@ public struct DelegationConfig: Codable, Sendable, Equatable {
     }
 }
 
+/// Standing-goal configuration (reference `goals.max_turns`).
+public struct GoalsConfig: Codable, Sendable, Equatable {
+    /// Max continuation turns before auto-pause. Default 20.
+    public var maxTurns: Int
+
+    public init(maxTurns: Int = 20) {
+        self.maxTurns = maxTurns
+    }
+
+    /// Decode each field independently, defaulting any that are absent.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.maxTurns = try container.decodeIfPresent(Int.self, forKey: .maxTurns) ?? GoalsConfig().maxTurns
+    }
+}
+
 /// Memory system configuration.
 public struct MemoryConfig: Codable, Sendable, Equatable {
     /// Whether memory is enabled.
@@ -210,10 +569,19 @@ public struct SecurityConfig: Codable, Sendable, Equatable {
     public var approvalMode: String
     /// Whether YOLO mode is enabled (frozen at start).
     public var yoloMode: Bool
+    /// Commands pre-exempted from approval ("Always allow" choices).
+    /// Matched by exact, trimmed command string.
+    public var alwaysAllowedCommands: [String]
+    /// Tool gateway policy (reference `tool_gateway`): ordered allow/deny rules
+    /// over tool invocations, enforced before dispatch.
+    public var toolGateway: ToolGatewayConfig
 
-    public init(approvalMode: String = "manual", yoloMode: Bool = false) {
+    public init(approvalMode: String = "manual", yoloMode: Bool = false,
+                alwaysAllowedCommands: [String] = [], toolGateway: ToolGatewayConfig = ToolGatewayConfig()) {
         self.approvalMode = approvalMode
         self.yoloMode = yoloMode
+        self.alwaysAllowedCommands = alwaysAllowedCommands
+        self.toolGateway = toolGateway
     }
 
     /// Decode each field independently, defaulting any that are absent.
@@ -221,6 +589,8 @@ public struct SecurityConfig: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.approvalMode = try container.decodeIfPresent(String.self, forKey: .approvalMode) ?? SecurityConfig().approvalMode
         self.yoloMode = try container.decodeIfPresent(Bool.self, forKey: .yoloMode) ?? SecurityConfig().yoloMode
+        self.alwaysAllowedCommands = try container.decodeIfPresent([String].self, forKey: .alwaysAllowedCommands) ?? SecurityConfig().alwaysAllowedCommands
+        self.toolGateway = try container.decodeIfPresent(ToolGatewayConfig.self, forKey: .toolGateway) ?? ToolGatewayConfig()
     }
 }
 
@@ -290,6 +660,27 @@ public func loadConfig(from configURL: URL? = nil) -> ArcConfig {
         config.security.yoloMode = true
     }
 
+    // Tessera storage overrides. Any ARC_TESSERA_* variable activates the
+    // tessera backend; unset fields keep whatever config.json declared.
+    let tesseraIP = ProcessInfo.processInfo.environment["ARC_TESSERA_SERVER_IP"]
+    let tesseraPort = ProcessInfo.processInfo.environment["ARC_TESSERA_SERVER_PORT"]
+    let tesseraServerPub = ProcessInfo.processInfo.environment["ARC_TESSERA_SERVER_PUBLIC_KEY"]
+    let tesseraClientPriv = ProcessInfo.processInfo.environment["ARC_TESSERA_PRIVATE_KEY"]
+    if tesseraIP != nil || tesseraPort != nil || tesseraServerPub != nil || tesseraClientPriv != nil {
+        var t = config.tessera ?? TesseraConfig(
+            serverIP: "127.0.0.1", serverPort: 51820,
+            serverPublicKey: "", myPrivateKey: "", application: 1
+        )
+        if let tesseraIP { t.serverIP = tesseraIP }
+        if let tesseraPort, let p = Int(tesseraPort) { t.serverPort = p }
+        if let tesseraServerPub { t.serverPublicKey = tesseraServerPub }
+        if let tesseraClientPriv { t.myPrivateKey = tesseraClientPriv }
+        if let app = ProcessInfo.processInfo.environment["ARC_TESSERA_APPLICATION"], let a = UInt16(app) {
+            t.application = a
+        }
+        config.tessera = t
+    }
+
     return config
 }
 
@@ -307,4 +698,60 @@ public func saveConfig(_ config: ArcConfig, to configURL: URL? = nil) throws {
     try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
     let data = try JSONEncoder().encode(config)
     try data.write(to: resolvedURL, options: .atomic)
+}
+
+/// Resolve the plugin allow-list from `~/.arc/config.json` (reference
+/// `plugins.enabled` parity).
+///
+/// - Returns: `nil` when the `plugins.enabled` key is absent — callers treat
+///   that as "all discovered plugins are enabled" (grandfathered); an empty
+///   set means none are enabled; otherwise the concrete allow-list.
+public func pluginAllowList(from configURL: URL? = nil) -> Set<String>? {
+    loadConfig(from: configURL).plugins.enabled.map { Set($0) }
+}
+
+
+// MARK: - Agent Powers (lockdown)
+
+/// Lockdown configuration for what the agent may create/edit.
+///
+/// - `skillsManage`: when false the agent cannot create or edit skills at
+///   all (`skill_creation`/`skill_edit` refuse; general write tools refuse
+///   paths under the skills directory).
+/// - `lockedSkills`: per-skill locks — the named skills cannot be edited
+///   (creation of an existing name is also refused).
+/// - `profileEdit`: when false the agent cannot modify MEMORY.md, USER.md,
+///   SOUL.md or AGENTS.md at all.
+/// - `lockedProfileFiles`: per-file locks among `"memory"`, `"user"`,
+///   `"soul"`, `"agents"`.
+public struct AgentPowersConfig: Codable, Sendable, Equatable {
+    public var skillsManage: Bool
+    public var lockedSkills: [String]
+    public var profileEdit: Bool
+    public var lockedProfileFiles: [String]
+
+    public init(
+        skillsManage: Bool = true,
+        lockedSkills: [String] = [],
+        profileEdit: Bool = true,
+        lockedProfileFiles: [String] = []
+    ) {
+        self.skillsManage = skillsManage
+        self.lockedSkills = lockedSkills
+        self.profileEdit = profileEdit
+        self.lockedProfileFiles = lockedProfileFiles
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.skillsManage = try container.decodeIfPresent(Bool.self, forKey: .skillsManage) ?? true
+        self.lockedSkills = try container.decodeIfPresent([String].self, forKey: .lockedSkills) ?? []
+        self.profileEdit = try container.decodeIfPresent(Bool.self, forKey: .profileEdit) ?? true
+        self.lockedProfileFiles = try container.decodeIfPresent([String].self, forKey: .lockedProfileFiles) ?? []
+    }
+
+    public var isMemoryLocked: Bool { lockedProfileFiles.contains("memory") }
+    public var isUserLocked: Bool { lockedProfileFiles.contains("user") }
+    public var isSoulLocked: Bool { lockedProfileFiles.contains("soul") }
+    public var isAgentsLocked: Bool { lockedProfileFiles.contains("agents") }
 }

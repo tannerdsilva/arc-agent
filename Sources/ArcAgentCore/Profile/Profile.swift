@@ -36,10 +36,53 @@ public struct AvatarConfig: Codable, Sendable, Equatable {
 /// ## Design
 ///
 /// - `Profile` is a value type (`Codable` + `Sendable`).
-/// - The profile index lives in `global.mdb` (database: `profiles`).
-/// - Per-profile memory lives in `profiles/<name>/memory.mdb`.
-/// - Per-profile sessions live in `profiles/<name>/sessions/<id>.mdb`.
+/// - The profile index lives in Tessera as kind-3004 events
+///   (`arc/p/<name>/<seq>`) when tessera is configured, or in
+///   `~/.arc/profiles/index.json` otherwise.
+/// - Each profile has a filesystem directory under `~/.arc/profiles/<name>/`
+///   (e.g. its canonical bot-chat id in `canonical_chat.txt`).
 /// - The `"default"` profile is the backward-compatible primary agent.
+/// Per-profile model context parameters (reference per-profile config parity).
+/// Every field is optional: `nil` inherits the session's model config or the
+/// provider default, so a profile can override just the window size.
+public struct ProfileContextConfig: Codable, Sendable, Equatable {
+    /// Model context window in tokens (reference `context_length`).
+    public var contextLength: Int?
+    /// Explicit generation budget (reference `max_tokens` override).
+    public var maxOutputTokens: Int?
+    /// Reasoning effort: "minimal"/"low"/"medium"/"high"/"max".
+    public var reasoningEffort: String?
+    /// Sampling temperature (0.0 - 2.0).
+    public var temperature: Double?
+    /// Nucleus sampling threshold (0.0 - 1.0).
+    public var topP: Double?
+    /// Auto-compress threshold in tokens: when the estimated context exceeds
+    /// this, older history is summarized (nil = the default budget).
+    public var compressionBudget: Int?
+
+    public init(
+        contextLength: Int? = nil,
+        maxOutputTokens: Int? = nil,
+        reasoningEffort: String? = nil,
+        temperature: Double? = nil,
+        topP: Double? = nil,
+        compressionBudget: Int? = nil
+    ) {
+        self.contextLength = contextLength
+        self.maxOutputTokens = maxOutputTokens
+        self.reasoningEffort = reasoningEffort
+        self.temperature = temperature
+        self.topP = topP
+        self.compressionBudget = compressionBudget
+    }
+
+    /// True when no override is set (the profile inherits everything).
+    public var isEmpty: Bool {
+        contextLength == nil && maxOutputTokens == nil && reasoningEffort == nil
+            && temperature == nil && topP == nil && compressionBudget == nil
+    }
+}
+
 public struct Profile: Codable, Sendable, Identifiable, Equatable {
     /// Unique profile name (lowercase, alphanumeric + hyphens).
     /// Also serves as the `id` for `Identifiable` conformance.
@@ -74,6 +117,15 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
     /// When nil, a default SOUL is generated from title + description.
     public var soulMD: String?
 
+    /// Per-profile model context parameters (window size, generation budget,
+    /// sampling). Nil fields inherit the session's model config or defaults.
+    public var context: ProfileContextConfig?
+
+    /// Skill names pinned to this profile: their SKILL.md content is injected
+    /// into every prompt built for chats bound to this profile (equivalent to
+    /// the user having loaded each skill explicitly).
+    public var contextSkills: [String]?
+
     /// Visual avatar configuration.
     public var avatar: AvatarConfig?
 
@@ -103,6 +155,8 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
         enabledToolsets: Set<String>? = nil,
         disabledToolsets: Set<String>? = nil,
         soulMD: String? = nil,
+        context: ProfileContextConfig? = nil,
+        contextSkills: [String]? = nil,
         avatar: AvatarConfig? = nil,
         group: String? = nil,
         isPinned: Bool = false
@@ -117,6 +171,8 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
         self.enabledToolsets = enabledToolsets
         self.disabledToolsets = disabledToolsets
         self.soulMD = soulMD
+        self.context = context
+        self.contextSkills = contextSkills
         self.avatar = avatar
         self.group = group
         self.isPinned = isPinned
@@ -138,12 +194,14 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
 // MARK: - Profile Validation
 
 /// Errors that can occur during profile operations.
-public enum ProfileError: Error, Sendable, CustomStringConvertible {
+public enum ProfileError: Error, Sendable, CustomStringConvertible, Equatable {
     case invalidName(String)
     case duplicateName(String)
     case notFound(String)
     case cannotDeleteDefault
     case storageError(String)
+    case exportFailed(String)
+    case importFailed(String)
 
     public var description: String {
         switch self {
@@ -157,6 +215,10 @@ public enum ProfileError: Error, Sendable, CustomStringConvertible {
             return "The default profile cannot be deleted."
         case .storageError(let message):
             return "Profile storage error: \(message)"
+        case .exportFailed(let detail):
+            return "Profile export failed: \(detail)"
+        case .importFailed(let detail):
+            return "Profile import failed: \(detail)"
         }
     }
 }

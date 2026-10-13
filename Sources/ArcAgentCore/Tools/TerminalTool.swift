@@ -1,10 +1,13 @@
 import Foundation
+import SwiftSlash
 
 /// The `terminal` tool: executes a shell command and returns its output.
 ///
-/// Uses Foundation's `Process` for command execution. Supports both foreground
-/// (wait for completion) and background (return immediately with a session ID)
-/// modes via the `background` parameter.
+/// Foreground execution uses SwiftSlash (`SubprocessRunner`): posix_spawn,
+/// concurrent byte-exact capture, process-group kill on timeout. Background
+/// mode (detached start, return PID immediately) stays on Foundation
+/// `Process` because SwiftSlash has no detached-launch API — documented
+/// exception.
 ///
 /// ## Parameters
 /// - `command`: The shell command to execute.
@@ -21,26 +24,77 @@ public enum TerminalTool {
         name: "terminal",
         toolset: "terminal",
         description: "Execute a shell command and return its output. "
-            + "Use for builds, installs, git, scripts, and any command-line tool.",
+            + "Use for builds, installs, git, scripts, and any command-line tool. "
+            + "For long runs (test suites, builds, servers) set background=true to get a "
+            + "session_id back, work on other things, then collect with process(action=...) "
+            + "(poll/log/wait/kill) — do not burn the turn on a foreground timeout. "
+            + "Never use nohup/setsid/trailing '&' — use background=true so the agent tracks the process.",
         schema: .object(
             description: "Execute a shell command",
             properties: [
                 "command": .string(description: "The shell command to execute"),
                 "timeout": .integer(description: "Max seconds to wait", default: 180),
                 "workdir": .string(description: "Working directory (absolute path)"),
-                "background": .boolean(description: "Run in background", default: false),
+                "background": .boolean(description: "Run in background, returns a session_id", default: false),
             ],
             required: ["command"]
         ),
         handler: { args in
+            if let refusal = Self.lockdownRefusal(command: (args["command"] as? String) ?? "") {
+                return "Error: " + refusal
+            }
             let command: String = try Self.required(args, key: "command")
-            let timeout: Int = (args["timeout"] as? Int) ?? 180
             let workdir: String? = args["workdir"] as? String
+            // Reference checkpoints-and-rollback: snapshot before destructive
+            // terminal commands (rm, mv, sed -i, redirects, git reset/...).
+            if CheckpointGuard.isDestructive(command) {
+                _ = await CheckpointGuard.shared.ensure(
+                    directory: workdir ?? WorkspacePath.root ?? FileManager.default.currentDirectoryPath,
+                    label: "before terminal: " + String(command.prefix(60))
+                )
+            }
+            let timeout: Int = (args["timeout"] as? Int) ?? 180
             let background: Bool = (args["background"] as? Bool) ?? false
             return try await Self.runCommand(command: command, timeout: timeout, workdir: workdir, background: background)
         },
         emoji: "💻"
     )
+
+    /// Best-effort lockdown guard: refuse clearly-mutating commands that
+    /// target locked surfaces (skills directory tree or locked profile
+    /// files). Read-only references (cat/grep/ls) pass through.
+    static func lockdownRefusal(command: String) -> String? {
+        let lower = command.lowercased()
+        // Write-ish markers only — never block reads.
+        let looksWritable = lower.contains(">") || lower.contains("tee ") || lower.contains("sed -i")
+            || lower.contains("perl -i") || lower.contains("mv ") || lower.contains("cp ")
+            || lower.contains("rm ") || lower.contains("touch ") || lower.contains("mkdir")
+        guard looksWritable else { return nil }
+
+        let skillsPath = AgentPowers.skillsDirectory.path
+        if command.contains(skillsPath) || command.contains("/.arc/skills/") {
+            if !AgentPowers.canManageSkills() {
+                return "Refused: writes under the skills directory are locked in Settings "
+                    + "(Agent powers → Skills). Use skill_creation / skill_edit while unlocked."
+            }
+            for locked in AgentPowers.config.lockedSkills {
+                if command.contains("/\(locked)/") {
+                    return "Refused: skill '\(locked)' is locked in Settings "
+                        + "(Agent powers → Skills). Use skill_edit after unlocking."
+                }
+            }
+        }
+        let files: [(String, String)] = [
+            ("MEMORY.md", "memory"), ("USER.md", "user"),
+            ("SOUL.md", "soul"), ("AGENTS.md", "agents"),
+        ]
+        for (filename, key) in files where command.contains(filename) {
+            if let refusal = AgentPowers.profileWriteRefusal(file: key) {
+                return refusal
+            }
+        }
+        return nil
+    }
 
     // MARK: - Handler
 
@@ -50,69 +104,61 @@ public enum TerminalTool {
         workdir: String?,
         background: Bool
     ) async throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-c", command]
-
-        if let workdir {
-            process.currentDirectoryURL = URL(fileURLWithPath: workdir)
-        }
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
+        // Background mode: detached launch via ProcessRegistry (reference
+        // `terminal(background=true)` parity — returns a session_id that the
+        // `process` tool collects with poll/log/wait/kill). Foundation
+        // Process is the documented background exception; SwiftSlash has no
+        // detached-launch API.
         if background {
-            try process.run()
-            let pid = process.processIdentifier
-            return "Background process started with PID: \(pid)"
+            let id = try await ProcessRegistry.shared.start(
+                command: command,
+                workdir: workdir ?? WorkspacePath.root
+            )
+            return "Background process started (session_id: \(id)). "
+                + "Manage it with the process tool: process(action=\"poll\"/\"log\"/\"wait\"/\"kill\", session_id=\"\(id)\")."
         }
 
-        // Wait for completion using a checked continuation bridged from
-        // Process.terminationHandler — no blocking on the cooperative pool.
-        let exitCode = try await withThrowingTaskGroup(of: Int32.self) { group in
-            group.addTask {
-                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, Error>) in
-                    process.terminationHandler = { proc in
-                        continuation.resume(returning: proc.terminationStatus)
-                    }
-                    do {
-                        try process.run()
-                    } catch {
-                        // If run() throws, the handler will never fire.
-                        continuation.resume(throwing: error)
-                    }
-                }
-            }
-
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(timeout) * 1_000_000_000)
-                process.terminate()
-                throw TerminalError.timeout(timeout)
-            }
-
-            let result = try await group.next()
-            group.cancelAll()
-
-            guard let exitCode = result else {
-                throw TerminalError.noResult
-            }
-            return exitCode
+        // Foreground: SwiftSlash. Byte-exact capture (BYO pipes, drained
+        // concurrently — no pipe-buffer deadlock on large outputs) and
+        // process-group kill on timeout with full reaping.
+        var shellCommand = Command(absolutePath: Path("/bin/bash"), arguments: ["-c", command])
+        shellCommand.inheritCurrentEnvironment()
+        if let workdir {
+            shellCommand.workingDirectory = Path(workdir)
+        } else if let root = WorkspacePath.root {
+            // arc parity: terminal commands default to the conversation's
+            // workspace root (TERMINAL_CWD), not the server process cwd.
+            shellCommand.workingDirectory = Path(root)
         }
 
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-        let exitCodeInt = exitCode
+        let outcome = try await SubprocessRunner.runBytes(
+            shellCommand, timeout: TimeInterval(timeout))
+        if outcome.timedOut {
+            throw TerminalError.timeout(timeout)
+        }
+
+        let stdout = String(data: outcome.stdout, encoding: .utf8) ?? ""
+        let stderr = String(data: outcome.stderr, encoding: .utf8) ?? ""
+        let exitCodeInt = outcome.exitCodeValue
 
         var parts: [String] = []
         if !stdout.isEmpty { parts.append(stdout) }
         if !stderr.isEmpty { parts.append("stderr:\n\(stderr)") }
         parts.append("exit_code: \(exitCodeInt)")
 
-        return parts.joined(separator: "\n")
+        // Verification evidence (reference `verification_evidence`): command,
+        // cwd, exit, truncation, and git-reported changed paths ride on the
+        // result so the agent (and verify-on-stop) can check its own work.
+        let cwdResolved = workdir ?? WorkspacePath.root ?? FileManager.default.currentDirectoryPath
+        let changed = await Verification.changedPaths(in: cwdResolved)
+        let evidence = ToolEvidence(
+            command: command,
+            cwd: cwdResolved,
+            exitCode: Int32(exitCodeInt),
+            truncated: outcome.timedOut,
+            changedPaths: changed
+        )
+        return evidence.attach(to: parts.joined(separator: "\n"))
     }
 
     // MARK: - Helpers

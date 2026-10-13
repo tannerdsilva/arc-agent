@@ -1,0 +1,1689 @@
+import ArcAgentCore
+import Foundation
+import WebUI
+
+// MARK: - AppState: UI actions (controller-facing)
+
+extension AppState {
+
+    // MARK: Navigation + mode flags
+
+    func switchView(_ v: ViewID) async {
+        // Land on content, not on a "select something" canvas: a list/detail
+        // page opens with its first item chosen when nothing is chosen yet. An
+        // existing choice is kept, so leaving and returning finds the same
+        // skill / profile / tool / document / job still open.
+        switch v {
+        case .skills:
+            if selectedSkill == nil { selectedSkill = skills.first?.name }
+        case .profiles:
+            if selectedProfile == nil { selectedProfile = profiles.first?.name }
+        case .tools:
+            if selectedTool == nil { selectedTool = registry.allTools.first?.name }
+        case .memory:
+            if memoryDoc == nil { openMemoryDoc("memory") }
+        case .tasks:
+            // the panel renders from the store-backed cache; refresh on open.
+            await refreshScheduledJobs()
+            if tasksSelectedID == nil { tasksSelectedID = settings.scheduledJobs.first?.id }
+        default:
+            break
+        }
+        // The tab switch runs last: it owns the shared-reset inventory and the
+        // task-chat materialization, now that the selection above is in place.
+        await switchTab(v.rawValue)
+        // Navigation leaves the delete-undo window: the Undo toast belongs to
+        // the chat surface right after a delete, not to the page you land on.
+        undoableDelete = nil
+    }
+
+    func setLogFilter(_ f: String) {
+        logFilter = f
+    }
+
+    func isLogsView() -> Bool {
+        activeTabID == "logs"
+    }
+
+    /// Chat-region fragments (panel + main + toasts).
+    /// Append a message to a session by index and persist it (used for
+    /// local slash-command echoes).
+    func appendToSession(idx: Int, message: Message) async {
+        guard sessions.indices.contains(idx) else { return }
+        sessions[idx].messages.append(message)
+        sessionVersion += 1
+        if let store {
+            await persistMessage(message, sessionID: sessions[idx].id, store: store)
+        }
+    }
+
+    func chatFragments() async -> [FragmentUpdate] {
+        await refreshFragments()
+    }
+
+    /// Panel-only fragment (used by filter search + skill panels).
+    func skillPanelFragment() async -> [FragmentUpdate] {
+        [FragmentUpdate(id: "panel", html: await panelHTML())]
+    }
+
+    func setCreateSkill(_ on: Bool) {
+        createSkill = on
+        if on { selectedSkill = nil }
+    }
+
+    func setCreateProfile(_ on: Bool) {
+        createProfile = on
+        if on {
+            selectedProfile = nil
+            profileSkillsDraft = []
+            profileSkillsPickerOpen = false
+        }
+    }
+
+    /// Open the Workspaces create form. `forChat` records the intent behind
+    /// the open: the composer's "Choose workspace path" promises to switch
+    /// THIS conversation, while the panel's "+" creates a standalone preset.
+    /// The view switch happens first, inside this method — `switchView` closes
+    /// any open create form, so setting the flag before switching views (as
+    /// `ws-choose-path` once did) left nothing open.
+    func openWorkspaceCreate(forChat: Bool) async {
+        if activeTabID != "workspaces" {
+            await switchView(.workspaces)
+        }
+        createWorkspace = true
+        workspaceCreateForChat = forChat
+    }
+
+    func closeWorkspaceCreate() {
+        createWorkspace = false
+        workspaceCreateForChat = false
+    }
+
+    /// Drop the create-form drafts after a successful create (a failed
+    /// attempt keeps them so the user can fix and retry).
+    func clearWorkspaceCreateFields() {
+        formValues["ws-name-input"] = ""
+        formValues["ws-path-input"] = ""
+    }
+
+    func setActiveSession(_ id: String, preserveUndo: Bool = false) async {
+        activeSessionID = id
+        pendingDelete = false
+        filePopOpen = false
+        // Opening a different chat is the "next navigation" that closes the
+        // delete-undo window (UX-06). The delete path's own auto-select
+        // (falling back to the newest chat) passes preserveUndo so the Undo
+        // toast survives the very moment that raised it.
+        if !preserveUndo { undoableDelete = nil }
+        attachments = []
+        forceScrollBottom = true
+        // Follow the chat's own workspace (right panel + composer selector).
+        if let id = activeSessionID {
+            selectedWorkspace = settings.sessionWorkspaces[id] ?? settings.activeWorkspace
+            // Lazy design: fetch this chat's messages on open (and evict
+            // least-recently-opened bodies beyond the cache cap).
+            await ensureSessionMessages(id)
+        }
+        evictOverloadedCache()
+    }
+
+    func clearPendingDelete() {
+        pendingDelete = false
+    }
+
+    /// Mark the next chat-scroll render with `data-follow="bottom"` so a
+    /// full page load always opens the active conversation at the bottom.
+    func armScrollToBottom() {
+        forceScrollBottom = true
+    }
+
+    /// Open a shared conversation link (`?s=<id>`): select the session (also
+    /// revealing it in the panel when archived) and scroll the chat to bottom.
+    func openDeepLink(_ id: String) async {
+        await reloadSessions(selecting: id)
+        guard activeSessionID == id else { return }
+        await setActiveSession(id)
+        if isArchived(id) {
+            setShowArchived(true)
+        }
+    }
+
+    // MARK: Toasts
+
+    @discardableResult
+    func hint(_ text: String, kind: String = "info") -> Toast {
+        toast(text, kind: kind)
+    }
+
+    // MARK: Form values
+
+    func storeFormValue(_ key: String, _ value: String) {
+        formValues[key] = value
+    }
+
+    /// Per-chat composer draft (arc parity). Persisted with a 1.5 s
+    /// debounce so keystrokes don't hammer the settings file.
+    ///
+    /// A submit consumes the draft: a trailing input frame that still carries
+    /// the just-sent text (the engine's input debounce can land up to
+    /// `debounceMaxWaitMs` after the keystroke) is dropped instead of
+    /// resurrecting it — the ghost-draft defect put the sent text back in the
+    /// composer after a reload. Any different text is a real edit and passes.
+    func storeComposerDraft(_ text: String, sessionID: String) {
+        if let submitted = submittedDrafts[sessionID],
+           Date().timeIntervalSince(submitted.at) < Self.draftSubmitGuardWindow,
+           submitted.text == text {
+            return
+        }
+        settings.composerDrafts[sessionID] = text
+        draftSaveTask?.cancel()
+        draftSaveTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            await self.saveSettings()
+        }
+    }
+
+    /// Window after a submit in which input frames carrying the submitted text
+    /// are ignored (see `storeComposerDraft`).
+    static let draftSubmitGuardWindow: TimeInterval = 10
+
+    /// Record what a submit consumed for `sessionID` (see
+    /// `storeComposerDraft`); called from the send path just before the draft
+    /// is cleared.
+    func noteSubmittedDraft(_ text: String, sessionID: String) {
+        submittedDrafts[sessionID] = (text, Date())
+    }
+
+    func readFormValue(_ key: String) -> String {
+        formValues[key] ?? ""
+    }
+
+    // MARK: Chat composer
+
+    func toggleFilePop() {
+        filePopOpen.toggle()
+        // Opening the attach popover closes any open composer selector; the
+        // selectors do the symmetric thing via closeComposerSelectors.
+        if filePopOpen { closeSelectorPanels() }
+    }
+
+    // MARK: Composer dropdowns (arc parity)
+
+    /// Close only the four selector-chip panels (workspace/profile/model/
+    /// thinking), leaving the attach popover alone. Used by the file-pop
+    /// opener, which must not re-close itself through the full dismissal.
+    private func closeSelectorPanels() {
+        wsSelectOpen = false
+        profileSelectOpen = false
+        modelSelectOpen = false
+        thinkSelectOpen = false
+        wsSelectQuery = ""
+        modelSelectQuery = ""
+    }
+
+    /// Close every composer dropdown (openers close their siblings) and
+    /// reset the live-search filters so the next open is fresh. The attach
+    /// popover is part of the same dismissal system: any close here also
+    /// hides it, so file-pop and the selector chips can never overlap.
+    func closeComposerSelectors() {
+        closeSelectorPanels()
+        filePopOpen = false
+    }
+
+    /// Toggle a composer dropdown: re-clicking an open trigger closes it.
+    func toggleWSSelect() {
+        let wasOpen = wsSelectOpen
+        closeComposerSelectors()
+        if !wasOpen { wsSelectOpen = true }
+    }
+
+    func toggleProfileSelect() {
+        let wasOpen = profileSelectOpen
+        closeComposerSelectors()
+        if !wasOpen { profileSelectOpen = true }
+    }
+
+    func toggleModelSelect() {
+        let wasOpen = modelSelectOpen
+        closeComposerSelectors()
+        if !wasOpen { modelSelectOpen = true }
+    }
+
+    func toggleThinkSelect() {
+        let wasOpen = thinkSelectOpen
+        closeComposerSelectors()
+        if !wasOpen { thinkSelectOpen = true }
+    }
+
+    func setWSSelectQuery(_ q: String) {
+        wsSelectQuery = q
+    }
+
+    func setModelSelectQuery(_ q: String) {
+        modelSelectQuery = q
+    }
+
+    /// Mark the HTTP/WS server as bound (shown in the profile card).
+    func markGatewayUp() {
+        gatewayRunning = true
+    }
+
+    func addAttachment(_ path: String) {
+        guard !attachments.contains(path) else { return }
+        attachments.append(path)
+        settings.recentFiles.removeAll { $0 == path }
+        settings.recentFiles.insert(path, at: 0)
+        if settings.recentFiles.count > 10 { settings.recentFiles = Array(settings.recentFiles.prefix(10)) }
+        saveSettings()
+        filePopOpen = false
+        formValues["file-path-input"] = ""
+    }
+
+    func removeAttachment(_ index: Int) {
+        guard attachments.indices.contains(index) else { return }
+        attachments.remove(at: index)
+    }
+
+    func toggleBookmarkActive() {
+        guard let id = activeSessionID else { return }
+        toggleBookmark(id)
+    }
+
+    func toggleBookmark(_ id: String) {
+        if settings.bookmarkedSessions.contains(id) {
+            settings.bookmarkedSessions.removeAll { $0 == id }
+        } else {
+            // arc parity: cap the number of pinned conversations. Count
+            // only non-archived pins; reaching the limit blocks the pin next.
+            let limit = max(1, settings.pinnedSessionsLimit)
+            let pinnedCount = settings.bookmarkedSessions.filter { !settings.archivedSessions.contains($0) }.count
+            if pinnedCount >= limit {
+                hint("Only \(limit) conversations can be pinned. Unpin one before pinning another.", kind: "error")
+                return
+            }
+            settings.bookmarkedSessions.append(id)
+        }
+        saveSettings()
+    }
+
+    // MARK: Chat preferences (arc parity)
+
+    /// Toggle input/output token usage below assistant replies (/usage command).
+    func toggleShowTokenUsage() {
+        settings.showTokenUsage.toggle()
+        saveSettings()
+    }
+
+    func setShowTokenUsage(_ on: Bool) {
+        guard settings.showTokenUsage != on else { return }
+        settings.showTokenUsage = on
+        saveSettings()
+    }
+
+    func setShowConversationOutline(_ on: Bool) {
+        guard settings.showConversationOutline != on else { return }
+        settings.showConversationOutline = on
+        saveSettings()
+    }
+
+    /// Smart approval toggle. On: flagged commands go through the `approval`
+    /// auxiliary guardian (reference smart mode). Off: classic manual gate.
+    /// The manager is rebuilt so the change applies to the next turn.
+    func setSmartApproval(_ on: Bool) async {
+        guard settings.smartApproval != on else { return }
+        settings.smartApproval = on
+        saveSettings()
+        approvalManager = nil
+        await ensureRuntime()
+    }
+
+    /// Smart pick-a-path toggle. On: a clarify request that times out after
+    /// the 120 s panel is resolved by the `clarify` auxiliary model.
+    func setSmartPickAPath(_ on: Bool) {
+        guard settings.smartPickAPath != on else { return }
+        settings.smartPickAPath = on
+        saveSettings()
+    }
+
+    func setShowTps(_ on: Bool) {
+        guard settings.showTps != on else { return }
+        settings.showTps = on
+        saveSettings()
+    }
+
+    func setPinnedSessionsLimit(_ n: Int) {
+        let clamped = min(max(n, 1), 99)
+        guard settings.pinnedSessionsLimit != clamped else { return }
+        settings.pinnedSessionsLimit = clamped
+        saveSettings()
+    }
+
+    func setChatProfile(_ name: String) {
+        guard let id = activeSessionID else { return }
+        if name.isEmpty { settings.sessionProfile.removeValue(forKey: id) }
+        else { settings.sessionProfile[id] = name }
+        saveSettings()
+    }
+
+    func setChatConfig(_ name: String) {
+        guard let id = activeSessionID else { return }
+        if name.isEmpty { settings.sessionConfig.removeValue(forKey: id) }
+        else { settings.sessionConfig[id] = name }
+        saveSettings()
+    }
+
+    func setChatThinking(_ level: String) {
+        guard let id = activeSessionID else { return }
+        if level.isEmpty { settings.sessionThinking.removeValue(forKey: id) }
+        else { settings.sessionThinking[id] = level }
+        saveSettings()
+    }
+
+    // MARK: Session deletion (centered confirmation modal)
+
+    func requestDeleteSession(_ id: String) {
+        confirmDeleteID = id
+    }
+
+    // MARK: Generic confirmations (centered modal)
+
+    /// Arm a destructive action that the centered modal confirms. Workspaces
+    /// use this today; the dialog is rendered from whichever request is armed,
+    /// so a new guarded action needs no new modal code.
+    func requestConfirm(_ req: ConfirmRequest) { pendingConfirm = req }
+
+    func cancelConfirm() { pendingConfirm = nil }
+
+    func cancelDelete() {
+        confirmDeleteID = nil
+    }
+
+    func confirmDeleteSession(_ id: String?) async {
+        guard let store, let id else { return }
+        confirmDeleteID = nil
+        // UX-06: snapshot the chat for Undo BEFORE it is destroyed. The
+        // cached row may be a summary; materialize its messages first so a
+        // restored chat comes back with its full transcript.
+        await ensureSessionMessages(id)
+        if let idx = sessions.firstIndex(where: { $0.id == id }) {
+            let s = sessions[idx]
+            undoableDelete = UndoableDelete(
+                session: s,
+                workspace: settings.sessionWorkspaces[id],
+                category: settings.sessionCategories[id],
+                profile: settings.sessionProfile[id],
+                thinking: settings.sessionThinking[id],
+                bookmarked: settings.bookmarkedSessions.contains(id),
+                todos: settings.todos[id],
+                draft: settings.composerDrafts[id],
+                title: settings.sessionTitles[id]
+            )
+        }
+        do {
+            try await store.delete(id: id)
+        } catch {
+            LogCollector.shared.append(level: .error, text: "[store] failed to delete session \(String(id.prefix(8))): \(error)")
+        }
+        // Drop it from the cache too: a deliberate delete must not be
+        // resurrected by the ghost-tolerance path in `reloadSessions`.
+        sessions.removeAll { $0.id == id }
+        if activeSessionID == id { activeSessionID = nil }
+        settings.sessionWorkspaces.removeValue(forKey: id)
+        settings.sessionCategories.removeValue(forKey: id)
+        settings.sessionProfile.removeValue(forKey: id)
+        settings.bookmarkedSessions.removeAll { $0 == id }
+        settings.todos.removeValue(forKey: id)
+        settings.composerDrafts.removeValue(forKey: id)
+        saveSettings()
+        await reloadSessions()
+        if activeSessionID == nil,
+           let newest = sessions
+               .filter({ !$0.id.hasPrefix("Cron-") })
+               .max(by: { $0.updatedAt < $1.updatedAt }) {
+            await setActiveSession(newest.id, preserveUndo: true)
+        }
+        _ = surfaceToast("Conversation deleted.", action: ToastAction(id: "undo-delete", label: "Undo"))
+    }
+
+    /// Resurrect the chat the Undo toast points at (UX-06): re-create the
+    /// session in the store, restore its per-chat settings keys, and navigate
+    /// back to it. Returns false when there is nothing to restore or the
+    /// store refuses the create (a loud "could not" toast is then the honest
+    /// outcome).
+    @discardableResult
+    func undoDeleteChat() async -> Bool {
+        guard let store, let saved = undoableDelete else { return false }
+        let id = saved.session.id
+        undoableDelete = nil
+        // The delete may never have landed (store error on delete): if the
+        // session is already alive there is nothing to re-create — just
+        // navigate back to it.
+        if (try? await store.get(id: id)) != nil {
+            await reloadSessions(selecting: id)
+            await setActiveSession(id, preserveUndo: true)
+            return true
+        }
+        do {
+            try await store.create(saved.session)
+        } catch {
+            LogCollector.shared.append(level: .error, text: "[store] failed to restore deleted session \(String(id.prefix(8))): \(error)")
+            return false
+        }
+        if let w = saved.workspace { settings.sessionWorkspaces[id] = w }
+        if let c = saved.category { settings.sessionCategories[id] = c }
+        if let p = saved.profile { settings.sessionProfile[id] = p }
+        if let t = saved.thinking { settings.sessionThinking[id] = t }
+        if saved.bookmarked, !settings.bookmarkedSessions.contains(id) { settings.bookmarkedSessions.append(id) }
+        if let todos = saved.todos { settings.todos[id] = todos }
+        if let d = saved.draft { settings.composerDrafts[id] = d }
+        if let t = saved.title { settings.sessionTitles[id] = t }
+        saveSettings()
+        await reloadSessions(selecting: id)
+        await setActiveSession(id, preserveUndo: true)
+        return true
+    }
+
+    func toggleOutline() { outlineOpen.toggle() }
+
+    func closeOutline() { outlineOpen = false }
+
+    func isOutlineOpen() -> Bool { outlineOpen }
+
+    /// Storage backend, for the Settings segmented control (the old switch read
+    /// its own state backwards).
+    func currentTesseraOff() -> Bool { settings.tesseraOff }
+
+    // MARK: Rename / archive / duplicate
+
+    func renameSession(_ id: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            settings.sessionTitles.removeValue(forKey: id)
+        } else {
+            settings.sessionTitles[id] = trimmed
+        }
+        saveSettings()
+    }
+
+    func setShowArchived(_ on: Bool) {
+        showArchived = on
+        confirmDeleteID = nil
+    }
+
+    func toggleArchive(_ id: String) {
+        if settings.archivedSessions.contains(id) {
+            settings.archivedSessions.removeAll { $0 == id }
+            // Unarchiving while in the archived-only view: exit it so the
+            // conversation reappears in the normal list immediately.
+            if showArchived { showArchived = false }
+        } else {
+            settings.archivedSessions.append(id)
+        }
+        saveSettings()
+    }
+
+    func duplicateSession(_ id: String) async {
+        guard let store else { return }
+        await ensureSessionMessages(id)
+        guard let src = sessions.first(where: { $0.id == id }) else { return }
+        let copy = Session(
+            id: UUID().uuidString,
+            createdAt: Date(),
+            updatedAt: Date(),
+            model: src.model,
+            provider: src.provider,
+            messages: src.messages
+        )
+        try? await store.create(copy)
+        if let ws = settings.sessionWorkspaces[id] {
+            settings.sessionWorkspaces[copy.id] = ws
+        }
+        saveSettings()
+        await reloadSessions(selecting: copy.id)
+        await setActiveSession(copy.id)
+        _ = hint("Duplicated '\(sessionTitle(src))'.")
+    }
+
+    // MARK: Chat filtering + categories
+
+    func setChatFilter(_ text: String) {
+        chatFilter = text
+    }
+
+    func setActiveCategory(_ id: String) {
+        activeCategory = id
+    }
+
+    func setAddingCategory(_ on: Bool) {
+        addingCategory = on
+    }
+
+    // MARK: Category context menu (right-click)
+
+    func categoryExists(_ id: String) -> Bool {
+        settings.chatCategories.contains { $0.id == id }
+    }
+
+    func openCategoryMenu(id: String, x: Int, y: Int) {
+        categoryMenu = CategoryMenu(categoryID: id, x: x, y: y)
+        categoryMenuRename = false
+    }
+
+    func closeCategoryMenu() {
+        categoryMenu = nil
+        categoryMenuRename = false
+    }
+
+    func setCategoryMenuRename(_ on: Bool) {
+        categoryMenuRename = on
+    }
+
+    func menuCategoryID() -> String? {
+        categoryMenu?.categoryID
+    }
+
+    func renameCategory(_ id: String, to raw: String) {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            _ = hint("Category needs a name.", kind: "error")
+            return
+        }
+        if let i = settings.chatCategories.firstIndex(where: { $0.id == id }) {
+            settings.chatCategories[i].name = name
+            saveSettings()
+        }
+    }
+
+    func setCategoryColor(_ id: String, color: String) {
+        guard !color.isEmpty else { return }
+        if let i = settings.chatCategories.firstIndex(where: { $0.id == id }) {
+            settings.chatCategories[i].color = color
+            saveSettings()
+        }
+    }
+
+    /// Add a category (name + hex color). Duplicate names are rejected.
+    func addCategory(name raw: String, color: String) {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            _ = hint("Category needs a name.", kind: "error")
+            return
+        }
+        guard !settings.chatCategories.contains(where: { $0.name == name }) else {
+            _ = hint("Category '\(name)' already exists.", kind: "error")
+            return
+        }
+        guard !color.isEmpty else {
+            _ = hint("Choose a color for the category.", kind: "error")
+            return
+        }
+        settings.chatCategories.append(ChatCategory(id: UUID().uuidString, name: name, color: color))
+        saveSettings()
+    }
+
+    /// Remove a category and unassign every chat in it.
+    func deleteCategory(_ id: String) {
+        settings.chatCategories.removeAll { $0.id == id }
+        settings.sessionCategories = settings.sessionCategories.filter { $0.value != id }
+        if activeCategory == id { activeCategory = "all" }
+        if categoryMenu?.categoryID == id { closeCategoryMenu() }
+        saveSettings()
+    }
+
+    /// Assign (or clear, when nil) the category for a conversation.
+    func setChatCategory(_ sessionID: String, to categoryID: String?) {
+        if let cid = categoryID {
+            settings.sessionCategories[sessionID] = cid
+        } else {
+            settings.sessionCategories.removeValue(forKey: sessionID)
+        }
+        saveSettings()
+    }
+
+    // MARK: Kanban
+
+    func setAddingColumn(_ on: Bool) { addingColumn = on }
+
+    func addKanbanColumn(name raw: String, color: String) {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            _ = hint("Column needs a name.", kind: "error")
+            return
+        }
+        guard !color.isEmpty else {
+            _ = hint("Choose a color for the column.", kind: "error")
+            return
+        }
+        settings.kanbanColumns.append(KBColumn(id: UUID().uuidString, name: name, color: color))
+        saveSettings()
+    }
+
+    func setConfirmColumn(_ id: String?) { confirmColumn = id }
+
+    func setConfirmCard(_ id: String?) { confirmCard = id }
+
+    func deleteKanbanColumn(_ id: String) {
+        settings.kanbanColumns.removeAll { $0.id == id }
+        settings.kanbanCards.removeAll { $0.columnID == id }
+        if addingCardColumnID == id { addingCardColumnID = nil }
+        confirmColumn = nil
+        saveSettings()
+    }
+
+    func renameKanbanColumn(_ id: String, to name: String) {
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !n.isEmpty, let i = settings.kanbanColumns.firstIndex(where: { $0.id == id }) else { return }
+        settings.kanbanColumns[i].name = n
+        saveSettings()
+    }
+
+    func setAddingCard(_ columnID: String?) { addingCardColumnID = columnID }
+
+    func addKanbanCard(_ title: String, in columnID: String) {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else {
+            _ = hint("Card needs a title.", kind: "error")
+            return
+        }
+        settings.kanbanCards.append(KBCard(id: UUID().uuidString, columnID: columnID, title: t))
+        addingCardColumnID = nil
+        saveSettings()
+    }
+
+    func renameKanbanCard(_ id: String, to title: String) {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, let i = settings.kanbanCards.firstIndex(where: { $0.id == id }) else { return }
+        settings.kanbanCards[i].title = t
+        saveSettings()
+    }
+
+    func deleteKanbanCard(_ id: String) {
+        settings.kanbanCards.removeAll { $0.id == id }
+        saveSettings()
+    }
+
+    func moveKanbanCard(_ id: String, by delta: Int) {
+        guard let i = settings.kanbanCards.firstIndex(where: { $0.id == id }),
+              let fi = settings.kanbanColumns.firstIndex(where: { $0.id == settings.kanbanCards[i].columnID }) else { return }
+        let ti = fi + delta
+        guard ti >= 0, ti < settings.kanbanColumns.count else { return }
+        settings.kanbanCards[i].columnID = settings.kanbanColumns[ti].id
+        saveSettings()
+    }
+
+    // MARK: Memory panel
+
+    func openMemoryDoc(_ key: String) {
+        memoryEdit = false
+        memoryDoc = key
+        memoryContent = key == "context" ? "" : loadMemoryText(key)
+    }
+
+    func startMemoryEdit() { memoryEdit = true }
+
+    func cancelMemoryEdit() { memoryEdit = false }
+
+    func saveMemoryDoc(_ key: String, content: String) {
+        guard key != "context" else { return }
+        let ok = writeMemoryText(key, content: content)
+        memoryContent = content
+        memoryEdit = false
+        _ = hint(ok ? "Saved \(memoryFileURL(key)?.lastPathComponent ?? "file")." : "Could not write \(memoryFileURL(key)?.lastPathComponent ?? "file").", kind: ok ? "" : "error")
+    }
+
+    func loadMemoryText(_ key: String) -> String {
+        guard let url = memoryFileURL(key), let s = try? String(contentsOf: url, encoding: .utf8) else { return "" }
+        return s
+    }
+
+    @discardableResult
+    func writeMemoryText(_ key: String, content: String) -> Bool {
+        guard let url = memoryFileURL(key) else { return false }
+        let fm = FileManager.default
+        try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        do {
+            try content.write(to: url, atomically: true, encoding: .utf8)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    // MARK: Workspace panel
+
+    func toggleWorkspace() {
+        workspaceOpen.toggle()
+        wsNewMode = ""
+        // One-shot slide-in for the open transition (consumed by the render).
+        if workspaceOpen { wsEnterAnim = true }
+    }
+
+    func closeWorkspace() {
+        workspaceOpen = false
+        wsNewMode = ""
+    }
+
+    func setWsNewMode(_ mode: String) { wsNewMode = mode }
+
+    func toggleShowHiddenFiles() { showHiddenFiles.toggle() }
+
+    func togglePath(_ rel: String) {
+        if expandedPaths.contains(rel) { expandedPaths.remove(rel) } else { expandedPaths.insert(rel) }
+    }
+
+    func createWorkspaceEntry(name raw: String, kind: String) {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !name.contains("/") else {
+            _ = hint("Enter a plain name (no '/').", kind: "error")
+            return
+        }
+        let url = workspaceRootURL().appendingPathComponent(name)
+        let fm = FileManager.default
+        if fm.fileExists(atPath: url.path) {
+            _ = hint("'\(name)' already exists.", kind: "error")
+            return
+        }
+        do {
+            if kind == "folder" {
+                try fm.createDirectory(at: url, withIntermediateDirectories: false)
+            } else {
+                try Data("".utf8).write(to: url)
+            }
+            wsNewMode = ""
+            _ = hint("Created '\(name)'.")
+        } catch {
+            _ = hint("Could not create '\(name)': \(error.localizedDescription)", kind: "error")
+        }
+    }
+
+    /// Write an uploaded file (base64 payload) into the workspace at relPath.
+    func uploadWorkspaceFile(name: String, relPath: String, b64: String) {
+        guard !relPath.components(separatedBy: "/").contains("..") else {
+            _ = hint("Upload rejected: invalid path.", kind: "error")
+            return
+        }
+        guard let data = Data(base64Encoded: b64) else {
+            _ = hint("Upload failed: could not decode \(name).", kind: "error")
+            return
+        }
+        let dest = workspaceRootURL().appendingPathComponent(relPath)
+        let fm = FileManager.default
+        do {
+            try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: dest)
+            _ = hint("Uploaded \(dest.lastPathComponent).")
+        } catch {
+            _ = hint("Upload failed for \(name): \(error.localizedDescription)", kind: "error")
+        }
+    }
+
+    // MARK: Skills
+
+    func setSkillFilter(_ text: String) {
+        skillFilter = text
+    }
+
+    func selectSkill(_ name: String) {
+        selectedSkill = name
+        createSkill = false
+        skillEdit = false
+    }
+
+    /// Body of a SKILL.md (content minus the leading YAML frontmatter block).
+    func skillBody(_ full: String) -> String {
+        guard full.hasPrefix("---") else { return full }
+        var rest = String(full.dropFirst(3))
+        if rest.hasPrefix("\n") { rest.removeFirst() }
+        if let end = rest.range(of: "\n---") {
+            return String(rest[end.upperBound...]).trimmingCharacters(in: .newlines)
+        }
+        return full
+    }
+
+    /// Open the edit form for the selected skill, prefilling the form values
+    /// from the skill's current state. `content` here is the FULL SKILL.md
+    /// (frontmatter + body), so the textarea gets just the body.
+    func startSkillEdit() {
+        guard let s = skill(named: selectedSkill ?? "") else { return }
+        for (k, v) in [("sk-edit-name-input", s.name),
+                       ("sk-edit-cat-input", s.category ?? ""),
+                       ("sk-edit-desc-input", s.description),
+                       ("sk-edit-content-input", skillBody(s.content))] {
+            storeFormValue(k, v)
+        }
+        skillEdit = true
+    }
+
+    func cancelSkillEdit() {
+        skillEdit = false
+        for k in ["sk-edit-name-input", "sk-edit-cat-input", "sk-edit-desc-input", "sk-edit-content-input"] {
+            storeFormValue(k, "")
+        }
+    }
+
+    func toggleSkill(_ name: String, enable: Bool? = nil) {
+        // Skill toggles edit the profile bound to the ACTIVE chat when there
+        // is one (per-profile unique skill sets); otherwise they edit the
+        // global list, which profiles inherit until overridden.
+        let context = activeSkillContext()
+        if context.isEmpty {
+            let shouldEnable = enable ?? !settings.disabledSkills.contains(name)
+            if shouldEnable {
+                settings.disabledSkills.removeAll { $0 == name }
+            } else if !settings.disabledSkills.contains(name) {
+                settings.disabledSkills.append(name)
+            }
+        } else {
+            var disabled = settings.profileSkills[context] ?? settings.disabledSkills
+            let shouldEnable = enable ?? !disabled.contains(name)
+            if shouldEnable {
+                disabled.removeAll { $0 == name }
+            } else if !disabled.contains(name) {
+                disabled.append(name)
+            }
+            settings.profileSkills[context] = disabled
+        }
+        saveSettings()
+    }
+
+    // MARK: Sidebar tabs
+
+    func setSidebarTab(_ key: String, visible: Bool) {
+        guard key != "chat", key != "settings",
+              (ViewID(rawValue: key) != nil || pluginTabs[key] != nil) else { return }
+        if visible {
+            settings.hiddenSidebarTabs.removeAll { $0 == key }
+            // Re-insert at its canonical slot if it ever left the list, so the
+            // rail order never changes from toggling.
+            if !settings.sidebarTabs.contains(key) {
+                settings.sidebarTabs = AppSettings.normalizedSidebarOrder(settings.sidebarTabs + [key])
+            }
+        } else {
+            if !settings.hiddenSidebarTabs.contains(key) {
+                settings.hiddenSidebarTabs.append(key)
+            }
+            // Never strand the user on a view they just hid.
+            if activeTabID == key { activeTabID = "chat" }
+        }
+        saveSettings()
+    }
+
+    func setSidebarTabOrder(_ keys: [String]) {
+        let valid = keys.filter { k in
+            guard let v = ViewID(rawValue: k) else { return false }
+            return v != .chat && v != .settings
+        }
+        settings.sidebarTabs = valid
+        // Drop any hidden keys that no longer exist in the canonical order.
+        settings.hiddenSidebarTabs = settings.hiddenSidebarTabs.filter { settings.sidebarTabs.contains($0) }
+        saveSettings()
+    }
+
+    /// The profile bound to the active chat, if any. Empty = global context.
+    func activeSkillContext() -> String {
+        profileName(for: activeSessionID) ?? ""
+    }
+
+    /// Disabled skills in effect for a profile: the profile's own override, or
+    /// the global list when the profile has none (inheritance).
+    func disabledSkills(for profile: String) -> [String] {
+        guard !profile.isEmpty else { return settings.disabledSkills }
+        return settings.profileSkills[profile] ?? settings.disabledSkills
+    }
+
+    /// Disabled skills shown in the skill list for the current context.
+    func skillContextDisabled() -> [String] {
+        disabledSkills(for: activeSkillContext())
+    }
+
+    /// Enabled-skill count for a profile (used in dropdown rows + cards).
+    func enabledSkillCount(for profile: String) -> Int {
+        let dis = Set(disabledSkills(for: profile))
+        return skills.filter { !dis.contains($0.name) }.count
+    }
+
+    func skill(named name: String) -> Skill? {
+        skills.first { $0.name == name }
+    }
+
+    func reloadSkills() {
+        skills = discoverSkills()
+        skillVersion += 1
+    }
+
+    func skillsDir() -> URL? {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".arc/skills")
+    }
+
+    // MARK: Profiles
+
+    func selectProfile(_ name: String) {
+        selectedProfile = name
+        createProfile = false
+        editingProfile = nil
+    }
+
+    /// Enter profile edit mode (the create form, pre-filled).
+    func setEditingProfile(_ name: String?) {
+        editingProfile = name
+        createProfile = false
+        profileSkillsPickerOpen = false
+        if let name,
+           let p = profiles.first(where: { $0.name == name }) {
+            profileSkillsDraft = p.contextSkills ?? []
+        } else {
+            profileSkillsDraft = []
+        }
+    }
+
+    /// Add/remove a skill in the profile context-skills draft (picker rows).
+    func profileSkillsDraftAdd(_ skillName: String) {
+        guard !profileSkillsDraft.contains(skillName) else { return }
+        profileSkillsDraft.append(skillName)
+    }
+
+    func profileSkillsDraftRemove(_ skillName: String) {
+        profileSkillsDraft.removeAll { $0 == skillName }
+    }
+
+    func setProfileSkillsPickerOpen(_ open: Bool) {
+        profileSkillsPickerOpen = open
+    }
+
+    func reloadProfiles() async {
+        let pm = ProfileManager()
+        profiles = (try? await pm.list()) ?? []
+    }
+
+    /// `reloadAll` for the storage-switch path: the session list is raced
+    /// against a bound so a relay that never sends end-of-history markers
+    /// (dead/federated/desynced) can't freeze the caller for the connection's
+    /// internal full timeout (~60s). Returns false when the bound wins. Skills
+    /// and profiles reload the same way as `reloadAll` either way.
+    func reloadAllBounded(seconds: UInt64 = 10) async -> Bool {
+        await ensureRuntime()
+        guard let store else { return true }
+        crumb("reloadAll(bounded): listing sessions (\(runtimeBackend))")
+        let stream = AsyncStream<Result<[Session], any Error>>.makeStream()
+        let continuation = stream.continuation
+        Task {
+            do {
+                continuation.yield(.success(try await store.list(limit: 500)))
+            } catch {
+                continuation.yield(.failure(error))
+            }
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: seconds * 1_000_000_000)
+            let bound = NSError(domain: "arc.agent.webui.storage", code: -1,
+                                userInfo: [NSLocalizedDescriptionKey: "relay did not answer in time"])
+            continuation.yield(.failure(bound))
+        }
+        guard case .success(let list) = await stream.stream.first(where: { _ in true }) else {
+            crumb("reloadAll(bounded): relay did not answer")
+            return false
+        }
+        sessions = list
+        // Fresh summaries: the previous store's materialized bodies (and the
+        // LRU that tracked them) no longer apply — see ensureSessionMessages
+        // for why a stale LRU entry would blank a reopened chat.
+        loadedSessionOrder.removeAll()
+        sessionVersion += 1
+        crumb("reloadAll(bounded): sessions listed (\(sessions.count))")
+        return true
+    }
+
+    /// The context overrides of the profile bound to a chat, if any.
+    func profileContext(for sessionID: String?) -> ProfileContextConfig? {
+        guard let pname = profileName(for: sessionID),
+              let p = profiles.first(where: { $0.name == pname }),
+              let ctx = p.context, !ctx.isEmpty
+        else { return nil }
+        return ctx
+    }
+
+    /// Effective auto-compress threshold for a chat: the bound profile's
+    /// compression budget, else the ARC_COMPRESSION_BUDGET env, else 32k.
+    func compressionBudget(for sessionID: String?) -> Int {
+        if let b = profileContext(for: sessionID)?.compressionBudget, b > 0 { return b }
+        return Int(ProcessInfo.processInfo.environment["ARC_COMPRESSION_BUDGET"] ?? "") ?? 32_000
+    }
+
+    /// Parse an optional Int from a form value (empty string → nil).
+    static func optInt(_ s: String) -> Int? {
+        let t = s.trimmingCharacters(in: .whitespaces)
+        return t.isEmpty ? nil : Int(t)
+    }
+
+    /// Parse an optional Double from a form value (empty string → nil).
+    static func optDouble(_ s: String) -> Double? {
+        let t = s.trimmingCharacters(in: .whitespaces)
+        return t.isEmpty ? nil : Double(t)
+    }
+
+    func toggleProfileSkill(profile p: String, skill s: String, on: Bool) {
+        // Per-profile DISABLED override (seeded from the global list on the
+        // first edit so the profile starts inheriting and then diverges).
+        var disabled = settings.profileSkills[p] ?? settings.disabledSkills
+        if on {
+            disabled.removeAll { $0 == s }
+        } else if !disabled.contains(s) {
+            disabled.append(s)
+        }
+        settings.profileSkills[p] = disabled
+        saveSettings()
+    }
+
+    func requestProfileDelete(_ name: String) {
+        confirmProfileDelete = name
+    }
+
+    func cancelProfileDelete() {
+        confirmProfileDelete = nil
+    }
+
+    /// Drop every reference to a deleted profile (session bindings, skills
+    /// override, detail selection).
+    func removeProfileRefs(_ name: String) {
+        for (k, v) in settings.sessionProfile where v == name {
+            settings.sessionProfile.removeValue(forKey: k)
+        }
+        settings.profileSkills.removeValue(forKey: name)
+        if selectedProfile == name { selectedProfile = nil }
+        saveSettings()
+    }
+
+    // MARK: Tools
+
+    func selectTool(_ name: String) {
+        selectedTool = name
+    }
+
+    func setToolset(_ name: String, enabled: Bool) {
+        if enabled {
+            settings.disabledToolsets.removeAll { $0 == name }
+        } else if !settings.disabledToolsets.contains(name) {
+            settings.disabledToolsets.append(name)
+        }
+        saveSettings()
+    }
+
+    // MARK: Workspaces
+
+    func workspaceEntry(named name: String) -> WorkspaceEntry? {
+        settings.workspaces.first { $0.name == name }
+    }
+
+    /// The workspace name for a chat: its own selection if set, else the
+    /// global default (`activeWorkspace`). Nil session id → global default.
+    func workspaceName(for sessionID: String?) -> String {
+        if let id = sessionID, let w = settings.sessionWorkspaces[id], !w.isEmpty {
+            return w
+        }
+        return settings.activeWorkspace
+    }
+
+    /// Absolute path of the folder a chat's workspace points at; falls back
+    /// to the global default workspace's path.
+    func workspacePath(for sessionID: String?) -> String {
+        let name = workspaceName(for: sessionID)
+        let path = workspaceEntry(named: name)?.path ?? WorkspaceEntry.defaultPath(for: name)
+        // arc parity: the default workspace is created on first use
+        // (`~/workspace` et al.) — best effort, like reference' resolve step.
+        try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        return path
+    }
+
+    func activeWorkspaceName() -> String {
+        settings.activeWorkspace
+    }
+
+    /// Append a workspace preset. `makeDefault` reflects the entry point: the
+    /// panel's "+" makes the new preset the global default (long-standing
+    /// behavior); the composer's "Choose workspace path" flow appends only and
+    /// then binds the active chat, so unpinned chats keep their workspace.
+    func addWorkspace(_ entry: WorkspaceEntry, makeDefault: Bool) {
+        settings.workspaces.append(entry)
+        if makeDefault { settings.activeWorkspace = entry.name }
+        saveSettings()
+    }
+
+    func workspaceEntries() -> [WorkspaceEntry] {
+        settings.workspaces
+    }
+
+    /// Set the global default workspace (applies to chats without their own).
+    func setWorkspace(active name: String) {
+        settings.activeWorkspace = name
+        selectedWorkspace = name
+        saveSettings()
+    }
+
+    /// Set (or clear, when empty) the workspace for the active chat only.
+    func setChatWorkspace(_ name: String) {
+        guard let id = activeSessionID else { return }
+        if name.isEmpty || settings.workspaces.allSatisfy({ $0.name != name }) {
+            settings.sessionWorkspaces.removeValue(forKey: id)
+            selectedWorkspace = settings.activeWorkspace
+        } else {
+            settings.sessionWorkspaces[id] = name
+            selectedWorkspace = name
+        }
+        saveSettings()
+    }
+
+    func removeWorkspace(_ name: String) {
+        settings.workspaces.removeAll { $0.name == name }
+        if settings.activeWorkspace == name { settings.activeWorkspace = "main" }
+        settings.sessionWorkspaces = settings.sessionWorkspaces.filter { $0.value != name }
+        saveSettings()
+    }
+
+    func rebuildAndReload() async {
+        runtimeKey = nil
+        store = nil
+        memory = nil
+        await reloadAll()
+    }
+
+    // MARK: Settings
+
+    // MARK: Mid-stream sends (honest queue)
+
+    /// True while a turn is streaming / running tool calls in THAT session.
+    func isTurnActive(sessionID: String) -> Bool {
+        activeTurns[sessionID] != nil
+    }
+
+    /// Whether the client's current chat view displays a live turn block right
+    /// now. `WebUIHost`'s push layer uses this at broadcast time: a `#live-turn`
+    /// / `#live-turn-text` / `#live-turn-thinking` op only has an element to
+    /// land on while this is true, so their broadcasts are gated on it (the
+    /// engine would otherwise log "Element not found: #live-turn…" when the
+    /// user has moved off the owning chat).
+    func liveTurnShown() -> Bool {
+        activeTabID == "chat" && activeTurns[activeSessionID ?? ""] != nil
+    }
+
+    /// Queue a message typed while this session's turn is running (UX-04).
+    /// It renders immediately as a "Queued · N" chip above the composer and
+    /// runs as its own turn — in order — after the current reply finishes.
+    func queueSend(_ text: String, sessionID: String) {
+        queueSendSeq += 1
+        queuedSends[sessionID, default: []].append(QueuedSend(id: queueSendSeq, text: text))
+    }
+
+    /// Remove a queued message before it runs; an empty slot is dropped so the
+    /// chip row disappears and nothing stale renders.
+    func removeQueuedSend(_ id: Int, sessionID: String) {
+        guard var list = queuedSends[sessionID] else { return }
+        list.removeAll { $0.id == id }
+        queuedSends[sessionID] = list.isEmpty ? nil : list
+    }
+
+    /// Pop the oldest queued message for the next turn (single drainer: the
+    /// turn-end path calls this once, then runTurn's own end drains the next).
+    func popQueuedSend(_ sessionID: String) -> QueuedSend? {
+        guard var list = queuedSends[sessionID], !list.isEmpty else { return nil }
+        let first = list.removeFirst()
+        queuedSends[sessionID] = list.isEmpty ? nil : list
+        return first
+    }
+
+    func setTheme(_ theme: String) {
+        settings.theme = theme
+        saveSettings()
+    }
+
+    func setTextSize(_ size: String) {
+        settings.textSize = size
+        saveSettings()
+    }
+
+    func setAccent(_ hex: String) {
+        settings.accent = hex
+        saveSettings()
+    }
+
+    func setColorScheme(_ name: String) {
+        settings.colorScheme = name
+        saveSettings()
+    }
+
+    func setActivityDisplay(_ mode: String) {
+        settings.activityDisplay = mode
+        saveSettings()
+    }
+
+    func setDefaultThinking(_ level: String) {
+        settings.thinkingLevel = level
+        saveSettings()
+    }
+
+    func setTesseraOff(_ off: Bool) {
+        settings.tesseraOff = off
+        // An explicit user toggle is authoritative: clear the transient
+        // boot-time fallback flag (forceTesseraOff) so a relay outage can
+        // never silently keep the runtime stuck on file storage after the
+        // user switches back to Tessera in-process.
+        runtimeTesseraOff = false
+        saveSettings()
+    }
+
+
+    /// Display label for a storage medium id (matches the picker rows).
+    func storageMediumDisplay(_ medium: String) -> String {
+        if medium == "file" { return "Local file storage" }
+        if medium == "config" { return "Default (config.json)" }
+        return settings.storageConnections.first(where: { $0.id == medium })?.name ?? "Unknown storage"
+    }
+
+    // MARK: Storage connections (Settings → Storage)
+
+    /// Stage a storage-medium pick (picker only; nothing persists or connects
+    /// until "Save and Connect").
+    func setStagedStorage(_ value: String?) {
+        stagedStorage = value
+    }
+
+    /// Persist the connection form as a new or updated entry. Does NOT switch
+    /// the active medium — that is "Save and Connect" only.
+    func saveStorageConnection(
+        id: String?,
+        name: String,
+        serverIP: String,
+        serverPort: Int,
+        application: UInt16,
+        serverPublicKey: String,
+        myPrivateKey: String
+    ) -> Bool {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedIP = serverIP.trimmingCharacters(in: .whitespaces)
+        guard !trimmedName.isEmpty, !trimmedIP.isEmpty,
+              serverPort > 0, serverPort <= 65535 else { return false }
+        let conn = TesseraStorageConnection(
+            id: id ?? UUID().uuidString,
+            name: trimmedName,
+            serverIP: trimmedIP,
+            serverPort: serverPort,
+            application: application,
+            serverPublicKey: serverPublicKey,
+            myPrivateKey: myPrivateKey
+        )
+        if let idx = settings.storageConnections.firstIndex(where: { $0.id == conn.id }) {
+            settings.storageConnections[idx] = conn
+        } else {
+            settings.storageConnections.append(conn)
+        }
+        connectionsRevision += 1
+        saveSettings()
+        storageEdit = nil
+        return true
+    }
+
+    /// Remove a configured connection. If it was the active medium, file
+    /// storage becomes the active selection and the runtime rebuilds so the
+    /// session list reflects the change immediately.
+    func removeStorageConnection(id: String) async {
+        settings.storageConnections.removeAll { $0.id == id }
+        if settings.activeStorage == id {
+            settings.activeStorage = "file"
+            runtimeTesseraOff = false
+            await ensureRuntime()
+            await reloadAll()
+        }
+        if stagedStorage == id { stagedStorage = nil }
+        connectionsRevision += 1
+        saveSettings()
+    }
+
+    func beginStorageEdit(id: String) {
+        storageEdit = settings.storageConnections.first(where: { $0.id == id })
+    }
+
+    func cancelStorageEdit() {
+        storageEdit = nil
+    }
+
+    func setStoragePickOpen(_ open: Bool) {
+        storagePickOpen = open
+    }
+
+    /// Drop the storage form's transient field values (after save/cancel).
+    func clearStorageForm() {
+        for k in ["sc-name", "sc-ip", "sc-port", "sc-app", "sc-pub", "sc-priv"] {
+            formValues[k] = nil
+        }
+    }
+
+    /// "Save and Connect": persist the staged medium and rebuild the runtime
+    /// against it. Returns true when the switch happened.
+    func connectStagedStorage() async -> Bool {
+        guard let staged = stagedStorage else { return false }
+        if staged == "config", loadConfig().tessera == nil {
+            hint("Default (config.json) has no tessera section - add one there or use a connection below.")
+            stagedStorage = nil
+            return false
+        }
+        if staged != "file", staged != "config" {
+            guard let conn = settings.storageConnections.first(where: { $0.id == staged }),
+                  conn.tesseraConfig != nil else {
+                hint("That Tessera storage connection is incomplete (server IP, port, public key and client private key are required).")
+                stagedStorage = nil
+                return false
+            }
+        }
+        // Effective-medium rule shared with the Views picker (see
+        // storageSettingsHTML): while hosted the daemon's pair is config/file.
+        let previousEffective: String = runtimeBackend == "file"
+            ? "file"
+            : (attachedStorage != nil ? "config" : settings.activeStorage)
+        settings.activeStorage = staged
+        // The picker is authoritative over the legacy toggle and any
+        // transient boot-time fallback.
+        settings.tesseraOff = false
+        runtimeTesseraOff = false
+        stagedStorage = nil
+        saveSettings()
+        // In a hosted daemon the UI was handed the daemon's boot-time pair;
+        // detach it so the rebuild below picks the newly selected medium (the
+        // daemon's gateway/bot agents keep their boot-time pair until the
+        // daemon restarts - same as the pre-daemon architecture).
+        let wasHosted = attachedStorage != nil
+        attachedStorage = nil
+        await ensureRuntime()
+        crumb("storage: switching to \(settings.activeStorage) (backend=\(runtimeBackend))")
+        // Bounded reload: a federated relay that never answers end-of-history
+        // would otherwise freeze the wire (and the settings view) for a
+        // minute. If the relay does not respond in time, revert the switch so
+        // the UI state and the persisted selection stay consistent and the
+        // user gets immediate feedback instead of a hang.
+        let ok = await reloadAllBounded(seconds: 10)
+        if !ok {
+            crumb("storage: \(settings.activeStorage) unresponsive; reverting to \(previousEffective)")
+            hint("That Tessera storage didn't answer within 10s — stayed on \(storageMediumDisplay(previousEffective)).")
+            settings.activeStorage = previousEffective
+            saveSettings()
+            await ensureRuntime()
+            await reloadAll()
+            return false
+        }
+        crumb("storage: connected to \(settings.activeStorage) (backend=\(runtimeBackend))")
+        await reloadAll()
+        if wasHosted {
+            hint("Storage connected. Gateway/bot services keep their boot-time backend until the daemon restarts.", kind: "success")
+        } else {
+            hint("Storage connected.", kind: "success")
+        }
+        return true
+    }
+
+    func setMoaEnabled(_ on: Bool) {
+        settings.moaEnabled = on
+        saveSettings()
+    }
+
+    /// Settings → Auxiliary models: open one task's picker at a time (tapping
+    /// the open trigger closes it again).
+    func setAuxEditing(_ key: String?) {
+        if auxEditingTask != key {
+            // Drop any staged selection carried over from the previous form.
+            if let prev = auxEditingTask { auxStagedConfig.removeValue(forKey: prev) }
+            if let next = key { auxStagedConfig.removeValue(forKey: next) }
+        }
+        auxEditingTask = key
+        auxConfigPickerOpen = false
+    }
+
+    /// Preferences → Main model: open/close the dropdown.
+    func setMainModelPickerOpen(_ open: Bool) {
+        mainModelPickerOpen = open
+    }
+
+    /// Auxiliary-edit form: open/close the configuration dropdown.
+    func setAuxConfigPickerOpen(_ open: Bool) {
+        auxConfigPickerOpen = open
+    }
+
+    /// Stage the aux form selection ("" = Main model).
+    func stageAuxConfig(task: String, name: String) {
+        auxStagedConfig[task] = name
+    }
+
+    func clearAuxStage(task: String) {
+        auxStagedConfig.removeValue(forKey: task)
+    }
+
+    func addModelConfig(_ preset: ModelConfigPreset) {
+        if let i = settings.modelConfigs.firstIndex(where: { $0.name == preset.name }) {
+            settings.modelConfigs[i] = preset
+        } else {
+            settings.modelConfigs.append(preset)
+        }
+        if settings.activeConfig.isEmpty { settings.activeConfig = preset.name }
+        saveSettings()
+    }
+
+    func useModelConfig(_ name: String) {
+        guard settings.modelConfigs.contains(where: { $0.name == name }) else { return }
+        settings.activeConfig = name
+        saveSettings()
+    }
+
+    func removeModelConfig(_ name: String) {
+        settings.modelConfigs.removeAll { $0.name == name }
+        if settings.activeConfig == name {
+            settings.activeConfig = settings.modelConfigs.first?.name ?? ""
+        }
+        saveSettings()
+    }
+
+    // MARK: Store accessor
+
+    func storeRef() -> (any SessionStore)? {
+        store
+    }
+
+    // MARK: Boot
+
+    @discardableResult
+    nonisolated func crumb(_ s: String) -> String {
+        FileHandle.standardError.write(Data("CRUMB \(s)\n".utf8))
+        return s
+    }
+
+    /// Construct the runtime and load data. Safe to call repeatedly.
+    func boot() async {
+        await ensureRuntime()
+        crumb("boot: runtime built, backend=\(runtimeBackend)")
+        await reloadAll()
+        crumb("boot: reloadAll done")
+        await refreshScheduledJobs()
+        crumb("boot: scheduled jobs loaded (\(settings.scheduledJobs.count))")
+    }
+
+    /// Force file storage for THIS process only (does not persist), used by
+    /// the `--tessera-off` CLI flag so a flag pass doesn't rewrite the stored
+    /// default, and by the boot-time timeout so a transient Tessera outage
+    /// never permanently overrides the user's tessera-on setting. A later
+    /// boot with the relay reachable retries Tessera automatically.
+    func overrideTesseraOff(_ off: Bool) {
+        settings.tesseraOff = off
+    }
+
+    /// Boot-time storage fallback: in-memory only, never persisted. The disk
+    /// flag (`settings.tesseraOff`) is the user's preference and must survive
+    /// an outage unscathed — otherwise one dead relay permanently disables
+    /// Tessera in settings.json (observed live Sep 2026).
+    func forceTesseraOff() {
+        runtimeTesseraOff = true
+    }
+
+    func sessionCount() -> Int {
+        sessions.count
+    }
+
+    func skillCount() -> Int {
+        skills.count
+    }
+
+    func profileCount() -> Int {
+        profiles.count
+    }
+
+    func toolCount() -> Int {
+        registry.allTools.count
+    }
+
+    func activeSessionIDValue() -> String? {
+        activeSessionID
+    }
+
+    func newestSessionID() -> String? {
+        // Scheduled-task chats (Cron-*) live in the Tasks page, not the main
+        // chat list — never auto-open one here.
+        sessions
+            .filter { !$0.id.hasPrefix("Cron-") }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .first?.id
+    }
+
+    // MARK: Live workspace panel
+
+    /// True while the right-hand workspace panel is open (live-scan gate).
+    func isWorkspaceOpen() -> Bool { workspaceOpen }
+
+    /// Re-scan the visible workspace tree. Returns true only when the listing
+    /// actually changed since the last scan (the fresh HTML is cached either
+    /// way; the first scan only warms the cache to avoid a redundant push).
+    func scanWorkspaceTree() async -> Bool {
+        let fresh = workspaceTreeHTML()
+        guard !cachedWSTreeHTML.isEmpty else {
+            cachedWSTreeHTML = fresh
+            return false
+        }
+        guard fresh != cachedWSTreeHTML else { return false }
+        cachedWSTreeHTML = fresh
+        return true
+    }
+
+    /// Fragment for the live-updated tree, mirroring the original render so
+    /// the whole ws-tree element (with its data-root) is replaced wholesale.
+    func liveWorkspaceFragments() async -> [FragmentUpdate] {
+        let path = esc(panelWorkspacePath())
+        return [
+            FragmentUpdate(
+                id: "ws-tree",
+                html: "<div class=\"ws-body\" id=\"ws-tree\" data-component-id=\"workspace\" data-event=\"click\" data-root=\"\(path)\">\n" +
+                      "  <div class=\"ws-path\" title=\"\(path)\">\(path)</div>\n" +
+                      "  \(cachedWSTreeHTML)\n" +
+                      "</div>"
+            ),
+        ]
+    }
+
+    /// Apply a model configuration as an auxiliary task's override: copies
+    /// provider/model/base URL (and the config's own API key, when present).
+    func setAuxOverrideFromConfig(task: AuxiliaryTask, configName: String) {
+        guard let preset = settings.modelConfigs.first(where: { $0.name == configName }) else {
+            _ = hint("Model configuration “\(configName)” was not found.", kind: "error")
+            return
+        }
+        setAuxOverride(
+            task: task,
+            provider: preset.provider,
+            model: preset.model,
+            baseURL: preset.baseURL,
+            apiKey: preset.apiKey
+        )
+    }
+
+    /// Persist one auxiliary task's override to `~/.arc/config.json`
+    /// (reference `auxiliary.<task>` shape). All-empty fields (or a bare "auto"
+    /// provider) remove the override and route the task back to the main model.
+    func setAuxOverride(
+        task: AuxiliaryTask,
+        provider: String,
+        model: String,
+        baseURL: String,
+        apiKey: String
+    ) {
+        let p = provider.trimmingCharacters(in: .whitespacesAndNewlines)
+        let m = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let b = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let k = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        var cfg = arcConfig
+        if m.isEmpty && b.isEmpty && k.isEmpty && (p.isEmpty || p == "auto") {
+            cfg.auxiliary.byTask.removeValue(forKey: task)
+        } else {
+            cfg.auxiliary.byTask[task] = AuxiliaryOverride(provider: p, model: m, baseURL: b, apiKey: k)
+        }
+        do {
+            try saveConfig(cfg)
+            arcConfig = cfg
+            _ = hint("Auxiliary model “\(task.displayName)” saved to ~/.arc/config.json.")
+        } catch {
+            _ = hint("Could not save ~/.arc/config.json: \(error.localizedDescription)", kind: "error")
+        }
+    }
+
+    /// Remove an auxiliary task's override (route back to the main model).
+    func clearAuxOverride(task: AuxiliaryTask) {
+        var cfg = arcConfig
+        cfg.auxiliary.byTask.removeValue(forKey: task)
+        do {
+            try saveConfig(cfg)
+            arcConfig = cfg
+            _ = hint("Auxiliary model “\(task.displayName)” reset to the main model.")
+        } catch {
+            _ = hint("Could not save ~/.arc/config.json: \(error.localizedDescription)", kind: "error")
+        }
+    }
+
+    /// Best-effort chat-title generation via the title_gen auxiliary model.
+    /// Only fires when a title_gen assignment exists and the chat has no
+    /// custom title yet; the default stays the first-message auto title.
+    /// Stores the title and pushes a lightweight topbar+panel refresh so the
+    /// streaming chat area is left untouched.
+    func maybeGenerateTitle(
+        sessionID: String,
+        pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void
+    ) async {
+        guard !isTitleGenRunning else { return }
+        isTitleGenRunning = true
+        defer { isTitleGenRunning = false }
+        guard settings.sessionTitles[sessionID] == nil,
+              let session = sessions.first(where: { $0.id == sessionID }) else { return }
+        await ensureSessionMessages(sessionID)
+        guard let content = session.messages.first(where: { $0.role == .user })?.content,
+              !content.isEmpty,
+              let client = makeAuxClient(for: .titleGeneration, sessionID: sessionID)
+        else { return }
+        let prompt = "Return ONLY a short chat title (max 8 words, plain text, no quotes, no period) for a conversation that opens with: \(trunc(content, 240))"
+        do {
+            let reply = try await client.complete(
+                messages: [Message(role: .user, content: prompt, createdAt: Date())],
+                tools: nil,
+                reasoningEffort: nil
+            )
+            if let u = reply.usage {
+                recordTokensBurned(u.totalTokens > 0 ? u.totalTokens : u.promptTokens + u.completionTokens)
+            }
+            guard let t = reply.content?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !t.isEmpty else { return }
+            let title = String(t.prefix(44))
+            guard title != sessionTitle(session) else { return }
+            settings.sessionTitles[sessionID] = title
+            saveSettings()
+            await pusher([
+                FragmentUpdate(id: "topbar", html: topbarHTML()),
+                FragmentUpdate(id: "panel", html: panelHTML()),
+            ])
+        } catch {
+            // Best-effort: a failed title call leaves the auto title in place.
+        }
+    }
+}
