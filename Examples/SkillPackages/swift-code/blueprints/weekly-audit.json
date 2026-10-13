@@ -1,0 +1,5 @@
+{
+  "name": "weekly-hardening-audit",
+  "prompt": "Run the hardening audit checklist against the current swift codebase and report findings.",
+  "schedule": "0 9 * * 1"
+}

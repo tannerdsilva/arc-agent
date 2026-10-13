@@ -1,0 +1,16 @@
+{
+  "format": 1,
+  "name": "swift-code",
+  "description": "Swift 6 + SwiftPM + Swift Testing skills for hardening and maintaining swift projects on the arc-agent harness.",
+  "version": "1.0.0",
+  "author": "bwyma1",
+  "skills": [
+    { "name": "swift", "category": "software-development", "enabled": true },
+    { "name": "swiftpm", "category": "software-development", "enabled": true },
+    { "name": "swift-testing", "category": "software-development", "enabled": true }
+  ],
+  "blueprints": [
+    { "file": "blueprints/weekly-audit.json", "prompt": "Run the weekly hardening audit against the swift codebase.", "schedule": "0 9 * * 1" }
+  ],
+  "starter": "starter.md"
+}

@@ -44,6 +44,7 @@ struct Arc: AsyncParsableCommand {
             LearningCmd.self,
             MemoryCmd.self,
             SkillsCmd.self,
+            SkillBundleCmd.self,
             KanbanCmd.self,
             CronCmd.self,
             CuratorCmd.self,
