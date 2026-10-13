@@ -1,6 +1,6 @@
 import Foundation
 import AsyncHTTPClient
-import CryptoKit
+import Crypto
 
 /// The `web_extract` tool (reference `web_extract_tool`): clean page content
 /// via the configured extract backend (Firecrawl/Exa natively, fetch+strip

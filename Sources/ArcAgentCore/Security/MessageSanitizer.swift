@@ -1,5 +1,5 @@
 import Foundation
-import CryptoKit
+import Crypto
 
 // MARK: - Message sanitization (reference `message_sanitization.py`)
 

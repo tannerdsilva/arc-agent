@@ -1,6 +1,6 @@
 import Foundation
 import SwiftSlash
-import CryptoKit
+import Crypto
 
 // MARK: - Media tools (reference image_gen/tts/transcription/video provider
 // registry, HTTP-only providers — no heavyweight SDKs)

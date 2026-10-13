@@ -1,7 +1,7 @@
 import Foundation
 import AsyncHTTPClient
 import NIOCore
-import CryptoKit
+import Crypto
 
 // MARK: - Web extraction (reference `plugins/web/{firecrawl,exa}/provider.py`)
 

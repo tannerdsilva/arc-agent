@@ -1,5 +1,5 @@
 import Foundation
-import CryptoKit
+import Crypto
 import AsyncHTTPClient
 
 /// AWS Signature Version 4 request signer (pure Foundation + CryptoKit).

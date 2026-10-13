@@ -1,5 +1,5 @@
 import Foundation
-import CryptoKit
+import Crypto
 
 // MARK: - Tool guardrails (reference `tool_guardrails.py`)
 
