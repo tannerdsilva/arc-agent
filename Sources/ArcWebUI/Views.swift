@@ -3635,20 +3635,6 @@ extension AppState {
         URL(fileURLWithPath: panelWorkspacePath())
     }
 
-    /// The editable memory file for a doc key (memory/user/soul); nil for the
-    /// read-only project context.
-    func memoryFileURL(_ key: String) -> URL? {
-        let name: String
-        switch key {
-        case "user": name = "USER.md"
-        case "soul": name = "SOUL.md"
-        case "memory": name = "MEMORY.md"
-        default: return nil
-        }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc-agent-webui").appendingPathComponent(name)
-    }
-
     /// AGENTS.md / AGENT.md in the workspace root, if present.
     func workspaceContextURL() -> URL? {
         for candidate in ["AGENTS.md", "AGENT.md"] {

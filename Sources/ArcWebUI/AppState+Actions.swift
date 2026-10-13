@@ -595,40 +595,40 @@ extension AppState {
 
     // MARK: Memory panel
 
-    func openMemoryDoc(_ key: String) {
+    func openMemoryDoc(_ key: String) async {
         memoryEdit = false
         memoryDoc = key
-        memoryContent = key == "context" ? "" : loadMemoryText(key)
+        memoryContent = key == "context" ? "" : await loadMemoryText(key)
     }
 
     func startMemoryEdit() { memoryEdit = true }
 
     func cancelMemoryEdit() { memoryEdit = false }
 
-    func saveMemoryDoc(_ key: String, content: String) {
+    func saveMemoryDoc(_ key: String, content: String) async {
         guard key != "context" else { return }
-        let ok = writeMemoryText(key, content: content)
+        let ok = await MemoryDocRoute.save(key, content: content, memory: memory, profileName: soulProfileName())
         memoryContent = content
         memoryEdit = false
-        _ = hint(ok ? "Saved \(memoryFileURL(key)?.lastPathComponent ?? "file")." : "Could not write \(memoryFileURL(key)?.lastPathComponent ?? "file").", kind: ok ? "" : "error")
+        _ = hint(ok ? "Saved \(MemoryDocRoute.fileName(key))." : "Could not write \(MemoryDocRoute.fileName(key)).", kind: ok ? "" : "error")
     }
 
-    func loadMemoryText(_ key: String) -> String {
-        guard let url = memoryFileURL(key), let s = try? String(contentsOf: url, encoding: .utf8) else { return "" }
-        return s
+    func loadMemoryText(_ key: String) async -> String {
+        await MemoryDocRoute.load(key, memory: memory, profileName: soulProfileName())
     }
 
     @discardableResult
-    func writeMemoryText(_ key: String, content: String) -> Bool {
-        guard let url = memoryFileURL(key) else { return false }
-        let fm = FileManager.default
-        try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        do {
-            try content.write(to: url, atomically: true, encoding: .utf8)
-            return true
-        } catch {
-            return false
-        }
+    func writeMemoryText(_ key: String, content: String) async -> Bool {
+        await MemoryDocRoute.save(key, content: content, memory: memory, profileName: soulProfileName())
+    }
+
+    /// The profile whose SOUL the memory panel reads/edits — the bound session
+    /// profile if the active chat is bound, else the selected profile, else the
+    /// default primary profile.
+    func soulProfileName() -> String {
+        if let selectedProfile { return selectedProfile }
+        if let p = profileName(for: activeSessionID) { return p }
+        return ""
     }
 
     // MARK: Workspace panel
