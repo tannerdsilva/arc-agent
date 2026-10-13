@@ -2,6 +2,14 @@ import ArgumentParser
 import ArcAgentCore
 import Foundation
 
+/// Resolve the live session store the same way the chat path does — with a
+/// `tessera` configuration the admin commands must see the Tessera store
+/// (or the file fallback), never the file store unconditionally.
+fileprivate func cliSessionStore() async -> any SessionStore {
+    let config = loadConfig()
+    return await SessionStoreResolver.resolve(tessera: config.tessera).sessionStore
+}
+
 // MARK: - Sessions
 
 /// `arc sessions` — inspect the session store (reference `reference sessions`
@@ -34,7 +42,7 @@ struct SessionsList: AsyncParsableCommand {
     var workspace: String?
 
     func run() async throws {
-        let store = FileSessionStore()
+        let store = await cliSessionStore()
         let sessions = try await store.list(limit: limit)
         let filtered = sessions.filter { s in
             if let source, s.source != source { return false }
@@ -72,7 +80,7 @@ struct SessionsShow: AsyncParsableCommand {
     var id: String
 
     func run() async throws {
-        let store = FileSessionStore()
+        let store = await cliSessionStore()
         guard let session = try await store.get(id: id) else {
             print("Error: Session '\(id)' not found.")
             return
@@ -111,7 +119,7 @@ struct SessionsDelete: AsyncParsableCommand {
     var id: String
 
     func run() async throws {
-        let store = FileSessionStore()
+        let store = await cliSessionStore()
         try await store.delete(id: id)
         print("✅ Session '\(id)' deleted.")
     }
@@ -386,7 +394,7 @@ struct SessionsExport: AsyncParsableCommand {
     var redact = false
 
     func run() async throws {
-        let store = FileSessionStore()
+        let store = await cliSessionStore()
         let sessions: [Session]
         if let id = sessionID {
             guard let s = try await store.get(id: id) else {
@@ -449,7 +457,7 @@ struct SessionsPrune: AsyncParsableCommand {
     var yes = false
 
     func run() async throws {
-        let store = FileSessionStore()
+        let store = await cliSessionStore()
         let all = try await store.list(limit: 5000)
         let filter = SessionPruneFilter(olderThanDays: olderThan, source: source)
         let doomed = all.filter { filter.matches($0, now: Date()) }
@@ -488,7 +496,7 @@ struct SessionsRename: AsyncParsableCommand {
     var newTitle: String
 
     func run() async throws {
-        let store = FileSessionStore()
+        let store = await cliSessionStore()
         guard var session = try await store.get(id: id) else {
             throw ValidationError("Session \(id) not found.")
         }

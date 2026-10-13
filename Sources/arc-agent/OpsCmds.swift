@@ -117,6 +117,23 @@ struct DoctorCmd: AsyncParsableCommand {
         if let tessera = config.tessera {
             print("ℹ️  tessera storage configured: \(tessera)")
         }
+
+        // Tool plugins (deployment surface): discovery never blocks boot —
+        // issues are captured and reported here for operators.
+        let pluginRegistry = PluginRegistry.shared
+        do {
+            try await pluginRegistry.loadAll()
+        } catch {
+            report("⚠️", "tool plugin discovery failed: \(error)")
+        }
+        let pluginManifests = await pluginRegistry.plugins()
+        let pluginTools = await pluginRegistry.tools()
+        let pluginIssues = await pluginRegistry.discoveryIssues()
+        let pluginsStatus = pluginIssues.isEmpty ? "✅" : "⚠️"
+        let pluginsMessage = "tool plugins: \(pluginManifests.count) plugin(s), \(pluginTools.count) tool(s)"
+            + (pluginIssues.isEmpty ? "" : " — issues: \(pluginIssues.joined(separator: "; "))")
+        report(pluginsStatus, pluginsMessage)
+
         print(ok ? "✅ doctor: all checks passed" : "❌ doctor: issues found — see above")
     }
 }

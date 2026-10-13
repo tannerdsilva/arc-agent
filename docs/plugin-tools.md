@@ -123,7 +123,66 @@ enabled-toolsets switches and on the Tools page, with full parameter details.
 ## Discovery & wiring
 
 `PluginRegistry` scans `~/.arc/plugins/` on agent startup; `MutableToolRegistry`
-layers enabled plugin tools over the compile-time registry (built-ins always
-win on name collisions). Tools with unmet `requires_env` are skipped
-(reference `check_fn` parity). The Settings page rescan button re-reads the
-directory without restarting the agent.
+layers enabled plugin tools over the compile-time registry. Every tool — built-in
+or plugin — is an **`AgentTool`** conformer (the single protocol behind
+`ToolRegistry`): `PluginTool` is a first-class conformer, so plugin tools are
+stored and dispatched through the same protocol path as built-ins (no closure
+boxing). Tools with unmet `requires_env` are skipped (reference `check_fn`
+parity). The Settings page rescan button re-reads the directory without
+restarting the agent.
+
+**Name collisions are refused at install:** a plugin tool whose name equals a
+built-in or another plugin tool's name is skipped with a warning — a duplicate
+function name in the schema array would make the model ambiguous and dispatch
+unreachable. The built-in always wins dispatch.
+
+## Deployment
+
+Plugin discovery is **sidecar-parity**: separate process, `manifest.json` in
+`~/.arc/plugins/<name>/`, discovered at boot, never blocking it.
+
+- **Boot warm-up** — `ArcDaemon` scans plugins during startup and logs
+  `tool plugins: N plugin(s), M tool(s) [...]`, so malformed installs surface
+  in the daemon log immediately instead of on the first session.
+- **Non-fatal issues** — a directory without a `manifest.json` is skipped
+  silently; unreadable/malformed manifests or tool-less manifests are recorded
+  (actor `discoveryIssues()`) and logged as warnings while every healthy
+  install still loads.
+- **Operator surface** — `arc plugins list` (installed plugins, their tools,
+  and any discovery issues), `arc plugins test <plugin> <tool> '<json-args>'`
+  (runs one tool through the exact agent path), and `arc doctor` renders a
+  plugin status line (`✅`/`⚠️` + issue list).
+
+### Deploy / verify recipe
+
+```bash
+# 1. Build the plugin binary (if compiled) and stage the install
+cd <plugin-src> && swift build   # or: swiftc -O -o tool tool.swift
+mkdir -p ~/.arc/plugins/<name>
+cp <binary-or-script> ~/.arc/plugins/<name>/
+# copy manifest.json next to it, then:
+
+# 2. Operators
+arc plugins list                       # discovery + issues
+arc doctor                             # plugin status line
+arc plugins test arc-hexsum hex_sum '{"values":[1,2,3]}'
+arc plugins test arc-weather weather_now '{"city":"Austin"}'
+
+# 3. Agent path (same exec contract, 60s/1MB bound, per-call subprocess)
+arc tools | grep -A1 hex_sum           # tool is registered for sessions
+```
+
+### Execution model
+
+Every call spawns the plugin's process with the payload on stdin (cwd = the
+plugin directory), bounded to **60 seconds** and **1 MB** of output; the child
+is killed as a process group on timeout. Executable resolution: absolute path,
+plugin-relative path, then `PATH` (interpreters like `python3`). Failures
+render as a `"Error: …"` tool result, never an agent-facing throw.
+
+### Known limits
+
+- No sandbox: plugin tools run with the daemon's privileges (same trust model
+  as sidebar tab sidecars) — install only trusted plugins.
+- Per-call spawn cost (~10–50 ms); long-lived state must live in the plugin
+  directory, not in a resident process.

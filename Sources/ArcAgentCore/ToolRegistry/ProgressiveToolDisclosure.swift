@@ -136,11 +136,11 @@ public enum DeferredToolPolicy {
     /// `classify_tools` in reference. Availability checks are applied first so a
     /// tool whose requirements are unmet never reaches either list.
     public static func plan(
-        entries: [ToolEntry],
+        entries: [any AgentTool],
         config: ToolSearchConfig
-    ) -> (visible: [ToolEntry], deferred: [ToolEntry]) {
-        var visible: [ToolEntry] = []
-        var deferred: [ToolEntry] = []
+    ) -> (visible: [any AgentTool], deferred: [any AgentTool]) {
+        var visible: [any AgentTool] = []
+        var deferred: [any AgentTool] = []
         for entry in entries {
             if let check = entry.checkFn, !check() { continue }
             if isDeferred(name: entry.name, toolset: entry.toolset, config: config) {
@@ -195,7 +195,7 @@ public enum ProgressiveToolDisclosure {
     }
 
     /// Grouped name + short-description listing (arc skills-style).
-    public static func renderListing(_ deferred: [ToolEntry]) -> String {
+    public static func renderListing(_ deferred: [any AgentTool]) -> String {
         var lines: [String] = ["Deferred tools (load a schema with tool_describe, call with tool_call):\n"]
         let groups = Dictionary(grouping: deferred, by: { $0.toolset })
         for (toolset, entries) in groups.sorted(by: { $0.key < $1.key }) {
@@ -209,7 +209,7 @@ public enum ProgressiveToolDisclosure {
     }
 
     /// Names-only fallback (over budget for full listing).
-    public static func renderNames(_ deferred: [ToolEntry]) -> String {
+    public static func renderNames(_ deferred: [any AgentTool]) -> String {
         let names = deferred.map { $0.name }.sorted().joined(separator: ", ")
         return "Deferred tools (load a schema with tool_describe): \(names)"
     }
@@ -218,7 +218,7 @@ public enum ProgressiveToolDisclosure {
     /// degrades listing → names-only → nil (bare bridge). `nil` when the
     /// feature is off or nothing deferred.
     public static func manifest(
-        deferred: [ToolEntry],
+        deferred: [any AgentTool],
         config: ToolSearchConfig,
         contextLength: Int?
     ) -> String? {
@@ -261,9 +261,9 @@ public enum ProgressiveToolDisclosure {
         return schemas
     }
 
-    /// OpenAI function-schema dict for a tool entry (shared by the core agent
+    /// OpenAI function-schema dict for a tool (shared by the core agent
     /// and the webui `tool_describe` bridge translation).
-    public static func schema(for entry: ToolEntry) -> [String: Any] {
+    public static func schema(for entry: any AgentTool) -> [String: Any] {
         [
             "type": "function",
             "function": [

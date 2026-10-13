@@ -758,6 +758,9 @@ extension AppState {
         wsNewMode = ""
         // One-shot slide-in for the open transition (consumed by the render).
         if workspaceOpen { wsEnterAnim = true }
+        // A fresh open always reflects the current disk: drop the render cache
+        // so the panel rescans (it was never scanned while hidden).
+        if workspaceOpen { clearWorkspaceTreeCache() }
     }
 
     func closeWorkspace() {
@@ -792,6 +795,7 @@ extension AppState {
                 try Data("".utf8).write(to: url)
             }
             wsNewMode = ""
+            clearWorkspaceTreeCache()
             _ = hint("Created '\(name)'.")
         } catch {
             _ = hint("Could not create '\(name)': \(error.localizedDescription)", kind: "error")
@@ -813,10 +817,63 @@ extension AppState {
         do {
             try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: dest)
+            clearWorkspaceTreeCache()
             _ = hint("Uploaded \(dest.lastPathComponent).")
         } catch {
             _ = hint("Upload failed for \(name): \(error.localizedDescription)", kind: "error")
         }
+    }
+
+    /// Open a workspace file in the panel's preview pane. Resolves `relPath`
+    /// under `root` (default: the active chat's workspace path), guards path
+    /// traversal, and reads best-effort UTF-8 text (binary / oversized files
+    /// get a notice instead of content). Returns nothing; the caller re-renders.
+    func openWorkspaceFile(_ relPath: String, root: String? = nil) {
+        guard WorkspaceRules.isSafeRelativePath(relPath) else {
+            previewPath = nil; previewContent = nil
+            previewNote = "Cannot preview: invalid path."
+            return
+        }
+        let rootPath = root ?? panelWorkspacePath()
+        let url = URL(fileURLWithPath: rootPath).appendingPathComponent(relPath)
+        let fm = FileManager.default
+        let sizeLimit = 1_048_576            // 1 MiB
+        let previewChars = 200_000           // render cap
+        let size = ((try? fm.attributesOfItem(atPath: url.path)[.size]) as? NSNumber)?.intValue ?? 0
+        guard size <= sizeLimit else {
+            previewPath = relPath; previewContent = nil
+            previewNote = "\(size) bytes — too large to preview."
+            return
+        }
+        guard let data = fm.contents(atPath: url.path) else {
+            previewPath = relPath; previewContent = nil
+            previewNote = "Could not read file."
+            return
+        }
+        // A NUL byte in the first chunk marks an obviously-binary file.
+        if data.prefix(4096).contains(0) {
+            previewPath = relPath; previewContent = nil
+            previewNote = "Binary file — no text preview."
+            return
+        }
+        guard var text = String(data: data, encoding: .utf8) else {
+            previewPath = relPath; previewContent = nil
+            previewNote = "File is not UTF-8 text."
+            return
+        }
+        if text.count > previewChars {
+            text = String(text.prefix(previewChars)) + "\n… (preview trimmed)"
+        }
+        previewPath = relPath
+        previewContent = text
+        previewNote = nil
+    }
+
+    /// Return to the file tree, closing any open preview pane.
+    func closeWorkspacePreview() {
+        previewPath = nil
+        previewContent = nil
+        previewNote = nil
     }
 
     // MARK: Skills
@@ -1560,7 +1617,7 @@ extension AppState {
     /// actually changed since the last scan (the fresh HTML is cached either
     /// way; the first scan only warms the cache to avoid a redundant push).
     func scanWorkspaceTree() async -> Bool {
-        let fresh = workspaceTreeHTML()
+        let fresh = freshWorkspaceTreeHTML()
         guard !cachedWSTreeHTML.isEmpty else {
             cachedWSTreeHTML = fresh
             return false

@@ -1,26 +1,26 @@
 import Foundation
 import MCP
 
-/// Bridges an ARC Agent ``ToolEntry`` to the MCP ``MCPTool`` protocol.
+/// Bridges an ARC Agent ``AgentTool`` to the MCP ``MCPTool`` protocol.
 ///
 /// This wrapper allows any tool registered in ARC Agent's
-/// ``CompileTimeToolRegistry`` to be exposed as an MCP tool. It
-/// dispatches calls to the underlying ``ToolEntry.handler`` closure.
+/// ``ToolRegistry`` — built-in or plugin — to be exposed as an MCP tool.
+/// It dispatches calls to the underlying ``AgentTool/handler`` closure.
 public struct DynamicMCPTool: MCPTool {
 
     public static var configuration: MCPToolConfiguration {
         MCPToolConfiguration(description: "")
     }
 
-    private let entry: ToolEntry?
+    private let entry: (any AgentTool)?
 
-    public init(entry: ToolEntry) {
+    public init(entry: any AgentTool) {
         self.entry = entry
     }
 
     /// Satisfies the `MCPTool` protocol's `init()` requirement.
     ///
-    /// A tool constructed this way has no ``ToolEntry`` and throws
+    /// A tool constructed this way has no ``AgentTool`` and throws
     /// ``DynamicMCPToolError.missingToolEntry`` when invoked. This path is
     /// never taken by the gateway, which registers instances via
     /// ``MCPServerAdapter`` — the inert fallback exists only so the type

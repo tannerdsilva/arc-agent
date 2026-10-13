@@ -30,7 +30,6 @@ public actor CuaDriverClient {
     private var stderrPipe: Pipe?
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<[String: Any], Error>] = [:]
-    private var startupBuffer = ""
 
     private var binary: String {
         ProcessInfo.processInfo.environment["CUA_DRIVER_BIN"] ?? "cua-driver"

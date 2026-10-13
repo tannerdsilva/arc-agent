@@ -1,5 +1,5 @@
 {
-  "originHash" : "860e4b1128c2e58d155b7948234b50ad8371ac2024bfd2b9ad28d7931ca674ff",
+  "originHash" : "befc4fed85e7ea7fd9caecd94d9eb7090d35e5857e6523e6851bb419d078ae82",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -69,8 +69,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/QuickJSON.git",
       "state" : {
-        "revision" : "5e5b769d55248ed41acb42ac8806c1675461200f",
-        "version" : "2.0.1"
+        "revision" : "aa137cae260cde6931340e70b33b44281912b99a",
+        "version" : "2.0.3"
       }
     },
     {
@@ -168,8 +168,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-crypto.git",
       "state" : {
-        "revision" : "47d3869a7291f085c1fb9fb1e6d3b97a793f45c6",
-        "version" : "4.5.1"
+        "revision" : "95ba0316a9b733e92bb6b071255ff46263bbe7dc",
+        "version" : "3.15.1"
       }
     },
     {

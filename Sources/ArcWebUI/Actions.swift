@@ -2279,10 +2279,6 @@ final class Controller: Sendable {
         return await self.app.refreshFragments()
     }
 
-    private func createProfile(name: String, title: String, desc: String) async -> [FragmentUpdate] {
-        return await self.submitProfileForm(name: name, title: title, desc: desc)
-    }
-
     /// Create or update a profile from the profile form (the form doubles as
     /// the edit form; `editingProfile` selects the mode). Context parameters
     /// are stored per-profile via the core `Profile.context`.
@@ -2951,7 +2947,9 @@ final class Controller: Sendable {
         } else if tid.hasPrefix("w-toggle-"), let path = dec(String(tid.dropFirst("w-toggle-".count))) {
             await app.togglePath(path)
         } else if tid.hasPrefix("w-file-"), let path = dec(String(tid.dropFirst("w-file-".count))) {
-            _ = await app.hint("Workspace file: \(path)")
+            await app.openWorkspaceFile(path)
+        } else if tid == "w-preview-back" {
+            await app.closeWorkspacePreview()
         } else {
             return []
         }

@@ -1,5 +1,6 @@
 import Foundation
 import SwiftSlash
+import Logging
 
 // MARK: - Plugin JSON value (arbitrary JSON for tool schemas)
 
@@ -177,6 +178,11 @@ public struct PluginManifest: Codable, Sendable, Equatable {
 // MARK: - Plugin tool (executable entry)
 
 /// One plugin tool entry executable by the host.
+///
+/// ``PluginTool`` IS an ``AgentTool`` — no closure wrapping required. The
+/// host registry stores it directly; `handler` pipes the call through a
+/// bounded subprocess ([[invoke(args:)]]). Schema, toolset, and
+/// `requires_env` come from the plugin's ``PluginManifest``.
 public struct PluginTool: Sendable {
     public let plugin: String
     public let name: String
@@ -187,7 +193,9 @@ public struct PluginTool: Sendable {
     public let entry: String?
     public let toolset: String
     public let requiresEnv: [String]
-    public let schema: [String: PluginJSON]?
+    /// Parsed OpenAI function-call parameter schema. Falls back to a free-form
+    /// `{args: {}}` object when the manifest omits a usable schema.
+    public let schema: JSONSchema
     /// Working directory override (defaults to ~/.arc/plugins/<plugin>).
     public var cwdOverride: URL?
 
@@ -211,8 +219,32 @@ public struct PluginTool: Sendable {
         self.entry = entry
         self.toolset = toolset
         self.requiresEnv = requiresEnv
-        self.schema = schema
+        self.schema = Self.parseSchema(from: schema)
         self.cwdOverride = cwdOverride
+    }
+
+    /// Normalize the manifest `schema` into a ``JSONSchema``.
+    ///
+    /// Accepts the raw parameters object, a `"function"` wrapper (reference
+    /// `register_tool(schema:)` shape), or `{"parameters": …}`.
+    static func parseSchema(from schema: [String: PluginJSON]?) -> JSONSchema {
+        guard let raw = schema else {
+            return .object(properties: ["args": .object(properties: [:])])
+        }
+        let any = raw.mapValues { $0.toAny() }
+        let parameters: [String: Any]? = {
+            if let params = any["parameters"] as? [String: Any] {
+                return params
+            }
+            if let function = any["function"] as? [String: Any] {
+                return function["parameters"] as? [String: Any]
+            }
+            return any["type"] != nil ? any : nil
+        }()
+        if let parsed = parameters.flatMap({ JSONSchema(fromOpenAI: $0) }) {
+            return parsed
+        }
+        return .object(properties: ["args": .object(properties: [:])])
     }
 
     enum InvokeError: Error, CustomStringConvertible {
@@ -291,17 +323,58 @@ public struct PluginTool: Sendable {
     }
 }
 
+// MARK: - AgentTool Conformance
+
+/// ``PluginTool`` executes through a bounded subprocess per call (60s, 1MB
+/// cap), same contract as the reference client's Python plugins (one-shot
+/// `{tool, args}` → `{result}` on stdin/stdout, cwd = plugin directory).
+extension PluginTool: AgentTool {
+
+    /// Plugin tools are available when the installation's `requires_env`
+    /// variables are set — enforced at install time by
+    /// ``MutableToolRegistry/install(pluginTool:)``, so the check closure is
+    /// always nil here.
+    public var checkFn: ToolRequirementCheck? { nil }
+
+    public var emoji: String? { "🧩" }
+
+    /// Execute the tool: JSON `{tool, args}` on stdin → `{result}` on stdout.
+    /// Failures are rendered as a friendly `"Error: …"` string, never thrown,
+    /// so a misbehaving plugin degrades to a tool response instead of an
+    /// agent-facing error.
+    public var handler: ToolHandler {
+        { args in
+            do {
+                return try await self.invoke(args: args)
+            } catch {
+                return "Error: plugin tool failed: \(error.localizedDescription)"
+            }
+        }
+    }
+}
+
 // MARK: - Plugin registry (discovery)
 
 /// Discovers plugins under `~/.arc/plugins/` and exposes their tools/LLMs
 /// (reference `get_all_toolsets`/`_get_plugin_toolset_names` equivalents).
+///
+/// ## Deployment semantics (sidecar-plugin parity)
+///
+/// Discovery **never blocks boot**: directories without a `manifest.json`
+/// are skipped silently; unreadable or malformed manifests are recorded in
+/// ``discoveryIssues()`` and logged as warnings, and the rest of the
+/// installation still loads. `arc doctor` and `arc plugins list` surface the
+/// issues to an operator.
 public actor PluginRegistry {
     public static let shared = PluginRegistry()
 
     public let pluginsDir: URL
     private var manifests: [String: PluginManifest] = [:]
     private var toolCache: [PluginTool] = []
+    private var issues: [String] = []
     private var cached = false
+
+    private let logger = Logger(label: "arc.plugins")
 
     public init(pluginsDir: URL? = nil) {
         self.pluginsDir = pluginsDir ?? FileManager.default.homeDirectoryForCurrentUser
@@ -312,14 +385,39 @@ public actor PluginRegistry {
     public func loadAll() throws {
         manifests = [:]
         toolCache = []
+        issues = []
         cached = false
         let fm = FileManager.default
         guard fm.fileExists(atPath: pluginsDir.path) else { return }
         for dir in try fm.contentsOfDirectory(at: pluginsDir, includingPropertiesForKeys: [.isDirectoryKey]) {
             let manifestURL = dir.appendingPathComponent("manifest.json")
-            guard let data = try? Data(contentsOf: manifestURL) else { continue }
-            guard var manifest = try? JSONDecoder().decode(PluginManifest.self, from: data) else { continue }
+            guard fm.fileExists(atPath: manifestURL.path) else { continue }
+            guard let data = try? Data(contentsOf: manifestURL) else {
+                let message = "\(dir.lastPathComponent): manifest.json unreadable; skipping plugin"
+                issues.append(message)
+                logger.warning("\(message)")
+                continue
+            }
+            // Other plugin kinds (e.g. sidebar-tab sidecars) share this
+            // directory. Only treat a manifest as a (broken) tool plugin when
+            // it declares a `tools` key — otherwise skip silently.
+            let rootObject = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            let declaresTools = rootObject?["tools"] != nil
+            guard var manifest = try? JSONDecoder().decode(PluginManifest.self, from: data) else {
+                guard declaresTools else { continue }
+                let message = "\(dir.lastPathComponent): manifest.json is malformed; skipping plugin"
+                issues.append(message)
+                logger.warning("\(message)")
+                continue
+            }
             if manifest.name.isEmpty { manifest.name = dir.lastPathComponent }
+            if manifest.tools.isEmpty {
+                guard declaresTools else { continue }
+                let message = "\(dir.lastPathComponent): manifest declares no tools; skipping plugin"
+                issues.append(message)
+                logger.warning("\(message)")
+                continue
+            }
             manifests[manifest.name] = manifest
             for tool in manifest.tools {
                 toolCache.append(PluginTool(
@@ -343,6 +441,10 @@ public actor PluginRegistry {
     public func toolNames() -> [String] { toolCache.map { $0.name } }
     public func tools() -> [PluginTool] { toolCache }
     public func llm() -> PluginManifest.LLM? { manifests.values.compactMap { $0.llm }.first }
+
+    /// Non-fatal discovery problems from the last ``loadAll()`` (malformed
+    /// manifests, tool-less plugins). Empty means a clean discovery.
+    public func discoveryIssues() -> [String] { issues }
 }
 
 // MARK: - Mutable registry (compile-time registry + plugin tools at runtime)
@@ -354,7 +456,9 @@ public actor PluginRegistry {
 /// then plugins).
 public struct MutableToolRegistry: ToolRegistry {
     public let builtIn: CompileTimeToolRegistry
-    private var pluginEntries: [String: ToolEntry]
+    private var pluginEntries: [String: any AgentTool] = [:]
+
+    private static let logger = Logger(label: "arc.plugins")
 
     public init(builtIn: CompileTimeToolRegistry) {
         self.builtIn = builtIn
@@ -363,70 +467,41 @@ public struct MutableToolRegistry: ToolRegistry {
 
     // MARK: ToolRegistry
 
-    public mutating func register(_ tool: ToolEntry) throws {
+    public mutating func register(_ tool: any AgentTool) throws {
         if builtIn.lookup(name: tool.name) != nil || pluginEntries[tool.name] != nil {
             throw ToolRegistryError.duplicateName(tool.name)
         }
         pluginEntries[tool.name] = tool
     }
 
-    public func lookup(name: String) -> ToolEntry? {
+    public func lookup(name: String) -> (any AgentTool)? {
         builtIn.lookup(name: name) ?? pluginEntries[name]
     }
 
-    public var allTools: [ToolEntry] {
+    public var allTools: [any AgentTool] {
         builtIn.allTools + pluginEntries.values
     }
 
-    /// Normalize the manifest `schema` into an OpenAI `parameters` dict.
-    /// Accepts the raw parameters object, a `"function"` wrapper (reference
-    /// `register_tool(schema:)` shape), or `{"parameters": …}`.
-    static func parameters(from schema: [String: PluginJSON]?) -> [String: Any]? {
-        guard let raw = schema else { return nil }
-        let any = raw.mapValues { $0.toAny() }
-        if let parameters = any["parameters"] as? [String: Any] {
-            return parameters
-        }
-        if let function = any["function"] as? [String: Any] {
-            return function["parameters"] as? [String: Any]
-        }
-        return any["type"] != nil ? any : nil
-    }
-
-    /// Install a plugin tool. Returns `false` (and skips the tool) when its
-    /// `requires_env` requirements are unmet — reference `check_fn`/`requires_env`
-    /// parity: the tool disappears until the environment provides the vars.
+    /// Install a plugin tool.
+    ///
+    /// - Returns: `false` (and skips the tool) when its `requires_env`
+    ///   requirements are unmet — reference `check_fn`/`requires_env` parity:
+    ///   the tool disappears until the environment provides the vars. Also
+    ///   returns `false` (with a warning) when the tool's name collides with
+    ///   a built-in or an already-installed plugin tool — a duplicate
+    ///   function name in the schema array would make the model ambiguous
+    ///   and dispatch unreachable.
     @discardableResult
     public mutating func install(pluginTool: PluginTool) -> Bool {
         for key in pluginTool.requiresEnv where ProcessInfo.processInfo.environment[key] == nil {
             return false
         }
-        let schema: JSONSchema = {
-            if let raw = Self.parameters(from: pluginTool.schema),
-               let parsed = JSONSchema(fromOpenAI: raw) {
-                return parsed
-            }
-            return .object(properties: [
-                "args": .object(properties: [:]),
-            ])
-        }()
-        let entry = ToolEntry(
-            name: pluginTool.name,
-            toolset: pluginTool.toolset,
-            description: pluginTool.description,
-            schema: schema,
-            handler: { args in
-                var result = ""
-                do {
-                    result = try await pluginTool.invoke(args: args)
-                } catch {
-                    result = "Error: plugin tool failed: \(error.localizedDescription)"
-                }
-                return result
-            },
-            emoji: "🧩"
-        )
-        pluginEntries[pluginTool.name] = entry
+        if builtIn.lookup(name: pluginTool.name) != nil || pluginEntries[pluginTool.name] != nil {
+            Self.logger.warning(
+                "plugin tool '\(pluginTool.name)' from '\(pluginTool.plugin)' collides with an already-registered tool name; not installing")
+            return false
+        }
+        pluginEntries[pluginTool.name] = pluginTool
         return true
     }
 

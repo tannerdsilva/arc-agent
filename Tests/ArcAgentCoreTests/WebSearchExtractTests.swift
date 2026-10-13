@@ -71,4 +71,32 @@ struct WebSearchExtractTests {
         #expect(!out.contains("color:red"))
         #expect(!out.contains("alert(1)"))
     }
+
+    @Test("grounding envelope marks missing title/h1 as (none)")
+    func envelopeNoneMarkers() {
+        let env = WebExtractTool.pageEnvelope(url: "https://example.com", title: nil, h1: nil, length: 125)
+        #expect(env.contains("[TITLE] (none)"))
+        #expect(env.contains("[H1] (none)"))
+        #expect(env.contains("[LENGTH] 125"))
+        let with = WebExtractTool.pageEnvelope(url: "https://x.dev", title: "T", h1: "H1", length: 10)
+        #expect(with.contains("[TITLE] T"))
+        #expect(with.contains("[H1] H1"))
+    }
+
+    @Test("raw HTML title and first h1 are captured")
+    func htmlTitleAndH1() {
+        let html = "<html><head><title>Example Domain</title></head><body><h1>Example Domain</h1><p>hi</p></body></html>"
+        #expect(WebExtractTool.htmlTitle(html) == "Example Domain")
+        #expect(WebExtractTool.htmlH1(html) == "Example Domain")
+        // The case the benchmark caught: a page with no h1 must yield nil.
+        let bare = "<html><head><title>Example Domain</title></head><body><p>hi</p></body></html>"
+        #expect(WebExtractTool.htmlTitle(bare) == "Example Domain")
+        #expect(WebExtractTool.htmlH1(bare) == nil)
+    }
+
+    @Test("markdown first heading extraction")
+    func markdownH1Extraction() {
+        #expect(WebExtractTool.markdownH1("Intro\n# My Heading\nbody") == "My Heading")
+        #expect(WebExtractTool.markdownH1("no heading here") == nil)
+    }
 }

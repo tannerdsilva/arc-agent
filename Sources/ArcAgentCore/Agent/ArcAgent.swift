@@ -65,6 +65,20 @@ public actor ArcAgent: Service {
         /// system prompt as a `## Personality` section. Empty = no overlay.
         public var personalityPrompt: String = ""
 
+        /// Inject the "Finishing the job" task-completion guidance (arc
+        /// parity: reference `agent.task_completion_guidance`). Default ON.
+        public var taskCompletionGuidance: Bool = true
+        /// Inject the "Parallel tool calls" batching guidance (arc parity:
+        /// reference `agent.parallel_tool_call_guidance`). Default ON.
+        public var parallelToolCallGuidance: Bool = true
+        /// Inject tool-aware guidance for memory/session_search/skills tools
+        /// (arc parity: reference `agent.tool_aware_guidance`). Default ON.
+        public var toolAwareGuidance: Bool = true
+        /// Inject the tool-use-enforcement guidance (arc parity: reference
+        /// `agent.tool_use_enforcement`), with per-model discipline notes.
+        /// Default ON.
+        public var toolUseEnforcement: Bool = true
+
         /// reference micro-compaction (docs/micro-compaction.md): after each
         /// completed turn, absorb one exchange into a rolling summary. Off by
         /// default; enabled via `compression.micro_compact`.
@@ -151,6 +165,10 @@ public actor ArcAgent: Service {
             maxContextTokens: Int = 64_000,
             auxiliary: AuxiliaryModelSet = AuxiliaryModelSet(),
             personalityPrompt: String = "",
+            taskCompletionGuidance: Bool = true,
+            parallelToolCallGuidance: Bool = true,
+            toolAwareGuidance: Bool = true,
+            toolUseEnforcement: Bool = true,
             microCompact: MicroCompactConfig = MicroCompactConfig(),
             sessionID: String? = nil,
             contextLength: Int? = nil,
@@ -169,7 +187,9 @@ public actor ArcAgent: Service {
             maxOutputTokens: Int? = nil,
             agentPowers: AgentPowersConfig = AgentPowersConfig(),
             mcpServers: [String: MCPServerConfig] = [:],
-            disabledToolsets: Set<String> = []
+            disabledToolsets: Set<String> = [],
+            delegation: DelegationConfig = DelegationConfig(),
+            llmClient: (any LLMClient)? = nil
         ) {
             self.model = model
             self.provider = provider
@@ -188,6 +208,10 @@ public actor ArcAgent: Service {
             self.maxContextTokens = maxContextTokens
             self.auxiliary = auxiliary
             self.personalityPrompt = personalityPrompt
+            self.taskCompletionGuidance = taskCompletionGuidance
+            self.parallelToolCallGuidance = parallelToolCallGuidance
+            self.toolAwareGuidance = toolAwareGuidance
+            self.toolUseEnforcement = toolUseEnforcement
             self.microCompact = microCompact
             self.agentPowers = agentPowers
             self.sessionID = sessionID
@@ -207,6 +231,8 @@ public actor ArcAgent: Service {
             self.verifyOnStop = verifyOnStop
             self.mcpServers = mcpServers
             self.disabledToolsets = disabledToolsets
+            self.delegation = delegation
+            self.llmClient = llmClient
         }
 
         /// External MCP servers (reference `mcp_servers`).
@@ -214,6 +240,14 @@ public actor ArcAgent: Service {
 
         /// Toolsets to disable for this agent run (reference `--toolsets`).
         public var disabledToolsets: Set<String>
+
+        /// Delegation settings (child concurrency, turn budget, timeout).
+        public var delegation: DelegationConfig
+
+        /// Optional pre-built LLM client (tests, delegation children).
+        /// When set, ``prime()`` uses it instead of building one from the
+        /// config's baseURL/apiKey.
+        public var llmClient: (any LLMClient)?
     }
 
     // MARK: - State
@@ -347,7 +381,12 @@ public actor ArcAgent: Service {
         // (once the agent's own state is fully initialized).
         self.approvalManager = ApprovalManager(mode: config.approvalMode)
         self.toolGuardrails = ToolGuardrails(limits: .init(loopCap: config.toolLoopCap))
-        self.delegationManager = DelegationManager(maxChildren: 10)
+        self.delegationManager = DelegationManager(
+            maxChildren: config.delegation.maxConcurrentChildren,
+            parentConfiguration: config,
+            childMaxTurns: config.delegation.maxTurns,
+            childTimeout: config.delegation.defaultTimeout
+        )
     }
 
     /// Wire the `approval` auxiliary model into smart approval mode.
@@ -550,7 +589,7 @@ public actor ArcAgent: Service {
                     ?? 32_768
             )
         )
-        self.llmClient = client
+        self.llmClient = config.llmClient ?? client
 
         // Wire delegation tools to the manager
         DelegateTaskTool.manager = delegationManager
@@ -583,6 +622,14 @@ public actor ArcAgent: Service {
         }
 
         try? await httpClient?.shutdown()
+    }
+
+    /// One-shot execution for delegation children: prime (idempotent), run
+    /// the conversation, and return the final response text without
+    /// printing. The caller owns teardown (`shutdownHTTPClient()`).
+    func runOneShot(query: String) async throws -> String {
+        try await prime()
+        return try await runConversation(message: query)
     }
 
     // MARK: - Interactive REPL
@@ -1013,7 +1060,7 @@ public actor ArcAgent: Service {
             await restoreSessionIfNeeded()
             await resetTurnState()
             let composed = await self.composeUserContent(self.effectiveUserText(message))
-            messageHistory.append(Message(role: .user, content: composed))
+            messageHistory.append(Message(role: .user, content: composed, apiContent: composed))
 
             let response = try await runTurnLoop(client: llmClient)
 
@@ -1583,14 +1630,15 @@ public actor ArcAgent: Service {
 
             // 2. Build messages array
             var messages: [Message] = [Message(role: .system, content: systemPrompt)]
-            messages.append(contentsOf: Self.sanitizeMessages(messageHistory))
+            messages.append(contentsOf: Self.sanitizeMessages(messageHistory).map { $0.replayAPI() })
 
-            // 2b. Plugin `pre_llm_call`: prepend hook-provided context once
-            // (reference: context injected before the tool-calling loop).
+            // 2b. Plugin `pre_llm_call`: inject hook context into the current
+            // user message (reference: Hermes injects into the user message
+            // only, so the cached system prompt stays byte-stable).
             if let decision = await HookBus.shared.queryBlocking("pre_llm_call", [
                 "session_id": .string(sessionID),
             ]), case .context(let injection) = decision, !injection.isEmpty {
-                messages.insert(Message(role: .system, content: "Hook context:\n\(injection)"), at: 1)
+                Self.injectTurnAdvisories(into: &messages, blocks: ["Hook context:\n\(injection)"])
             }
 
             // 3. Build tool schemas (progressive disclosure: deferred tools
@@ -1610,10 +1658,7 @@ public actor ArcAgent: Service {
                     apiMessages: Self.apiForm(messages)
                 )
                 if !moaResult.advisoryBlock.isEmpty {
-                    messages.append(Message(
-                        role: .system,
-                        content: "Advisory context from reference models (Mixture of Agents):\n\(moaResult.advisoryBlock)"
-                    ))
+                    Self.injectTurnAdvisories(into: &messages, blocks: ["Advisory context from reference models (Mixture of Agents):\n\(moaResult.advisoryBlock)"])
                 }
             }
 
@@ -1623,7 +1668,9 @@ public actor ArcAgent: Service {
                 response = try await callWithRetry(
                     client: currentClient,
                     makeClient: { await self.freshClient() ?? fallbackClient },
-                    messages: messages,
+                    // Snapshot each message's wire content (api_content sidecar)
+                    // so the exact bytes sent are recorded for replay fidelity.
+                    messages: messages.map { $0.snapshotAPI() },
                     tools: toolSchemas,
                     timeout: config.maxTurnDuration,
                     reasoningEffort: currentReasoningEffort
@@ -1699,7 +1746,7 @@ public actor ArcAgent: Service {
                (response2.toolCalls ?? []).isEmpty,
                let partial = response2.content, !partial.isEmpty,
                truncationContinuations < Self.maxTruncationContinuations {
-                messageHistory.append(Message(role: .assistant, content: partial))
+                messageHistory.append(Message(role: .assistant, content: partial, apiContent: partial))
                 messageHistory.append(Message(role: .system, content: Self.truncationNudge))
                 truncationContinuations += 1
                 continue
@@ -1708,7 +1755,7 @@ public actor ArcAgent: Service {
             // 6. Parse response — tool calls take precedence over content.
             switch Self.classifyTurn(content: response2.content, toolCalls: response2.toolCalls) {
             case .text(let content):
-                messageHistory.append(Message(role: .assistant, content: content, reasoning: response2.reasoning))
+                messageHistory.append(Message(role: .assistant, content: content, reasoning: response2.reasoning, apiContent: content))
                 turnRecoveryState.markProviderSuccess()
                 return content
 
@@ -1717,7 +1764,8 @@ public actor ArcAgent: Service {
                     role: .assistant,
                     content: response2.content,
                     toolCalls: toolCalls,
-                    reasoning: response2.reasoning
+                    reasoning: response2.reasoning,
+                    apiContent: response2.content
                 ))
 
                 let outcomes = await executeToolCalls(toolCalls)
@@ -1726,7 +1774,8 @@ public actor ArcAgent: Service {
                         role: .tool,
                         content: result,
                         name: call.function.name,
-                        toolCallID: call.id
+                        toolCallID: call.id,
+                        apiContent: result
                     ))
                 }
                 appendedToolResults = !outcomes.isEmpty
@@ -1862,6 +1911,7 @@ public actor ArcAgent: Service {
                 turnInterrupted = false
                 emit(.textDelta("Interrupted by user."))
                 emit(.completed(finalText: "Interrupted by user."))
+                await persistConversationIfNeeded()
                 return
             }
             // Reference gateway event: `agent:step` per tool-loop iteration.
@@ -1877,7 +1927,7 @@ public actor ArcAgent: Service {
 
             let systemPrompt = try await buildSystemPrompt()
             var messages: [Message] = [Message(role: .system, content: systemPrompt)]
-            messages.append(contentsOf: Self.sanitizeMessages(messageHistory))
+            messages.append(contentsOf: Self.sanitizeMessages(messageHistory).map { $0.replayAPI() })
 
             let toolSchemas = ProgressiveToolDisclosure.buildPromptSchemas(
                 registry: config.registry,
@@ -1886,17 +1936,24 @@ public actor ArcAgent: Service {
                 contextLength: config.maxContextTokens
             )
 
-            // MoA advisory context (reference moa_loop parity).
+            // 2b. Plugin `pre_llm_call`: inject hook context into the current
+            // user message (reference: Hermes injects into the user message
+            // only, so the cached system prompt stays byte-stable).
+            if let decision = await HookBus.shared.queryBlocking("pre_llm_call", [
+                "session_id": .string(sessionID),
+            ]), case .context(let injection) = decision, !injection.isEmpty {
+                Self.injectTurnAdvisories(into: &messages, blocks: ["Hook context:\n\(injection)"])
+            }
+
+            // MoA advisory context (reference moa_loop parity) — injected into
+            // the current user message, not an extra system message.
             if config.moa.enabled {
                 let moaResult = await moaService.aggregate(
                     userPrompt: messageHistory.last(where: { $0.role == .user })?.content ?? "",
                     apiMessages: Self.apiForm(messages)
                 )
                 if !moaResult.advisoryBlock.isEmpty {
-                    messages.append(Message(
-                        role: .system,
-                        content: "Advisory context from reference models (Mixture of Agents):\n\(moaResult.advisoryBlock)"
-                    ))
+                    Self.injectTurnAdvisories(into: &messages, blocks: ["Advisory context from reference models (Mixture of Agents):\n\(moaResult.advisoryBlock)"])
                 }
             }
 
@@ -1911,7 +1968,9 @@ public actor ArcAgent: Service {
                 let stream = try await callStreamWithRetry(
                     client: currentClient,
                     makeClient: { await self.freshClient() ?? fallbackClient },
-                    messages: messages,
+                    // Snapshot each message's wire content (api_content sidecar)
+                    // so the exact bytes sent are recorded for replay fidelity.
+                    messages: messages.map { $0.snapshotAPI() },
                     tools: toolSchemas,
                     timeout: config.maxTurnDuration,
                     reasoningEffort: currentReasoningEffort
@@ -1988,6 +2047,7 @@ public actor ArcAgent: Service {
                     let text = "The model request exceeded the maximum turn duration. Please try again or shorten the context."
                     emit(.textDelta(text))
                     emit(.completed(finalText: text))
+                    await persistConversationIfNeeded()
                     return
                 }
 
@@ -2000,6 +2060,7 @@ public actor ArcAgent: Service {
                         let text = "The model stream stalled repeatedly. Please try again."
                         emit(.textDelta(text))
                         emit(.completed(finalText: text))
+                        await persistConversationIfNeeded()
                         return
                     }
                     if !turnRecoveryState.primaryRecoveryAttempted {
@@ -2042,6 +2103,7 @@ public actor ArcAgent: Service {
                     }
                 }
                 emit(.failed("Error: \(error.localizedDescription)"))
+                await persistConversationIfNeeded()
                 return
             }
 
@@ -2064,17 +2126,19 @@ public actor ArcAgent: Service {
                 toolCalls: accumulatedToolCalls.isEmpty ? nil : accumulatedToolCalls
             ) {
             case .text(let content):
-                messageHistory.append(Message(role: .assistant, content: content))
+                messageHistory.append(Message(role: .assistant, content: content, apiContent: content))
                 turnRecoveryState.markProviderSuccess()
                 if let streamUsage { await recordUsage(streamUsage) }
                 emit(.completed(finalText: content))
+                await persistConversationIfNeeded()
                 return
 
             case .toolCalls(let toolCalls):
                 messageHistory.append(Message(
                     role: .assistant,
                     content: accumulatedContent.isEmpty ? nil : accumulatedContent,
-                    toolCalls: toolCalls
+                    toolCalls: toolCalls,
+                    apiContent: accumulatedContent.isEmpty ? nil : accumulatedContent
                 ))
 
                 let outcomes = await executeToolCalls(toolCalls, emit: emit)
@@ -2083,7 +2147,8 @@ public actor ArcAgent: Service {
                         role: .tool,
                         content: result,
                         name: call.function.name,
-                        toolCallID: call.id
+                        toolCallID: call.id,
+                        apiContent: result
                     ))
                 }
                 appendedToolResults = !outcomes.isEmpty
@@ -2112,6 +2177,7 @@ public actor ArcAgent: Service {
                 if turnRecoveryState.emptyStormStreak >= TurnRecoveryState.emptyStormThreshold {
                     emit(.textDelta(RecoveryNudges.emptyStormExhaustedMessage))
                     emit(.completed(finalText: RecoveryNudges.emptyStormExhaustedMessage))
+                    await persistConversationIfNeeded()
                     return
                 }
                 continue
@@ -2122,6 +2188,7 @@ public actor ArcAgent: Service {
         let limitText = "The conversation reached the maximum iteration limit. Please start a new session."
         emit(.textDelta(limitText))
         emit(.completed(finalText: limitText))
+        await persistConversationIfNeeded()
     }
 
     /// Call the LLM with retry logic, circuit breaker, and exponential backoff.
@@ -2514,6 +2581,22 @@ public actor ArcAgent: Service {
         }
     }
 
+    /// Inject per-turn advisory context (plugin `pre_llm_call` context, MoA
+    /// advisory) into the LAST user message rather than as an extra system
+    /// message — keeping the cached system prompt byte-stable (reference:
+    /// Hermes injects these into the user message only). Advisories are
+    /// per-turn and deliberately NOT persisted into messageHistory.
+    static func injectTurnAdvisories(into messages: inout [Message], blocks: [String]) {
+        let joined = blocks
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+        guard !joined.isEmpty, let idx = messages.lastIndex(where: { $0.role == .user }) else { return }
+        let existing = messages[idx].content ?? ""
+        let combined = existing.isEmpty ? joined : existing + "\n\n" + joined
+        messages[idx] = Message(role: .user, content: combined)
+    }
+
     /// Post-execution laundering (reference `redact.py` parity): terminal tool
     /// output is scrubbed for secret shapes before it is shown to the model.
     static func launderToolResult(_ call: ToolCall, _ result: String) async -> String {
@@ -2657,8 +2740,42 @@ public actor ArcAgent: Service {
     /// tools the approval manager gates: a manual/smart approval policy is
     /// meaningless if a process-execution path can sidestep it entirely.
     /// (Read-only tools deliberately stay ungated.)
-    static func requiresApprovalForTool(named name: String) -> Bool {
-        name == "terminal" || name == "execute_code"
+    /// Which tools route through the approval gate. Control actions on
+    /// processes (agent-owned `process kill`, machine `process_watch
+    /// signal`) are gated like destructive shell commands.
+    static func requiresApprovalForTool(named name: String, arguments: String) -> Bool {
+        switch name {
+        case "terminal", "execute_code":
+            return true
+        case "process":
+            return actionIs("kill", in: arguments)
+        case "process_watch":
+            return actionIs("signal", in: arguments)
+        default:
+            return false
+        }
+    }
+
+    /// Tolerant scan of a tool-arguments JSON string for
+    /// `"action" : "signal"` (any whitespace between tokens).
+    static func actionIs(_ action: String, in arguments: String) -> Bool {
+        guard let range = arguments.range(of: "\"action\"") else { return false }
+        let i = range.upperBound
+        let chars = arguments[i...]
+        var idx = chars.startIndex
+        func skipWhitespace() {
+            while idx < chars.endIndex, chars[idx].isWhitespace { idx = chars.index(after: idx) }
+        }
+        skipWhitespace()
+        guard idx < chars.endIndex, chars[idx] == ":" else { return false }
+        idx = chars.index(after: idx)
+        skipWhitespace()
+        guard idx < chars.endIndex, chars[idx] == "\"" else { return false }
+        idx = chars.index(after: idx)
+        let valueStart = idx
+        while idx < chars.endIndex, chars[idx] != "\"" { idx = chars.index(after: idx) }
+        let value = String(chars[valueStart..<min(idx, chars.endIndex)])
+        return value == action
     }
 
     /// Tools that are safe to run concurrently within one batch: read-only,
@@ -3023,7 +3140,7 @@ public actor ArcAgent: Service {
     /// Run one tool call end to end: terminal approval gate, dispatch, and
     /// metrics. Returns the string that becomes the tool result message.
     private func runToolCall(_ toolCall: ToolCall) async -> String {
-        if Self.requiresApprovalForTool(named: toolCall.function.name) {
+        if Self.requiresApprovalForTool(named: toolCall.function.name, arguments: toolCall.function.arguments) {
             let args = toolCall.function.arguments
             if await approvalManager.needsApproval(command: args, sessionKey: sessionID) {
                 switch await approvalManager.requestApproval(
@@ -3118,6 +3235,30 @@ public actor ArcAgent: Service {
             - When you say you will perform an action, do it immediately.
             - Keep working until the task is actually complete.
             """
+
+        // ── Universal guidance (arc parity: hermes prompt_builder guides) ──
+        if config.taskCompletionGuidance {
+            stable += "\n\n" + PromptGuidance.taskCompletion
+        }
+        if config.parallelToolCallGuidance {
+            stable += "\n\n" + PromptGuidance.parallelToolCalls
+        }
+        if config.toolAwareGuidance {
+            let toolNames = Set(config.registry.allTools.map(\.name))
+            let blocks = PromptGuidance.toolAware(
+                hasMemory: toolNames.contains("memory"),
+                hasSessionSearch: toolNames.contains("session_search"),
+                hasSkillTools: toolNames.contains("skill_manage")
+                    || toolNames.contains("skills_list")
+                    || toolNames.contains("skill_view")
+            )
+            if !blocks.isEmpty {
+                stable += "\n\n" + blocks.joined(separator: "\n\n")
+            }
+        }
+        if config.toolUseEnforcement {
+            stable += "\n\n" + PromptGuidance.toolUseEnforcement(for: config.model)
+        }
 
         // Environment hints (stable per machine).
         let osDescription: String

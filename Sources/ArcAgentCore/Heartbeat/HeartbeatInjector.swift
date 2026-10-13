@@ -1,5 +1,5 @@
 import Foundation
-import os
+import Synchronization
 
 // MARK: - Heartbeat injection (reference `features/heartbeat.md`)
 
@@ -26,7 +26,7 @@ public enum HeartbeatInjector {
         pollInterval: Duration = .seconds(5)
     ) -> AsyncStream<IncomingMessage> {
         let (stream, continuation) = AsyncStream<IncomingMessage>.makeStream()
-        let finished = OSAllocatedUnfairLock(initialState: false)
+        let finished = Mutex(false)
         let messageTask = Task {
             for await message in incoming {
                 continuation.yield(message)

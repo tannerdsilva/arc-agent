@@ -1,5 +1,5 @@
 import Foundation
-import CryptoKit
+import Crypto
 
 // MARK: - Skill curator (reference `curator.py` + `curator_backup.py`)
 

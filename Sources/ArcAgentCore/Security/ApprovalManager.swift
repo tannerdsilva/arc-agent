@@ -365,6 +365,10 @@ actor DangerousPatternStore {
             (.dangerous, pattern("poweroff\\s+")),
             (.dangerous, pattern("iptables\\s+")),
             (.dangerous, pattern("ufw\\s+")),
+            // Process control: killing processes is destructive (plan A).
+            (.dangerous, pattern("\\bkill\\s+")),
+            (.dangerous, pattern("\\bpkill\\s+")),
+            (.dangerous, pattern("\\bkillall\\s+")),
 
             // Suspicious — network exfiltration
             (.suspicious, pattern("nc\\s+")),

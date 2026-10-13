@@ -27,6 +27,7 @@ struct Arc: AsyncParsableCommand {
             Serve.self,
             Setup.self,
             Tools.self,
+            PluginsCmd.self,
             Profile.self,
             SessionsCmd.self,
             ApprovalsCmd.self,
@@ -43,6 +44,7 @@ struct Arc: AsyncParsableCommand {
             LearningCmd.self,
             MemoryCmd.self,
             SkillsCmd.self,
+            SkillBundleCmd.self,
             KanbanCmd.self,
             CronCmd.self,
             CuratorCmd.self,
@@ -190,25 +192,15 @@ struct Chat: AsyncParsableCommand {
         // Storage: with a `tessera` configuration, sessions and memory are
         // persisted to the Tessera server as signed NOSTR events. If the
         // relay is unreachable (bounded handshake), fall back to file
-        // storage so the agent never hangs or crashes on storage.
-        let sessionStore: any SessionStore
-        let memoryProvider: (any MemoryProvider)?
-        if let tessera = arcConfig.tessera {
-            await TesseraConnection.shared.configure(tessera)
-            if await TesseraConnection.shared.healthCheck() {
-                sessionStore = TesseraSessionStore()
-                memoryProvider = TesseraMemoryProvider()
-            } else {
-                Logger(label: "arc-agent").warning(
-                    "Tessera relay unreachable (handshake timed out); falling back to file storage for this run"
-                )
-                sessionStore = FileSessionStore()
-                memoryProvider = FileMemoryProvider()
-            }
-        } else {
-            sessionStore = FileSessionStore()
-            memoryProvider = memoryDir.map { FileMemoryProvider(directory: $0) } ?? FileMemoryProvider()
-        }
+        // storage so the agent never hangs or crashes on storage. Resolved
+        // through the shared factory so session admin commands and the chat
+        // path always agree on which store is live.
+        let storage = await SessionStoreResolver.resolve(
+            tessera: arcConfig.tessera,
+            memoryDirectory: memoryDir
+        )
+        let sessionStore = storage.sessionStore
+        let memoryProvider = storage.memoryProvider
 
         // Resume resolution (reference `sessions.md` § CLI Session Resume):
         // `-c` continues the most recent CLI session; `--resume` matches by
@@ -251,6 +243,10 @@ struct Chat: AsyncParsableCommand {
             approvalMode: approvalMode,
             query: query,
             personalityPrompt: arcConfig.agent.systemPrompt,
+            taskCompletionGuidance: arcConfig.agent.taskCompletionGuidance,
+            parallelToolCallGuidance: arcConfig.agent.parallelToolCallGuidance,
+            toolAwareGuidance: arcConfig.agent.toolAwareGuidance,
+            toolUseEnforcement: arcConfig.agent.toolUseEnforcement,
             microCompact: MicroCompactConfig(
                 enabled: arcConfig.agent.microCompactEnabled,
                 everyNTurns: arcConfig.agent.microCompactEveryNTurns,
@@ -269,7 +265,8 @@ struct Chat: AsyncParsableCommand {
             maxOutputTokens: arcConfig.model.maxOutputTokens,
             agentPowers: arcConfig.agentPowers,
             mcpServers: arcConfig.mcpServers,
-            disabledToolsets: disabledToolsets
+            disabledToolsets: disabledToolsets,
+            delegation: arcConfig.delegation
         )
 
         let agent = ArcAgent(config: agentConfig)

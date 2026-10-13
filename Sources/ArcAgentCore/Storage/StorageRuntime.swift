@@ -31,14 +31,18 @@ public struct StorageRuntime: Sendable {
     /// reachable (bounded handshake); the file fallback otherwise. Configures
     /// the shared connection on the way in — callers must not configure it again.
     public static func resolve(tessera: TesseraConfig?, tesseraOff: Bool) async -> StorageRuntime {
-        guard !tesseraOff, let tessera else { return .file() }
-        await TesseraConnection.shared.configure(tessera)
-        guard await TesseraConnection.shared.healthCheck(within: 10) else {
-            Logger(label: "com.arc-agent.storage").warning(
-                "Tessera relay unreachable (handshake timed out); falling back to file storage for this process"
-            )
+        let logger = Logger(label: "com.arc-agent.storage")
+        guard !tesseraOff, let tessera else {
+            logger.warning("Storage resolved to file (guard): tesseraOff=\(tesseraOff), tesseraConfigured=\(tessera != nil)")
             return .file()
         }
+        await TesseraConnection.shared.configure(tessera)
+        logger.info("Tessera configured; running bounded health check")
+        guard await TesseraConnection.shared.healthCheck(within: 10) else {
+            logger.warning("Tessera relay unreachable (health check failed); falling back to file storage for this process")
+            return .file()
+        }
+        logger.info("Tessera health check passed; using tessera storage")
         return StorageRuntime(
             store: TesseraSessionStore(),
             memory: TesseraMemoryProvider(),

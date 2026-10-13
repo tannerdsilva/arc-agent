@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// Google Cloud service-account → OAuth2 bearer token (reference
 /// `vertex_adapter.py` auth path): build an RS256 JWT assertion, exchange it
@@ -80,6 +82,11 @@ public struct VertexAuth: Sendable {
     }
 
     static func rsaSignSHA256(_ data: Data, pem: String) throws -> String {
+        // RSASSA-PKCS1-v1_5 with SHA-256 for the Google service account.
+        // Apple platforms use the Security framework; other platforms (Linux)
+        // do not ship it, so Vertex signing fails fast until a cross-platform
+        // RSA implementation is added.
+#if canImport(Security)
         let keyData = try parsePEMPrivateKey(pem)
         var error: Unmanaged<CFError>?
         let attributes: [CFString: Any] = [kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeyClass: kSecAttrKeyClassPrivate]
@@ -90,6 +97,9 @@ public struct VertexAuth: Sendable {
             throw LLMError.authenticationFailed
         }
         return base64URL(signature as Data)
+#else
+        throw LLMError.authenticationFailed
+#endif
     }
 
     static func parsePEMPrivateKey(_ pem: String) throws -> Data {

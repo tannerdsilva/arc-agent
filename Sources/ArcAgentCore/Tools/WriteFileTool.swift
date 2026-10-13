@@ -1,4 +1,4 @@
-import System
+import SystemPackage
 import Foundation
 
 /// The `write_file` tool: writes content to a file, overwriting any existing content.

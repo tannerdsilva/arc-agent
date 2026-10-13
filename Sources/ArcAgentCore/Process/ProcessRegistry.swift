@@ -90,6 +90,16 @@ public actor ProcessRegistry {
 
         try proc.run()
 
+        // Plan A: owned-process lifecycle events for hooks/jobs/notifications.
+        let spawnedContext: [String: HookValue] = [
+            "session_id": .string(id),
+            "command": .string(command),
+            "pid": .int(Int(proc.processIdentifier)),
+            "workdir": .string(workdir ?? ""),
+            "host": .string(ProcessInfo.processInfo.hostName),
+        ]
+        Task { await HookBus.shared.emit("process:spawned", spawnedContext) }
+
         // Reap + record exit state (one structured task per session).
         Task { [weak self] in
             proc.waitUntilExit()
@@ -119,12 +129,14 @@ public actor ProcessRegistry {
         public let command: String
         public let status: String
         public let exitCode: Int?
+        public let pid: Int32?
 
-        public init(sessionID: String, command: String, status: String, exitCode: Int?) {
+        public init(sessionID: String, command: String, status: String, exitCode: Int?, pid: Int32? = nil) {
             self.sessionID = sessionID
             self.command = command
             self.status = status
             self.exitCode = exitCode
+            self.pid = pid
         }
     }
 
@@ -136,7 +148,8 @@ public actor ProcessRegistry {
                     sessionID: entry.id,
                     command: entry.command,
                     status: entry.exited ? "exited" : "running",
-                    exitCode: entry.exitCode
+                    exitCode: entry.exitCode,
+                    pid: Int32(entry.process.processIdentifier)
                 )
             }
     }
@@ -222,6 +235,16 @@ public actor ProcessRegistry {
     private func markExited(id: String, code: Int, reason: String) {
         guard let entry = entries[id] else { return }
         entry.markExited(code: code, reason: reason)
+        // Plan A: exit lifecycle event (fires exactly once, in the reaper).
+        let context: [String: HookValue] = [
+            "session_id": .string(id),
+            "command": .string(entry.command),
+            "exit_code": .int(code),
+            "reason": .string(reason),
+            "workdir": .string(entry.workdir ?? ""),
+            "host": .string(ProcessInfo.processInfo.hostName),
+        ]
+        Task { await HookBus.shared.emit("process:exited", context) }
     }
 
     private func readLog(id: String) -> String? {

@@ -696,7 +696,7 @@ actor AppState {
     var profiles: [Profile] = []
     var selectedProfile: String?
 
-    var toolsets: [(name: String, tools: [ToolEntry])] = []
+    var toolsets: [(name: String, tools: [any AgentTool])] = []
     var selectedTool: String?
 
     var selectedWorkspace: String?
@@ -844,6 +844,21 @@ actor AppState {
     /// attaches the slide-in animation class; consumed by workspacePanelHTML.
     var wsEnterAnim = false
 
+    /// Render-path cache for the workspace file tree, keyed by
+    /// (path, showHidden, expanded set). Repeated shell re-renders of an
+    /// OPEN panel reuse this instead of rescanning the directory. Cleared
+    /// when the panel is (re)opened or on a file/folder mutation.
+    var workspaceTreeCacheKey: String? = nil
+    var workspaceTreeCacheHTML: String? = nil
+
+    /// The workspace-relative path of a file open in the panel's preview pane,
+    /// its read content, and an optional notice (binary / oversized / unreadable).
+    /// nil = the panel shows the file tree. (Hermes parity: the right
+    /// "workspace" panel shows both a file tree and a file preview.)
+    var previewPath: String? = nil
+    var previewContent: String? = nil
+    var previewNote: String? = nil
+
     /// Scheduled-tasks page: the job whose controls + chat are open in the main pane.
     var tasksSelectedID: String? = nil
 
@@ -982,7 +997,7 @@ actor AppState {
 
     // MARK: Init
 
-    init(thirdPartyPlugins: [any SidebarTabPlugin] = []) throws {
+    init(thirdPartyPlugins: [any SidebarTabPlugin] = []) async throws {
         self.registry = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
         let grouped = Dictionary(grouping: self.registry.allTools, by: { $0.toolset })
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }

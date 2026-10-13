@@ -2,7 +2,7 @@ import Foundation
 import AsyncHTTPClient
 import NIOCore
 import NIOHTTP1
-import CryptoKit
+import Crypto
 
 // MARK: - Event Hooks (reference `website/docs/user-guide/features/hooks.md`)
 

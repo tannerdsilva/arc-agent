@@ -38,6 +38,17 @@ public enum ArcDaemon {
         // stay authoritative for the whole process.
         AgentPowers.configure(arc.agentPowers)
 
+        // Plan B: scoped process watcher. Configured always (so the
+        // `process_watch` tool sees the rules even when disabled); the
+        // service joins the tree only when enabled. Owned background
+        // sessions are excluded from observation — they emit their own
+        // `process:*` lifecycle events (plan A).
+        await ProcessWatchService.shared.configure(arc.processWatch)
+        let ownedPIDs = Set(await ProcessRegistry.shared.summaries().compactMap { summary in
+            summary.status == "running" ? summary.pid : nil
+        })
+        await ProcessWatchService.shared.setAgentPIDs(ownedPIDs)
+
         // ONE storage decision for the whole process: the gateway's session
         // agents and the web UI share this exact pair (no second env on the
         // same store directories).
@@ -93,7 +104,7 @@ public enum ArcDaemon {
         var uiHost: WebUIHost?
         if let webui = plan.webui {
             let sidecarPlugins = await sidecarManager.discover()
-            uiHost = try WebUIHost(
+            uiHost = try await WebUIHost(
                 host: webui.host,
                 port: webui.port,
                 tesseraOff: plan.tesseraOff,
@@ -101,6 +112,27 @@ public enum ArcDaemon {
                 thirdPartyPlugins: sidecarPlugins,
                 sidecarManager: sidecarManager
             )
+        }
+
+        // ── tool plugins ──────────────────────────────────────────
+        // Executable plugin tools under ~/.arc/plugins/<name>/ are loaded
+        // per-session by MutableToolRegistry.make() (SessionAgent). Warm
+        // discovery here so malformed installs and tool-set surprises show
+        // up in the daemon log at boot (never blocking) instead of on the
+        // first session.
+        let pluginRegistry = PluginRegistry.shared
+        do {
+            try await pluginRegistry.loadAll()
+        } catch {
+            logger.warning("tool plugin discovery failed: \(error)")
+        }
+        let pluginManifests = await pluginRegistry.plugins()
+        let pluginTools = await pluginRegistry.tools()
+        let pluginIssues = await pluginRegistry.discoveryIssues()
+        if !pluginManifests.isEmpty {
+            logger.info("tool plugins: \(pluginManifests.count) plugin(s), \(pluginTools.count) tool(s) [\(pluginManifests.keys.sorted().joined(separator: ", "))]")
+        } else if !pluginIssues.isEmpty {
+            logger.warning("tool plugin discovery found \(pluginIssues.count) issue(s): \(pluginIssues.joined(separator: "; "))")
         }
 
         // ── cron: ONE engine, ONE store ─────────────────────────────
@@ -144,8 +176,14 @@ public enum ArcDaemon {
         services.append(cronScheduler)
 
         // Sidecar plugin processes ride the same lifecycle: graceful stop
-        // terminates every plugin before the daemon exits.
+        // terminates every plugin child before the host exits.
         services.append(SidecarPluginService(manager: sidecarManager))
+
+        // Plan B: scoped process watcher (Second Law — one Service in the
+        // tree; polls, diffs, emits `process:*` HookBus events).
+        if arc.processWatch.enabled {
+            services.append(ProcessWatchService.shared)
+        }
 
         if let mcp = plan.mcpServer {
             // TCP only — stdio is meaningless for a daemon. Exposes every

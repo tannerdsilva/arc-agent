@@ -207,15 +207,15 @@ struct ApprovalGateScopeTests {
 
     @Test("process-execution tools require approval")
     func processToolsAreGated() {
-        #expect(ArcAgent.requiresApprovalForTool(named: "terminal"))
-        #expect(ArcAgent.requiresApprovalForTool(named: "execute_code"))
+        #expect(ArcAgent.requiresApprovalForTool(named: "terminal", arguments: "{}"))
+        #expect(ArcAgent.requiresApprovalForTool(named: "execute_code", arguments: "{}"))
     }
 
-    @Test("read-only tools are not gated")
+    @Test("read tools are not gated")
     func readToolsAreNotGated() {
-        #expect(!ArcAgent.requiresApprovalForTool(named: "read_file"))
-        #expect(!ArcAgent.requiresApprovalForTool(named: "search_files"))
-        #expect(!ArcAgent.requiresApprovalForTool(named: "skills_list"))
+        #expect(!ArcAgent.requiresApprovalForTool(named: "read_file", arguments: "{}"))
+        #expect(!ArcAgent.requiresApprovalForTool(named: "search_files", arguments: "{}"))
+        #expect(!ArcAgent.requiresApprovalForTool(named: "skills_list", arguments: "{}"))
     }
 
     @Test("dangerous patterns inside an execute_code payload still escalate in smart mode")

@@ -177,9 +177,18 @@ public actor TesseraConnection {
     public func healthCheck(within seconds: UInt64 = 20) async -> Bool {
         do {
             try await ensureStarted()
-            await shutdown()
+            // On success, KEEP the established tunnel up rather than disconnecting
+            // it. Shutting down here just to let the next store operation reconnect
+            // re-triggers the relay's KCP control-block recreation (connect/disconnect
+            // turns the peer "roamed"/genesis and resets the relay's KCP state), which
+            // destabilizes the tunnel and drops the subsequent publishes. Keeping the
+            // connection lets all store operations reuse the same settled tunnel.
             return true
         } catch {
+            // A relay outage must be visible: log the actual thrown error
+            // (operator Logs panel) instead of swallowing it into a bare `false`.
+            let desc = String(reflecting: error)
+            Logger(label: "arc-agent.tessera").error("Tessera health check failed: \(desc)")
             await hardShutdown()
             return false
         }
@@ -421,32 +430,72 @@ public actor TesseraConnection {
             try await Self.boundedOp(seconds: 12) {
                 try await session.connect()
             }
-            // The subscribe path waits on the same tunnel channel as connect; a
-            // relay that dies mid-handshake leaves it unresolved forever, so
-            // bound the whole subscribe phase (mirror of the connect race above).
-            // The raw client's channel wait cannot be cancelled once entered, so
-            // the losing task stays blocked inside the client's own pool — a
-            // bounded leak beats an unbounded caller freeze.
-            try await Self.boundedOp(seconds: Self.writeTimeoutSeconds) {
-                for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind]) {
-                    try await session.subscribe(subscriptionID: sub, filters: [Filter(applications: [config.application], kinds: [kind])])
-                }
-            }
+            // Subscribe to all six kinds. A fresh connection can land while the
+            // relay is still recreating its KCP control blocks (triggered on
+            // connect/roam), which can drop the initial EOSE replies. Rather than
+            // tearing down and reconnecting — which re-triggers that reset and
+            // pushes the gateway into an endless reconnect churn — re-subscribe on
+            // the SAME tunnel and re-wait. `subscribe` is idempotent (each call
+            // writes a REQ), and the relay upserts the subscription and re-emits
+            // EOSE every time a REQ for it arrives.
+            var eoseDone = false
+            for _ in 0..<3 {
+            	try await Self.boundedOp(seconds: Self.writeTimeoutSeconds) {
+            		for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind]) {
+            			try await session.subscribe(subscriptionID: sub, filters: [Filter(applications: [config.application], kinds: [kind])])
+            		}
+            	}
 
-            // Wait for every end-of-history marker, then give the receiver a
-            // moment to drain the decoded events into the model.
-            let deadline = Date().addingTimeInterval(8)
-            while Date() < deadline {
-                if tracker.completed() { break }
-                try await Task.sleep(nanoseconds: 100_000_000)
+            	// Wait for every end-of-history marker, then give the receiver a
+            	// moment to drain the decoded events into the model.
+            	let deadline = Date().addingTimeInterval(8)
+            	while Date() < deadline {
+            		if tracker.completed() { eoseDone = true; break }
+            		try await Task.sleep(nanoseconds: 100_000_000)
+            	}
+            	if eoseDone { break }
             }
+            // Give the receiver a moment to drain decoded events into the model.
+            // The relay's KCP control blocks are recreated on connect/roam, which can
+            // drop the in-flight EOSE markers (observed: intermittent "timed out
+            // waiting for the server's end-of-history markers"). The tunnel itself is
+            // established and the subscription REQs are on the wire at this point, so
+            // treat a missing EOSE as a partial-history warning rather than a fatal
+            // store failure — the store reads/writes flow through the shared model's
+            // live event log regardless of whether every end-of-history marker landed.
             try await Task.sleep(nanoseconds: 500_000_000)
-            guard tracker.completed() else {
-                throw TesseraStoreError.eoseTimeout
+            if !tracker.completed() {
+            	Logger(label: "arc-agent.tessera").warning("tessera: end-of-history markers incomplete (\(tracker.seenCount)/\(Self.subscriptionIDs.count)); history may be partial, proceeding with established tunnel")
             }
 
             nextSeq = globalMaxSequence() + 1
             isStarted = true
+
+            // Recover a partial/empty history after a reconnect. Reconnecting to
+            // a long-running relay can land while it is still recreating its KCP
+            // control blocks, which drops the initial EOSE markers (observed as
+            // "end-of-history markers incomplete (0/6)"). The store proceeds on
+            // the established tunnel but would otherwise boot with an empty
+            // history and "forget" previously stored chats. Keep re-subscribing
+            // in the background — each REQ makes the relay re-emit the stored
+            // events + EOSE into the shared model — until every end-of-history
+            // marker lands. Fire-and-forget per the First Law; ArcModel is keyed
+            // by NOSTR event id, so re-received events overwrite in place (no
+            // duplicate chats).
+            if !tracker.completed() {
+                let recSession = session
+                let recConfig = config
+                Task { [weak tracker] in
+                    while !(tracker?.completed() ?? true) {
+                        // Back off so the re-subscribe lands after the relay's KCP
+                        // control blocks settle (they are recreated on connect/roam).
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind]) {
+                            try? await recSession.subscribe(subscriptionID: sub, filters: [Filter(applications: [recConfig.application], kinds: [kind])])
+                        }
+                    }
+                }
+            }
         } catch {
             // A failed start must never leave a half-open tunnel behind: the
             // stale session/model/eose-tracker stay set, and the next retry
@@ -591,9 +640,25 @@ public actor TesseraConnection {
         _ session: TesseraSession,
         event: NOSTR_event_signed<UnsignedEvent<ByteBuffer>>
     ) async throws {
-        try await Self.race(seconds: Self.writeTimeoutSeconds, timeout: .publishTimeout) {
-            try await session.publish(event)
+        // The relay's KCP control blocks are recreated on connect/roam, which can
+        // drop an in-flight publish. The NOSTR event pipe has no per-event ACK,
+        // so the only signal of a lost write is the bounded-write timeout. Re-send
+        // the SAME signed event a few times: the relay dedupes by event id, so a
+        // retry is a no-op if the original landed (its ack was lost) or delivers
+        // it if it never got there. Each attempt is its own bounded race (First
+        // Law); no hand-held threads.
+        for _ in 0..<3 {
+            do {
+                try await Self.race(seconds: Self.writeTimeoutSeconds, timeout: .publishTimeout) {
+                    try await session.publish(event)
+                }
+                return
+            } catch {
+                // The write dropped (relay KCP reset). Try the same signed event
+                // again — the relay dedupes by id, so a rescend is safe.
+            }
         }
+        throw TesseraStoreError.publishTimeout
     }
 
     static func boundedDelete(
@@ -739,9 +804,16 @@ private final class EOSETracker: @unchecked Sendable {
     }
 
     func completed() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return expected.allSatisfy { seen.contains($0) }
+    	lock.lock()
+    	defer { lock.unlock() }
+    	return expected.allSatisfy { seen.contains($0) }
+    }
+
+    /// Number of subscriptions whose end-of-history marker has been received.
+    var seenCount: Int {
+    	lock.lock()
+    	defer { lock.unlock() }
+    	return seen.count
     }
 
     func reset() {

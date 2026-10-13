@@ -86,6 +86,10 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// OFF (agent may create/edit); enabling any of them makes the dedicated
     /// tools refuse. See ``AgentPowersConfig``.
     public var agentPowers: AgentPowersConfig
+
+    /// `processWatch` — scoped local process watching/control (plan B).
+    public var processWatch: ProcessWatchConfig
+
     /// External MCP servers (reference top-level `mcp_servers`): name → launch config.
     public var mcpServers: [String: MCPServerConfig]
 
@@ -156,6 +160,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         case toolSearch = "tool_search"
         case checkpoints
         case hooks
+        case processWatch = "process_watch"
     }
 
     // MARK: - Init
@@ -180,7 +185,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         toolSearch: ToolSearchConfig = ToolSearchConfig(),
         goals: GoalsConfig = GoalsConfig(),
         checkpoints: CheckpointsConfig? = nil,
-        hooks: HooksConfig = HooksConfig()
+        hooks: HooksConfig = HooksConfig(),
+        processWatch: ProcessWatchConfig = ProcessWatchConfig()
     ) {
         self.model = model
         self.agent = agent
@@ -202,6 +208,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.goals = goals
         self.checkpoints = checkpoints
         self.hooks = hooks
+        self.processWatch = processWatch
     }
 
     /// Decode each section independently, defaulting any that are absent.
@@ -228,6 +235,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.toolSearch = try container.decodeIfPresent(ToolSearchConfig.self, forKey: .toolSearch) ?? ToolSearchConfig()
         self.checkpoints = try container.decodeIfPresent(CheckpointsConfig.self, forKey: .checkpoints)
         self.hooks = try container.decodeIfPresent(HooksConfig.self, forKey: .hooks) ?? HooksConfig()
+        self.processWatch = try container.decodeIfPresent(ProcessWatchConfig.self, forKey: .processWatch)
+            ?? ProcessWatchConfig()
     }
 }
 
@@ -397,6 +406,19 @@ public struct AgentConfig: Codable, Sendable, Equatable {
     /// appended to the base prompt (reference `agent.system_prompt`). Empty =
     /// no overlay.
     public var systemPrompt: String
+    /// Inject the "Finishing the job" task-completion guidance (arc parity:
+    /// reference `agent.task_completion_guidance`). Default ON.
+    public var taskCompletionGuidance: Bool
+    /// Inject the "Parallel tool calls" batching guidance (arc parity:
+    /// reference `agent.parallel_tool_call_guidance`). Default ON.
+    public var parallelToolCallGuidance: Bool
+    /// Inject tool-aware guidance for memory/session_search/skills tools
+    /// (arc parity: reference `agent.tool_aware_guidance`). Default ON.
+    public var toolAwareGuidance: Bool
+    /// Inject tool-use-enforcement guidance (arc parity: reference
+    /// `agent.tool_use_enforcement`) with per-model discipline notes.
+    /// Default ON.
+    public var toolUseEnforcement: Bool
     /// Named personality overlays (reference `agent.personalities`): each entry
     /// is either a plain string or `{description, system_prompt, tone, style}`.
     public var personalities: [String: PersonalityOverlay]
@@ -425,6 +447,10 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         microCompactEveryNTurns: Int = 1,
         microCompactDefragThresholdTokens: Int = 2000,
         systemPrompt: String = "",
+        taskCompletionGuidance: Bool = true,
+        parallelToolCallGuidance: Bool = true,
+        toolAwareGuidance: Bool = true,
+        toolUseEnforcement: Bool = true,
         personalities: [String: PersonalityOverlay] = [:],
         verifyOnStop: Bool = false,
         skillInlineCommands: Bool = true,
@@ -440,6 +466,10 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         self.microCompactEveryNTurns = microCompactEveryNTurns
         self.microCompactDefragThresholdTokens = microCompactDefragThresholdTokens
         self.systemPrompt = systemPrompt
+        self.taskCompletionGuidance = taskCompletionGuidance
+        self.parallelToolCallGuidance = parallelToolCallGuidance
+        self.toolAwareGuidance = toolAwareGuidance
+        self.toolUseEnforcement = toolUseEnforcement
         self.personalities = personalities
         self.verifyOnStop = verifyOnStop
         self.skillInlineCommands = skillInlineCommands
@@ -459,6 +489,10 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         self.microCompactEveryNTurns = try container.decodeIfPresent(Int.self, forKey: .microCompactEveryNTurns) ?? AgentConfig().microCompactEveryNTurns
         self.microCompactDefragThresholdTokens = try container.decodeIfPresent(Int.self, forKey: .microCompactDefragThresholdTokens) ?? AgentConfig().microCompactDefragThresholdTokens
         self.systemPrompt = try container.decodeIfPresent(String.self, forKey: .systemPrompt) ?? ""
+        self.taskCompletionGuidance = try container.decodeIfPresent(Bool.self, forKey: .taskCompletionGuidance) ?? true
+        self.parallelToolCallGuidance = try container.decodeIfPresent(Bool.self, forKey: .parallelToolCallGuidance) ?? true
+        self.toolAwareGuidance = try container.decodeIfPresent(Bool.self, forKey: .toolAwareGuidance) ?? true
+        self.toolUseEnforcement = try container.decodeIfPresent(Bool.self, forKey: .toolUseEnforcement) ?? true
         self.personalities = try container.decodeIfPresent([String: PersonalityOverlay].self, forKey: .personalities) ?? [:]
 
         // Note: `CodingKeys` is synthesized from property names; use the
@@ -513,10 +547,21 @@ public struct DelegationConfig: Codable, Sendable, Equatable {
     public var maxConcurrentChildren: Int
     /// Maximum spawn depth.
     public var maxSpawnDepth: Int
+    /// Per-child turn-loop iteration budget (tool + LLM rounds).
+    public var maxTurns: Int
+    /// Wall-clock budget in seconds for a child before it is cancelled.
+    public var defaultTimeout: Int
 
-    public init(maxConcurrentChildren: Int = 12, maxSpawnDepth: Int = 3) {
+    public init(
+        maxConcurrentChildren: Int = 12,
+        maxSpawnDepth: Int = 3,
+        maxTurns: Int = 25,
+        defaultTimeout: Int = 600
+    ) {
         self.maxConcurrentChildren = maxConcurrentChildren
         self.maxSpawnDepth = maxSpawnDepth
+        self.maxTurns = maxTurns
+        self.defaultTimeout = defaultTimeout
     }
 
     /// Decode each field independently, defaulting any that are absent.
@@ -524,6 +569,8 @@ public struct DelegationConfig: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.maxConcurrentChildren = try container.decodeIfPresent(Int.self, forKey: .maxConcurrentChildren) ?? DelegationConfig().maxConcurrentChildren
         self.maxSpawnDepth = try container.decodeIfPresent(Int.self, forKey: .maxSpawnDepth) ?? DelegationConfig().maxSpawnDepth
+        self.maxTurns = try container.decodeIfPresent(Int.self, forKey: .maxTurns) ?? DelegationConfig().maxTurns
+        self.defaultTimeout = try container.decodeIfPresent(Int.self, forKey: .defaultTimeout) ?? DelegationConfig().defaultTimeout
     }
 }
 
