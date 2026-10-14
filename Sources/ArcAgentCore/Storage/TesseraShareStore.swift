@@ -95,10 +95,15 @@ public enum SharedSessionACL {
     /// manager to show the current grantee set, and by callers that need the
     /// raw grant rather than just the resolved role.
     public static func grant(sessionID: String, owner: String?, grants: [TesseraShareGrant]) -> TesseraShareGrant? {
-        guard let owner else { return nil }
-        return grants
-            .filter { $0.sessionID == sessionID && $0.owner == owner }
-            .max(by: { $0.seq < $1.seq })
+        // Match by sessionID primarily; the grant carries its own `owner`, so a
+        // session with a nil owner (legacy records) still resolves its grant.
+        // When the session owner is known, further restrict to grants published
+        // by that owner to stay correct under multi-tenant namespaces.
+        var matches = grants.filter { $0.sessionID == sessionID }
+        if let owner, !owner.isEmpty {
+            matches = matches.filter { $0.owner == owner }
+        }
+        return matches.max(by: { $0.seq < $1.seq })
     }
 }
 

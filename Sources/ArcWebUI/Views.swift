@@ -593,7 +593,7 @@ extension AppState {
         return """
         <div class="sess-row\(active)\(archived)">
           <button type="button" id="s-open-\(encID)" class="sess-open">
-            <span class="sess-title">\(pinBadge)\\(shareBadge)\\(esc(title))</span>
+            <span class="sess-title">\(pinBadge)\(shareBadge)\(esc(title))</span>
             <span class="sess-meta">\(meta)</span>
           </button>
           <div class="row-actions">\(menu)</div>
