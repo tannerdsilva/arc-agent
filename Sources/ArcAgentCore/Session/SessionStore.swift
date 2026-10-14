@@ -1,5 +1,48 @@
 import Foundation
 
+/// The model/config snapshot pinned to a session so every contributor runs
+/// against the same model + prompt config (cache warmth).
+///
+/// For single-owner sessions this is optional and normally nil (the agent uses
+/// local/default config). For a **shared** session the host pins this at the
+/// first turn; all contributors then adopt it, never their own default.
+public struct SessionConfigSnapshot: Codable, Sendable, Equatable {
+    public var model: String
+    public var provider: String
+    public var moa: MoAConfig?
+    public var contextLength: Int?
+    public var reasoningEffort: String?
+    public var temperature: Double?
+    public var topP: Double?
+    public var maxOutputTokens: Int?
+    public var pinnedProfile: String?
+    public var thinkingLevel: String?
+
+    public init(
+        model: String,
+        provider: String,
+        moa: MoAConfig? = nil,
+        contextLength: Int? = nil,
+        reasoningEffort: String? = nil,
+        temperature: Double? = nil,
+        topP: Double? = nil,
+        maxOutputTokens: Int? = nil,
+        pinnedProfile: String? = nil,
+        thinkingLevel: String? = nil
+    ) {
+        self.model = model
+        self.provider = provider
+        self.moa = moa
+        self.contextLength = contextLength
+        self.reasoningEffort = reasoningEffort
+        self.temperature = temperature
+        self.topP = topP
+        self.maxOutputTokens = maxOutputTokens
+        self.pinnedProfile = pinnedProfile
+        self.thinkingLevel = thinkingLevel
+    }
+}
+
 /// A session represents a single conversation with the agent.
 public struct Session: Sendable, Codable {
     /// Unique session identifier.
@@ -47,11 +90,17 @@ public struct Session: Sendable, Codable {
     public var outputTokens: Int?
     /// Snapshot of the system prompt at session start.
     public var systemPrompt: String?
+    /// Optional pinned model/config snapshot (set for shared sessions so every
+    /// contributor runs the same config; nil = use local/default config).
+    public var config: SessionConfigSnapshot?
+    /// The signing identity that owns this session's transcript. Nil for
+    /// legacy records (treated as owned by the current identity).
+    public var owner: String?
 
     private enum CodingKeys: String, CodingKey {
         case id, createdAt, updatedAt, model, provider, title, messages
         case source, userID, parentSessionID, workspaceKey, endedAt
-        case inputTokens, outputTokens, systemPrompt
+        case inputTokens, outputTokens, systemPrompt, config, owner
     }
 
     public init(
@@ -70,7 +119,9 @@ public struct Session: Sendable, Codable {
         endedAt: Date? = nil,
         inputTokens: Int? = nil,
         outputTokens: Int? = nil,
-        systemPrompt: String? = nil
+        systemPrompt: String? = nil,
+        config: SessionConfigSnapshot? = nil,
+        owner: String? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -88,6 +139,8 @@ public struct Session: Sendable, Codable {
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
         self.systemPrompt = systemPrompt
+        self.config = config
+        self.owner = owner
     }
 
     public init(from decoder: Decoder) throws {
@@ -107,6 +160,8 @@ public struct Session: Sendable, Codable {
         inputTokens = try c.decodeIfPresent(Int.self, forKey: .inputTokens)
         outputTokens = try c.decodeIfPresent(Int.self, forKey: .outputTokens)
         systemPrompt = try c.decodeIfPresent(String.self, forKey: .systemPrompt)
+        config = try c.decodeIfPresent(SessionConfigSnapshot.self, forKey: .config)
+        owner = try c.decodeIfPresent(String.self, forKey: .owner)
         messageCount = 0  // re-derived by the store (never persisted)
     }
 }

@@ -124,10 +124,12 @@ public actor TesseraConnection {
     public static let cronKind: UInt32 = 3_005
     /// Standing goal events (TesseraGoalStore).
     public static let goalKind: UInt32 = 3_006
+    /// Session share-grant events (TesseraShareStore).
+    public static let shareKind: UInt32 = 3_007
     /// The prefix on every `d` tag value.
     public static let dTagPrefix = "arc/"
     /// One subscription per kind; the model receives all six.
-    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles", "arc-cron", "arc-goals"]
+    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles", "arc-cron", "arc-goals", "arc-shares"]
 
     // MARK: - State
 
@@ -166,6 +168,17 @@ public actor TesseraConnection {
 
     /// Whether a Tessera configuration has been provided.
     public var isConfigured: Bool { config != nil }
+
+    /// The Nostr public key of this connection's signing identity, base64-encoded.
+    /// This is the per-user owner id used for session sharing and ACL checks.
+    public var nostrPublicKeyString: String? {
+        guard let nostrPublicKey else { return nil }
+        var bytes = Data()
+        nostrPublicKey.RAW_access_immutable(UnsafeRawBufferPointer.self) { buffer in
+            bytes = Data(buffer)
+        }
+        return bytes.base64EncodedString().isEmpty ? nil : bytes.base64EncodedString()
+    }
 
     /// Probe the relay with a bounded handshake; tears the probe session
     /// down either way so the process never keeps a half-open client.
@@ -441,7 +454,7 @@ public actor TesseraConnection {
             var eoseDone = false
             for _ in 0..<3 {
             	try await Self.boundedOp(seconds: Self.writeTimeoutSeconds) {
-            		for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind]) {
+            		for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind, Self.shareKind]) {
             			try await session.subscribe(subscriptionID: sub, filters: [Filter(applications: [config.application], kinds: [kind])])
             		}
             	}
@@ -490,7 +503,7 @@ public actor TesseraConnection {
                         // Back off so the re-subscribe lands after the relay's KCP
                         // control blocks settle (they are recreated on connect/roam).
                         try? await Task.sleep(nanoseconds: 2_000_000_000)
-                        for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind]) {
+                        for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind, Self.shareKind]) {
                             try? await recSession.subscribe(subscriptionID: sub, filters: [Filter(applications: [recConfig.application], kinds: [kind])])
                         }
                     }

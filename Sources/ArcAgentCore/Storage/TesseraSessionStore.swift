@@ -38,10 +38,15 @@ public struct TesseraSessionMeta: Codable, Sendable, Equatable {
     /// conversation titles from list summaries without loading messages.
     /// Older records without this field decode as nil.
     public var titleHint: String?
+    /// Optional pinned model/config snapshot (shared sessions).
+    public var config: SessionConfigSnapshot?
+    /// The signing identity that owns this session (nil = legacy/current).
+    public var owner: String?
 
     public init(seq: Int, sessionID: String, createdAt: Date, updatedAt: Date,
                 model: String, provider: String, messageCount: Int, totalTokens: Int,
-                titleHint: String? = nil) {
+                titleHint: String? = nil, config: SessionConfigSnapshot? = nil,
+                owner: String? = nil) {
         self.seq = seq
         self.sessionID = sessionID
         self.createdAt = createdAt
@@ -51,6 +56,8 @@ public struct TesseraSessionMeta: Codable, Sendable, Equatable {
         self.messageCount = messageCount
         self.totalTokens = totalTokens
         self.titleHint = titleHint
+        self.config = config
+        self.owner = owner
     }
 }
 
@@ -86,6 +93,9 @@ public actor TesseraSessionStore: SessionStore {
         let conn = connection
         try await conn.ensureStarted()
         guard let meta = await latestMeta(for: id) else { return nil }
+        let identity = await connection.nostrPublicKeyString
+        let grants = await TesseraShareStore.shared.latestGrants()
+        guard isVisible(meta, identity: identity, grants: grants) else { return nil }
         var pairs: [(seq: Int, message: Message)] = []
         for record in await conn.snapshot(kind: TesseraConnection.messageKind)
             .filter({ $0.dTag?.hasPrefix("arc/s/\(id)/") ?? false }) {
@@ -108,7 +118,7 @@ public actor TesseraSessionStore: SessionStore {
                 createdAt: meta.createdAt, updatedAt: meta.updatedAt,
                 model: meta.model, provider: meta.provider,
                 messageCount: pairs.count, totalTokens: meta.totalTokens,
-                titleHint: hinted
+                titleHint: hinted, config: meta.config, owner: meta.owner
             )
             try await publish(meta: corrected)
         }
@@ -120,7 +130,9 @@ public actor TesseraSessionStore: SessionStore {
             provider: meta.provider,
             title: hinted,
             messageCount: pairs.count,
-            messages: pairs.map(\.message)
+            messages: pairs.map(\.message),
+            config: meta.config,
+            owner: meta.owner
         )
     }
 
@@ -148,7 +160,10 @@ public actor TesseraSessionStore: SessionStore {
         let conn = connection
         try await conn.ensureStarted()
         let metas = await latestMetaGrouped()
-        let ordered = metas.values.sorted { $0.updatedAt > $1.updatedAt }
+        let identity = await connection.nostrPublicKeyString
+        let grants = await TesseraShareStore.shared.latestGrants()
+        let visible = metas.values.filter { isVisible($0, identity: identity, grants: grants) }
+        let ordered = visible.sorted { $0.updatedAt > $1.updatedAt }
         let page = ordered.dropFirst(max(0, offset)).prefix(limit)
         // Metadata-only summaries: message bodies are materialized lazily via
         // get(id:) when a chat is opened (bounded memory at very large scale).
@@ -168,6 +183,14 @@ public actor TesseraSessionStore: SessionStore {
     public func appendMessage(sessionID: String, message: Message) async throws {
         let conn = connection
         try await conn.ensureStarted()
+        let identity = await conn.nostrPublicKeyString
+        let grants = await TesseraShareStore.shared.latestGrants()
+        let owner = await latestMeta(for: sessionID)?.owner
+        guard SharedSessionACL.canContribute(
+            identity: identity ?? "", sessionID: sessionID, sessionOwner: owner, grants: grants
+        ) else {
+            throw SessionShareError.notAuthorized
+        }
         try await publishMessage(message, sessionID: sessionID)
         if let meta = await latestMeta(for: sessionID) {
             var hint = meta.titleHint
@@ -180,21 +203,36 @@ public actor TesseraSessionStore: SessionStore {
                 createdAt: meta.createdAt, updatedAt: Date(),
                 model: meta.model, provider: meta.provider,
                 messageCount: meta.messageCount + 1, totalTokens: meta.totalTokens,
-                titleHint: hint
+                titleHint: hint, config: meta.config, owner: meta.owner
             )
             try await publish(meta: updated)
         }
     }
 
+    /// Whether this metadata is visible to the current identity. When the
+    /// connection has no determined identity (not started / no key) sharing is
+    /// not in effect and everything is visible (legacy single-user behaviour).
+    private func isVisible(_ meta: TesseraSessionMeta, identity: String?, grants: [TesseraShareGrant]) -> Bool {
+        guard let identity, !identity.isEmpty else { return true }
+        return SharedSessionACL.isVisible(
+            identity: identity, sessionID: meta.sessionID,
+            sessionOwner: meta.owner, grants: grants
+        )
+    }
+
     // MARK: - Private
 
     private func publishMeta(from session: Session, messageCount: Int) async throws {
+        let defaultOwner = await connection.nostrPublicKeyString
+        let owner = session.owner ?? defaultOwner
         let meta = TesseraSessionMeta(
             seq: await connection.takeSequence(), sessionID: session.id,
             createdAt: session.createdAt, updatedAt: session.updatedAt,
             model: session.model, provider: session.provider,
             messageCount: messageCount, totalTokens: 0,
-            titleHint: metaTitleHint(session: session)
+            titleHint: metaTitleHint(session: session),
+            config: session.config,
+            owner: owner
         )
         try await publish(meta: meta)
     }
