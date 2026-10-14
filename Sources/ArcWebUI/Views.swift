@@ -221,10 +221,57 @@ extension AppState {
         """
     }
 
-    /// Everything rendered in #modal-root (delete confirmation + category menu).
-    func modalRootHTML() -> String {
-        modalHTML() + categoryMenuHTML()
+
+    /// Share manager modal (task 8): stage grantees by Nostr pubkey + role,
+    /// then Save (publish a kind-3007 grant owned by this process) or Stop
+    /// sharing (revoke). Grantee removal stages a change; Save commits it.
+    func sharePanelHTML() -> String {
+        guard let sid = sharePanelSessionID,
+              let s = sessions.first(where: { $0.id == sid }) else { return "" }
+        let title = trunc(sessionTitle(s), 48)
+        let rows = shareStaged.map { g -> String in
+            let roleLabel = g.role == .read ? "Read only" : "Can contribute"
+            let roleCls = g.role == .read ? " share-ro-read" : " share-ro-con"
+            return """
+            <div class="share-row">
+              <span class="share-pk">\(esc(g.pubkey))</span>
+              <span class="share-role\(roleCls)">\(roleLabel)</span>
+              <button type="button" id="sh-rm-\(enc(g.pubkey))" class="danger share-rm" title="Remove">Remove</button>
+            </div>
+            """
+        }.joined()
+        let empty = shareStaged.isEmpty ? "<div class=\"share-empty\">No one has access yet.</div>" : ""
+        let con = shareDraftRole == .read ? "" : " selected"
+        let ro = shareDraftRole == .read ? " selected" : ""
+        return """
+        <div class="modal-overlay" id="share-overlay">
+          <div class="modal-card share-card" data-component-id="share-panel" data-event="click">
+            <h3>Share conversation</h3>
+            <p class="share-sub">“\(esc(title))”</p>
+            <div class="share-list">\(empty)\(rows)</div>
+            <div class="share-add-row">
+              <input id="share-pubkey" data-component-id="share-pubkey" data-event="change" type="text" placeholder="Nostr pubkey" value="\(esc(shareDraftPubkey))" spellcheck="false">
+              <select id="share-role" data-component-id="share-role" data-event="change">
+                <option value="contribute"\(con)>Can contribute</option>
+                <option value="read"\(ro)>Read only</option>
+              </select>
+              <button type="button" id="share-add" class="ghost-btn">Add</button>
+            </div>
+            <div class="modal-actions">
+              <button type="button" id="share-cancel" class="ghost-btn">Close</button>
+              <button type="button" id="share-save" class="primary-btn">Save sharing</button>
+              <button type="button" id="share-revoke" class="danger-btn">Stop sharing</button>
+            </div>
+          </div>
+        </div>
+        """
     }
+
+    /// Everything rendered in #modal-root (delete confirmation + category menu + share panel).
+    func modalRootHTML() -> String {
+        modalHTML() + categoryMenuHTML() + sharePanelHTML()
+    }
+
 
     // MARK: - Panel
 
@@ -480,6 +527,8 @@ extension AppState {
         let meta = "\(count) msg • <span class=\"rel-time\" data-reltime=\"\(epochMs)\">\(relTimeLabel(s.updatedAt))</span>" + (archived.isEmpty ? "" : " • Archived") + liveStatusPill(s.id)
         let pinBadge = booked ? "<span class=\"pin-badge\" title=\"Pinned\">" + WebUIIcon(.bookmark, size: .small).render() + "</span>" : ""
         let pinLabel = booked ? "Unpin conversation" : "Pin conversation"
+        let shared = isSessionShared(s.id)
+        let shareBadge = shared ? "<span class=\"share-badge\" title=\"Shared session\">Shared</span>" : ""
         let arcLabel = archived.isEmpty ? "Archive conversation" : "Unarchive conversation"
         let catID = categoryID(for: s.id)
         let catColor = categoryColor(for: catID)
@@ -533,6 +582,7 @@ extension AppState {
             <button type="button" id="sm-pin-\(encID)" data-sid="\(s.id)">\(pinLabel)</button>
             <button type="button" id="sm-arc-\(encID)" data-sid="\(s.id)">\(arcLabel)</button>
             \(catOpts)
+            <button type="button" id="sm-share-\(encID)" data-sid="\(s.id)">Share conversation…</button>
             <button type="button" id="sm-dup-\(encID)" data-sid="\(s.id)">Duplicate conversation</button>
             <button type="button" id="sm-del-\(encID)" class="danger" data-sid="\(s.id)">Delete conversation</button>
             </div>
@@ -543,7 +593,7 @@ extension AppState {
         return """
         <div class="sess-row\(active)\(archived)">
           <button type="button" id="s-open-\(encID)" class="sess-open">
-            <span class="sess-title">\(pinBadge)\(esc(title))</span>
+            <span class="sess-title">\(pinBadge)\\(shareBadge)\\(esc(title))</span>
             <span class="sess-meta">\(meta)</span>
           </button>
           <div class="row-actions">\(menu)</div>

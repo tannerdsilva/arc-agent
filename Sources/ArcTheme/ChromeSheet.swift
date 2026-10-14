@@ -2416,6 +2416,30 @@ public static let css: String = """
     .chat-menu button.danger:hover { background: var(--danger-soft); }
 
     .pin-badge { font-size: 0.82em; margin-right: 3px; }
+
+    /* Session sharing (tasks 7-8) */
+    .share-badge {
+      display: inline-flex; align-items: center;
+      font-size: 0.72em; font-weight: 600;
+      padding: 1px 6px; border-radius: 999px;
+      margin-right: 5px; vertical-align: 1px;
+      color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    }
+    .share-card { width: min(440px, 92vw); }
+    .share-card h3 { margin: 0 0 2px; }
+    .share-card .share-sub { margin: 2px 0 12px; color: var(--text-muted); font-size: 0.92em; }
+    .share-list { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; margin-bottom: 10px; }
+    .share-empty { color: var(--text-muted); font-size: 0.9em; padding: 6px 2px; }
+    .share-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; }
+    .share-pk { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; }
+    .share-role { font-size: 0.78em; padding: 1px 6px; border-radius: 999px; white-space: nowrap; }
+    .share-role.share-ro-con { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+    .share-role.share-ro-read { color: var(--text-muted); background: color-mix(in srgb, var(--text-muted) 12%, transparent); }
+    .share-rm { font-size: 0.8em; }
+    .share-add-row { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
+    .share-add-row input { flex: 1; min-width: 0; }
     .sess-row.archived .sess-title { opacity: 0.62; }
     .rename-input {
       flex: 1; min-width: 0;

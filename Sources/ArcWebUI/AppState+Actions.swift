@@ -406,6 +406,75 @@ extension AppState {
         saveSettings()
     }
 
+    // MARK: Session sharing (tasks 7-8)
+
+    /// Reload the cached latest share grants (kind 3007).
+    func refreshShareGrants() async {
+        shareGrants = await TesseraShareStore.shared.latestGrants()
+    }
+
+    /// The grant currently governing a session (nil if none).
+    func shareGrant(for id: String) -> TesseraShareGrant? {
+        let owner = sessions.first(where: { $0.id == id })?.owner
+        return SharedSessionACL.grant(sessionID: id, owner: owner, grants: shareGrants)
+    }
+
+    /// Whether a session is shared at all (owner granted it to others, or it
+    /// was granted to this user). Works for both the owner and a sharee.
+    func isSessionShared(_ id: String) -> Bool {
+        !(shareGrant(for: id)?.grantees.isEmpty ?? true)
+    }
+
+    /// Open the Share panel for a session, seeding the staged grantee list
+    /// from the current grant (if any).
+    func openSharePanel(_ id: String) async {
+        await refreshShareGrants()
+        sharePanelSessionID = id
+        shareDraftPubkey = ""
+        shareDraftRole = .contribute
+        shareStaged = shareGrant(for: id)?.grantees ?? []
+    }
+
+    func closeSharePanel() {
+        sharePanelSessionID = nil
+        shareStaged = []
+        shareDraftPubkey = ""
+    }
+
+    func setShareDraftPubkey(_ v: String) { shareDraftPubkey = v }
+    func setShareDraftRole(_ v: ShareRole) { shareDraftRole = v }
+
+    /// Stage a new grantee from the draft (validates non-empty, de-duplicated).
+    func stageShareGrantee() -> Bool {
+        let pk = shareDraftPubkey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !pk.isEmpty, !shareStaged.contains(where: { $0.pubkey == pk }) else { return false }
+        shareStaged.append(ShareGrantee(pubkey: pk, role: shareDraftRole))
+        shareDraftPubkey = ""
+        return true
+    }
+
+    func unstageShareGrantee(_ pubkey: String) {
+        shareStaged.removeAll { $0.pubkey == pubkey }
+    }
+
+    /// Commit the staged grantees as a fresh kind-3007 grant owned by this
+    /// process's identity.
+    func saveShare(_ id: String) async {
+        guard let owner = await identityPubkey() else { return }
+        try? await TesseraShareStore.shared.grant(sessionID: id, owner: owner, grantees: shareStaged)
+        await refreshShareGrants()
+    }
+
+    func revokeShare(_ id: String) async {
+        try? await TesseraShareStore.shared.revoke(sessionID: id)
+        await refreshShareGrants()
+    }
+
+    /// This process's Nostr pubkey (base64), used as the session owner id.
+    func identityPubkey() async -> String? {
+        await TesseraConnection.shared.nostrPublicKeyString
+    }
+
     func duplicateSession(_ id: String) async {
         guard let store else { return }
         await ensureSessionMessages(id)
@@ -964,6 +1033,9 @@ extension AppState {
             return false
         }
         sessions = list
+        // Session sharing: refresh the kind-3007 grant cache so the Shared
+        // badge / Share panel reflect current grants on every reload.
+        await refreshShareGrants()
         // Fresh summaries: the previous store's materialized bodies (and the
         // LRU that tracked them) no longer apply — see ensureSessionMessages
         // for why a stale LRU entry would blank a reopened chat.

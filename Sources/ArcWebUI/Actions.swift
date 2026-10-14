@@ -1173,6 +1173,7 @@ final class Controller {
         await wireNav(router)
         wireChat(router)
         wireChatMenu(router)
+        wireSharePanel(router)
         wireSkills(router)
         wireProfiles(router)
         wireTools(router)
@@ -1570,6 +1571,8 @@ final class Controller {
                 await self.app.toggleArchive(id)
             } else if tid.hasPrefix("sm-dup-"), let id = dec(String(tid.dropFirst("sm-dup-".count))) {
                 await self.app.duplicateSession(id)
+            } else if tid.hasPrefix("sm-share-"), let id = dec(String(tid.dropFirst("sm-share-".count))) {
+                await self.app.openSharePanel(id)
             } else if tid.hasPrefix("sm-del-"), let id = dec(String(tid.dropFirst("sm-del-".count))) {
                 await self.app.requestDeleteSession(id)
             } else if tid.hasPrefix("sm-uncat-"), let id = dec(String(tid.dropFirst("sm-uncat-".count))) {
@@ -1602,6 +1605,46 @@ final class Controller {
         wire(router, id: "chat-showarch", events: ["click"]) { _ in
             await self.app.setShowArchived(!self.app.showArchived)
             return await self.app.refreshFragments()
+        }
+    }
+
+    /// Task 8: Share panel modal controls. The container wire dispatches on
+    /// targetId prefix; the pubkey/role inputs wire their own change events.
+    private func wireSharePanel(_ router: EventRouter) {
+        wire(router, id: "share-panel", events: ["click"]) { event in
+            let tid = event.string("targetId") ?? ""
+            if tid.hasPrefix("sh-rm-"), let pub = dec(String(tid.dropFirst("sh-rm-".count))) {
+                await self.app.unstageShareGrantee(pub)
+                return await self.app.refreshFragments()
+            }
+            if tid == "share-add" {
+                _ = await self.app.stageShareGrantee()
+                return await self.app.refreshFragments()
+            }
+            if tid == "share-save", let sid = await self.app.sharePanelSessionID {
+                await self.app.saveShare(sid)
+                await self.app.closeSharePanel()
+                return await self.app.refreshFragments()
+            }
+            if tid == "share-revoke", let sid = await self.app.sharePanelSessionID {
+                await self.app.revokeShare(sid)
+                await self.app.closeSharePanel()
+                return await self.app.refreshFragments()
+            }
+            if tid == "share-cancel" {
+                await self.app.closeSharePanel()
+                return await self.app.refreshFragments()
+            }
+            return []
+        }
+        wire(router, id: "share-pubkey", events: ["change"]) { event in
+            await self.app.setShareDraftPubkey(event.string("value") ?? "")
+            return []
+        }
+        wire(router, id: "share-role", events: ["change"]) { event in
+            let v = event.string("value") ?? "contribute"
+            await self.app.setShareDraftRole(v == "read" ? .read : .contribute)
+            return []
         }
     }
 

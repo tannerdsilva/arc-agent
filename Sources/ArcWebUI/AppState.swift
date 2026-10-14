@@ -761,6 +761,18 @@ actor AppState {
     /// Next chat-scroll render should force the view to the bottom (chat open).
     var forceScrollBottom = true
 
+    // MARK: Session sharing (tasks 7-8)
+    /// Cached latest share grants (kind 3007), keyed by sessionID. Populated
+    /// by refreshShareGrants() on boot and after any share mutation.
+    var shareGrants: [TesseraShareGrant] = []
+    /// The session whose Share panel is open in the chat view (nil = closed).
+    var sharePanelSessionID: String? = nil
+    /// Draft fields for the Share panel's "add grantee" form.
+    var shareDraftPubkey = ""
+    var shareDraftRole: ShareRole = .contribute
+    /// Staged grantees pending Save (replaces the live grant on commit).
+    var shareStaged: [ShareGrantee] = []
+
     /// Chat list filtering (phase: categories).
     var chatFilter = ""
     var activeCategory = "all"      // "all" | "unassigned" | category id

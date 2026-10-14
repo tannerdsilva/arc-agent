@@ -90,6 +90,16 @@ public enum SharedSessionACL {
     ) -> Bool {
         role(identity: identity, sessionID: sessionID, sessionOwner: sessionOwner, grants: grants) == .contribute
     }
+
+    /// The newest grant governing `sessionID` (if any). Used by the share
+    /// manager to show the current grantee set, and by callers that need the
+    /// raw grant rather than just the resolved role.
+    public static func grant(sessionID: String, owner: String?, grants: [TesseraShareGrant]) -> TesseraShareGrant? {
+        guard let owner else { return nil }
+        return grants
+            .filter { $0.sessionID == sessionID && $0.owner == owner }
+            .max(by: { $0.seq < $1.seq })
+    }
 }
 
 
