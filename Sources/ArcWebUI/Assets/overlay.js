@@ -1810,4 +1810,36 @@
       setTimeout(function () { b.innerHTML = orig; b.classList.remove('copied'); }, 1500);
     }, function () { });
   });
+
+  // ---- In-page `#` anchors must not navigate (UX-60).
+  //
+  // The Settings sub-nav rows (`#appearance` … `#about`) and the skip link
+  // (`#composer-input`) are same-page jumps. Left to the browser, a hash jump
+  // pushes a history entry and fires `popstate`; the engine answers popstate
+  // with a `navigate` frame to the server, and a navigate re-render RESETS the
+  // render session — dropping every handler arc registered at boot. The rail,
+  // the settings chips and the composer then all go silent ("stuck in
+  // Settings") until the server is restarted. So: intercept the jump, move
+  // focus / scroll in place, and leave the URL (and the history stack) alone.
+  document.addEventListener('click', function (e) {
+    var a = e.target && e.target.closest ? e.target.closest('a[href^="#"]') : null;
+    if (!a) return;
+    var href = a.getAttribute('href') || '';
+    if (href.length < 2) return;
+    var target = document.getElementById(href.slice(1));
+    if (!target) return;
+    e.preventDefault();
+    // A form control takes focus (that is the skip link's whole job); anything
+    // else is scrolled into view.
+    if (/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(target.tagName) && target.focus) {
+      try { target.focus({ preventScroll: true }); } catch (_) { target.focus(); }
+    }
+    if (target.scrollIntoView) {
+      try { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      catch (_) { target.scrollIntoView(true); }
+    }
+    // A section picked from the narrow-width drawer should reveal the content
+    // it jumps to, not leave the drawer covering it.
+    if (isNarrow() && drawerOpen()) closeDrawer(false);
+  }, true);
 })();
