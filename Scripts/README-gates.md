@@ -103,3 +103,11 @@ or `uxSchemes.list()`.
 - The gates create throwaway `UXGATE*` probe sessions and delete them through
   the app's own delete flow at the end; the owner's conversations are never
   touched. The active scheme/theme are restored to whatever the run found.
+- Probe turns are **tool-free by design**: `ensureProbeSession` appends
+  "reply with the single word: ok. Do not call any tools." to every probe
+  message. A probe that reads like a research task sends the model into a
+  multi-minute tool loop; `waitStreamEnd` (180 s) then gives up, the still-live
+  turn races the later gates' clicking, and the console tour / dock checks
+  fail on `[WebUIEngine] Element not found: #live-turn-thinking` — a race the
+  gates' own authors documented as avoidable. Keep probe messages answering in
+  seconds.

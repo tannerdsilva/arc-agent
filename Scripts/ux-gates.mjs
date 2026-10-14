@@ -187,7 +187,7 @@ async function ensureProbeSession(text = `UXGATE probe ${Date.now() % 100000}`) 
   await driver.js(`(() => {
     const t = document.getElementById('composer-input');
     const set = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-    set.call(t, ${JSON.stringify(text)});
+    set.call(t, ${JSON.stringify(text + ' — reply with the single word: ok. Do not call any tools.')});
     t.dispatchEvent(new Event('input', { bubbles: true }));
     t.focus();
     return true;
