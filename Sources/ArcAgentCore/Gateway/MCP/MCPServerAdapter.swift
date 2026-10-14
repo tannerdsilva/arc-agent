@@ -5,12 +5,16 @@ import Logging
 
 /// A gateway adapter that wraps an MCP server as a platform adapter.
 ///
-/// ``MCPServerAdapter`` creates an ``MCPServer`` instance, registers ARC
-/// Agent's tools from the ``CompileTimeToolRegistry`` as MCP tools, and
-/// runs the server as a ``Service`` managed by the gateway's ``ServiceGroup``.
+/// ``MCPServerAdapter`` creates an ``MCPServer`` instance over a single
+/// ``ArcToolDispatcher`` — the compile-time-exhaustive surface of the tools the
+/// registry holds — and runs the server as a ``Service`` managed by the
+/// gateway's ``ServiceGroup``.
 ///
 /// The adapter supports both stdio transport (for Claude Desktop, etc.) and
-/// TCP transport (for remote MCP clients).
+/// TCP transport (for remote MCP clients). Tool visibility and reachability are
+/// decided by ``ArcToolDispatcher/access(for:)``, not here: no arc toolset is
+/// reachable from a non-loopback address, and filesystem/shell/code-execution
+/// toolsets require the local process.
 public final class MCPServerAdapter: Service {
 
     private let server: MCPServer
@@ -32,20 +36,24 @@ public final class MCPServerAdapter: Service {
     ) throws {
         self.logger = Logger(label: "com.arc-agent.mcp")
 
+        let dispatcher = ArcToolDispatcher(registry: registry)
+
         if let host = host {
             let address = ServerAddress.hostname(host, port: port)
-            self.server = MCPServer(name: name, version: version, address: address) {}
+            self.server = MCPServer(
+                name: name,
+                version: version,
+                address: address,
+                accessResolver: ArcToolDispatcher.callerAccess(for:),
+                dispatcher: dispatcher
+            )
         } else {
-            self.server = MCPServer(name: name, version: version) {}
+            self.server = MCPServer(name: name, version: version, dispatcher: dispatcher)
         }
 
-        // Register all tools from the registry as MCP tool instances
-        for tool in registry.allTools {
-            let adapter = DynamicMCPTool(entry: tool)
-            server.registerInstance(tool.name, instance: adapter)
-        }
-
-        logger.info("MCP server initialized with \(registry.allTools.count) tools")
+        logger.info(
+            "MCP server initialized with \(registry.allTools.count) tools (toolset access-gated)"
+        )
         if host != nil {
             logger.info("MCP server listening on \(host ?? "?"):\(port)")
         } else {

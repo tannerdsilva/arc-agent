@@ -156,7 +156,11 @@ public enum ArcDaemon {
         var services: [any Service] = []
         if let gateway { services.append(gateway) }
         if let uiHost { services.append(uiHost) }
-        guard !services.isEmpty else {
+        // A surface can also arrive below as a service in its own right — the MCP
+        // server and the kanban dispatcher are not HTTP/UI hosts. The guard must
+        // account for every surface, or a daemon configured with only one of them
+        // exits at boot ("nothing to run") while a configured surface is live.
+        guard gateway != nil || uiHost != nil || plan.mcpServer != nil || plan.kanban != nil else {
             logger.warning("no daemon surfaces enabled (see gateway.json) — nothing to run")
             return
         }
