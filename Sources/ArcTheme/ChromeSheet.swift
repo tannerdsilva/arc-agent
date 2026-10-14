@@ -867,7 +867,13 @@ public static let css: String = """
     .row-actions-main:hover .icon-mini:not(.danger) { color: var(--text); }
 
     /* ─── Settings sections ───────────────────────────────────── */
-    .settings-wrap { max-width: 720px; margin: 0 auto; }
+    .settings-wrap { max-width: 720px; margin: 0 auto; width: 100%; }
+    /* `width: 100%` is load-bearing: as a flex item with auto cross-axis
+       margins, this box sizes to fit-content (up to 720px) and refuses to
+       shrink below it — so on panes narrower than 720px (≤~1200 with the
+       docked panel, ≤~830 in drawer mode) it overflowed right and #main
+       clipped the overhang. Forcing the stretch lets max-width cap the
+       wide case while the narrow case fits the pane. */
     .set-section { margin-bottom: 22px; }
     .set-section > h2 {
       font-size: 1.05em; font-weight: 700; margin: 0 0 10px;
