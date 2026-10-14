@@ -344,6 +344,7 @@ extension AppState {
         <button type="button" id="chat-showarch-link" data-component-id="chat-showarch" class="arch-link" title="Toggle archived">
           <span class="arch-ico">\(WebUIIcon(showArchived ? .chevronDown : .chevronRight, size: .small).markup.html)</span><span>\(showArchived ? " Hide archived conversations" : " Show archived conversations")</span>
         </button>
+        \(showArchived ? "<div class=\"arch-mode-note\">Showing archived conversations only.</div>" : "")
         """)
         """
         var rows: [String] = []
@@ -876,7 +877,9 @@ extension AppState {
         let title = session.map { trunc(sessionTitle($0), 60) } ?? "Chat"
         let count = session.map { $0.messages.isEmpty ? $0.messageCount : $0.messages.count } ?? 0
         let model = settings.modelConfig(named: configName)?.model ?? configName
-        let meta = "\(esc(model)) • \(count) \(count == 1 ? "message" : "messages")"
+        // UX-59: a fresh chat rendered "· 0 messages" — noise before there is
+        // anything to count. Show the count only once the chat has messages.
+        let meta = count > 0 ? "\(esc(model)) • \(count) \(count == 1 ? "message" : "messages")" : esc(model)
         let delLabel = pendingDelete ? "Confirm?" : WebUIIcon(.trash, size: .small).markup.html
         let delClass = pendingDelete ? "sess-confirm" : "icon-mini danger"
         let regenBtn = """
@@ -1173,6 +1176,11 @@ extension AppState {
         }
 
         let label = finalMsg.turnDuration.map { "Processed " + formatTurnDuration($0) } ?? "Turn activity"
+        // UX-55: a tool-using turn collapsed to a bare "Processed Xs",
+        // indistinguishable from a plain reply. Count tools across the turn's
+        // rounds and annotate the summary (cards stay behind the disclosure).
+        let totalTools = rounds.reduce(0) { $0 + (($1.0.toolCalls ?? []).count) }
+        let toolNote = totalTools > 0 ? "<span class=\"tw-tools\">· \(totalTools) tool\(totalTools == 1 ? "" : "s")</span>" : ""
         let terminalCard = finalMsg.terminalReason.map { terminalCardHTML(for: $0) } ?? ""
         let worklogKey = "tw-\(turnIndex)-\(String(format: "%.3f", finalMsg.createdAt?.timeIntervalSince1970 ?? 0))"
         return """
@@ -1182,6 +1190,7 @@ extension AppState {
             <summary>
               <span class="tw-dot"></span>
               <span class="tw-label">\(esc(label))</span>
+              \(toolNote)
               <span class="tw-spacer"></span>
               <span class="tw-caret">\(WebUIIcon(.chevronRight, size: .small).markup.html)</span>
             </summary>
@@ -1660,7 +1669,7 @@ extension AppState {
                 <circle class="ctx-ring-track" cx="12" cy="12" r="9.75"></circle>
                 <circle class="ctx-ring-value" cx="12" cy="12" r="9.75" style="stroke-dasharray:\(circ);stroke-dashoffset:\(offset)"></circle>
               </svg>
-              <span class="ctx-ring-center">\(pct)</span>
+              <span class="ctx-ring-center">\(pct >= 100 ? "99+" : "\(pct)%")</span>
             </span>
           </button>
           <div class="ctx-tooltip" role="tooltip">

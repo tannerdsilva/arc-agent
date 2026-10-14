@@ -567,6 +567,9 @@ public static let css: String = """
       font-size: 0.84em; padding: 4px 14px 8px; cursor: pointer;
     }
     .arch-link:hover { color: var(--accent-strong); }
+    /* UX-57: the toggle swaps the WHOLE list to archived-only; say so, so a
+       swapped list never reads as "my chats are gone". */
+    .arch-mode-note { font-size: 0.8em; color: var(--muted); padding: 0 14px 8px; }
     .cat-add-form {
       background: var(--surface-2); border: 1px dashed var(--border-strong);
       border-radius: var(--radius-md); margin: 6px 12px 8px; padding: 9px 10px;
@@ -1455,6 +1458,9 @@ public static let css: String = """
       opacity: 0.7;
     }
     .tw-label { flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* UX-55: muted tool count appended to the worklog summary ("· 1 tool"),
+       so a tool-using turn is legible without opening the disclosure. */
+    .tw-tools { flex: 0 0 auto; color: var(--muted); margin-left: 5px; font-size: 0.95em; }
     .tw-spacer { flex: 1 1 auto; }
     .tw-caret { flex: 0 0 auto; display: inline-flex; opacity: 0.8; transition: transform 0.15s ease; }
     .turn-worklog[open] .tw-caret { transform: rotate(90deg); }
@@ -2223,7 +2229,7 @@ public static let css: String = """
     .ctx-ring-track, .ctx-ring-value { fill: none; stroke-width: 3; }
     .ctx-ring-track { stroke: var(--border); }
     .ctx-ring-value { stroke: var(--muted); stroke-linecap: round; stroke-dasharray: 61.261056745; stroke-dashoffset: 61.261056745; transition: stroke-dashoffset 0.45s ease, stroke 0.25s ease; }
-    .ctx-ring-center { position: relative; display: flex; width: 14px; height: 14px; align-items: center; justify-content: center; border-radius: 999px; background: var(--bg); font-size: 7px; font-weight: 600; line-height: 1; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .ctx-ring-center { position: relative; display: flex; width: 16px; height: 16px; align-items: center; justify-content: center; border-radius: 999px; background: var(--bg); font-size: 7px; font-weight: 600; line-height: 1; color: var(--muted); font-variant-numeric: tabular-nums; }
     .ctx-indicator.ctx-mid .ctx-ring-value { stroke: var(--accent-strong); }
     .ctx-indicator.ctx-high .ctx-ring-value { stroke: var(--danger); }
     .ctx-tooltip { position: absolute; right: 0; bottom: calc(100% + 10px); min-width: 210px; max-width: 250px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22); font-size: 12px; line-height: 1.45; color: var(--muted); opacity: 0; transform: translateY(4px); pointer-events: none; transition: opacity 0.14s ease, transform 0.14s ease; z-index: 30; }
@@ -2434,7 +2440,9 @@ public static let css: String = """
        so it can never grow over the composer either. */
     #toasts {
       position: fixed;
-      bottom: 16px;
+      /* UX-58: at bottom:16px the toast stack sat on the composer's Send
+         button. Float it clear of the composer bar. */
+      bottom: 120px;
       right: 14px;
       display: flex; flex-direction: column; gap: 8px;
       z-index: 1000;
@@ -2950,7 +2958,17 @@ public static let css: String = """
        height IS the content height — the JS sizes it to an exact whole-number
        multiple of the row pitch and the last visible row lands flush on the
        box edge instead of being sliced in half. */
-    .cmd-list { max-height: 232px; overflow-y: auto; scrollbar-gutter: stable; }
+    .cmd-list { max-height: 460px; overflow-y: auto; scrollbar-gutter: stable; }
+    /* UX-54: macOS overlay scrollbars are invisible at rest, which hid 6 of
+       the 10 commands behind a silent fold. A slim, always-visible track lets
+       the remaining rows advertise themselves. */
+    .cmd-list::-webkit-scrollbar { width: 11px; }
+    .cmd-list::-webkit-scrollbar-track { background: transparent; }
+    .cmd-list::-webkit-scrollbar-thumb {
+      background: var(--border-strong); border-radius: 999px;
+      border: 3px solid transparent; background-clip: content-box;
+    }
+    .cmd-list::-webkit-scrollbar-thumb:hover { background: var(--muted); border: 3px solid transparent; background-clip: content-box; }
     .cmd-item { display: block; width: 100%; text-align: left; padding: 8px 14px; cursor: pointer;
       transition: background .12s; background: transparent; border: 0; color: inherit; font: inherit; }
     .cmd-item:hover { background: rgba(140,140,140,.12); }

@@ -96,7 +96,7 @@
       l = document.createElement('div');
       l.className = 'cmd-list';
       dd.appendChild(l);
-      if (!l.style.maxHeight) l.style.maxHeight = '232px';
+      if (!l.style.maxHeight) l.style.maxHeight = '460px';
     }
     return l;
   }
@@ -140,7 +140,10 @@
     if (!(rowH > 0)) rowH = 57.5;
     var r = input ? input.getBoundingClientRect() : null;
     var composerTop = r ? r.top : window.innerHeight - 64;
-    var avail = Math.max(rowH, Math.min(240, composerTop - 12));
+    // UX-54: 240 px showed only ~4 of 10 commands while ~700 px sat unused
+    // above the composer. Cap at 460 (~8 rows) so the common set is visible
+    // and the tail is one obvious wheel away.
+    var avail = Math.max(rowH, Math.min(460, composerTop - 12));
     var whole = Math.max(1, Math.floor(avail / rowH));
     // Round to the nearest quarter-pixel so the written max-height never
     // carries 0.0001 px dust that would resurface as a hairline sliver.
