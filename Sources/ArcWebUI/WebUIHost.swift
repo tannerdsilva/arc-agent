@@ -51,6 +51,61 @@ actor LiveTurnGate {
     }
 }
 
+/// Serializes every fragment push onto one submission-ordered chain.
+///
+/// Two producers share the push path — action responses and the turn stream —
+/// and their broadcasts could interleave: a live op gated as "chat visible"
+/// could reach the wire AFTER the view render that removed its element (or
+/// before the render that mounts it), forcing the engine's
+/// "Element not found: #live-turn-thinking" warning — the gates went red on
+/// exactly that. One chain, one order: each batch waits for the previous
+/// batch's broadcast before its own gating + broadcast runs, so what the gate
+/// decided is what the wire delivers, in that order.
+actor PushPipeline {
+    private let app: AppState
+    private let server: WebUIServer
+    private let deduper: PushDeduper
+    private let gate = LiveTurnGate()
+    /// Tail of the submission chain; each `push` appends one link.
+    private var tail: Task<Void, Never>?
+
+    init(app: AppState, server: WebUIServer, deduper: PushDeduper) {
+        self.app = app
+        self.server = server
+        self.deduper = deduper
+    }
+
+    func push(_ updates: [FragmentUpdate]) async {
+        let previous = tail
+        let task = Task {
+            await previous?.value
+            await self.perform(updates)
+        }
+        tail = task
+        await task.value
+    }
+
+    private func perform(_ updates: [FragmentUpdate]) async {
+        // The DOM-apply guard + ordering for the live turn: `#live-turn`,
+        // `#live-turn-text` and `#live-turn-thinking` only exist in the client
+        // while the chat that owns the running turn is on screen. Batches
+        // carrying a chat-region render are stamped so live ops wait a beat
+        // for the re-mount; ops whose view is genuinely gone are dropped (the
+        // pure emission stays untouched — the contract tests pin it).
+        if updates.contains(where: { $0.id == "main" || $0.id == "chat-inner" }) {
+            await gate.markChatRender()
+        }
+        let liveTurnShown = await app.liveTurnShown()
+        var kept: [FragmentUpdate] = []
+        for u in updates {
+            let isLiveTurnOp = u.id == "live-turn" || u.id.hasPrefix("live-turn-")
+            if !isLiveTurnOp { kept.append(u); continue }
+            if await gate.allows(u.id, liveVisible: liveTurnShown) { kept.append(u) }
+        }
+        await server.broadcast(await deduper.filter(kept))
+    }
+}
+
 /// The Web UI host: boots the app state, serves the page through no-webui's
 /// `WebUIServer`, and streams logs + the workspace tree while it runs.
 ///
@@ -255,28 +310,9 @@ public struct WebUIHost: Service {
         )
 
         let deduper = PushDeduper()
-        let liveGate = LiveTurnGate()
+        let pipeline = PushPipeline(app: app, server: server, deduper: deduper)
         let controller = Controller(app: app, push: { updates in
-            // DOM-apply guard + ordering for the live turn. `#live-turn`,
-            // `#live-turn-text` and `#live-turn-thinking` only exist in the
-            // client while the chat that owns the running turn is on screen, and
-            // a live op that beats the chat's `#main`/`#chat-inner` render over
-            // the wire forces the engine to log "Element not found: #live-turn".
-            // Batches carrying a chat-region render are stamped so live ops wait
-            // a beat for the re-mount; ops whose view is genuinely gone are
-            // dropped (the pure emission stays untouched — the contract tests
-            // pin it).
-            if updates.contains(where: { $0.id == "main" || $0.id == "chat-inner" }) {
-                await liveGate.markChatRender()
-            }
-            let liveTurnShown = await app.liveTurnShown()
-            var kept: [FragmentUpdate] = []
-            for u in updates {
-                let isLiveTurnOp = u.id == "live-turn" || u.id.hasPrefix("live-turn-")
-                if !isLiveTurnOp { kept.append(u); continue }
-                if await liveGate.allows(u.id, liveVisible: liveTurnShown) { kept.append(u) }
-            }
-            await server.broadcast(await deduper.filter(kept))
+            await pipeline.push(updates)
         })
         await controller.wireAll(router)
 

@@ -51,10 +51,27 @@ extension AppState {
     func appendToSession(idx: Int, message: Message) async {
         guard sessions.indices.contains(idx) else { return }
         sessions[idx].messages.append(message)
+        sessions[idx].messageCount = sessions[idx].messages.count
         sessionVersion += 1
         if let store {
             await persistMessage(message, sessionID: sessions[idx].id, store: store)
         }
+    }
+
+    /// True when a chat is a pristine "New chat": no title, no messages.
+    /// The `+` guard reads this — `messageCount` is a store mirror that lags
+    /// live appends, so it checks the loaded body (always cached for the
+    /// active chat; eviction never drops it) and falls back to the store
+    /// itself, never trusting one stale field.
+    func isPristineNewChat(_ id: String) async -> Bool {
+        guard let idx = sessions.firstIndex(where: { $0.id == id }) else { return false }
+        let s = sessions[idx]
+        if !(s.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
+        if s.messageCount > 0 || !s.messages.isEmpty { return false }
+        if let store, let full = try? await store.get(id: id) {
+            return full.messages.isEmpty
+        }
+        return true
     }
 
     func chatFragments() async -> [FragmentUpdate] {
@@ -520,6 +537,10 @@ extension AppState {
             if showArchived { showArchived = false }
         } else {
             settings.archivedSessions.append(id)
+            // The row leaves the list without a trace; surface where it went
+            // and how to get it back — mis-taps happen (same routed path as
+            // the delete toast: here the feedback IS the feature).
+            surfaceToast("Conversation archived — find it under “Show archived conversations”.")
         }
         saveSettings()
     }

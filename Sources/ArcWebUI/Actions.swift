@@ -1679,6 +1679,18 @@ final class Controller: Sendable {
 
     private func newChat() async {
         await app.ensureRuntime()
+        // Reuse the current chat when it is still a pristine "New chat":
+        // a double-click on + (or pressing + while the fresh chat is already
+        // open) used to mint duplicate empty rows. A pristine empty chat is
+        // indistinguishable from the one already on screen, so keep it.
+        // `isPristineNewChat` reads the store-backed truth, not the lagging
+        // `messageCount` mirror — a chat that just received its first message
+        // must NOT read as empty.
+        if let activeID = await app.activeSessionID,
+           await app.isPristineNewChat(activeID) {
+            await app.setActiveSession(activeID)
+            return
+        }
         guard let store = await app.storeRef() else {
             _ = await app.toast("No storage available — cannot create a chat.", kind: "error")
             return

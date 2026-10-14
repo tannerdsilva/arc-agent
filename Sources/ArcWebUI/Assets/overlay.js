@@ -933,6 +933,24 @@
       WebUIEngine.on.afterPatch(enhancePatched);
       WebUIEngine.on.ready(enhanceAll);
     }
+    // Number inputs declare their range with min/max; a typed value outside
+    // it used to sit in the field until a reload (the server clamped its copy
+    // silently, the engine's input preservation kept the user's value on top).
+    // Clamp in the capture phase, before the engine reads the value for its
+    // change dispatch — the field corrects itself on Enter/blur, every time.
+    document.addEventListener('change', function (e) {
+      var el = e.target;
+      if (!el || el.tagName !== 'INPUT' || el.type !== 'number') return;
+      var min = el.getAttribute('min');
+      var max = el.getAttribute('max');
+      if (min === null && max === null) return;
+      var v = parseFloat(el.value);
+      if (!isFinite(v)) return;
+      var lo = min === null ? -Infinity : parseFloat(min);
+      var hi = max === null ? Infinity : parseFloat(max);
+      if (v < lo) el.value = String(lo);
+      else if (v > hi) el.value = String(hi);
+    }, true);
     // The engine boots synchronously with its own script, which precedes this
     // handler, so `ready` may never fire — the initial pass runs here, and
     // covers anything that arrived before registration.
