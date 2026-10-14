@@ -57,7 +57,9 @@ public enum SharedSessionACL {
         grants: [TesseraShareGrant]
     ) -> ShareRole? {
         if sessionOwner == nil || sessionOwner == identity { return .contribute }
-        guard let grant = grants.first(where: { $0.sessionID == sessionID && $0.owner == sessionOwner }) else {
+        guard let grant = grants
+            .filter({ $0.sessionID == sessionID && $0.owner == sessionOwner })
+            .max(by: { $0.seq < $1.seq }) else {
             return nil
         }
         return grant.grantees.first(where: { $0.pubkey == identity })?.role

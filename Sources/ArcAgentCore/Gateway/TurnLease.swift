@@ -14,7 +14,7 @@ import Foundation
 /// contributes a message the owner's agent picks up).
 public actor TurnLeaseRegistry {
     public static let shared = TurnLeaseRegistry()
-    private init() {}
+    init() {}
 
     private var held: [String: Date] = [:]
 
