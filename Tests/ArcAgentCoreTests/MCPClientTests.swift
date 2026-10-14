@@ -8,8 +8,11 @@ import Foundation
 @Suite("MCP client")
 struct MCPClientTests {
 
-    /// A minimal newline-delimited JSON-RPC MCP server.
-    private static let fakeServerScript = """
+    /// A minimal newline-delimited JSON-RPC MCP server. `prefix` labels the
+    /// script's replies, so a test can tell two server processes apart when
+    /// the same server name is re-pointed at a different script.
+    private static func serverScript(prefix: String) -> String {
+        """
     import sys, json
     for line in sys.stdin:
         line = line.strip()
@@ -21,6 +24,17 @@ struct MCPClientTests {
             continue
         m = msg.get("method")
         if m == "initialize":
+            # Mimic a real server's schema validation: capabilities must be an
+            # object whose values are objects. The old `"sampling": false` was
+            # accepted by this fake and rejected by every real server.
+            caps = msg.get("params", {}).get("capabilities")
+            bad = (not isinstance(caps, dict)
+                   or any(not isinstance(v, dict) for v in caps.values()))
+            if bad:
+                print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "error": {
+                    "code": -32602,
+                    "message": "Invalid input: expected object, received boolean"}}), flush=True)
+                continue
             print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
@@ -35,15 +49,18 @@ struct MCPClientTests {
         elif m == "tools/call":
             args = msg.get("params", {}).get("arguments", {}) or {}
             print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"content": [
-                {"type": "text", "text": "echo: " + str(args.get("text", ""))}]}}), flush=True)
+                {"type": "text", "text": "\(prefix): " + str(args.get("text", ""))}]}}), flush=True)
     """
+    }
 
-    private func writeFakeServer() throws -> String {
+    private static let fakeServerScript = serverScript(prefix: "echo")
+
+    private func writeFakeServer(prefix: String = "echo") throws -> String {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("arc-mcp-test-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let path = dir.appendingPathComponent("fake_mcp.py")
-        try Self.fakeServerScript.write(to: path, atomically: true, encoding: .utf8)
+        try Self.serverScript(prefix: prefix).write(to: path, atomically: true, encoding: .utf8)
         return path.path
     }
 
@@ -169,5 +186,70 @@ struct MCPClientTests {
             try await MCPClientTool.entry.handler(["action": "explode"])
         }
         #expect(out.contains("unknown action"))
+    }
+
+    /// The webui settings panel saves through `saveConfig(ArcConfig)`, so the
+    /// underscore key must survive an encode — a camelCase `mcpServers` on disk
+    /// would be silently ignored by the decoder that reads `mcp_servers`.
+    @Test("a saved config round-trips the mcp_servers block")
+    func configRoundTrip() throws {
+        var config = ArcConfig()
+        config.mcpServers = [
+            "files": MCPServerConfig(
+                command: "npx",
+                args: ["-y", "srv", "/tmp"],
+                env: ["TOKEN": "x"],
+                timeout: 42,
+                connectTimeout: 7
+            )
+        ]
+        let data = try JSONEncoder().encode(config)
+        let text = String(decoding: data, as: UTF8.self)
+        #expect(text.contains("\"mcp_servers\""), "the underscore key must survive an encode")
+
+        let back = try JSONDecoder().decode(ArcConfig.self, from: data)
+        #expect(back.mcpServers["files"]?.command == "npx")
+        #expect(back.mcpServers["files"]?.args == ["-y", "srv", "/tmp"])
+        #expect(back.mcpServers["files"]?.env == ["TOKEN": "x"])
+        #expect(back.mcpServers["files"]?.timeout == 42)
+        #expect(back.mcpServers["files"]?.connectTimeout == 7)
+    }
+
+    /// A config edit must reach the wire: `configure` drops any client whose
+    /// config changed (stopping its child process) and keeps the warm client
+    /// for unchanged servers. Without this, editing a server in the UI would
+    /// silently keep talking to the process started from the old config.
+    ///
+    /// Uses a private manager, not `.shared` — the shared one is asserted empty
+    /// by the tests above and those run in parallel with this suite.
+    @Test("reconfigure drops a changed client and keeps an unchanged one")
+    func reconfigureInvalidatesChangedClient() async throws {
+        let scriptA = try writeFakeServer(prefix: "A")
+        let scriptB = try writeFakeServer(prefix: "B")
+        let manager = MCPClientManager()
+
+        func callText(_ text: String) async throws -> String {
+            let client = try await manager.client(named: "s")
+            return try await withTimeout(seconds: 15) {
+                try await client.callTool("echo", arguments: NonSendableBox(["text": text] as [String: Any]))
+            }
+        }
+
+        await manager.configure(["s": MCPServerConfig(command: "python3", args: [scriptA], connectTimeout: 20)])
+        #expect(try await callText("one") == "A: one")
+
+        // Same config again: the warm client survives (no needless respawn).
+        await manager.configure(["s": MCPServerConfig(command: "python3", args: [scriptA], connectTimeout: 20)])
+        #expect(try await callText("two") == "A: two")
+
+        // Changed config: the new process answers, so the edit took effect.
+        await manager.configure(["s": MCPServerConfig(command: "python3", args: [scriptB], connectTimeout: 20)])
+        #expect(try await callText("three") == "B: three")
+
+        // Removed config: the server is gone and its process is stopped.
+        await manager.configure([:])
+        await #expect(throws: (any Error).self) {
+            _ = try await manager.client(named: "s")
+        }
     }
 }

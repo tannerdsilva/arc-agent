@@ -224,11 +224,19 @@ public actor StdioMCPClient {
         self.stdinHandle = inPipe.fileHandleForWriting
 
         // Initialize handshake.
+        //
+        // `capabilities` must be an object of *capability objects*, and this
+        // client implements neither optional capability (it does not answer
+        // `roots/list` or `sampling/createMessage`), so the honest value is an
+        // empty object. The previous `"sampling": false` was rejected by every
+        // current server's schema validation ("expected object, received
+        // boolean"), which made the whole client unusable against real servers
+        // — the in-repo fake server took any shape and never caught it.
         let initResult = try await request(
             method: "initialize",
             params: [
                 "protocolVersion": "2024-11-05",
-                "capabilities": ["roots": ["listChanged": false], "sampling": false],
+                "capabilities": [:] as [String: Any],
                 "clientInfo": ["name": "arc-agent", "version": "0.1.0"],
             ],
             timeout: config.connectTimeout

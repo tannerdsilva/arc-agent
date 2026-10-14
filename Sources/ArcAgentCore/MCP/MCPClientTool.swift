@@ -7,7 +7,20 @@ public actor MCPClientManager {
     private var configs: [String: MCPServerConfig] = [:]
     private var clients: [String: StdioMCPClient] = [:]
 
-    public func configure(_ servers: [String: MCPServerConfig]) {
+    /// Point the registry at a new `mcp_servers` block (called at agent start
+    /// and after any config edit).
+    ///
+    /// A client owns a live child process bound to the config it was spawned
+    /// with, so a server whose config changed is stopped and dropped —
+    /// otherwise an edit (a new command, a corrected arg) would silently keep
+    /// calling the old process. Servers whose config is unchanged keep their
+    /// warm client, and removed servers are stopped.
+    public func configure(_ servers: [String: MCPServerConfig]) async {
+        let stale = clients.keys.filter { configs[$0] != servers[$0] }
+        for name in stale {
+            await clients[name]?.shutdown()
+            clients.removeValue(forKey: name)
+        }
         configs = servers
     }
 
