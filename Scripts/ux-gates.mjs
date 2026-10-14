@@ -661,8 +661,13 @@ async function runInteractions() {
     await ev(`document.getElementById('chat-new')?.click()`);
     await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000 });
     await settle(300);
-    await driver.js(`document.activeElement && document.activeElement.blur && document.activeElement.blur(); document.body.focus(); true`);
-    await settle(100);
+    // Make BODY actually focusable before focusing it: without tabindex the
+    // focus() call is a silent no-op, focus stays on whatever the app last
+    // focused (the composer, via the new-chat flow), and the "trail" starts
+    // mid-cycle — counting a wrapped lap instead of the cost from load.
+    await driver.js(`document.body.setAttribute('tabindex','-1'); document.activeElement && document.activeElement.blur && document.activeElement.blur(); document.body.focus(); true`);
+    await settle(250);
+    const startedAtBody = await ev(`document.activeElement === document.body`);
     let stops = 0;
     const seen = new Set();
     const trail = [];
@@ -679,11 +684,11 @@ async function runInteractions() {
       if (seen.has(key)) { /* allow revisits until max */ }
       seen.add(key);
     }
-    budget[vp] = { stops, focusedComposer, trail };
+    budget[vp] = { stops, focusedComposer, startedAtBody, trail };
     const fl = await ev(`uxGates.focusables()`);
     budget[vp].focusableCount = fl.length;
   }
-  const budgetOk = budget[1440].focusedComposer && budget[1440].stops <= 12 && budget[768].focusedComposer && budget[768].stops <= 12;
+  const budgetOk = budget[1440].startedAtBody && budget[768].startedAtBody && budget[1440].focusedComposer && budget[1440].stops <= 12 && budget[768].focusedComposer && budget[768].stops <= 12;
   add('tab budget (<=12 stops to composer, 1440 + 768)', budgetOk, budget);
 
   // ---- 4. slash menu -------------------------------------------------------
