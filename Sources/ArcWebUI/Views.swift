@@ -330,6 +330,24 @@ extension AppState {
         // now). The header's bare archive glyph is gone: two controls doing
         // the same thing read as noise.
         let actions = todos ? "" : newBtn
+        // UX-62: empty drafts pile up from a stray `+` — three identical
+        // "New chat · 0 msg" rows is exactly the clutter this clears — and
+        // there was no way to remove them. Offer the cleanup only where it
+        // applies (the Chats list, not the archived view) and only when there
+        // is something to clear. The chat you are currently in is never
+        // counted: clearing must not close the composer out from under you.
+        let activeEmpty = sessions.first(where: { $0.id == activeSessionID })
+            .map { $0.messageCount == 0 } ?? false
+        let emptyDrafts = sessions.filter {
+            !$0.id.hasPrefix("Cron-") && !isArchived($0.id) && $0.messageCount == 0
+        }.count
+        let clearableDrafts = max(0, emptyDrafts - (activeEmpty ? 1 : 0))
+        let clearBtn = (!todos && !showArchived && clearableDrafts > 0)
+            ? btn(
+                "chat-clear-empty", "chat-clear-empty", "arch-link",
+                "<span class=\"arch-ico\">\(WebUIIcon(.trash, size: .small).markup.html)</span><span> Clear \(clearableDrafts) empty chat\(clearableDrafts == 1 ? "" : "s")</span>",
+                " data-tip=\"Delete conversations with no messages\"")
+            : ""
         let head = """
         <div class="panel-head">
           <span class="panel-title">\(todos ? "Todos" : "Chats")</span>
@@ -346,6 +364,7 @@ extension AppState {
         </button>
         \(showArchived ? "<div class=\"arch-mode-note\">Showing archived conversations only.</div>" : "")
         """)
+        \(clearBtn)
         """
         var rows: [String] = []
         let bookmarks = settings.bookmarkedSessions

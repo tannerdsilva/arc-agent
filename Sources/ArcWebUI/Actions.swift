@@ -1645,6 +1645,9 @@ final class Controller: Sendable {
             case "skill":
                 await self.app.cancelConfirm()
                 await self.deleteSkill(req.id)
+            case "empty-drafts":
+                await self.app.cancelConfirm()
+                await self.app.clearEmptyDrafts()
             default:
                 await self.app.cancelConfirm()
             }
@@ -1652,6 +1655,21 @@ final class Controller: Sendable {
         }
         wire(router, id: "chat-showarch", events: ["click"]) { _ in
             await self.app.setShowArchived(!self.app.showArchived)
+            return await self.app.refreshFragments()
+        }
+        // UX-62: clear the never-messaged drafts that clutter the list. It is a
+        // destructive bulk delete, so it arms the shared confirm modal like
+        // every other delete — the count is re-derived from the store-backed
+        // truth, and only shown when there is something to remove.
+        wire(router, id: "chat-clear-empty", events: ["click"]) { _ in
+            let n = await self.app.emptyDraftCount()
+            guard n > 0 else { return await self.app.refreshFragments() }
+            await self.app.requestConfirm(ConfirmRequest(
+                kind: "empty-drafts", id: "",
+                title: n == 1 ? "Clear the empty chat?" : "Clear \(n) empty chats?",
+                body: n == 1
+                    ? "1 conversation with no messages will be deleted. This cannot be undone."
+                    : "\(n) conversations with no messages will be deleted. This cannot be undone."))
             return await self.app.refreshFragments()
         }
         // The responsive-drawer toggle is wired purely so the engine routes

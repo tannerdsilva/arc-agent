@@ -502,6 +502,78 @@ extension AppState {
         return true
     }
 
+    /// How many never-messaged drafts the cleanup would actually remove
+    /// (UX-62): excludes the chat you are in (its composer is open — clearing
+    /// must not close it under you) and the archived set (the toggle's view).
+    func emptyDraftCount() -> Int {
+        let keep = activeSessionID
+        return sessions.filter {
+            !$0.id.hasPrefix("Cron-") && !isArchived($0.id)
+                && $0.messageCount == 0 && $0.id != keep
+        }.count
+    }
+
+    /// Delete the never-messaged drafts that clutter the conversation list
+    /// (UX-62). A stray `+` leaves identical "New chat · 0 msg" rows behind and
+    /// there was no way to remove them. They are content-free by construction,
+    /// so the dialog says plainly that it cannot be undone rather than
+    /// pretending the single-slot Undo could restore N chats.
+    ///
+    /// Emptiness is judged on the store-backed `messageCount` and then
+    /// CONFIRMED against the materialized transcript: `list()` hands back
+    /// summaries whose `messages` are empty *by design*, so trusting the
+    /// structural read alone would delete real conversations. The re-check
+    /// after `ensureSessionMessages` is the safety catch.
+    @discardableResult
+    func clearEmptyDrafts() async -> Int {
+        guard let store else { return 0 }
+        // A bulk delete cannot ride the single-slot undo; retire any pending
+        // one so an Undo toast can never resurrect some other chat.
+        undoableDelete = nil
+        let keep = activeSessionID
+        var doomed: [String] = []
+        for s in sessions
+        where !s.id.hasPrefix("Cron-") && !isArchived(s.id) && s.messageCount == 0 && s.id != keep {
+            await ensureSessionMessages(s.id)
+            guard let i = sessions.firstIndex(where: { $0.id == s.id }) else { continue }
+            if sessions[i].messages.isEmpty { doomed.append(s.id) }
+        }
+        guard !doomed.isEmpty else { return 0 }
+        for id in doomed {
+            do {
+                try await store.delete(id: id)
+            } catch {
+                LogCollector.shared.append(level: .error, text: "[store] failed to delete empty session \(String(id.prefix(8))): \(error)")
+            }
+            sessions.removeAll { $0.id == id }
+            settings.sessionWorkspaces.removeValue(forKey: id)
+            settings.sessionCategories.removeValue(forKey: id)
+            settings.sessionProfile.removeValue(forKey: id)
+            settings.bookmarkedSessions.removeAll { $0 == id }
+            settings.todos.removeValue(forKey: id)
+            settings.composerDrafts.removeValue(forKey: id)
+            settings.sessionTitles.removeValue(forKey: id)
+        }
+        saveSettings()
+        await reloadSessions()
+        // Never strand the app with no chat at all.
+        if activeSessionID == nil {
+            if let newest = sessions
+                .filter({ !$0.id.hasPrefix("Cron-") })
+                .max(by: { $0.updatedAt < $1.updatedAt }) {
+                await setActiveSession(newest.id, preserveUndo: true)
+            } else {
+                await ensureRuntime()
+                let fresh = Session()
+                try? await store.create(fresh)
+                await reloadSessions(selecting: fresh.id)
+                await setActiveSession(fresh.id, preserveUndo: true)
+            }
+        }
+        _ = surfaceToast(doomed.count == 1 ? "Empty chat cleared." : "\(doomed.count) empty chats cleared.")
+        return doomed.count
+    }
+
     func toggleOutline() { outlineOpen.toggle() }
 
     func closeOutline() { outlineOpen = false }
