@@ -3057,11 +3057,17 @@ public static let css: String = """
        node is REPLACED on every patch, so state on the panel would be wiped;
        #app survives the patch cycle. */
     @media (max-width: 1023.98px) {
+      /* UX-61: the drawer starts AFTER the icon rail — the rail stays visible
+         and reachable while the panel is open. Before this, the panel (z70)
+         and the scrim (z69, left:0) covered the rail, so every tap meant for a
+         rail icon landed on the scrim and was swallowed ("the sidebar icons
+         don't work"). The rail is the app's primary navigation; it must never
+         be the thing the drawer hides. */
       #panel {
-        position: fixed; top: 38px; bottom: 0; left: 0;
-        width: min(var(--panel-w), 86vw);
+        position: fixed; top: 38px; bottom: 0; left: var(--iconbar-w);
+        width: min(var(--panel-w), calc(100vw - var(--iconbar-w)));
         z-index: 70;
-        transform: translateX(-102%);
+        transform: translateX(calc(-100% - var(--iconbar-w)));
         visibility: hidden;
         box-shadow: 0 0 44px rgba(0, 0, 0, 0.35);
         transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 0.28s;
@@ -3071,6 +3077,8 @@ public static let css: String = """
         visibility: visible;
         transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
       }
+      /* the scrim dims the content column, never the rail (UX-61) */
+      .drawer-scrim { left: var(--iconbar-w); }
     }
     /* Below 720px: the icon rail compacts (smaller glyphs and tighter
        spacing; the 40px hit targets stay), the transcript's right gutter —

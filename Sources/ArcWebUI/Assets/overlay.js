@@ -770,6 +770,11 @@
     // Picking a conversation (or minting a new one) closes the drawer so the
     // chat has the full canvas for the turn it just opened.
     if (t.closest('.sess-row') || t.closest('#chat-new')) { closeDrawer(true); return; }
+    // A rail switch is a view change too: close the drawer so the chosen view
+    // owns the canvas (the rail itself now stays visible beside the drawer —
+    // see the UX-61 offset in the sheet — and these two together are what make
+    // "tap another icon to leave Settings" work on a narrow window).
+    if (t.closest('#iconbar')) { closeDrawer(false); return; }
   }, true);
   // Growing past the breakpoint with the drawer open must reset it: the CSS
   // ignores the class at >= 1024px, but aria-expanded would go stale (and a
