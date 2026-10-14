@@ -1,5 +1,5 @@
 {
-  "originHash" : "befc4fed85e7ea7fd9caecd94d9eb7090d35e5857e6523e6851bb419d078ae82",
+  "originHash" : "46c02fb6174a16b253ab98d351317f8a497dbe44af0755159510da122486baef",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -213,8 +213,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/swift-mcp.git",
       "state" : {
-        "revision" : "5003705bc673530cec1febc0b9f1278a2be2324d",
-        "version" : "2.0.0"
+        "revision" : "de3f81c95a7e44bf0b31841232a3a1a5043e9db4",
+        "version" : "2.1.0"
       }
     },
     {
