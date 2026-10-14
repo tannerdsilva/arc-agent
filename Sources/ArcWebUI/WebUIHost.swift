@@ -378,6 +378,20 @@ public struct WebUIHost: Service {
             }
         } catch is CancellationError {
             // expected: the inherited shutdown cancelled the subtree
+        } catch {
+            // Unexpected exit: release the app state before propagating. An
+            // AsyncHTTPClient that was never shut down traps in its deinit.
+            await app.shutdown()
+            throw error
         }
+        // Second Law: cleanup belongs at the end of `run()`, not in a deinit.
+        // The daemon releases this host — and with it the app state — while the
+        // process is still alive, so an un-shutdown AsyncHTTPClient would trap
+        // on deinit (`Fatal error: Client not shut down before the deinit`).
+        // That trap is the Ctrl-C crash on `arc serve`. Reached on the expected
+        // cancellation path too: the `CancellationError` catch swallows instead
+        // of rethrowing, so this is the single cleanup site for both.
+        app.crumb("host: teardown — releasing app state")
+        await app.shutdown()
     }
 }

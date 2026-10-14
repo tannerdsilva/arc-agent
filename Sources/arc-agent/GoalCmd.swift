@@ -84,6 +84,19 @@ struct GoalDraft: AsyncParsableCommand {
     }
 
     private func draftContract(objective: String, config: ArcConfig) async -> GoalContract? {
+        // One-shot client: created per call and shut down on every exit. A
+        // leaked AsyncHTTPClient traps in its deinit.
+        return (try? await withOneShotHTTPClient { httpClient in
+            await draftContract(objective: objective, config: config, httpClient: httpClient)
+        }) ?? nil
+    }
+
+    /// The drafting body, run against a client the caller owns and shuts down.
+    private func draftContract(
+        objective: String,
+        config: ArcConfig,
+        httpClient: HTTPClient
+    ) async -> GoalContract? {
         let main = config.model
         let base = main.baseURL ?? "https://api.openai.com/v1"
         guard let url = URL(string: base) else { return nil }
@@ -91,7 +104,7 @@ struct GoalDraft: AsyncParsableCommand {
         let apiKey = env["ARC_API_KEY"] ?? env["OPENAI_API_KEY"] ?? ""
         let client = OpenAICompatibleClient(
             baseURL: url, apiKey: apiKey,
-            model: main.defaultModel, httpClient: HTTPClient(eventLoopGroupProvider: .singleton)
+            model: main.defaultModel, httpClient: httpClient
         )
         do {
             let prompt = """

@@ -39,10 +39,9 @@ public protocol BrowserSessionProvider: Sendable {
     func emergencyCleanup() async
 }
 
-/// Shared AsyncHTTPClient for browser cloud calls.
-enum BrowserHTTP {
-    static let client = HTTPClient(eventLoopGroupProvider: .singleton)
-}
+/// Browser cloud APIs speak plain JSON over HTTP; the client is created per
+/// call by `withOneShotHTTPClient` and shut down on every exit (a leaked
+/// AsyncHTTPClient traps in its deinit).
 public struct BrowserbaseSessionProvider: BrowserSessionProvider {
     public let name = "browserbase"
 
@@ -269,17 +268,18 @@ enum BrowserCloudAPI {
     }
 
     static func send(url: String, method: HTTPMethod, headers: [String: String], body: Data?) async throws -> [String: Any] {
-        var h = HTTPHeaders()
-        for (k, v) in headers { h.add(name: k, value: v) }
-        let request = try HTTPClient.Request(
-            url: url, method: method, headers: h,
-            body: body.map { .byteBuffer(ByteBuffer(bytes: $0)) }
-        )
-        let response = try await BrowserHTTP.client.execute(request: request, deadline: .now() + .seconds(30)).get()
-        guard (200..<300).contains(response.status.code) else {
-            throw CDPError.commandFailed("HTTP \(response.status.code) from \(url)")
+        try await withOneShotHTTPClient { client in
+            var h = HTTPHeaders()
+            for (k, v) in headers { h.add(name: k, value: v) }
+            let request = try HTTPClient.Request(
+                url: url, method: method, headers: h,
+                body: body.map { .byteBuffer(ByteBuffer(bytes: $0)) }
+            )
+            let response = try await client.execute(request: request, deadline: .now() + .seconds(30)).get()
+            guard (200..<300).contains(response.status.code) else {
+                throw CDPError.commandFailed("HTTP \(response.status.code) from \(url)")
+            }
+            return try JSONSerialization.jsonObject(with: Data(buffer: response.body ?? ByteBuffer())) as? [String: Any] ?? [:]
         }
-        let json = try JSONSerialization.jsonObject(with: Data(buffer: response.body ?? ByteBuffer())) as? [String: Any] ?? [:]
-        return json
     }
 }

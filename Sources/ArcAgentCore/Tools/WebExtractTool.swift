@@ -191,14 +191,17 @@ public enum WebExtractTool {
         guard let url = URL(string: urlString) else {
             throw SearchError.badResponse("invalid URL '\(urlString)'")
         }
-        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-        defer { Task { try? await httpClient.shutdown() } }
-        var request = HTTPClientRequest(url: url.absoluteString)
-        request.method = .GET
-        request.headers.add(name: "User-Agent", value: "ArcAgent/0.1")
-        let response = try await httpClient.execute(request, timeout: .seconds(30))
-        let data = try await response.body.collect(upTo: 1_000_000)
-        let body = String(data: Data(buffer: data), encoding: .utf8) ?? ""
+        // One-shot client: shut down before this extract returns. A leaked
+        // AsyncHTTPClient traps in its deinit, and `defer { Task { … } }` lets
+        // the caller — or the process — exit with the client still open.
+        let body = try await withOneShotHTTPClient { client in
+            var request = HTTPClientRequest(url: url.absoluteString)
+            request.method = .GET
+            request.headers.add(name: "User-Agent", value: "ArcAgent/0.1")
+            let response = try await client.execute(request, timeout: .seconds(30))
+            let data = try await response.body.collect(upTo: 1_000_000)
+            return String(data: Data(buffer: data), encoding: .utf8) ?? ""
+        }
         if urlString.contains(".html") || body.contains("<!DOCTYPE") || body.contains("<html") {
             let stripped = stripHTML(body)
             // Grounding envelope stamped from the raw body (before strip) so

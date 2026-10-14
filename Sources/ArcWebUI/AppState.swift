@@ -1405,6 +1405,24 @@ actor AppState {
         runtimeKey = nil
     }
 
+    /// Release the process-scoped resources this actor owns.
+    ///
+    /// The host calls this at the end of its `run()` (Second Law: cleanup
+    /// belongs to the service, not to a `deinit`). An `AsyncHTTPClient` that
+    /// was never shut down traps in its deinit — `Fatal error: Client not shut
+    /// down before the deinit` — whenever the daemon's teardown releases the
+    /// app state while the process is still alive, which is exactly what a
+    /// Ctrl-C on `arc serve` does.
+    ///
+    /// Idempotent, and `ensureRuntime()` re-creates the client if a live host
+    /// still needs one.
+    func shutdown() async {
+        if let client = httpClient {
+            try? await client.shutdown()
+            httpClient = nil
+        }
+    }
+
     /// Reload the scheduled-jobs render cache from the cron store (the single
     /// source of truth; the UI no longer owns job state).
     func refreshScheduledJobs() async {

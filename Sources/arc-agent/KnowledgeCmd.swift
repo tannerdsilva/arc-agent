@@ -43,19 +43,20 @@ struct SecurityOSV: AsyncParsableCommand {
         }
         if queries.isEmpty { print("No resolvable pins found."); return }
         print("Auditing \(queries.count) pins (ecosystem: \(ecosystem))…")
-        let client = HTTPClient(eventLoopGroupProvider: .singleton)
-        // One-shot CLI: the client is torn down with the process; schedule the
-        // (async-only) shutdown so this command never blocks on it.
-        defer { Task { try? await client.shutdown() } }
         var request = HTTPClientRequest(url: api)
         request.method = .POST
         request.headers.add(name: "content-type", value: "application/json")
         request.body = .bytes(ByteBuffer(bytes: try JSONSerialization.data(withJSONObject: ["queries": queries])))
-        let response = try await client.execute(request, timeout: .seconds(60))
-        let body = try await response.body.collect(upTo: 8 * 1024 * 1024)
-        guard response.status == .ok else {
+        // One-shot CLI: the client is shut down before this command returns. A
+        // `defer { Task { … } }` lets the process exit with the client still
+        // open, which traps in its deinit.
+        let (status, body) = try await withOneShotHTTPClient { client -> (Int, ByteBuffer) in
+            let response = try await client.execute(request, timeout: .seconds(60))
+            return (Int(response.status.code), try await response.body.collect(upTo: 8 * 1024 * 1024))
+        }
+        guard status == 200 else {
             // OSV has no Swift ecosystem: be honest and list pins for review.
-            print("OSV refused the audit (HTTP \(response.status.code)) — OSV has no '\(ecosystem)' ecosystem.")
+            print("OSV refused the audit (HTTP \(status)) — OSV has no '\(ecosystem)' ecosystem.")
             print("Pins for manual review:")
             for label in labels { print("  \(label)") }
             print("Tip: re-run with --ecosystem of a supported format (PyPI, npm, crates.io…).")
@@ -63,7 +64,7 @@ struct SecurityOSV: AsyncParsableCommand {
         }
         guard let results = try JSONSerialization.jsonObject(with: Data(buffer: body)) as? [String: Any],
               let vulns = results["results"] as? [[String: Any]] else {
-            print("OSV response unreadable (HTTP \(response.status.code))."); return
+            print("OSV response unreadable (HTTP \(status))."); return
         }
         var total = 0
         for (i, result) in vulns.enumerated() {

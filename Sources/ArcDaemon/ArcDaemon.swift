@@ -214,7 +214,20 @@ public enum ArcDaemon {
         // task cancellation after this bound instead of hanging forever.
         configuration.maximumGracefulShutdownDuration = .seconds(5)
 
-        try await ServiceGroup(configuration: configuration).run()
+        do {
+            try await ServiceGroup(configuration: configuration).run()
+        } catch {
+            // Release the process-scoped connection before propagating.
+            await TesseraConnection.shared.shutdown()
+            throw error
+        }
+        // Release the shared Tessera connection (WireGuard tunnel) at teardown.
+        // The gateway service releases it for its own surface, but the daemon
+        // owns the process: with the API surface disabled the web UI is the only
+        // storage consumer, and the tunnel would otherwise be left open (an
+        // un-shutdown tessera client traps in its deinit — see `Arc.swift`'s
+        // `shutdownHTTPClient()` note on the CLI path).
+        await TesseraConnection.shared.shutdown()
     }
 
     /// Startup banner — parity with the pre-daemon `arc serve` output.

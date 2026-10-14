@@ -614,14 +614,21 @@ public actor ArcAgent: Service {
         await MCPClientManager.shared.configure(config.mcpServers)
         try await prime()
 
-        if let q = config.query {
-            let response = try await runConversation(message: q)
-            print(response)
-        } else {
-            try await runInteractive()
+        do {
+            if let q = config.query {
+                let response = try await runConversation(message: q)
+                print(response)
+            } else {
+                try await runInteractive()
+            }
+        } catch {
+            // Release the primed client before propagating: the caller (a CLI
+            // command or a ServiceGroup) releases this agent on the way out, and
+            // an un-shutdown AsyncHTTPClient traps in its deinit.
+            await shutdownHTTPClient()
+            throw error
         }
-
-        try? await httpClient?.shutdown()
+        await shutdownHTTPClient()
     }
 
     /// One-shot execution for delegation children: prime (idempotent), run
