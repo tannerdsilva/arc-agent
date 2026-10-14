@@ -968,6 +968,18 @@ actor AppState {
     /// data source (arc plugin metadata parity).
     var pluginManifests: [String: PluginManifest] = [:]
 
+    // MARK: MCP server presets (Settings → MCP servers)
+
+    /// The add/edit form is open (either adding a new server or editing the
+    /// one named by `editingMCPServer`).
+    var addingMCPServer = false
+    /// The server name being edited; nil while adding.
+    var editingMCPServer: String?
+    /// Tool names discovered by the last successful "Test" probe, per server.
+    var mcpToolCatalog: [String: [String]] = [:]
+    /// Why the last "Test" probe failed, per server (absent = no failure).
+    var mcpTestError: [String: String] = [:]
+
     // MARK: Runtime pieces (rebuilt when workspace / tessera mode changes)
 
     var httpClient: HTTPClient?
@@ -1062,7 +1074,15 @@ actor AppState {
         for w in pluginWarnings {
             crumb(w)
         }
-        Task { await self.refreshPlugins() }
+        // Bind the MCP client manager to the configured servers before the
+        // first turn: the webui turn loop dispatches tools straight through the
+        // registry (no `ArcAgent`), so nothing else here would ever point the
+        // manager at `mcp_servers` — `mcp_tool` would stay inert whatever the
+        // config said.
+        Task {
+            await self.configureMCPClients()
+            await self.refreshPlugins()
+        }
     }
 
     /// Rescan `~/.arc/plugins/` and rebuild the runtime registry with built-in

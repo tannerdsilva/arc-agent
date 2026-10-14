@@ -1193,6 +1193,7 @@ final class Controller: Sendable {
         wireWorkspaces(router)
         wireSettings(router)
         wirePlugins(router)
+        wireMCP(router)
         wireSidebarPluginToggles(router)
         wireToasts(router)
         wireLogs(router)
@@ -1642,6 +1643,9 @@ final class Controller: Sendable {
             case "workspace":
                 await self.app.cancelConfirm()
                 await self.deleteWorkspace(req.id)
+            case "mcp":
+                await self.app.cancelConfirm()
+                await self.app.removeMCPServer(req.id)
             case "skill":
                 await self.app.cancelConfirm()
                 await self.deleteSkill(req.id)
@@ -2406,6 +2410,82 @@ final class Controller: Sendable {
             await self.app.refreshPlugins()
             return await self.app.refreshFragments()
         }
+    }
+
+    // MARK: MCP servers (Settings)
+
+    /// Settings → MCP servers: the `mcp_servers` block of `~/.arc/config.json`.
+    /// The row buttons need the server name, so they ride `targetId` from the
+    /// `mcp-list` boundary (the form controls carry their own component ids —
+    /// `extractFormData` keys the submit payload by their `name`).
+    private func wireMCP(_ router: EventRouter) {
+        wire(router, id: "mcp-add", events: ["click"]) { _ in
+            await self.app.openMCPAdd()
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "mcp-cancel", events: ["click"]) { _ in
+            await self.app.closeMCPForm()
+            return await self.app.refreshFragments()
+        }
+        for field in ["mcp-name-input", "mcp-command-input", "mcp-args-input", "mcp-env-input"] {
+            wire(router, id: field, events: ["input"]) { event in
+                await self.app.storeFormValue(field, event.string("value") ?? "")
+                return []
+            }
+        }
+        wire(router, id: "mcp-form", events: ["submit"]) { event in
+            return await self.saveMCPServer(
+                name: event.string("mcp-name-input") ?? "",
+                command: event.string("mcp-command-input") ?? "",
+                argsText: event.string("mcp-args-input") ?? "",
+                envText: event.string("mcp-env-input") ?? "")
+        }
+        wire(router, id: "mcp-list", events: ["click"]) { event in
+            guard let tid = event.string("targetId") else { return [] }
+            return await self.mcpListAction(tid)
+        }
+    }
+
+    private func mcpListAction(_ tid: String) async -> [FragmentUpdate] {
+        if tid.hasPrefix("mcp-test-"), let name = dec(String(tid.dropFirst("mcp-test-".count))) {
+            await app.testMCPServer(name)
+            return await self.app.refreshFragments()
+        }
+        if tid.hasPrefix("mcp-edit-"), let name = dec(String(tid.dropFirst("mcp-edit-".count))) {
+            await app.openMCPEdit(name)
+            return await self.app.refreshFragments()
+        }
+        if tid.hasPrefix("mcp-del-"), let name = dec(String(tid.dropFirst("mcp-del-".count))) {
+            await app.requestConfirm(ConfirmRequest(
+                kind: "mcp", id: name, title: "Delete MCP server?",
+                body: "“\(name)” will be removed from ~/.arc/config.json. Its process stops and the agent loses whatever tools it exposed; nothing inside the server's own directory is touched."))
+            return await self.app.refreshFragments()
+        }
+        return []
+    }
+
+    private func saveMCPServer(name: String, command: String, argsText: String, envText: String) async -> [FragmentUpdate] {
+        let previous = await app.editingMCPServer
+        var previousConfig: MCPServerConfig?
+        if let previous { previousConfig = await app.mcpServerConfig(previous) }
+        do {
+            let planned = try MCPRules.planEntry(
+                name: name, command: command, argsText: argsText, envText: envText,
+                previousName: previous, previous: previousConfig,
+                existingNames: await app.mcpServerNames())
+            await app.upsertMCPServer(name: planned.name, config: planned.config, previousName: previous)
+            await app.closeMCPForm()
+            _ = await app.hint("MCP server '\(planned.name)' saved — press Test to start it and list its tools.")
+        } catch let e as MCPRuleError {
+            // Re-render exactly what was submitted: the form restores from
+            // `formValues`, which the debounced input wire may lag behind.
+            await app.storeMCPFormValues(name: name, command: command, argsText: argsText, envText: envText)
+            _ = await app.hint(e.description, kind: "error")
+        } catch {
+            await app.storeMCPFormValues(name: name, command: command, argsText: argsText, envText: envText)
+            _ = await app.hint("Could not save the MCP server: \(error)", kind: "error")
+        }
+        return await self.app.refreshFragments()
     }
 
     // MARK: Workspaces

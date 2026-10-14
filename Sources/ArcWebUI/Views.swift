@@ -757,13 +757,20 @@ extension AppState {
         </div>
         """
         var rows: [String] = []
+        // The `mcp` group is ONE bridge tool however many servers are
+        // configured, so a bare "1 tool" misleads — the count is meaningless
+        // without knowing whether anything is behind it.
+        let mcpServers = arcConfig.mcpServers.count
         for (toolset, tools) in toolsets {
             let encTS = enc(toolset)
             let disabled = settings.disabledToolsets.contains(toolset)
             let group = "<div class=\"tool-group\">\(esc(toolset))</div>"
+            let summary = toolset == "mcp"
+                ? "\(tools.count) tool · \(mcpServers) server\(mcpServers == 1 ? "" : "s") configured"
+                : "\(tools.count) tool\(tools.count == 1 ? "" : "s")"
             let toggle = """
             <div class="list-row" style="padding:6px 10px">
-              <span class="lr-sub" style="flex:1">\(tools.count) tool\(tools.count == 1 ? "" : "s")</span>
+              <span class="lr-sub" style="flex:1">\(summary)</span>
               <label class="switch" title="\(disabled ? "Toolset disabled" : "Toolset enabled")">
                 <input type="checkbox" id="ts-\(encTS)" value="ts-\(encTS)" data-component-id="tools-toggle" data-event="change" data-no-restore \(disabled ? "" : "checked")>
                 <span class="track"></span><span class="knob"></span>
@@ -771,6 +778,9 @@ extension AppState {
             </div>
             """
             var toolRows: [String] = []
+            if toolset == "mcp", mcpServers == 0 {
+                toolRows.append("<div class=\"empty-hint\">No MCP servers configured — add one in Settings → MCP servers. Until then this bridge has nothing to call.</div>")
+            }
             for t in tools {
                 let encT = enc(t.name)
                 let active = t.name == selectedTool ? " active" : ""
@@ -836,6 +846,7 @@ extension AppState {
           <div class="list-row"><a href="#preferences" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">Preferences</span></a></div>
           <div class="list-row"><a href="#storage" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">Storage</span></a></div>
           <div class="list-row"><a href="#tool-plugins" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">Tool plugins</span></a></div>
+          <div class="list-row"><a href="#mcp-servers" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">MCP servers</span></a></div>
           <div class="list-row"><a href="#sidebar-plugins" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">Sidebar plugins</span></a></div>
           <div class="list-row"><a href="#about" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">About</span></a></div>
         </div>
@@ -2563,6 +2574,104 @@ extension AppState {
         """
     }
 
+    // MARK: MCP servers (Settings)
+
+    /// Settings → MCP servers: the `mcp_servers` block of `~/.arc/config.json`,
+    /// editable in place.
+    ///
+    /// The agent never sees one tool per server — it sees the single `mcp_tool`
+    /// bridge (Tools panel). What this panel owns is the launch spec of each
+    /// server process, which is why the useful action on a row is Test: it
+    /// starts the server and lists the tools it actually exposes, the only way
+    /// to learn a server's tool names before the agent tries to call one.
+    func mcpSettingsHTML() -> String {
+        if addingMCPServer { return mcpFormHTML() }
+        let names = arcConfig.mcpServers.keys.sorted()
+        guard !names.isEmpty else {
+            return """
+            <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
+              <div class="set-label">No MCP servers configured.</div>
+              <div class="set-hint">A server is a child process that speaks the Model Context Protocol over stdio — filesystem access, GitHub, databases. Once added it is started on first use, and the agent reaches its tools through the single <code>mcp_tool</code> bridge (Tools panel): ask the agent to call <code>mcp_tool</code> with <code>action: "list"</code> to see every server and tool. <code>mcp_servers</code> in <code>~/.arc/config.json</code> is the source of truth, and this panel edits exactly that block. Arguments reach the process verbatim; nothing is run through a shell.</div>
+              \(btn("mcp-add", "mcp-add", "btn", "Add server"))
+            </div>
+            """
+        }
+        let rows = names.map { name -> String in
+            let cfg = arcConfig.mcpServers[name]
+            let argv = ([cfg?.command ?? ""] + (cfg?.args ?? [])).joined(separator: " ")
+            let status: String
+            if let error = mcpTestError[name] {
+                status = "<div class='set-hint' style='color:var(--danger,#e5484d)'>Probe failed: \(esc(trunc(error, 220)))</div>"
+            } else if let tools = mcpToolCatalog[name] {
+                let chips = tools.isEmpty
+                    ? "<em>no tools</em>"
+                    : tools.map { "<span class='mc-badge'>\(esc($0))</span>" }.joined()
+                status = "<div class='set-hint'>Tools: <span class='plug-chips'>\(chips)</span></div>"
+            } else {
+                status = "<div class='set-hint'>Not probed yet — press Test to start it and list its tools.</div>"
+            }
+            return """
+            <div class="set-row" data-component-id="mcp-list" style="flex-direction:column;align-items:stretch;gap:4px">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                <div class="set-label">\(esc(name))</div>
+                <div class="row-actions">
+                  \(btn("mcp-test-\(enc(name))", "", "btn", "Test"))
+                  \(btn("mcp-edit-\(enc(name))", "", "btn", "Edit"))
+                  \(btn("mcp-del-\(enc(name))", "", "icon-mini danger", WebUIIcon(.x, size: .small).markup.html, " title=\"Delete\""))
+                </div>
+              </div>
+              <div class="set-hint"><code>\(esc(trunc(argv, 140)))</code></div>
+              \(status)
+            </div>
+            """
+        }.joined()
+        return rows + """
+        <div class="set-row">
+          <div class="set-label">Add a server<small>Written to <code>~/.arc/config.json</code>; the running agent is re-pointed immediately.</small></div>
+          \(btn("mcp-add", "mcp-add", "btn", "Add server"))
+        </div>
+        """
+    }
+
+    /// The add/edit form for one MCP server preset. Field names are the
+    /// submit payload keys (`extractFormData` keys by `name`), so renaming one
+    /// silently breaks the save — the contract test pins all four.
+    func mcpFormHTML() -> String {
+        let title = editingMCPServer == nil ? "New MCP server" : "Edit MCP server"
+        return """
+        <form id="mcp-form" data-component-id="mcp-form" class="detail-card" style="max-width:640px">
+          <h1 class="detail-title">\(esc(title))</h1>
+          <div class="detail-sub">The server is launched directly, as <code>/usr/bin/env &lt;command&gt; &lt;args…&gt;</code> — never through a shell — with arc's own credentials stripped from its environment. Save, then press Test on the row to start it and list the tools it exposes.</div>
+          <div class="form-grid">
+            <div>
+              <label for="mcp-name-input">Name</label>
+              <input id="mcp-name-input" name="mcp-name-input" data-component-id="mcp-name-input" type="text" placeholder="filesystem" autofocus value="\(esc(formValues["mcp-name-input"] ?? ""))">
+              <small style="color:var(--muted);font-size:0.75em">How the agent selects this server. Lowercase letters, digits, '-' and '_'.</small>
+            </div>
+            <div>
+              <label for="mcp-command-input">Command</label>
+              <input id="mcp-command-input" name="mcp-command-input" data-component-id="mcp-command-input" type="text" placeholder="npx" value="\(esc(formValues["mcp-command-input"] ?? ""))">
+              <small style="color:var(--muted);font-size:0.75em">One executable, resolved through PATH. Everything else belongs in Arguments.</small>
+            </div>
+            <div>
+              <label for="mcp-args-input">Arguments (one per line)</label>
+              <textarea id="mcp-args-input" name="mcp-args-input" data-component-id="mcp-args-input" rows="4" placeholder="-y&#10;@modelcontextprotocol/server-filesystem&#10;/Users/you/project">\(esc(formValues["mcp-args-input"] ?? ""))</textarea>
+              <small style="color:var(--muted);font-size:0.75em">Passed verbatim as argv — quotes are not interpreted, so an argument containing spaces works as typed.</small>
+            </div>
+            <div>
+              <label for="mcp-env-input">Environment (KEY=VALUE, one per line)</label>
+              <textarea id="mcp-env-input" name="mcp-env-input" data-component-id="mcp-env-input" rows="3" placeholder="GITHUB_PERSONAL_ACCESS_TOKEN=ghp_…">\(esc(formValues["mcp-env-input"] ?? ""))</textarea>
+              <small style="color:var(--muted);font-size:0.75em">arc strips its own ARC_/OPENAI_/ANTHROPIC_ variables from every MCP server — this is how a server gets its own credentials.</small>
+            </div>
+          </div>
+          <div class="row-actions-main">
+            <button type="submit" class="primary-btn">Save</button>
+            \(btn("mcp-cancel", "mcp-cancel", "ghost-btn", "Cancel"))
+          </div>
+        </form>
+        """
+    }
+
     func schemaHTML(_ schema: JSONSchema) -> String {
         var rows: [String] = []
         switch schema {
@@ -3245,6 +3354,16 @@ extension AppState {
                   <div class="set-label">Integrate tools<small>Tools written as Python scripts or Swift executables, discovered from <code>~/.arc/plugins/</code> (arc plugin parity). Enablement is stored in the <code>plugins.enabled</code> allow-list of <code>~/.arc/config.json</code>.</small></div>
                 </div>
                 \(pluginSettingsHTML())
+              </div>
+            </section>
+
+            <section class="set-section" id="mcp-servers">
+              <h2>MCP servers</h2>
+              <div class="detail-card">
+                <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
+                  <div class="set-label">External tool servers<small>Child processes speaking the Model Context Protocol over stdio. The agent reaches every one of their tools through the single <code>mcp_tool</code> bridge; this panel owns the <code>mcp_servers</code> block of <code>~/.arc/config.json</code>.</small></div>
+                </div>
+                \(mcpSettingsHTML())
               </div>
             </section>
 
