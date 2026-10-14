@@ -130,9 +130,12 @@ struct UXHardeningContractTests {
     func toastsAreKindAware() {
         // The stack must sit at the BOTTOM edge — a success toast anchored top-right
         // used to land over the chat-header action icons, and the whole stack over
-        // the window strip (w1v-12, w1v-23).
-        #expect(Self.sheetSource.contains("#toasts {\n      position: fixed;\n      bottom: 16px;"),
+        // the window strip (w1v-12, w1v-23). UX-58 raised the anchor (16 → 120px)
+        // so it also floats clear of the composer's Send button.
+        #expect(Self.sheetSource.contains("#toasts {\n      position: fixed;"),
                 "the toast stack must be anchored to the bottom edge")
+        #expect(Self.sheetSource.contains("bottom: 120px;\n      right: 14px;"),
+                "UX-58: the stack must float clear of the composer bar (bottom: 120px)")
         // The base bubble must be NEUTRAL: a success confirmation must not read
         // as a red error in either theme.
         let sheet = Self.sheetSource
@@ -183,8 +186,15 @@ struct UXHardeningContractTests {
         #expect(overlay.contains("var whole = Math.max(1, Math.floor(avail / rowH));"),
                 "the visible row count must be floored, never truncated mid-row")
         #expect(overlay.contains("list.scrollTop"), "revealing the active row must scroll the inner list")
-        #expect(css.contains(".cmd-list { max-height: 232px; overflow-y: auto; scrollbar-gutter: stable; }"),
+        // UX-54: the cap rose 232 → 460px (8 of 10 commands visible instead
+        // of a four-row fold) and the inner list shows a slim always-visible
+        // scrollbar so the remaining rows advertise themselves.
+        #expect(css.contains(".cmd-list { max-height: 460px; overflow-y: auto; scrollbar-gutter: stable; }"),
                 "the clip lives on the inner borderless list, not the bordered dropdown")
+        #expect(css.contains(".cmd-list::-webkit-scrollbar-thumb"),
+                "UX-54: the inner list must advertise overflow with a visible scrollbar")
+        #expect(overlay.contains("Math.min(460, composerTop - 12)"),
+                "UX-54: the menu must claim the available space up to 460px, not a four-row fold")
         // Opening the menu must reset the highlight to the first row so Enter's
         // target is unambiguous after a prior interaction moved the selection.
         #expect(overlay.contains("if (!wasOpen) slashSel = 0;"),
