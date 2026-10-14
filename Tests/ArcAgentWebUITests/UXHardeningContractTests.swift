@@ -810,10 +810,16 @@ struct UXHardeningContractTests {
         // rest, `visibility: hidden` so closed controls leave the tab order).
         #expect(css.contains("@media (max-width: 1023.98px) {"),
                 "the drawer breakpoint must exist")
-        #expect(css.contains("position: fixed; top: 38px; bottom: 0; left: 0;"),
-                "the panel must become a fixed overlay below the topbar")
-        #expect(css.contains("transform: translateX(-102%);"),
-                "the closed drawer must be slid off-canvas")
+        #expect(css.contains("position: fixed; top: 38px; bottom: 0; left: var(--iconbar-w);"),
+                "the panel must become a fixed overlay below the topbar, clear of the rail")
+        // UX-61: the drawer starts AFTER the rail so the rail is never the
+        // thing the panel hides. Panel and scrim are both offset by
+        // `--iconbar-w`, so a rail tap reaches the button instead of the
+        // scrim ("the sidebar icons don't work" on a narrow window).
+        #expect(css.contains("transform: translateX(calc(-100% - var(--iconbar-w)));"),
+                "the closed drawer must be slid off-canvas, past the rail")
+        #expect(css.contains(".drawer-scrim { left: var(--iconbar-w); }"),
+                "the scrim must dim the content column but never the rail")
         #expect(css.contains("visibility: hidden;"),
                 "the closed drawer's controls must leave the tab order (visibility, not just transform)")
         #expect(css.contains("#app.drawer-open #panel {\n        transform: translateX(0);\n        visibility: visible;"),
@@ -858,6 +864,8 @@ struct UXHardeningContractTests {
         #expect(overlay.contains("t.closest('#drawer-scrim')"), "outside click (the scrim) must close")
         #expect(overlay.contains("t.closest('.sess-row') || t.closest('#chat-new')"),
                 "picking a conversation (or minting one) must close the drawer")
+        #expect(overlay.contains("t.closest('#iconbar')"),
+                "a rail switch must close the drawer so the chosen view owns the canvas (UX-61)")
         #expect(overlay.contains("if (isNarrow() && drawerOpen()) { closeDrawer(true); return; }"),
                 "Escape must own the drawer while it is open, before the other Escape targets")
         #expect(overlay.contains("mq.addEventListener('change'"),
@@ -868,6 +876,84 @@ struct UXHardeningContractTests {
                 "open must focus a real control inside the drawer (search input preferred, anchors for settings)")
         #expect(overlay.contains("if (returnFocus && t && t.focus) t.focus({ preventScroll: true });"),
                 "close must return focus to the toggle")
+    }
+
+    // MARK: - UX-60/61/62 (round 8): the "stuck in Settings" freeze, the
+    // drawer covering the rail, and the empty-draft clutter.
+
+    /// UX-60 — the S1 freeze. A Settings sub-nav row is `<a href="#appearance">`.
+    /// Left to the browser the hash jump pushes a history entry and fires
+    /// `popstate`; the engine reports that as a `navigate` frame, and the
+    /// server's navigate re-render RESETS the render session arc registered its
+    /// handlers in at boot. Every control then goes dead — the rail, the
+    /// settings chips, the composer — until the server restarts. The overlay
+    /// must intercept the jump so the URL (and the history stack) never move.
+    @Test("in-page #anchors are intercepted so they can never fire a navigate")
+    func inPageAnchorsDoNotNavigate() {
+        let overlay = Self.overlay
+        #expect(overlay.contains("closest('a[href^=\"#\"]')"),
+                "the overlay must intercept same-page anchors before the browser navigates")
+        #expect(overlay.contains("e.preventDefault();"),
+                "the jump must be prevented (no hash change → no popstate → no navigate frame)")
+        #expect(overlay.contains("target.scrollIntoView"),
+                "the anchor must still move the view to its target")
+        #expect(overlay.contains("target.focus({ preventScroll: true })"),
+                "a control target must receive focus (that is the skip link's whole job)")
+        // The settings sub-nav rows must stay real, named, focusable links.
+        let views = Self.views
+        for sec in ["appearance", "preferences", "storage", "tool-plugins", "sidebar-plugins", "about"] {
+            #expect(views.contains("<a href=\"#\(sec)\""),
+                    "the settings sub-nav must keep its #\(sec) anchor")
+        }
+    }
+
+    /// UX-62 — empty drafts. The list showed three identical "New chat · 0 msg"
+    /// rows with no way to remove them. The cleanup is guarded by the shared
+    /// confirm modal, and the delete is judged on the store-backed count: a
+    /// summary's `messages` is empty BY DESIGN, so a structural read alone
+    /// would delete real conversations.
+    @Test("the empty-draft cleanup is guarded, honest about emptiness, and spares the open chat")
+    func emptyDraftCleanup() {
+        let views = Self.views
+        #expect(views.contains("\"chat-clear-empty\""), "the Chats panel must offer the cleanup")
+        #expect(views.contains("Clear \\(clearableDrafts) empty chat"),
+                "the affordance must state how many drafts it will remove")
+        #expect(views.contains("let clearBtn = (!todos && !showArchived && clearableDrafts > 0)"),
+                "the cleanup must be hidden where it does not apply (Todos page, archived view, nothing to clear)")
+        let actions = Self.actions
+        #expect(actions.contains("wire(router, id: \"chat-clear-empty\""), "the control must be wired")
+        #expect(actions.contains("case \"empty-drafts\":"), "the shared confirm modal must dispatch the bulk delete")
+        let app = Self.appStateActions
+        #expect(app.contains("func clearEmptyDrafts() async -> Int"), "the bulk delete must exist")
+        #expect(app.contains("$0.messageCount == 0 && $0.id != keep"),
+                "emptiness must be read from the store-backed count, and the open chat kept")
+        #expect(app.contains("await ensureSessionMessages(s.id)"),
+                "each candidate must be materialized before it is judged empty")
+        #expect(app.contains("if sessions[i].messages.isEmpty { doomed.append(s.id) }"),
+                "a summary's empty `messages` alone must never be enough to delete")
+        #expect(app.contains("undoableDelete = nil"),
+                "a bulk delete must not ride the single-slot undo")
+    }
+
+    /// UX-61 — the rail must survive the drawer. The scrim is offset by the
+    /// rail width, and a rail tap closes the drawer.
+    @Test("the narrow-width drawer clears the rail, and a rail tap closes it")
+    func drawerClearsRail() {
+        #expect(Self.sheetSource.contains(".drawer-scrim { left: var(--iconbar-w); }"),
+                "the scrim must not cover the rail")
+        #expect(Self.overlay.contains("t.closest('#iconbar')"),
+                "a rail switch must close the drawer")
+    }
+
+    /// A placeholder is not a label: it vanishes on input and is not an
+    /// accessible name. Every filter field needs one.
+    @Test("the filter fields carry accessible names")
+    func filterFieldsAreNamed() {
+        let views = Self.views
+        #expect(views.contains("aria-label=\"Filter conversations\""), "the conversation filter must be named")
+        #expect(views.contains("aria-label=\"Filter skills\""), "the skills filter must be named")
+        #expect(views.contains("aria-label=\"Search workspaces\""), "the workspace search must be named")
+        #expect(views.contains("aria-label=\"Search models\""), "the model search must be named")
     }
 
 }
