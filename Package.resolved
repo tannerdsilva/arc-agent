@@ -42,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/no-webui.git",
       "state" : {
-        "revision" : "d0b66a7a7f464ba1b397d423663461aac429cfa7",
-        "version" : "2.0.0"
+        "revision" : "0886e7bce33d5ca3010cf2fcdc8f6761a3458f07",
+        "version" : "2.1.0"
       }
     },
     {
