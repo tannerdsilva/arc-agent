@@ -169,6 +169,21 @@ public actor SessionAgent: Service {
                 logger.info("step: running conversation")
                 let chat = message.chat
 
+                // Host-runs-every-turn: only the owner generates a response for a
+                // **shared** session. A contributing sharee's message is already
+                // persisted by appendMessage; the owner's agent picks it up. When
+                // ownership can't be resolved (standalone gateway without a store,
+                // or a session we can't see) we run the turn as before, so a
+                // single-user deployment behaves exactly as it did.
+                if let store = agentConfig.storage?.store,
+                   let stored = try? await store.get(id: sessionID),
+                   let storedOwner = stored.owner,
+                   let identity = await TesseraConnection.shared.nostrPublicKeyString,
+                   !SharedSessionACL.isOwner(identity, sessionOwner: storedOwner) {
+                    logger.info("step: session \(sessionID) is shared to this process and not the owner; contribution recorded, skipping turn")
+                    continue
+                }
+
                 // Live streaming delivery (arc parity): typing indicator +
                 // in-place edits while the agent streams, final edit/send at end.
                 var editable = await deliveryManager.canEdit(to: chat)

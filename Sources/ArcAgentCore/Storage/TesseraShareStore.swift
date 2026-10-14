@@ -65,6 +65,12 @@ public enum SharedSessionACL {
         return grant.grantees.first(where: { $0.pubkey == identity })?.role
     }
 
+    /// Whether `identity` is the session's OWNER (runs its turns). A session
+    /// with no owner (legacy) is treated as owned by the current identity.
+    public static func isOwner(_ identity: String, sessionOwner: String?) -> Bool {
+        sessionOwner == nil || sessionOwner == identity
+    }
+
     /// Whether the session is visible at all to `identity`.
     public static func isVisible(
         identity: String,
