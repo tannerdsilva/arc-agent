@@ -355,7 +355,7 @@ extension AppState {
         </div>
         <div class="filter-bar">
           <span class="filter-ico">\(WebUIIcon(.search, size: .small).markup.html)</span>
-          <input id="chat-search-input" data-component-id="chat-search-input" type="text" placeholder="Filter conversations…" value="\(esc(chatFilter))">
+          <input id="chat-search-input" data-component-id="chat-search-input" type="search" placeholder="Filter conversations…" aria-label="Filter conversations" value="\(esc(chatFilter))">
         </div>
         \(categoryCloudHTML())
         \(todos ? "" : """
@@ -654,7 +654,7 @@ extension AppState {
           <div class="panel-actions">\(newBtn)</div>
         </div>
         <div class="filter-bar">
-          <input id="skill-search-input" data-component-id="skill-search-input" type="text" placeholder="Filter skills…" value="\(esc(skillFilter))">
+          <input id="skill-search-input" data-component-id="skill-search-input" type="search" placeholder="Filter skills…" aria-label="Filter skills" value="\(esc(skillFilter))">
         </div>
         """
         let filtered = skills.filter {
@@ -1981,7 +1981,7 @@ extension AppState {
           \(trigger)
           <div class="dd-pop dd-pop-ws\(vis)" data-component-id="ws-pick" data-event="click">
             <div class="dd-search">
-              <input id="ws-search-input" data-component-id="ws-search-input" data-event="input" data-no-restore type="text" placeholder="Search workspaces…" spellcheck="false" autocomplete="off" value="\(esc(wsSelectQuery))">
+              <input id="ws-search-input" data-component-id="ws-search-input" data-event="input" data-no-restore type="text" placeholder="Search workspaces…" aria-label="Search workspaces" spellcheck="false" autocomplete="off" value="\(esc(wsSelectQuery))">
               \(wsSelectQuery.isEmpty ? "" : btn("ws-search-clear", "ws-search-clear", "dd-clear", WebUIIcon(.x, size: .small).markup.html))
             </div>
             <div class="dd-list">\(rows.joined())\(empty)</div>
@@ -2078,7 +2078,7 @@ extension AppState {
           <div class="dd-pop dd-pop-model\(vis)" data-component-id="model-pick" data-event="click">
             <div class="dd-note">Applies to this conversation from your next message.</div>
             <div class="dd-search">
-              <input id="model-search-input" data-component-id="model-search-input" data-event="input" data-no-restore type="text" placeholder="Search models…" spellcheck="false" autocomplete="off" value="\(esc(modelSelectQuery))">
+              <input id="model-search-input" data-component-id="model-search-input" data-event="input" data-no-restore type="text" placeholder="Search models…" aria-label="Search models" spellcheck="false" autocomplete="off" value="\(esc(modelSelectQuery))">
               \(modelSelectQuery.isEmpty ? "" : btn("model-search-clear", "model-search-clear", "dd-clear", WebUIIcon(.x, size: .small).markup.html))
             </div>
             <div class="dd-list">\(rows.joined())\(empty)</div>
