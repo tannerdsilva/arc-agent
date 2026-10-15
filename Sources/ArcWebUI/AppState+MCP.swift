@@ -82,8 +82,7 @@ extension AppState {
         mcpToolCatalog[name] = nil
         mcpTestError[name] = nil
         do {
-            let client = try await MCPClientManager.shared.client(named: name)
-            let tools = try await client.tools()
+            let tools = try await MCPClientManager.shared.tools(named: name)
             mcpToolCatalog[name] = tools.map(\.name)
             hint(tools.isEmpty
                  ? "MCP server '\(name)' started but exposes no tools."

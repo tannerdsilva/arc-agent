@@ -1,10 +1,12 @@
 import Testing
 @testable import ArcAgentCore
 import Foundation
+import MCP
 
-/// MCP client parity tests (reference `tools/mcp_tool.py`): real stdio
-/// handshake against an in-test fake server, tools/list discovery,
-/// tools/call dispatch, schema cache, and env sanitization.
+/// MCP client parity tests (reference `tools/mcp_tool.py`): a real stdio
+/// handshake against an in-test fake server over swift-mcp's subprocess
+/// carrier, `tools/list` discovery, `tools/call` dispatch, config projection,
+/// session replacement, and env sanitization.
 @Suite("MCP client")
 struct MCPClientTests {
 
@@ -49,47 +51,105 @@ struct MCPClientTests {
         elif m == "tools/call":
             args = msg.get("params", {}).get("arguments", {}) or {}
             print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"content": [
-                {"type": "text", "text": "\(prefix): " + str(args.get("text", ""))}]}}), flush=True)
+                {"type": "text", "text": "\(prefix): " + str(args.get("text", ""))}], "isError": False}}), flush=True)
     """
     }
 
-    private static let fakeServerScript = serverScript(prefix: "echo")
+    /// A server that answers `initialize`, `tools/list` and one `tools/call`,
+    /// then exits — a child that dies mid-session.
+    private static func dyingServerScript(prefix: String) -> String {
+        """
+    import sys, json
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        msg = json.loads(line)
+        m = msg.get("method")
+        if m == "initialize":
+            print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "dying", "version": "1.0"}}}), flush=True)
+        elif m == "tools/list":
+            print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"tools": [
+                {"name": "echo", "description": "echo back",
+                 "inputSchema": {"type": "object"}}]}}), flush=True)
+        elif m == "tools/call":
+            args = msg.get("params", {}).get("arguments", {}) or {}
+            print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"content": [
+                {"type": "text", "text": "\(prefix): " + str(args.get("text", ""))}], "isError": False}}), flush=True)
+            sys.exit(0)
+    """
+    }
 
-    private func writeFakeServer(prefix: String = "echo") throws -> String {
+    private func writeScript(_ source: String, named: String) throws -> String {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("arc-mcp-test-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let path = dir.appendingPathComponent("fake_mcp.py")
-        try Self.serverScript(prefix: prefix).write(to: path, atomically: true, encoding: .utf8)
+        let path = dir.appendingPathComponent(named)
+        try source.write(to: path, atomically: true, encoding: .utf8)
         return path.path
     }
 
-    @Test("stdio client handshakes, discovers, and calls a tool")
+    private func writeFakeServer(prefix: String = "echo") throws -> String {
+        try writeScript(Self.serverScript(prefix: prefix), named: "fake_mcp.py")
+    }
+
+    @Test("a configured server handshakes, discovers, and calls a tool")
     func stdioRoundtrip() async throws {
         let script = try writeFakeServer()
-        let client = StdioMCPClient(
-            name: "fake",
-            config: MCPServerConfig(command: "python3", args: [script], connectTimeout: 20)
-        )
+        let manager = MCPClientManager()
+        await manager.configure([
+            "fake": MCPServerConfig(command: "python3", args: [script], connectTimeout: 20)
+        ])
 
-        do {
-            try await withTimeout(seconds: 15) {
-                try await client.ensureStarted()
-            }
-            let tools = try await client.tools()
-            #expect(tools.count == 1)
-            #expect(tools[0].name == "echo")
-            #expect(tools[0].description == "echo back")
-
-            let out = try await withTimeout(seconds: 15) {
-                try await client.callTool("echo", arguments: NonSendableBox(["text": "hello mcp"] as [String: Any]))
-            }
-            #expect(out == "echo: hello mcp")
-        } catch {
-            await client.shutdown()
-            throw error
+        let tools = try await withTimeout(seconds: 20) {
+            try await manager.tools(named: "fake")
         }
-        await client.shutdown()
+        #expect(tools.count == 1)
+        #expect(tools[0].name == "echo")
+        #expect(tools[0].description == "echo back")
+
+        let out = try await withTimeout(seconds: 20) {
+            try await manager.call(named: "fake", tool: "echo", argumentsJSON: #"{"text":"hello mcp"}"#)
+        }
+        #expect(out == "echo: hello mcp")
+
+        await manager.shutdown()
+    }
+
+    /// The replacement for the deleted watchdog: a session whose child died is
+    /// replaced on next use, so a crashed server heals without a backoff loop.
+    @Test("a session whose child exited is replaced on the next call")
+    func replacesDeadSession() async throws {
+        let script = try writeScript(Self.dyingServerScript(prefix: "echo"), named: "dying_mcp.py")
+        let manager = MCPClientManager()
+        await manager.configure([
+            "fake": MCPServerConfig(command: "python3", args: [script], connectTimeout: 20)
+        ])
+
+        let first = try await withTimeout(seconds: 20) {
+            try await manager.call(named: "fake", tool: "echo", argumentsJSON: #"{"text":"one"}"#)
+        }
+        #expect(first == "echo: one")
+
+        // Wait for the transport to observe the child's exit.
+        let client = try await manager.client(named: "fake")
+        var state = await client.currentState()
+        for _ in 0..<50 where state == .ready {
+            try await Task.sleep(for: .milliseconds(100))
+            state = await client.currentState()
+        }
+        #expect(state != .ready)
+
+        // The manager drops the dead session and spawns a fresh one.
+        let second = try await withTimeout(seconds: 20) {
+            try await manager.call(named: "fake", tool: "echo", argumentsJSON: #"{"text":"two"}"#)
+        }
+        #expect(second == "echo: two")
+
+        await manager.shutdown()
     }
 
     /// Fail-fast race so a broken transport surfaces as a test failure
@@ -107,18 +167,6 @@ struct MCPClientTests {
         }
     }
 
-    @Test("schema cache saves and reloads tool lists")
-    func schemaCache() throws {
-        let cache = MCPSchemaCache()
-        let name = "cachetest-\(UUID().uuidString)"
-        let tools: [[String: Any]] = [["name": "x", "description": "desc"]]
-        cache.save(server: name, tools: tools)
-        let loaded = cache.load(server: name)
-        #expect(loaded != nil)
-        #expect(loaded?.count == 1)
-        #expect((loaded?[0]["name"] as? String) == "x")
-    }
-
     @Test("env sanitization strips agent credentials, keeps PATH")
     func envSanitize() {
         let base = [
@@ -128,7 +176,7 @@ struct MCPClientTests {
             "ARC_ANTHROPIC_API_KEY": "hm",
             "HOME": "/Users/test",
         ]
-        let sanitized = MCPSchemaCache.sanitizedEnvironment(["MY_VAR": "1"], base: base)
+        let sanitized = MCPServerConfig.sanitizedEnvironment(["MY_VAR": "1"], base: base)
         #expect(sanitized["OPENAI_API_KEY"] == nil)
         #expect(sanitized["ARC_API_KEY"] == nil)
         #expect(sanitized["ARC_ANTHROPIC_API_KEY"] == nil)
@@ -215,30 +263,31 @@ struct MCPClientTests {
         #expect(back.mcpServers["files"]?.connectTimeout == 7)
     }
 
-    /// A config edit must reach the wire: `configure` drops any client whose
-    /// config changed (stopping its child process) and keeps the warm client
-    /// for unchanged servers. Without this, editing a server in the UI would
+    /// A config edit must reach the wire: `configure` drops any session whose
+    /// config changed (closing its child) and keeps the warm session for
+    /// unchanged servers. Without this, editing a server in the UI would
     /// silently keep talking to the process started from the old config.
     ///
     /// Uses a private manager, not `.shared` — the shared one is asserted empty
     /// by the tests above and those run in parallel with this suite.
-    @Test("reconfigure drops a changed client and keeps an unchanged one")
+    @Test("reconfigure drops a changed session and keeps an unchanged one")
     func reconfigureInvalidatesChangedClient() async throws {
         let scriptA = try writeFakeServer(prefix: "A")
         let scriptB = try writeFakeServer(prefix: "B")
         let manager = MCPClientManager()
 
         func callText(_ text: String) async throws -> String {
-            let client = try await manager.client(named: "s")
-            return try await withTimeout(seconds: 15) {
-                try await client.callTool("echo", arguments: NonSendableBox(["text": text] as [String: Any]))
+            try await withTimeout(seconds: 20) {
+                try await manager.call(
+                    named: "s", tool: "echo", argumentsJSON: #"{"text":"\#(text)"}"#
+                )
             }
         }
 
         await manager.configure(["s": MCPServerConfig(command: "python3", args: [scriptA], connectTimeout: 20)])
         #expect(try await callText("one") == "A: one")
 
-        // Same config again: the warm client survives (no needless respawn).
+        // Same config again: the warm session survives (no needless respawn).
         await manager.configure(["s": MCPServerConfig(command: "python3", args: [scriptA], connectTimeout: 20)])
         #expect(try await callText("two") == "A: two")
 
@@ -246,7 +295,7 @@ struct MCPClientTests {
         await manager.configure(["s": MCPServerConfig(command: "python3", args: [scriptB], connectTimeout: 20)])
         #expect(try await callText("three") == "B: three")
 
-        // Removed config: the server is gone and its process is stopped.
+        // Removed config: the server is gone and its process is closed.
         await manager.configure([:])
         await #expect(throws: (any Error).self) {
             _ = try await manager.client(named: "s")

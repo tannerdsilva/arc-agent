@@ -183,6 +183,11 @@ public enum ArcDaemon {
         // terminates every plugin child before the host exits.
         services.append(SidecarPluginService(manager: sidecarManager))
 
+        // MCP sessions (from `mcp_servers`) spawn lazily on first use; this
+        // service owns closing them at shutdown, so every child gets a clean
+        // stdin EOF instead of a signal.
+        services.append(MCPClientsService())
+
         // Plan B: scoped process watcher (Second Law — one Service in the
         // tree; polls, diffs, emits `process:*` HookBus events).
         if arc.processWatch.enabled {

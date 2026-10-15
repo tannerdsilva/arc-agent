@@ -1,44 +1,5 @@
 import Foundation
 
-/// Registry of MCP server clients (reference `mcp_servers` config).
-public actor MCPClientManager {
-    public static let shared = MCPClientManager()
-
-    private var configs: [String: MCPServerConfig] = [:]
-    private var clients: [String: StdioMCPClient] = [:]
-
-    /// Point the registry at a new `mcp_servers` block (called at agent start
-    /// and after any config edit).
-    ///
-    /// A client owns a live child process bound to the config it was spawned
-    /// with, so a server whose config changed is stopped and dropped —
-    /// otherwise an edit (a new command, a corrected arg) would silently keep
-    /// calling the old process. Servers whose config is unchanged keep their
-    /// warm client, and removed servers are stopped.
-    public func configure(_ servers: [String: MCPServerConfig]) async {
-        let stale = clients.keys.filter { configs[$0] != servers[$0] }
-        for name in stale {
-            await clients[name]?.shutdown()
-            clients.removeValue(forKey: name)
-        }
-        configs = servers
-    }
-
-    public func configuredNames() -> [String] {
-        Array(configs.keys).sorted()
-    }
-
-    public func client(named name: String) throws -> StdioMCPClient {
-        guard let config = configs[name] else {
-            throw MCPClientError.rpc("unknown MCP server '\(name)' (configured: \(configuredNames().joined(separator: ", ")))")
-        }
-        if let existing = clients[name] { return existing }
-        let client = StdioMCPClient(name: name, config: config)
-        clients[name] = client
-        return client
-    }
-}
-
 /// The `mcp_tool` entry: calls tools exposed by external MCP servers
 /// (reference `tools/mcp_tool.py`). Server selection and tool names are
 /// resolved at call time against the configured servers (`mcp_servers` in
@@ -67,7 +28,7 @@ public enum MCPClientTool {
             let action = (args["action"] as? String) ?? "call"
             switch action {
             case "list":
-                // List configured servers and (cheaply, from schema cache) their tools.
+                // List configured servers and their tools.
                 let manager = MCPClientManager.shared
                 let servers = await manager.configuredNames()
                 if servers.isEmpty {
@@ -78,15 +39,13 @@ public enum MCPClientTool {
                     lines.append("")
                     lines.append("🔌 \(server)")
                     do {
-                        let client = try await manager.client(named: server)
-                        let tools = try await client.tools()
+                        let tools = try await manager.tools(named: server)
                         if tools.isEmpty {
                             lines.append("  (no tools discovered)")
                         } else {
                             for tool in tools {
-                                let name = tool.name
-                                let desc = tool.description.prefix(70)
-                                lines.append("  \(name) — \(desc)")
+                                let desc = (tool.description ?? "").prefix(70)
+                                lines.append("  \(tool.name) — \(desc)")
                             }
                         }
                     } catch {
@@ -97,15 +56,20 @@ public enum MCPClientTool {
             case "call":
                 let server: String = try ToolArguments.required(args, key: "server")
                 let toolName: String = try ToolArguments.required(args, key: "tool_name")
-                let arguments = args["arguments"] as? [String: Any] ?? [:]
-                let client = try await MCPClientManager.shared.client(named: server)
-                let tools = try await client.tools()
+                let manager = MCPClientManager.shared
+                let tools = try await manager.tools(named: server)
                 guard tools.contains(where: { $0.name == toolName }) else {
                     let names = tools.map { $0.name }
                     return "Error: MCP server '\(server)' has no tool '\(toolName)'. Available: "
                         + (names.isEmpty ? "(none)" : names.joined(separator: ", "))
                 }
-                return try await client.callTool(toolName, arguments: NonSendableBox(arguments))
+                // Arguments cross into the client actor as JSON: a
+                // `[String: Any]` cannot be forwarded as a parameter under
+                // Swift 6 region isolation.
+                let arguments = args["arguments"] as? [String: Any] ?? [:]
+                let argumentsJSON = (try? JSONSerialization.data(withJSONObject: arguments))
+                    .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+                return try await manager.call(named: server, tool: toolName, argumentsJSON: argumentsJSON)
             default:
                 return "Error: unknown action '\(action)'. Valid actions: call, list"
             }
