@@ -4,6 +4,15 @@
 # Override paths via env vars: ARC_DIR, ARC_BIN, ARC_LOG.
 set -u
 
+# Load ~/.arc/.env (the secrets file) so the daemon inherits the API key and
+# the tessera WireGuard private key rather than reading them from config.json.
+ARC_HOME="${ARC_HOME:-$HOME/.arc}"
+if [ -f "$ARC_HOME/.env" ]; then
+  set -a
+  . "$ARC_HOME/.env"
+  set +a
+fi
+
 ARC_DIR="${ARC_DIR:-$HOME/Documents/SwiftProjects/arc-agent}"
 # Production binary home: ~/.local/bin/arc. ARC_BIN overrides it (point it at
 # a dev .build/debug/arc while developing). Falls back to PATH, then the

@@ -100,11 +100,33 @@ cfg["tessera"] = {
     "serverPort": int(os.environ["RELAY_PORT"]),
     "serverIP": os.environ["RELAY_IP"],
     "serverPublicKey": os.environ["RELAY_PUB"],
-    "myPrivateKey": os.environ["CLIENT_PRIV"],
+    "myPrivateKey": "",  // the client private key lives in ~/.arc/.env (ARC_TESSERA_PRIVATE_KEY)
 }
 json.dump(cfg, open(path, "w"), indent=2)
 print(f"wrote tessera block -> {path}")
 PY
+
+step "persisting the agent(private) key to the secrets file (not config.json)"
+ARC_HOME="$ARC_HOME" CLIENT_PRIV="$CLIENT_PRIV" python3 - <<'PY'
+import os
+env_path = os.path.join(os.environ["ARC_HOME"], ".env")
+key = "ARC_TESSERA_PRIVATE_KEY"; val = os.environ["CLIENT_PRIV"]
+lines = open(env_path).read().splitlines() if os.path.exists(env_path) else []
+out, replaced = [], False
+for ln in lines:
+    if ln.startswith(key + "="):
+        out.append(key + "=" + val); replaced = True
+    else:
+        out.append(ln)
+if not replaced:
+    out.append(key + "=" + val)
+open(env_path, "w").write("
+".join(out) + "
+")
+os.chmod(env_path, 0o600)
+print(f"wrote {key} -> {env_path}")
+PY
+chmod 600 "$ARC_CONFIG" 2>/dev/null || true
 
 log ""
 log "⚡ tessera wiring is set up."
@@ -117,4 +139,6 @@ log "  Scripts/User/arc-agent-start.sh       # start the agent daemon"
 log "  arc doctor                            # verify connectivity"
 log ""
 log "Note: the relay private key was saved to $ARC_HOME/tessera/relay.key"
-log "      (chmod 600). Re-running this script regenerates the keys."
+log "      (chmod 600). The agent(private) key is stored in $ARC_HOME/.env"
+log "      as ARC_TESSERA_PRIVATE_KEY (chmod 600). Re-running this script"
+log "      regenerates the keys."

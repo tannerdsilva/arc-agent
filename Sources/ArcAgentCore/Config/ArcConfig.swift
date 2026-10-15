@@ -667,12 +667,62 @@ public enum ConfigError: Error, Sendable, CustomStringConvertible {
 ///
 /// - Parameter configURL: The config file URL. Defaults to `~/.arc/config.json`.
 /// - Returns: The resolved configuration.
+
+/// Load a `.env` file (`KEY=VALUE` per line; `#` comments and blank lines
+/// ignored), returning a case-preserving map. Used to source secrets like the
+/// tessera WireGuard private key without putting them in `config.json`.
+func loadDotEnv(_ url: URL?) -> [String: String] {
+    guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
+    var out: [String: String] = [:]
+    for rawLine in text.split(separator: "\n", omittingEmptySubsequences: true) {
+        let line = rawLine.trimmingCharacters(in: .whitespaces)
+        guard !line.isEmpty, !line.hasPrefix("#") else { continue }
+        guard let eq = line.firstIndex(of: "=") else { continue }
+        let key = String(line[..<eq]).trimmingCharacters(in: .whitespaces)
+        var value = String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+        if value.count >= 2, value.first == "\"", value.last == "\"" {
+            value = String(value.dropFirst().dropLast())
+        }
+        out[key] = value
+    }
+    return out
+}
+
+/// Upsert `KEY=VALUE` into a `.env` file, preserving other lines/comments.
+/// Creates the file (mode 0o600) if missing. For the secrets file only.
+func setDotEnvKey(_ url: URL, key: String, value: String) throws {
+    let existing = try? String(contentsOf: url, encoding: .utf8)
+    var lines = existing?.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) ?? []
+    var replaced = false
+    for i in lines.indices {
+        let t = lines[i].trimmingCharacters(in: .whitespaces)
+        if t.hasPrefix(key + "=") {
+            lines[i] = "\(key)=\(value)"
+            replaced = true
+            break
+        }
+    }
+    if !replaced {
+        if let last = lines.last, !last.isEmpty { lines.append("") }
+        lines.append("\(key)=\(value)")
+    }
+    var content = lines.joined(separator: "\n")
+    if !content.hasSuffix("\n") { content += "\n" }
+    try Data(content.utf8).write(to: url, options: .atomic)
+    try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+}
+
 public func loadConfig(from configURL: URL? = nil) -> ArcConfig {
     var config = ArcConfig()
 
     // Determine the config file URL
     let resolvedURL = configURL ?? FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".arc/config.json")
+
+    // Secrets live in ~/.arc/.env; the process environment wins over the file.
+    // Only the tessera private key is sourced here today — the other tessera
+    // fields (ip/port/public-key/application) are non-secret and stay in config.json.
+    let dotenv = loadDotEnv(resolvedURL.deletingLastPathComponent().appendingPathComponent(".env"))
 
     if FileManager.default.fileExists(atPath: resolvedURL.path) {
         do {
@@ -713,6 +763,7 @@ public func loadConfig(from configURL: URL? = nil) -> ArcConfig {
     let tesseraPort = ProcessInfo.processInfo.environment["ARC_TESSERA_SERVER_PORT"]
     let tesseraServerPub = ProcessInfo.processInfo.environment["ARC_TESSERA_SERVER_PUBLIC_KEY"]
     let tesseraClientPriv = ProcessInfo.processInfo.environment["ARC_TESSERA_PRIVATE_KEY"]
+        ?? dotenv["ARC_TESSERA_PRIVATE_KEY"]
     if tesseraIP != nil || tesseraPort != nil || tesseraServerPub != nil || tesseraClientPriv != nil {
         var t = config.tessera ?? TesseraConfig(
             serverIP: "127.0.0.1", serverPort: 51820,
@@ -745,8 +796,25 @@ public func saveConfig(_ config: ArcConfig, to configURL: URL? = nil) throws {
     try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
     let enc = JSONEncoder()
     enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-    let data = try enc.encode(config)
+    // Secrets never go into config.json. Pull the tessera WireGuard private
+    // key out and persist it to ~/.arc/.env instead; config.json keeps only
+    // the non-secret fields (ip/port/public-key/application) with an empty key.
+    var out = config
+    let secret: String?
+    if let priv = out.tessera?.myPrivateKey, !priv.isEmpty {
+        secret = priv
+        out.tessera?.myPrivateKey = ""
+    } else {
+        secret = nil
+    }
+    let data = try enc.encode(out)
     try data.write(to: resolvedURL, options: .atomic)
+    if let secret {
+        try setDotEnvKey(resolvedURL.deletingLastPathComponent().appendingPathComponent(".env"),
+                         key: "ARC_TESSERA_PRIVATE_KEY", value: secret)
+    }
+    // The config file no longer carries the private key, so restrict perms.
+    try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: resolvedURL.path)
 }
 
 /// Resolve the plugin allow-list from `~/.arc/config.json` (reference
