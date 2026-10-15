@@ -2,6 +2,7 @@ import Foundation
 import AsyncHTTPClient
 import ServiceLifecycle
 import Logging
+import Synchronization
 
 /// A handle for communicating with a session agent.
 ///
@@ -157,6 +158,43 @@ public actor SessionRegistry {
         base * UInt64(1 << min(max(attempt - 1, 0), 3))
     }
 
+    /// How long `getOrCreate` waits for a superseded generation's `run()` task
+    /// to wind down before giving up and installing the successor anyway. Bound
+    /// so a stalled session agent can never hang the session (or the test suite).
+    static let generationTeardownTimeoutNanos: UInt64 = 30_000_000_000
+
+    /// Await a generation's `run()` task, giving up after `timeoutNanos`.
+    /// Returns `true` on natural completion, `false` on timeout — the caller
+    /// installs the successor either way, because a stuck predecessor must never
+    /// block a session forever. On timeout the stuck task is cancelled so its
+    /// resources are released once it stops; a superseded generation's cleanup is
+    /// a no-op thanks to the identity guard in ``removeIfCurrent`` /
+    /// ``handleAgentCrash``.
+    static func awaitGeneration(_ task: Task<Void, Never>, timeoutNanos: UInt64) async -> Bool {
+        await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            let done = Mutex(false)
+            func finish(_ result: Bool) {
+                let shouldResume = done.withLock { flag -> Bool in
+                    if flag { return false }
+                    flag = true
+                    return true
+                }
+                guard shouldResume else { return }
+                cont.resume(returning: result)
+            }
+            let watchdog = Task {
+                try? await Task.sleep(nanoseconds: timeoutNanos)
+                task.cancel()
+                finish(false)
+            }
+            let waiter = Task {
+                await task.value
+                watchdog.cancel()
+                finish(true)
+            }
+        }
+    }
+
     /// Set the messaging service reference.
     func setMessagingService(_ service: BotMessagingService) {
         self.messagingService = service
@@ -177,9 +215,15 @@ public actor SessionRegistry {
             handles[sessionID]?.inputContinuation.finish()
             handles[sessionID]?.responseContinuation.finish()
             // Wait for the previous generation to exit and release the
-            // session's resources before starting the successor.
+            // session's resources before starting the successor — bounded, so a
+            // stalled predecessor can never hang the session (or the test suite).
             if let oldTask = tasks[sessionID] {
-                await oldTask.value
+                let finished = await Self.awaitGeneration(
+                    oldTask, timeoutNanos: Self.generationTeardownTimeoutNanos)
+                if !finished {
+                    logger.warning(
+                        "SessionAgent for \(sessionID) did not wind down within the generation timeout; installing successor anyway")
+                }
             }
             tasks.removeValue(forKey: sessionID)
         } else {
