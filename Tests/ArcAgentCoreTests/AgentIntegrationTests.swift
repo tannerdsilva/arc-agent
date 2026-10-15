@@ -87,94 +87,96 @@ struct ScriptedLLMClient: LLMClient {
 // =========================================================================
 // MARK: - Agent Integration (mock LLM → tool → response)
 
-@Suite("Agent Integration")
-struct AgentIntegrationTests {
+extension ArcCoreTestRoot {
+    @Suite("Agent Integration", .serialized)
+    struct AgentIntegrationTests {
 
-    private func makeAgent(
-        registry: CompileTimeToolRegistry,
-        httpClient: HTTPClient
-    ) async -> ArcAgent {
-        let config = ArcAgent.Configuration(
-            model: "test-model",
-            provider: "openai",
-            baseURL: URL(string: "https://api.openai.com/v1")!,
-            apiKey: "",
-            registry: registry,
-            skills: [],
-            maxIterations: 5,
-            maxTurnDuration: 30,
-            persistSessions: false,
-            approvalMode: .manual,
-            query: nil,
-            maxContextTokens: 64_000
-        )
-        let agent = ArcAgent(config: config)
-        await agent.setupClient(httpClient: httpClient)
-        return agent
-    }
-
-    @Test("completion path: tool call executes against the real registry and answer returns")
-    func completionPathExecutesTool() async throws {
-        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-        defer { _ = httpClient.shutdown() }
-
-        let target = FileManager.default.temporaryDirectory
-            .appendingPathComponent("arc-agent-test-\(UUID().uuidString).txt")
-        try "integration payload 42".write(to: target, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: target) }
-
-        // The agent's HTTP client is only needed for the default client and
-        // fallback path; the scripted mock covers the LLM calls.
-        let registry = try ArcAgentCore.buildDefaultRegistry()
-        let agent = await makeAgent(registry: registry, httpClient: httpClient)
-        await agent.setClient(ScriptedLLMClient(filePath: target.path))
-
-        let response = try await agent.runConversation(message: "Read the file at \(target.path)")
-
-        // The mock's turn-2 answer embeds the tool result, proving the
-        // registry handler really executed read_file against the file.
-        #expect(response.contains("integration payload 42"), "expected tool result in final answer, got: \(response)")
-    }
-
-    @Test("streaming path: deltas stream and tool result reach the final answer")
-    func streamingPathExecutesTool() async throws {
-        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-        defer { _ = httpClient.shutdown() }
-
-        let target = FileManager.default.temporaryDirectory
-            .appendingPathComponent("arc-agent-stream-\(UUID().uuidString).txt")
-        try "stream payload 99".write(to: target, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: target) }
-
-        let registry = try ArcAgentCore.buildDefaultRegistry()
-        let agent = await makeAgent(registry: registry, httpClient: httpClient)
-        await agent.setClient(ScriptedLLMClient(filePath: target.path))
-
-        let stream = agent.streamConversation(message: "What is in \(target.path)?")
-        var chunks: [String] = []
-        for try await chunk in stream {
-            chunks.append(chunk)
+        private func makeAgent(
+            registry: CompileTimeToolRegistry,
+            httpClient: HTTPClient
+        ) async -> ArcAgent {
+            let config = ArcAgent.Configuration(
+                model: "test-model",
+                provider: "openai",
+                baseURL: URL(string: "https://api.openai.com/v1")!,
+                apiKey: "",
+                registry: registry,
+                skills: [],
+                maxIterations: 5,
+                maxTurnDuration: 30,
+                persistSessions: false,
+                approvalMode: .manual,
+                query: nil,
+                maxContextTokens: 64_000
+            )
+            let agent = ArcAgent(config: config)
+            await agent.setupClient(httpClient: httpClient)
+            return agent
         }
 
-        let full = chunks.joined()
-        #expect(chunks.count >= 4, "expected streamed deltas, got \(chunks.count)")
-        #expect(full.contains("stream payload 99"), "expected tool result in streamed answer, got: \(full)")
-    }
+        @Test("completion path: tool call executes against the real registry and answer returns")
+        func completionPathExecutesTool() async throws {
+            let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+            defer { _ = httpClient.shutdown() }
 
-    @Test("registry without the requested tool reports an error instead of crashing")
-    func missingToolReturnsError() async throws {
-        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-        defer { _ = httpClient.shutdown() }
+            let target = FileManager.default.temporaryDirectory
+                .appendingPathComponent("arc-agent-test-\(UUID().uuidString).txt")
+            try "integration payload 42".write(to: target, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: target) }
 
-        // A registry that has NOTHING — the mock will still request read_file.
-        let registry = CompileTimeToolRegistry()
-        let agent = await makeAgent(registry: registry, httpClient: httpClient)
-        await agent.setClient(ScriptedLLMClient(filePath: "/nonexistent/x.txt"))
+            // The agent's HTTP client is only needed for the default client and
+            // fallback path; the scripted mock covers the LLM calls.
+            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let agent = await makeAgent(registry: registry, httpClient: httpClient)
+            await agent.setClient(ScriptedLLMClient(filePath: target.path))
 
-        let response = try await agent.runConversation(message: "Read it.")
+            let response = try await agent.runConversation(message: "Read the file at \(target.path)")
 
-        // dispatchToolCall must surface a structured error, not crash.
-        #expect(!response.isEmpty)
-        #expect(response != "The conversation reached the maximum iteration limit. Please start a new session.")
+            // The mock's turn-2 answer embeds the tool result, proving the
+            // registry handler really executed read_file against the file.
+            #expect(response.contains("integration payload 42"), "expected tool result in final answer, got: \(response)")
+        }
+
+        @Test("streaming path: deltas stream and tool result reach the final answer")
+        func streamingPathExecutesTool() async throws {
+            let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+            defer { _ = httpClient.shutdown() }
+
+            let target = FileManager.default.temporaryDirectory
+                .appendingPathComponent("arc-agent-stream-\(UUID().uuidString).txt")
+            try "stream payload 99".write(to: target, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: target) }
+
+            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let agent = await makeAgent(registry: registry, httpClient: httpClient)
+            await agent.setClient(ScriptedLLMClient(filePath: target.path))
+
+            let stream = agent.streamConversation(message: "What is in \(target.path)?")
+            var chunks: [String] = []
+            for try await chunk in stream {
+                chunks.append(chunk)
+            }
+
+            let full = chunks.joined()
+            #expect(chunks.count >= 4, "expected streamed deltas, got \(chunks.count)")
+            #expect(full.contains("stream payload 99"), "expected tool result in streamed answer, got: \(full)")
+        }
+
+        @Test("registry without the requested tool reports an error instead of crashing")
+        func missingToolReturnsError() async throws {
+            let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+            defer { _ = httpClient.shutdown() }
+
+            // A registry that has NOTHING — the mock will still request read_file.
+            let registry = CompileTimeToolRegistry()
+            let agent = await makeAgent(registry: registry, httpClient: httpClient)
+            await agent.setClient(ScriptedLLMClient(filePath: "/nonexistent/x.txt"))
+
+            let response = try await agent.runConversation(message: "Read it.")
+
+            // dispatchToolCall must surface a structured error, not crash.
+            #expect(!response.isEmpty)
+            #expect(response != "The conversation reached the maximum iteration limit. Please start a new session.")
+        }
     }
 }

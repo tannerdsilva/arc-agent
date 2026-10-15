@@ -2,306 +2,312 @@ import Foundation
 import Testing
 @testable import ArcAgentCore
 
-// arc-parity markdown coverage: mirrors the arc agent webui's smd feature set
-// (tables, blockquotes, nested lists, task checkboxes, strike, images,
-// autolinks) plus the baseline behavior (headings, lists, emphasis,
-// code spans, links, raw-HTML escaping, paragraphs). math is not a feature
-// since the vendored payload left: `$…$` renders as escaped literal text.
-@Suite("Markdown arc parity")
-struct MarkdownParityTests {
+extension ArcCoreTestRoot {
+    // arc-parity markdown coverage: mirrors the arc agent webui's smd feature set
+    // (tables, blockquotes, nested lists, task checkboxes, strike, images,
+    // autolinks) plus the baseline behavior (headings, lists, emphasis,
+    // code spans, links, raw-HTML escaping, paragraphs). math is not a feature
+    // since the vendored payload left: `$…$` renders as escaped literal text.
+    @Suite("Markdown arc parity", .serialized)
+    struct MarkdownParityTests {
 
-    // MARK: Baseline (pre-existing behavior, locked in)
+        // MARK: Baseline (pre-existing behavior, locked in)
 
-    @Test("headings render atx levels and clamp above h6")
-    func headings() {
-        #expect(markdownToHTML("# Title") == "<h1>Title</h1>")
-        #expect(markdownToHTML("###### Deep") == "<h6>Deep</h6>")
-        #expect(markdownToHTML("####### Clamped") == "<h6>Clamped</h6>")
-    }
+        @Test("headings render atx levels and clamp above h6")
+        func headings() {
+            #expect(markdownToHTML("# Title") == "<h1>Title</h1>")
+            #expect(markdownToHTML("###### Deep") == "<h6>Deep</h6>")
+            #expect(markdownToHTML("####### Clamped") == "<h6>Clamped</h6>")
+        }
 
-    @Test("lists render from markup and numbered markers")
-    func lists() {
-        #expect(markdownToHTML("- a\n- b") == "<ul><li>a</li><li>b</li></ul>")
-        #expect(markdownToHTML("* a\n* b") == "<ul><li>a</li><li>b</li></ul>")
-        #expect(markdownToHTML("1. a\n2. b") == "<ol><li>a</li><li>b</li></ol>")
-    }
+        @Test("lists render from markup and numbered markers")
+        func lists() {
+            #expect(markdownToHTML("- a\n- b") == "<ul><li>a</li><li>b</li></ul>")
+            #expect(markdownToHTML("* a\n* b") == "<ul><li>a</li><li>b</li></ul>")
+            #expect(markdownToHTML("1. a\n2. b") == "<ol><li>a</li><li>b</li></ol>")
+        }
 
-    @Test("bold and emphasis wrap balanced delimiters")
-    func inlineEmphasis() {
-        #expect(markdownToHTML("hi **bold**") == "<p>hi <strong>bold</strong></p>")
-        #expect(markdownToHTML("hi *em*") == "<p>hi <em>em</em></p>")
-    }
+        @Test("bold and emphasis wrap balanced delimiters")
+        func inlineEmphasis() {
+            #expect(markdownToHTML("hi **bold**") == "<p>hi <strong>bold</strong></p>")
+            #expect(markdownToHTML("hi *em*") == "<p>hi <em>em</em></p>")
+        }
 
-    @Test("unpaired delimiters render literally")
-    func unpairedDelimiters() {
-        #expect(markdownToHTML("a ** b") == "<p>a ** b</p>")
-        #expect(markdownToHTML("a *** b") == "<p>a *** b</p>")
-    }
+        @Test("unpaired delimiters render literally")
+        func unpairedDelimiters() {
+            #expect(markdownToHTML("a ** b") == "<p>a ** b</p>")
+            #expect(markdownToHTML("a *** b") == "<p>a *** b</p>")
+        }
 
-    @Test("code spans are never parsed for emphasis")
-    func codeSpansProtectContent() {
-        #expect(markdownToHTML("`**not bold**`") == "<p><code>**not bold**</code></p>")
-    }
+        @Test("code spans are never parsed for emphasis")
+        func codeSpansProtectContent() {
+            #expect(markdownToHTML("`**not bold**`") == "<p><code>**not bold**</code></p>")
+        }
 
-    @Test("links render safe targets and keep unsafe ones literal")
-    func links() {
-        #expect(markdownToHTML("[x](https://example.com)") == "<p><a href=\"https://example.com\">x</a></p>")
-        #expect(markdownToHTML("[x](javascript:alert(1))") == "<p>[x](javascript:alert(1))</p>")
-        #expect(markdownToHTML("[x]( java\tscript:alert(1))") == "<p>[x]( java\tscript:alert(1))</p>")
-    }
+        @Test("links render safe targets and keep unsafe ones literal")
+        func links() {
+            #expect(markdownToHTML("[x](https://example.com)") == "<p><a href=\"https://example.com\">x</a></p>")
+            #expect(markdownToHTML("[x](javascript:alert(1))") == "<p>[x](javascript:alert(1))</p>")
+            #expect(markdownToHTML("[x]( java\tscript:alert(1))") == "<p>[x]( java\tscript:alert(1))</p>")
+        }
 
-    @Test("raw html in markdown is escaped, never emitted")
-    func rawHTMLEscaped() {
-        let html = markdownToHTML("<script>alert(1)</script>")
-        #expect(html == "<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>")
-        #expect(!html.contains("<script>"))
-    }
+        @Test("raw html in markdown is escaped, never emitted")
+        func rawHTMLEscaped() {
+            let html = markdownToHTML("<script>alert(1)</script>")
+            #expect(html == "<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>")
+            #expect(!html.contains("<script>"))
+        }
 
-    @Test("paragraphs join non-empty lines")
-    func paragraphs() {
-        #expect(markdownToHTML("one\n\ntwo") == "<p>one</p>\n<p>two</p>")
-    }
+        @Test("paragraphs join non-empty lines")
+        func paragraphs() {
+            #expect(markdownToHTML("one\n\ntwo") == "<p>one</p>\n<p>two</p>")
+        }
 
-    // MARK: arc parity additions
+        // MARK: arc parity additions
 
-    @Test("pipe tables render header + body")
-    func tables() {
-        let html = markdownToHTML("| a | b |\n|---|---|\n| 1 | 2 |")
-        #expect(html.contains("<table>"))
-        #expect(html.contains("<thead>"))
-        #expect(html.contains("<tr><th>a</th><th>b</th></tr>"))
-        #expect(html.contains("<tr><td>1</td><td>2</td></tr>"))
-        #expect(html.contains("<tbody>"))
-    }
+        @Test("pipe tables render header + body")
+        func tables() {
+            let html = markdownToHTML("| a | b |\n|---|---|\n| 1 | 2 |")
+            #expect(html.contains("<table>"))
+            #expect(html.contains("<thead>"))
+            #expect(html.contains("<tr><th>a</th><th>b</th></tr>"))
+            #expect(html.contains("<tr><td>1</td><td>2</td></tr>"))
+            #expect(html.contains("<tbody>"))
+        }
 
-    @Test("table works without outer pipes")
-    func tablesBare() {
-        let html = markdownToHTML("a | b\n--|--\n1 | 2")
-        #expect(html.contains("<th>a</th>"))
-        #expect(html.contains("<td>1</td>"))
-    }
+        @Test("table works without outer pipes")
+        func tablesBare() {
+            let html = markdownToHTML("a | b\n--|--\n1 | 2")
+            #expect(html.contains("<th>a</th>"))
+            #expect(html.contains("<td>1</td>"))
+        }
 
-    @Test("blockquotes wrap nested content")
-    func blockquote() {
-        let html = markdownToHTML("> quote line\n> second")
-        #expect(html.contains("<blockquote>"))
-        #expect(html.contains("quote line"))
-    }
+        @Test("blockquotes wrap nested content")
+        func blockquote() {
+            let html = markdownToHTML("> quote line\n> second")
+            #expect(html.contains("<blockquote>"))
+            #expect(html.contains("quote line"))
+        }
 
-    @Test("nested blockquotes nest tags")
-    func nestedBlockquote() {
-        let html = markdownToHTML("> outer\n>> inner")
-        #expect(html.components(separatedBy: "<blockquote>").count == 3)
-    }
+        @Test("nested blockquotes nest tags")
+        func nestedBlockquote() {
+            let html = markdownToHTML("> outer\n>> inner")
+            #expect(html.components(separatedBy: "<blockquote>").count == 3)
+        }
 
-    @Test("horizontal rules")
-    func hr() {
-        #expect(markdownToHTML("---") == "<hr>")
-        #expect(markdownToHTML("***") == "<hr>")
-        #expect(markdownToHTML("___") == "<hr>")
-    }
+        @Test("horizontal rules")
+        func hr() {
+            #expect(markdownToHTML("---") == "<hr>")
+            #expect(markdownToHTML("***") == "<hr>")
+            #expect(markdownToHTML("___") == "<hr>")
+        }
 
-    @Test("task list checkboxes")
-    func taskList() {
-        let html = markdownToHTML("- [ ] todo\n- [x] done")
-        #expect(html.contains("<input type=\"checkbox\" disabled>"))
-        #expect(html.contains("<input type=\"checkbox\" disabled checked>"))
-        #expect(html.contains("<ul>"))
-    }
+        @Test("task list checkboxes")
+        func taskList() {
+            let html = markdownToHTML("- [ ] todo\n- [x] done")
+            #expect(html.contains("<input type=\"checkbox\" disabled>"))
+            #expect(html.contains("<input type=\"checkbox\" disabled checked>"))
+            #expect(html.contains("<ul>"))
+        }
 
-    @Test("nested lists nest under the parent item")
-    func nestedList() {
-        let html = markdownToHTML("- a\n  - a1\n  - a2\n- b")
-        #expect(html.contains("<li>a\n<ul><li>a1</li><li>a2</li></ul></li>"))
-        #expect(html.hasPrefix("<ul>"))
-    }
+        @Test("nested lists nest under the parent item")
+        func nestedList() {
+            let html = markdownToHTML("- a\n  - a1\n  - a2\n- b")
+            #expect(html.contains("<li>a\n<ul><li>a1</li><li>a2</li></ul></li>"))
+            #expect(html.hasPrefix("<ul>"))
+        }
 
-    @Test("strikethrough")
-    func strike() {
-        #expect(markdownToHTML("~~gone~~") == "<p><s>gone</s></p>")
-    }
+        @Test("strikethrough")
+        func strike() {
+            #expect(markdownToHTML("~~gone~~") == "<p><s>gone</s></p>")
+        }
 
-    @Test("images render sanitized")
-    func images() {
-        #expect(markdownToHTML("![alt](https://example.com/x.png)") == "<p><img src=\"https://example.com/x.png\" alt=\"alt\" loading=\"lazy\"></p>")
-        #expect(markdownToHTML("![x](javascript:alert(1))").contains("![x](javascript:alert(1))"))
-    }
+        @Test("images render sanitized")
+        func images() {
+            #expect(markdownToHTML("![alt](https://example.com/x.png)") == "<p><img src=\"https://example.com/x.png\" alt=\"alt\" loading=\"lazy\"></p>")
+            #expect(markdownToHTML("![x](javascript:alert(1))").contains("![x](javascript:alert(1))"))
+        }
 
-    @Test("bare http urls autolink")
-    func autolink() {
-        let html = markdownToHTML("see https://example.com/page now")
-        #expect(html.contains("<a href=\"https://example.com/page\">https://example.com/page</a>"))
-    }
+        @Test("bare http urls autolink")
+        func autolink() {
+            let html = markdownToHTML("see https://example.com/page now")
+            #expect(html.contains("<a href=\"https://example.com/page\">https://example.com/page</a>"))
+        }
 
-    @Test("autolink does not touch link targets")
-    func autolinkSkipsLinkTargets() {
-        #expect(markdownToHTML("[x](https://example.com)") == "<p><a href=\"https://example.com\">x</a></p>")
-    }
+        @Test("autolink does not touch link targets")
+        func autolinkSkipsLinkTargets() {
+            #expect(markdownToHTML("[x](https://example.com)") == "<p><a href=\"https://example.com\">x</a></p>")
+        }
 
-    @Test("inline math renders as literal text")
-    func inlineMath() {
-        #expect(markdownToHTML("e = $mc^2$ done") == "<p>e = $mc^2$ done</p>")
-    }
+        @Test("inline math renders as literal text")
+        func inlineMath() {
+            #expect(markdownToHTML("e = $mc^2$ done") == "<p>e = $mc^2$ done</p>")
+        }
 
-    @Test("display math renders as literal text")
-    func blockMath() {
-        #expect(markdownToHTML("$$x^2 + y^2$$") == "<p>$$x^2 + y^2$$</p>")
-        #expect(markdownToHTML("$$\nx^2\n$$") == "<p>$$ x^2 $$</p>")
-    }
+        @Test("display math renders as literal text")
+        func blockMath() {
+            #expect(markdownToHTML("$$x^2 + y^2$$") == "<p>$$x^2 + y^2$$</p>")
+            #expect(markdownToHTML("$$\nx^2\n$$") == "<p>$$ x^2 $$</p>")
+        }
 
-    @Test("backslash paren math renders as literal text")
-    func parenMath() {
-        #expect(markdownToHTML("\\(a+b\\)") == "<p>\\(a+b\\)</p>")
-    }
+        @Test("backslash paren math renders as literal text")
+        func parenMath() {
+            #expect(markdownToHTML("\\(a+b\\)") == "<p>\\(a+b\\)</p>")
+        }
 
-    @Test("an unclosed backslash-bracket line renders literally")
-    func unclosedBracketMath() {
-        // Before the math path was deleted this input spun `parseBlocks` forever: the
-        // paragraph loop broke on the display-math line without consuming it, and the block
-        // loop asked again — measured 100% CPU and ~23 MB/s of empty paragraphs. Math now
-        // renders as escaped literal text, so the fixture doubles as the hang's regression.
-        #expect(markdownToHTML("\\[\nx = 1\n\\]") == "<p>\\[ x = 1 \\]</p>")
-    }
+        @Test("an unclosed backslash-bracket line renders literally")
+        func unclosedBracketMath() {
+            // Before the math path was deleted this input spun `parseBlocks` forever: the
+            // paragraph loop broke on the display-math line without consuming it, and the block
+            // loop asked again — measured 100% CPU and ~23 MB/s of empty paragraphs. Math now
+            // renders as escaped literal text, so the fixture doubles as the hang's regression.
+            #expect(markdownToHTML("\\[\nx = 1\n\\]") == "<p>\\[ x = 1 \\]</p>")
+        }
 
-    @Test("underscore emphasis respects word boundaries")
-    func underscoreGuard() {
-        #expect(markdownToHTML("_em_") == "<p><em>em</em></p>")
-        #expect(markdownToHTML("snake_case") == "<p>snake_case</p>")
-    }
+        @Test("underscore emphasis respects word boundaries")
+        func underscoreGuard() {
+            #expect(markdownToHTML("_em_") == "<p><em>em</em></p>")
+            #expect(markdownToHTML("snake_case") == "<p>snake_case</p>")
+        }
 
-    @Test("hard line breaks")
-    func hardBreaks() {
-        #expect(markdownToHTML("line one  \nline two").contains("line one<br>line two"))
-    }
+        @Test("hard line breaks")
+        func hardBreaks() {
+            #expect(markdownToHTML("line one  \nline two").contains("line one<br>line two"))
+        }
 
-    @Test("soft line breaks join with a space")
-    func softBreaks() {
-        #expect(markdownToHTML("one\ntwo") == "<p>one two</p>")
-    }
+        @Test("soft line breaks join with a space")
+        func softBreaks() {
+            #expect(markdownToHTML("one\ntwo") == "<p>one two</p>")
+        }
 
-    @Test("raw br passthrough is allowed")
-    func rawBr() {
-        #expect(markdownToHTML("a<br>b") == "<p>a<br>b</p>")
-        #expect(markdownToHTML("a<br/>b") == "<p>a<br>b</p>")
-    }
+        @Test("raw br passthrough is allowed")
+        func rawBr() {
+            #expect(markdownToHTML("a<br>b") == "<p>a<br>b</p>")
+            #expect(markdownToHTML("a<br/>b") == "<p>a<br>b</p>")
+        }
 
-    @Test("blockquote containing a list does not spin")
-    func quoteList() {
-        let html = markdownToHTML("> - a\n> - b")
-        #expect(html.contains("<blockquote>"))
-        #expect(html.contains("<ul><li>a</li><li>b</li></ul>"))
-    }
+        @Test("blockquote containing a list does not spin")
+        func quoteList() {
+            let html = markdownToHTML("> - a\n> - b")
+            #expect(html.contains("<blockquote>"))
+            #expect(html.contains("<ul><li>a</li><li>b</li></ul>"))
+        }
 
-    @Test("indented list start does not spin")
-    func indentedListStart() {
-        #expect(markdownToHTML("  - a\n  - b") == "<ul><li>a</li><li>b</li></ul>")
-    }
+        @Test("indented list start does not spin")
+        func indentedListStart() {
+            #expect(markdownToHTML("  - a\n  - b") == "<ul><li>a</li><li>b</li></ul>")
+        }
 
-    @Test("math source is html-escaped in transit")
-    func mathEscaped() {
-        let html = markdownToHTML("$a < b$")
-        #expect(html == "<p>$a &lt; b$</p>")
-        #expect(!html.contains("<equation-"))
-    }
-}
-
-@Suite("Markdown Image URL Policy")
-struct MarkdownImageURLPolicyTests {
-    @Test("safe data raster image renders with lazy loading")
-    func dataRasterImage() {
-        let md = "![alt](data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==)"
-        #expect(markdownToHTML(md) == "<p><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==\" alt=\"alt\" loading=\"lazy\"></p>")
-    }
-
-    @Test("safe data svg image renders")
-    func dataSVGImage() {
-        let md = "![dot](data:image/svg+xml;base64,PHN2Zy8+)"
-        #expect(markdownToHTML(md).contains("src=\"data:image/svg+xml;base64,PHN2Zy8+\""))
-    }
-
-    @Test("non-image data uri stays literal")
-    func dataHTMLRejected() {
-        let md = "![x](data:text/html,<script>alert(1)</script>)"
-        #expect(markdownToHTML(md) == "<p>![x](data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;)</p>")
-    }
-
-    @Test("javascript image url stays literal")
-    func javascriptImageRejected() {
-        let md = "![x](javascript:alert(1))"
-        #expect(markdownToHTML(md) == "<p>![x](javascript:alert(1))</p>")
-    }
-
-    @Test("https image renders")
-    func httpsImage() {
-        let md = "![alt](https://example.com/a.png)"
-        #expect(markdownToHTML(md) == "<p><img src=\"https://example.com/a.png\" alt=\"alt\" loading=\"lazy\"></p>")
-    }
-
-    @Test("oversized data uri stays literal")
-    func oversizedDataRejected() {
-        let md = "![x](data:image/png;base64," + String(repeating: "A", count: 2 * 1024 * 1024 + 10) + ")"
-        let out = markdownToHTML(md)
-        #expect(out.hasPrefix("<p>![x](data:image/png;base64,"))
-        #expect(!out.contains("<img"))
+        @Test("math source is html-escaped in transit")
+        func mathEscaped() {
+            let html = markdownToHTML("$a < b$")
+            #expect(html == "<p>$a &lt; b$</p>")
+            #expect(!html.contains("<equation-"))
+        }
     }
 }
 
-@Suite("Markdown Bounds Safety")
-struct MarkdownBoundsSafetyTests {
-    /// Malformed link/image fragments at the end of input used to trap the
-    /// process via unbounded `String.index(_:offsetBy:)`; every case must
-    /// render literally (parity with the parser's "leave as-is" fallback).
-    @Test("trailing bang renders literally")
-    func trailingBang() {
-        #expect(markdownToHTML("hi!") == "<p>hi!</p>")
-    }
+extension ArcCoreTestRoot {
+    @Suite("Markdown Image URL Policy", .serialized)
+    struct MarkdownImageURLPolicyTests {
+        @Test("safe data raster image renders with lazy loading")
+        func dataRasterImage() {
+            let md = "![alt](data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==)"
+            #expect(markdownToHTML(md) == "<p><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==\" alt=\"alt\" loading=\"lazy\"></p>")
+        }
 
-    @Test("bang plus one char renders literally")
-    func bangOneChar() {
-        #expect(markdownToHTML("!x") == "<p>!x</p>")
-    }
+        @Test("safe data svg image renders")
+        func dataSVGImage() {
+            let md = "![dot](data:image/svg+xml;base64,PHN2Zy8+)"
+            #expect(markdownToHTML(md).contains("src=\"data:image/svg+xml;base64,PHN2Zy8+\""))
+        }
 
-    @Test("image marker without bracket renders literally")
-    func imageNoBracket() {
-        #expect(markdownToHTML("![alt") == "<p>![alt</p>")
-    }
+        @Test("non-image data uri stays literal")
+        func dataHTMLRejected() {
+            let md = "![x](data:text/html,<script>alert(1)</script>)"
+            #expect(markdownToHTML(md) == "<p>![x](data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;)</p>")
+        }
 
-    @Test("link with unclosed paren renders literally")
-    func linkUnclosedParen() {
-        #expect(markdownToHTML("[a](") == "<p>[a](</p>")
-    }
+        @Test("javascript image url stays literal")
+        func javascriptImageRejected() {
+            let md = "![x](javascript:alert(1))"
+            #expect(markdownToHTML(md) == "<p>![x](javascript:alert(1))</p>")
+        }
 
-    @Test("link with close paren alone renders literally")
-    func linkParenOnly() {
-        #expect(markdownToHTML("[a]()") == "<p><a href=\"\">a</a></p>")
-    }
+        @Test("https image renders")
+        func httpsImage() {
+            let md = "![alt](https://example.com/a.png)"
+            #expect(markdownToHTML(md) == "<p><img src=\"https://example.com/a.png\" alt=\"alt\" loading=\"lazy\"></p>")
+        }
 
-    @Test("image with unclosed paren renders literally")
-    func imageUnclosedParen() {
-        #expect(markdownToHTML("![a](") == "<p>![a](</p>")
+        @Test("oversized data uri stays literal")
+        func oversizedDataRejected() {
+            let md = "![x](data:image/png;base64," + String(repeating: "A", count: 2 * 1024 * 1024 + 10) + ")"
+            let out = markdownToHTML(md)
+            #expect(out.hasPrefix("<p>![x](data:image/png;base64,"))
+            #expect(!out.contains("<img"))
+        }
     }
+}
 
-    @Test("image with empty close does not trap")
-    func imageEmptyParen() {
-        // Mirrors current parser behavior (empty image URL allowed to carry
-        // through sanitization); the point is that it must not trap.
-        let out = markdownToHTML("![a]()")
-        #expect(out.contains("<img"))
-        #expect(!out.contains("&#"))  // no escaping explosion, no crash
-    }
+extension ArcCoreTestRoot {
+    @Suite("Markdown Bounds Safety", .serialized)
+    struct MarkdownBoundsSafetyTests {
+        /// Malformed link/image fragments at the end of input used to trap the
+        /// process via unbounded `String.index(_:offsetBy:)`; every case must
+        /// render literally (parity with the parser's "leave as-is" fallback).
+        @Test("trailing bang renders literally")
+        func trailingBang() {
+            #expect(markdownToHTML("hi!") == "<p>hi!</p>")
+        }
 
-    @Test("bare close paren no link renders literally")
-    func bareCloseParen() {
-        #expect(markdownToHTML("](") == "<p>](</p>")
-    }
+        @Test("bang plus one char renders literally")
+        func bangOneChar() {
+            #expect(markdownToHTML("!x") == "<p>!x</p>")
+        }
 
-    @Test("nested malformed chain does not trap")
-    func malformedChain() {
-        let md = "text ![a]( ![b](x) [c]("
-        let out = markdownToHTML(md)
-        #expect(out.contains("[c]("))
-        // Whatever the nesting does, it must render as markdown output —
-        // never an assertionFailure/crash.
-        #expect(!out.isEmpty)
+        @Test("image marker without bracket renders literally")
+        func imageNoBracket() {
+            #expect(markdownToHTML("![alt") == "<p>![alt</p>")
+        }
+
+        @Test("link with unclosed paren renders literally")
+        func linkUnclosedParen() {
+            #expect(markdownToHTML("[a](") == "<p>[a](</p>")
+        }
+
+        @Test("link with close paren alone renders literally")
+        func linkParenOnly() {
+            #expect(markdownToHTML("[a]()") == "<p><a href=\"\">a</a></p>")
+        }
+
+        @Test("image with unclosed paren renders literally")
+        func imageUnclosedParen() {
+            #expect(markdownToHTML("![a](") == "<p>![a](</p>")
+        }
+
+        @Test("image with empty close does not trap")
+        func imageEmptyParen() {
+            // Mirrors current parser behavior (empty image URL allowed to carry
+            // through sanitization); the point is that it must not trap.
+            let out = markdownToHTML("![a]()")
+            #expect(out.contains("<img"))
+            #expect(!out.contains("&#"))  // no escaping explosion, no crash
+        }
+
+        @Test("bare close paren no link renders literally")
+        func bareCloseParen() {
+            #expect(markdownToHTML("](") == "<p>](</p>")
+        }
+
+        @Test("nested malformed chain does not trap")
+        func malformedChain() {
+            let md = "text ![a]( ![b](x) [c]("
+            let out = markdownToHTML(md)
+            #expect(out.contains("[c]("))
+            // Whatever the nesting does, it must render as markdown output —
+            // never an assertionFailure/crash.
+            #expect(!out.isEmpty)
+        }
     }
 }
