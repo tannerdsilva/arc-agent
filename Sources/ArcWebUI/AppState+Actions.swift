@@ -283,8 +283,8 @@ extension AppState {
     }
 
     /// Mark the HTTP/WS server as bound (shown in the profile card).
-    func markGatewayUp() {
-        gatewayRunning = true
+    func markDaemonUp() {
+        daemonRunning = true
     }
 
     func addAttachment(_ path: String) {
@@ -1540,7 +1540,7 @@ extension AppState {
         saveSettings()
         // In a hosted daemon the UI was handed the daemon's boot-time pair;
         // detach it so the rebuild below picks the newly selected medium (the
-        // daemon's gateway/bot agents keep their boot-time pair until the
+        // hosted/bot agents keep their boot-time pair until the
         // daemon restarts - same as the pre-daemon architecture).
         let wasHosted = attachedStorage != nil
         attachedStorage = nil
@@ -1564,7 +1564,7 @@ extension AppState {
         crumb("storage: connected to \(settings.activeStorage) (backend=\(runtimeBackend))")
         await reloadAll()
         if wasHosted {
-            hint("Storage connected. Gateway/bot services keep their boot-time backend until the daemon restarts.", kind: "success")
+            hint("Storage connected. Bot services keep their boot-time backend until the daemon restarts.", kind: "success")
         } else {
             hint("Storage connected.", kind: "success")
         }

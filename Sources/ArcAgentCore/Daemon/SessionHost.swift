@@ -4,12 +4,15 @@ import ServiceLifecycle
 import Logging
 import NIO
 
-/// The top-level gateway service that manages the HTTP server, platform
-/// adapters, session registry, and message routing.
+/// The daemon's session host: it turns every incoming surface — the REST API
+/// and the platform adapters — into agent sessions, and routes responses back
+/// out to the platform they came from.
 ///
-/// ``GatewayService`` is a ``Service`` that composes:
-/// - ``HTTPServerService`` — REST API (`/health`, `POST /v1/chat`)
-/// - ``TelegramAdapter`` — Telegram Bot API long polling
+/// ``SessionHost`` is a ``Service`` that composes:
+/// - ``HTTPServerService`` — the REST API surface (`/health`, `POST /v1/chat`);
+///   present only when the API surface is enabled
+/// - ``TelegramAdapter`` / ``EmailAdapter`` / ``SlackAdapter`` — the platform
+///   surfaces configured in `daemon.json`
 /// - ``SessionRegistry`` — active session agents (no cache, LMDB is source of truth)
 /// - ``DeliveryManager`` — routes responses to the correct platform
 /// - ``BotMessagingService`` — inter-agent messaging
@@ -17,15 +20,29 @@ import NIO
 ///
 /// The web UI is not hosted here: it is a sibling service in the same daemon
 /// (`WebUIHost`, mounted by `ArcDaemon` on its own port via the `webui` block
-/// of `gateway.json`). The gateway used to carry a second, hand-rolled UI
+/// of `daemon.json`). The host used to carry a second, hand-rolled UI
 /// surface (three `/ui` pages behind an `onUI` closure that was never
 /// configured, plus a NIO WebSocket server on `port + 1`); that duplicate is
 /// long gone. This service is the API and the platform adapters.
 ///
 /// All components are managed by a ``ServiceGroup``.
-public struct GatewayService: Service {
+public struct SessionHost: Service {
 
-    private let httpServer: HTTPServerService
+    /// The REST API surface: where the HTTP server binds.
+    ///
+    /// `nil` when the surface is disabled — no socket is bound and the host
+    /// composes only its platform adapters.
+    public struct API: Sendable {
+        public var host: String
+        public var port: Int
+
+        public init(host: String = "127.0.0.1", port: Int = 8080) {
+            self.host = host
+            self.port = port
+        }
+    }
+
+    private let httpServer: HTTPServerService?
     private let platformAdapters: [any PlatformAdapter]
     private let registry: SessionRegistry
     private let deliveryManager: DeliveryManager
@@ -48,10 +65,9 @@ public struct GatewayService: Service {
     public let cronRunner: @Sendable (CronJob) async throws -> String
 
     public init(
-        host: String = "127.0.0.1",
-        port: Int = 8080,
+        api: API? = nil,
         telegramToken: String? = nil,
-        gatewayConfig: GatewayConfig? = nil,
+        config: DaemonConfig? = nil,
         agentConfig: SessionRegistry.AgentConfig,
         profileRouting: ProfileRoutingConfig = ProfileRoutingConfig()
     ) {
@@ -65,7 +81,7 @@ public struct GatewayService: Service {
             deliveryManager: dm,
             profileManager: pm
         )
-        let log = Logger(label: "com.arc-agent.gateway")
+        let log = Logger(label: "com.arc-agent.session-host")
 
         self.profileManager = pm
         self.deliveryManager = dm
@@ -82,42 +98,48 @@ public struct GatewayService: Service {
             await gcm.setMessagingService(bm)
         }
 
-        // Build the HTTP server. REST only: the web UI is `WebUIHost`, a
-        // sibling service in the daemon (same process, its own port).
-        self.httpServer = HTTPServerService(
-            config: .init(host: host, port: port),
-            onChat: { [reg, routes = profileRouting.sortedRoutes, multiplex = profileRouting.multiplexProfiles] sessionID, message in
-                let chat = ChatTarget(platform: "api", chatID: sessionID)
-                let profile = ProfileRouteResolver.profile(
-                    for: chat, routes: routes, multiplexProfiles: multiplex
-                ) ?? "default"
-                let handle = await reg.getOrCreate(sessionID: sessionID, profile: profile)
-                let incoming = IncomingMessage(
-                    id: UUID().uuidString,
-                    chat: ChatTarget(platform: "api", chatID: sessionID),
-                    text: message,
-                    senderID: "api"
-                )
-                handle.inputContinuation.yield(incoming)
-                // Await the agent's response from the response stream
-                var responseText = ""
-                for await response in handle.responses {
-                    responseText = response
-                    break  // Take the first response
+        // Build the HTTP server for the REST API surface, when it is enabled.
+        // REST only: the web UI is `WebUIHost`, a sibling service in the
+        // daemon (same process, its own port).
+        if let api {
+            self.httpServer = HTTPServerService(
+                config: .init(host: api.host, port: api.port),
+                onChat: { [reg, routes = profileRouting.sortedRoutes, multiplex = profileRouting.multiplexProfiles] sessionID, message in
+                    let chat = ChatTarget(platform: "api", chatID: sessionID)
+                    let profile = ProfileRouteResolver.profile(
+                        for: chat, routes: routes, multiplexProfiles: multiplex
+                    ) ?? "default"
+                    let handle = await reg.getOrCreate(sessionID: sessionID, profile: profile)
+                    let incoming = IncomingMessage(
+                        id: UUID().uuidString,
+                        chat: ChatTarget(platform: "api", chatID: sessionID),
+                        text: message,
+                        senderID: "api"
+                    )
+                    handle.inputContinuation.yield(incoming)
+                    // Await the agent's response from the response stream
+                    var responseText = ""
+                    for await response in handle.responses {
+                        responseText = response
+                        break  // Take the first response
+                    }
+                    return responseText.isEmpty ? "Message received" : responseText
                 }
-                return responseText.isEmpty ? "Message received" : responseText
-            }
-        )
+            )
+        } else {
+            self.httpServer = nil
+        }
 
-        // Build platform adapters from gateway config (or legacy token flag).
-        // The AsyncHTTPClient is created ONLY when an adapter consumes it and
-        // is retained: a discarded client deinits with a fatal ("Client not
-        // shut down before the deinit"), and with no adapters configured the
-        // old unretained local trapped the gateway at init.
+        // Build platform adapters from the daemon config (or a directly
+        // supplied token). The AsyncHTTPClient is created ONLY when an
+        // adapter consumes it and is retained: a discarded client deinits
+        // with a fatal ("Client not shut down before the deinit"), and with
+        // no adapters configured the old unretained local trapped the host
+        // at init.
         var httpClient: HTTPClient?
         var adapters: [any PlatformAdapter] = []
-        if let config = gatewayConfig {
-            if config.telegram.enabled, !config.telegram.botToken.isEmpty {
+        if let config {
+            if config.telegramAdapterReady {
                 let client = HTTPClient(eventLoopGroupProvider: .singleton)
                 httpClient = client
                 let adapter = TelegramAdapter(
@@ -133,11 +155,11 @@ public struct GatewayService: Service {
                 )
                 adapters.append(adapter)
             }
-            if config.email.enabled, !config.email.address.isEmpty, !config.email.password.isEmpty {
+            if config.emailAdapterReady {
                 let adapter = EmailAdapter(config: config.email)
                 adapters.append(adapter)
             }
-            if config.slack.enabled, !config.slack.botToken.isEmpty, !config.slack.appToken.isEmpty {
+            if config.slackAdapterReady {
                 let client = HTTPClient(eventLoopGroupProvider: .singleton)
                 httpClient = client
                 let adapter = SlackAdapter(
@@ -190,9 +212,10 @@ public struct GatewayService: Service {
     // MARK: - Service
 
     public func run() async throws {
-        logger.info("Starting ARC Agent Gateway (Bot Mode)...")
+        logger.info("Starting arc session host...")
 
-        var services: [any Service] = [httpServer, botMessaging]
+        var services: [any Service] = [botMessaging]
+        if let httpServer { services.append(httpServer) }
 
         // Register adapters for delivery, then ingest their messages into
         // sessions — routing each chat to the profile its route table

@@ -125,7 +125,7 @@ extension ArcCoreTestRoot {
             }
         }
 
-        @Test("no delivery manager explains the gateway requirement")
+        @Test("no delivery manager explains the daemon requirement")
         func noDelivery() async throws {
             let oldDelivery = SendMessageTool.delivery
             SendMessageTool.delivery = nil
@@ -133,7 +133,7 @@ extension ArcCoreTestRoot {
             let out = try await SendMessageTool.entry.handler(
                 ["action": "send", "target": "telegram:1", "message": "hi"]
             )
-            #expect(out.contains("gateway"))
+            #expect(out.contains("daemon"))
         }
     }
 }

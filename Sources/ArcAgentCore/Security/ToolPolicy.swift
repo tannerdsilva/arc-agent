@@ -1,22 +1,22 @@
 import Foundation
 
-// MARK: - Tool gateway / managed scope (reference `managed_tool_gateway.py`, `tool-gateway.md`)
+// MARK: - Tool policy / managed scope (reference managed tool scope)
 
-/// What the gateway says about a tool invocation.
-public enum GatewayAction: String, Codable, Sendable {
+/// The policy verdict for a tool invocation.
+public enum ToolPolicyAction: String, Codable, Sendable {
     case allow
     case deny
     case requireApproval
 }
 
 /// A rule: glob match on tool name (+ optional exact toolset).
-public struct ToolGatewayRule: Codable, Sendable, Equatable {
+public struct ToolPolicyRule: Codable, Sendable, Equatable {
     public var match: String
     public var toolset: String?
-    public var action: GatewayAction
+    public var action: ToolPolicyAction
     public var reason: String?
 
-    public init(match: String, toolset: String? = nil, action: GatewayAction, reason: String? = nil) {
+    public init(match: String, toolset: String? = nil, action: ToolPolicyAction, reason: String? = nil) {
         self.match = match
         self.toolset = toolset
         self.action = action
@@ -24,12 +24,12 @@ public struct ToolGatewayRule: Codable, Sendable, Equatable {
     }
 }
 
-/// Gateway configuration (reference `tool_gateway` config block).
-public struct ToolGatewayConfig: Codable, Sendable, Equatable {
+/// Ordered allow/deny rules over tool invocations.
+public struct ToolPolicyConfig: Codable, Sendable, Equatable {
     public var enabled: Bool
-    public var rules: [ToolGatewayRule]
+    public var rules: [ToolPolicyRule]
 
-    public init(enabled: Bool = false, rules: [ToolGatewayRule] = []) {
+    public init(enabled: Bool = false, rules: [ToolPolicyRule] = []) {
         self.enabled = enabled
         self.rules = rules
     }
@@ -37,20 +37,20 @@ public struct ToolGatewayConfig: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
-        self.rules = try container.decodeIfPresent([ToolGatewayRule].self, forKey: .rules) ?? []
+        self.rules = try container.decodeIfPresent([ToolPolicyRule].self, forKey: .rules) ?? []
     }
 }
 
 /// Evaluates the rule list. Later rules override earlier ones (recent wins),
 /// matching reference' ordered-scope semantics.
-public enum ToolGateway {
+public enum ToolPolicy {
 
     public struct Decision: Sendable {
-        public let action: GatewayAction
+        public let action: ToolPolicyAction
         public let reason: String?
     }
 
-    public static func decide(toolName: String, toolset: String, config: ToolGatewayConfig) -> Decision {
+    public static func decide(toolName: String, toolset: String, config: ToolPolicyConfig) -> Decision {
         guard config.enabled else {
             return Decision(action: .allow, reason: nil)
         }
@@ -62,7 +62,7 @@ public enum ToolGateway {
         return result
     }
 
-    static func ruleMatches(rule: ToolGatewayRule, toolName: String, toolset: String) -> Bool {
+    static func ruleMatches(rule: ToolPolicyRule, toolName: String, toolset: String) -> Bool {
         if let expected = rule.toolset, expected != toolset { return false }
         return wildcardMatch(pattern: rule.match, value: toolName)
     }
@@ -88,9 +88,9 @@ public enum ToolGateway {
     }
 
     /// Human-readable scope summary.
-    public static func describe(config: ToolGatewayConfig) -> String {
-        guard config.enabled else { return "tool gateway: disabled (allow all)" }
-        var lines = ["tool gateway: enabled"]
+    public static func describe(config: ToolPolicyConfig) -> String {
+        guard config.enabled else { return "tool policy: disabled (allow all)" }
+        var lines = ["tool policy: enabled"]
         for rule in config.rules {
             lines.append("  \(rule.action.rawValue)  \(rule.match)\(rule.toolset.map { " @\($0)" } ?? "")\(rule.reason.map { " — \($0)" } ?? "")")
         }

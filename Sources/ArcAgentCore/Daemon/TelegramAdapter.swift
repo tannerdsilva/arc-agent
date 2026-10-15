@@ -209,8 +209,8 @@ public final class TelegramAdapter: PlatformAdapter {
     public func sendUpdate(messageID: String, text: String, parseMode: String?, to target: ChatTarget) async throws {
         let formatted = TelegramFormat.format(text)
         guard formatted.count <= Self.maxMessageLength else {
-            // Too long to edit in place; the gateway falls back to re-sending.
-            throw GatewayError.unsupportedOperation("telegram: edit exceeds 4096")
+            // Too long to edit in place; the session host falls back to re-sending.
+            throw MessagingError.unsupportedOperation("telegram: edit exceeds 4096")
         }
         var params: [String: Any] = [
             "chat_id": target.chatID,

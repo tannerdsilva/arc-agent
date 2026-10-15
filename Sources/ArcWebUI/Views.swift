@@ -2434,7 +2434,7 @@ extension AppState {
     }
 
     /// arc-parity profile card: PROFILE eyebrow + key/value rows with
-    /// badges (ACTIVE / (default) / Gateway running / code-block model).
+    /// badges (ACTIVE / (default) / Daemon running / code-block model).
     func profileCardHTML(_ p: Profile) -> String {
         let activeProfile = profileName(for: activeSessionID) ?? ""
         let isActive = !activeProfile.isEmpty && activeProfile == p.name
@@ -2446,14 +2446,14 @@ extension AppState {
         let keyLabel = keyCount > 0 ? "\(keyCount) \(keyCount == 1 ? "key" : "keys") configured" : "None"
         let statusBadges = (isActive ? "<span class=\"pl-badge badge-active\">ACTIVE</span>" : "<span class=\"pl-badge badge-inactive\">IDLE</span>")
             + (isDefault ? " <span class=\"pl-badge badge-default\">DEFAULT</span>" : "")
-        let gateway = gatewayRunning
-            ? "<span class=\"pl-badge badge-green\"><span class=\"pl-dot\"></span>Gateway running</span>"
-            : "<span class=\"pl-badge badge-red\">Gateway stopped</span>"
+        let daemon = daemonRunning
+            ? "<span class=\"pl-badge badge-green\"><span class=\"pl-dot\"></span>Daemon running</span>"
+            : "<span class=\"pl-badge badge-red\">Daemon stopped</span>"
         return """
         <div class="pl-card">
           <div class="pl-eyebrow">PROFILE</div>
           <div class="pl-row"><span class="pl-k">Status</span><span class="pl-v">\(statusBadges)</span></div>
-          <div class="pl-row"><span class="pl-k">Gateway</span><span class="pl-v">\(gateway)</span></div>
+          <div class="pl-row"><span class="pl-k">Daemon</span><span class="pl-v">\(daemon)</span></div>
           <div class="pl-row"><span class="pl-k">Model</span><span class="pl-v"><code class="pl-code">\(esc(modelName))</code></span></div>
           <div class="pl-row"><span class="pl-k">Provider</span><span class="pl-v">\(esc(providerName))</span></div>
           <div class="pl-row"><span class="pl-k">API key</span><span class="pl-v">\(esc(keyLabel))</span></div>

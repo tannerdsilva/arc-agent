@@ -6,7 +6,7 @@ import Logging
 ///
 /// reference email parity (text transport):
 /// - polls the INBOX (IMAP) on an interval, parses RFC 822 messages
-/// - delivers to the gateway per-sender "chat"; authz = sender allowlist
+/// - delivers to the session host per-sender "chat"; authz = sender allowlist
 /// - replies over SMTP with `In-Reply-To`/`References` threading
 /// - never picks up its own sent mail (sender == configured address)
 ///
@@ -17,13 +17,13 @@ public final class EmailAdapter: PlatformAdapter {
     public let name = "email"
     public let incomingMessages: AsyncStream<IncomingMessage>
 
-    private let config: EmailGatewayConfig
+    private let config: EmailConfig
     private let group: EventLoopGroup
     private let authz: AuthzPolicy
     private let continuation: AsyncStream<IncomingMessage>.Continuation
     private let logger = Logger(label: "com.arc-agent.email-adapter")
 
-    public init(config: EmailGatewayConfig, eventLoopGroup: EventLoopGroup? = nil) {
+    public init(config: EmailConfig, eventLoopGroup: EventLoopGroup? = nil) {
         self.config = config
         self.group = eventLoopGroup ?? MultiThreadedEventLoopGroup.singleton
         self.authz = AuthzPolicy(

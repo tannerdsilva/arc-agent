@@ -321,7 +321,7 @@ public actor GroupChatRoom {
         // per-group session via the SessionRegistry and wait for the response.
         //
         // For now, we return nil (pass) since the full session routing integration
-        // requires the gateway to be running.
+        // requires the daemon to be running.
         logger.info("Member turn: \(member.name) in group '\(name)'")
         return nil
     }

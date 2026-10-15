@@ -37,7 +37,7 @@ public struct ChatTarget: Sendable, Codable, Hashable {
 
 /// An incoming message from a platform adapter.
 ///
-/// The gateway receives these from platform adapters and routes them to
+/// The session host receives these from platform adapters and routes them to
 /// the appropriate agent session.
 public struct IncomingMessage: Sendable {
     /// Unique message identifier (platform-specific).

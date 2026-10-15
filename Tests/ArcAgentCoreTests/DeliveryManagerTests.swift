@@ -107,7 +107,7 @@ extension ArcCoreTestRoot {
                 try await dm.send(message: msg, to: target)
                 // If it did NOT throw, the test fails.
                 #expect(Bool(false), "expected unknownPlatform to be thrown for unregistered push platform")
-            } catch let error as GatewayError {
+            } catch let error as MessagingError {
                 switch error {
                 case .unknownPlatform(let p):
                     #expect(p == "discord")
@@ -115,7 +115,7 @@ extension ArcCoreTestRoot {
                     #expect(Bool(false), "expected .unknownPlatform, got \(error)")
                 }
             } catch {
-                #expect(Bool(false), "expected GatewayError, got \(error)")
+                #expect(Bool(false), "expected MessagingError, got \(error)")
             }
         }
 

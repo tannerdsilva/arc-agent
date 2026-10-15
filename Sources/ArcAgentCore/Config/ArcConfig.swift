@@ -77,7 +77,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     public var plugins: PluginsConfig
 
     /// Profile-based inbound routing (reference `profile_routes` /
-    /// `gateway.multiplex_profiles`): routes inbound platform messages by
+    /// `multiplex_profiles`): routes inbound platform messages by
     /// platform/guild/channel/thread to a dedicated profile. Ignored unless
     /// `multiplexProfiles` is true.
     public var profileRouting: ProfileRoutingConfig
@@ -619,16 +619,16 @@ public struct SecurityConfig: Codable, Sendable, Equatable {
     /// Commands pre-exempted from approval ("Always allow" choices).
     /// Matched by exact, trimmed command string.
     public var alwaysAllowedCommands: [String]
-    /// Tool gateway policy (reference `tool_gateway`): ordered allow/deny rules
-    /// over tool invocations, enforced before dispatch.
-    public var toolGateway: ToolGatewayConfig
+    /// Tool policy: ordered allow/deny rules over tool invocations, enforced
+    /// before dispatch.
+    public var toolPolicy: ToolPolicyConfig
 
     public init(approvalMode: String = "manual", yoloMode: Bool = false,
-                alwaysAllowedCommands: [String] = [], toolGateway: ToolGatewayConfig = ToolGatewayConfig()) {
+                alwaysAllowedCommands: [String] = [], toolPolicy: ToolPolicyConfig = ToolPolicyConfig()) {
         self.approvalMode = approvalMode
         self.yoloMode = yoloMode
         self.alwaysAllowedCommands = alwaysAllowedCommands
-        self.toolGateway = toolGateway
+        self.toolPolicy = toolPolicy
     }
 
     /// Decode each field independently, defaulting any that are absent.
@@ -637,7 +637,7 @@ public struct SecurityConfig: Codable, Sendable, Equatable {
         self.approvalMode = try container.decodeIfPresent(String.self, forKey: .approvalMode) ?? SecurityConfig().approvalMode
         self.yoloMode = try container.decodeIfPresent(Bool.self, forKey: .yoloMode) ?? SecurityConfig().yoloMode
         self.alwaysAllowedCommands = try container.decodeIfPresent([String].self, forKey: .alwaysAllowedCommands) ?? SecurityConfig().alwaysAllowedCommands
-        self.toolGateway = try container.decodeIfPresent(ToolGatewayConfig.self, forKey: .toolGateway) ?? ToolGatewayConfig()
+        self.toolPolicy = try container.decodeIfPresent(ToolPolicyConfig.self, forKey: .toolPolicy) ?? ToolPolicyConfig()
     }
 }
 

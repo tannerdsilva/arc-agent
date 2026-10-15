@@ -5,19 +5,19 @@ import Foundation
 /// Tool: `send_message` — send a message to a connected messaging platform,
 /// or list available targets.
 ///
-/// Arc's gateway delivers through registered ``PlatformAdapter``s via
-/// ``DeliveryManager``. This tool is wired by the gateway at startup
-/// (``SendMessageTool.delivery``); outside a running gateway it explains
+/// Arc's daemon delivers through registered ``PlatformAdapter``s via
+/// ``DeliveryManager``. This tool is wired by the session host at startup
+/// (``SendMessageTool.delivery``); outside a running daemon it explains
 /// itself. Arc's bot-mode tools (`send_bot_message`/`send_group_chat`) remain
 /// for agent-to-agent roster messaging; this is the human-facing platform
 /// delivery surface.
 public enum SendMessageTool {
 
-    /// The delivery manager. Wired by ``GatewayService`` (and by tests).
+    /// The delivery manager. Wired by ``SessionHost`` (and by tests).
     public nonisolated(unsafe) static var delivery: DeliveryManager?
 
     /// Resolves a bare platform name to its home chat id (wired by the
-    /// gateway from its platform config; nil when unknown).
+    /// session host from its platform config; nil when unknown).
     public nonisolated(unsafe) static var homeChatResolver: (@Sendable (String) async -> String?)?
 
     public static let entry = ToolEntry(
@@ -64,8 +64,8 @@ public enum SendMessageTool {
 
     static func handleList() async -> String {
         guard let delivery = delivery else {
-            return "Error: no delivery manager is wired in this context (is the gateway running?). "
-                + "send_message is available when arc serves the gateway."
+            return "Error: no delivery manager is wired in this context (is the daemon running?). "
+                + "send_message is available in daemon sessions."
         }
         let adapters = await delivery.adapterNames().sorted()
         var lines: [String] = ["Connected messaging platforms (targets use 'platform:chat_id'):"]
@@ -81,7 +81,7 @@ public enum SendMessageTool {
 
     static func handleSend(_ args: [String: Any]) async throws -> String {
         guard let delivery = delivery else {
-            return "Error: no delivery manager is wired in this context (is the gateway running?)."
+            return "Error: no delivery manager is wired in this context (is the daemon running?)."
         }
         let targetRaw = (args["target"] as? String) ?? ""
         let rawMessage = (args["message"] as? String) ?? ""

@@ -116,7 +116,7 @@ Plugins are governed by the `plugins.enabled` allow-list in
 - **`[]`** — no plugins enabled.
 - **`["arc-weather", ...]`** — exactly these plugins.
 
-Toggling in **Settings → Tool plugins** writes this list; the CLI, gateway,
+Toggling in **Settings → Tool plugins** writes this list; the CLI, daemon,
 and webui all read the same list. New toolsets appear in the Preferences
 enabled-toolsets switches and on the Tools page, with full parameter details.
 

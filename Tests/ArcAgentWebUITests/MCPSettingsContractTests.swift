@@ -102,7 +102,7 @@ extension ArcWebUITestRoot {
             #expect(mcp.contains("await configureMCPClients()"),
                     "a saved server must be reachable without a restart")
             #expect(mcp.contains("try saveConfig(raw)"),
-                    "the UI must write the ~/.arc/config.json the CLI and gateway read")
+                    "the UI must write the ~/.arc/config.json the CLI and daemon read")
         }
 
         @Test("the tools panel names the server count for the mcp group")

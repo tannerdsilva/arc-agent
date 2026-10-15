@@ -3,7 +3,7 @@ import AsyncHTTPClient
 import ServiceLifecycle
 import Logging
 
-/// A long-lived session agent Service managed by the gateway.
+/// A long-lived session agent Service managed by the session host.
 public actor SessionAgent: Service {
 
     public let sessionID: String
@@ -78,7 +78,7 @@ public actor SessionAgent: Service {
             // Storage backend. When Tessera is configured, sessions and
             // memory flow through the shared Tessera connection (signed
             // NOSTR events). Without it we fall back to local files so the
-            // gateway can still run without a server.
+            // daemon can still run without a server.
             logger.info("step: opening session storage")
             let sessionStore: any SessionStore
             let memoryProvider: any MemoryProvider
@@ -119,7 +119,7 @@ public actor SessionAgent: Service {
                 maxContextTokens: 64_000,
                 sessionID: sessionID,
                 contextLength: resolvedContext?.contextLength,
-                platformHint: "gateway",
+                platformHint: "daemon",
                 moa: agentConfig.moa,
                 skillInlineCommands: agentConfig.skillInlineCommands,
                 backgroundReview: BackgroundReview.Settings(
@@ -163,7 +163,7 @@ public actor SessionAgent: Service {
                 if message.senderID == "heartbeat" {
                     logger.info("step: heartbeat fired for session \(sessionID)")
                 } else {
-                    // Gateway learns the delivery chat for CLI-set heartbeats.
+                    // The daemon learns the delivery chat for CLI-set heartbeats.
                     await heartbeatStore.adoptChat(sessionID: sessionID, chat: message.chat)
                 }
                 logger.info("step: running conversation")
@@ -196,11 +196,11 @@ public actor SessionAgent: Service {
                         case .toolCallFinished(_, let name, let result):
                             buffer += "[Tool: \(name)] \(result)\n"
                         case .toolCallStarted(_, let name, _):
-                            logger.debug("gateway: tool started: \(name) (session \(sessionID))")
+                            logger.debug("session: tool started: \(name) (session \(sessionID))")
                         case .reasoningDelta(let delta):
-                            logger.debug("gateway: reasoning delta \(delta.count) chars (session \(sessionID))")
+                            logger.debug("session: reasoning delta \(delta.count) chars (session \(sessionID))")
                         case .usage(let usage):
-                            logger.debug("gateway: usage prompt=\(usage.promptTokens) completion=\(usage.completionTokens) (session \(sessionID))")
+                            logger.debug("session: usage prompt=\(usage.promptTokens) completion=\(usage.completionTokens) (session \(sessionID))")
                         case .completed:
                             break
                         }
@@ -215,7 +215,7 @@ public actor SessionAgent: Service {
                                 // Adapter rejects in-place edits (too long,
                                 // unsupported) — drop the partial and fall
                                 // back to send-once at the end.
-                                logger.notice("gateway: edit fell back: \(error)")
+                                logger.notice("session: edit fell back: \(error)")
                                 if let id = latestID {
                                     try? await deliveryManager.delete(messageID: id, to: chat)
                                 }
@@ -266,7 +266,7 @@ public actor SessionAgent: Service {
                         latestID = result.messageID
                     }
                 } catch {
-                    logger.error("gateway: delivery failed for \(chat.platform): \(error)")
+                    logger.error("session: delivery failed for \(chat.platform): \(error)")
                 }
 
                 // Send response through BOTH channels:

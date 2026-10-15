@@ -1,8 +1,8 @@
 import Foundation
 
-/// Gateway-level configuration for messaging platforms (arc parity).
+/// The daemon's surface configuration (arc parity).
 ///
-/// Loaded from `<home>/gateway.json` with environment-variable overrides
+/// Loaded from `<home>/daemon.json` with environment-variable overrides
 /// (reference convention: settings in the config file, secrets in env).
 /// Example:
 ///
@@ -42,28 +42,28 @@ import Foundation
 ///   }
 /// }
 /// ```
-public struct GatewayConfig: Sendable {
-    public var telegram: TelegramGatewayConfig
-    public var email: EmailGatewayConfig
-    public var slack: SlackGatewayConfig
+public struct DaemonConfig: Sendable {
+    public var telegram: TelegramConfig
+    public var email: EmailConfig
+    public var slack: SlackConfig
     /// The daemon's REST API surface (`POST /v1/chat`, `GET /health`).
-    public var api: APIGatewayConfig
+    public var api: APIConfig
     /// The daemon's Web UI surface (no-webui + ArcWebUI).
-    public var webui: WebUIGatewayConfig
+    public var webui: WebUIConfig
 
     /// The daemon's MCP server surface (swift-mcp, TCP).
-    public var mcpServer: MCPServerGatewayConfig
+    public var mcpServer: MCPServerSurfaceConfig
     /// The kanban dispatcher loop (core file board).
-    public var kanban: KanbanGatewayConfig
+    public var kanban: KanbanConfig
 
     public init(
-        telegram: TelegramGatewayConfig = TelegramGatewayConfig(),
-        email: EmailGatewayConfig = EmailGatewayConfig(),
-        slack: SlackGatewayConfig = SlackGatewayConfig(),
-        api: APIGatewayConfig = APIGatewayConfig(),
-        webui: WebUIGatewayConfig = WebUIGatewayConfig(),
-        mcpServer: MCPServerGatewayConfig = MCPServerGatewayConfig(),
-        kanban: KanbanGatewayConfig = KanbanGatewayConfig()
+        telegram: TelegramConfig = TelegramConfig(),
+        email: EmailConfig = EmailConfig(),
+        slack: SlackConfig = SlackConfig(),
+        api: APIConfig = APIConfig(),
+        webui: WebUIConfig = WebUIConfig(),
+        mcpServer: MCPServerSurfaceConfig = MCPServerSurfaceConfig(),
+        kanban: KanbanConfig = KanbanConfig()
     ) {
         self.telegram = telegram
         self.email = email
@@ -74,37 +74,63 @@ public struct GatewayConfig: Sendable {
         self.kanban = kanban
     }
 
-    /// Load config from `<home>/gateway.json`, applying env overrides.
+    /// Load config from `<home>/daemon.json`, applying env overrides.
     ///
     /// - Parameters:
-    ///   - home: The gateway home directory (defaults to `~/.arc`).
+    ///   - home: The daemon home directory (defaults to `~/.arc`).
     ///   - environment: Process environment (injectable for tests).
     public static func load(
         home: URL = Self.defaultHome(),
         environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> GatewayConfig {
-        var config = GatewayConfig()
-        let jsonURL = home.appendingPathComponent("gateway.json")
+    ) -> DaemonConfig {
+        var config = DaemonConfig()
+        let jsonURL = home.appendingPathComponent("daemon.json")
         if let data = try? Data(contentsOf: jsonURL),
            let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
-            config.telegram = TelegramGatewayConfig(dict: root["telegram"] as? [String: Any], env: environment)
-            config.email = EmailGatewayConfig(dict: root["email"] as? [String: Any], env: environment)
-            config.slack = SlackGatewayConfig(dict: root["slack"] as? [String: Any], env: environment)
-            config.api = APIGatewayConfig(dict: root["api"] as? [String: Any], env: environment)
-            config.webui = WebUIGatewayConfig(dict: root["webui"] as? [String: Any], env: environment)
-            config.mcpServer = MCPServerGatewayConfig(dict: root["mcp_server"] as? [String: Any], env: environment)
-            config.kanban = KanbanGatewayConfig(dict: root["kanban"] as? [String: Any], env: environment)
+            config.telegram = TelegramConfig(dict: root["telegram"] as? [String: Any], env: environment)
+            config.email = EmailConfig(dict: root["email"] as? [String: Any], env: environment)
+            config.slack = SlackConfig(dict: root["slack"] as? [String: Any], env: environment)
+            config.api = APIConfig(dict: root["api"] as? [String: Any], env: environment)
+            config.webui = WebUIConfig(dict: root["webui"] as? [String: Any], env: environment)
+            config.mcpServer = MCPServerSurfaceConfig(dict: root["mcp_server"] as? [String: Any], env: environment)
+            config.kanban = KanbanConfig(dict: root["kanban"] as? [String: Any], env: environment)
         } else {
             // No file: still honor env-only configuration.
-            config.telegram = TelegramGatewayConfig(dict: nil, env: environment)
-            config.email = EmailGatewayConfig(dict: nil, env: environment)
-            config.slack = SlackGatewayConfig(dict: nil, env: environment)
-            config.api = APIGatewayConfig(dict: nil, env: environment)
-            config.webui = WebUIGatewayConfig(dict: nil, env: environment)
-            config.mcpServer = MCPServerGatewayConfig(dict: nil, env: environment)
-            config.kanban = KanbanGatewayConfig(dict: nil, env: environment)
+            config.telegram = TelegramConfig(dict: nil, env: environment)
+            config.email = EmailConfig(dict: nil, env: environment)
+            config.slack = SlackConfig(dict: nil, env: environment)
+            config.api = APIConfig(dict: nil, env: environment)
+            config.webui = WebUIConfig(dict: nil, env: environment)
+            config.mcpServer = MCPServerSurfaceConfig(dict: nil, env: environment)
+            config.kanban = KanbanConfig(dict: nil, env: environment)
         }
         return config
+    }
+
+    // MARK: - Surface readiness
+
+    /// True when the telegram block is enabled and carries a bot token —
+    /// i.e. a ``TelegramAdapter`` will be constructed.
+    public var telegramAdapterReady: Bool {
+        telegram.enabled && !telegram.botToken.isEmpty
+    }
+
+    /// True when the email block is enabled and carries an address and
+    /// password — i.e. an ``EmailAdapter`` will be constructed.
+    public var emailAdapterReady: Bool {
+        email.enabled && !email.address.isEmpty && !email.password.isEmpty
+    }
+
+    /// True when the slack block is enabled and carries both tokens — i.e.
+    /// a ``SlackAdapter`` will be constructed.
+    public var slackAdapterReady: Bool {
+        slack.enabled && !slack.botToken.isEmpty && !slack.appToken.isEmpty
+    }
+
+    /// Any platform adapter ready to run. `ArcDaemon` composes the
+    /// ``SessionHost`` when this or the API surface is enabled.
+    public var anyPlatformAdapterReady: Bool {
+        telegramAdapterReady || emailAdapterReady || slackAdapterReady
     }
 
     public static func defaultHome() -> URL {
@@ -116,7 +142,7 @@ public struct GatewayConfig: Sendable {
     }
 }
 
-public struct TelegramGatewayConfig: Sendable {
+public struct TelegramConfig: Sendable {
     public var enabled: Bool
     public var botToken: String
     public var allowedUsers: Set<String>
@@ -175,7 +201,7 @@ public struct TelegramGatewayConfig: Sendable {
     }
 }
 
-public struct EmailGatewayConfig: Sendable {
+public struct EmailConfig: Sendable {
     public var enabled: Bool
     public var address: String
     public var password: String
@@ -243,7 +269,7 @@ public struct EmailGatewayConfig: Sendable {
     }
 }
 
-public struct SlackGatewayConfig: Sendable {
+public struct SlackConfig: Sendable {
     public var enabled: Bool
     public var botToken: String
     public var appToken: String
@@ -306,11 +332,11 @@ public struct SlackGatewayConfig: Sendable {
 
 /// The daemon's REST API surface (`POST /v1/chat`, `GET /health`).
 ///
-/// Config lives in `gateway.json` under the `api` key; environment overrides:
+/// Config lives in `daemon.json` under the `api` key; environment overrides:
 /// `API_ENABLED`, `API_HOST`, `API_PORT`. The surface is enabled by default and
 /// binds loopback; disabling it removes the HTTP service from the daemon's tree
 /// entirely (nothing is listened on).
-public struct APIGatewayConfig: Sendable {
+public struct APIConfig: Sendable {
     public var enabled: Bool
     public var host: String
     public var port: Int
@@ -340,12 +366,12 @@ public struct APIGatewayConfig: Sendable {
 
 /// The daemon's Web UI surface (no-webui's `WebUIServer` + `ArcWebUI`).
 ///
-/// Config lives in `gateway.json` under the `webui` key; environment overrides:
+/// Config lives in `daemon.json` under the `webui` key; environment overrides:
 /// `WEBUI_ENABLED`, `WEBUI_HOST`, `WEBUI_PORT`, and `--webui/--no-webui` on
 /// `arc serve` overrides both. Enabled by default on loopback:8890 — the
 /// daemon is the only UI host (the standalone `arc-agent-webui` binary was
 /// retired in the daemon consolidation).
-public struct WebUIGatewayConfig: Sendable {
+public struct WebUIConfig: Sendable {
     public var enabled: Bool
     public var host: String
     public var port: Int
@@ -375,14 +401,14 @@ public struct WebUIGatewayConfig: Sendable {
 
 /// The daemon's MCP server surface (swift-mcp over TCP).
 ///
-/// Config: `gateway.json` → `mcp_server {enabled, host, port}`; env
+/// Config: `daemon.json` → `mcp_server {enabled, host, port}`; env
 /// `MCP_SERVER_ENABLED/HOST/PORT`. **Disabled by default.** When enabled it
 /// exposes every **built-in** tool (the `CompileTimeToolRegistry` — plugin
 /// tools are not exposed) to any MCP client that can reach the bind address.
 /// There is **no auth**: the bind host is the security boundary, so leave it
 /// on loopback unless you mean it. stdio transport is meaningless in a daemon;
 /// TCP only.
-public struct MCPServerGatewayConfig: Sendable {
+public struct MCPServerSurfaceConfig: Sendable {
     public var enabled: Bool
     public var host: String
     public var port: Int
@@ -412,7 +438,7 @@ public struct MCPServerGatewayConfig: Sendable {
 
 /// The kanban dispatcher loop.
 ///
-/// Config: `gateway.json` → `kanban {dispatcher_enabled, poll_seconds}`; env
+/// Config: `daemon.json` → `kanban {dispatcher_enabled, poll_seconds}`; env
 /// `KANBAN_DISPATCHER_ENABLED`, `KANBAN_POLL_SECONDS`. **Disabled by default,
 /// and here is why you should leave it that way until it grows up:**
 /// `KanbanDispatcher.run()` is a stub — it marks every `ready` task `running`,
@@ -421,7 +447,7 @@ public struct MCPServerGatewayConfig: Sendable {
 /// kanban panel (which lives in `~/.arc-agent-webui/settings.json`) — the two
 /// are separate stores today. Enabling the gate is for exercising the dispatch
 /// loop only; it mutates the core board.
-public struct KanbanGatewayConfig: Sendable {
+public struct KanbanConfig: Sendable {
     public var dispatcherEnabled: Bool
     public var pollSeconds: Int
 

@@ -3,7 +3,7 @@ import NIO
 @preconcurrency import NIOSSL
 import NIOCore
 
-/// Minimal SMTP client (RFC 5321 subset) used by the email gateway adapter.
+/// Minimal SMTP client (RFC 5321 subset) used by the email platform adapter.
 ///
 /// Supports: EHLO, AUTH PLAIN, MAIL FROM, RCPT TO, DATA (dot-stuffed),
 /// QUIT — over implicit TLS (465) or plain + STARTTLS (587).

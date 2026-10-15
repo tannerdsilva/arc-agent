@@ -6,7 +6,7 @@ import AsyncHTTPClient
 // =========================================================================
 // C1 — TelegramAdapter must contain poll failures (a transient Telegram
 // network error must never propagate out of the service loop and take the
-// whole gateway down: ServiceGroup default failure behavior cancels all).
+// whole session host down: ServiceGroup default failure behavior cancels all).
 // =========================================================================
 
 extension ArcCoreTestRoot {

@@ -4,7 +4,7 @@ import Foundation
 /// MCP server presets (Settings → MCP servers).
 ///
 /// The UI owns the `mcp_servers` block of `~/.arc/config.json` — the same
-/// block the CLI (`arc mcp list`) and the gateway read — and keeps the live
+/// block the CLI (`arc mcp list`) and the daemon read — and keeps the live
 /// `MCPClientManager` in step with it.
 ///
 /// That second half is load-bearing. The manager is process-wide and its

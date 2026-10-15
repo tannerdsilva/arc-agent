@@ -793,7 +793,7 @@ actor AppState {
     var storageEdit: TesseraStorageConnection? = nil
     var storagePickOpen = false
     /// True once the app's HTTP/WS server is bound (surfaced in the profile card).
-    var gatewayRunning = false
+    var daemonRunning = false
     var createSkill = false
     var createProfile = false
     /// Profile currently being edited (nil = not editing). The create form
@@ -1099,7 +1099,7 @@ actor AppState {
     }
 
     /// Enable/disable a tool plugin (reference `plugins.enabled` parity). Writes
-    /// `~/.arc/config.json` so the CLI/gateway honor the same allow-list.
+    /// `~/.arc/config.json` so the CLI/daemon honor the same allow-list.
     func setPluginEnabled(_ name: String, enabled: Bool) {
         var raw = Self.rawArcConfig()
         var list = raw.plugins.enabled ?? self.pluginManifests.keys.sorted()
@@ -1115,7 +1115,7 @@ actor AppState {
     }
 
     /// Mutate the agent-powers lockdown block in `~/.arc/config.json` (the
-    /// file the CLI/gateway/tools read), then refresh the in-memory copy.
+    /// file the CLI/daemon/tools read), then refresh the in-memory copy.
     func updateAgentPowers(_ mutate: (inout AgentPowersConfig) -> Void) async {
         var raw = Self.rawArcConfig()
         mutate(&raw.agentPowers)
@@ -1148,7 +1148,7 @@ actor AppState {
     }
 
     /// Persist an "Always allow" command into `~/.arc/config.json` so the CLI
-    /// and gateway honor the same allowlist (reference approval patterns parity).
+    /// and daemon honor the same allowlist (reference approval patterns parity).
     func persistAlwaysAllowed(_ command: String) async {
         var raw = Self.rawArcConfig()
         var list = raw.security.alwaysAllowedCommands

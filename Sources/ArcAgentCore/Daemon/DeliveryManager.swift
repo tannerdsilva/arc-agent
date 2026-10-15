@@ -26,7 +26,7 @@ public actor DeliveryManager {
     /// rather than through a push adapter. These are never "unknown" and never
     /// need a registered adapter.
     ///
-    /// - `api`   — HTTP `POST /v1/chat` (GatewayService.onChat)
+    /// - `api`   — HTTP `POST /v1/chat` (SessionHost.onChat)
     /// - `webui` — WebSocket chat (WebSocketHandler)
     ///
     /// Before this, a web/API turn reached `send(to:)` with platform "api" or
@@ -39,7 +39,7 @@ public actor DeliveryManager {
     /// final assistant response that is exactly `NO_REPLY` or `[SILENT]`
     /// (after trimming whitespace) means "intentional silence" — the turn
     /// happened, but nothing is delivered to the platform. This mirrors the
-    /// Hermes gateway's whole-response filter for messaging platforms.
+    /// The reference agent's whole-response filter for messaging platforms.
     /// Local request/response platforms (`api`, `webui`) are not filtered
     /// here: their caller sees the raw response text on its own channel.
     public static func isSilentResponse(_ text: String) -> Bool {
@@ -64,7 +64,7 @@ public actor DeliveryManager {
             return SendResult(messageID: nil)
         }
         guard let adapter = adapters[target.platform] else {
-            throw GatewayError.unknownPlatform(target.platform)
+            throw MessagingError.unknownPlatform(target.platform)
         }
         // Deliverable mode (reference `features/deliverable-mode.md`):
         // final messages carrying absolute file paths ship the files as
@@ -139,7 +139,7 @@ public actor DeliveryManager {
         to target: ChatTarget
     ) async throws {
         guard let adapter = adapters[target.platform] else {
-            throw GatewayError.unknownPlatform(target.platform)
+            throw MessagingError.unknownPlatform(target.platform)
         }
         try await adapter.sendUpdate(messageID: messageID, text: text, parseMode: parseMode, to: target)
     }
@@ -155,7 +155,7 @@ public actor DeliveryManager {
     /// Delete a previously sent message through the adapter.
     public func delete(messageID: String, to target: ChatTarget) async throws {
         guard let adapter = adapters[target.platform] else {
-            throw GatewayError.unknownPlatform(target.platform)
+            throw MessagingError.unknownPlatform(target.platform)
         }
         try await adapter.deleteMessage(messageID: messageID, to: target)
     }
@@ -167,8 +167,8 @@ public actor DeliveryManager {
     }
 }
 
-/// Errors that can occur during gateway operation.
-public enum GatewayError: Error, Sendable, CustomStringConvertible {
+/// Errors that can occur during messaging operations.
+public enum MessagingError: Error, Sendable, CustomStringConvertible {
     case unknownPlatform(String)
     case adapterNotRunning(String)
     case agentCreationFailed(String)

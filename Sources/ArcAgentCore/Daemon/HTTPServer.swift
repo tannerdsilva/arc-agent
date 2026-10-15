@@ -6,7 +6,7 @@ import ServiceLifecycle
 import UnixSignals
 import Logging
 
-/// An HTTP server exposing the gateway's REST API.
+/// An HTTP server exposing the daemon's REST API.
 ///
 /// Serves as the REST API layer of the daemon; the web UI is a sibling service
 /// in the same tree (`ArcDaemon` — see

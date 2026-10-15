@@ -23,7 +23,7 @@ public actor CronScheduler: Service {
     private let pollInterval: UInt64
     /// Executes a due job. When non-nil, the job's output becomes
     /// `lastOutput` (capped at 4 KB); when nil (tests/standalone), the
-    /// scheduler bookkeeps without running anything. The gateway injects a
+    /// scheduler bookkeeps without running anything. The daemon injects a
     /// runner that turns the job into a one-shot agent session.
     private let jobRunner: (@Sendable (CronJob) async throws -> String)?
     private let logger = Logger(label: "com.arc-agent.cron-scheduler")

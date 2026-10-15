@@ -3,12 +3,12 @@ import MCP
 import ServiceLifecycle
 import Logging
 
-/// A gateway adapter that wraps an MCP server as a platform adapter.
+/// A daemon service that exposes the tool registry over the MCP protocol.
 ///
 /// ``MCPServerAdapter`` creates an ``MCPServer`` instance over a single
 /// ``ArcToolDispatcher`` — the compile-time-exhaustive surface of the tools the
 /// registry holds — and runs the server as a ``Service`` managed by the
-/// gateway's ``ServiceGroup``.
+/// daemon's ``ServiceGroup``.
 ///
 /// The adapter supports both stdio transport (for Claude Desktop, etc.) and
 /// TCP transport (for remote MCP clients). Tool visibility and reachability are

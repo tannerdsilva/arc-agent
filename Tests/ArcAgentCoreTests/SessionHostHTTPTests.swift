@@ -5,11 +5,11 @@ import AsyncHTTPClient
 import NIOCore
 
 // =========================================================================
-// MARK: - Gateway HTTP Server (primary entry point)
+// MARK: - HTTP server (primary entry point)
 
 extension ArcCoreTestRoot {
-    @Suite("Gateway HTTP", .serialized)
-    struct GatewayHTTPTests {
+    @Suite("Session host HTTP", .serialized)
+    struct SessionHostHTTPTests {
 
         /// Boot the real ``HTTPServerService`` and probe the REST entry points:
         /// health and the chat API. This is the "every message flows through them"
@@ -70,7 +70,7 @@ extension ArcCoreTestRoot {
                 serverTask = nil
                 try? await Task.sleep(nanoseconds: 300_000_000)
             }
-            let base = try #require(readyBase, "gateway HTTP server did not become ready on any tried port (last \(lastPort))")
+            let base = try #require(readyBase, "HTTP server did not become ready on any tried port (last \(lastPort))")
 
             // GET /health
             let health = try await httpClient.execute(

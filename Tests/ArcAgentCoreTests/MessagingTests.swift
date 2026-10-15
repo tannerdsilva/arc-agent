@@ -3,12 +3,12 @@ import Testing
 import Foundation
 
 // =========================================================================
-// MARK: - Gateway Config Tests
+// MARK: - Daemon config tests
 // =========================================================================
 
 extension ArcCoreTestRoot {
-    @Suite("Gateway config", .serialized)
-    struct GatewayConfigTests {
+    @Suite("Daemon config", .serialized)
+    struct DaemonConfigTests {
 
         private func tempDir() throws -> URL {
             let dir = FileManager.default.temporaryDirectory
@@ -19,7 +19,7 @@ extension ArcCoreTestRoot {
 
         @Test("Defaults: everything disabled, no tokens")
         func defaults() {
-            let config = GatewayConfig.load(home: URL(fileURLWithPath: "/nonexistent"), environment: [:])
+            let config = DaemonConfig.load(home: URL(fileURLWithPath: "/nonexistent"), environment: [:])
             #expect(config.telegram.enabled == false)
             #expect(config.email.enabled == false)
             #expect(config.slack.enabled == false)
@@ -62,8 +62,8 @@ extension ArcCoreTestRoot {
               }
             }
             """
-            try Data(json.utf8).write(to: dir.appendingPathComponent("gateway.json"))
-            let config = GatewayConfig.load(home: dir, environment: [:])
+            try Data(json.utf8).write(to: dir.appendingPathComponent("daemon.json"))
+            let config = DaemonConfig.load(home: dir, environment: [:])
             #expect(config.telegram.enabled)
             #expect(config.telegram.botToken == "123:ABC")
             #expect(config.telegram.allowedUsers == ["me", "you"])
@@ -85,8 +85,8 @@ extension ArcCoreTestRoot {
             let json = """
             { "telegram": { "enabled": true, "bot_token": "file-token" } }
             """
-            try Data(json.utf8).write(to: dir.appendingPathComponent("gateway.json"))
-            let config = GatewayConfig.load(home: dir, environment: [
+            try Data(json.utf8).write(to: dir.appendingPathComponent("daemon.json"))
+            let config = DaemonConfig.load(home: dir, environment: [
                 "TELEGRAM_BOT_TOKEN": "env-token",
                 "TELEGRAM_ALLOW_ALL_USERS": "1",
                 "TELEGRAM_HOME_CHANNEL": "-42",
@@ -99,7 +99,7 @@ extension ArcCoreTestRoot {
 
         @Test("Env-only config enables platforms without a file")
         func envOnly() {
-            let config = GatewayConfig.load(home: URL(fileURLWithPath: "/nonexistent"), environment: [
+            let config = DaemonConfig.load(home: URL(fileURLWithPath: "/nonexistent"), environment: [
                 "TELEGRAM_BOT_TOKEN": "abc",
                 "EMAIL_ADDRESS": "a@b.com",
                 "EMAIL_PASSWORD": "x",

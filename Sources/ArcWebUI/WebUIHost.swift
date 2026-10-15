@@ -348,8 +348,8 @@ public struct WebUIHost: Service {
         }
 
         // The UI is only reachable once the server binds; record it so the
-        // profile card can show the "Gateway running" badge truthfully.
-        await app.markGatewayUp()
+        // profile card can show the "Daemon running" badge truthfully.
+        await app.markDaemonUp()
 
         // Second Law: the server and both streamers are Services in one group,
         // so startup is ordered and shutdown is graceful — cancellation stops

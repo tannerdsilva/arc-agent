@@ -2,7 +2,7 @@ import Foundation
 
 /// Process-wide Tessera availability decision.
 ///
-/// Mirrors the gate the gateway/CLI/WebUI already apply to sessions + memory
+/// Mirrors the gate the daemon/CLI/WebUI already apply to sessions + memory
 /// (`config.tessera` present **and** reachable → Tessera stores; otherwise
 /// file fallback). The result is cached per process so cron/goal stores
 /// never probe repeatedly (a probe ends with a connection ``shutdown()``).
@@ -46,7 +46,7 @@ public actor TesseraAvailability {
 
 /// A ``CronStore`` that resolves to ``TesseraCronStore`` when Tessera is
 /// active and to ``FileCronStore`` otherwise — lazily, on first use, so the
-/// synchronous construction paths (gateway, CLI) need no async setup.
+/// synchronous construction paths (daemon, CLI) need no async setup.
 ///
 /// Like ``FileCronStore``, this is cache-first; the underlying store is
 /// chosen once per process.

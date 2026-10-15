@@ -107,7 +107,7 @@ public actor BotMessagingService: Service {
         self.activityContinuation = continuation
     }
 
-    /// Set the session registry reference (called during gateway setup).
+    /// Set the session registry reference (called during session-host wiring).
     func setSessionRegistry(_ registry: SessionRegistry) {
         self.sessionRegistry = registry
     }

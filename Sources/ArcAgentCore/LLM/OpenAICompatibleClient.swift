@@ -29,7 +29,7 @@ import Logging
 /// let response = try await client.complete(messages: [...], tools: nil)
 /// ```
 /// Extracts `prompt_tokens_details.cached_tokens` when the provider reports it
-/// (vLLM and some OpenAI-compatible gateways do); `nil` when unavailable.
+/// (vLLM and some OpenAI-compatible proxies do); `nil` when unavailable.
 private func cachedTokens(from raw: [String: Any]) -> Int? {
     guard let details = raw["prompt_tokens_details"] as? [String: Any],
           let cached = details["cached_tokens"] as? Int else { return nil }

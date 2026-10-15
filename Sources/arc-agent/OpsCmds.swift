@@ -144,8 +144,8 @@ struct StatusCmd: AsyncParsableCommand {
         commandName: "status",
         abstract: "Show the daemon's surfaces and stores."
     )
-    @Option(help: "Override the API port to probe (default: gateway.json / API_PORT).")
-    var gatewayPort: Int?
+    @Option(help: "Override the API port to probe (default: daemon.json / API_PORT).")
+    var apiPort: Int?
 
     func run() async throws {
         print("arc-agent \(ArcAgentCore.version)")
@@ -158,26 +158,26 @@ struct StatusCmd: AsyncParsableCommand {
         // resolution (`DaemonPlan`), one probe per enabled surface.
         let arcHome = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".arc", isDirectory: true)
-        let gateway = GatewayConfig.load(
+        let daemonConfig = DaemonConfig.load(
             home: arcHome,
             environment: ProcessInfo.processInfo.environment
         )
-        let plan = DaemonPlan.resolve(gateway: gateway, overrides: .init(port: gatewayPort))
+        let plan = DaemonPlan.resolve(config: daemonConfig, overrides: .init(port: apiPort))
 
         print("daemon:    one process — `arc serve`")
         if let api = plan.api {
             await probe(label: "api  ", host: api.host, port: api.port, path: "/health")
         } else {
-            print("  api    disabled (gateway.json)")
+            print("  api    disabled (daemon.json)")
         }
         if let webui = plan.webui {
             await probe(label: "webui", host: webui.host, port: webui.port, path: "/")
         } else {
-            print("  webui  disabled (gateway.json)")
+            print("  webui  disabled (daemon.json)")
         }
-        if gateway.telegram.enabled { print("  telegram: enabled (adapter)") }
-        if gateway.email.enabled { print("  email:    enabled (adapter)") }
-        if gateway.slack.enabled { print("  slack:    enabled (adapter)") }
+        if daemonConfig.telegramAdapterReady { print("  telegram: enabled (adapter)") }
+        if daemonConfig.emailAdapterReady { print("  email:    enabled (adapter)") }
+        if daemonConfig.slackAdapterReady { print("  slack:    enabled (adapter)") }
         print("")
 
         do {

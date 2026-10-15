@@ -37,7 +37,7 @@ with active processes is limited to processes it spawns itself:
   sessions: rolling 200 KB output buffer, `poll`/`wait`/`kill`,
   crash-recovery checkpoint file, session-scoped registry. Nothing else
   is ever listed, signaled, or observed.
-- `agent/monitoring/` is telemetry *about Hermes itself* (gateway
+- `agent/monitoring/` is telemetry *about Hermes itself* (daemon
   health, cron health, redaction policy, OTLP export) — not processes.
 - Reactions to machine state exist only through its own scheduling
   surfaces: cron jobs, inbound webhooks, approval prompts.
@@ -52,17 +52,17 @@ mirrors* (process registry, hooks, cron, approvals).
 |---|---|---|
 | `ProcessRegistry` actor (`Sources/ArcAgentCore/Process/`) | Tracks arc-spawned background terminal sessions only; `Snapshot` model, reaper | Security anchor + v0 target set (arc owns these PIDs) |
 | `ProcessTool` (`process` toolset) | `list/poll/log/wait/kill` for own sessions | Pattern for structured, non-shell tool surfaces |
-| `HookBus.emit(event, context)` + handlers | File handler, exec handler (`/usr/bin/env` + script), webhook handler | Reaction engine: `process:*` events plug in here (`gateway:startup` is the precedent) |
+| `HookBus.emit(event, context)` + handlers | File handler, exec handler (`/usr/bin/env` + script), webhook handler | Reaction engine: `process:*` events plug in here (`daemon:startup` is the precedent) |
 | `CronScheduler` + `CronJob` | Jobs = schedule + agent prompt + `isActive` | "Process jobs": watcher-triggered agent runs |
 | `ApprovalManager` | Dangerous-command patterns (`sudo`, `shutdown`, `reboot`, `chmod 777`); smart approval; manual mode | `process` control actions must be gated here |
-| `security.toolGateway` (`ToolGatewayConfig`, `rules: []`) | Per-tool allow/deny rule engine | Enforcement anchor for a `process` toolset |
+| `security.toolPolicy` (`ToolPolicyConfig`, `rules: []`) | Per-tool allow/deny rule engine | Enforcement anchor for a `process` toolset |
 | `AgentPowers` | Skills/memories lockdown only | Extend with process-control powers |
 | Terminal tool | Local execution only (SwiftSlash/Process); **no SSH**, no remote env | Remote transport must be built |
 
 Gaps to note: no host process observation of any kind; no SSH transport;
 `kill`/`pkill` are **not** in the dangerous-command pattern set (a gap
 even for the existing `process` tool's kill action — should be
-classified); no process-related powers or tool-gateway rules yet.
+classified); no process-related powers or tool-policy rules yet.
 
 ## 2. Security posture (design constraints)
 
@@ -74,7 +74,7 @@ These are the invariants any plan must satisfy:
 2. **Observe-only by default.** Listing/inspecting/emitting events is
    the default; any control action (signal, kill, restart, trace) is
    opt-in per target (`control: true`) *and* routes through
-   `ApprovalManager` as `.dangerous` (and through `toolGateway` rules and
+   `ApprovalManager` as `.dangerous` (and through `toolPolicy` rules and
    `AgentPowers`).
 3. **No shell interpolation.** All observation uses a fixed `ps`
    invocation with explicit `-o` columns (and `ww` to defeat truncation
@@ -127,8 +127,8 @@ These are the invariants any plan must satisfy:
         ▼                ▼                        ▼                ▼
    HookBus           Notification             Control path      process_*
    process:*         (toast/session          (gated: approval    tool surface
-   file/exec/        note, gateway           + powers + tool     (list/inspect/
-   webhook           message)                gateway + target    signal/watch)
+   file/exec/        note, daemon            + powers + tool     (list/inspect/
+   webhook           message)                policy + target     signal/watch)
    handlers                                   allowlist)
 ```
 
@@ -144,12 +144,12 @@ Components:
   `process:started`, `process:exited`, `process:threshold`, etc.
 - **Reaction engines** — (1) `HookBus` handlers (file/exec/webhook),
   (2) cron-style **process jobs** (on match, run hook or agent prompt —
-  mirrors `CronJob`), (3) session notification (toast / gateway
+  mirrors `CronJob`), (3) session notification (toast / daemon
   message), (4) agent tool surface (`process_watch list/status`,
   `process list`, `process inspect <pid>`, `process signal <pid>` gated).
 - **Control surface** — `process signal/restart` tools; every action
   checked against (a) target allowlist `control:true`, (b)
-  `ApprovalManager` danger, (c) `toolGateway` rule, (d) powers.
+  `ApprovalManager` danger, (c) `toolPolicy` rule, (d) powers.
 
 ## 4. Feasible plans
 

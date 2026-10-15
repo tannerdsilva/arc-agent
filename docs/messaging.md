@@ -1,8 +1,8 @@
-# Gateway Messaging (Telegram / Email / Slack)
+# Messaging (Telegram / Email / Slack)
 
-The Arc Agent gateway (`arc-agent serve`) connects the agent core to
-messaging platforms. Configuration lives in `gateway.json` in the user's
-home directory (`~/gateway.json`), with environment-variable overrides
+The arc daemon (`arc-agent serve`) connects the agent core to
+messaging platforms. Configuration lives in `daemon.json` in the user's
+home directory (`~/.arc/daemon.json`), with environment-variable overrides
 (environment values always win — the same convention reference uses). Secrets
 belong in environment variables, not in checked-in JSON.
 
@@ -106,10 +106,10 @@ Socket Mode setup:
   `require_mention` is true, and treats each `thread_ts` as a thread.
 - Slash commands are treated as mentions of the bot.
 
-## Gateway CLI
+## Daemon CLI
 
 ```bash
-arc-agent serve            # loads ~/gateway.json
+arc-agent serve            # loads ~/.arc/daemon.json
 arc-agent serve --telegram-token <token>   # legacy single-platform form
 ```
 

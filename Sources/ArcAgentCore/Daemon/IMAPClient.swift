@@ -3,7 +3,7 @@ import NIO
 @preconcurrency import NIOSSL
 import NIOCore
 
-/// Minimal IMAP4 client (RFC 3501 subset) for the email gateway adapter.
+/// Minimal IMAP4 client (RFC 3501 subset) for the email platform adapter.
 ///
 /// Supports: LOGIN, SELECT INBOX, SEARCH UNSEEN, FETCH (full message),
 /// STORE \Seen, LOGOUT — with implicit TLS (993) or plain + STARTTLS.

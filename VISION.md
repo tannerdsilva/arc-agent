@@ -10,11 +10,11 @@ A precompiled, Swift-native AI agent harness — architecturally inspired by the
 
 1. **Compile-time safety first.** The tool registry, schema generation, and configuration resolution should catch errors at build time, not runtime. Swift's type system is the primary defense against the class of bugs that plague Python agent frameworks (missing keys, wrong types, runtime import failures).
 
-2. **Structured concurrency everywhere.** No thread pool executors, no `threading.Lock`, no `contextvars` workarounds. Swift actors and task groups are the concurrency primitives. The agent loop, tool dispatch, delegation, and gateway all run on Swift's cooperative async/await model.
+2. **Structured concurrency everywhere.** No thread pool executors, no `threading.Lock`, no `contextvars` workarounds. Swift actors and task groups are the concurrency primitives. The agent loop, tool dispatch, delegation, and session host all run on Swift's cooperative async/await model.
 
 3. **The core is a narrow waist.** Every tool schema is sent on every API call. New capabilities arrive as CLI commands, not core tool additions. The tool registry is closed at compile time for the built-in set. Plugins are deferred — the internal architecture must be proven before we add third-party variables to the engine.
 
-4. **Deterministic startup and shutdown.** Swift Service Lifecycle manages the agent, gateway, cron scheduler, and kanban dispatcher as a tree of services. No ad-hoc daemon threads, no `atexit` handlers, no cleanup races.
+4. **Deterministic startup and shutdown.** Swift Service Lifecycle manages the agent, session host, cron scheduler, and kanban dispatcher as a tree of services. No ad-hoc daemon threads, no `atexit` handlers, no cleanup races.
 
 5. **No npm.** Browser automation is optional and uses a native CDP client or a shelled-out headless browser CLI, not Playwright. Messaging platforms use their HTTP APIs directly, not JavaScript bridges.
 
@@ -30,7 +30,7 @@ HEAR YE, HEAR YE. In this beautiful project, of which we are so proud, there sha
 
 **First Law — Swift Structured Concurrency, Without Exception.** Every fiber of this codebase shall run on `async`/`await`, every mutable state shall be guarded by an `actor`, every concurrent work stream shall be expressed as a `TaskGroup` or `AsyncStream`. There shall be no threads spawned by hand. There shall be no locks acquired by hand. There shall be no dispatch queues, no semaphores, no `@unchecked Sendable` cheats that subvert the compiler's concurrency guarantees. The compiler is our shield, and we shall not set it aside.
 
-**Second Law — Swift Service Lifecycle, Without Exception.** Every long-lived component — the agent loop, the gateway, the cron scheduler, the kanban dispatcher — shall be a `Service` in a tree managed by `swift-service-lifecycle`. There shall be no ad-hoc daemon threads, no `atexit` cleanup handlers, no `DispatchMain()` calls that bypass the lifecycle framework. Startup is ordered, shutdown is graceful, and every service knows its place in the hierarchy.
+**Second Law — Swift Service Lifecycle, Without Exception.** Every long-lived component — the agent loop, the session host, the cron scheduler, the kanban dispatcher — shall be a `Service` in a tree managed by `swift-service-lifecycle`. There shall be no ad-hoc daemon threads, no `atexit` cleanup handlers, no `DispatchMain()` calls that bypass the lifecycle framework. Startup is ordered, shutdown is graceful, and every service knows its place in the hierarchy.
 
 These two laws are not goals. They are not aspirations. They are **requirements**. Code that violates them shall not be merged. Agents that generate code violating them shall be corrected. Humans that accept code violating them shall be reminded.
 
@@ -69,7 +69,7 @@ Legend:
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                     GatewayService [1]                            │
+│                     SessionHost [1]                            │
 │  (Service — owns the ServiceGroup, manages lifecycle)             │
 │                                                                   │
 │  ├── HTTPServerService [1]                                        │
@@ -111,7 +111,7 @@ Legend:
 
 | Component | Count | Heap | Lifecycle |
 |---|---|---|---|
-| `GatewayService` | 1 | struct on stack | Process lifetime |
+| `SessionHost` | 1 | struct on stack | Process lifetime |
 | `HTTPServerService` | 1 | class (Service) | Process lifetime |
 | `TelegramAdapter` | P | class (Service) | Process lifetime |
 | `MCPServerAdapter` | 1 | class (Service) | Process lifetime |
@@ -130,7 +130,7 @@ Legend:
 
 ### Key Relationships
 
-- **1 GatewayService → N SessionAgents.** The gateway creates session agents on demand. Each session agent is a child Service in the lifecycle tree. When idle, the Service Lifecycle framework cancels the agent's Task, `defer` blocks clean up the HTTPClient and Tessera connection teardown, and the agent removes itself from the registry.
+- **1 SessionHost → N SessionAgents.** The session host creates session agents on demand. Each session agent is a child Service in the lifecycle tree. When idle, the Service Lifecycle framework cancels the agent's Task, `defer` blocks clean up the HTTPClient and Tessera connection teardown, and the agent removes itself from the registry.
 
 - **1 SessionAgent → 1 ArcAgent.** Each session has exactly one agent actor. The agent is created by the session agent's `run()` method and lives for the session's duration.
 
@@ -150,7 +150,7 @@ Legend:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          GatewayService [1]                                  │
+│                          SessionHost [1]                                  │
 │              (Service — manages lifecycle of all child services)             │
 │                                                                              │
 │  ┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐  │
@@ -273,7 +273,7 @@ ArcAgentState:
 
 **Key design decisions:**
 - The agent is an **actor** so all state mutations are serialized. Tool handlers that need I/O run on the cooperative thread pool via `Task { await ... }`.
-- Callbacks (progress display, streaming) use `AsyncStream` or `AsyncSequence` so the CLI/gateway can observe without blocking the loop.
+- Callbacks (progress display, streaming) use `AsyncStream` or `AsyncSequence` so the CLI/daemon can observe without blocking the loop.
 - The iteration budget is checked before every LLM call and every tool dispatch.
 - Each agent has its own HTTPClient [N]. All HTTPClients share the `.singleton` event loop group [1] — they are connection-pool objects, not threads.
 
@@ -450,7 +450,7 @@ TesseraConnection (actor, one per process)
 
 **Failure modes:**
 
-- Server unreachable at startup → the stores fall back to the file-based backends (`FileSessionStore` / `FileMemoryProvider` / JSON profile index); the gateway keeps serving.
+- Server unreachable at startup → the stores fall back to the file-based backends (`FileSessionStore` / `FileMemoryProvider` / JSON profile index); the daemon keeps serving.
 - Server unavailable mid-session → reads/writes surface an error; after a reconnect, history is replayed through a fresh subscription + EOSE.
 
 **Why Tessera over local files:**
@@ -461,12 +461,12 @@ TesseraConnection (actor, one per process)
 
 ---
 
-### 5. Gateway / Messaging
+### 5. Sessions / Messaging
 
 **Architecture:**
 
 ```
-GatewayService [1] (Service — manages all child services)
+SessionHost [1] (Service — manages all child services)
 │
 ├── HTTPServerService [1] (Service — Hummingbird HTTP server)
 │   ├── POST /v1/chat          — API server endpoint
@@ -753,10 +753,10 @@ The project has completed five feature-build phases and is now entering a **hard
 
 - [x] **Tessera-backed persistence** — `TesseraSessionStore` and `TesseraMemoryProvider` funnel through the shared `TesseraConnection` actor (one WireGuard tunnel, one model, lazy connect + per-subscription EOSE). Every write is signed locally, tracked in a write-through pending queue for deterministic read-after-write, and echoed back by the server; deletions are kind-5 events referencing the locally-signed ids. E2E-verified against a live locally-spawned daemon (create/read/append/list/update/delete + memory round-trips + persistence across reconnect).
 - [x] **Session lifecycle audit** — verify every `SessionAgent` cleanup path: HTTPClient shutdown, LMDB env close, registry removal on both happy path and error path. (Verified: `httpClient.shutdown()` in `run()` catch and tail, `defer { envClose }` on the session env, `registry.removeIfCurrent` on both paths.)
-- [x] **Gateway response plumbing** — `POST /v1/chat` returns `"Message received"` immediately instead of the actual agent response. (Fixed: the handler now awaits the session agent's response stream and returns the real response text; the `"Message received"` fallback remains only for empty replies.)
+- [x] **Daemon response plumbing** — `POST /v1/chat` returns `"Message received"` immediately instead of the actual agent response. (Fixed: the handler now awaits the session agent's response stream and returns the real response text; the `"Message received"` fallback remains only for empty replies.)
 - [ ] **Concurrent session isolation** — verify that N concurrent sessions don't interfere. LMDB per-session files provide isolation at the storage layer; verify the actor boundaries hold at the application layer. (`SessionRegistry`/`SessionAgent` are actors; no load test yet.)
 
-**Deliverable:** Sessions survive process restarts. Gateway returns real responses. No resource leaks under load.
+**Deliverable:** Sessions survive process restarts. The daemon returns real responses. No resource leaks under load.
 
 ### Phase B: Context & Memory (the capillaries)
 
@@ -774,7 +774,7 @@ The project has completed five feature-build phases and is now entering a **hard
 *Every component will fail. The system must degrade gracefully, not crash or silently corrupt.*
 
 - [x] **LLM error classification audit** — verify `classifyError` handles all OpenAI error shapes: context length exceeded, rate limits, server errors, auth failures, content policy violations. Each should have a distinct recovery strategy. (Implemented: `classifyError` maps every shape to `retryable`/`permanent`/`contextOverflow`/`contentPolicyViolation` with distinct handling; covered by `TurnClassificationTests`.)
-- [x] **Gateway-level session recovery** — if a `SessionAgent` crashes, the session is removed from the registry but the LMDB data is intact. (Implemented: the registry supervises crashes — identity-aware removal plus bounded auto-restart with 1s/2s/4s backoff, capping at 3 consecutive crashes; the budget resets on each explicit message. Fixing this also surfaced and fixed a same-path `EEXIST` collision: the global `.mdb` is now a single process-shared environment (`GlobalEnvironment` actor) instead of open/close-per-call.)
+- [x] **Daemon-level session recovery** — if a `SessionAgent` crashes, the session is removed from the registry but the LMDB data is intact. (Implemented: the registry supervises crashes — identity-aware removal plus bounded auto-restart with 1s/2s/4s backoff, capping at 3 consecutive crashes; the budget resets on each explicit message. Fixing this also surfaced and fixed a same-path `EEXIST` collision: the global `.mdb` is now a single process-shared environment (`GlobalEnvironment` actor) instead of open/close-per-call.)
 - [ ] **Structured tool errors** — tool handlers throw raw errors into the agent loop. Add structured error recovery: retry tool, skip tool, fall back to LLM, or surface to user. (`RetryHandler` currently covers LLM calls only.)
 - [x] **Circuit breaker** — if the primary model fails and all fallbacks are exhausted, the agent returns an error string. Add a circuit breaker that prevents repeated calls to a failing endpoint and notifies the user. (Implemented: `CircuitBreaker` wired into `ArcAgent` with a 3-failure / 30s-open policy.)
 
@@ -784,9 +784,9 @@ The project has completed five feature-build phases and is now entering a **hard
 
 *Untested code is broken code. The vascular system must have monitors at every junction.*
 
-- [ ] **Gateway tests** — `HTTPServerService` (health/UI/chat over a real socket), `DeliveryManager`, `WebSocketHandler`, and `SessionRegistry` are covered; `GatewayService`, `TelegramAdapter`, and `SessionAgent` are not directly.
+- [ ] **Session host tests** — `HTTPServerService` (health/UI/chat over a real socket), `DeliveryManager`, `WebSocketHandler`, and `SessionRegistry` are covered; `SessionHost`, `TelegramAdapter`, and `SessionAgent` are not directly.
 - [x] **Tessera storage tests** — unit coverage for d-tag/sequence parsing and store shape (`TesseraTagTests`); opt-in E2E suite (`TesseraStorageE2ETests`, `ARC_TESSERA_E2E=1`) spawns a real daemon and exercises session + memory round-trips, deletion, and reconnect persistence. All green.
-- [x] **Integration tests** — mock-LLM tests now exercise the full agent pipeline (LLM → tool call → real registry handler → final response) on both completion and streaming paths (`AgentIntegrationTests`), and the gateway HTTP chokepoint is covered end-to-end over a real socket (`GatewayHTTPTests`).
+- [x] **Integration tests** — mock-LLM tests now exercise the full agent pipeline (LLM → tool call → real registry handler → final response) on both completion and streaming paths (`AgentIntegrationTests`), and the session host HTTP chokepoint is covered end-to-end over a real socket (`SessionHostHTTPTests`).
 - [x] **Concurrency tests** — concurrent `getOrCreate` races against one session serialize into a single coherent generation (`SessionRecoveryTests`). Actor-isolation and task-cancellation cases remain open.
 - [x] **Fault injection tests** — `LMDBFaultInjectionTests` corrupt headers, bodies, and metadata and verify clean `SessionError` failures (no traps) plus repair-and-resume; corrupt is never silent corruption.
 
@@ -796,8 +796,8 @@ The project has completed five feature-build phases and is now entering a **hard
 
 *You can't fix what you can't see. You can't scale what you haven't measured.*
 
-- [ ] **Streaming responses** — the LLM client streams deltas and the WebSocket path streams responses to the UI (including the one-response-per-message fix); the gateway HTTP path still returns the whole buffered reply.
-- [ ] **Structured logging** — ad-hoc `print()` statements remain in the CLI; gateway and session-agent paths use `Logger` with per-step tracing (visible as `info` lines in server logs).
+- [ ] **Streaming responses** — the LLM client streams deltas and the WebSocket path streams responses to the UI (including the one-response-per-message fix); the session host HTTP path still returns the whole buffered reply.
+- [ ] **Structured logging** — ad-hoc `print()` statements remain in the CLI; the session host and session-agent paths use `Logger` with per-step tracing (visible as `info` lines in server logs).
 - [x] **Metrics** — counters exist and are wired into `ArcAgent` for tool calls, tokens, and errors by type (`Metrics.shared`); trace IDs and request correlation are not yet implemented.
 - [ ] **LMDB performance** — measure read/write latency under load. The session path now holds a persistent environment for the agent's lifetime (no per-call open/close); the memory provider's global-env open/close-per-call path is unchanged. Benchmark and optimize.
 - [ ] **Startup time** — measure and optimize cold-start latency for new session agents.
@@ -860,7 +860,7 @@ Swift's built-in `Regex` type replaced `NSRegularExpression` to avoid Foundation
 | Phase 1: Core Agent | 15-20M | 1-2 hours | $7.50-$10 |
 | Phase 2: Production Readiness | 20-30M | 2-3 hours | $10-$15 |
 | Phase 3: Multi-Agent | 25-40M | 3-4 hours | $12.50-$20 |
-| Phase 4: Gateway | 30-50M | 4-6 hours | $15-$25 |
+| Phase 4: Session host | 30-50M | 4-6 hours | $15-$25 |
 | Phase 5: MCP + Polish | 15-20M | 1-2 hours | $7.50-$10 |
 | **Phase A: Session & Data Integrity** | 10-15M | 1-2 hours | $5-$7.50 |
 | **Phase B: Context & Memory** | 15-20M | 2-3 hours | $7.50-$10 |
@@ -977,12 +977,12 @@ Where arc bot mode is a 6,461-line JS/React plugin, ARC Agent's bot UI is compil
 
 The codebase has 40+ `print()` calls scattered across library code — in the agent loop, kanban dispatcher, cron scheduler, and WebSocket server. These are not user-facing output; they are diagnostic messages with no structure, no severity levels, no trace IDs, and no machine-parseability. When the system runs as a daemon (via `arc serve`), these `print()` calls go to stdout with no way to filter, route, or search them.
 
-The `swift-log` package is already a dependency. `Logger(label:)` is already used in `GatewayService`. The work is to extend this pattern to every Service in the codebase.
+The `swift-log` package is already a dependency. `Logger(label:)` is already used in `SessionHost`. The work is to extend this pattern to every Service in the codebase.
 
 - [ ] **Audit all `print()` calls** — distinguish user-facing CLI output (keep as `print()`) from diagnostic logging (replace with `Logger`)
 - [ ] **Add `Logger` to every Service** — `ArcAgent`, `KanbanDispatcher`, `CronScheduler`, `WebSocketServer`, `TelegramAdapter`, `SessionAgent`
 - [ ] **Replace diagnostic `print()`** with appropriate severity levels: `.debug`, `.info`, `.warning`, `.error`
-- [ ] **Add trace IDs** — a `traceID: String` metadata field passed through the gateway pipeline for request correlation
+- [ ] **Add trace IDs** — a `traceID: String` metadata field passed through the daemon pipeline for request correlation
 - [ ] **Structured metadata** — attach session ID, profile name, model name, and error details to log statements
 
 **Deliverable:** Every diagnostic message is a structured log statement with severity, trace ID, and context. `print()` is reserved for user-facing CLI output only.
@@ -996,7 +996,7 @@ The `swift-log` package is already a dependency. `Logger(label:)` is already use
 | Phase 1: Core Agent | 15-20M | 1-2 hours | $7.50-$10 |
 | Phase 2: Production Readiness | 20-30M | 2-3 hours | $10-$15 |
 | Phase 3: Multi-Agent | 25-40M | 3-4 hours | $12.50-$20 |
-| Phase 4: Gateway | 30-50M | 4-6 hours | $15-$25 |
+| Phase 4: Session host | 30-50M | 4-6 hours | $15-$25 |
 | Phase 5: MCP + Polish | 15-20M | 1-2 hours | $7.50-$10 |
 | **Phase A: Session & Data Integrity** | 10-15M | 1-2 hours | $5-$7.50 |
 | **Phase B: Context & Memory** | 15-20M | 2-3 hours | $7.50-$10 |

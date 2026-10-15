@@ -5,14 +5,14 @@ import Testing
 
 extension ArcCoreTestRoot {
     /// `MCP_SERVER_*` is a documented env override for the daemon's MCP surface
-    /// (`GatewayConfig.load` → `MCPServerGatewayConfig(dict:env:)` → `DaemonPlan`).
+    /// (`DaemonConfig.load` → `MCPServerSurfaceConfig(dict:env:)` → `DaemonPlan`).
     /// It had no coverage, and the surface would not come up from env alone.
-    @Suite("Gateway MCP surface env overrides", .serialized)
-    struct GatewayConfigEnvTests {
+    @Suite("Daemon MCP surface env overrides", .serialized)
+    struct DaemonConfigEnvTests {
 
         @Test("env-only config honors MCP_SERVER_ENABLED/HOST/PORT")
         func envOnlyMCPServer() {
-            let config = GatewayConfig.load(
+            let config = DaemonConfig.load(
                 home: URL(fileURLWithPath: "/nonexistent-arc-home"),
                 environment: [
                     "MCP_SERVER_ENABLED": "1",
@@ -27,7 +27,7 @@ extension ArcCoreTestRoot {
 
         @Test("the env override is off unless it says so")
         func disabledWithoutEnv() {
-            let config = GatewayConfig.load(
+            let config = DaemonConfig.load(
                 home: URL(fileURLWithPath: "/nonexistent-arc-home"),
                 environment: [:]
             )

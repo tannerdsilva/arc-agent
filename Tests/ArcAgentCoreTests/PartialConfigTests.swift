@@ -11,7 +11,7 @@ import Foundation
 // **silently discarded the entire file**, falling back to compiled-in
 // defaults (provider "openai", baseURL nil, empty API key).
 //
-// Result: the gateway talked to `https://api.openai.com/v1` with no key,
+// Result: the daemon talked to `https://api.openai.com/v1` with no key,
 // got a 401 on every turn, and the real configured endpoint was ignored.
 //
 // The fix: decode each section (and each field within a section) with a

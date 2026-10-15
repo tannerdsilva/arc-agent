@@ -80,12 +80,12 @@ extension ArcCoreTestRoot {
         @Test("GoalStore conforms and round-trips through the protocol")
         func goalStoringRoundTrip() async throws {
             let store: any GoalStoring = GoalStore()
-            var goal = GoalState(text: "Harden the gateway")
+            var goal = GoalState(text: "Harden the daemon")
             goal.contract = GoalContract(outcome: "tests pass", verification: "swift test")
             try await store.set(sessionID: "sess-A", state: goal)
 
             let loaded = try await store.get(sessionID: "sess-A")
-            #expect(loaded?.text == "Harden the gateway")
+            #expect(loaded?.text == "Harden the daemon")
             #expect(loaded?.contract?.verification == "swift test")
 
             try await store.update(sessionID: "sess-A") { $0.status = .paused }

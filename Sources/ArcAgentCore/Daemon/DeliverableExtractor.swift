@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Deliverable mode (reference `features/deliverable-mode.md`)
 
 /// Scans agent responses for absolute file paths with supported extensions
-/// (outside code fences / inline code), so the gateway can ship them as
+/// (outside code fences / inline code), so the session host can ship them as
 /// native attachments and strip the path from the visible message.
 public enum DeliverableExtractor {
 

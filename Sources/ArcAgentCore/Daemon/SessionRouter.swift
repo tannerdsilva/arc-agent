@@ -13,7 +13,7 @@ public actor SessionRouter {
 
     /// Resolve a chat target to a **deterministic** session ID: the routing
     /// key itself (`platform:chatID:threadID`). Deterministic means a chat
-    /// always maps to the same session across restarts (the gateway derives
+    /// always maps to the same session across restarts (the daemon derives
     /// session IDs this way); the key stays the durable binding and the
     /// reverse map is maintained for ``chatTarget(for:)``.
     public func resolve(chat: ChatTarget) -> String {

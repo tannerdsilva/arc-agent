@@ -60,7 +60,7 @@ public enum HookDecision: Sendable, Equatable {
 /// A hook that can steer the agent (plugin hooks with return values).
 public typealias BlockingHookHandler = @Sendable (String, HookContext) async -> HookDecision?
 
-/// One file-backed gateway hook (HOOK.yaml + handler script under
+/// One file-backed hook (HOOK.yaml + handler script under
 /// `~/.arc/hooks/<name>/`).
 public struct FileHook: Sendable {
     public let name: String
@@ -96,8 +96,8 @@ public actor HookBus {
     /// Blocking handlers (pre_tool_call, pre_llm_call, pre_verify).
     private var blockingHandlers: [(event: String, handler: BlockingHookHandler)] = []
 
-    /// File-backed gateway hooks — loaded explicitly by the gateway entry
-    /// (reference: CLI does not load gateway hooks).
+    /// File-backed hooks — loaded explicitly by the daemon entry
+    /// (reference: the CLI does not load file hooks).
     private var fileHooks: [FileHook] = []
 
     /// Outbound webhook targets (reference `hooks.outbound`).
@@ -141,7 +141,7 @@ public actor HookBus {
     // MARK: - Registration
 
     /// Register a programmatic handler (plugin hooks: tool interception,
-    /// metrics, guardrails — fire where the CLI AND gateway run).
+    /// metrics, guardrails — fire where the CLI AND daemon run).
     public func register(events: [String], handler: @escaping HookHandler) {
         handlers.append((events, handler))
     }
@@ -163,7 +163,7 @@ public actor HookBus {
         return nil
     }
 
-    /// Load file-backed gateway hooks from `~/.arc/hooks/` (reference
+    /// Load file-backed hooks from `~/.arc/hooks/` (reference
     /// `HookRegistry.discover_and_load()`). Handlers are `handler.py`
     /// (executed by `python3`) — same `handle(event, context)` contract.
     public func loadFileHooks(directory: URL? = nil) async {
@@ -220,7 +220,7 @@ public actor HookBus {
         for (events, handler) in handlers where matchesAny(events, job.event) {
             await handler(job.event, job.context)
         }
-        // 2. File-backed gateway hooks.
+        // 2. File-backed hooks.
         for hook in fileHooks where hook.matches(job.event) {
             await runFileHook(hook, job)
         }

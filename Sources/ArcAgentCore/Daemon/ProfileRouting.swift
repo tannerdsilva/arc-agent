@@ -2,17 +2,17 @@ import Foundation
 
 // MARK: - Profile-based inbound routing
 //
-// Faithful port of reference `gateway/profile_routing.py` (docs/profile-routing.md):
-// a single gateway routes per-platform / guild / channel / thread inbound
+// Faithful port of the reference profile-routing module (docs/profile-routing.md):
+// the daemon routes per-platform / guild / channel / thread inbound
 // messages to a dedicated profile, each with its own model, tools, memory, and
 // persona. Matching is conjunctive (every declared discriminator must hold),
 // `chat_id` matches hierarchically (a route keyed on a channel also matches
 // threads whose parent is that channel), and specificity decides between
 // multiple matches: thread 8 > chat 4 > guild 2 > platform-only 0.
 //
-// Wired into ``GatewayService``: when `multiplexProfiles` is off the routes are
+// Wired into ``SessionHost``: when `multiplexProfiles` is off the routes are
 // ignored entirely (arc parity — behavior is byte-identical to the
-// single-profile gateway).
+// single-profile routing).
 
 /// One routing rule mapping a platform scope to a profile.
 public struct ProfileRoute: Codable, Sendable, Equatable, Hashable {
@@ -77,11 +77,11 @@ public struct ProfileRoute: Codable, Sendable, Equatable, Hashable {
     }
 }
 
-/// Gateway-side routing config (`~/.arc/config.json` → `profile_routing`).
+/// Inbound profile-routing config (`~/.arc/config.json` → `profile_routing`).
 public struct ProfileRoutingConfig: Codable, Sendable, Equatable {
     /// Route table. Only honored when `multiplexProfiles` is true.
     public var routes: [ProfileRoute]
-    /// `gateway.multiplex_profiles` — with this off, routes are ignored.
+    /// `multiplex_profiles` — with this off, routes are ignored.
     public var multiplexProfiles: Bool
 
     public init(routes: [ProfileRoute] = [], multiplexProfiles: Bool = false) {

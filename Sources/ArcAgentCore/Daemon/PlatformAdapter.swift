@@ -1,16 +1,16 @@
 import Foundation
 import ServiceLifecycle
 
-/// A platform adapter connects the gateway to a messaging platform.
+/// A platform adapter connects the session host to a messaging platform.
 ///
-/// Each platform adapter is a ``Service`` managed by the gateway's
+/// Each platform adapter is a ``Service`` managed by the session host's
 /// ``ServiceGroup``. It produces an ``AsyncStream`` of incoming messages
 /// and provides a method to send outgoing messages back to the platform.
 ///
 /// The tail methods (``sendTyping``, ``sendUpdate``, ``deleteMessage``,
 /// ``format``, ``truncate``) have safe defaults so minimal adapters only
 /// need ``send`` — richer adapters (Telegram, Slack) override the ones the
-/// gateway's live-streaming path depends on.
+/// session host's live-streaming path depends on.
 ///
 /// - Note: The `start()`/`stop()` lifecycle is managed by the
 ///   ``Service`` protocol's `run()` method. Adapters should run their
@@ -28,7 +28,7 @@ public protocol PlatformAdapter: Service {
 
     /// An async stream of incoming messages from this platform.
     ///
-    /// The gateway reads from this stream to dispatch messages to agent
+    /// The session host reads from this stream to dispatch messages to agent
     /// sessions. The stream should produce messages as they arrive and
     /// terminate when the adapter is cancelled.
     var incomingMessages: AsyncStream<IncomingMessage> { get }
@@ -39,13 +39,13 @@ public protocol PlatformAdapter: Service {
 public extension PlatformAdapter {
     /// Whether this platform supports editing an already-sent message in
     /// place. Streaming adapters (Telegram, Slack) return `true`; pollers
-    /// that cannot edit (Email) return `false` and the gateway sends the
+    /// that cannot edit (Email) return `false` and the session host sends the
     /// full response once.
     var canEditMessages: Bool { false }
 
     /// Show the platform's "typing…" indicator in the chat.
     ///
-    /// The gateway calls this on a keep-alive loop while a turn is running.
+    /// The session host calls this on a keep-alive loop while a turn is running.
     /// Default: no-op (platforms without a typing API).
     func sendTyping(to target: ChatTarget) async throws {}
 
@@ -56,10 +56,10 @@ public extension PlatformAdapter {
     ///   - text: New full text for the message.
     ///   - target: Where the original message was sent.
     ///
-    /// Default: throws ``GatewayError.unsupportedOperation`` — the gateway
+    /// Default: throws ``MessagingError.unsupportedOperation`` — the session host
     /// only calls this when ``canEditMessages`` is `true`.
     func sendUpdate(messageID: String, text: String, parseMode: String?, to target: ChatTarget) async throws {
-        throw GatewayError.unsupportedOperation("\(name): edit_message not supported")
+        throw MessagingError.unsupportedOperation("\(name): edit_message not supported")
     }
 
     /// Delete a previously sent message. Default: no-op.

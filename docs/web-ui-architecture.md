@@ -17,7 +17,7 @@ There is no standalone UI process any more: the daemon (`arc serve` →
 (`HTTPServerService`, Hummingbird: `/health`, `POST /v1/chat`) and the platform
 adapters — one `ServiceGroup` per process — so the UI shares the daemon's
 storage pair, log sink and shutdown. The surface is gated by the `webui` block
-of `gateway.json` (on by default).
+of `daemon.json` (on by default).
 
 ## Layout
 
@@ -214,7 +214,7 @@ One file remains in `Sources/ArcAgentCore/WebUI/`:
 
 The original Swift-DSL view subsystem (View/ViewBuilder/HTMLDocument/CSSRule/…)
 was removed in 2026-09 after the UI moved to no-webui — it had zero remaining
-product references. The gateway's `WebSocketHandler.swift` / `WebSocketServer.swift`
-were removed in the same migration: the gateway's second UI surface could never
-render (`GatewayService` passed `onUI: nil`), so the socket server was listening
-for pages that were never served.
+product references. A second, hand-rolled UI surface (`WebSocketHandler.swift` /
+`WebSocketServer.swift`) was removed in the same migration: it could never
+render (no `onUI` closure was ever configured), so the socket server was
+listening for pages that were never served.

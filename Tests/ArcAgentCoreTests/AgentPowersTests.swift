@@ -392,7 +392,7 @@ extension ArcCoreTestRoot {
 
         // MARK: ownership of the process-global gate
 
-        /// A plainly-constructed agent (the gateway's shape, and the daemon's
+        /// A plainly-constructed agent (the session host's shape, and the daemon's
         /// session agents) must never reset an active lockdown. The daemon installs
         /// the gate once at boot from config.json.
         ///

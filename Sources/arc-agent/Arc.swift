@@ -115,7 +115,7 @@ struct Chat: AsyncParsableCommand {
         }
 
         // Event hooks: outbound webhooks run in CLI sessions too (reference:
-        // plugin + outbound hooks fire in CLI + gateway; gateway file hooks
+        // plugin + outbound hooks fire in CLI and daemon sessions; file hooks
         // load in `arc serve` only).
         await HookBus.shared.configureOutbound(arcConfig.hooks.outbound)
 
@@ -317,20 +317,20 @@ struct Serve: AsyncParsableCommand {
 
     static let configuration = CommandConfiguration(
         commandName: "serve",
-        abstract: "Start the gateway server daemon."
+        abstract: "Start the arc daemon."
     )
 
-    @Option(name: .shortAndLong, help: "HTTP server host (overrides gateway.json).")
+    @Option(name: .shortAndLong, help: "HTTP server host (overrides daemon.json).")
     var host: String?
 
-    @Option(name: .shortAndLong, help: "HTTP server port (overrides gateway.json).")
+    @Option(name: .shortAndLong, help: "HTTP server port (overrides daemon.json).")
     var port: Int?
 
-    @Option(name: .long, help: "Telegram bot token (overrides gateway.json / TELEGRAM_BOT_TOKEN).")
+    @Option(name: .long, help: "Telegram bot token (overrides daemon.json / TELEGRAM_BOT_TOKEN).")
     var telegramToken: String?
 
     @Flag(name: .customLong("webui"), inversion: .prefixedNo,
-          help: "Force the Web UI on/off (overrides gateway.json).")
+          help: "Force the Web UI on/off (overrides daemon.json).")
     var webui: Bool?
 
     @Flag(name: .long, help: "Use file storage instead of Tessera.")
@@ -339,23 +339,23 @@ struct Serve: AsyncParsableCommand {
     func run() async throws {
         let arcConfig = loadConfig()
 
-        // Event hooks: gateway hooks + outbound webhooks (reference
+        // Event hooks: file hooks + outbound webhooks (reference
         // HookRegistry discover/load + hooks.outbound registration).
         await HookBus.shared.configureOutbound(arcConfig.hooks.outbound)
         await HookBus.shared.loadFileHooks()
 
-        // Surfaces live in ~/.arc/gateway.json (per-platform blocks; env-var
+        // Surfaces live in ~/.arc/daemon.json (per-platform blocks; env-var
         // overrides on top). One daemon composes them all.
         let arcHome = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".arc", isDirectory: true)
-        let gatewayConfig = GatewayConfig.load(
+        let daemonConfig = DaemonConfig.load(
             home: arcHome,
             environment: ProcessInfo.processInfo.environment
         )
 
         try await ArcDaemon.run(
             arc: arcConfig,
-            gateway: gatewayConfig,
+            config: daemonConfig,
             overrides: .init(
                 host: host,
                 port: port,

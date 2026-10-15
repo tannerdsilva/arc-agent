@@ -26,7 +26,7 @@ public struct SessionHandle: Sendable {
     }
 }
 
-/// A registry of active session agents managed by the gateway.
+/// A registry of active session agents managed by the session host.
 ///
 /// The registry is a routing table that maps session IDs to running
 /// ``SessionAgent`` Services. It is NOT a cache — the agents are live
@@ -57,10 +57,10 @@ public actor SessionRegistry {
         /// Whether session transcripts should be persisted each turn (only
         /// applies when `tessera` is set).
         public let persistSessions: Bool
-        /// Tool-iteration budget for gateway sessions (nil = default 25;
+        /// Tool-iteration budget for hosted sessions (nil = default 25;
         /// 0/negative = unlimited).
         public let maxIterations: Int?
-        /// Per-tool call cap for gateway sessions (nil = default 25;
+        /// Per-tool call cap for hosted sessions (nil = default 25;
         /// 0/negative = unlimited).
         public let toolLoopCap: Int?
         /// Mixture-of-Agents configuration (reference `moa` config block).
@@ -78,7 +78,7 @@ public actor SessionRegistry {
         public let mcpServers: [String: MCPServerConfig]
         /// Prebuilt process storage (the daemon resolves ONE pair for the whole
         /// process). When nil, each session agent constructs its own — the
-        /// standalone gateway path.
+        /// standalone path.
         public let storage: StorageRuntime?
 
         public init(
@@ -217,9 +217,9 @@ public actor SessionRegistry {
         agents[sessionID] = agent
         handles[sessionID] = handle
 
-        // Reference gateway event: `session:start`.
+        // Reference event: `session:start`.
         await HookBus.shared.emit("session:start", [
-            "platform": .string("gateway"),
+            "platform": .string("daemon"),
             "session_id": .string(sessionID),
             "session_key": .string(sessionID),
         ])
@@ -245,7 +245,7 @@ public actor SessionRegistry {
 
     /// Remove a session agent from the registry (called by the agent on shutdown).
     func remove(sessionID: String) {
-        // Reference gateway event: `session:end` (before reset).
+        // Reference event: `session:end` (before reset).
         let bus = HookBus.shared
         Task {
             await bus.emit("session:end", [
@@ -344,7 +344,7 @@ public actor SessionRegistry {
         respawnTasks.removeValue(forKey: sessionID)
     }
 
-    // MARK: - Introspection (tests + gateway)
+    // MARK: - Introspection (tests + session host)
 
     /// The agent currently registered for a session, if any.
     func agent(for sessionID: String) -> SessionAgent? {

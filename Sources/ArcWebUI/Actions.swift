@@ -393,7 +393,7 @@ extension AppState {
         "The previous turn ended without any response content. Using the tool results above, provide your answer now."
 
     /// Record a finished round in the durable usage ledger (~/.arc-agent/usage.json),
-    /// the same file the CLI and gateway write (reference usage_pricing parity).
+    /// the same file the CLI and daemon write (reference usage_pricing parity).
     static func recordUsage(_ usage: Usage, preset: ModelConfigPreset) async {
         await usageLedger.record(
             route: BillingRoute(provider: preset.provider, model: preset.model, baseURL: preset.baseURL),

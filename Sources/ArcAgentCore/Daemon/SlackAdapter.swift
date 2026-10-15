@@ -137,7 +137,7 @@ public final class SlackAdapter: PlatformAdapter {
     public func sendUpdate(messageID: String, text: String, parseMode: String?, to target: ChatTarget) async throws {
         let formatted = SlackFormat.format(text)
         guard formatted.count <= Self.maxMessageLength else {
-            throw GatewayError.unsupportedOperation("slack: edit exceeds 4000")
+            throw MessagingError.unsupportedOperation("slack: edit exceeds 4000")
         }
         _ = try await webAPI(method: "chat.update", params: [
             "channel": target.chatID,

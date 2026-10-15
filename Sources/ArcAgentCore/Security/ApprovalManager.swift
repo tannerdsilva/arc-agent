@@ -239,7 +239,7 @@ public actor ApprovalManager {
             return .approved
         case .manual:
             // In manual mode, every dangerous command is a human decision:
-            // with a presenter we ask; without one the caller (CLI, gateway)
+            // with a presenter we ask; without one the caller (CLI, daemon)
             // gets `.requiresReview` and decides how to surface it.
             guard let presenter else { return .requiresReview }
             let decision = await presenter(

@@ -151,7 +151,7 @@ public func resolveStorage(
 /// The storage selection persisted by the web UI's Settings → Storage picker
 /// (`activeStorage` + `storageConnections` in `~/.arc-agent-webui/settings.json`).
 /// `ArcDaemon` consults it at boot so a connection saved in the UI is the
-/// storage the whole process (gateway + web UI) actually uses on the next
+/// storage the whole process (daemon + web UI) actually uses on the next
 /// start — the selection is not just cosmetic until a manual switch.
 public struct WebUIStorageSelection: Sendable {
     public var activeStorage: String

@@ -3,30 +3,30 @@ import Testing
 import Foundation
 
 extension ArcCoreTestRoot {
-    /// Tool gateway, blueprints, checkpoints (arc parity).
-    @Suite("GatewayPolicies", .serialized)
-    struct GatewayPolicyTests {
+    /// Tool policy, blueprints, checkpoints (arc parity).
+    @Suite("Tool policies", .serialized)
+    struct ToolPolicyTests {
 
         @Test("glob matching")
         func globs() {
-            #expect(ToolGateway.wildcardMatch(pattern: "terminal", value: "terminal"))
-            #expect(ToolGateway.wildcardMatch(pattern: "browser_*", value: "browser_console"))
-            #expect(!ToolGateway.wildcardMatch(pattern: "browser_*", value: "terminal"))
-            #expect(ToolGateway.wildcardMatch(pattern: "file*", value: "file"))
+            #expect(ToolPolicy.wildcardMatch(pattern: "terminal", value: "terminal"))
+            #expect(ToolPolicy.wildcardMatch(pattern: "browser_*", value: "browser_console"))
+            #expect(!ToolPolicy.wildcardMatch(pattern: "browser_*", value: "terminal"))
+            #expect(ToolPolicy.wildcardMatch(pattern: "file*", value: "file"))
         }
 
-        @Test("later rules win; disabled gateway allows all")
+        @Test("later rules win; disabled policy allows all")
         func decide() {
             let rules = [
-                ToolGatewayRule(match: "terminal", action: .deny, reason: "prod safety"),
-                ToolGatewayRule(match: "terminal", toolset: "file", action: .allow),
+                ToolPolicyRule(match: "terminal", action: .deny, reason: "prod safety"),
+                ToolPolicyRule(match: "terminal", toolset: "file", action: .allow),
             ]
-            let config = ToolGatewayConfig(enabled: true, rules: rules)
-            let d = ToolGateway.decide(toolName: "terminal", toolset: "file", config: config)
+            let config = ToolPolicyConfig(enabled: true, rules: rules)
+            let d = ToolPolicy.decide(toolName: "terminal", toolset: "file", config: config)
             #expect(d.action == .allow)
-            let d2 = ToolGateway.decide(toolName: "terminal", toolset: "shell", config: config)
+            let d2 = ToolPolicy.decide(toolName: "terminal", toolset: "shell", config: config)
             #expect(d2.action == .deny)
-            let off = ToolGateway.decide(toolName: "terminal", toolset: "shell", config: ToolGatewayConfig())
+            let off = ToolPolicy.decide(toolName: "terminal", toolset: "shell", config: ToolPolicyConfig())
             #expect(off.action == .allow)
         }
     }
