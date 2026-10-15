@@ -469,7 +469,15 @@ public static let css: String = """
     }
     .sess-row.active .sess-open { color: var(--text); }
     .sess-title { font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sess-meta { font-size: 12px; color: var(--muted); display: flex; gap: 6px; }
+    /* the meta line is one row: count • time • live status. It has to stay ONE
+       line. With a long status label ("Running pkg_overview…" measures ~162px
+       against ~211px of row) the count text — an anonymous flex item — was what
+       absorbed the shortfall: it wrapped into three lines, growing the row
+       56 -> 92px while `align-items: stretch` pulled the pill to 54px, painted
+       on top of the count (measured in Chrome, 2026-10-14). Now the line is
+       nowrap and the PILL absorbs a tight row, ellipsising its own label, so the
+       list's geometry is identical whether or not a turn is running. */
+    .sess-meta { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; min-width: 0; white-space: nowrap; }
     /* Sidebar live-status pill: the running turn on its own session row
        (replaces the floating "Responding…" hint that read as list noise). */
     .sess-status {
@@ -477,9 +485,18 @@ public static let css: String = """
       padding: 0 7px 0 5px; border-radius: 999px;
       background: var(--accent-soft); border: 1px solid var(--accent-border);
       color: var(--accent-strong); font-size: 11.5px; font-weight: 600;
-      line-height: 1.7; white-space: nowrap;
+      /* 11.5 x 1.35 = 15.5px + 2px of border = 17.5px, inside the meta line's
+         18px: a running turn must not change the row's height (1.7 gave 21.5px
+         and widened every row it appeared on by 4px). */
+      line-height: 1.35; white-space: nowrap;
+      min-width: 0; max-width: 100%; overflow: hidden;
     }
+    /* the label ellipsises when the row is tight; the count and the time must
+       stay whole (an ellipsis on the pill's own anonymous text node is not
+       possible, hence the node). */
+    .sess-status-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sess-status-dot {
+      flex: 0 0 auto;
       width: 5px; height: 5px; border-radius: 50%;
       background: var(--accent-strong);
       animation: sess-pulse 1.2s ease-in-out infinite;

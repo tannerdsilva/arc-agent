@@ -497,7 +497,10 @@ extension AppState {
         guard let live = activeTurns[sessionID] else { return "" }
         let label = liveStatusLabel(live)
         guard !label.isEmpty else { return "" }
-        return "<span class=\"sess-status\"><span class=\"sess-status-dot\"></span>\(esc(label))</span>"
+        // the label is its own node so a tight row ellipsises it
+        // (`.sess-status-label`) instead of overflowing the count/time — or, as
+        // it did, wrapping the meta line and growing the row 56 -> 92px.
+        return "<span class=\"sess-status\"><span class=\"sess-status-dot\"></span><span class=\"sess-status-label\">\(esc(label))</span></span>"
     }
 
     /// arc-parity relative time: 1m / 12m / 3h / 4d / Aug 28 (+year if older
