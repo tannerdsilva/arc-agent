@@ -926,8 +926,9 @@ extension ArcWebUITestRoot {
             #expect(actions.contains("case \"empty-drafts\":"), "the shared confirm modal must dispatch the bulk delete")
             let app = Self.appStateActions
             #expect(app.contains("func clearEmptyDrafts() async -> Int"), "the bulk delete must exist")
-            #expect(app.contains("$0.messageCount == 0 && $0.id != keep"),
-                    "emptiness must be read from the store-backed count, and the open chat kept")
+            #expect(app.contains("$0.messageCount == 0 && !isDraft($0.id) && $0.id != keep")
+                    || app.contains("s.messageCount == 0 && !isDraft(s.id) && s.id != keep"),
+                    "emptiness must be read from the store-backed count, drafts must be spared, and the open chat kept")
             #expect(app.contains("await ensureSessionMessages(s.id)"),
                     "each candidate must be materialized before it is judged empty")
             #expect(app.contains("if sessions[i].messages.isEmpty { doomed.append(s.id) }"),

@@ -1664,6 +1664,11 @@ final class Controller: Sendable {
             await self.app.setShowArchived(!self.app.showArchived)
             return await self.app.refreshFragments()
         }
+        // Drafts: show/hide the un-sent chat drafts (badged rows).
+        wire(router, id: "chat-showdrafts", events: ["click"]) { _ in
+            await self.app.toggleShowDrafts()
+            return await self.app.refreshFragments()
+        }
         // UX-62: clear the never-messaged drafts that clutter the list. It is a
         // destructive bulk delete, so it arms the shared confirm modal like
         // every other delete — the count is re-derived from the store-backed

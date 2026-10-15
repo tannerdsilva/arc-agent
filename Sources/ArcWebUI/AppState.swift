@@ -309,6 +309,8 @@ struct AppSettings: Codable, Equatable {
     var scheduledJobs: [CronJob] = []
     /// Archived chats are hidden from the default list but restorable.
     var archivedSessions: [String] = []
+    /// Show un-sent draft chats in the conversation list (badged "Draft").
+    var showDrafts: Bool = true
 
     /// User-created chat categories and per-chat assignment (session id → category id).
     var chatCategories: [ChatCategory] = []
@@ -385,6 +387,7 @@ struct AppSettings: Codable, Equatable {
         case storageConnections, activeStorage
         case recentFiles
         case sessionConfig, sessionProfile, sessionThinking, sessionTitles, sessionCompressions, archivedSessions
+        case showDrafts
         case chatCategories, sessionCategories
         case kanbanColumns, kanbanCards
         case todos
@@ -437,6 +440,7 @@ struct AppSettings: Codable, Equatable {
         sessionTitles = try c.decodeIfPresent([String: String].self, forKey: .sessionTitles) ?? [:]
         sessionCompressions = try c.decodeIfPresent([String: String].self, forKey: .sessionCompressions) ?? [:]
         archivedSessions = try c.decodeIfPresent([String].self, forKey: .archivedSessions) ?? []
+        showDrafts = try c.decodeIfPresent(Bool.self, forKey: .showDrafts) ?? true
         chatCategories = try c.decodeIfPresent([ChatCategory].self, forKey: .chatCategories) ?? []
         sessionCategories = try c.decodeIfPresent([String: String].self, forKey: .sessionCategories) ?? [:]
         if let m = try? c.decodeIfPresent([String: [TodoItem]].self, forKey: .todos) {
@@ -1747,6 +1751,17 @@ actor AppState {
 
     func isArchived(_ id: String) -> Bool {
         settings.archivedSessions.contains(id)
+    }
+
+    /// True when a chat is a draft: it has no sent messages but holds
+    /// un-delivered composer text (non-blank `composerDrafts`). Such chats are
+    /// kept (and badged) rather than treated as throwaway empty chats.
+    func isDraft(_ id: String) -> Bool {
+        guard !id.hasPrefix("Cron-") else { return false }
+        guard let s = sessions.first(where: { $0.id == id }) else { return false }
+        guard s.messageCount == 0, s.messages.isEmpty else { return false }
+        let text = settings.composerDrafts[id] ?? ""
+        return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     func isBookmarked(_ sessionID: String) -> Bool {

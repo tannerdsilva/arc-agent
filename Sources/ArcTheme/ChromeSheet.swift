@@ -2648,6 +2648,16 @@ public static let css: String = """
       background: color-mix(in srgb, var(--accent) 12%, transparent);
       border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
     }
+    /* Draft conversations: a chat with no sent messages but un-sent text. */
+    .draft-badge {
+      display: inline-flex; align-items: center;
+      font-size: 0.72em; font-weight: 600; font-style: italic;
+      padding: 1px 6px; border-radius: 999px;
+      margin-right: 5px; vertical-align: 1px;
+      color: var(--draft-fg, #b8860b);
+      background: color-mix(in srgb, var(--draft-fg, #b8860b) 12%, transparent);
+      border: 1px dashed color-mix(in srgb, var(--draft-fg, #b8860b) 45%, transparent);
+    }
     .share-card { width: min(440px, 92vw); }
     .share-card h3 { margin: 0 0 2px; }
     .share-card .share-sub { margin: 2px 0 12px; color: var(--text-muted); font-size: 0.92em; }

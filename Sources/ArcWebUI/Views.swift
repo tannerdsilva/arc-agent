@@ -386,7 +386,7 @@ extension AppState {
         let activeEmpty = sessions.first(where: { $0.id == activeSessionID })
             .map { $0.messageCount == 0 } ?? false
         let emptyDrafts = sessions.filter {
-            !$0.id.hasPrefix("Cron-") && !isArchived($0.id) && $0.messageCount == 0
+            !$0.id.hasPrefix("Cron-") && !isArchived($0.id) && $0.messageCount == 0 && !isDraft($0.id)
         }.count
         let clearableDrafts = max(0, emptyDrafts - (activeEmpty ? 1 : 0))
         let clearBtn = (!todos && !showArchived && clearableDrafts > 0)
@@ -410,6 +410,11 @@ extension AppState {
           <span class="arch-ico">\(WebUIIcon(showArchived ? .chevronDown : .chevronRight, size: .small).markup.html)</span><span>\(showArchived ? " Hide archived conversations" : " Show archived conversations")</span>
         </button>
         \(showArchived ? "<div class=\"arch-mode-note\">Showing archived conversations only.</div>" : "")
+        \(showArchived ? "" : """
+        <button type="button" id="chat-showdraft-link" data-component-id="chat-showdrafts" class="arch-link" title="Toggle drafts">
+          <span class="arch-ico">\(WebUIIcon(settings.showDrafts ? .chevronDown : .chevronRight, size: .small).markup.html)</span><span>\(settings.showDrafts ? " Hide drafts" : " Show drafts")</span>
+        </button>
+        """)
         """)
         \(clearBtn)
         """
@@ -418,7 +423,7 @@ extension AppState {
         // On the Todos page archived chats are never shown (no toggle exists).
         var visible = todos
             ? sessions.filter { !$0.id.hasPrefix("Cron-") && !isArchived($0.id) }
-            : sessions.filter { !$0.id.hasPrefix("Cron-") && (showArchived ? isArchived($0.id) : !isArchived($0.id)) }
+            : sessions.filter { !$0.id.hasPrefix("Cron-") && (showArchived ? isArchived($0.id) : (!isArchived($0.id) && (settings.showDrafts || !isDraft($0.id)))) }
         if activeCategory != "all" {
             visible = visible.filter { activeCategory == "unassigned" ? categoryID(for: $0.id) == nil : categoryID(for: $0.id) == activeCategory }
         }
@@ -616,11 +621,13 @@ extension AppState {
             </div>
             """
         }
+        let isDraftRow = !todos && isDraft(s.id)
+        let draftBadge = isDraftRow ? "<span class=\"draft-badge\" title=\"Draft — text not sent yet\">✎ Draft</span>" : ""
         let booked = isBookmarked(s.id)
         // Summaries carry the metadata count; loaded sessions use the live array.
         let count = s.messages.isEmpty ? s.messageCount : s.messages.count
         let epochMs = Int(s.updatedAt.timeIntervalSince1970 * 1000)
-        let meta = "\(count) msg • <span class=\"rel-time\" data-reltime=\"\(epochMs)\">\(relTimeLabel(s.updatedAt))</span>" + (archived.isEmpty ? "" : " • Archived") + liveStatusPill(s.id)
+        let meta = "\(count) msg • <span class=\"rel-time\" data-reltime=\"\(epochMs)\">\(relTimeLabel(s.updatedAt))</span>" + (archived.isEmpty ? "" : " • Archived") + (isDraftRow ? " • Draft" : "") + liveStatusPill(s.id)
         let pinBadge = booked ? "<span class=\"pin-badge\" title=\"Pinned\">" + WebUIIcon(.bookmark, size: .small).markup.html + "</span>" : ""
         let pinLabel = booked ? "Unpin conversation" : "Pin conversation"
         let shared = isSessionShared(s.id)
@@ -689,7 +696,7 @@ extension AppState {
         return """
         <div class="sess-row\(active)\(archived)" tabindex="\(rowTab)" role="group" aria-label="\(esc(title))" data-sid="\(s.id)"\(isActiveRow ? " aria-current=\"true\"" : "")>
           <button type="button" id="s-open-\(encID)" class="sess-open" tabindex="-1">
-            <span class="sess-title">\(pinBadge)\(shareBadge)\(esc(title))</span>
+            <span class="sess-title">\(pinBadge)\(shareBadge)\(draftBadge)\(esc(title))</span>
             <span class="sess-meta">\(meta)</span>
           </button>
           <div class="row-actions">\(menu)</div>

@@ -124,6 +124,10 @@ extension AppState {
     }
 
     func setActiveSession(_ id: String, preserveUndo: Bool = false) async {
+        // Auto-prune a blank chat on navigation: a chat with no sent messages
+        // and no draft text is removed (a chat holding draft text is kept as a
+        // draft). Never fires for the same-session reselect or Cron rows.
+        await pruneBlankChatOnNavigate(from: activeSessionID, to: id)
         activeSessionID = id
         pendingDelete = false
         filePopOpen = false
@@ -142,6 +146,38 @@ extension AppState {
             await ensureSessionMessages(id)
         }
         evictOverloadedCache()
+    }
+
+    /// If the chat we are navigating away from is a blank empty chat (no sent
+    /// messages and no draft text), remove it. Draft chats (which hold text)
+    /// are kept. This is the auto-removal half of the "drafts" feature.
+    private func pruneBlankChatOnNavigate(from oldID: String?, to newID: String) async {
+        guard let oldID, oldID != newID, !oldID.hasPrefix("Cron-") else { return }
+        guard let s = sessions.first(where: { $0.id == oldID }) else { return }
+        guard s.messageCount == 0, s.messages.isEmpty else { return }
+        let draft = settings.composerDrafts[oldID] ?? ""
+        if !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
+        // Blank empty chat: remove it (a stray + that produced no text).
+        if let store { try? await store.delete(id: oldID) }
+        sessions.removeAll { $0.id == oldID }
+        settings.sessionWorkspaces.removeValue(forKey: oldID)
+        settings.sessionCategories.removeValue(forKey: oldID)
+        settings.sessionProfile.removeValue(forKey: oldID)
+        settings.bookmarkedSessions.removeAll { $0 == oldID }
+        settings.todos.removeValue(forKey: oldID)
+        settings.composerDrafts.removeValue(forKey: oldID)
+        settings.sessionTitles.removeValue(forKey: oldID)
+        saveSettings()
+    }
+
+    func setShowDrafts(_ on: Bool) {
+        settings.showDrafts = on
+        saveSettings()
+    }
+
+    func toggleShowDrafts() {
+        settings.showDrafts = !settings.showDrafts
+        saveSettings()
     }
 
     func clearPendingDelete() {
@@ -509,7 +545,7 @@ extension AppState {
         let keep = activeSessionID
         return sessions.filter {
             !$0.id.hasPrefix("Cron-") && !isArchived($0.id)
-                && $0.messageCount == 0 && $0.id != keep
+                && $0.messageCount == 0 && !isDraft($0.id) && $0.id != keep
         }.count
     }
 
@@ -533,7 +569,7 @@ extension AppState {
         let keep = activeSessionID
         var doomed: [String] = []
         for s in sessions
-        where !s.id.hasPrefix("Cron-") && !isArchived(s.id) && s.messageCount == 0 && s.id != keep {
+        where !s.id.hasPrefix("Cron-") && !isArchived(s.id) && s.messageCount == 0 && !isDraft(s.id) && s.id != keep {
             await ensureSessionMessages(s.id)
             guard let i = sessions.firstIndex(where: { $0.id == s.id }) else { continue }
             if sessions[i].messages.isEmpty { doomed.append(s.id) }
