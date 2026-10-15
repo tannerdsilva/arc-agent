@@ -63,7 +63,9 @@ public actor ProjectStore {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true
         )
-        let data = try JSONEncoder().encode(ProjectsFile(projects: projects, activeID: activeID))
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try enc.encode(ProjectsFile(projects: projects, activeID: activeID))
         try data.write(to: url, options: .atomic)
     }
 

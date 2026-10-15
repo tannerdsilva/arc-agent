@@ -41,7 +41,9 @@ public struct CuratorState: Codable, Sendable, Equatable {
 
     public func save(to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let data = try JSONEncoder().encode(self)
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try enc.encode(self)
         try data.write(to: url, options: .atomic)
     }
 }
@@ -223,7 +225,9 @@ public enum CuratorBackupStore {
 
         let backup = CuratorBackup(id: id, createdAt: now, files: files)
         let manifestURL = dest.appendingPathComponent("manifest.json")
-        try JSONEncoder().encode(backup).write(to: manifestURL, options: .atomic)
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try enc.encode(backup).write(to: manifestURL, options: .atomic)
         try prune(directory: backupsDir)
         return backup
     }

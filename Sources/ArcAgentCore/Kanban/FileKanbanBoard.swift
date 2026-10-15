@@ -129,7 +129,9 @@ public actor FileKanbanBoard: KanbanBoard {
     }
 
     private func save(_ task: KanbanTask) throws {
-        let data = try JSONEncoder().encode(task)
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try enc.encode(task)
         try data.write(to: fileURL(for: task.id), options: .atomic)
     }
 

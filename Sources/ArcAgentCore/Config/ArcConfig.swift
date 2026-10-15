@@ -743,7 +743,9 @@ public func saveConfig(_ config: ArcConfig, to configURL: URL? = nil) throws {
     let configDir = resolvedURL.deletingLastPathComponent()
 
     try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
-    let data = try JSONEncoder().encode(config)
+    let enc = JSONEncoder()
+    enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let data = try enc.encode(config)
     try data.write(to: resolvedURL, options: .atomic)
 }
 

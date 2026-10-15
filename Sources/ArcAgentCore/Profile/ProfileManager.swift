@@ -408,7 +408,9 @@ public actor ProfileManager {
             at: URL(fileURLWithPath: Self.profilesDir),
             withIntermediateDirectories: true
         )
-        let data = try JSONEncoder().encode(index)
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try enc.encode(index)
         try data.write(to: URL(fileURLWithPath: Self.indexFilePath), options: .atomic)
     }
 
@@ -444,7 +446,9 @@ public actor ProfileManager {
     private func writeProfileConfig(_ profile: Profile) throws {
         let dir = URL(fileURLWithPath: Self.profilesDir).appendingPathComponent(profile.name, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let data = try JSONEncoder().encode(profile)
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try enc.encode(profile)
         try data.write(to: dir.appendingPathComponent("config.json"), options: .atomic)
     }
 }

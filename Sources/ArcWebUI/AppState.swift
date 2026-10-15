@@ -1171,7 +1171,9 @@ actor AppState {
         let url = Self.settingsURL
         try? FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard let data = try? JSONEncoder().encode(settings) else { return }
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? enc.encode(settings) else { return }
         try? data.write(to: url, options: .atomic)
     }
 

@@ -32,7 +32,7 @@ public enum ScheduledJobsImport {
         // persists `scheduledJobs` (it is a render cache).
         if var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
             root.removeValue(forKey: "scheduledJobs")
-            if let out = try? JSONSerialization.data(withJSONObject: root, options: [.sortedKeys]) {
+            if let out = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) {
                 try? out.write(to: url, options: .atomic)
             }
         }

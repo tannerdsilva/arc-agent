@@ -61,7 +61,9 @@ extension AppState {
         let url = Self.insightsURL
         try? FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard let data = try? JSONEncoder().encode(insights) else { return }
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? enc.encode(insights) else { return }
         try? data.write(to: url, options: .atomic)
     }
 

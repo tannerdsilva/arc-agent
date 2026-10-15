@@ -79,7 +79,9 @@ public actor FileCronStore: CronStore {
     }
 
     public func save(_ job: CronJob) async throws {
-        let data = try JSONEncoder().encode(job)
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try enc.encode(job)
         try data.write(to: directory.appendingPathComponent("\(job.id).json"), options: .atomic)
     }
 

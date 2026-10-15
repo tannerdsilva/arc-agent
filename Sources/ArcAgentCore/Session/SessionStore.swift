@@ -248,7 +248,9 @@ public struct FileSessionStore: SessionStore {
 
     public func create(_ session: Session) async throws {
         let url = fileURL(for: session.id)
-        let data = try JSONEncoder().encode(session)
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try enc.encode(session)
         try data.write(to: url, options: .atomic)
     }
 
