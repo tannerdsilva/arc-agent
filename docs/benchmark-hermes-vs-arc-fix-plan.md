@@ -85,7 +85,7 @@ let task = Task { [weak self] in
 ### 3a — `arc chat -q` never persists
 **Root cause:** `-q` mode streams via `streamConversation` (`Arc.swift:293` → `ArcAgent.streamTurn` → `runStreamingTurnLoop`), which never calls `persistConversationIfNeeded()` (only `runConversation`'s loop does, `ArcAgent.swift:1046`).
 
-**Fix:** after the main iteration loop in `runStreamingTurnLoop` (all normal-term paths: `.completed`, max-iterations, interrupted, error), call `await persistConversationIfNeeded()` — same guard (`persistSessions` + watermark) makes it a no-op for interactive/webui paths, and enables persistence for `arc chat -q`, gateway streaming, and webui streaming uniformly.
+**Fix:** after the main iteration loop in `runStreamingTurnLoop` (all normal-term paths: `.completed`, max-iterations, interrupted, error), call `await persistConversationIfNeeded()` — same guard (`persistSessions` + watermark) makes it a no-op for interactive/webui paths, and enables persistence for `arc chat -q`, daemon streaming, and webui streaming uniformly.
 
 **Tests:** agent with `persistSessions: true` + mock store + mock LLM; call `streamConversation(...)`; assert `store.create`/`appendMessage` called and session content includes the tool messages. Also a CLI-level smoke: `arc chat -q "x"` (file-store config) → `arc sessions list` shows a new session.
 

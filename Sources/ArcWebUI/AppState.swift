@@ -76,18 +76,18 @@ enum ViewID: String, CaseIterable {
 
     var icon: String {
         switch self {
-        case .chat: return WebUIIcon(.messageSquare, size: .large).render()
-        case .skills: return WebUIIcon(.star, size: .large).render()
-        case .profiles: return WebUIIcon(.user, size: .large).render()
-        case .tools: return WebUIIcon(.tool, size: .large).render()
-        case .workspaces: return WebUIIcon(.grid, size: .large).render()
-        case .kanban: return WebUIIcon(.columns, size: .large).render()
-        case .memory: return WebUIIcon(.database, size: .large).render()
-        case .insights: return WebUIIcon(.chartBar, size: .large).render()
-        case .logs: return WebUIIcon(.list, size: .large).render()
-        case .tasks: return WebUIIcon(.clock, size: .large).render()
-        case .todos: return WebUIIcon(.check, size: .large).render()
-        case .settings: return WebUIIcon(.settings, size: .large).render()
+        case .chat: return WebUIIcon(.messageSquare, size: .large).markup.html
+        case .skills: return WebUIIcon(.star, size: .large).markup.html
+        case .profiles: return WebUIIcon(.user, size: .large).markup.html
+        case .tools: return WebUIIcon(.tool, size: .large).markup.html
+        case .workspaces: return WebUIIcon(.grid, size: .large).markup.html
+        case .kanban: return WebUIIcon(.columns, size: .large).markup.html
+        case .memory: return WebUIIcon(.database, size: .large).markup.html
+        case .insights: return WebUIIcon(.chartBar, size: .large).markup.html
+        case .logs: return WebUIIcon(.list, size: .large).markup.html
+        case .tasks: return WebUIIcon(.clock, size: .large).markup.html
+        case .todos: return WebUIIcon(.check, size: .large).markup.html
+        case .settings: return WebUIIcon(.settings, size: .large).markup.html
         }
     }
 }
@@ -106,6 +106,16 @@ struct CategoryMenu: Equatable {
     var categoryID: String
     var x: Int
     var y: Int
+}
+
+/// One armed destructive action. The modal renders whichever request is armed
+/// (`AppState.activeConfirm`) so every confirmation looks the same; `kind`
+/// tells the wire which delete to run once it is confirmed.
+struct ConfirmRequest: Equatable {
+    var kind: String        // "profile" | "chat" | "workspace" | …
+    var id: String
+    var title: String
+    var body: String
 }
 
 /// Kanban board column (name + accent color).
@@ -457,8 +467,8 @@ struct AppSettings: Codable, Equatable {
         smartApproval = try c.decodeIfPresent(Bool.self, forKey: .smartApproval) ?? true
         smartPickAPath = try c.decodeIfPresent(Bool.self, forKey: .smartPickAPath) ?? true
         // Rebuild the canonical order from the stored list (relative order
-        // preserved; keys missing because they are NEW defaults, e.g. github,
-        // are re-inserted at their default slot and start VISIBLE). The old
+        // preserved; keys missing because they are NEW defaults are
+        // re-inserted at their default slot and start VISIBLE). The old
         // "visible-only" format treated missing keys as user-hidden, but that
         // heuristic can never tell a hidden tab from a newly added default —
         // hiding is therefore driven exclusively by explicit
@@ -492,10 +502,6 @@ struct LiveTurn {
     var turnToken = 0
     /// Live tokens-per-second estimate for the streaming reply (showTps).
     var tps: Double? = nil
-    /// Pending mid-run user guidance (reference /steer). Injected into the last
-    /// tool result at the next tool boundary; drained as the next turn if the
-    /// run ends before consuming it (leftover steer).
-    var steerText: String? = nil
 }
 
 /// A pending user-approval request (arc-style permission card in the chat).
@@ -539,6 +545,52 @@ struct Toast: Identifiable {
     let id: Int
     let text: String
     let kind: String   // info | success | error
+    /// An optional action button riding the toast (UX-06: "Conversation
+    /// deleted" carries Undo). Wired through the `toast-dismiss` boundary as
+    /// `ta-<action.id>-<toast.id>`.
+    let action: ToastAction?
+    /// When the toast was raised. Errors are transient by design: they clear
+    /// themselves after `AppState.toastTTL` so a stale bubble cannot sit on the
+    /// page it is reporting on (the old behaviour kept an error over a card
+    /// title until the user clicked ✕).
+    let createdAt: Date = Date()
+
+    init(id: Int, text: String, kind: String = "info", action: ToastAction? = nil) {
+        self.id = id
+        self.text = text
+        self.kind = kind
+        self.action = action
+    }
+}
+
+struct ToastAction: Equatable {
+    let id: String
+    let label: String
+}
+
+/// A deleted chat held for Undo (UX-06): the full session plus every per-chat
+/// settings key the delete path strips, so "Undo" can resurrect the row with
+/// its context intact. Cleared on the next navigation (session open / tab
+/// switch) or when a newer delete supersedes it.
+struct UndoableDelete {
+    let session: Session
+    let workspace: String?
+    let category: String?
+    let profile: String?
+    let thinking: String?
+    let bookmarked: Bool
+    let todos: [TodoItem]?
+    let draft: String?
+    let title: String?
+    let capturedAt: Date = Date()
+}
+
+/// One mid-stream send held in the honest queue (UX-04): the message is
+/// visible ("Queued · N" chip above the composer, removable) and runs as its
+/// own turn after the current reply finishes, in order.
+struct QueuedSend: Equatable, Sendable {
+    let id: Int
+    let text: String
 }
 
 // MARK: - AppState
@@ -741,7 +793,7 @@ actor AppState {
     var storageEdit: TesseraStorageConnection? = nil
     var storagePickOpen = false
     /// True once the app's HTTP/WS server is bound (surfaced in the profile card).
-    var gatewayRunning = false
+    var daemonRunning = false
     var createSkill = false
     var createProfile = false
     /// Profile currently being edited (nil = not editing). The create form
@@ -758,8 +810,17 @@ actor AppState {
     var confirmDeleteID: String?
     /// Name of the profile pending deletion (confirmation modal).
     var confirmProfileDelete: String?
+    /// A newer destructive action awaiting confirmation (workspaces today; the
+    /// chat and profile flows keep their original fields above, untouched).
+    /// `modalHTML()` derives ONE dialog shape from whichever is armed.
+    var pendingConfirm: ConfirmRequest?
     /// Next chat-scroll render should force the view to the bottom (chat open).
     var forceScrollBottom = true
+    /// Conversation outline open. Server-owned so the toggle routes through the
+    /// engine like every other control (the client-only version logged
+    /// "[WebUIEngine] click on unwired control #outline-toggle" on every click)
+    /// and the open state survives a reload.
+    var outlineOpen = false
 
     // MARK: Session sharing (tasks 7-8)
     /// Cached latest share grants (kind 3007), keyed by sessionID. Populated
@@ -810,9 +871,6 @@ actor AppState {
     var previewContent: String? = nil
     var previewNote: String? = nil
 
-    // MARK: GitHub integration page (provided by the GitHubSidebarTab plugin
-// package; no state lives in the application anymore)
-
     /// Scheduled-tasks page: the job whose controls + chat are open in the main pane.
     var tasksSelectedID: String? = nil
 
@@ -826,6 +884,9 @@ actor AppState {
     var addingColumn = false
     var addingCardColumnID: String? = nil
     var confirmColumn: String? = nil
+    /// Card awaiting delete confirmation — the board's in-place two-step, the
+    /// same guard `confirmColumn` already gives columns.
+    var confirmCard: String? = nil
 
     /// Shared palette for category / kanban column colors.
     static let palette: [String] = [
@@ -834,7 +895,7 @@ actor AppState {
     ]
 
     /// Active turns keyed by sessionID — different chats may run concurrently.
-    /// Steering and Stop are scoped to the turn's own session.
+    /// Stop is scoped to the turn's own session.
     var activeTurns: [String: LiveTurn] = [:]
     /// arc-style approval gate for the webui tool loop: the terminal tool
     /// is checked against ApprovalManager, and dangerous commands pause the
@@ -889,6 +950,21 @@ actor AppState {
     /// Daily-token graph range selected in the Insights panel (7/30/90/365).
     var insightsRangeDays = 30
     var toasts: [Toast] = []
+    /// The last chat deleted from the UI, held so its Undo toast can resurrect
+    /// it. Lives until the next navigation (session open / tab switch) or a
+    /// newer delete replaces it (UX-06).
+    var undoableDelete: UndoableDelete?
+    /// URL fragment the server hands the client for the shared-link clipboard
+    /// write (UX-06). Clicks inside the wired chat-menu boundary never reach
+    /// client JS — the engine routes them away — so the copy rides this
+    /// marker: the server surfaces the toast, the overlay's post-patch pass
+    /// reads the marker, writes the clipboard, and drops it.
+    var pendingCopyURL: String? = nil
+    /// Mid-stream sends awaiting their turn, keyed by session (UX-04). Typing
+    /// during a turn queues the message visibly here; each runs as its own
+    /// turn after the current reply, in order, and a chip ✕ removes it.
+    var queuedSends: [String: [QueuedSend]] = [:]
+    var queueSendSeq = 0
     private var toastSeq = 0
 
     var registry: MutableToolRegistry
@@ -903,6 +979,18 @@ actor AppState {
     /// refreshed by ``refreshPlugins()`` — the Settings → Tool plugins view
     /// data source (arc plugin metadata parity).
     var pluginManifests: [String: PluginManifest] = [:]
+
+    // MARK: MCP server presets (Settings → MCP servers)
+
+    /// The add/edit form is open (either adding a new server or editing the
+    /// one named by `editingMCPServer`).
+    var addingMCPServer = false
+    /// The server name being edited; nil while adding.
+    var editingMCPServer: String?
+    /// Tool names discovered by the last successful "Test" probe, per server.
+    var mcpToolCatalog: [String: [String]] = [:]
+    /// Why the last "Test" probe failed, per server (absent = no failure).
+    var mcpTestError: [String: String] = [:]
 
     // MARK: Runtime pieces (rebuilt when workspace / tessera mode changes)
 
@@ -986,19 +1074,27 @@ actor AppState {
         )
         self.settings = AppState.seedKanban(into: self.settings)
         if Self.migrateLegacyAuxModels(into: &self.settings, arc: &self.arcConfig) {
-            saveSettings()
+            Self.persist(self.settings)
         }
         if modelChanged {
-            saveSettings()
+            Self.persist(self.settings)
         }
         if Self.migrateWorkspaceDefaults(into: &self.settings) {
-            saveSettings()
+            Self.persist(self.settings)
         }
         self.selectedWorkspace = self.settings.activeWorkspace
         for w in pluginWarnings {
             crumb(w)
         }
-        Task { await self.refreshPlugins() }
+        // Bind the MCP client manager to the configured servers before the
+        // first turn: the webui turn loop dispatches tools straight through the
+        // registry (no `ArcAgent`), so nothing else here would ever point the
+        // manager at `mcp_servers` — `mcp_tool` would stay inert whatever the
+        // config said.
+        Task {
+            await self.configureMCPClients()
+            await self.refreshPlugins()
+        }
     }
 
     /// Rescan `~/.arc/plugins/` and rebuild the runtime registry with built-in
@@ -1015,7 +1111,7 @@ actor AppState {
     }
 
     /// Enable/disable a tool plugin (reference `plugins.enabled` parity). Writes
-    /// `~/.arc/config.json` so the CLI/gateway honor the same allow-list.
+    /// `~/.arc/config.json` so the CLI/daemon honor the same allow-list.
     func setPluginEnabled(_ name: String, enabled: Bool) {
         var raw = Self.rawArcConfig()
         var list = raw.plugins.enabled ?? self.pluginManifests.keys.sorted()
@@ -1031,7 +1127,7 @@ actor AppState {
     }
 
     /// Mutate the agent-powers lockdown block in `~/.arc/config.json` (the
-    /// file the CLI/gateway/tools read), then refresh the in-memory copy.
+    /// file the CLI/daemon/tools read), then refresh the in-memory copy.
     func updateAgentPowers(_ mutate: (inout AgentPowersConfig) -> Void) async {
         var raw = Self.rawArcConfig()
         mutate(&raw.agentPowers)
@@ -1064,7 +1160,7 @@ actor AppState {
     }
 
     /// Persist an "Always allow" command into `~/.arc/config.json` so the CLI
-    /// and gateway honor the same allowlist (reference approval patterns parity).
+    /// and daemon honor the same allowlist (reference approval patterns parity).
     func persistAlwaysAllowed(_ command: String) async {
         var raw = Self.rawArcConfig()
         var list = raw.security.alwaysAllowedCommands
@@ -1168,6 +1264,13 @@ actor AppState {
     }
 
     func saveSettings() {
+        Self.persist(settings)
+    }
+
+    /// write settings to disk. `nonisolated` because the body reads no actor
+    /// state, so an actor initializer can persist migrated settings before the
+    /// actor is entered (swift 6 rejects an isolated call from a nonisolated init).
+    nonisolated static func persist(_ settings: AppSettings) {
         let url = Self.settingsURL
         try? FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -1196,8 +1299,47 @@ actor AppState {
         return t
     }
 
+    /// Surface a toast regardless of kind — the routed counterpart to `toast`,
+    /// which stays error-only by user preference. Used where feedback IS the
+    /// feature (UX-06: "Conversation deleted" + Undo must appear, not vanish).
+    @discardableResult
+    func surfaceToast(_ text: String, kind: String = "info", action: ToastAction? = nil) -> Toast {
+        toastSeq += 1
+        let t = Toast(id: toastSeq, text: text, kind: kind, action: action)
+        toasts.append(t)
+        if toasts.count > 4 { toasts.removeFirst(toasts.count - 4) }
+        return t
+    }
+
     func dismissToast(id: Int) {
         toasts.removeAll { $0.id == id }
+    }
+
+    /// Stage the shared-link URL for the client clipboard write (UX-06). The
+    /// path rides the next `#toasts` fragment as a hidden marker that the
+    /// overlay consumes; the caller surfaces the "copied" toast.
+    func markCopyLink(_ sessionID: String) {
+        pendingCopyURL = "?s=\(enc(sessionID))"
+    }
+
+    /// How long a surfaced error stays on screen before it clears itself. Long
+    /// enough to read and act on, short enough that it never becomes furniture.
+    static let toastTTL: TimeInterval = 8
+
+    /// Drop toasts past their TTL. Returns true only when the set actually
+    /// changed, so the host broadcasts a fragment set that shrank and stays
+    /// silent on every other tick.
+    func expireToasts(now: Date = Date(), ttl: TimeInterval = AppState.toastTTL) -> Bool {
+        let before = toasts.count
+        toasts.removeAll { now.timeIntervalSince($0.createdAt) > ttl }
+        return toasts.count != before
+    }
+
+    /// The `#toasts` fragment every pusher emits. The engine replaces the node
+    /// by id, so the wrapper (id + routing attributes) must be re-emitted
+    /// verbatim — same shape as `toastsShell()` in the page.
+    func toastFragments() -> [FragmentUpdate] {
+        [FragmentUpdate(id: "toasts", html: toastsShell())]
     }
 
     // MARK: Runtime construction
@@ -1295,6 +1437,24 @@ actor AppState {
     func attachRuntime(_ runtime: StorageRuntime) {
         attachedStorage = runtime
         runtimeKey = nil
+    }
+
+    /// Release the process-scoped resources this actor owns.
+    ///
+    /// The host calls this at the end of its `run()` (Second Law: cleanup
+    /// belongs to the service, not to a `deinit`). An `AsyncHTTPClient` that
+    /// was never shut down traps in its deinit — `Fatal error: Client not shut
+    /// down before the deinit` — whenever the daemon's teardown releases the
+    /// app state while the process is still alive, which is exactly what a
+    /// Ctrl-C on `arc serve` does.
+    ///
+    /// Idempotent, and `ensureRuntime()` re-creates the client if a live host
+    /// still needs one.
+    func shutdown() async {
+        if let client = httpClient {
+            try? await client.shutdown()
+            httpClient = nil
+        }
     }
 
     /// Reload the scheduled-jobs render cache from the cron store (the single

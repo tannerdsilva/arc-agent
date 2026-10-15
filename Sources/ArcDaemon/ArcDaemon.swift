@@ -7,9 +7,9 @@ import ServiceLifecycle
 /// The single composition root: one `ServiceGroup`, surfaces assembled from a
 /// ``DaemonPlan``.
 ///
-/// `arc serve` is a thin shell over ``run(arc:gateway:overrides:)``; the web UI
-/// host mounts here in phase 2 of the consolidation (see
-/// `.hermes/plans/2026-10-01_093852-unify-the-daemon.md`).
+/// `arc serve` is a thin shell over ``run(arc:config:overrides:)``; every
+/// surface — web UI, REST API, platform adapters, MCP, kanban — mounts here
+/// (see `.hermes/plans/2026-10-01_093852-unify-the-daemon.md`).
 public enum ArcDaemon {
 
     /// Compose and run the daemon.
@@ -20,7 +20,7 @@ public enum ArcDaemon {
     /// shutdown.
     public static func run(
         arc: ArcConfig,
-        gateway: GatewayConfig,
+        config: DaemonConfig,
         overrides: DaemonPlan.Overrides = DaemonPlan.Overrides()
     ) async throws {
         // Route every swift-log line into the web UI's ring buffer; the
@@ -28,9 +28,9 @@ public enum ArcDaemon {
         // whichever of daemon/host runs first installs it.
         WebUILogging.install()
 
-        let plan = DaemonPlan.resolve(gateway: gateway, overrides: overrides)
-        let gatewayConfig = plan.gatewayWithFilledToken(gateway)
-        let logger = Logger(label: "arc-agent.gateway")
+        let plan = DaemonPlan.resolve(config: config, overrides: overrides)
+        let daemonConfig = plan.configWithFilledToken(config)
+        let logger = Logger(label: "arc-agent.daemon")
 
         // ONE gate install: the daemon's agents consult the same lockdown
         // config the CLI writes. `ArcAgent` only re-asserts a *non-default*
@@ -49,7 +49,7 @@ public enum ArcDaemon {
         })
         await ProcessWatchService.shared.setAgentPIDs(ownedPIDs)
 
-        // ONE storage decision for the whole process: the gateway's session
+        // ONE storage decision for the whole process: the session host's
         // agents and the web UI share this exact pair (no second env on the
         // same store directories).
         // Storage decision: the web UI's Settings → Storage picker is the
@@ -85,19 +85,22 @@ public enum ArcDaemon {
 
         // ── surfaces ────────────────────────────────────────────────
         // Sidecar plugins: every valid install under ~/.arc/plugins/
-        // spawns its own process and shows up as ordinary sidebar tabs
-        // (the reference GitHub plugin ships this way). Discovery happens
-        // before the host boots so the tab registry is complete at
+        // spawns its own process and shows up as ordinary sidebar tabs.
+        // Discovery happens before the host boots so the tab registry is
+        // complete at
         // startup; the host state is attached afterwards for the
         // plugin→host channel (workspace path, toasts, navigation).
         let sidecarManager = SidecarPluginManager()
-        var gateway: GatewayService?
-        if let api = plan.api {
-            gateway = GatewayService(
-                host: api.host,
-                port: api.port,
+        // The session host hosts sessions and their feeding surfaces: the
+        // REST API (when enabled) plus every configured platform adapter. It
+        // composes whenever it has anything to serve — adapters are not
+        // gated behind the API surface.
+        var sessionHost: SessionHost?
+        if plan.api != nil || daemonConfig.anyPlatformAdapterReady {
+            sessionHost = SessionHost(
+                api: plan.api.map { SessionHost.API(host: $0.host, port: $0.port) },
                 telegramToken: plan.telegramToken,
-                gatewayConfig: gatewayConfig,
+                config: daemonConfig,
                 agentConfig: agentConfig
             )
         }
@@ -137,40 +140,46 @@ public enum ArcDaemon {
 
         // ── cron: ONE engine, ONE store ─────────────────────────────
         // The daemon owns the scheduler; job execution prefers the web UI's
-        // approval-aware headless runner and falls back to the gateway's
-        // session-agent runner (the pre-daemon behavior) when the UI is off.
+        // approval-aware headless runner and falls back to the session
+        // host's session-agent runner (the pre-daemon behavior) when the UI
+        // is off.
         let cronStore = RuntimeCronStore()
         await ScheduledJobsImport.runIfNeeded(into: cronStore)
         let jobRunner: @Sendable (CronJob) async throws -> String
         if let uiHost {
             jobRunner = { job in await uiHost.runScheduledJob(job) }
-        } else if let gateway {
-            jobRunner = gateway.cronRunner
+        } else if let sessionHost {
+            jobRunner = sessionHost.cronRunner
         } else {
-            jobRunner = { _ in "No runner: neither the web UI nor the API surface is enabled." }
+            jobRunner = { _ in "No runner: neither the web UI nor the session host is enabled." }
         }
         let cronScheduler = CronScheduler(store: cronStore, jobRunner: jobRunner)
 
-        printBanner(plan: plan, gateway: gatewayConfig)
+        printBanner(plan: plan, config: daemonConfig)
 
         var services: [any Service] = []
-        if let gateway { services.append(gateway) }
+        if let sessionHost { services.append(sessionHost) }
         if let uiHost { services.append(uiHost) }
-        guard !services.isEmpty else {
-            logger.warning("no daemon surfaces enabled (see gateway.json) — nothing to run")
+        // A surface can also arrive below as a service in its own right — the MCP
+        // server and the kanban dispatcher are not HTTP/UI hosts. The guard must
+        // account for every surface, or a daemon configured with only one of them
+        // exits at boot ("nothing to run") while a configured surface is live.
+        guard sessionHost != nil || uiHost != nil || plan.mcpServer != nil || plan.kanban != nil else {
+            logger.warning("no daemon surfaces enabled (see daemon.json) — nothing to run")
             return
         }
 
-        // Reference gateway event: `gateway:startup` (fires once per process
-        // start; the platform list = the surfaces that were composed). The
-        // outbound config and file-hook loading are installed by the CLI
-        // entry before the daemon runs; this emit closes the loop.
-        var startedPlatforms = ["http"]
-        if gatewayConfig.telegram.enabled { startedPlatforms.append("telegram") }
-        if gatewayConfig.email.enabled { startedPlatforms.append("email") }
-        if gatewayConfig.slack.enabled { startedPlatforms.append("slack") }
+        // Reference event: `daemon:startup` (fires once per process start; the
+        // platform list = the surfaces that were composed). The outbound
+        // config and file-hook loading are installed by the CLI entry before
+        // the daemon runs; this emit closes the loop.
+        var startedPlatforms: [String] = []
+        if plan.api != nil { startedPlatforms.append("http") }
+        if daemonConfig.telegramAdapterReady { startedPlatforms.append("telegram") }
+        if daemonConfig.emailAdapterReady { startedPlatforms.append("email") }
+        if daemonConfig.slackAdapterReady { startedPlatforms.append("slack") }
         if plan.webui != nil { startedPlatforms.append("webui") }
-        await HookBus.shared.emit("gateway:startup", ["platforms": .array(startedPlatforms)])
+        await HookBus.shared.emit("daemon:startup", ["platforms": .array(startedPlatforms)])
 
         // cron rides with a surface: jobs need a runner.
         services.append(cronScheduler)
@@ -178,6 +187,11 @@ public enum ArcDaemon {
         // Sidecar plugin processes ride the same lifecycle: graceful stop
         // terminates every plugin child before the host exits.
         services.append(SidecarPluginService(manager: sidecarManager))
+
+        // MCP sessions (from `mcp_servers`) spawn lazily on first use; this
+        // service owns closing them at shutdown, so every child gets a clean
+        // stdin EOF instead of a signal.
+        services.append(MCPClientsService())
 
         // Plan B: scoped process watcher (Second Law — one Service in the
         // tree; polls, diffs, emits `process:*` HookBus events).
@@ -198,7 +212,7 @@ public enum ArcDaemon {
         if let kanban = plan.kanban {
             // CAVEAT: a stub executor that fabricates completion, polling the
             // CORE board (~/.arc/kanban), not the web UI's panel. Default off;
-            // see KanbanGatewayConfig.
+            // see KanbanConfig.
             services.append(KanbanDispatcher(
                 board: FileKanbanBoard(),
                 pollIntervalSeconds: UInt64(kanban.pollSeconds)
@@ -214,12 +228,25 @@ public enum ArcDaemon {
         // task cancellation after this bound instead of hanging forever.
         configuration.maximumGracefulShutdownDuration = .seconds(5)
 
-        try await ServiceGroup(configuration: configuration).run()
+        do {
+            try await ServiceGroup(configuration: configuration).run()
+        } catch {
+            // Release the process-scoped connection before propagating.
+            await TesseraConnection.shared.shutdown()
+            throw error
+        }
+        // Release the shared Tessera connection (WireGuard tunnel) at teardown.
+        // The session host releases it for its own surface, but the daemon
+        // owns the process: with the API surface disabled the web UI is the only
+        // storage consumer, and the tunnel would otherwise be left open (an
+        // un-shutdown tessera client traps in its deinit — see `Arc.swift`'s
+        // `shutdownHTTPClient()` note on the CLI path).
+        await TesseraConnection.shared.shutdown()
     }
 
     /// Startup banner — parity with the pre-daemon `arc serve` output.
-    private static func printBanner(plan: DaemonPlan, gateway: GatewayConfig) {
-        print("⚡ ARC Agent Gateway")
+    private static func printBanner(plan: DaemonPlan, config: DaemonConfig) {
+        print("⚡ ARC Agent")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         if let api = plan.api {
             print("HTTP server: http://\(api.host):\(api.port)")
@@ -231,9 +258,9 @@ public enum ArcDaemon {
         } else {
             print("Web UI:     disabled")
         }
-        if gateway.telegram.enabled { print("Telegram: enabled") }
-        if gateway.email.enabled { print("Email: enabled") }
-        if gateway.slack.enabled { print("Slack: enabled") }
+        if config.telegramAdapterReady { print("Telegram: enabled") }
+        if config.emailAdapterReady { print("Email: enabled") }
+        if config.slackAdapterReady { print("Slack: enabled") }
         print("")
     }
 }

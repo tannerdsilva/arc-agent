@@ -2,394 +2,397 @@ import Testing
 import Foundation
 @testable import ArcAgentCore
 
-/// Tests for the pluggability layer: provider registries, context engines,
-/// and the plugin registry + mutable tool registry.
-@Suite("Pluggability")
-struct PluggabilityTests {
+extension ArcCoreTestRoot {
+    /// Tests for the pluggability layer: provider registries, context engines,
+    /// and the plugin registry + mutable tool registry.
+    @Suite("Pluggability", .serialized)
+    struct PluggabilityTests {
 
-    // MARK: - Registries
+        // MARK: - Registries
 
-    @Test("web search registry selects active provider by env, default fallback")
-    func webSearchRegistry() async {
-        struct FakeSearch: WebSearchProvider {
-            let name: String
-            func search(query: String, maxResults: Int) async throws -> [String] { ["\(name):\(query)"] }
+        @Test("web search registry selects active provider by env, default fallback")
+        func webSearchRegistry() async {
+            struct FakeSearch: WebSearchProvider {
+                let name: String
+                func search(query: String, maxResults: Int) async throws -> [String] { ["\(name):\(query)"] }
+            }
+            await WebSearchRegistry.shared.register(FakeSearch(name: "default"))
+            await WebSearchRegistry.shared.register(FakeSearch(name: "brave"))
+            let active = await WebSearchRegistry.shared.active()
+            // No WEB_SEARCH_PROVIDER env in tests → default.
+            #expect(active?.name == "default")
+
+            let fakeEnv = ProcessInfo.processInfo.environment["WEB_SEARCH_PROVIDER"]
+            if fakeEnv == nil {
+                setenv("WEB_SEARCH_PROVIDER", "brave", 1)
+                defer { unsetenv("WEB_SEARCH_PROVIDER") }
+                let selected = await WebSearchRegistry.shared.active()
+                #expect(selected?.name == "brave")
+            }
         }
-        await WebSearchRegistry.shared.register(FakeSearch(name: "default"))
-        await WebSearchRegistry.shared.register(FakeSearch(name: "brave"))
-        let active = await WebSearchRegistry.shared.active()
-        // No WEB_SEARCH_PROVIDER env in tests → default.
-        #expect(active?.name == "default")
 
-        let fakeEnv = ProcessInfo.processInfo.environment["WEB_SEARCH_PROVIDER"]
-        if fakeEnv == nil {
-            setenv("WEB_SEARCH_PROVIDER", "brave", 1)
-            defer { unsetenv("WEB_SEARCH_PROVIDER") }
-            let selected = await WebSearchRegistry.shared.active()
-            #expect(selected?.name == "brave")
+        // MARK: - Context engines
+
+        @Test("default engine compresses at threshold and protects the head")
+        func defaultEngine() {
+            let engine = DefaultContextEngine()
+            #expect(engine.shouldCompress(currentTokens: 1_000, threshold: 1_000))
+            #expect(!engine.shouldCompress(currentTokens: 999, threshold: 1_000))
+
+            let messages = (0..<12).map { Message(role: .user, content: "m\($0)") }
+            let selected = engine.selectContext(messages: messages, threshold: 10, protectFirstN: 2)
+            #expect(selected.first?.content == "m0")
+            #expect(selected.count <= messages.count)
+            #expect(selected.count >= 2)
         }
-    }
 
-    // MARK: - Context engines
+        @Test("prune-tool-results engine drops oversized tool results only")
+        func pruneEngine() {
+            let engine = PruneToolResultsEngine()
+            let messages = [
+                Message(role: .user, content: "hi"),
+                Message(role: .tool, content: String(repeating: "x", count: 40_000)),
+                Message(role: .tool, content: "small"),
+            ]
+            let pruned = engine.pruneToolResultsOnly(messages: messages, maxBytes: 10_000)
+            #expect(pruned.count == 2)
+            #expect(pruned.contains { $0.content == "small" })
+            #expect(pruned.contains { $0.content == "hi" })
 
-    @Test("default engine compresses at threshold and protects the head")
-    func defaultEngine() {
-        let engine = DefaultContextEngine()
-        #expect(engine.shouldCompress(currentTokens: 1_000, threshold: 1_000))
-        #expect(!engine.shouldCompress(currentTokens: 999, threshold: 1_000))
+            // selectContext is a no-op for this engine.
+            #expect(engine.selectContext(messages: messages, threshold: 1, protectFirstN: 1).count == 3)
 
-        let messages = (0..<12).map { Message(role: .user, content: "m\($0)") }
-        let selected = engine.selectContext(messages: messages, threshold: 10, protectFirstN: 2)
-        #expect(selected.first?.content == "m0")
-        #expect(selected.count <= messages.count)
-        #expect(selected.count >= 2)
-    }
+            // Router picks it via env.
+            let routed = ContextEngineRouter.resolve(environment: ["ARC_CONTEXT_ENGINE": "prune_tool_results"])
+            #expect(routed.name == "prune_tool_results")
+            let defaultRouted = ContextEngineRouter.resolve(environment: [:])
+            #expect(defaultRouted.name == "default")
+        }
 
-    @Test("prune-tool-results engine drops oversized tool results only")
-    func pruneEngine() {
-        let engine = PruneToolResultsEngine()
-        let messages = [
-            Message(role: .user, content: "hi"),
-            Message(role: .tool, content: String(repeating: "x", count: 40_000)),
-            Message(role: .tool, content: "small"),
-        ]
-        let pruned = engine.pruneToolResultsOnly(messages: messages, maxBytes: 10_000)
-        #expect(pruned.count == 2)
-        #expect(pruned.contains { $0.content == "small" })
-        #expect(pruned.contains { $0.content == "hi" })
+        // MARK: - Plugin registry
 
-        // selectContext is a no-op for this engine.
-        #expect(engine.selectContext(messages: messages, threshold: 1, protectFirstN: 1).count == 3)
-
-        // Router picks it via env.
-        let routed = ContextEngineRouter.resolve(environment: ["ARC_CONTEXT_ENGINE": "prune_tool_results"])
-        #expect(routed.name == "prune_tool_results")
-        let defaultRouted = ContextEngineRouter.resolve(environment: [:])
-        #expect(defaultRouted.name == "default")
-    }
-
-    // MARK: - Plugin registry
-
-    @Test("plugin discovery reads manifests and exposes tools/llm")
-    func pluginDiscovery() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugins-\(UUID().uuidString)")
-        let pluginDir = root.appendingPathComponent("demo")
-        try FileManager.default.createDirectory(at: pluginDir, withIntermediateDirectories: true)
-        let manifest: [String: Any] = [
-            "name": "demo",
-            "version": "1.2.0",
-            "tools": [
-                ["name": "demo_hello", "description": "say hi", "command": "./hello.sh"],
-            ],
-            "llm": ["provider": "custom", "model": "m-1", "base_url": "https://example.test/v1", "api_key_env": "DEMO_KEY"],
-        ]
-        try JSONSerialization.data(withJSONObject: manifest)
-            .write(to: pluginDir.appendingPathComponent("manifest.json"))
-        // A working plugin binary.
-        let script = "#!/bin/sh\ncat\n"
-        try Data(script.utf8).write(to: pluginDir.appendingPathComponent("hello.sh"))
-        let registry = PluginRegistry(pluginsDir: root)
-        try await registry.loadAll()
-        #expect((await registry.plugins()).count == 1)
-        #expect((await registry.toolNames()) == ["demo_hello"])
-        let llm = await registry.llm()
-        #expect(llm?.provider == "custom")
-        #expect(llm?.model == "m-1")
-        #expect(llm?.apiKeyEnv == "DEMO_KEY")
-    }
-
-    @Test("plugin tool invocation pipes JSON and parses {result}")
-    func pluginInvoke() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugins-\(UUID().uuidString)")
-        let pluginDir = root.appendingPathComponent("echo")
-        try FileManager.default.createDirectory(at: pluginDir, withIntermediateDirectories: true)
-        // Reads stdin, echoes back a result JSON.
-        let script = """
-        #!/bin/sh
-        read line
-        echo "{\\"result\\": \\"got: $line\\"}"
-        """
-        try Data(script.utf8).write(to: pluginDir.appendingPathComponent("run.sh"))
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pluginDir.appendingPathComponent("run.sh").path)
-
-        let tool = PluginTool(plugin: "echo", name: "echo_tool", description: "",
-                              command: "./run.sh", args: [], cwdOverride: pluginDir)
-        let result = try await tool.invoke(args: ["x": 1])
-        #expect(result.contains("got:"))
-    }
-
-    @Test("mutable registry layers plugin tools over built-ins (reference bundling)")
-    func mutableRegistry() async throws {
-        let builtIn = try ArcAgentCore.buildDefaultRegistry()
-        let registry = MutableToolRegistry(builtIn: builtIn)
-        #expect(registry.lookup(name: "read_file") != nil)
-
-        // No plugins dir → make() falls through cleanly.
-        let made = try await MutableToolRegistry.make(pluginRegistry: PluginRegistry(pluginsDir: FileManager.default.temporaryDirectory.appendingPathComponent("none-\(UUID().uuidString)")))
-        let schemas = made.buildToolSchemas(enabled: [], disabled: [])
-        #expect(schemas.count >= 36)
-    }
-
-    @Test("plugin manifest tools carry schema/toolset/requires_env and install with real parameters")
-    func pluginSchemaInstall() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugins-\(UUID().uuidString)")
-        let pluginDir = root.appendingPathComponent("schemad")
-        try FileManager.default.createDirectory(at: pluginDir, withIntermediateDirectories: true)
-        let manifest: [String: Any] = [
-            "name": "schemad",
-            "version": "1.0.0",
-            "tools": [[
-                "name": "schemad_tool",
-                "description": "get weather",
-                "command": "python3",
-                "entry": "tool.py",
-                "toolset": "weather",
-                "schema": [
-                    "type": "object",
-                    "properties": ["city": ["type": "string", "description": "City name"]],
-                    "required": ["city"],
-                ],
-            ]],
-        ]
-        try JSONSerialization.data(withJSONObject: manifest)
-            .write(to: pluginDir.appendingPathComponent("manifest.json"))
-        let registry = PluginRegistry(pluginsDir: root)
-        try await registry.loadAll()
-        let tools = await registry.tools()
-        #expect(tools.count == 1)
-        #expect(tools[0].toolset == "weather")
-        #expect(tools[0].entry == "tool.py")
-
-        var mutable = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
-        let installed = mutable.install(pluginTool: tools[0])
-        #expect(installed)
-        let schemas = mutable.buildToolSchemas(enabled: [], disabled: [])
-        let fn = schemas.first { (($0["function"] as? [String: Any])?["name"] as? String) == "schemad_tool" }
-        let params = (fn?["function"] as? [String: Any])?["parameters"] as? [String: Any]
-        #expect((params?["properties"] as? [String: Any])?["city"] != nil)
-    }
-
-    @Test("python tool invoked via PATH command + entry script")
-    func pluginPythonPath() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugins-\(UUID().uuidString)")
-        let pluginDir = root.appendingPathComponent("py")
-        try FileManager.default.createDirectory(at: pluginDir, withIntermediateDirectories: true)
-        let manifest: [String: Any] = [
-            "name": "py",
-            "tools": [[
-                "name": "py_echo",
-                "description": "echo text",
-                "command": "python3",
-                "entry": "tool.py",
-            ]],
-        ]
-        try JSONSerialization.data(withJSONObject: manifest)
-            .write(to: pluginDir.appendingPathComponent("manifest.json"))
-        let script = """
-        import json, sys
-        payload = json.load(sys.stdin)
-        args = payload.get("args", {})
-        text = args.get("text", "")
-        print(json.dumps({"result": "echo: " + str(text)}))
-        """
-        try Data(script.utf8).write(to: pluginDir.appendingPathComponent("tool.py"))
-        let registry = PluginRegistry(pluginsDir: root)
-        try await registry.loadAll()
-        let tool = try #require((await registry.tools()).first)
-        let result = try await tool.invoke(args: ["text": "hello"])
-        #expect(result.contains("echo: hello"))
-    }
-
-    @Test("requires_env gate skips plugin tool until the env var is present")
-    func pluginRequiresEnv() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugins-\(UUID().uuidString)")
-        let pluginDir = root.appendingPathComponent("envgated")
-        try FileManager.default.createDirectory(at: pluginDir, withIntermediateDirectories: true)
-        let manifest: [String: Any] = [
-            "name": "envgated",
-            "tools": [[
-                "name": "env_tool",
-                "description": "needs key",
-                "command": "python3",
-                "entry": "tool.py",
-                "requires_env": ["ARC_PLUGIN_TEST_KEY"],
-            ]],
-        ]
-        try JSONSerialization.data(withJSONObject: manifest)
-            .write(to: pluginDir.appendingPathComponent("manifest.json"))
-        let registry = PluginRegistry(pluginsDir: root)
-        try await registry.loadAll()
-        let tool = try #require((await registry.tools()).first)
-        var mutable = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
-        // Key absent → not installed.
-        let before = mutable.install(pluginTool: tool)
-        #expect(!before)
-        #expect(mutable.lookup(name: "env_tool") == nil)
-        setenv("ARC_PLUGIN_TEST_KEY", "1", 1)
-        defer { unsetenv("ARC_PLUGIN_TEST_KEY") }
-        let after = mutable.install(pluginTool: tool)
-        #expect(after)
-        #expect(mutable.lookup(name: "env_tool") != nil)
-    }
-
-    @Test("enabled allow-list filters plugins at make()")
-    func pluginAllowList() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugins-\(UUID().uuidString)")
-        for name in ["alpha", "beta"] {
-            let pluginDir = root.appendingPathComponent(name)
+        @Test("plugin discovery reads manifests and exposes tools/llm")
+        func pluginDiscovery() async throws {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugins-\(UUID().uuidString)")
+            let pluginDir = root.appendingPathComponent("demo")
             try FileManager.default.createDirectory(at: pluginDir, withIntermediateDirectories: true)
             let manifest: [String: Any] = [
-                "name": name,
-                "tools": [["name": "\(name)_tool", "description": "d", "command": "python3", "entry": "tool.py"]],
+                "name": "demo",
+                "version": "1.2.0",
+                "tools": [
+                    ["name": "demo_hello", "description": "say hi", "command": "./hello.sh"],
+                ],
+                "llm": ["provider": "custom", "model": "m-1", "base_url": "https://example.test/v1", "api_key_env": "DEMO_KEY"],
             ]
             try JSONSerialization.data(withJSONObject: manifest)
                 .write(to: pluginDir.appendingPathComponent("manifest.json"))
+            // A working plugin binary.
+            let script = "#!/bin/sh\ncat\n"
+            try Data(script.utf8).write(to: pluginDir.appendingPathComponent("hello.sh"))
+            let registry = PluginRegistry(pluginsDir: root)
+            try await registry.loadAll()
+            #expect((await registry.plugins()).count == 1)
+            #expect((await registry.toolNames()) == ["demo_hello"])
+            let llm = await registry.llm()
+            #expect(llm?.provider == "custom")
+            #expect(llm?.model == "m-1")
+            #expect(llm?.apiKeyEnv == "DEMO_KEY")
         }
-        let registry = PluginRegistry(pluginsDir: root)
-        let made = try await MutableToolRegistry.make(pluginRegistry: registry, enabledPlugins: ["alpha"])
-        #expect(made.lookup(name: "alpha_tool") != nil)
-        #expect(made.lookup(name: "beta_tool") == nil)
-    }
 
-    @Test("ArcConfig plugins.enabled decodes nil / empty / allow-list")
-    func arcPluginConfigDecode() throws {
-        let missing = try JSONDecoder().decode(ArcConfig.self, from: Data("{}".utf8))
-        #expect(missing.plugins.enabled == nil)
+        @Test("plugin tool invocation pipes JSON and parses {result}")
+        func pluginInvoke() async throws {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugins-\(UUID().uuidString)")
+            let pluginDir = root.appendingPathComponent("echo")
+            try FileManager.default.createDirectory(at: pluginDir, withIntermediateDirectories: true)
+            // Reads stdin, echoes back a result JSON.
+            let script = """
+            #!/bin/sh
+            read line
+            echo "{\\"result\\": \\"got: $line\\"}"
+            """
+            try Data(script.utf8).write(to: pluginDir.appendingPathComponent("run.sh"))
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pluginDir.appendingPathComponent("run.sh").path)
 
-        let empty = try JSONDecoder().decode(ArcConfig.self, from: Data(#"{"plugins":{"enabled":[]}}"#.utf8))
-        #expect(empty.plugins.enabled == [])
-
-        let allow = try JSONDecoder().decode(ArcConfig.self, from: Data(#"{"plugins":{"enabled":["demo"]}}"#.utf8))
-        #expect(allow.plugins.enabled == ["demo"])
-    }
-
-    @Test("JSONSchema parses OpenAI parameters object")
-    func openAISchemaParse() {
-        let dict: [String: Any] = [
-            "type": "object",
-            "properties": ["city": ["type": "string", "description": "City name"]],
-            "required": ["city"],
-        ]
-        let parsed = JSONSchema(fromOpenAI: dict)
-        #expect(parsed != nil)
-        let out = parsed?.asDictionary()
-        #expect((out?["properties"] as? [String: Any])?["city"] != nil)
-        let given = JSONSchema(fromOpenAI: ["type": "string", "enum": ["a", "b"]])
-        #expect(given?.asDictionary()["enum"] as? [String] == ["a", "b"])
-    }
-
-    // MARK: - AgentTool protocol (protocolized tool model)
-
-    @Test("PluginTool conforms to AgentTool and dispatches via registry.lookup")
-    func agentToolPluginDispatch() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugins-\(UUID().uuidString)")
-        let pluginDir = root.appendingPathComponent("echo")
-        try FileManager.default.createDirectory(at: pluginDir, withIntermediateDirectories: true)
-        let script = """
-        #!/bin/sh
-        read line
-        echo "{\\"result\\": \\"got: $line\\"}"
-        """
-        try Data(script.utf8).write(to: pluginDir.appendingPathComponent("run.sh"))
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pluginDir.appendingPathComponent("run.sh").path)
-
-        var mutable = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
-        let pluginTool = PluginTool(plugin: "echo", name: "echo_tool", description: "",
-                                    command: "./run.sh", args: [], cwdOverride: pluginDir)
-        let installed = mutable.install(pluginTool: pluginTool)
-        #expect(installed)
-
-        // The registry hands back the plugin tool as an existential AgentTool —
-        // no closure wrapping — and it dispatches through the protocol handler.
-        let tool: (any AgentTool)? = mutable.lookup(name: "echo_tool")
-        let resolved = try #require(tool)
-        #expect(resolved is PluginTool)
-        #expect(resolved.name == "echo_tool")
-        #expect(resolved.emoji == "🧩")
-        let result = try await resolved.handler(["x": 1])
-        #expect(result.contains("got:"))
-    }
-
-    @Test("AgentTool protocol is shared by built-in ToolEntry and plugin tools")
-    func agentToolProtocolShared() throws {
-        // A generic consumer written against the protocol accepts both kinds.
-        func describe(_ tool: any AgentTool) -> String {
-            "\(tool.name)[\(tool.toolset)]"
+            let tool = PluginTool(plugin: "echo", name: "echo_tool", description: "",
+                                  command: "./run.sh", args: [], cwdOverride: pluginDir)
+            let result = try await tool.invoke(args: ["x": 1])
+            #expect(result.contains("got:"))
         }
-        let builtIn = try ArcAgentCore.buildDefaultRegistry()
-        let builtInEntry = try #require(builtIn.lookup(name: "read_file"))
-        #expect(describe(builtInEntry) == "read_file[file]")
 
-        let pluginTool = PluginTool(plugin: "p", name: "p_tool", description: "d", command: "python3")
-        #expect(describe(pluginTool) == "p_tool[plugins]")
-    }
+        @Test("mutable registry layers plugin tools over built-ins (reference bundling)")
+        func mutableRegistry() async throws {
+            let builtIn = try ArcAgentCore.buildDefaultRegistry()
+            let registry = MutableToolRegistry(builtIn: builtIn)
+            #expect(registry.lookup(name: "read_file") != nil)
 
-    @Test("plugin tool named like a built-in is refused (no duplicate schemas)")
-    func pluginToolCollisionGuard() throws {
-        var mutable = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
-        let colliding = PluginTool(plugin: "bad", name: "read_file", description: "shadow", command: "python3")
-        let refused = mutable.install(pluginTool: colliding)
-        #expect(!refused)
-        // The built-in still wins dispatch.
-        #expect(mutable.lookup(name: "read_file") is ToolEntry)
-        // Exactly one read_file function reaches the model.
-        let schemas = mutable.buildToolSchemas(enabled: [], disabled: [])
-        let readFileFunctions = schemas.filter {
-            (($0["function"] as? [String: Any])?["name"] as? String) == "read_file"
+            // No plugins dir → make() falls through cleanly and the full
+            // built-in surface remains, with no plugin tools layered on.
+            let made = try await MutableToolRegistry.make(pluginRegistry: PluginRegistry(pluginsDir: FileManager.default.temporaryDirectory.appendingPathComponent("none-\(UUID().uuidString)")))
+            let schemas = made.buildToolSchemas(enabled: [], disabled: [])
+            #expect(schemas.count == 54)
         }
-        #expect(readFileFunctions.count == 1)
-    }
 
-    @Test("plugin discovery records non-fatal issues and keeps loading the rest")
-    func pluginRegistryDiscoveryIssues() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugins-\(UUID().uuidString)")
-        // Good plugin.
-        let good = root.appendingPathComponent("good")
-        try FileManager.default.createDirectory(at: good, withIntermediateDirectories: true)
-        try JSONSerialization.data(withJSONObject: [
-            "name": "good",
-            "tools": [["name": "good_tool", "description": "d", "command": "python3", "entry": "tool.py"]],
-        ]).write(to: good.appendingPathComponent("manifest.json"))
-        // Malformed tool manifest (declares a tools key, but tools is junk).
-        let bad = root.appendingPathComponent("bad")
-        try FileManager.default.createDirectory(at: bad, withIntermediateDirectories: true)
-        try Data(#"{"name":"bad","tools":"not-an-array"}"#.utf8).write(to: bad.appendingPathComponent("manifest.json"))
-        // Manifest with no tools.
-        let empty = root.appendingPathComponent("empty")
-        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
-        try JSONSerialization.data(withJSONObject: ["name": "empty", "tools": []])
-            .write(to: empty.appendingPathComponent("manifest.json"))
-        // Non-tool plugin kind (e.g. a sidebar-tab sidecar): no `tools` key —
-        // must be skipped silently, no issue recorded.
-        let sidecar = root.appendingPathComponent("sidecar-kind")
-        try FileManager.default.createDirectory(at: sidecar, withIntermediateDirectories: true)
-        try JSONSerialization.data(withJSONObject: ["name": "sidecar-kind", "version": "1.0.0", "executable": "sidecar-kind"])
-            .write(to: sidecar.appendingPathComponent("manifest.json"))
+        @Test("plugin manifest tools carry schema/toolset/requires_env and install with real parameters")
+        func pluginSchemaInstall() async throws {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugins-\(UUID().uuidString)")
+            let pluginDir = root.appendingPathComponent("schemad")
+            try FileManager.default.createDirectory(at: pluginDir, withIntermediateDirectories: true)
+            let manifest: [String: Any] = [
+                "name": "schemad",
+                "version": "1.0.0",
+                "tools": [[
+                    "name": "schemad_tool",
+                    "description": "get weather",
+                    "command": "python3",
+                    "entry": "tool.py",
+                    "toolset": "weather",
+                    "schema": [
+                        "type": "object",
+                        "properties": ["city": ["type": "string", "description": "City name"]],
+                        "required": ["city"],
+                    ],
+                ]],
+            ]
+            try JSONSerialization.data(withJSONObject: manifest)
+                .write(to: pluginDir.appendingPathComponent("manifest.json"))
+            let registry = PluginRegistry(pluginsDir: root)
+            try await registry.loadAll()
+            let tools = await registry.tools()
+            #expect(tools.count == 1)
+            #expect(tools[0].toolset == "weather")
+            #expect(tools[0].entry == "tool.py")
 
-        let registry = PluginRegistry(pluginsDir: root)
-        try await registry.loadAll()
-        #expect(await registry.plugins().count == 1)
-        #expect(await registry.toolNames() == ["good_tool"])
-        let issues = await registry.discoveryIssues()
-        #expect(issues.count == 2)
-        #expect(issues.contains { $0.contains("bad: manifest.json is malformed") })
-        #expect(issues.contains { $0.contains("empty: manifest declares no tools") })
-    }
+            var mutable = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
+            let installed = mutable.install(pluginTool: tools[0])
+            #expect(installed)
+            let schemas = mutable.buildToolSchemas(enabled: [], disabled: [])
+            let fn = schemas.first { (($0["function"] as? [String: Any])?["name"] as? String) == "schemad_tool" }
+            let params = (fn?["function"] as? [String: Any])?["parameters"] as? [String: Any]
+            #expect((params?["properties"] as? [String: Any])?["city"] != nil)
+        }
 
-    @Test("PluginTool parses its manifest schema into JSONSchema at construction")
-    func pluginToolSchemaParsing() {
-        let raw: [String: PluginJSON] = [
-            "type": .string("object"),
-            "properties": .object(["city": .object(["type": .string("string")])]),
-            "required": .array([.string("city")]),
-        ]
-        let tool = PluginTool(plugin: "w", name: "weather_now", description: "d", command: "python3", schema: raw)
-        let dict = tool.schema.asDictionary()
-        #expect((dict["properties"] as? [String: Any])?["city"] != nil)
-        #expect((dict["required"] as? [String]) == ["city"])
+        @Test("python tool invoked via PATH command + entry script")
+        func pluginPythonPath() async throws {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugins-\(UUID().uuidString)")
+            let pluginDir = root.appendingPathComponent("py")
+            try FileManager.default.createDirectory(at: pluginDir, withIntermediateDirectories: true)
+            let manifest: [String: Any] = [
+                "name": "py",
+                "tools": [[
+                    "name": "py_echo",
+                    "description": "echo text",
+                    "command": "python3",
+                    "entry": "tool.py",
+                ]],
+            ]
+            try JSONSerialization.data(withJSONObject: manifest)
+                .write(to: pluginDir.appendingPathComponent("manifest.json"))
+            let script = """
+            import json, sys
+            payload = json.load(sys.stdin)
+            args = payload.get("args", {})
+            text = args.get("text", "")
+            print(json.dumps({"result": "echo: " + str(text)}))
+            """
+            try Data(script.utf8).write(to: pluginDir.appendingPathComponent("tool.py"))
+            let registry = PluginRegistry(pluginsDir: root)
+            try await registry.loadAll()
+            let tool = try #require((await registry.tools()).first)
+            let result = try await tool.invoke(args: ["text": "hello"])
+            #expect(result.contains("echo: hello"))
+        }
 
-        // Missing schema degrades to a free-form {args} object, never crashes.
-        let bare = PluginTool(plugin: "b", name: "b_tool", description: "d", command: "python3")
-        #expect(bare.schema.asDictionary()["type"] as? String == "object")
+        @Test("requires_env gate skips plugin tool until the env var is present")
+        func pluginRequiresEnv() async throws {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugins-\(UUID().uuidString)")
+            let pluginDir = root.appendingPathComponent("envgated")
+            try FileManager.default.createDirectory(at: pluginDir, withIntermediateDirectories: true)
+            let manifest: [String: Any] = [
+                "name": "envgated",
+                "tools": [[
+                    "name": "env_tool",
+                    "description": "needs key",
+                    "command": "python3",
+                    "entry": "tool.py",
+                    "requires_env": ["ARC_PLUGIN_TEST_KEY"],
+                ]],
+            ]
+            try JSONSerialization.data(withJSONObject: manifest)
+                .write(to: pluginDir.appendingPathComponent("manifest.json"))
+            let registry = PluginRegistry(pluginsDir: root)
+            try await registry.loadAll()
+            let tool = try #require((await registry.tools()).first)
+            var mutable = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
+            // Key absent → not installed.
+            let before = mutable.install(pluginTool: tool)
+            #expect(!before)
+            #expect(mutable.lookup(name: "env_tool") == nil)
+            setenv("ARC_PLUGIN_TEST_KEY", "1", 1)
+            defer { unsetenv("ARC_PLUGIN_TEST_KEY") }
+            let after = mutable.install(pluginTool: tool)
+            #expect(after)
+            #expect(mutable.lookup(name: "env_tool") != nil)
+        }
+
+        @Test("enabled allow-list filters plugins at make()")
+        func pluginAllowList() async throws {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugins-\(UUID().uuidString)")
+            for name in ["alpha", "beta"] {
+                let pluginDir = root.appendingPathComponent(name)
+                try FileManager.default.createDirectory(at: pluginDir, withIntermediateDirectories: true)
+                let manifest: [String: Any] = [
+                    "name": name,
+                    "tools": [["name": "\(name)_tool", "description": "d", "command": "python3", "entry": "tool.py"]],
+                ]
+                try JSONSerialization.data(withJSONObject: manifest)
+                    .write(to: pluginDir.appendingPathComponent("manifest.json"))
+            }
+            let registry = PluginRegistry(pluginsDir: root)
+            let made = try await MutableToolRegistry.make(pluginRegistry: registry, enabledPlugins: ["alpha"])
+            #expect(made.lookup(name: "alpha_tool") != nil)
+            #expect(made.lookup(name: "beta_tool") == nil)
+        }
+
+        @Test("ArcConfig plugins.enabled decodes nil / empty / allow-list")
+        func arcPluginConfigDecode() throws {
+            let missing = try JSONDecoder().decode(ArcConfig.self, from: Data("{}".utf8))
+            #expect(missing.plugins.enabled == nil)
+
+            let empty = try JSONDecoder().decode(ArcConfig.self, from: Data(#"{"plugins":{"enabled":[]}}"#.utf8))
+            #expect(empty.plugins.enabled == [])
+
+            let allow = try JSONDecoder().decode(ArcConfig.self, from: Data(#"{"plugins":{"enabled":["demo"]}}"#.utf8))
+            #expect(allow.plugins.enabled == ["demo"])
+        }
+
+        @Test("JSONSchema parses OpenAI parameters object")
+        func openAISchemaParse() {
+            let dict: [String: Any] = [
+                "type": "object",
+                "properties": ["city": ["type": "string", "description": "City name"]],
+                "required": ["city"],
+            ]
+            let parsed = JSONSchema(fromOpenAI: dict)
+            #expect(parsed != nil)
+            let out = parsed?.asDictionary()
+            #expect((out?["properties"] as? [String: Any])?["city"] != nil)
+            let given = JSONSchema(fromOpenAI: ["type": "string", "enum": ["a", "b"]])
+            #expect(given?.asDictionary()["enum"] as? [String] == ["a", "b"])
+        }
+
+        // MARK: - AgentTool protocol (protocolized tool model)
+
+        @Test("PluginTool conforms to AgentTool and dispatches via registry.lookup")
+        func agentToolPluginDispatch() async throws {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugins-\(UUID().uuidString)")
+            let pluginDir = root.appendingPathComponent("echo")
+            try FileManager.default.createDirectory(at: pluginDir, withIntermediateDirectories: true)
+            let script = """
+            #!/bin/sh
+            read line
+            echo "{\\"result\\": \\"got: $line\\"}"
+            """
+            try Data(script.utf8).write(to: pluginDir.appendingPathComponent("run.sh"))
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pluginDir.appendingPathComponent("run.sh").path)
+
+            var mutable = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
+            let pluginTool = PluginTool(plugin: "echo", name: "echo_tool", description: "",
+                                        command: "./run.sh", args: [], cwdOverride: pluginDir)
+            let installed = mutable.install(pluginTool: pluginTool)
+            #expect(installed)
+
+            // The registry hands back the plugin tool as an existential AgentTool —
+            // no closure wrapping — and it dispatches through the protocol handler.
+            let tool: (any AgentTool)? = mutable.lookup(name: "echo_tool")
+            let resolved = try #require(tool)
+            #expect(resolved is PluginTool)
+            #expect(resolved.name == "echo_tool")
+            #expect(resolved.emoji == "🧩")
+            let result = try await resolved.handler(["x": 1])
+            #expect(result.contains("got:"))
+        }
+
+        @Test("AgentTool protocol is shared by built-in ToolEntry and plugin tools")
+        func agentToolProtocolShared() throws {
+            // A generic consumer written against the protocol accepts both kinds.
+            func describe(_ tool: any AgentTool) -> String {
+                "\(tool.name)[\(tool.toolset)]"
+            }
+            let builtIn = try ArcAgentCore.buildDefaultRegistry()
+            let builtInEntry = try #require(builtIn.lookup(name: "read_file"))
+            #expect(describe(builtInEntry) == "read_file[file]")
+
+            let pluginTool = PluginTool(plugin: "p", name: "p_tool", description: "d", command: "python3")
+            #expect(describe(pluginTool) == "p_tool[plugins]")
+        }
+
+        @Test("plugin tool named like a built-in is refused (no duplicate schemas)")
+        func pluginToolCollisionGuard() throws {
+            var mutable = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
+            let colliding = PluginTool(plugin: "bad", name: "read_file", description: "shadow", command: "python3")
+            let refused = mutable.install(pluginTool: colliding)
+            #expect(!refused)
+            // The built-in still wins dispatch.
+            #expect(mutable.lookup(name: "read_file") is ToolEntry)
+            // Exactly one read_file function reaches the model.
+            let schemas = mutable.buildToolSchemas(enabled: [], disabled: [])
+            let readFileFunctions = schemas.filter {
+                (($0["function"] as? [String: Any])?["name"] as? String) == "read_file"
+            }
+            #expect(readFileFunctions.count == 1)
+        }
+
+        @Test("plugin discovery records non-fatal issues and keeps loading the rest")
+        func pluginRegistryDiscoveryIssues() async throws {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugins-\(UUID().uuidString)")
+            // Good plugin.
+            let good = root.appendingPathComponent("good")
+            try FileManager.default.createDirectory(at: good, withIntermediateDirectories: true)
+            try JSONSerialization.data(withJSONObject: [
+                "name": "good",
+                "tools": [["name": "good_tool", "description": "d", "command": "python3", "entry": "tool.py"]],
+            ]).write(to: good.appendingPathComponent("manifest.json"))
+            // Malformed tool manifest (declares a tools key, but tools is junk).
+            let bad = root.appendingPathComponent("bad")
+            try FileManager.default.createDirectory(at: bad, withIntermediateDirectories: true)
+            try Data(#"{"name":"bad","tools":"not-an-array"}"#.utf8).write(to: bad.appendingPathComponent("manifest.json"))
+            // Manifest with no tools.
+            let empty = root.appendingPathComponent("empty")
+            try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+            try JSONSerialization.data(withJSONObject: ["name": "empty", "tools": []])
+                .write(to: empty.appendingPathComponent("manifest.json"))
+            // Non-tool plugin kind (e.g. a sidebar-tab sidecar): no `tools` key —
+            // must be skipped silently, no issue recorded.
+            let sidecar = root.appendingPathComponent("sidecar-kind")
+            try FileManager.default.createDirectory(at: sidecar, withIntermediateDirectories: true)
+            try JSONSerialization.data(withJSONObject: ["name": "sidecar-kind", "version": "1.0.0", "executable": "sidecar-kind"])
+                .write(to: sidecar.appendingPathComponent("manifest.json"))
+
+            let registry = PluginRegistry(pluginsDir: root)
+            try await registry.loadAll()
+            #expect(await registry.plugins().count == 1)
+            #expect(await registry.toolNames() == ["good_tool"])
+            let issues = await registry.discoveryIssues()
+            #expect(issues.count == 2)
+            #expect(issues.contains { $0.contains("bad: manifest.json is malformed") })
+            #expect(issues.contains { $0.contains("empty: manifest declares no tools") })
+        }
+
+        @Test("PluginTool parses its manifest schema into JSONSchema at construction")
+        func pluginToolSchemaParsing() {
+            let raw: [String: PluginJSON] = [
+                "type": .string("object"),
+                "properties": .object(["city": .object(["type": .string("string")])]),
+                "required": .array([.string("city")]),
+            ]
+            let tool = PluginTool(plugin: "w", name: "weather_now", description: "d", command: "python3", schema: raw)
+            let dict = tool.schema.asDictionary()
+            #expect((dict["properties"] as? [String: Any])?["city"] != nil)
+            #expect((dict["required"] as? [String]) == ["city"])
+
+            // Missing schema degrades to a free-form {args} object, never crashes.
+            let bare = PluginTool(plugin: "b", name: "b_tool", description: "d", command: "python3")
+            #expect(bare.schema.asDictionary()["type"] as? String == "object")
+        }
     }
 }

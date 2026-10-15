@@ -5,7 +5,7 @@ import Logging
 /// and the honest backend label.
 ///
 /// The daemon resolves this once (Tessera probed under the same rules the CLI
-/// uses) and injects the SAME pair into every consumer — the gateway's session
+/// uses) and injects the SAME pair into every consumer — the session host's
 /// agents and the web UI — so no two components open a second env on the same
 /// store directories. Standalone consumers (`arc chat`, the web UI shim) keep
 /// resolving their own.

@@ -1,0 +1,6 @@
+# Generated at gate-run time; keep these out of the tree (they are evidence,
+# not sources — regenerate with `node Scripts/ux-gates.mjs`).
+contrast-report.json
+gates-report.json
+schemes-index.json
+assets/

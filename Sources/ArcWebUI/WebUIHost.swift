@@ -26,6 +26,86 @@ actor PushDeduper {
     }
 }
 
+/// Orders live-turn fragment ops after the chat region render that re-mounts
+/// them. `#live-turn` and its spans only exist in the client once the owning
+/// chat's `#main`/`#chat-inner` render landed; a concurrently-issued live op can
+/// beat that render over the wire, and the engine then logs
+/// "[WebUIEngine] Element not found: #live-turn" while the server still thinks
+/// the chat is on screen (the visible-view check passes at call time). Holding
+/// live ops for a short window after any chat-region render lets the render
+/// apply first; afterward the ops flow normally (nothing is dropped, only
+/// delayed). Ops for a view that is genuinely not displayed are still dropped.
+actor LiveTurnGate {
+    private var chatRenderAt = Date.distantPast
+
+    func markChatRender() {
+        chatRenderAt = Date()
+    }
+
+    func allows(_ id: String, liveVisible: Bool) -> Bool {
+        let isLiveOp = id == "live-turn" || id.hasPrefix("live-turn-")
+        guard isLiveOp else { return true }
+        guard liveVisible else { return false }
+        // the chat render that carries `#live-turn` is still in flight
+        return Date().timeIntervalSince(chatRenderAt) >= 0.12
+    }
+}
+
+/// Serializes every fragment push onto one submission-ordered chain.
+///
+/// Two producers share the push path — action responses and the turn stream —
+/// and their broadcasts could interleave: a live op gated as "chat visible"
+/// could reach the wire AFTER the view render that removed its element (or
+/// before the render that mounts it), forcing the engine's
+/// "Element not found: #live-turn-thinking" warning — the gates went red on
+/// exactly that. One chain, one order: each batch waits for the previous
+/// batch's broadcast before its own gating + broadcast runs, so what the gate
+/// decided is what the wire delivers, in that order.
+actor PushPipeline {
+    private let app: AppState
+    private let server: WebUIServer
+    private let deduper: PushDeduper
+    private let gate = LiveTurnGate()
+    /// Tail of the submission chain; each `push` appends one link.
+    private var tail: Task<Void, Never>?
+
+    init(app: AppState, server: WebUIServer, deduper: PushDeduper) {
+        self.app = app
+        self.server = server
+        self.deduper = deduper
+    }
+
+    func push(_ updates: [FragmentUpdate]) async {
+        let previous = tail
+        let task = Task {
+            await previous?.value
+            await self.perform(updates)
+        }
+        tail = task
+        await task.value
+    }
+
+    private func perform(_ updates: [FragmentUpdate]) async {
+        // The DOM-apply guard + ordering for the live turn: `#live-turn`,
+        // `#live-turn-text` and `#live-turn-thinking` only exist in the client
+        // while the chat that owns the running turn is on screen. Batches
+        // carrying a chat-region render are stamped so live ops wait a beat
+        // for the re-mount; ops whose view is genuinely gone are dropped (the
+        // pure emission stays untouched — the contract tests pin it).
+        if updates.contains(where: { $0.id == "main" || $0.id == "chat-inner" }) {
+            await gate.markChatRender()
+        }
+        let liveTurnShown = await app.liveTurnShown()
+        var kept: [FragmentUpdate] = []
+        for u in updates {
+            let isLiveTurnOp = u.id == "live-turn" || u.id.hasPrefix("live-turn-")
+            if !isLiveTurnOp { kept.append(u); continue }
+            if await gate.allows(u.id, liveVisible: liveTurnShown) { kept.append(u) }
+        }
+        await server.broadcast(await deduper.filter(kept))
+    }
+}
+
 /// The Web UI host: boots the app state, serves the page through no-webui's
 /// `WebUIServer`, and streams logs + the workspace tree while it runs.
 ///
@@ -95,7 +175,7 @@ public struct WebUIHost: Service {
             // there is nothing left to time out.
             await app.attachRuntime(storage)
             await app.boot()
-            await app.crumb("host: boot on attached storage (backend=\(storage.backend))")
+            app.crumb("host: boot on attached storage (backend=\(storage.backend))")
         } else {
             if tesseraOff {
                 await app.overrideTesseraOff(true)
@@ -124,19 +204,19 @@ public struct WebUIHost: Service {
             }
             switch await stream.stream.first(where: { _ in true }) {
             case .success:
-                await app.crumb("entry: boot race completed cleanly")
+                app.crumb("entry: boot race completed cleanly")
             case .failure:
-                await app.crumb("entry: boot timeout — fallback to file")
+                app.crumb("entry: boot timeout — fallback to file")
                 logger.warning("boot timed out (Tessera unreachable?) — using file storage")
                 bootTask.cancel()
                 await app.forceTesseraOff()
                 await app.boot()
-                await app.crumb("entry: fallback boot done")
+                app.crumb("entry: fallback boot done")
             case nil:
-                await app.crumb("entry: boot race stream ended empty")
+                app.crumb("entry: boot race stream ended empty")
             }
         }
-        await app.crumb("entry: boot block done")
+        app.crumb("entry: boot block done")
         logger.info("boot complete")
         let storageDesc = await app.storageDescription()
         logger.info("storage=\(storageDesc)")
@@ -180,21 +260,39 @@ public struct WebUIHost: Service {
         // `documentElement` and the theme is scoped to `:root`. `themeAttrs` is the server's
         // default, which the engine overrides from storage before first paint.
         let makeDocument = AppShell.makeDocument(sheetURL: sheet.url, overlayURL: overlay.url)
-        let pageProvider: @Sendable (String?) async -> String = { [app] deepLink in
+        // The page is a typed value now, not a string: this provider answers the
+        // document itself and `Route.page` hands it to the server, which renders
+        // it inside the render context the server owns. That is the 2.0 shape the
+        // deprecated `requestRender:` init predates — and the reason arc needs no
+        // materializer of its own.
+        let pageProvider: @Sendable (String?) async -> WebUI.HTMLDocument = { [app] deepLink in
             if let sid = deepLink, !sid.isEmpty {
                 await app.openDeepLink(sid)
             }
             await app.armScrollToBottom()
             let shell = await app.appShell()
-            return makeDocument(shell, AppShell.themeAttrs(await app.themeDefaults())).render()
+            return makeDocument(shell, AppShell.themeAttrs(await app.themeDefaults()))
         }
 
-        let server = WebUIServer(
-            requestRender: { request in
+        // "/" is the page. "/index.html" was its alias before the router existed
+        // and stays one, so an old deep link keeps resolving (the deprecated
+        // render inits added it for the same reason).
+        let pageRouter = Router {
+            Route.page("/") { request in
                 // ?s=<id> opens that conversation directly (copy-link flow).
-                await pageProvider(request.value("s"))
-            },
-            router: router,
+                await pageProvider(request.query["s"])
+            }
+            Route.page("/index.html") { _ in
+                await pageProvider(nil)
+            }
+        }
+
+        // `eventRouter:` hands the server the router arc wires by hand: the
+        // `wireAll` registrations below land in its default session, and without
+        // this init they would land in a router the server never consults.
+        let server = WebUIServer(
+            router: pageRouter,
+            eventRouter: router,
             config: WebUIServerConfig(
                 host: host,
                 port: port,
@@ -212,8 +310,9 @@ public struct WebUIHost: Service {
         )
 
         let deduper = PushDeduper()
+        let pipeline = PushPipeline(app: app, server: server, deduper: deduper)
         let controller = Controller(app: app, push: { updates in
-            await server.broadcast(await deduper.filter(updates))
+            await pipeline.push(updates)
         })
         await controller.wireAll(router)
 
@@ -222,7 +321,7 @@ public struct WebUIHost: Service {
         let bootPageBytes = makeDocument(
             await app.appShell(),
             AppShell.themeAttrs(await app.themeDefaults())
-        ).render().utf8.count
+        ).markup.html.utf8.count
         logger.info("serving http://\(host):\(port) (page \(bootPageBytes) bytes)")
         // no cron engine here: the daemon owns the one scheduler and calls
         // back into this host's `runScheduledJob` for job execution.
@@ -241,10 +340,16 @@ public struct WebUIHost: Service {
             guard await app.scanWorkspaceTree() else { return }
             await server.broadcast(await app.liveWorkspaceFragments())
         }
+        // Error toasts expire on their own (AppState.toastTTL). The tick is
+        // silent unless a toast actually dropped, so an idle UI sees no traffic.
+        let toastStreamer = IntervalService(name: "toast-expiry", interval: .seconds(1)) { [app] in
+            guard await app.expireToasts() else { return }
+            await server.broadcast(await app.toastFragments())
+        }
 
         // The UI is only reachable once the server binds; record it so the
-        // profile card can show the "Gateway running" badge truthfully.
-        await app.markGatewayUp()
+        // profile card can show the "Daemon running" badge truthfully.
+        await app.markDaemonUp()
 
         // Second Law: the server and both streamers are Services in one group,
         // so startup is ordered and shutdown is graceful — cancellation stops
@@ -260,6 +365,7 @@ public struct WebUIHost: Service {
                 WebUIServerService(server: server, logger: logger),
                 logStreamer,
                 wsStreamer,
+                toastStreamer,
             ],
             logger: logger
         )
@@ -272,6 +378,20 @@ public struct WebUIHost: Service {
             }
         } catch is CancellationError {
             // expected: the inherited shutdown cancelled the subtree
+        } catch {
+            // Unexpected exit: release the app state before propagating. An
+            // AsyncHTTPClient that was never shut down traps in its deinit.
+            await app.shutdown()
+            throw error
         }
+        // Second Law: cleanup belongs at the end of `run()`, not in a deinit.
+        // The daemon releases this host — and with it the app state — while the
+        // process is still alive, so an un-shutdown AsyncHTTPClient would trap
+        // on deinit (`Fatal error: Client not shut down before the deinit`).
+        // That trap is the Ctrl-C crash on `arc serve`. Reached on the expected
+        // cancellation path too: the `CancellationError` catch swallows instead
+        // of rethrowing, so this is the single cleanup site for both.
+        app.crumb("host: teardown — releasing app state")
+        await app.shutdown()
     }
 }

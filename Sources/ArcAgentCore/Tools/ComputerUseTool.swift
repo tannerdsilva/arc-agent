@@ -150,15 +150,15 @@ public actor CuaDriverClient {
     // MARK: - JSON-RPC plumbing
 
     private func startReader(handle: FileHandle, stderrHandle: FileHandle) {
-        // FILE.IO EXCEPTION (documented in StdioMCPClient, mirrors CDP
+        // FILE.IO EXCEPTION (documented on `LineAccumulator`, mirrors CDP
         // internals): AsyncFileHandle (.bytes/.lines) is unreliable on this
         // toolchain — lines stop after the first re-arm race.
         // readabilityHandler runs on Foundation's internal queue; each
-        // handle's handler is single-threaded, so MCPLineAccumulator needs no
+        // handle's handler is single-threaded, so LineAccumulator needs no
         // lock. Lines hop to the actor for JSON-RPC dispatch.
         let channel = self
 
-        let outAccumulator = MCPLineAccumulator { line in
+        let outAccumulator = LineAccumulator { line in
             Task { await channel.dispatch(line: line) }
         }
         handle.readabilityHandler = { h in
@@ -170,7 +170,7 @@ public actor CuaDriverClient {
             outAccumulator.feed(data)
         }
 
-        let errAccumulator = MCPLineAccumulator { line in
+        let errAccumulator = LineAccumulator { line in
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
                 print("[cua-driver] \(trimmed)")
@@ -277,7 +277,7 @@ public enum ComputerUseTool {
             "params": .object(description: "Action args (e.g. text for type, app for focus_app, offset for scroll)", properties: [:]),
         ], required: ["action"]),
         handler: { args in
-            let action: String = try MediaTools.required(args, key: "action")
+            let action: String = try ToolArguments.required(args, key: "action")
             let params = args["params"] as? [String: Any] ?? [:]
 
             guard CuaDriverClient.isInstalled() else {

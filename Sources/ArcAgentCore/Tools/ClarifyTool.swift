@@ -8,7 +8,7 @@ import Foundation
 /// to the composer; the answer (or a best-judgement timeout notice after 120 s)
 /// is returned to the model as the tool result.
 ///
-/// In execution contexts without a UI (CLI TUI, gateway, headless), invoking
+/// In execution contexts without a UI (CLI TUI, daemon, headless), invoking
 /// this tool returns an error — matching reference' clarify tool behaviour when
 /// no platform callback is injected. A host that CAN ask a human (the web UI,
 /// a TUI) injects a ``Presenter`` through ``presenters`` before its turn

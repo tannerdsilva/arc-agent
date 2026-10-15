@@ -4,7 +4,7 @@
 
 ARC Agent is a **precompiled, Swift-native AI agent harness** — architecturally inspired by [the reference agent](https://hermes-agent.nousresearch.com), but built from the ground up for Swift's concurrency model, type system, and distribution story. Single binary, zero interpreter overhead, no npm dependency chain, instant startup.
 
-**Status:** Vascular hardening. The core architecture is built across 185 source files with 704 tests (2 of them environment-gated) and a clean build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. **One daemon hosts everything** — `arc serve` composes the REST API, the platform adapters, the cron scheduler and the web UI in a single `ServiceGroup`; the UI's CSS and JS are compiled in as Swift (the theme sheet rendered, minified, stamped and gzipped from `Sources/ArcTheme/`, the client overlay embedded from `Assets/overlay.js`) and served by no-webui's `WebUIServer` from content-stamped, immutable-cached urls.
+**Status:** Vascular hardening. The core architecture is built across 220 source files with 1,070 tests — the environment-gated live-config test is the only expected red — and a clean build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. **One daemon hosts everything** — `arc serve` composes the REST API, the platform adapters, the cron scheduler and the web UI in a single `ServiceGroup`; the UI's CSS and JS are compiled in as Swift (the theme sheet rendered, minified, stamped and gzipped from `Sources/ArcTheme/`, the client overlay embedded from `Assets/overlay.js`) and served by no-webui's `WebUIServer` from content-stamped, immutable-cached urls.
 
 ## Install
 
@@ -42,7 +42,7 @@ All code in this project must satisfy two non-negotiable constraints:
 
 1. **Swift Structured Concurrency.** Every concurrent operation uses `async`/`await`, actors, and task groups. No manually-created threads, no locks, no dispatch queues, no `@unchecked Sendable` annotations that bypass compiler enforcement.
 
-2. **Swift Service Lifecycle.** Every long-lived component (agent loop, gateway, cron scheduler, kanban dispatcher) is a `Service` managed by `swift-service-lifecycle`. No ad-hoc daemon threads, no `atexit` handlers, no standalone `DispatchMain()` calls.
+2. **Swift Service Lifecycle.** Every long-lived component (agent loop, session host, cron scheduler, kanban dispatcher) is a `Service` managed by `swift-service-lifecycle`. No ad-hoc daemon threads, no `atexit` handlers, no standalone `DispatchMain()` calls.
 
 ## Architecture
 
@@ -50,9 +50,9 @@ The full architecture is documented in [VISION.md](VISION.md). At a high level:
 
 ```text
 arc serve  →  ArcDaemon.run   (one Service Lifecycle tree, one process)
-├── GatewayService                                        — REST API
+├── SessionHost                                        — REST API
 │   ├── HTTPServerService (Hummingbird)   GET /health, POST /v1/chat → SessionAgent
-│   ├── TelegramAdapter / EmailAdapter / SlackAdapter     (config-gated in gateway.json)
+│   ├── TelegramAdapter / EmailAdapter / SlackAdapter     (config-gated in daemon.json)
 │   ├── SessionRegistry (actor)
 │   │   └── SessionAgent [N] (Service per session)
 │   │       └── ArcAgent (actor — prompt → LLM → tools → response)
@@ -64,7 +64,7 @@ arc serve  →  ArcDaemon.run   (one Service Lifecycle tree, one process)
 └── KanbanDispatcher (core file board)                    — `kanban` gate, default off
 
 The daemon owns the signals (SIGTERM/SIGINT → graceful shutdown), one shared
-storage pair, and one log sink; surfaces are gated by `~/.arc/gateway.json`
+storage pair, and one log sink; surfaces are gated by `~/.arc/daemon.json`
 (`api`, `webui`, the adapters). The standalone `arc-agent-webui` binary was
 retired in the daemon consolidation.
 ```
@@ -111,7 +111,7 @@ The web UI is a **library** target, `Sources/ArcWebUI/`, mounted by the daemon a
 
 Markdown in chat is rendered server-side by the arc-parity renderer in `Sources/ArcAgentCore/WebUI/Utilities.swift` (ATX headings, pipe tables, nested blockquotes, task checkboxes, sanitized images, autolinks) and enhanced client-side (table sort/filter).
 
-Sidebar tabs — built-in and third-party alike — implement one protocol, `SidebarTab` (`Plugins/ArcSidebarTabs`). Third-party tab packages are linked as additional libraries and registered by the daemon; Settings → Sidebar plugins lists them with a per-tab show/hide switch. The GitHub tab ships that way (`Plugins/GitHubSidebarTab`). See `docs/sidebar-tab-plugins.md` for the protocol and the plugin-authoring walkthrough.
+Sidebar tabs — built-in and third-party alike — implement one protocol, `SidebarTab` (`Plugins/ArcSidebarTabs`). Third-party tab packages are linked as additional libraries and registered by the daemon; Settings → Sidebar plugins lists them with a per-tab show/hide switch. See `docs/sidebar-tab-plugins.md` for the protocol and the plugin-authoring walkthrough.
 
 The `model` block of `~/.arc/config.json` is **the UI's model authority**: one preset is managed (`source: "config.json"`) and refreshed on every boot — model, provider, endpoint and the env API key — renaming with the model and repointing every pinned chat; presets you create in the picker are untouched, and an explicit pick stays active until you choose another.
 

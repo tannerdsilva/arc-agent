@@ -117,7 +117,7 @@ public actor HeartbeatStore {
         records[sessionID] = nil
     }
 
-    /// The gateway learns the delivery chat from the session's first real
+    /// The daemon learns the delivery chat from the session's first real
     /// message and adopts it so CLI-set heartbeats deliver correctly.
     public func adoptChat(sessionID: String, chat: ChatTarget) {
         guard var record = records[sessionID] else { return }

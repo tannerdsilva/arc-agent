@@ -1,0 +1,263 @@
+import Foundation
+import AsyncHTTPClient
+import ServiceLifecycle
+import Logging
+import NIO
+
+/// The daemon's session host: it turns every incoming surface — the REST API
+/// and the platform adapters — into agent sessions, and routes responses back
+/// out to the platform they came from.
+///
+/// ``SessionHost`` is a ``Service`` that composes:
+/// - ``HTTPServerService`` — the REST API surface (`/health`, `POST /v1/chat`);
+///   present only when the API surface is enabled
+/// - ``TelegramAdapter`` / ``EmailAdapter`` / ``SlackAdapter`` — the platform
+///   surfaces configured in `daemon.json`
+/// - ``SessionRegistry`` — active session agents (no cache, LMDB is source of truth)
+/// - ``DeliveryManager`` — routes responses to the correct platform
+/// - ``BotMessagingService`` — inter-agent messaging
+/// - ``GroupChatManager`` — multi-agent coordination rooms
+///
+/// The web UI is not hosted here: it is a sibling service in the same daemon
+/// (`WebUIHost`, mounted by `ArcDaemon` on its own port via the `webui` block
+/// of `daemon.json`). The host used to carry a second, hand-rolled UI
+/// surface (three `/ui` pages behind an `onUI` closure that was never
+/// configured, plus a NIO WebSocket server on `port + 1`); that duplicate is
+/// long gone. This service is the API and the platform adapters.
+///
+/// All components are managed by a ``ServiceGroup``.
+public struct SessionHost: Service {
+
+    /// The REST API surface: where the HTTP server binds.
+    ///
+    /// `nil` when the surface is disabled — no socket is bound and the host
+    /// composes only its platform adapters.
+    public struct API: Sendable {
+        public var host: String
+        public var port: Int
+
+        public init(host: String = "127.0.0.1", port: Int = 8080) {
+            self.host = host
+            self.port = port
+        }
+    }
+
+    private let httpServer: HTTPServerService?
+    private let platformAdapters: [any PlatformAdapter]
+    private let registry: SessionRegistry
+    private let deliveryManager: DeliveryManager
+    private let botMessaging: BotMessagingService
+    private let groupChatManager: GroupChatManager
+    private let profileManager: ProfileManager
+    private let logger: Logger
+    private let profileRoutes: [ProfileRoute]
+    private let multiplexProfiles: Bool
+    /// Shared adapter HTTP client (nil when no adapter needs one); shut down
+    /// explicitly in `run()` on both success and failure — an unshutdown
+    /// AsyncHTTPClient traps on deinit.
+    private let httpClient: HTTPClient?
+    /// Chat→session binding (reference `session_router` parity): resolves every
+    /// incoming chat to its deterministic session ID.
+    private let sessionRouter: SessionRouter
+    /// The cron job runner (reference `cron` service parity): executes a due
+    /// job as a one-shot agent session. The daemon owns the scheduler itself
+    /// (`ArcDaemon`) and picks this runner when the web UI is not hosted.
+    public let cronRunner: @Sendable (CronJob) async throws -> String
+
+    public init(
+        api: API? = nil,
+        telegramToken: String? = nil,
+        config: DaemonConfig? = nil,
+        agentConfig: SessionRegistry.AgentConfig,
+        profileRouting: ProfileRoutingConfig = ProfileRoutingConfig()
+    ) {
+        let pm = ProfileManager()
+        let dm = DeliveryManager()
+        SendMessageTool.delivery = dm
+        let bm = BotMessagingService(profileManager: pm)
+        let gcm = GroupChatManager(profileManager: pm)
+        let reg = SessionRegistry(
+            agentConfig: agentConfig,
+            deliveryManager: dm,
+            profileManager: pm
+        )
+        let log = Logger(label: "com.arc-agent.session-host")
+
+        self.profileManager = pm
+        self.deliveryManager = dm
+        self.botMessaging = bm
+        self.groupChatManager = gcm
+        self.registry = reg
+        self.logger = log
+        self.profileRoutes = profileRouting.sortedRoutes
+        self.multiplexProfiles = profileRouting.multiplexProfiles
+
+        // Wire up the messaging service
+        Task {
+            await reg.setMessagingService(bm)
+            await gcm.setMessagingService(bm)
+        }
+
+        // Build the HTTP server for the REST API surface, when it is enabled.
+        // REST only: the web UI is `WebUIHost`, a sibling service in the
+        // daemon (same process, its own port).
+        if let api {
+            self.httpServer = HTTPServerService(
+                config: .init(host: api.host, port: api.port),
+                onChat: { [reg, routes = profileRouting.sortedRoutes, multiplex = profileRouting.multiplexProfiles] sessionID, message in
+                    let chat = ChatTarget(platform: "api", chatID: sessionID)
+                    let profile = ProfileRouteResolver.profile(
+                        for: chat, routes: routes, multiplexProfiles: multiplex
+                    ) ?? "default"
+                    let handle = await reg.getOrCreate(sessionID: sessionID, profile: profile)
+                    let incoming = IncomingMessage(
+                        id: UUID().uuidString,
+                        chat: ChatTarget(platform: "api", chatID: sessionID),
+                        text: message,
+                        senderID: "api"
+                    )
+                    handle.inputContinuation.yield(incoming)
+                    // Await the agent's response from the response stream
+                    var responseText = ""
+                    for await response in handle.responses {
+                        responseText = response
+                        break  // Take the first response
+                    }
+                    return responseText.isEmpty ? "Message received" : responseText
+                }
+            )
+        } else {
+            self.httpServer = nil
+        }
+
+        // Build platform adapters from the daemon config (or a directly
+        // supplied token). The AsyncHTTPClient is created ONLY when an
+        // adapter consumes it and is retained: a discarded client deinits
+        // with a fatal ("Client not shut down before the deinit"), and with
+        // no adapters configured the old unretained local trapped the host
+        // at init.
+        var httpClient: HTTPClient?
+        var adapters: [any PlatformAdapter] = []
+        if let config {
+            if config.telegramAdapterReady {
+                let client = HTTPClient(eventLoopGroupProvider: .singleton)
+                httpClient = client
+                let adapter = TelegramAdapter(
+                    botToken: config.telegram.botToken,
+                    allowedUsers: config.telegram.allowedUsers,
+                    allowAllUsers: config.telegram.allowAllUsers,
+                    homeChannel: config.telegram.homeChannel,
+                    typingIndicator: config.telegram.typingIndicator,
+                    replyToMode: config.telegram.replyToMode,
+                    requireMention: config.telegram.requireMention,
+                    pollInterval: .seconds(config.telegram.pollIntervalSeconds),
+                    httpClient: client
+                )
+                adapters.append(adapter)
+            }
+            if config.emailAdapterReady {
+                let adapter = EmailAdapter(config: config.email)
+                adapters.append(adapter)
+            }
+            if config.slackAdapterReady {
+                let client = HTTPClient(eventLoopGroupProvider: .singleton)
+                httpClient = client
+                let adapter = SlackAdapter(
+                    botToken: config.slack.botToken,
+                    appToken: config.slack.appToken,
+                    allowedUsers: config.slack.allowedUsers,
+                    allowAllUsers: config.slack.allowAllUsers,
+                    homeChannel: config.slack.homeChannel,
+                    replyToMode: config.slack.replyToMode,
+                    requireMention: config.slack.requireMention,
+                    httpClient: client,
+                    eventLoopGroup: MultiThreadedEventLoopGroup.singleton
+                )
+                adapters.append(adapter)
+            }
+        } else if let token = telegramToken {
+            let client = HTTPClient(eventLoopGroupProvider: .singleton)
+            httpClient = client
+            let adapter = TelegramAdapter(botToken: token, httpClient: client)
+            adapters.append(adapter)
+        }
+        self.httpClient = httpClient
+        self.platformAdapters = adapters
+        self.sessionRouter = SessionRouter()
+
+        // Cron execution harness: each due job becomes a one-shot agent
+        // session under the default profile; the first response lands in
+        // the job's `lastOutput` (capped by the scheduler, which the daemon
+        // owns — this closure is its runner when the web UI is not hosted).
+        self.cronRunner = { job in
+            let sessionID = "cron-\(job.id)"
+            let handle = await reg.getOrCreate(sessionID: sessionID, profile: "default")
+            let incoming = IncomingMessage(
+                id: UUID().uuidString,
+                chat: ChatTarget(platform: "cron", chatID: job.id),
+                text: job.prompt,
+                senderID: "cron"
+            )
+            handle.inputContinuation.yield(incoming)
+            var output = ""
+            for await response in handle.responses {
+                output = response
+                break // First response is the job result.
+            }
+            await reg.remove(sessionID: sessionID)
+            return output.isEmpty ? "Job processed (no response)." : output
+        }
+    }
+
+    // MARK: - Service
+
+    public func run() async throws {
+        logger.info("Starting arc session host...")
+
+        var services: [any Service] = [botMessaging]
+        if let httpServer { services.append(httpServer) }
+
+        // Register adapters for delivery, then ingest their messages into
+        // sessions — routing each chat to the profile its route table
+        // specifies (default when unmatched). The consumption tasks' lifetime
+        // is bounded by each adapter's AsyncStream.
+        for adapter in platformAdapters {
+            await deliveryManager.register(adapter: adapter)
+            services.append(adapter)
+            Task {
+                for await incoming in adapter.incomingMessages {
+                    let profile = ProfileRouteResolver.profile(
+                        for: incoming.chat,
+                        routes: self.profileRoutes,
+                        multiplexProfiles: self.multiplexProfiles
+                    ) ?? "default"
+                    let sessionID = await self.sessionRouter.resolve(chat: incoming.chat)
+                    let handle = await self.registry.getOrCreate(sessionID: sessionID, profile: profile)
+                    handle.inputContinuation.yield(incoming)
+                }
+            }
+        }
+
+        let serviceGroup = ServiceGroup(
+            configuration: ServiceGroupConfiguration(
+                services: services,
+                logger: logger
+            )
+        )
+
+        do {
+            try await serviceGroup.run()
+        } catch {
+            // Release the shared Tessera connection (WireGuard tunnel) at
+            // teardown, and the adapter HTTP client — an unshutdown
+            // AsyncHTTPClient traps on deinit.
+            if let httpClient { try? await httpClient.shutdown() }
+            await TesseraConnection.shared.shutdown()
+            throw error
+        }
+        // Release the shared Tessera connection (WireGuard tunnel) at
+        // teardown.
+        if let httpClient { try? await httpClient.shutdown() }
+        await TesseraConnection.shared.shutdown()
+    }
+}

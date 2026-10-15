@@ -226,15 +226,15 @@ extension AppState {
 /// Render a `SidebarTabIcon` into the application's icon markup.
 enum SidebarTabIconRenderer {
     /// Fallback glyph when a catalog name is unknown.
-    static let fallback = WebUIIcon(.link, size: .large).render()
+    static let fallback = WebUIIcon(.link, size: .large).markup.html
 
     static func render(_ icon: SidebarTabIcon, size: IconSize = .large) -> String {
         switch icon {
         case .named(let name):
             guard let raw = IconName(rawValue: name) else { return fallback }
-            return WebUIIcon(raw, size: size).render()
+            return WebUIIcon(raw, size: size).markup.html
         case .custom(let name, let body):
-            return WebUIIconCustom(name: name, body: body, size: size).render()
+            return WebUIIconCustom(name: name, body: body, size: size).markup.html
         case .emoji(let glyph):
             return "<span class=\"rail-emoji\" role=\"img\" aria-hidden=\"true\">\(SidebarTabHTML.escape(glyph))</span>"
         }

@@ -8,7 +8,7 @@ public protocol SidebarTabRegistrar: Sendable {
     /// Register a handler for all events on a fixed-id component.
     /// - Parameters:
     ///   - id: the component id the tab emitted in its HTML, e.g.
-    ///     `"gh-refresh"`. Must be unique within the tab (the host
+    ///     `"my-refresh"`. Must be unique within the tab (the host
     ///     prefixes registrations so plugin ids never collide with
     ///     built-in components or other plugins).
     ///   - events: the event types to route (`click`, `change`,

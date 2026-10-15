@@ -91,8 +91,8 @@ public actor ArcAgent: Service {
 
         /// Mixture-of-Agents configuration (reference `moa` config block).
         public var moa: MoAConfig
-        /// Tool-gateway policy (reference `tool_gateway`), enforced at dispatch.
-        public var gateway: ToolGatewayConfig = ToolGatewayConfig()
+        /// Tool policy rules for dispatch (reference managed tool scope).
+        public var toolPolicy: ToolPolicyConfig = ToolPolicyConfig()
         /// Progressive tool disclosure (reference `tools.tool_search`): which
         /// tools are deferred behind tool_search/tool_describe/tool_call.
         public var toolSearch: ToolSearchConfig = ToolSearchConfig()
@@ -501,7 +501,7 @@ public actor ArcAgent: Service {
         )
     }
 
-    /// Set up the LLM client for gateway use (without calling `run()`).
+    /// Set up the LLM client for session-host use (without calling `run()`).
     /// The caller owns the HTTPClient lifecycle.
     func setupClient(httpClient: HTTPClient) async {
         self.httpClient = httpClient
@@ -542,7 +542,7 @@ public actor ArcAgent: Service {
     }
 
     /// Inject a system message at the beginning of the conversation.
-    /// Used by the gateway to inject profile-specific SOUL.md content.
+    /// Used by the session host to inject profile-specific SOUL.md content.
     func injectSystemMessage(_ content: String) async {
         // Remove any existing system messages with the same prefix
         messageHistory.removeAll { msg in
@@ -614,14 +614,21 @@ public actor ArcAgent: Service {
         await MCPClientManager.shared.configure(config.mcpServers)
         try await prime()
 
-        if let q = config.query {
-            let response = try await runConversation(message: q)
-            print(response)
-        } else {
-            try await runInteractive()
+        do {
+            if let q = config.query {
+                let response = try await runConversation(message: q)
+                print(response)
+            } else {
+                try await runInteractive()
+            }
+        } catch {
+            // Release the primed client before propagating: the caller (a CLI
+            // command or a ServiceGroup) releases this agent on the way out, and
+            // an un-shutdown AsyncHTTPClient traps in its deinit.
+            await shutdownHTTPClient()
+            throw error
         }
-
-        try? await httpClient?.shutdown()
+        await shutdownHTTPClient()
     }
 
     /// One-shot execution for delegation children: prime (idempotent), run
@@ -716,7 +723,7 @@ public actor ArcAgent: Service {
         let command = parts.first?.lowercased() ?? ""
         let args = parts.count > 1 ? parts[1] : ""
 
-        // Reference gateway event: `command:*` (wildcard subscription).
+        // Reference event: `command:*` (wildcard subscription).
         await HookBus.shared.emit("command:" + command, [
             "command": .string(command),
             "args": .string(args),
@@ -1079,7 +1086,7 @@ public actor ArcAgent: Service {
 
             let response = try await runTurnLoop(client: llmClient)
 
-            // Reference gateway event: `agent:end` fires once per turn.
+            // Reference event: `agent:end` fires once per turn.
             let endMessage = String((messageHistory.last { $0.role == Message.Role.user })?.content ?? "").prefix(500)
             let endResponse = String(response).prefix(500)
             await HookBus.shared.emit("agent:end", [
@@ -1616,7 +1623,7 @@ public actor ArcAgent: Service {
         var appendedToolResults = false
 
         let maxIters = config.maxIterations > 0 ? config.maxIterations : Int.max
-        // Reference gateway event: `agent:start` fires once per turn.
+        // Reference event: `agent:start` fires once per turn.
         let startSummary = String((messageHistory.last { $0.role == Message.Role.user })?.content ?? "").prefix(500)
         await HookBus.shared.emit("agent:start", [
             "session_id": .string(sessionID),
@@ -1629,7 +1636,7 @@ public actor ArcAgent: Service {
                 return "Interrupted by user."
             }
             drainSteers()
-            // Reference gateway event: `agent:step` per tool-loop iteration.
+            // Reference event: `agent:step` per tool-loop iteration.
             let lastToolNames = (messageHistory.last { $0.toolCalls != nil })?.toolCalls?.map { $0.function.name } ?? []
             await HookBus.shared.emit("agent:step", [
                 "session_id": .string(sessionID),
@@ -1836,7 +1843,7 @@ public actor ArcAgent: Service {
     ///
     /// This is the primary streaming surface: text deltas, reasoning deltas,
     /// tool-call lifecycle, usage, and the terminal completion or error
-    /// notice. Text-only consumers (CLI, gateway, TUI) use
+    /// notice. Text-only consumers (CLI, daemon, TUI) use
     /// ``streamConversation(message:)`` — a projection over this same
     /// execution, so both surfaces observe identical turns.
     nonisolated public func streamTurn(message: String) -> AsyncThrowingStream<AgentTurnEvent, Error> {
@@ -1863,7 +1870,7 @@ public actor ArcAgent: Service {
     /// A projection of ``streamTurn(message:)``: forwards ``AgentTurnEvent/textDelta(_:)``
     /// and ``AgentTurnEvent/failed(_:)`` verbatim, and synthesises the historic
     /// `[Tool: name] result` lines from ``AgentTurnEvent/toolCallFinished(id:name:result:)``.
-    /// Byte-compatible with the pre-event implementation for CLI and gateway
+    /// Byte-compatible with the pre-event implementation for CLI and daemon
     /// consumers.
     nonisolated public func streamConversation(message: String) -> AsyncThrowingStream<String, Error> {
         let events = streamTurn(message: message)
@@ -1914,7 +1921,7 @@ public actor ArcAgent: Service {
         var appendedToolResults = false
 
         let maxIters = config.maxIterations > 0 ? config.maxIterations : Int.max
-        // Reference gateway event: `agent:start` fires once per turn.
+        // Reference event: `agent:start` fires once per turn.
         let startSummary = String((messageHistory.last { $0.role == Message.Role.user })?.content ?? "").prefix(500)
         await HookBus.shared.emit("agent:start", [
             "session_id": .string(sessionID),
@@ -1929,7 +1936,7 @@ public actor ArcAgent: Service {
                 await persistConversationIfNeeded()
                 return
             }
-            // Reference gateway event: `agent:step` per tool-loop iteration.
+            // Reference event: `agent:step` per tool-loop iteration.
             let lastToolNames = (messageHistory.last { $0.toolCalls != nil })?.toolCalls?.map { $0.function.name } ?? []
             await HookBus.shared.emit("agent:step", [
                 "session_id": .string(sessionID),
@@ -2198,12 +2205,6 @@ public actor ArcAgent: Service {
                 continue
             }
 
-            if iteration == maxIters - 1 {
-                let text = "I encountered an issue processing your request. Please try again."
-                emit(.textDelta(text))
-                emit(.completed(finalText: accumulatedContent.isEmpty ? text : accumulatedContent + "\n" + text))
-                return
-            }
         }
 
         let limitText = "The conversation reached the maximum iteration limit. Please start a new session."
@@ -2935,7 +2936,7 @@ public actor ArcAgent: Service {
         // ── Progressive tool disclosure bridge (reference `tools/tool_search.py`):
         // tool_describe/tool_call are not registered tools; the bridge
         // translates them and routes the target through THIS dispatch, so
-        // guardrails, approvals, and the tool gateway all fire normally.
+        // guardrails, approvals, and tool policy all fire normally.
         if toolCall.function.name == "tool_describe" || toolCall.function.name == "tool_call" {
             return await handleBridgeCall(name: toolCall.function.name, argumentsJSON: toolCall.function.arguments)
         }
@@ -2951,18 +2952,18 @@ public actor ArcAgent: Service {
             return "Error: Tool '\(toolCall.function.name)' is disabled (toolset '\(entry.toolset)' is disabled by configuration)."
         }
 
-        // ── Tool gateway (reference `tool_gateway` / managed scope): policy is
+        // ── Tool policy (reference managed tool scope): policy is
         // evaluated before any approval/danger logic and before execution. ──
-        let gate = ToolGateway.decide(
+        let gate = ToolPolicy.decide(
             toolName: toolCall.function.name,
             toolset: entry.toolset,
-            config: config.gateway
+            config: config.toolPolicy
         )
         switch gate.action {
         case .deny:
-            return "[BLOCKED by tool gateway: \(toolCall.function.name) is not permitted\(gate.reason.map { " — \($0)" } ?? "")]"
+            return "[BLOCKED by tool policy: \(toolCall.function.name) is not permitted\(gate.reason.map { " — \($0)" } ?? "")]"
         case .requireApproval:
-            return "[REQUIRES APPROVAL (tool gateway): \(toolCall.function.name)\(gate.reason.map { " — \($0)" } ?? "") — enable the rule's scope or switch the rule to deny/allow]"
+            return "[REQUIRES APPROVAL (tool policy): \(toolCall.function.name)\(gate.reason.map { " — \($0)" } ?? "") — enable the rule's scope or switch the rule to deny/allow]"
         case .allow:
             break
         }
@@ -3319,7 +3320,11 @@ public actor ArcAgent: Service {
 
         // ── Volatile tier ──
         var volatile = ""
-        if !config.skills.isEmpty {
+        // The mandatory framing instructs the model to load skills with
+        // `skill_view`; inject the section only when the registry actually
+        // exposes the loader, so the prompt never advertises a tool the
+        // surface lacks.
+        if !config.skills.isEmpty, config.registry.lookup(name: "skill_view") != nil {
             volatile += "## Skills (mandatory)\n\n\(Self.skillsMandatoryFraming)\n\n<available_skills>\n\(buildSkillsIndex(config.skills))\n</available_skills>\n\n"
         }
         if let memory = config.memoryProvider {

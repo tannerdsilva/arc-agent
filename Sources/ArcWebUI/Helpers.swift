@@ -33,6 +33,17 @@ func trunc(_ s: String, _ max: Int) -> String {
     return String(trimmed.prefix(max)) + "…"
 }
 
+/// A base URL trimmed for a dropdown's secondary line: strip the scheme and a
+/// trailing slash, so `https://api.example.com/` reads `api.example.com`.
+func shortURL(_ s: String) -> String {
+    var u = s.trimmingCharacters(in: .whitespacesAndNewlines)
+    if u.hasSuffix("/") { u.removeLast() }
+    if let range = u.range(of: "://") {
+        u = String(u[u.index(range.lowerBound, offsetBy: 3)...])
+    }
+    return u.isEmpty ? s : u
+}
+
 /// A short human-readable timestamp (e.g. "2:41 pm").
 func shortTime(_ date: Date) -> String {
     let f = DateFormatter()

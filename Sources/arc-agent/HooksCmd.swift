@@ -4,7 +4,7 @@ import ArcAgentCore
 
 // MARK: - Hooks (reference `hermes hooks list`)
 
-/// List configured event hooks (file-backed gateway hooks + outbound targets).
+/// List configured event hooks (file-backed hooks + outbound targets).
 struct HooksCmd: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "hooks",
@@ -24,10 +24,10 @@ struct HooksCmd: AsyncParsableCommand {
         print("📡 Event Hooks summary")
         print(String(repeating: "=", count: 70))
 
-        // File-backed gateway hooks.
+        // File-backed hooks.
         await HookBus.shared.loadFileHooks()
         let fileHooks = await HookBus.shared.fileHookSummaries()
-        print("\nGateway hooks (file-backed, `~/.arc/hooks/<name>/HOOK.yaml`):")
+        print("\nFile hooks (backed by `~/.arc/hooks/<name>/HOOK.yaml`):")
         if fileHooks.isEmpty {
             print("  (none)")
         } else {

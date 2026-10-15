@@ -6,7 +6,7 @@
 /// lists plugins and their tabs, and the user can hide/show individual
 /// tabs. The host calls `tabs()` once at startup.
 public protocol SidebarTabPlugin: Sendable {
-    /// Package/short project name, e.g. `"github-sidebar-tab"`.
+    /// Package/short project name, e.g. `"my-sidebar-tab"`.
     var name: String { get }
 
     /// Semantic version of the plugin build.

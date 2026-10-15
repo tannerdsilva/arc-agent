@@ -40,7 +40,7 @@ struct HostRunsEveryTurnTests {
     }
 
     static func source(_ name: String) -> String {
-        for base in ["Sources/ArcAgentCore/Gateway", "Sources/ArcAgentCore"] {
+        for base in ["Sources/ArcAgentCore/Daemon", "Sources/ArcAgentCore/Gateway", "Sources/ArcAgentCore"] {
             let p = "\(base)/\(name)"
             if let s = try? String(contentsOfFile: p) { return s }
         }

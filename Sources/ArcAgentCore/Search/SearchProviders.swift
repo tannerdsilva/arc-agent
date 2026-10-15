@@ -260,21 +260,23 @@ public struct DuckDuckGoSearchProvider: SearchProvider {
 
 enum HTTPTransport {
     static func execute(_ request: HTTPClientRequest) async throws -> Data {
-        let client = HTTPClient(eventLoopGroupProvider: .singleton)
-        defer { Task { try? await client.shutdown() } }
-        do {
-            let response = try await client.execute(request, timeout: .seconds(30))
-            let status = response.status.code
-            let body = try await response.body.collect(upTo: 2_000_000)
-            let data = Data(buffer: body)
-            guard status == 200 else {
-                throw SearchError.http(Int(status), String(decoding: data, as: UTF8.self))
+        // One-shot client, shut down before this returns — a leaked
+        // AsyncHTTPClient traps in its deinit.
+        try await withOneShotHTTPClient { client in
+            do {
+                let response = try await client.execute(request, timeout: .seconds(30))
+                let status = response.status.code
+                let body = try await response.body.collect(upTo: 2_000_000)
+                let data = Data(buffer: body)
+                guard status == 200 else {
+                    throw SearchError.http(Int(status), String(decoding: data, as: UTF8.self))
+                }
+                return data
+            } catch let e as SearchError {
+                throw e
+            } catch {
+                throw SearchError.badResponse(error.localizedDescription)
             }
-            return data
-        } catch let e as SearchError {
-            throw e
-        } catch {
-            throw SearchError.badResponse(error.localizedDescription)
         }
     }
 }

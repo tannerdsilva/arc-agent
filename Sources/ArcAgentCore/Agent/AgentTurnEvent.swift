@@ -7,7 +7,7 @@ import Foundation
 /// is a projection of the same execution: it forwards ``textDelta(_:)``
 /// verbatim, synthesises the historic `[Tool: name] result` lines from
 /// ``toolCallFinished(id:name:result:)``, and forwards ``failed(_:)`` — so
-/// existing CLI and gateway consumers see byte-identical output.
+/// existing CLI and daemon consumers see byte-identical output.
 ///
 /// ## Ordering
 ///

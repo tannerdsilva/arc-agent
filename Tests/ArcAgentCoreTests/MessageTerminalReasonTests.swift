@@ -2,64 +2,66 @@ import Foundation
 import Testing
 @testable import ArcAgentCore
 
-/// `Message.terminalReason` — reference `_terminal_reason` parity for
-/// terminal-state status cards (e.g. "max_iterations").
-@Suite("Message terminal reason")
-struct MessageTerminalReasonTests {
+extension ArcCoreTestRoot {
+    /// `Message.terminalReason` — reference `_terminal_reason` parity for
+    /// terminal-state status cards (e.g. "max_iterations").
+    @Suite("Message terminal reason", .serialized)
+    struct MessageTerminalReasonTests {
 
-    @Test("Round-trips through Codable")
-    func roundTrip() throws {
-        let msg = Message(
-            role: .assistant,
-            content: "Summary text",
-            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-            terminalReason: "max_iterations"
-        )
-        let data = try JSONEncoder().encode(msg)
-        let decoded = try JSONDecoder().decode(Message.self, from: data)
-        #expect(decoded.terminalReason == "max_iterations")
-        #expect(decoded.content == "Summary text")
-        #expect(decoded.role == .assistant)
-    }
+        @Test("Round-trips through Codable")
+        func roundTrip() throws {
+            let msg = Message(
+                role: .assistant,
+                content: "Summary text",
+                createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                terminalReason: "max_iterations"
+            )
+            let data = try JSONEncoder().encode(msg)
+            let decoded = try JSONDecoder().decode(Message.self, from: data)
+            #expect(decoded.terminalReason == "max_iterations")
+            #expect(decoded.content == "Summary text")
+            #expect(decoded.role == .assistant)
+        }
 
-    @Test("Legacy payload without the field decodes as nil")
-    func legacyDecode() throws {
-        // Shape of a pre-terminalReason stored message (no new key).
-        let json = """
-        {"role":"assistant","content":"old reply"}
-        """.data(using: .utf8)!
-        let decoded = try JSONDecoder().decode(Message.self, from: json)
-        #expect(decoded.terminalReason == nil)
-        #expect(decoded.content == "old reply")
-    }
+        @Test("Legacy payload without the field decodes as nil")
+        func legacyDecode() throws {
+            // Shape of a pre-terminalReason stored message (no new key).
+            let json = """
+            {"role":"assistant","content":"old reply"}
+            """.data(using: .utf8)!
+            let decoded = try JSONDecoder().decode(Message.self, from: json)
+            #expect(decoded.terminalReason == nil)
+            #expect(decoded.content == "old reply")
+        }
 
-    @Test("Normal replies carry no terminal reason")
-    func normalNil() {
-        let msg = Message(role: .assistant, content: "hi")
-        #expect(msg.terminalReason == nil)
-    }
+        @Test("Normal replies carry no terminal reason")
+        func normalNil() {
+            let msg = Message(role: .assistant, content: "hi")
+            #expect(msg.terminalReason == nil)
+        }
 
-    // turnDuration — the "Processed Xm Ys" label data for the turn dropdown.
+        // turnDuration — the "Processed Xm Ys" label data for the turn dropdown.
 
-    @Test("turnDuration round-trips through Codable")
-    func turnDurationRoundTrip() throws {
-        let msg = Message(
-            role: .assistant,
-            content: "final",
-            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-            turnDuration: 247.0
-        )
-        let data = try JSONEncoder().encode(msg)
-        let decoded = try JSONDecoder().decode(Message.self, from: data)
-        #expect(decoded.turnDuration == 247.0)
-    }
+        @Test("turnDuration round-trips through Codable")
+        func turnDurationRoundTrip() throws {
+            let msg = Message(
+                role: .assistant,
+                content: "final",
+                createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                turnDuration: 247.0
+            )
+            let data = try JSONEncoder().encode(msg)
+            let decoded = try JSONDecoder().decode(Message.self, from: data)
+            #expect(decoded.turnDuration == 247.0)
+        }
 
-    @Test("Legacy payload without turnDuration decodes as nil")
-    func turnDurationLegacy() throws {
-        let json = """
-        {"role":"assistant","content":"old reply"}
-        """.data(using: .utf8)!
-        let decoded = try JSONDecoder().decode(Message.self, from: json)
-        #expect(decoded.turnDuration == nil)
+        @Test("Legacy payload without turnDuration decodes as nil")
+        func turnDurationLegacy() throws {
+            let json = """
+            {"role":"assistant","content":"old reply"}
+            """.data(using: .utf8)!
+            let decoded = try JSONDecoder().decode(Message.self, from: json)
+            #expect(decoded.turnDuration == nil)
+        }
     }
 }

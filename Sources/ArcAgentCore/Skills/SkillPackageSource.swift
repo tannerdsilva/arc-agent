@@ -32,14 +32,6 @@ public enum SkillPackageSourceError: Error, Sendable, Equatable, CustomStringCon
 
 public enum SkillPackageSource {
 
-    /// A shared HTTP client for package downloads. Lazily created once and
-    /// shut down on process exit via `atexit`; downloads are one-shot CLI
-    /// operations, so this is a convenience client, not a managed service.
-    static let sharedHTTPClient: HTTPClient = {
-        let client = HTTPClient(eventLoopGroupProvider: .singleton)
-        return client
-    }()
-
     /// Resolve a user-supplied bundle reference to a local package directory.
     /// - Parameters:
     ///   - bundle: A directory path, `.zip` path, http(s) URL, or bare name.
@@ -142,21 +134,25 @@ public enum SkillPackageSource {
         return try await extractArchive(at: zipURL, downloadDir: downloadDir)
     }
 
-    /// Fetch bytes with a bounded timeout using AsyncHTTPClient.
+    /// Fetch bytes with a bounded timeout. The client is created per call and
+    /// shut down before this returns — a leaked AsyncHTTPClient traps in its
+    /// deinit, and a process-wide static client would never be destroyed.
     private static func fetchData(from url: URL) async throws -> Data {
-        var request = HTTPClientRequest(url: url.absoluteString)
-        let response = try await sharedHTTPClient.execute(request, timeout: .seconds(60))
-        guard response.status == .ok else {
-            throw SkillPackageSourceError.downloadFailed("HTTP \(response.status.code)")
+        try await withOneShotHTTPClient { client in
+            let request = HTTPClientRequest(url: url.absoluteString)
+            let response = try await client.execute(request, timeout: .seconds(60))
+            guard response.status == .ok else {
+                throw SkillPackageSourceError.downloadFailed("HTTP \(response.status.code)")
+            }
+            var collected = Data()
+            for try await chunk in response.body {
+                collected.append(contentsOf: chunk.readableBytesView)
+            }
+            guard collected.count <= 64 * 1024 * 1024 else {
+                throw SkillPackageSourceError.downloadFailed("package exceeds 64 MB limit")
+            }
+            return collected
         }
-        var collected = Data()
-        for try await chunk in response.body {
-            collected.append(contentsOf: chunk.readableBytesView)
-        }
-        guard collected.count <= 64 * 1024 * 1024 else {
-            throw SkillPackageSourceError.downloadFailed("package exceeds 64 MB limit")
-        }
-        return collected
     }
 
     /// Extract a `.zip` archive into a fresh temp directory and return it.

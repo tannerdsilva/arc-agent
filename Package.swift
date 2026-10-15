@@ -33,7 +33,7 @@ let package = Package(
         ),
 		.package(
 			url: "https://github.com/tannerdsilva/swift-mcp.git",
-			"2.0.0"..<"3.0.0"
+			"2.1.1"..<"3.0.0"
 		),
         .package(
             url: "https://github.com/apple/swift-nio.git",
@@ -64,9 +64,9 @@ let package = Package(
             from: "3.0.0"
         ),
 	.package(
-	    url: "https://github.com/tannerdsilva/no-webui.git",
-	    revision: "61b8bddc5907094e0c087f288f105933f5bd9089"
-	),
+            url: "https://github.com/tannerdsilva/no-webui.git",
+            "2.0.0"..<"3.0.0"
+        ),
 	.package(path: "Plugins/ArcSidebarTabs"),
 	],
 
@@ -83,9 +83,6 @@ let package = Package(
                 .product(name: "WebUI", package: "no-webui"),
                 .product(name: "WebUIDesignSystem", package: "no-webui"),
             ],
-            swiftSettings: [
-                .swiftLanguageMode(.v5),
-            ]
         ),
 
         // ── Executable ────────────────────────────────────────────
@@ -96,9 +93,6 @@ let package = Package(
                 .target(name: "ArcAgentCore"),
                 .target(name: "ArcDaemon"),
             ],
-            swiftSettings: [
-                .swiftLanguageMode(.v5),
-            ]
         ),
 
         // ── Core library ──────────────────────────────────────────
@@ -128,7 +122,6 @@ let package = Package(
             ],
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug)),
-                .swiftLanguageMode(.v5),
             ]
         ),
 
@@ -146,9 +139,6 @@ let package = Package(
                 .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
                 .product(name: "Logging", package: "swift-log"),
             ],
-            swiftSettings: [
-                .swiftLanguageMode(.v5),
-            ]
         ),
 
         // ── Web UI library (the UI surfaces; mounted by the daemon or the shim) ──
@@ -179,9 +169,6 @@ let package = Package(
                 // reads them through its own context, which exclusion does not affect).
                 "Assets",
             ],
-            swiftSettings: [
-                .swiftLanguageMode(.v5),
-            ],
             plugins: [
                 "ArcAssetPlugin",
                 // the file half: every build re-embeds Assets/webui-assets.json's files as
@@ -204,9 +191,6 @@ let package = Package(
                 // address/gzip/escaping rules exist once and arc owns none of them.
                 .product(name: "WebUIBuild", package: "no-webui"),
             ],
-            swiftSettings: [
-                .swiftLanguageMode(.v5),
-            ]
         ),
         .plugin(
             name: "ArcAssetPlugin",
@@ -225,9 +209,6 @@ let package = Package(
                 .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
                 .product(name: "Logging", package: "swift-log"),
             ],
-            swiftSettings: [
-                .swiftLanguageMode(.v5),
-            ]
         ),
 
         // The daemon composition matrix: plan resolution is pure, so these
@@ -238,9 +219,6 @@ let package = Package(
                 .target(name: "ArcDaemon"),
                 .target(name: "ArcAgentCore"),
             ],
-            swiftSettings: [
-                .swiftLanguageMode(.v5),
-            ]
         ),
 
         // The web UI under test is the ArcWebUI library (the shim is a shell): the
@@ -264,9 +242,6 @@ let package = Package(
                 // from the verified sheet and re-read by the test on every run.
                 .copy("Fixtures"),
             ],
-            swiftSettings: [
-                .swiftLanguageMode(.v5),
-            ]
         ),
     ]
 )

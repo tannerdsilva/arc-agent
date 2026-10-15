@@ -346,14 +346,14 @@ extension AppState {
             rows.append("""
             <div class="todo-row\(t.done ? " done" : "")" data-tid="\(t.id)">
               <button type="button" id="todo-toggle-\(t.id)" class="todo-check" title="\(t.done ? "Mark not done" : "Mark done")" aria-label="Toggle">
-                \(WebUIIcon(.check, size: .small).render())
+                \(WebUIIcon(.check, size: .small).markup.html)
               </button>
               <span class="todo-text">\(esc(t.text))</span>
               <button type="button" id="todo-run-\(t.id)" class="todo-run" title="Run in chat" aria-label="Run in chat">
-                \(WebUIIcon(.play, size: .small).render())
+                \(WebUIIcon(.play, size: .small).markup.html)
               </button>
               <button type="button" id="todo-del-\(t.id)" class="todo-x" title="Remove" aria-label="Remove">
-                \(WebUIIcon(.x, size: .small).render())
+                \(WebUIIcon(.x, size: .small).markup.html)
               </button>
             </div>
             """)
@@ -370,7 +370,7 @@ extension AppState {
 
         let empty = items.isEmpty ? """
             <div class="todo-empty">
-              <div class="todo-empty-ico">\(WebUIIcon(.check, size: .extraLarge).render())</div>
+              <div class="todo-empty-ico">\(WebUIIcon(.check, size: .extraLarge).markup.html)</div>
               <div>\(chat.isEmpty ? "Select a chat to see its todos" : "No todos for this chat yet")</div>
               <small>Add one below — it stays with this chat.</small>
             </div>
@@ -388,7 +388,7 @@ extension AppState {
               <div class="todo-head-actions">
                 \(clearBtn)
                 <button type="button" id="todo-run-all" class="todo-runall" title="Run all open todos in chat" aria-label="Run all open todos in chat">
-                  <span class="todo-runall-ico">\(WebUIIcon(.fastForward, size: .small).render())</span>Run all
+                  <span class="todo-runall-ico">\(WebUIIcon(.fastForward, size: .small).markup.html)</span>Run all
                 </button>
                 <span class="todo-pill">\(pending) open</span>
               </div>
@@ -412,7 +412,7 @@ extension AppState {
         // the boundary lives on the containers; the controls keep only ids, or
         // the engine never reports them (id + data-component-id on one element
         // is a dead control — the click identity contract).
-        let newBtn = btn("task-new", "", "plus-btn", WebUIIcon(.plus, size: .medium).render(), " title=\"New scheduled task\"")
+        let newBtn = btn("task-new", "", "plus-btn", WebUIIcon(.plus, size: .medium).markup.html, " title=\"New scheduled task\"")
         let head = """
         <div class="panel-head" data-component-id="tasks" data-event="click">
           <span class="panel-title">Scheduled Tasks</span>
@@ -467,7 +467,7 @@ extension AppState {
             <div class="row-actions-main" style="margin:0" data-component-id="tasks" data-event="click">
               <button type="button" id="task-toggle-\(job.id)" class="ghost-btn">\(toggleLabel)</button>
               <button type="button" id="task-now-\(job.id)" class="ghost-btn">Run now</button>
-              <button type="button" id="task-del-\(job.id)" class="icon-mini danger" title="Delete task and its chat">\(WebUIIcon(.x, size: .small).render())</button>
+              <button type="button" id="task-del-\(job.id)" class="icon-mini danger" title="Delete task and its chat">\(WebUIIcon(.x, size: .small).markup.html)</button>
             </div>
           </div>
           <div class="task-ctrl-line"><span class="task-ctrl-key">Prompt</span><span class="task-ctrl-val">\(esc(job.prompt))</span></div>
@@ -510,7 +510,7 @@ extension AppState {
               <input type="text" id="task-title" name="task-title" placeholder="e.g. Morning digest" autocomplete="off">
             </label>
             <div class="task-add-row">
-              <label class="task-field">Start
+              <label class="task-field">Start <span class="task-opt">optional — empty starts now</span>
                 <input type="datetime-local" id="task-start" name="task-start">
               </label>
               <label class="task-field">Every
@@ -528,6 +528,7 @@ extension AppState {
               <textarea id="task-prompt" name="task-prompt" rows="4" placeholder="What should the agent run?"></textarea>
             </label>
             <button type="submit" class="primary-btn">Schedule task</button>
+            <p class="task-preview">Runs on the interval you pick, starting immediately unless a Start time is set. Each run gets its own chat, kept out of the main list.</p>
           </form>
         </div>
         """

@@ -73,7 +73,7 @@ struct HeartbeatStatus: AsyncParsableCommand {
             print("  Prompt: \(hb.prompt)")
             print("  Paused: \(hb.paused ? "yes" : "no")")
             print("  Next:   \(hb.paused ? "paused" : "in \(remaining)s")")
-            print("  Target: \(hb.chat.platform.isEmpty ? "unset (adopted by gateway on first message)" : "\(hb.chat.platform):\(hb.chat.chatID)")")
+            print("  Target: \(hb.chat.platform.isEmpty ? "unset (adopted by the daemon on first message)" : "\(hb.chat.platform):\(hb.chat.chatID)")")
         } else {
             let known = await store.all()
             if known.isEmpty {

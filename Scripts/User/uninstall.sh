@@ -9,7 +9,7 @@
 #                                              profiles, memories, cron, kanban,
 #                                              checkpoints, hooks, mcp-cache,
 #                                              workspaces, tessera db/cfg, .env,
-#                                              gateway.json, webui-settings.json)
+#                                              daemon.json, webui-settings.json)
 #   * install.sh checkouts: ~/.arc-agent*,    (source checkouts from previous
 #                                              installs; NOT the dev projects)
 #   * runtime logs        : ${TMPDIR:-/tmp}/arc-serve.log, relay-federated.log

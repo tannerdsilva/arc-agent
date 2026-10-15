@@ -86,7 +86,7 @@ struct BlueprintRun: AsyncParsableCommand {
             let store = RuntimeCronStore()
             try await store.save(job)
             print("✔ Blueprint '\(spec.skillName)' registered: schedule=\(spec.schedule) (style: \(style))")
-            print("  The cron scheduler polls this store; restart the gateway for it to pick up the job.")
+            print("  The cron scheduler polls this store; restart the daemon for it to pick up the job.")
         } catch {
             print("✘ register failed: \(error)")
         }

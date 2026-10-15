@@ -312,7 +312,7 @@ public enum ProgressiveToolDisclosure {
             "function": [
                 "name": "tool_call",
                 "description": "Call a deferred tool by name with its parameters. Equivalent to calling the "
-                    + "tool directly: guardrails, approvals, and the tool gateway all apply. "
+                    + "tool directly: guardrails, approvals, and tool policy rules all apply. "
                     + "Pass parameters as an object; results are returned exactly as if the tool were called directly.",
                 "parameters": [
                     "type": "object",

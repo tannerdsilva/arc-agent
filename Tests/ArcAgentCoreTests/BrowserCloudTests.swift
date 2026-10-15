@@ -4,71 +4,73 @@ import Testing
 
 // MARK: - Browser cloud providers (reference `plugins/browser/<name>/provider.py`)
 
-@Suite("Browser cloud providers", .serialized)
-struct BrowserCloudTests {
+extension ArcCoreTestRoot {
+    @Suite("Browser cloud providers", .serialized)
+    struct BrowserCloudTests {
 
-    @Test("availability checks env vars")
-    func availability() async {
-        unsetenv("BROWSERBASE_API_KEY"); unsetenv("BROWSERBASE_PROJECT_ID")
-        #expect(!(await BrowserbaseSessionProvider().isAvailable()))
-        setenv("BROWSERBASE_API_KEY", "k", 1); setenv("BROWSERBASE_PROJECT_ID", "p", 1)
-        #expect(await BrowserbaseSessionProvider().isAvailable())
-        unsetenv("BROWSERBASE_API_KEY"); unsetenv("BROWSERBASE_PROJECT_ID")
-        unsetenv("BROWSER_USE_API_KEY"); unsetenv("FIRECRAWL_API_KEY")
-        #expect(!(await BrowserUseSessionProvider().isAvailable()))
-        #expect(!(await FirecrawlSessionProvider().isAvailable()))
-    }
+        @Test("availability checks env vars")
+        func availability() async {
+            unsetenv("BROWSERBASE_API_KEY"); unsetenv("BROWSERBASE_PROJECT_ID")
+            #expect(!(await BrowserbaseSessionProvider().isAvailable()))
+            setenv("BROWSERBASE_API_KEY", "k", 1); setenv("BROWSERBASE_PROJECT_ID", "p", 1)
+            #expect(await BrowserbaseSessionProvider().isAvailable())
+            unsetenv("BROWSERBASE_API_KEY"); unsetenv("BROWSERBASE_PROJECT_ID")
+            unsetenv("BROWSER_USE_API_KEY"); unsetenv("FIRECRAWL_API_KEY")
+            #expect(!(await BrowserUseSessionProvider().isAvailable()))
+            #expect(!(await FirecrawlSessionProvider().isAvailable()))
+        }
 
-    @Test("createSession hits the reference endpoints (mock server)")
-    func referenceEndpoints() async throws {
-        // Mock server recording requests.
-        let mock = try MockBrowserServer()
-        let logURL = mock.logURL
-        setenv("BROWSERBASE_BASE_URL", mock.baseURL, 1)
-        setenv("BROWSERBASE_API_KEY", "bb-key", 1)
-        setenv("BROWSERBASE_PROJECT_ID", "proj-1", 1)
-        setenv("BROWSER_USE_BASE_URL", mock.baseURL + "/api/v3", 1)
-        setenv("BROWSER_USE_API_KEY", "bu-key", 1)
-        setenv("FIRECRAWL_API_URL", mock.baseURL, 1)
-        setenv("FIRECRAWL_API_KEY", "fc-key", 1)
+        @Test("createSession hits the reference endpoints (mock server)")
+        func referenceEndpoints() async throws {
+            // Mock server recording requests.
+            let mock = try MockBrowserServer()
+            let logURL = mock.logURL
+            setenv("BROWSERBASE_BASE_URL", mock.baseURL, 1)
+            setenv("BROWSERBASE_API_KEY", "bb-key", 1)
+            setenv("BROWSERBASE_PROJECT_ID", "proj-1", 1)
+            setenv("BROWSER_USE_BASE_URL", mock.baseURL + "/api/v3", 1)
+            setenv("BROWSER_USE_API_KEY", "bu-key", 1)
+            setenv("FIRECRAWL_API_URL", mock.baseURL, 1)
+            setenv("FIRECRAWL_API_KEY", "fc-key", 1)
 
-        // Browserbase: POST /v1/sessions with X-BB-API-Key + projectId.
-        let bb = try await BrowserCloudCoordinator.shared.connect(providerName: "browserbase", taskID: "sess-1")
-        #expect(bb.contains("ws://mock/bb-cdp"))
+            // Browserbase: POST /v1/sessions with X-BB-API-Key + projectId.
+            let bb = try await BrowserCloudCoordinator.shared.connect(providerName: "browserbase", taskID: "sess-1")
+            #expect(bb.contains("ws://mock/bb-cdp"))
 
-        // Browser Use: POST /api/v3/browsers with X-Browser-Use-API-Key.
-        let bu = try await BrowserUseSessionProvider().createSession(taskID: "sess-2")
-        #expect(bu.cdpURL.contains("bu-cdp"))
+            // Browser Use: POST /api/v3/browsers with X-Browser-Use-API-Key.
+            let bu = try await BrowserUseSessionProvider().createSession(taskID: "sess-2")
+            #expect(bu.cdpURL.contains("bu-cdp"))
 
-        // Firecrawl: POST /v2/browser with Bearer auth + ttl.
-        let fc = try await FirecrawlSessionProvider().createSession(taskID: "sess-3")
-        #expect(fc.cdpURL.contains("fc-cdp"))
+            // Firecrawl: POST /v2/browser with Bearer auth + ttl.
+            let fc = try await FirecrawlSessionProvider().createSession(taskID: "sess-3")
+            #expect(fc.cdpURL.contains("fc-cdp"))
 
-        // Close: DELETE endpoints.
-        _ = try await BrowserbaseSessionProvider().closeSession(sessionID: "bb-1")
+            // Close: DELETE endpoints.
+            _ = try await BrowserbaseSessionProvider().closeSession(sessionID: "bb-1")
 
-        let log = try String(contentsOf: logURL, encoding: .utf8)
-        #expect(log.contains("POST /v1/sessions"))
-        #expect(log.contains("X-BB-API-Key"))
-        #expect(log.contains("proj-1"))
-        #expect(log.contains("POST /api/v3/browsers"))
-        #expect(log.contains("X-Browser-Use-API-Key"))
-        #expect(log.contains("POST /v2/browser"))
-        #expect(log.contains("Bearer"))
-        #expect(log.contains("DELETE /v1/sessions/bb-1"))
+            let log = try String(contentsOf: logURL, encoding: .utf8)
+            #expect(log.contains("POST /v1/sessions"))
+            #expect(log.contains("X-BB-API-Key"))
+            #expect(log.contains("proj-1"))
+            #expect(log.contains("POST /api/v3/browsers"))
+            #expect(log.contains("X-Browser-Use-API-Key"))
+            #expect(log.contains("POST /v2/browser"))
+            #expect(log.contains("Bearer"))
+            #expect(log.contains("DELETE /v1/sessions/bb-1"))
 
-        _ = await BrowserCloudCoordinator.shared.close()
-        unsetenv("BROWSERBASE_API_KEY"); unsetenv("BROWSERBASE_PROJECT_ID")
-        unsetenv("BROWSER_USE_API_KEY"); unsetenv("FIRECRAWL_API_KEY")
-    }
+            _ = await BrowserCloudCoordinator.shared.close()
+            unsetenv("BROWSERBASE_API_KEY"); unsetenv("BROWSERBASE_PROJECT_ID")
+            unsetenv("BROWSER_USE_API_KEY"); unsetenv("FIRECRAWL_API_KEY")
+        }
 
-    @Test("unknown provider errors clearly")
-    func unknownProvider() async {
-        do {
-            _ = try await BrowserCloudCoordinator.shared.connect(providerName: "nope")
-            Issue.record("expected throw")
-        } catch {
-            #expect("\(error)".contains("Unknown browser provider"))
+        @Test("unknown provider errors clearly")
+        func unknownProvider() async {
+            do {
+                _ = try await BrowserCloudCoordinator.shared.connect(providerName: "nope")
+                Issue.record("expected throw")
+            } catch {
+                #expect("\(error)".contains("Unknown browser provider"))
+            }
         }
     }
 }

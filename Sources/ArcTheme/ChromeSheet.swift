@@ -186,6 +186,24 @@ public static let css: String = """
       white-space: nowrap;
     }
 
+    /* Skip link (UX-07): the first focusable element; visually hidden until
+       a keyboard user tabs onto it, then it jumps focus to the composer.
+       position:fixed so it floats above the shell regardless of #app's
+       flex column context. */
+    .skip-link {
+      position: fixed;
+      left: -9999px;
+      top: 0;
+      z-index: 999;
+      padding: 8px 14px;
+      background: var(--accent-strong);
+      color: var(--bg);
+      border-radius: 0 0 12px 0;
+      font-weight: 600;
+      font-size: 0.85em;
+    }
+    .skip-link:focus { left: 0; }
+
     /* Icon sidebar */
     #iconbar {
       width: var(--iconbar-w);
@@ -232,7 +250,7 @@ public static let css: String = """
       border: 1px solid var(--border-strong);
       border-radius: 999px;
       box-shadow: var(--shadow);
-      font-size: 0.62em;
+      font-size: 0.72em;
       font-weight: 600;
       letter-spacing: 0.03em;
       white-space: nowrap;
@@ -242,6 +260,37 @@ public static let css: String = """
       z-index: 90;
     }
     .icon-btn[data-tip]:hover::after { opacity: 1; transition-delay: 0.18s; }
+    /* UX-12/T09: the same pill tooltip serves the chat-header and composer
+       icon buttons, which previously carried a native `title` tooltip only.
+       Anchored centered BELOW the control (not right-anchored like the rail)
+       so it never clips against the topbar or the viewport's right edge. */
+    .icon-mini[data-tip], .tool-btn[data-tip], .outline-toggle-btn[data-tip] { position: relative; }
+    .icon-mini[data-tip]::after,
+    .tool-btn[data-tip]::after,
+    .outline-toggle-btn[data-tip]::after {
+      content: attr(data-tip);
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 3px 9px;
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      box-shadow: var(--shadow);
+      font-size: 0.72em;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.16s ease;
+      z-index: 90;
+    }
+    .icon-mini[data-tip]:hover::after,
+    .tool-btn[data-tip]:hover::after,
+    .outline-toggle-btn[data-tip]:hover::after { opacity: 1; transition-delay: 0.18s; }
     #iconbar .iconbar-bottom { margin-top: auto; }
 
     /* Panel (left of main, same width for every view) */
@@ -259,7 +308,7 @@ public static let css: String = """
       padding: 12px 16px;
     }
     .panel-title {
-      font-size: 11px; font-weight: 600; letter-spacing: 0.1em;
+      font-size: 12px; font-weight: 600; letter-spacing: 0.1em;
       text-transform: uppercase; color: var(--muted);
     }
     .panel-actions { display: flex; gap: 4px; }
@@ -317,24 +366,32 @@ public static let css: String = """
       flex-shrink: 0;
     }
     .logs-title { font-weight: 650; font-size: 0.98em; }
-    .logs-meta { font-size: 0.78em; color: var(--muted); }
+    .logs-meta { font-size: 0.84em; color: var(--muted); }
     .logs-lines {
       flex: 1; min-height: 0;
       overflow-y: auto;
       padding: 8px 14px 16px;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.82em;
+      font-size: 0.86em;
       line-height: 1.55;
     }
+    /* UX-25: the three columns are a grid so a wrapping `.log-msg` continues
+       inside its own column — continuation lines align with the message
+       start, never under the timestamp (flex let pre-wrap text wrap to the
+       container's left edge). The 1fr column owns the remaining width;
+       time/lvl stay fixed. */
     .log-line {
-      display: flex; align-items: baseline; gap: 10px;
+      display: grid;
+      grid-template-columns: auto auto 1fr;
+      align-items: baseline;
+      column-gap: 10px;
       padding: 1px 0;
       white-space: pre-wrap;
       word-break: break-word;
     }
     .log-line .log-time { flex: 0 0 auto; color: var(--muted); font-variant-numeric: tabular-nums; }
-    .log-line .log-lvl { flex: 0 0 auto; width: 44px; text-transform: uppercase; font-size: 0.8em; opacity: 0.85; }
-    .log-line .log-msg { color: var(--text); }
+    .log-line .log-lvl { flex: 0 0 auto; min-width: 44px; white-space: nowrap; text-transform: uppercase; font-size: 0.86em; opacity: 0.85; }
+    .log-line .log-msg { color: var(--text); min-width: 0; }
     .log-line.lvl-info .log-lvl { color: var(--muted); }
     .log-line.lvl-warn .log-lvl { color: var(--warning); }
     .log-line.lvl-err .log-lvl { color: var(--danger); }
@@ -350,12 +407,12 @@ public static let css: String = """
     .log-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 6px 12px; }
     .chip-btn {
       border: 1px solid var(--border); background: var(--surface-2);
-      color: var(--muted); font-size: 0.8em; padding: 4px 12px;
+      color: var(--muted); font-size: 0.86em; padding: 4px 12px;
       border-radius: 999px; cursor: pointer; transition: all 0.15s;
     }
     .chip-btn:hover { color: var(--text); border-color: var(--accent-border); }
     .chip-btn.active { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent-border); }
-    .log-panel-note { font-size: 0.8em; color: var(--muted); line-height: 1.5; margin: 4px 6px 0; }
+    .log-panel-note { font-size: 0.86em; color: var(--muted); line-height: 1.5; margin: 4px 6px 0; }
 
     /* ─── Chat list rows ──────────────────────────────────────── */
     .sess-group { margin: 2px 0 4px; }
@@ -364,7 +421,7 @@ public static let css: String = """
       padding: 6px 8px;
       background: transparent; border: none;
       color: var(--muted);
-      font-size: 11px; font-weight: 600;
+      font-size: 11.5px; font-weight: 600;
       letter-spacing: 0.06em; text-transform: uppercase;
       cursor: pointer; border-radius: 8px; text-align: left;
     }
@@ -389,9 +446,16 @@ public static let css: String = """
     .sess-row.active { background: var(--accent-soft); }
     .sess-row.active:hover { box-shadow: inset 0 0 0 1px var(--accent-border); }
     .sess-row.active::before {
-      content: ""; position: absolute; left: 2px; top: 8px; bottom: 8px;
-      width: 2px; border-radius: 999px; background: var(--accent-strong); opacity: 0.55;
+      /* UX-17: a deliberate full-height left rail (was a floating 2px pill
+         that read as an artifact); the row fill + rail + brighter text make
+         the active state unambiguous in both themes. */
+      content: ""; position: absolute; left: 2px; top: 0; bottom: 0;
+      width: 3px; border-radius: 999px; background: var(--accent-strong); opacity: 0.85;
     }
+    /* UX-07 roving: the row is the tab stop — a visible ring on keyboard
+       focus, and the quiet ⋮ menu lights up while the row has focus. */
+    .sess-row:focus-visible { box-shadow: inset 0 0 0 2px var(--accent-border); }
+    .sess-row:focus-within .menu-dots { color: var(--text); background: var(--surface); }
     .sess-open {
       flex: 1; min-width: 0;
       display: flex; flex-direction: column; gap: 2px;
@@ -405,17 +469,34 @@ public static let css: String = """
     }
     .sess-row.active .sess-open { color: var(--text); }
     .sess-title { font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sess-meta { font-size: 10.5px; color: var(--muted); display: flex; gap: 6px; }
+    /* the meta line is one row: count • time • live status. It has to stay ONE
+       line. With a long status label ("Running pkg_overview…" measures ~162px
+       against ~211px of row) the count text — an anonymous flex item — was what
+       absorbed the shortfall: it wrapped into three lines, growing the row
+       56 -> 92px while `align-items: stretch` pulled the pill to 54px, painted
+       on top of the count (measured in Chrome, 2026-10-14). Now the line is
+       nowrap and the PILL absorbs a tight row, ellipsising its own label, so the
+       list's geometry is identical whether or not a turn is running. */
+    .sess-meta { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; min-width: 0; white-space: nowrap; }
     /* Sidebar live-status pill: the running turn on its own session row
        (replaces the floating "Responding…" hint that read as list noise). */
     .sess-status {
       display: inline-flex; align-items: center; gap: 5px;
       padding: 0 7px 0 5px; border-radius: 999px;
       background: var(--accent-soft); border: 1px solid var(--accent-border);
-      color: var(--accent-strong); font-size: 10px; font-weight: 600;
-      line-height: 1.7; white-space: nowrap;
+      color: var(--accent-strong); font-size: 11.5px; font-weight: 600;
+      /* 11.5 x 1.35 = 15.5px + 2px of border = 17.5px, inside the meta line's
+         18px: a running turn must not change the row's height (1.7 gave 21.5px
+         and widened every row it appeared on by 4px). */
+      line-height: 1.35; white-space: nowrap;
+      min-width: 0; max-width: 100%; overflow: hidden;
     }
+    /* the label ellipsises when the row is tight; the count and the time must
+       stay whole (an ellipsis on the pill's own anonymous text node is not
+       possible, hence the node). */
+    .sess-status-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sess-status-dot {
+      flex: 0 0 auto;
       width: 5px; height: 5px; border-radius: 50%;
       background: var(--accent-strong);
       animation: sess-pulse 1.2s ease-in-out infinite;
@@ -435,8 +516,11 @@ public static let css: String = """
     .sess-confirm {
       border: 1px solid var(--danger); color: var(--danger);
       background: var(--danger-soft); border-radius: 7px;
-      font-size: 0.72em; padding: 2px 5px; cursor: pointer;
+      font-size: 0.84em; padding: 2px 5px; cursor: pointer;
       font-weight: 600;
+      /* A label, not an icon: never inherit an icon box's fixed width, and keep
+         "Confirm?" on one line inside a narrow column header or card. */
+      width: auto; height: auto; min-width: 0; white-space: nowrap;
     }
     .empty-hint { color: var(--muted); font-size: 0.85em; padding: 12px 10px; }
 
@@ -453,7 +537,9 @@ public static let css: String = """
       border: 1px solid var(--border);
       border-radius: 8px;
       color: var(--text);
-      padding: 7px 10px 7px 32px;
+      /* 52px left: the rail's hover tooltip pill (`.icon-btn[data-tip]::after`,
+         ~58…116px into the panel) must never cover the field's label text. */
+      padding: 7px 10px 7px 52px;
       font-size: 13px;
       outline: none;
       transition: border-color 0.15s, box-shadow 0.15s;
@@ -467,7 +553,7 @@ public static let css: String = """
       display: inline-flex; align-items: center; gap: 6px;
       border: 1px solid var(--border-subtle); background: var(--input-bg);
       color: var(--muted); border-radius: 999px;
-      padding: 3px 9px; font-size: 11px; cursor: pointer;
+      padding: 3px 9px; font-size: 11.5px; cursor: pointer;
       transition: background 0.15s, border-color 0.15s, color 0.15s;
     }
     .cat-chip:hover { background: var(--hover-bg); color: var(--text); }
@@ -489,15 +575,18 @@ public static let css: String = """
     .chip-x {
       width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center;
       border: none; background: transparent; color: var(--muted);
-      font-size: 11px; cursor: pointer; border-radius: 50%;
+      font-size: 12px; cursor: pointer; border-radius: 50%;
     }
     .chip-x:hover { background: var(--danger-soft); color: var(--danger); }
     .arch-link {
       display: block; text-align: left; width: 100%;
       border: none; background: transparent; color: var(--muted);
-      font-size: 0.78em; padding: 4px 14px 8px; cursor: pointer;
+      font-size: 0.84em; padding: 4px 14px 8px; cursor: pointer;
     }
     .arch-link:hover { color: var(--accent-strong); }
+    /* UX-57: the toggle swaps the WHOLE list to archived-only; say so, so a
+       swapped list never reads as "my chats are gone". */
+    .arch-mode-note { font-size: 0.8em; color: var(--muted); padding: 0 14px 8px; }
     .cat-add-form {
       background: var(--surface-2); border: 1px dashed var(--border-strong);
       border-radius: var(--radius-md); margin: 6px 12px 8px; padding: 9px 10px;
@@ -529,7 +618,7 @@ public static let css: String = """
     .ctx-danger:hover { background: var(--danger-soft); }
     .ctx-divider { height: 1px; margin: 5px 2px; background: var(--border-strong); }
     .ctx-label {
-      font-size: 0.72em; color: var(--muted); text-transform: uppercase;
+      font-size: 0.84em; color: var(--muted); text-transform: uppercase;
       letter-spacing: 0.05em; padding: 2px 10px;
     }
     .ctx-swatch-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 10px 8px; }
@@ -556,7 +645,7 @@ public static let css: String = """
     }
     .menu-left { display: flex; align-items: center; padding-right: 2px; }
     .menu-label {
-      font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.05em;
+      font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.05em;
       color: var(--muted); padding: 7px 12px 3px;
     }
     .chat-menu button.menu-sel { color: var(--accent-strong); }
@@ -571,7 +660,7 @@ public static let css: String = """
       margin-bottom: 4px;
     }
     .cat-panel-title {
-      font-size: 0.72em; font-weight: 700; text-transform: uppercase;
+      font-size: 0.84em; font-weight: 700; text-transform: uppercase;
       letter-spacing: 0.05em; color: var(--muted);
     }
     .cat-panel-back {
@@ -599,7 +688,7 @@ public static let css: String = """
     }
     .skill-meta-head {
       padding: 6px 12px;
-      font-size: 0.68em; font-weight: 700;
+      font-size: 0.76em; font-weight: 700;
       text-transform: uppercase; letter-spacing: 0.06em;
       color: var(--muted);
       background: var(--surface);
@@ -608,7 +697,7 @@ public static let css: String = """
     .skill-meta-pre {
       margin: 0; padding: 10px 12px;
       font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-      font-size: 0.78em; line-height: 1.55;
+      font-size: 0.84em; line-height: 1.55;
       color: var(--text);
       overflow-x: auto;
       white-space: pre-wrap; word-break: break-word;
@@ -627,7 +716,7 @@ public static let css: String = """
     .skill-cat-head {
       display: flex; align-items: center; gap: 6px; width: 100%;
       padding: 3px 8px; background: transparent; border: none;
-      color: var(--text); font-size: 0.74em; font-weight: 700;
+      color: var(--text); font-size: 0.84em; font-weight: 700;
       letter-spacing: 0.05em; text-transform: uppercase;
       cursor: pointer; border-radius: 8px; text-align: left;
     }
@@ -640,7 +729,7 @@ public static let css: String = """
     .skill-cat-rows { display: flex; flex-direction: column; }
     .skill-row .skill-open { flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; gap: 0; line-height: 1.25; padding: 0; }
     .skill-row .sk-name { flex: none; width: 100%; font-size: 0.93em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .skill-row .sk-desc { width: 100%; font-size: 0.72em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .skill-row .sk-desc { width: 100%; font-size: 0.84em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .skill-row.disabled .sk-name { color: var(--muted); }
     .skill-row.disabled .sk-desc { opacity: 0.6; }
     .skill-row.disabled .skill-open { cursor: default; }
@@ -665,10 +754,10 @@ public static let css: String = """
     .switch input:checked + .track { background: var(--accent); }
     .switch input:checked + .track + .knob { transform: translateX(14px); }
     /* Compact switches inside skill rows */
-    .skill-row .switch { width: 26px; height: 16px; flex: 0 0 26px; }
-    .skill-row .switch .track { border-radius: 16px; }
-    .skill-row .switch .knob { top: 2px; left: 2px; width: 12px; height: 12px; }
-    .skill-row .switch input:checked + .track + .knob { transform: translateX(10px); }
+    .skill-row .switch { width: 30px; height: 18px; flex: 0 0 30px; }
+    .skill-row .switch .track { border-radius: 18px; }
+    .skill-row .switch .knob { top: 2px; left: 2px; width: 14px; height: 14px; }
+    .skill-row .switch input:checked + .track + .knob { transform: translateX(12px); }
 
     /* ─── Profile / tool / workspace rows ─────────────────────── */
     .list-row {
@@ -680,8 +769,8 @@ public static let css: String = """
     .list-row:hover { background: var(--surface-2); }
     .list-row.active { background: var(--accent-soft); }
     .list-row .lr-name { flex: 1; min-width: 0; font-size: 0.93em; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .list-row .lr-sub { font-size: 0.78em; color: var(--muted); }
-    .tool-group { font-size: 0.72em; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 12px 10px 4px; }
+    .list-row .lr-sub { font-size: 0.84em; color: var(--muted); }
+    .tool-group { font-size: 0.84em; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 12px 10px 4px; }
 
     /* ─── Main content ────────────────────────────────────────── */
     .main-view { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 22px clamp(20px, 7vw, 88px) 12px; }
@@ -698,6 +787,10 @@ public static let css: String = """
     }
     .detail-title { font-size: 1.3em; font-weight: 700; margin: 0 0 4px; }
     .detail-sub { color: var(--muted); font-size: 0.9em; margin-bottom: 14px; }
+    /* A caption is its own line. `.set-row .set-label small` already does this;
+       the Agent-powers sub-heads use `.detail-sub`, where an inline `small`
+       glued the heading to its caption ("Locked profile filesThese cannot…"). */
+    .detail-sub small { display: block; color: var(--muted); font-size: 0.85em; margin-top: 2px; font-weight: 400; }
     .detail-body { font-size: 0.95em; line-height: 1.55; color: var(--text); }
     .detail-body p { margin: 0 0 0.7em; }
     .detail-body h1, .detail-body h2, .detail-body h3 { margin: 0.9em 0 0.4em; }
@@ -713,13 +806,20 @@ public static let css: String = """
     .detail-body table { border-collapse: collapse; margin: 0.6em 0; }
     .detail-body th, .detail-body td { border: 1px solid var(--border); padding: 5px 10px; }
     .detail-body ul, .detail-body ol { padding-left: 22px; }
-    .kv { display: flex; gap: 8px; padding: 5px 0; font-size: 0.9em; border-bottom: 1px dashed var(--border); }
-    .kv:last-child { border-bottom: none; }
-    .kv .k { color: var(--muted); flex: 0 0 110px; }
-    .kv .v { color: var(--text); word-break: break-word; }
+    /* Key/value rows. The bare `.kv`/`.k`/`.v` names collide with the
+       design-system's `.kv` (a navy code card) — which painted our light-theme
+       About/Tools/Workspaces rows navy with dark text (contrast 1.14:1). The
+       arc name is `.akv`; the design-system card stays untouched. */
+    .akv { display: flex; gap: 8px; padding: 5px 0; font-size: 0.9em; border-bottom: 1px dashed var(--border); }
+    .akv:last-child { border-bottom: none; }
+    .akv .akv-k { color: var(--muted); flex: 0 0 110px; }
+    .akv .akv-v { color: var(--text); word-break: break-word; }
+    /* Path-like values: one line with an ellipsis, full value on hover. A wrapped
+       mid-token path used to end flush against the row's edge, unreadable. */
+    .akv .akv-v.nowrap { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     .form-grid { display: flex; flex-direction: column; gap: 10px; margin: 14px 0; }
-    .form-grid label { font-size: 0.8em; color: var(--muted); font-weight: 550; display: block; margin-bottom: 3px; }
+    .form-grid label { font-size: 0.86em; color: var(--muted); font-weight: 550; display: block; margin-bottom: 3px; }
     .form-grid input, .form-grid select, .form-grid textarea {
       width: 100%;
       background: var(--surface);
@@ -735,7 +835,11 @@ public static let css: String = """
     .form-grid textarea { min-height: 90px; resize: vertical; font-family: ui-monospace, Menlo, monospace; font-size: 0.85em; }
     .primary-btn {
       background: var(--accent);
-      color: #fff;
+      /* WCAG AA label on the accent fill: the label is the theme's opposite
+         token (text in light mode, bg in dark mode) so the pair clears 4.5:1
+         on every scheme's accent (mono's grey accent fails white text at
+         3.38 and black fails it in dark mode — the mode-swap covers both). */
+      color: var(--text);
       border: none;
       border-radius: var(--radius-sm);
       padding: 8px 16px;
@@ -744,6 +848,7 @@ public static let css: String = """
       cursor: pointer;
       transition: background 0.15s;
     }
+    html[data-theme="dark"] .primary-btn { color: var(--bg); }
     .primary-btn:hover { background: var(--accent-strong); }
     .primary-btn:disabled, .primary-btn[disabled] { opacity: 0.45; cursor: default; }
     .primary-btn:disabled:hover { background: var(--accent); }
@@ -762,6 +867,14 @@ public static let css: String = """
       border: 1px solid var(--danger); border-radius: var(--radius-sm);
       padding: 8px 16px; font-size: 0.92em; cursor: pointer;
     }
+    /* WCAG AA: the outline danger label on dark raised cards — mono's dark
+       danger (#E5484D on #212128) measures 4.09. Nudge the label brighter in
+       dark mode so it clears 4.5 while the light-mode (already-passing) value
+       is untouched. */
+    html[data-theme="dark"] .danger-btn {
+      color: color-mix(in srgb, var(--danger) 84%, white);
+      border-color: color-mix(in srgb, var(--danger) 84%, white);
+    }
     .danger-btn:hover { background: var(--danger-soft); }
     .accent-btn {
       background: transparent; color: var(--accent-strong);
@@ -774,7 +887,13 @@ public static let css: String = """
     .row-actions-main:hover .icon-mini:not(.danger) { color: var(--text); }
 
     /* ─── Settings sections ───────────────────────────────────── */
-    .settings-wrap { max-width: 720px; margin: 0 auto; }
+    .settings-wrap { max-width: 720px; margin: 0 auto; width: 100%; }
+    /* `width: 100%` is load-bearing: as a flex item with auto cross-axis
+       margins, this box sizes to fit-content (up to 720px) and refuses to
+       shrink below it — so on panes narrower than 720px (≤~1200 with the
+       docked panel, ≤~830 in drawer mode) it overflowed right and #main
+       clipped the overhang. Forcing the stretch lets max-width cap the
+       wide case while the narrow case fits the pane. */
     .set-section { margin-bottom: 22px; }
     .set-section > h2 {
       font-size: 1.05em; font-weight: 700; margin: 0 0 10px;
@@ -782,14 +901,14 @@ public static let css: String = """
     }
     .set-row { display: flex; align-items: center; gap: 14px; padding: 7px 0; }
     .set-row .set-label { flex: 1; font-size: 0.92em; }
-    .set-row .set-label small { display: block; color: var(--muted); font-size: 0.8em; margin-top: 1px; }
+    .set-row .set-label small { display: block; color: var(--muted); font-size: 0.92em; margin-top: 1px; }
     .set-row select, .set-row input[type="text"], .set-row input[type="password"] {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--radius-sm); color: var(--text);
       padding: 6px 10px; font-size: 0.9em; outline: none;
     }
     .set-row select:focus, .set-row input:focus { border-color: var(--accent-border); }
-    .set-hint { color: var(--muted); font-size: 0.8em; }
+    .set-hint { color: var(--muted); font-size: 0.86em; }
     .side-tab-chips { display: flex; flex-wrap: wrap; gap: 8px; }
     .side-tab-chip {
       display: inline-flex; align-items: center; gap: 6px;
@@ -797,83 +916,31 @@ public static let css: String = """
       border: 1px solid var(--border-strong);
       color: var(--muted); background: transparent;
       cursor: pointer; font-size: 0.85em; user-select: none;
+      font-family: inherit; font-weight: 600;
       transition: border-color 0.15s, color 0.15s, background 0.15s, opacity 0.15s;
       max-width: 100%;
     }
     .side-tab-chip:hover { border-color: var(--border); color: var(--text); }
-    .side-tab-chip input { display: none; }
+    .side-tab-chip:focus-visible { outline: 2px solid var(--accent-border); outline-offset: 2px; }
     /* Server renders the .on class from state; no :has() dependency. */
     .side-tab-chip.on {
-      color: var(--accent); border-color: var(--accent);
+      /* WCAG AA: accent pinned toward the text colour so the label clears
+         4.5:1 on the chip tint in both modes and across schemes (mono's grey
+         accent alone measures 3.21 on a light card). */
+      color: color-mix(in srgb, var(--accent) 42%, var(--text));
+      border-color: var(--accent);
       background: var(--accent-soft);
+    }
+    /* UX-13 off state: dimmed and self-labelled "Hidden". */
+    .side-tab-chip.off { opacity: 0.62; border-style: dashed; }
+    .side-tab-chip.off .chip-hint {
+      font-style: normal; font-weight: 600; font-size: 0.72em;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 2px 7px; border-radius: 999px;
+      background: var(--surface-2); color: var(--muted);
     }
     .side-tab-chip.drag-src { opacity: 0.55; }
     .side-tab-chip.drag-over { border-color: var(--accent-border); }
-
-    /* ─── GitHub page ─────────────────────────────────────────────── */
-    .gh-panel-body { display: flex; flex-direction: column; gap: 8px; padding: 4px 8px 12px; }
-    .gh-summary {
-      padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
-      background: var(--surface-2); display: flex; flex-direction: column; gap: 4px;
-    }
-    .gh-summary-meta { font-size: 0.85em; color: var(--text); word-break: break-all; }
-    .gh-summary-sub { font-size: 0.72em; color: var(--muted); word-break: break-all; }
-    .gh-remote { color: var(--muted); }
-    .gh-unpushed { color: var(--accent); font-weight: 600; }
-    .gh-list { display: flex; flex-direction: column; gap: 6px; }
-    .gh-commit {
-      display: flex; flex-direction: column; gap: 3px; text-align: left;
-      padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--radius-sm);
-      background: var(--surface); color: var(--text); cursor: pointer; width: 100%;
-      font-size: 0.85em; font-family: inherit;
-      transition: border-color 0.15s, background 0.15s;
-    }
-    .gh-commit:hover { border-color: var(--border-strong); background: var(--surface-2); }
-    .gh-commit.active { border-color: var(--accent-border); background: var(--accent-soft); }
-    .gh-commit-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-    .gh-sha {
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.74em;
-      padding: 2px 6px; border-radius: 4px; background: var(--code-bg); color: var(--muted); flex-shrink: 0;
-    }
-    .gh-commit-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .gh-commit-meta { font-size: 0.76em; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-    .gh-unpushed-badge {
-      color: var(--accent); border: 1px solid var(--accent-border); background: var(--accent-soft);
-      border-radius: 999px; padding: 1px 8px; font-size: 0.92em;
-    }
-    .gh-commit-refs { font-size: 0.72em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .gh-notice { padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
-    .gh-notice-title { font-weight: 600; margin-bottom: 6px; font-size: 0.92em; }
-    .gh-notice-body { color: var(--muted); font-size: 0.82em; line-height: 1.5; word-break: break-word; }
-    .gh-notice-body code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
-    .gh-detail { padding: 18px 20px; }
-    .gh-detail-subject { font-size: 1.15em; font-weight: 650; margin-bottom: 6px; }
-    .gh-detail-meta { font-size: 0.82em; color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
-    .gh-body {
-      white-space: pre-wrap; font-size: 0.9em; line-height: 1.55; color: var(--text);
-      padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border);
-      border-radius: var(--radius-sm); margin-bottom: 16px;
-    }
-    .gh-files-head { font-weight: 600; font-size: 0.92em; margin-bottom: 8px; display: flex; gap: 6px; align-items: center; }
-    .gh-files-count { background: var(--code-bg); color: var(--muted); border-radius: 999px; padding: 1px 8px; font-size: 0.8em; }
-    .gh-files { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
-    .gh-file { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 0.85em; }
-    .gh-file:last-child { border-bottom: none; }
-    .gh-status {
-      border-radius: 4px; padding: 2px 7px; font-size: 0.74em; font-weight: 600;
-      flex-shrink: 0; min-width: 62px; text-align: center;
-    }
-    .gh-status-a { color: var(--success); background: color-mix(in srgb, var(--success) 14%, transparent); border: 1px solid color-mix(in srgb, var(--success) 40%, transparent); }
-    .gh-status-m { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent-border); }
-    .gh-status-d { color: var(--danger); background: var(--danger-soft); border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); }
-    .gh-status-r { color: var(--link); background: color-mix(in srgb, var(--link) 14%, transparent); border: 1px solid color-mix(in srgb, var(--link) 40%, transparent); }
-    .gh-file-path {
-      flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88em;
-    }
-    .gh-nums { display: flex; gap: 8px; font-size: 0.78em; flex-shrink: 0; }
-    .gh-num-add { color: var(--success); }
-    .gh-num-del { color: var(--danger); }
 
     /* ─── Scheduled tasks (cron) page ─────────────────────────────── */
     .task-list { display: flex; flex-direction: column; gap: 6px; }
@@ -883,28 +950,36 @@ public static let css: String = """
       font-size: 0.85em; transition: border-color .15s, background .15s; }
     .task-row:hover { border-color: var(--border-strong); background: var(--surface-2); }
     .task-row.active { border-color: var(--accent-border); background: var(--accent-soft); }
-    .task-dot { color: var(--muted); font-size: 0.7em; line-height: 1.6; flex: 0 0 auto; }
+    .task-dot { color: var(--muted); font-size: 0.78em; line-height: 1.6; flex: 0 0 auto; }
     .task-dot.on { color: var(--success); }
     .task-ri { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
     .task-rname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .task-rmeta { font-size: 0.76em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .task-rmeta { font-size: 0.84em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tasks-main-view { padding: 22px clamp(20px, 7vw, 88px) 12px; }
     .tasks-main-wrap { width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; }
     .task-ctrl-card { padding: 16px 18px; }
     .task-ctrl-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
     .task-ctrl-name { font-size: 1.05em; font-weight: 650; margin-bottom: 3px; display: flex; align-items: center; gap: 8px; }
-    .task-status { font-size: 0.72em; font-weight: 700; padding: 2px 9px; border-radius: 999px; }
+    .task-status { font-size: 0.84em; font-weight: 700; padding: 2px 9px; border-radius: 999px; }
     .task-status.on { color: var(--success); background: color-mix(in srgb, var(--success) 15%, transparent); border: 1px solid color-mix(in srgb, var(--success) 40%, transparent); }
     .task-status.off { color: var(--muted); background: var(--code-bg); border: 1px solid var(--border); }
-    .task-ctrl-meta { font-size: 0.8em; color: var(--muted); }
-    .task-ctrl-line { display: flex; gap: 10px; font-size: 0.82em; padding: 5px 0; border-top: 1px solid var(--border); }
+    .task-ctrl-meta { font-size: 0.86em; color: var(--muted); }
+    .task-ctrl-line { display: flex; gap: 10px; font-size: 0.86em; padding: 5px 0; border-top: 1px solid var(--border); }
     .task-ctrl-key { flex: 0 0 84px; color: var(--muted); font-weight: 600; }
     .task-ctrl-val { color: var(--text); word-break: break-word; }
     .task-thread { flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
     .task-thread .chat-scroll { height: 100%; overflow-y: auto; padding: 4px 0; }
     .task-add { display: flex; flex-direction: column; gap: 12px; }
     .task-add-row { display: flex; gap: 14px; flex-wrap: wrap; }
-    .task-field { display: flex; flex-direction: column; gap: 5px; font-size: 0.82em; color: var(--muted); font-weight: 600; flex: 1 1 220px; }
+    .task-field { display: flex; flex-direction: column; gap: 5px; font-size: 0.86em; color: var(--muted); font-weight: 600; }
+    /* Only fields that SHARE a row grow sideways. Inside the column parent
+       `.task-add` a flex basis is a HEIGHT, so the old rule stretched the
+       Title label to 220px and left a dead gap above Start. */
+    .task-add-row .task-field { flex: 1 1 220px; }
+    .task-add > .primary-btn { align-self: flex-start; }
+    /* "Optional" reads as part of the label, not as a headline. */
+    .task-field .task-opt { color: var(--muted); font-weight: 400; }
+    .task-preview { color: var(--muted); font-size: 0.86em; margin: 0; }
     .task-field input, .task-field textarea, .task-field select {
       background: var(--code-bg); color: var(--text); border: 1px solid var(--border);
       border-radius: 6px; padding: 8px 10px; font-size: 13px; font-family: inherit; width: 100%;
@@ -915,9 +990,37 @@ public static let css: String = """
     .task-every select { flex: 1; }
     .ap-skills-scroll { max-height: 250px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 2px; padding-right: 6px; }
     .set-row .aux-right { display: flex; gap: 8px; flex-shrink: 0; }
+    /* Auxiliary models: 15 two-line rows stacked into ~1000px of scroll read as
+       a wall. `auto-fit` gives as many columns as actually FIT the card (two on
+       a wide settings pane, one when it narrows) — a fixed 2-column grid
+       overflowed the card at 1440 and clipped the right column. */
+    .aux-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); column-gap: 24px; }
+    .aux-list .set-row { padding: 7px 0; min-width: 0; }
+    /* UX-21: the descriptions used to sit on ONE hard-truncated line and cut
+       mid-word ("Context summarizati…"). The label now wraps normally and the
+       description <small> is a 2-line clamp; the full text still rides the
+       row's `title`. Configure stays put — .aux-right is flex-shrink:0. */
+    .aux-list .set-label { white-space: normal; }
+    .aux-list .set-label small {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      overflow-wrap: anywhere;
+      margin-left: 4px;
+    }
+    /* Segmented control (Storage backend): two named states, no implied ON. */
+    .seg { display: inline-flex; gap: 2px; padding: 2px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 9px; flex-shrink: 0; }
+    .seg-btn {
+      border: none; background: transparent; color: var(--muted);
+      font: inherit; font-size: 0.86em; font-weight: 600;
+      padding: 5px 12px; border-radius: 7px; cursor: pointer;
+    }
+    .seg-btn:hover { color: var(--text); }
+    .seg-btn.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18); }
     .aux-editing { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin: 6px 0; background: var(--surface-2); }
     .aux-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 10px; }
-    .aux-field { display: flex; flex-direction: column; gap: 3px; font-size: 0.78em; color: var(--muted); }
+    .aux-field { display: flex; flex-direction: column; gap: 3px; font-size: 0.84em; color: var(--muted); }
     .aux-field .dd-trigger { width: 100%; }
     .aux-custom-note { font-size: 0.78em; color: var(--muted); margin-top: 2px; }
     .aux-custom-note code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
@@ -929,7 +1032,7 @@ public static let css: String = """
     .aux-field input:focus { border-color: var(--accent-border); }
     .aux-actions { display: flex; gap: 8px; margin-top: 10px; }
     .ins-range-wrap { margin-top: 4px; }
-    .ins-range-label { display: block; font-size: 0.78em; color: var(--muted); margin-bottom: 4px; }
+    .ins-range-label { display: block; font-size: 0.84em; color: var(--muted); margin-bottom: 4px; }
     .ins-range-wrap select {
       width: 100%; box-sizing: border-box; background: var(--surface);
       border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -948,7 +1051,7 @@ public static let css: String = """
     .ins-table-wrap { overflow-x: auto; }
     .ins-table { width: 100%; border-collapse: collapse; font-size: 0.92em; }
     .ins-table th {
-      text-align: left; font-size: 0.78em; text-transform: uppercase;
+      text-align: left; font-size: 0.84em; text-transform: uppercase;
       letter-spacing: 0.04em; color: var(--muted);
       padding: 8px 10px; border-bottom: 1px solid var(--border);
     }
@@ -966,7 +1069,7 @@ public static let css: String = """
     .ins-stat-icon svg { display: block; }
     .ins-stat-value { font-size: 1.5em; font-weight: 700; line-height: 1.1; }
     .ins-stat-label { color: var(--muted); font-size: 0.85em; margin-top: 4px; }
-    .ins-range-hint { color: var(--muted); font-size: 0.72em; font-weight: 400; }
+    .ins-range-hint { color: var(--muted); font-size: 0.84em; font-weight: 400; }
     .ins-chart-wrap { padding-top: 4px; }
     .ins-chart {
       display: flex; align-items: flex-end; gap: 3px; height: 220px;
@@ -976,8 +1079,13 @@ public static let css: String = """
       border-radius: 4px 4px 0 0; transition: filter 0.15s;
     }
     .ins-bar:hover { filter: brightness(1.25); }
+    /* A day with no tokens reads as a gap: a neutral 2px baseline tick, never a
+       short red bar (which made an empty month look like a month of activity). */
+    .ins-bar-empty { background: var(--border-strong); height: 2px !important; }
+    .ins-bar-empty:hover { filter: none; }
+    .ins-scale { font-size: 0.84em; color: var(--muted); margin: 0 0 2px; }
     .ins-xaxis { display: flex; margin-top: 7px; }
-    .ins-xlabel { flex: 1; text-align: center; font-size: 0.72em; color: var(--muted); overflow: hidden; }
+    .ins-xlabel { flex: 1; text-align: center; font-size: 0.84em; color: var(--muted); overflow: hidden; }
     .accent-swatches { display: flex; gap: 6px; }
     .swatch {
       width: 26px; height: 26px; border-radius: 50%;
@@ -1023,7 +1131,10 @@ public static let css: String = """
     .theme-pick-btn.active {
       border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
     }
-    .theme-pick-btn.active .thm-label { color: var(--accent); }
+    .theme-pick-btn.active .thm-label {
+      /* WCAG AA: same accent→text pin as the sidebar-tab chips. */
+      color: color-mix(in srgb, var(--accent) 42%, var(--text));
+    }
     /* ─── Text size scaling: content surfaces only ──────────────── */
     #app[data-size="sm"] .msg-body { font-size: 12.5px; }
     #app[data-size="lg"] .msg-body { font-size: 16px; }
@@ -1031,19 +1142,19 @@ public static let css: String = """
     #app[data-size="sm"] .sess-title { font-size: 11.5px; }
     #app[data-size="lg"] .sess-title { font-size: 15px; }
     #app[data-size="xl"] .sess-title { font-size: 17px; }
-    #app[data-size="sm"] .sess-meta { font-size: 10px; }
+    #app[data-size="sm"] .sess-meta { font-size: 11.5px; }
     #app[data-size="lg"] .sess-meta { font-size: 12.5px; }
     #app[data-size="xl"] .sess-meta { font-size: 14px; }
     #app[data-size="sm"] .ws-name { font-size: 12.5px; }
     #app[data-size="lg"] .ws-name { font-size: 16px; }
     #app[data-size="xl"] .ws-name { font-size: 18px; }
-    #app[data-size="sm"] .ws-path { font-size: 10.5px; }
+    #app[data-size="sm"] .ws-path { font-size: 11.5px; }
     #app[data-size="lg"] .ws-path { font-size: 13px; }
     #app[data-size="xl"] .ws-path { font-size: 14.5px; }
     #app[data-size="sm"] .mem-title { font-size: 12.5px; }
     #app[data-size="lg"] .mem-title { font-size: 16px; }
     #app[data-size="xl"] .mem-title { font-size: 18px; }
-    #app[data-size="sm"] .mem-sub { font-size: 10.5px; }
+    #app[data-size="sm"] .mem-sub { font-size: 11.5px; }
     #app[data-size="lg"] .mem-sub { font-size: 13.5px; }
     #app[data-size="xl"] .mem-sub { font-size: 15px; }
     #app[data-size="sm"] .mem-textarea { font-size: 12.5px; }
@@ -1055,8 +1166,12 @@ public static let css: String = """
       padding: 8px 10px; margin-bottom: 6px; background: var(--surface);
     }
     .mc-row .mc-name { flex: 1; min-width: 0; font-weight: 600; font-size: 0.93em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .mc-row .mc-model { color: var(--muted); font-size: 0.82em; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .mc-badge { font-size: 0.68em; padding: 2px 7px; border-radius: 20px; background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+    .mc-row .mc-model { color: var(--muted); font-size: 0.86em; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mc-badge { font-size: 0.76em; padding: 2px 7px; border-radius: 20px; background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+    /* UX-22: the tool-plugin chip row wraps instead of clipping at the card
+       edge, and a long unbroken package token breaks inside its badge. */
+    .plug-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 2px; max-width: 100%; vertical-align: middle; }
+    .plug-chips .mc-badge { margin-right: 0; max-width: 100%; overflow-wrap: anywhere; }
 
     /* ─── Chat main (reference look: centered column, rails, bubbles) ── */
     .chat-main { flex: 1; display: flex; flex-direction: column; min-height: 0; position: relative; }
@@ -1091,6 +1206,9 @@ public static let css: String = """
     .msg { display: flex; padding: 10px 0; }
     .msg.user { justify-content: flex-end; }
     .msg.assistant { justify-content: flex-start; }
+    /* Streaming live-turn: a quiet accent hairline marks the turn in flight
+       (the avatar/timing state rides on .role-icon and data-streaming). */
+    .msg.streaming .msg-body { border-left: 3px solid var(--accent); padding-left: 10px; }
     /* arc parity: assistant responses are plain formatted text (no
        bubble card); user messages keep a subtue tinted bubble. */
     .msg-body {
@@ -1128,7 +1246,7 @@ public static let css: String = """
       display: inline-flex; align-items: center; gap: 8px;
       font-weight: 400; flex: 0 0 auto;
     }
-    .msg-meta .msg-time { font-size: 11px; }
+    .msg-meta .msg-time { font-size: 11.5px; }
     .msg.assistant .msg-meta { text-align: left; }
     .role-icon {
       width: 22px; height: 22px; border-radius: 50%;
@@ -1148,13 +1266,13 @@ public static let css: String = """
       border-radius: 999px;
       color: var(--muted);
       background: var(--surface);
-      font-size: 10.5px; font-weight: 500;
+      font-size: 12px; font-weight: 500;
       font-variant-numeric: tabular-nums;
       vertical-align: 1px; line-height: 1.4;
     }
     .msg-usage-inline {
       display: inline-block;
-      font-size: 11px; color: var(--muted);
+      font-size: 11.5px; color: var(--muted);
       font-variant-numeric: tabular-nums;
       min-width: 17ch; text-align: right;
     }
@@ -1163,7 +1281,7 @@ public static let css: String = """
       display: inline-flex; align-items: center; justify-content: flex-end;
       margin-left: 6px; min-width: 34px;
       color: var(--muted);
-      font-size: 10.5px; font-weight: 500;
+      font-size: 12px; font-weight: 500;
       font-variant-numeric: tabular-nums;
     }
     /* ── Conversation outline (reference #2124 parity) ───────────── */
@@ -1196,6 +1314,16 @@ public static let css: String = """
       display: flex; flex-direction: column; overflow: hidden;
     }
     #outline-panel[hidden] { display: none; }
+    /* The panel floats over the transcript; while it is open, move the reading
+       column clear of it instead of letting it sit on top of the text. Below
+       1200px there is not enough room to shift, so the panel overlays (it has a
+       close button and Escape routes to it). `!important` + the id in :has()
+       are needed to outrank the `#main .chat-scroll { padding: … !important }`
+       rule that pins the transcript's gutters. */
+    .chat-scroll-wrap:has(#outline-panel:not([hidden])) .chat-scroll { padding-right: 348px !important; }
+    @media (max-width: 1200px) {
+      .chat-scroll-wrap:has(#outline-panel:not([hidden])) .chat-scroll { padding-right: 20px !important; }
+    }
     .outline-header {
       display: flex; align-items: center; justify-content: space-between;
       padding: 10px 12px 8px;
@@ -1220,7 +1348,7 @@ public static let css: String = """
     .outline-entry:last-child { border-bottom: none; }
     .outline-entry:hover { background: var(--accent-soft); }
     .outline-entry-num {
-      font-size: 11px; font-weight: 600; color: var(--muted);
+      font-size: 11.5px; font-weight: 600; color: var(--muted);
       min-width: 18px; flex-shrink: 0;
     }
     .outline-entry-text {
@@ -1248,7 +1376,7 @@ public static let css: String = """
     }
     .steer-badge {
       display: inline-block;
-      font-size: 10px; font-weight: 600;
+      font-size: 11.5px; font-weight: 600;
       letter-spacing: 0.04em; text-transform: uppercase;
       color: var(--accent-strong);
       background: var(--accent-soft);
@@ -1347,6 +1475,9 @@ public static let css: String = """
       opacity: 0.7;
     }
     .tw-label { flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* UX-55: muted tool count appended to the worklog summary ("· 1 tool"),
+       so a tool-using turn is legible without opening the disclosure. */
+    .tw-tools { flex: 0 0 auto; color: var(--muted); margin-left: 5px; font-size: 0.95em; }
     .tw-spacer { flex: 1 1 auto; }
     .tw-caret { flex: 0 0 auto; display: inline-flex; opacity: 0.8; transition: transform 0.15s ease; }
     .turn-worklog[open] .tw-caret { transform: rotate(90deg); }
@@ -1390,7 +1521,7 @@ public static let css: String = """
       word-break: break-word;
     }
     .tc-label {
-      font-size: 0.72em;
+      font-size: 0.84em;
       text-transform: uppercase;
       letter-spacing: 0.05em;
       color: var(--muted);
@@ -1402,7 +1533,7 @@ public static let css: String = """
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 6px;
-      font-size: 0.82em;
+      font-size: 0.86em;
       font-family: var(--font-mono);
       white-space: pre-wrap;
       word-break: break-word;
@@ -1430,12 +1561,17 @@ public static let css: String = """
       transition: all 0.15s;
     }
     .bubble-opt:hover { border-color: var(--accent-border); color: var(--text); }
+    .bubble-opt:focus-visible { outline: 2px solid var(--accent-border); outline-offset: 2px; }
+    /* UX-14: the selected segment reads as selected — filled accent, the
+       inverse text colour, and a heavier weight in both themes. */
     .bubble-opt.active {
       border-color: var(--accent-strong);
-      color: var(--accent-strong);
-      background: var(--accent-soft);
+      background: var(--accent-strong);
+      color: var(--bg);
+      font-weight: 700;
+      box-shadow: 0 0 0 1px var(--accent-strong);
     }
-    .md { font-size: 0.96em; line-height: 1.55; }
+    .md { font-size: 1em; line-height: 1.55; }
     .md p { margin: 0 0 0.7em; }
     .md pre, .md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .md pre { background: var(--code-bg); border-radius: 8px; padding: 10px 12px; overflow-x: auto; font-size: 0.86em; }
@@ -1451,7 +1587,7 @@ public static let css: String = """
     .md th, .md td { border: 1px solid var(--border); padding: 5px 10px; }
     .md thead th { background: var(--bg-subtle, var(--bg)); font-weight: 600; }
     .markdown-table-head { display: inline-flex; align-items: center; gap: 4px; }
-    .markdown-table-sort { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 0.8em; padding: 0 2px; }
+    .markdown-table-sort { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 0.86em; padding: 0 2px; }
     .markdown-table-sort:hover { color: var(--text); }
     .markdown-table-filter-row th { background: none; padding: 3px 8px; }
     .markdown-table-filter { width: 100%; box-sizing: border-box; background: var(--bg-subtle, var(--bg)); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 3px 8px; font-size: 0.88em; }
@@ -1467,14 +1603,14 @@ public static let css: String = """
     }
     details.thinking summary {
       cursor: pointer; padding: 6px 10px; color: var(--muted);
-      font-size: 0.82em; user-select: none;
+      font-size: 0.86em; user-select: none;
     }
     details.thinking .think-body { padding: 4px 12px 10px; color: var(--muted); white-space: pre-wrap; }
 
     /* ── Message hover footer: produced-at time + copy (arc parity) ── */
     .msg-foot { display: flex; align-items: center; gap: 8px; margin-top: 5px; opacity: 0; transition: opacity 0.15s; }
     .msg:hover .msg-foot { opacity: 1; }
-    .msg-time { font-size: 0.72em; color: var(--muted); }
+    .msg-time { font-size: 0.84em; color: var(--muted); }
     .msg-actions { display: inline-flex; align-items: center; gap: 2px; }
     .msg-action-btn { background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 5px; border-radius: 5px; display: inline-flex; align-items: center; transition: color 0.12s, background 0.12s; }
     .msg-action-btn:hover { color: var(--text); background: var(--surface-2); }
@@ -1486,7 +1622,7 @@ public static let css: String = """
       background: var(--surface-2);
       border: 1px solid var(--border);
       border-radius: 20px;
-      font-size: 0.8em;
+      font-size: 0.86em;
       color: var(--muted);
       font-family: ui-monospace, Menlo, monospace;
     }
@@ -1551,7 +1687,7 @@ public static let css: String = """
     }
     @keyframes blink { 50% { opacity: 0; } }
 
-    .live-status { font-size: 0.78em; color: var(--muted); margin: -8px 0 12px; display: flex; gap: 8px; align-items: center; }
+    .live-status { font-size: 0.84em; color: var(--muted); margin: -8px 0 12px; display: flex; gap: 8px; align-items: center; }
     /* Live tool activity rows (streaming bubble): visible while the agent is
        processing; flat rows with a subtle 1px divider between them. */
     .live-tool-stack { margin: 8px 0 4px; display: flex; flex-direction: column; }
@@ -1693,7 +1829,7 @@ public static let css: String = """
       display: inline-flex; align-items: center; justify-content: center;
       min-width: 24px; height: 24px; border-radius: 999px;
       background: var(--accent-soft); border: 1px solid var(--accent-border);
-      color: var(--accent-strong); font-size: 11px; font-weight: 800; flex-shrink: 0; line-height: 1;
+      color: var(--accent-strong); font-size: 11.5px; font-weight: 800; flex-shrink: 0; line-height: 1;
     }
     .clarify-choice-text { flex: 1; line-height: 1.45; min-width: 0; }
     .clarify-response { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
@@ -1722,7 +1858,7 @@ public static let css: String = """
       font-size: 12px; font-weight: 700; cursor: pointer; transition: all .15s; white-space: nowrap;
     }
     .clarify-submit:hover { background: var(--accent-soft); transform: translateY(-1px); }
-    .clarify-hint { margin-top: 6px; font-size: 11px; line-height: 1.45; color: var(--muted); }
+    .clarify-hint { margin-top: 6px; font-size: 12px; line-height: 1.45; color: var(--muted); }
 
     /* ── Yolo (skip-all) session pill ── */
     .yolo-pill {
@@ -1737,7 +1873,7 @@ public static let css: String = """
       margin-left: 4px; padding: 3px 10px; border-radius: 999px;
       border: 1px solid rgba(245, 158, 11, 0.45);
       background: transparent; color: #fbbf24;
-      font-size: 11px; font-weight: 700; cursor: pointer;
+      font-size: 11.5px; font-weight: 700; cursor: pointer;
     }
     .yolo-off:hover { background: rgba(245, 158, 11, 0.2); }
 
@@ -1804,12 +1940,12 @@ public static let css: String = """
       font-size: 13.5px; color: var(--text);
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    .queue-meta { font-size: 11.5px; color: var(--muted); }
+    .queue-meta { font-size: 12px; color: var(--muted); }
     .queue-in { color: var(--accent); }
     .queue-link-btn { color: var(--muted); }
     .queue-link-btn:hover { color: var(--accent); }
     .queue-status {
-      font-size: 11px; font-weight: 600;
+      font-size: 11.5px; font-weight: 600;
       color: var(--muted);
       min-width: 46px; text-align: center;
     }
@@ -1924,7 +2060,7 @@ public static let css: String = """
     .queue-link-num {
       font-weight: 700; color: var(--accent);
       background: var(--accent-soft);
-      border-radius: 5px; padding: 1px 7px; font-size: 11px;
+      border-radius: 5px; padding: 1px 7px; font-size: 11.5px;
       white-space: nowrap;
     }
     .queue-link-title {
@@ -1935,11 +2071,11 @@ public static let css: String = """
     .queue-link-actions { display: flex; gap: 8px; margin-top: 4px; }
     .queue-link-loop {
       margin-left: auto; white-space: nowrap;
-      font-size: 10.5px; font-weight: 700; color: var(--accent);
+      font-size: 11.5px; font-weight: 700; color: var(--accent);
       text-transform: uppercase; letter-spacing: 0.3px;
     }
     .queue-link-note {
-      font-size: 11px; color: var(--muted);
+      font-size: 12px; color: var(--muted);
       padding-top: 6px; margin-top: 4px;
       border-top: 1px dashed var(--border);
     }
@@ -1961,7 +2097,7 @@ public static let css: String = """
     }
     .queue-pick-chat { padding: 8px 14px 4px; }
     .queue-pick-title {
-      font-size: 11px; font-weight: 700; color: var(--muted);
+      font-size: 12px; font-weight: 700; color: var(--muted);
       text-transform: uppercase; letter-spacing: 0.4px;
       margin-bottom: 6px;
     }
@@ -2018,6 +2154,21 @@ public static let css: String = """
 
     /* ─── Composer (reference composer-box sizing) ────────────────── */
     .composer-wrap { padding: 12px 12px 16px; }
+    .queued-sends { display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+      max-width: 720px; margin: 0 auto 8px; padding: 0 4px; }
+    .queued-count { font-size: 0.78em; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .05em; color: var(--accent); flex: 0 0 auto; }
+    .queued-chip {
+      display: inline-flex; align-items: center; gap: 8px; max-width: 100%;
+      border: 1px solid var(--border-strong); border-radius: 999px;
+      background: var(--bg-subtle); padding: 4px 10px; cursor: pointer;
+      font-family: inherit; font-size: 12px; color: var(--text);
+      transition: border-color .12s, background .12s;
+    }
+    .queued-chip:hover { border-color: var(--accent-border); background: var(--hover-bg); }
+    .queued-chip-text { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .queued-chip-x { flex: 0 0 auto; color: var(--muted); font-size: 11px; opacity: .8; }
+    .queued-chip:hover .queued-chip-x { color: var(--text); opacity: 1; }
     .composer-bar {
       max-width: 100%;
       margin: 0 auto;
@@ -2047,7 +2198,18 @@ public static let css: String = """
       max-height: 180px;
       line-height: 1.5;
     }
-    .composer-toolbar { display: flex; align-items: center; gap: 2px; padding: 2px 2px 0; }
+    .composer-toolbar { display: flex; align-items: center; gap: 2px; padding: 2px 2px 0; flex-wrap: wrap; row-gap: 6px; }
+    /* Below ~1180px the four selector chips no longer fit beside the send
+       button: the model chip is ~210px wide on its own, and at 820px the whole
+       row used to push `#cb-send` 200px off-screen. The chips go icon-only (the
+       full value is already in each trigger's `title`), and the wrap above is
+       the backstop so nothing can ever leave the viewport. */
+    .composer-toolbar .dd-trigger { min-width: 0; }
+    .composer-toolbar .send-btn { flex: 0 0 auto; }
+    @media (max-width: 1180px) {
+      .composer-toolbar .dd-trigger-label { display: none; }
+      .composer-toolbar .dd-trigger { padding: 6px 7px; }
+    }
     .tool-btn {
       width: 30px; height: 30px;
       display: flex; align-items: center; justify-content: center;
@@ -2061,7 +2223,7 @@ public static let css: String = """
       background: transparent;
       border: none;
       color: var(--muted);
-      font-size: 0.82em;
+      font-size: 0.86em;
       /* Reserve room for the native caret so long option text truncates
          before it instead of clipping underneath. */
       padding: 6px 26px 6px 6px;
@@ -2084,10 +2246,10 @@ public static let css: String = """
     .ctx-ring-track, .ctx-ring-value { fill: none; stroke-width: 3; }
     .ctx-ring-track { stroke: var(--border); }
     .ctx-ring-value { stroke: var(--muted); stroke-linecap: round; stroke-dasharray: 61.261056745; stroke-dashoffset: 61.261056745; transition: stroke-dashoffset 0.45s ease, stroke 0.25s ease; }
-    .ctx-ring-center { position: relative; display: flex; width: 14px; height: 14px; align-items: center; justify-content: center; border-radius: 999px; background: var(--bg); font-size: 7px; font-weight: 600; line-height: 1; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .ctx-ring-center { position: relative; display: flex; width: 16px; height: 16px; align-items: center; justify-content: center; border-radius: 999px; background: var(--bg); font-size: 7px; font-weight: 600; line-height: 1; color: var(--muted); font-variant-numeric: tabular-nums; }
     .ctx-indicator.ctx-mid .ctx-ring-value { stroke: var(--accent-strong); }
     .ctx-indicator.ctx-high .ctx-ring-value { stroke: var(--danger); }
-    .ctx-tooltip { position: absolute; right: 0; bottom: calc(100% + 10px); min-width: 210px; max-width: 250px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22); font-size: 11px; line-height: 1.45; color: var(--muted); opacity: 0; transform: translateY(4px); pointer-events: none; transition: opacity 0.14s ease, transform 0.14s ease; z-index: 30; }
+    .ctx-tooltip { position: absolute; right: 0; bottom: calc(100% + 10px); min-width: 210px; max-width: 250px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22); font-size: 12px; line-height: 1.45; color: var(--muted); opacity: 0; transform: translateY(4px); pointer-events: none; transition: opacity 0.14s ease, transform 0.14s ease; z-index: 30; }
     .ctx-tooltip::after { content: ''; position: absolute; right: 10px; top: 100%; border-width: 6px 6px 0 6px; border-style: solid; border-color: var(--surface) transparent transparent transparent; }
     .ctx-indicator-wrap:hover .ctx-tooltip, .ctx-indicator-wrap:focus-within .ctx-tooltip { opacity: 1; transform: translateY(0); pointer-events: auto; }
     .ctx-tooltip-title { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 5px; }
@@ -2120,7 +2282,7 @@ public static let css: String = """
       border: 1px solid var(--border);
       border-radius: 14px;
       padding: 3px 9px;
-      font-size: 0.8em;
+      font-size: 0.86em;
       color: var(--text);
       max-width: 260px;
       font-family: ui-monospace, Menlo, monospace;
@@ -2157,7 +2319,7 @@ public static let css: String = """
       font-family: ui-monospace, Menlo, monospace;
     }
     .file-pop input:focus { border-color: var(--accent-border); }
-    .file-pop .fp-recents { font-size: 0.78em; color: var(--muted); }
+    .file-pop .fp-recents { font-size: 0.84em; color: var(--muted); }
     .fp-recent {
       display: block; width: 100%; text-align: left;
       background: transparent; border: none; color: var(--link);
@@ -2172,7 +2334,7 @@ public static let css: String = """
     .dd-trigger {
       display: inline-flex; align-items: center; gap: 5px;
       background: transparent; border: none; color: var(--muted);
-      font-family: inherit; font-size: 0.82em; cursor: pointer;
+      font-family: inherit; font-size: 0.86em; cursor: pointer;
       padding: 6px 8px; border-radius: 8px; max-width: 210px; min-width: 0;
       white-space: nowrap; overflow: hidden;
     }
@@ -2200,7 +2362,7 @@ public static let css: String = """
     .dd-search input {
       flex: 1; min-width: 0; background: var(--surface-2);
       border: 1px solid var(--border); color: var(--text);
-      border-radius: 8px; padding: 6px 9px; font-size: 0.8em; outline: none;
+      border-radius: 8px; padding: 6px 9px; font-size: 0.86em; outline: none;
     }
     .dd-search input:focus { border-color: var(--accent-border); }
     .dd-clear {
@@ -2221,10 +2383,10 @@ public static let css: String = """
     }
     .dd-row:hover { background: var(--surface-2); }
     .dd-row-title { font-size: 0.86em; font-weight: 600; color: var(--text); display: inline-flex; align-items: center; gap: 5px; }
-    .dd-row-sub { font-size: 0.75em; color: var(--muted); }
-    .dd-empty { padding: 10px; font-size: 0.8em; color: var(--muted); }
-    .dd-section { font-size: 0.68em; letter-spacing: 0.06em; color: var(--muted); padding: 6px 10px 2px; text-transform: uppercase; }
-    .dd-note { font-size: 0.74em; color: var(--muted); padding: 2px 6px 8px; }
+    .dd-row-sub { font-size: 0.84em; color: var(--muted); }
+    .dd-empty { padding: 10px; font-size: 0.86em; color: var(--muted); }
+    .dd-section { font-size: 0.76em; letter-spacing: 0.06em; color: var(--muted); padding: 6px 10px 2px; text-transform: uppercase; }
+    .dd-note { font-size: 0.84em; color: var(--muted); padding: 2px 6px 8px; }
     .dd-foot { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 4px; display: flex; flex-direction: column; }
     .dd-foot-row {
       display: flex; align-items: center; gap: 9px; width: 100%;
@@ -2237,10 +2399,14 @@ public static let css: String = """
     .dd-dot { width: 8px; height: 8px; border-radius: 50%; background: #6b7680; flex-shrink: 0; margin-top: 5px; }
     .dd-dot.on { background: #3fbf5f; }
     .dd-profile-row { flex-direction: row; gap: 10px; align-items: flex-start; }
+    /* UX-20: the model picker rows are one row each — state dot on the left,
+       name + provider line beside it (same shape as the profile picker). */
+    .dd-model-row { flex-direction: row; gap: 10px; align-items: flex-start; }
+    .dd-model-row .dd-model-main { min-width: 0; }
     .dd-profile-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
     .dd-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; max-width: 100%; min-width: 0; }
     .dd-badge {
-      font-size: 0.62em; font-weight: 600; letter-spacing: 0.05em;
+      font-size: 0.72em; font-weight: 600; letter-spacing: 0.05em;
       color: #7fb3e8; border: 1px solid rgba(127, 179, 232, 0.45);
       padding: 2px 6px; border-radius: 999px; text-transform: uppercase;
       max-width: 100%; overflow-wrap: anywhere; word-break: break-word;
@@ -2261,14 +2427,14 @@ public static let css: String = """
     .pn-draft-desc { font-size: 0.78em; color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .pn-draft-empty { font-size: 0.78em; color: var(--muted); padding: 2px 2px 4px; }
     .pn-picker { max-width: 320px; margin-bottom: 4px; }
-    .pl-eyebrow { font-size: 0.66em; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+    .pl-eyebrow { font-size: 0.76em; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
     .pl-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--border); }
     .pl-row:first-of-type { border-top: none; }
     .pl-k { font-size: 0.84em; color: var(--muted); flex-shrink: 0; }
     .pl-v { display: inline-flex; align-items: center; gap: 6px; font-size: 0.84em; color: var(--text); min-width: 0; }
     .pl-badge {
       display: inline-flex; align-items: center; gap: 5px;
-      font-size: 0.68em; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+      font-size: 0.76em; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
       padding: 2px 8px; border-radius: 999px; border: 1px solid;
     }
     .badge-active { color: #7fb3e8; border-color: rgba(127, 179, 232, 0.55); }
@@ -2285,30 +2451,85 @@ public static let css: String = """
     }
 
     /* ─── Toasts ──────────────────────────────────────────────── */
+    /* Kind-aware bubbles anchored bottom-right, clear of the window strip
+       and the chat-header action icons (UX-27): a success confirmation must
+       not read as an error. The stack is capped server-side (3 + "+N more"),
+       so it can never grow over the composer either. */
     #toasts {
       position: fixed;
-      top: 50px;
-      left: 50%;
-      transform: translateX(-50%);
+      /* UX-58: at bottom:16px the toast stack sat on the composer's Send
+         button. Float it clear of the composer bar. */
+      bottom: 120px;
+      right: 14px;
       display: flex; flex-direction: column; gap: 8px;
       z-index: 1000;
-      align-items: center;
+      align-items: flex-end;
       pointer-events: none;
     }
     .toast {
       display: flex; align-items: center; gap: 10px;
-      background: var(--danger-soft);
-      border: 1.5px solid var(--danger);
+      background: var(--surface);
+      border: 1.5px solid var(--border-strong);
       border-radius: 999px;
       padding: 8px 14px 8px 16px;
       box-shadow: var(--shadow);
       font-size: 0.88em;
-      color: var(--danger);
+      color: var(--text);
       max-width: 440px;
       pointer-events: auto;
     }
-    .toast .toast-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); flex: 0 0 8px; }
-    .toast .toast-x { border: none; background: none; color: var(--danger); opacity: 0.7; cursor: pointer; font-size: 0.95em; }
+    .toast .toast-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: 0 0 8px; }
+    .toast .toast-x { border: none; background: none; color: var(--muted); opacity: 0.7; cursor: pointer; font-size: 0.95em; }
+    .toast .toast-x:hover { opacity: 1; }
+    /* Success confirms (copied / deleted / saved): green, never red. */
+    .toast.success {
+      background: color-mix(in srgb, var(--success) 14%, transparent);
+      border: 1.5px solid color-mix(in srgb, var(--success) 45%, transparent);
+      color: var(--success);
+    }
+    .toast.success .toast-dot { background: var(--success); }
+    .toast.success .toast-x { color: var(--success); }
+    /* Failures stay red; everything else stays neutral. */
+    .toast.error {
+      background: var(--danger-soft);
+      border: 1.5px solid var(--danger);
+      color: var(--danger);
+    }
+    /* WCAG AA: error-toast label in dark mode — mono's dark danger on the
+       dark toast surface measures 4.38. Same brighten as the danger button.
+       The action pill and ✕ get the same brightened danger. */
+    html[data-theme="dark"] .toast.error {
+      color: color-mix(in srgb, var(--danger) 84%, white);
+      border-color: color-mix(in srgb, var(--danger) 84%, white);
+    }
+    html[data-theme="dark"] .toast.error .toast-x { color: color-mix(in srgb, var(--danger) 84%, white); }
+    html[data-theme="dark"] .toast.error .toast-action {
+      border-color: color-mix(in srgb, var(--danger) 84%, white);
+      background: color-mix(in srgb, var(--danger) 84%, white);
+    }
+    .toast.error .toast-dot { background: var(--danger); }
+    .toast.error .toast-x { color: var(--danger); }
+    /* The "+N more" overflow marker: informational, never interactive. */
+    .toast.toast-more {
+      background: var(--surface-2);
+      border: 1px dashed var(--border-strong);
+      color: var(--muted);
+      font-size: 0.8em;
+      pointer-events: none;
+    }
+    /* Undo-style action riding a toast (UX-06): a filled pill that reads as
+       the one clickable thing in the bubble. Label uses the theme's opposite
+       token so the accent fill clears AA (mono's grey accent + white = 3.30). */
+    .toast .toast-action {
+      border: 1px solid var(--accent); background: var(--accent); color: var(--text);
+      border-radius: 999px; padding: 2px 12px; font-size: 0.92em; font-weight: 700;
+      cursor: pointer; font-family: inherit; flex: 0 0 auto;
+    }
+    html[data-theme="dark"] .toast .toast-action { color: var(--bg); }
+    .toast .toast-action:hover { filter: brightness(1.12); }
+    .toast.error .toast-action {
+      border-color: var(--danger); background: var(--danger); color: var(--bg);
+    }
 
     /* ─── Chat row menu (⋯) ──────────────────────────────────── */
     .menu-wrap { position: relative; display: flex; align-items: center; }
@@ -2410,12 +2631,12 @@ public static let css: String = """
       width: 11px; height: 11px; border-radius: 999px;
       display: inline-block; border: 1px solid rgba(0,0,0,0.25);
     }
-    .scheme-name { font-size: 0.72em; font-weight: 600; white-space: nowrap; }
+    .scheme-name { font-size: 0.84em; font-weight: 600; white-space: nowrap; }
     .chat-menu button:hover { background: var(--accent-soft); }
     .chat-menu button.danger { color: var(--danger); }
     .chat-menu button.danger:hover { background: var(--danger-soft); }
 
-    .pin-badge { font-size: 0.82em; margin-right: 3px; }
+    .pin-badge { font-size: 0.86em; margin-right: 3px; }
 
     /* Session sharing (tasks 7-8) */
     .share-badge {
@@ -2493,7 +2714,7 @@ public static let css: String = """
     .code-wrap pre { margin: 0; }
     .copy-code {
         position: absolute; top: 6px; right: 6px; z-index: 2;
-        font-size: 11px; padding: 3px 9px; border-radius: 6px;
+        font-size: 11.5px; padding: 3px 9px; border-radius: 6px;
         border: 1px solid var(--border); background: var(--surface);
         color: var(--muted); cursor: pointer; opacity: .85;
     }
@@ -2508,7 +2729,7 @@ public static let css: String = """
     .todo-title { font-size: 15px; font-weight: 700; margin: 0; }
     .todo-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
     .todo-head-actions { display: flex; align-items: center; gap: 8px; }
-    .todo-pill { font-size: 11.5px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); white-space: nowrap; }
+    .todo-pill { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); white-space: nowrap; }
     .todo-row { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
     .todo-row:last-child { border-bottom: none; }
     .todo-check {
@@ -2540,7 +2761,7 @@ public static let css: String = """
     .todo-runall {
       display: inline-flex; align-items: center; gap: 6px;
       background: none; border: 1px solid var(--border); border-radius: 999px;
-      color: var(--text); font-size: 11.5px; font-weight: 600; padding: 3px 10px;
+      color: var(--text); font-size: 12px; font-weight: 600; padding: 3px 10px;
       cursor: pointer; white-space: nowrap; transition: border-color .15s, color .15s;
     }
     .todo-runall:hover { border-color: var(--accent); color: var(--accent); }
@@ -2590,7 +2811,7 @@ public static let css: String = """
     }
     .kb-col-name { flex: 1; font-weight: 650; font-size: 0.92em; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .kb-col-count {
-      font-size: 0.72em; color: var(--muted); background: var(--surface-2);
+      font-size: 0.84em; color: var(--muted); background: var(--surface-2);
       border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px;
     }
     .kb-col-actions, .kb-card-actions { display: flex; gap: 2px; align-items: center; }
@@ -2603,8 +2824,14 @@ public static let css: String = """
     }
     .kb-card:hover { border-color: var(--border-strong); }
     .kb-card-title { font-size: 0.88em; color: var(--text); line-height: 1.35; word-break: break-word; }
-    .kb-card-actions { justify-content: flex-end; }
-    .kb-empty { color: var(--muted); font-size: 0.8em; text-align: center; padding: 10px 0; }
+    .kb-card-actions { justify-content: flex-end; opacity: 0; transition: opacity 0.15s; }
+    /* Card actions stay in the DOM (keyboard reachable) but only surface while
+       the card is hovered or holds focus, so an idle board reads as cards rather
+       than a field of icons. Coarse pointers always show them. */
+    .kb-card:hover .kb-card-actions,
+    .kb-card:focus-within .kb-card-actions { opacity: 1; }
+    @media (hover: none) { .kb-card-actions { opacity: 1; } }
+    .kb-empty { color: var(--muted); font-size: 0.86em; text-align: center; padding: 10px 0; }
     .kb-addcard {
       border: 1px dashed var(--border-strong); background: transparent;
       color: var(--muted); border-radius: var(--radius-sm);
@@ -2631,7 +2858,7 @@ public static let css: String = """
     .mem-glyph { font-size: 1.3em; flex: 0 0 auto; }
     .mem-txt { display: flex; flex-direction: column; flex: 1; min-width: 0; }
     .mem-title { color: var(--text); font-weight: 600; font-size: 0.92em; }
-    .mem-sub { color: var(--muted); font-size: 0.76em; }
+    .mem-sub { color: var(--muted); font-size: 0.84em; }
     .mem-arrow { color: var(--muted); font-size: 1.1em; }
     .mem-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
     .mem-textarea {
@@ -2645,9 +2872,9 @@ public static let css: String = """
     .mem-textarea:focus { border-color: var(--accent-border); }
 
     /* ─── Workspace panel (right side) ───────────────────────── */
-    /* The handle hides until the pointer is in the right-edge strip: it lives
-       over the transcript's edge and should never earn attention until wanted.
-       Keyboard focus reveals it too. */
+    /* The handle is a persistent affordance (the collapse tab must be
+       discoverable while the panel is open): muted at rest, full strength on
+       hover/keyboard focus and while the panel is open. */
     #ws-dock { position: fixed; right: 0; top: 50%; transform: translateY(-50%); z-index: 60; padding: 10px 6px; }
     .ws-dock-btn {
       width: 38px; height: 38px; border-radius: 50%;
@@ -2656,12 +2883,17 @@ public static let css: String = """
       background: var(--surface-2); color: var(--text);
       border: 1px solid var(--border-strong);
       box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
-      opacity: 0;
+      opacity: 0.55;
       transition: opacity .15s ease, background .12s, color .12s, border-color .12s;
     }
     #ws-dock:hover .ws-dock-btn,
-    .ws-dock-btn:focus-visible { opacity: 1; }
+    .ws-dock-btn:focus-visible,
+    .ws-dock-btn.ws-dock-open { opacity: 1; }
     .ws-dock-btn:hover { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent-border); }
+    /* UX-30: the collapse tab must actually leave when the panel is open —
+       .ws-dock-btn declares display:flex, which would override the UA
+       [hidden] rule and leave a dead chevron floating over the file rows. */
+    .ws-dock-btn[hidden] { display: none; }
     .ws-panel {
       width: var(--panel-w); flex: 0 0 var(--panel-w);
       border-left: 1px solid var(--border);
@@ -2697,7 +2929,7 @@ public static let css: String = """
       color: var(--text);
     }
     .ws-path {
-      font-size: 0.7em; color: var(--muted); padding: 6px 12px 8px;
+      font-size: 0.84em; color: var(--muted); padding: 6px 12px 8px;
       border-bottom: 1px solid var(--border);
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
@@ -2708,7 +2940,7 @@ public static let css: String = """
       padding: 5px 12px 5px 12px; cursor: pointer; min-width: 0;
     }
     .ws-row:hover { background: var(--surface-2); }
-    .ws-caret { width: 12px; flex: 0 0 12px; color: var(--muted); font-size: 0.8em; }
+    .ws-caret { width: 12px; flex: 0 0 12px; color: var(--muted); font-size: 0.86em; }
     .ws-ic { flex: 0 0 auto; font-size: 0.95em; }
     .ws-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .ws-panel.drag { box-shadow: inset 0 0 0 2px var(--accent-strong); }
@@ -2761,16 +2993,33 @@ public static let css: String = """
     /* ── Slash autocomplete (reference commands.js parity) ── */
     .cmd-dropdown { display: none; position: fixed; width: min(560px, calc(100vw - 24px));
       background: var(--bg); border: 1px solid var(--border-strong); border-radius: 10px;
-      box-shadow: 0 -8px 24px rgba(0,0,0,.4); z-index: 200; max-height: 240px; overflow-y: auto; }
+      box-shadow: 0 -8px 24px rgba(0,0,0,.4); z-index: 200; overflow: hidden; }
     .cmd-dropdown.open { display: block; }
+    /* T25: the scroll region is a borderless inner wrapper, so its border-box
+       height IS the content height — the JS sizes it to an exact whole-number
+       multiple of the row pitch and the last visible row lands flush on the
+       box edge instead of being sliced in half. */
+    .cmd-list { max-height: 460px; overflow-y: auto; scrollbar-gutter: stable; }
+    /* UX-54: macOS overlay scrollbars are invisible at rest, which hid 6 of
+       the 10 commands behind a silent fold. A slim, always-visible track lets
+       the remaining rows advertise themselves. */
+    .cmd-list::-webkit-scrollbar { width: 11px; }
+    .cmd-list::-webkit-scrollbar-track { background: transparent; }
+    .cmd-list::-webkit-scrollbar-thumb {
+      background: var(--border-strong); border-radius: 999px;
+      border: 3px solid transparent; background-clip: content-box;
+    }
+    .cmd-list::-webkit-scrollbar-thumb:hover { background: var(--muted); border: 3px solid transparent; background-clip: content-box; }
     .cmd-item { display: block; width: 100%; text-align: left; padding: 8px 14px; cursor: pointer;
       transition: background .12s; background: transparent; border: 0; color: inherit; font: inherit; }
     .cmd-item:hover { background: rgba(140,140,140,.12); }
-    .cmd-item.selected { background: var(--accent-soft); outline: 1px solid var(--accent-strong); }
+    /* T25: the active row is unmistakable — accent-tinted fill plus a left
+       accent bar (inset shadow so the row pitch is untouched by the marker). */
+    .cmd-item.active { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent-strong); }
     .cmd-item-name { font-size: 13px; color: var(--text); font-weight: 500; }
     .cmd-item-arg { color: var(--muted); font-weight: 400; font-style: italic; }
-    .cmd-item-desc { font-size: 11px; color: var(--muted); margin-top: 1px; }
-    .cmd-item-badge { display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700;
+    .cmd-item-desc { font-size: 12px; color: var(--muted); margin-top: 1px; }
+    .cmd-item-badge { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 700;
       letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 999px;
       border: 1px solid var(--border-strong); color: var(--muted); background: var(--hover-bg); vertical-align: 1px; }
     .cmd-item-badge-skill { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-strong); }
@@ -2798,7 +3047,7 @@ public static let css: String = """
     .selection-context-accent { width: 3px; flex: 0 0 3px; background: var(--accent); opacity: .82; }
     .selection-context-body { min-width: 0; flex: 1; padding: 9px 10px 9px 0; }
     .selection-context-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
-    .selection-context-name { color: var(--accent); font-size: 11px; font-weight: 700; line-height: 1.2;
+    .selection-context-name { color: var(--accent); font-size: 12px; font-weight: 700; line-height: 1.2;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .selection-context-remove { display: inline-flex; align-items: center; justify-content: center;
       min-width: 28px; min-height: 28px; background: transparent; border: 1px solid transparent;
@@ -2811,9 +3060,89 @@ public static let css: String = """
     /* ── Queue feed chips (same named-context presentation as the composer) ── */
     .queue-feed-chips { display: flex; flex-wrap: wrap; gap: 4px; max-height: 54px; overflow-y: auto; }
     .queue-feed-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border-strong);
-      border-radius: 999px; padding: 1px 8px 1px 4px; font-size: 11px; color: var(--muted); }
+      border-radius: 999px; padding: 1px 8px 1px 4px; font-size: 11.5px; color: var(--muted); }
     .queue-feed-accent { width: 3px; height: 10px; border-radius: 2px; background: var(--accent); opacity: .8; }
     .queue-feed-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+
+    /* ── Responsive chrome (UX-19/T12) ───────────────────────────── */
+    /* Drawer toggle in the topbar: only the narrow layout mints it. The
+       topbar is position:relative, so the button anchors to its left edge
+       without shifting the centered bolt+name. */
+    .drawer-toggle-btn {
+      position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+      width: 40px; height: 40px;   /* UX-34: >=40x40, same bar as the rail buttons (was 30x30) */
+      display: flex; align-items: center; justify-content: center;
+      border: none; border-radius: 8px; background: transparent;
+      color: var(--muted); font-size: 17px; line-height: 1; cursor: pointer;
+    }
+    .drawer-toggle-btn:hover { background: var(--surface-2); color: var(--text); }
+    .drawer-toggle-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    @media (min-width: 1024px) { .drawer-toggle-btn { display: none; } }
+    /* The scrim covers the chat column while the drawer is open (below the
+       topbar, so the toggle stays reachable). Clicking it closes the drawer;
+       at rest it is transparent and swallows no clicks. */
+    .drawer-scrim {
+      position: fixed; top: 38px; right: 0; bottom: 0; left: 0;
+      background: rgba(8, 8, 16, 0.38);
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.22s ease;
+      z-index: 69;
+    }
+    #app.drawer-open .drawer-scrim { opacity: 1; pointer-events: auto; }
+    @media (min-width: 1024px) { .drawer-scrim { display: none; } }
+    /* Below 1024px the left panel is an overlay drawer: fixed to the left
+       edge above the chat, slid off-canvas at rest. `visibility: hidden`
+       puts its controls OUT of the tab order and the a11y tree while closed
+       (a transform alone leaves them focusable off-screen). The open class
+       lives on #app, never on #panel: the panel is a server fragment whose
+       node is REPLACED on every patch, so state on the panel would be wiped;
+       #app survives the patch cycle. */
+    @media (max-width: 1023.98px) {
+      /* UX-61: the drawer starts AFTER the icon rail — the rail stays visible
+         and reachable while the panel is open. Before this, the panel (z70)
+         and the scrim (z69, left:0) covered the rail, so every tap meant for a
+         rail icon landed on the scrim and was swallowed ("the sidebar icons
+         don't work"). The rail is the app's primary navigation; it must never
+         be the thing the drawer hides. */
+      #panel {
+        position: fixed; top: 38px; bottom: 0; left: var(--iconbar-w);
+        width: min(var(--panel-w), calc(100vw - var(--iconbar-w)));
+        z-index: 70;
+        transform: translateX(calc(-100% - var(--iconbar-w)));
+        visibility: hidden;
+        box-shadow: 0 0 44px rgba(0, 0, 0, 0.35);
+        transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 0.28s;
+      }
+      #app.drawer-open #panel {
+        transform: translateX(0);
+        visibility: visible;
+        transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      /* the scrim dims the content column, never the rail (UX-61) */
+      .drawer-scrim { left: var(--iconbar-w); }
+    }
+    /* Below 720px: the icon rail compacts (smaller glyphs and tighter
+       spacing; the 40px hit targets stay), the transcript's right gutter —
+       the lane the floating circles live in — narrows with it, and the
+       circles re-anchor flush to the edge so they stay inside the lane and
+       never touch the text column or the composer (they already float above
+       it, anchored inside the scroll wrapper). The composer keeps its
+       wrapping toolbar so its control row can never clip. */
+    @media (max-width: 719.98px) {
+      :root { --iconbar-w: 46px; }
+      #iconbar { padding: 8px 0; gap: 4px; }
+      .icon-btn { font-size: 17px; border-radius: 10px; }
+      .icon-btn svg { width: 19px; height: 19px; }
+      .rail-emoji { font-size: 18px; }
+      .composer-wrap { padding: 10px 8px 14px; }
+      .composer-bar { padding: 8px 10px 8px; border-radius: 14px; }
+      .composer-toolbar .dd-trigger { padding: 6px; }
+      #main .chat-scroll { padding: 0 48px 0 12px !important; }
+      #outline-toggle { right: 8px; }
+      .scroll-to-bottom-btn { right: 8px; }
+      #ws-dock { padding: 8px 4px; }
+      .ws-dock-btn { width: 36px; height: 36px; }
+    }
     """
 
 }

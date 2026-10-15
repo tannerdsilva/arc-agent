@@ -2,8 +2,8 @@ import ArcAgentCore
 
 /// The resolved long-lived surfaces a daemon run composes.
 ///
-/// Pure data: ``resolve(gateway:overrides:)`` is a pure function over the loaded
-/// gateway config plus the command-line overrides, so the composition matrix is
+/// Pure data: ``resolve(config:overrides:)`` is a pure function over the loaded
+/// daemon config plus the command-line overrides, so the composition matrix is
 /// unit-testable without binding a socket.
 public struct DaemonPlan: Sendable, Equatable {
 
@@ -73,25 +73,25 @@ public struct DaemonPlan: Sendable, Equatable {
     /// Resolve the plan: config first, command-line overrides on top. The
     /// surface set is the whole truth — a disabled surface is absent here and
     /// never composed.
-    public static func resolve(gateway: GatewayConfig, overrides: Overrides) -> DaemonPlan {
+    public static func resolve(config: DaemonConfig, overrides: Overrides) -> DaemonPlan {
         var api: Surface?
-        if gateway.api.enabled {
+        if config.api.enabled {
             api = Surface(
-                host: overrides.host ?? gateway.api.host,
-                port: overrides.port ?? gateway.api.port
+                host: overrides.host ?? config.api.host,
+                port: overrides.port ?? config.api.port
             )
         }
         var webui: Surface?
-        if overrides.webuiEnabled ?? gateway.webui.enabled {
-            webui = Surface(host: gateway.webui.host, port: gateway.webui.port)
+        if overrides.webuiEnabled ?? config.webui.enabled {
+            webui = Surface(host: config.webui.host, port: config.webui.port)
         }
         var mcpServer: Surface?
-        if gateway.mcpServer.enabled {
-            mcpServer = Surface(host: gateway.mcpServer.host, port: gateway.mcpServer.port)
+        if config.mcpServer.enabled {
+            mcpServer = Surface(host: config.mcpServer.host, port: config.mcpServer.port)
         }
         var kanban: KanbanLoop?
-        if gateway.kanban.dispatcherEnabled {
-            kanban = KanbanLoop(pollSeconds: gateway.kanban.pollSeconds)
+        if config.kanban.dispatcherEnabled {
+            kanban = KanbanLoop(pollSeconds: config.kanban.pollSeconds)
         }
         return DaemonPlan(
             api: api,
@@ -103,16 +103,16 @@ public struct DaemonPlan: Sendable, Equatable {
         )
     }
 
-    /// Fill a command-line token into a gateway config that carries none — the
-    /// `--telegram-token` flag used to be dropped whenever `gateway.json`
+    /// Fill a command-line token into the daemon config that carries none —
+    /// the `--telegram-token` flag used to be dropped whenever `daemon.json`
     /// existed at all (the config path shadowed the legacy flag path).
-    public func gatewayWithFilledToken(_ gateway: GatewayConfig) -> GatewayConfig {
-        guard let token = telegramToken, !token.isEmpty, gateway.telegram.botToken.isEmpty else {
-            return gateway
+    public func configWithFilledToken(_ config: DaemonConfig) -> DaemonConfig {
+        guard let token = telegramToken, !token.isEmpty, config.telegram.botToken.isEmpty else {
+            return config
         }
-        var gateway = gateway
-        gateway.telegram.botToken = token
-        gateway.telegram.enabled = true
-        return gateway
+        var config = config
+        config.telegram.botToken = token
+        config.telegram.enabled = true
+        return config
     }
 }

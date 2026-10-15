@@ -10,9 +10,6 @@ the panel, and the main page exactly like a built-in tab, and the
 Settings → Sidebar plugins page lets the user hide/show it. Installing a
 plugin is a file copy — no rebuild, no access to the application source.
 
-The reference implementation is the GitHub tab
-([`Plugins/GitHubSidebarTab`](../Plugins/GitHubSidebarTab)).
-
 ## The protocol
 
 `SidebarTab` (from `ArcSidebarTabs`) has four required members:
@@ -58,7 +55,7 @@ Plugins/MySidebarTab/
   Sources/MySidebarTabRunner/main.swift   # sidecar entry point
 ```
 
-`Package.swift` dependencies (mirror the reference plugin):
+`Package.swift` dependencies:
 
 ```swift
 .package(path: "../ArcSidebarTabs"),        // in-repo pin while co-developed
@@ -123,10 +120,9 @@ ids never collide with built-ins or other plugins; ids only need to be
 unique within the tab.
 
 HTML helpers live in `SidebarTabHTML` (`escape`, `trunc`). The tab may
-depend on `WebUI` (no-webui) for design-system icons and markup classes,
-as the GitHub plugin does — plugin tabs render inside the application's
-theme, and the `gh-*`/`panel-head` classes are the application's own
-styles.
+depend on `WebUI` (no-webui) for design-system icons and markup classes —
+plugin tabs render inside the application's theme and reuse the
+application's own classes.
 
 ## Installing a plugin (shipped product)
 
@@ -163,20 +159,6 @@ values}`), `activate`, `deactivate`. Plugin→host requests: `host.workspacePath
 `host.toast`, `host.navigate`, `host.refreshTab`. Correlated by `id`, so
 requests and replies on either side never interleave. Nothing else is
 touched: no ports, no sockets, no shared files.
-
-## The GitHub tab as a worked example
-
-- `Plugins/GitHubSidebarTab/` — package, models, git loader, the
-  `GitHubSidebarTab` actor, `GitHubSidebarTabPlugin`, and the
-  `GitHubSidebarTabRunner` executable hosting it as a sidecar.
-- Distribution: build the runner, copy to
-  `~/.arc/plugins/github-sidebar-tab/` with its `manifest.json`.
-- Protocol features exercised: `.named("git-branch")` icon; async
-  panel/main; `install` registrations (`gh-refresh`, `gh-commit`);
-  `onActivate` lazy load from `host.workspacePath()`; `/usr/bin/git`
-  subprocesses through SwiftSlash with a 20s bound; `SidebarTabHTML`
-  escaping; the tab only imports `ArcSidebarTabs`, `WebUI`,
-  `SwiftSlash`, and Foundation.
 
 ## Design notes
 

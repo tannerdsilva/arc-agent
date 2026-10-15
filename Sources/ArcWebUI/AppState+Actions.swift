@@ -9,7 +9,32 @@ extension AppState {
     // MARK: Navigation + mode flags
 
     func switchView(_ v: ViewID) async {
+        // Land on content, not on a "select something" canvas: a list/detail
+        // page opens with its first item chosen when nothing is chosen yet. An
+        // existing choice is kept, so leaving and returning finds the same
+        // skill / profile / tool / document / job still open.
+        switch v {
+        case .skills:
+            if selectedSkill == nil { selectedSkill = skills.first?.name }
+        case .profiles:
+            if selectedProfile == nil { selectedProfile = profiles.first?.name }
+        case .tools:
+            if selectedTool == nil { selectedTool = registry.allTools.first?.name }
+        case .memory:
+            if memoryDoc == nil { await openMemoryDoc("memory") }
+        case .tasks:
+            // the panel renders from the store-backed cache; refresh on open.
+            await refreshScheduledJobs()
+            if tasksSelectedID == nil { tasksSelectedID = settings.scheduledJobs.first?.id }
+        default:
+            break
+        }
+        // The tab switch runs last: it owns the shared-reset inventory and the
+        // task-chat materialization, now that the selection above is in place.
         await switchTab(v.rawValue)
+        // Navigation leaves the delete-undo window: the Undo toast belongs to
+        // the chat surface right after a delete, not to the page you land on.
+        undoableDelete = nil
     }
 
     func setLogFilter(_ f: String) {
@@ -26,10 +51,27 @@ extension AppState {
     func appendToSession(idx: Int, message: Message) async {
         guard sessions.indices.contains(idx) else { return }
         sessions[idx].messages.append(message)
+        sessions[idx].messageCount = sessions[idx].messages.count
         sessionVersion += 1
         if let store {
             await persistMessage(message, sessionID: sessions[idx].id, store: store)
         }
+    }
+
+    /// True when a chat is a pristine "New chat": no title, no messages.
+    /// The `+` guard reads this — `messageCount` is a store mirror that lags
+    /// live appends, so it checks the loaded body (always cached for the
+    /// active chat; eviction never drops it) and falls back to the store
+    /// itself, never trusting one stale field.
+    func isPristineNewChat(_ id: String) async -> Bool {
+        guard let idx = sessions.firstIndex(where: { $0.id == id }) else { return false }
+        let s = sessions[idx]
+        if !(s.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
+        if s.messageCount > 0 || !s.messages.isEmpty { return false }
+        if let store, let full = try? await store.get(id: id) {
+            return full.messages.isEmpty
+        }
+        return true
     }
 
     func chatFragments() async -> [FragmentUpdate] {
@@ -81,10 +123,15 @@ extension AppState {
         formValues["ws-path-input"] = ""
     }
 
-    func setActiveSession(_ id: String) async {
+    func setActiveSession(_ id: String, preserveUndo: Bool = false) async {
         activeSessionID = id
         pendingDelete = false
         filePopOpen = false
+        // Opening a different chat is the "next navigation" that closes the
+        // delete-undo window (UX-06). The delete path's own auto-select
+        // (falling back to the newest chat) passes preserveUndo so the Undo
+        // toast survives the very moment that raised it.
+        if !preserveUndo { undoableDelete = nil }
         attachments = []
         forceScrollBottom = true
         // Follow the chat's own workspace (right panel + composer selector).
@@ -174,19 +221,32 @@ extension AppState {
 
     func toggleFilePop() {
         filePopOpen.toggle()
+        // Opening the attach popover closes any open composer selector; the
+        // selectors do the symmetric thing via closeComposerSelectors.
+        if filePopOpen { closeSelectorPanels() }
     }
 
     // MARK: Composer dropdowns (arc parity)
 
-    /// Close every composer dropdown (openers close their siblings) and
-    /// reset the live-search filters so the next open is fresh.
-    func closeComposerSelectors() {
+    /// Close only the four selector-chip panels (workspace/profile/model/
+    /// thinking), leaving the attach popover alone. Used by the file-pop
+    /// opener, which must not re-close itself through the full dismissal.
+    private func closeSelectorPanels() {
         wsSelectOpen = false
         profileSelectOpen = false
         modelSelectOpen = false
         thinkSelectOpen = false
         wsSelectQuery = ""
         modelSelectQuery = ""
+    }
+
+    /// Close every composer dropdown (openers close their siblings) and
+    /// reset the live-search filters so the next open is fresh. The attach
+    /// popover is part of the same dismissal system: any close here also
+    /// hides it, so file-pop and the selector chips can never overlap.
+    func closeComposerSelectors() {
+        closeSelectorPanels()
+        filePopOpen = false
     }
 
     /// Toggle a composer dropdown: re-clicking an open trigger closes it.
@@ -223,8 +283,8 @@ extension AppState {
     }
 
     /// Mark the HTTP/WS server as bound (shown in the profile card).
-    func markGatewayUp() {
-        gatewayRunning = true
+    func markDaemonUp() {
+        daemonRunning = true
     }
 
     func addAttachment(_ path: String) {
@@ -344,6 +404,15 @@ extension AppState {
         confirmDeleteID = id
     }
 
+    // MARK: Generic confirmations (centered modal)
+
+    /// Arm a destructive action that the centered modal confirms. Workspaces
+    /// use this today; the dialog is rendered from whichever request is armed,
+    /// so a new guarded action needs no new modal code.
+    func requestConfirm(_ req: ConfirmRequest) { pendingConfirm = req }
+
+    func cancelConfirm() { pendingConfirm = nil }
+
     func cancelDelete() {
         confirmDeleteID = nil
     }
@@ -351,6 +420,24 @@ extension AppState {
     func confirmDeleteSession(_ id: String?) async {
         guard let store, let id else { return }
         confirmDeleteID = nil
+        // UX-06: snapshot the chat for Undo BEFORE it is destroyed. The
+        // cached row may be a summary; materialize its messages first so a
+        // restored chat comes back with its full transcript.
+        await ensureSessionMessages(id)
+        if let idx = sessions.firstIndex(where: { $0.id == id }) {
+            let s = sessions[idx]
+            undoableDelete = UndoableDelete(
+                session: s,
+                workspace: settings.sessionWorkspaces[id],
+                category: settings.sessionCategories[id],
+                profile: settings.sessionProfile[id],
+                thinking: settings.sessionThinking[id],
+                bookmarked: settings.bookmarkedSessions.contains(id),
+                todos: settings.todos[id],
+                draft: settings.composerDrafts[id],
+                title: settings.sessionTitles[id]
+            )
+        }
         do {
             try await store.delete(id: id)
         } catch {
@@ -372,10 +459,130 @@ extension AppState {
            let newest = sessions
                .filter({ !$0.id.hasPrefix("Cron-") })
                .max(by: { $0.updatedAt < $1.updatedAt }) {
-            await setActiveSession(newest.id)
+            await setActiveSession(newest.id, preserveUndo: true)
         }
-        _ = hint("Chat deleted.")
+        _ = surfaceToast("Conversation deleted.", action: ToastAction(id: "undo-delete", label: "Undo"))
     }
+
+    /// Resurrect the chat the Undo toast points at (UX-06): re-create the
+    /// session in the store, restore its per-chat settings keys, and navigate
+    /// back to it. Returns false when there is nothing to restore or the
+    /// store refuses the create (a loud "could not" toast is then the honest
+    /// outcome).
+    @discardableResult
+    func undoDeleteChat() async -> Bool {
+        guard let store, let saved = undoableDelete else { return false }
+        let id = saved.session.id
+        undoableDelete = nil
+        // The delete may never have landed (store error on delete): if the
+        // session is already alive there is nothing to re-create — just
+        // navigate back to it.
+        if (try? await store.get(id: id)) != nil {
+            await reloadSessions(selecting: id)
+            await setActiveSession(id, preserveUndo: true)
+            return true
+        }
+        do {
+            try await store.create(saved.session)
+        } catch {
+            LogCollector.shared.append(level: .error, text: "[store] failed to restore deleted session \(String(id.prefix(8))): \(error)")
+            return false
+        }
+        if let w = saved.workspace { settings.sessionWorkspaces[id] = w }
+        if let c = saved.category { settings.sessionCategories[id] = c }
+        if let p = saved.profile { settings.sessionProfile[id] = p }
+        if let t = saved.thinking { settings.sessionThinking[id] = t }
+        if saved.bookmarked, !settings.bookmarkedSessions.contains(id) { settings.bookmarkedSessions.append(id) }
+        if let todos = saved.todos { settings.todos[id] = todos }
+        if let d = saved.draft { settings.composerDrafts[id] = d }
+        if let t = saved.title { settings.sessionTitles[id] = t }
+        saveSettings()
+        await reloadSessions(selecting: id)
+        await setActiveSession(id, preserveUndo: true)
+        return true
+    }
+
+    /// How many never-messaged drafts the cleanup would actually remove
+    /// (UX-62): excludes the chat you are in (its composer is open — clearing
+    /// must not close it under you) and the archived set (the toggle's view).
+    func emptyDraftCount() -> Int {
+        let keep = activeSessionID
+        return sessions.filter {
+            !$0.id.hasPrefix("Cron-") && !isArchived($0.id)
+                && $0.messageCount == 0 && $0.id != keep
+        }.count
+    }
+
+    /// Delete the never-messaged drafts that clutter the conversation list
+    /// (UX-62). A stray `+` leaves identical "New chat · 0 msg" rows behind and
+    /// there was no way to remove them. They are content-free by construction,
+    /// so the dialog says plainly that it cannot be undone rather than
+    /// pretending the single-slot Undo could restore N chats.
+    ///
+    /// Emptiness is judged on the store-backed `messageCount` and then
+    /// CONFIRMED against the materialized transcript: `list()` hands back
+    /// summaries whose `messages` are empty *by design*, so trusting the
+    /// structural read alone would delete real conversations. The re-check
+    /// after `ensureSessionMessages` is the safety catch.
+    @discardableResult
+    func clearEmptyDrafts() async -> Int {
+        guard let store else { return 0 }
+        // A bulk delete cannot ride the single-slot undo; retire any pending
+        // one so an Undo toast can never resurrect some other chat.
+        undoableDelete = nil
+        let keep = activeSessionID
+        var doomed: [String] = []
+        for s in sessions
+        where !s.id.hasPrefix("Cron-") && !isArchived(s.id) && s.messageCount == 0 && s.id != keep {
+            await ensureSessionMessages(s.id)
+            guard let i = sessions.firstIndex(where: { $0.id == s.id }) else { continue }
+            if sessions[i].messages.isEmpty { doomed.append(s.id) }
+        }
+        guard !doomed.isEmpty else { return 0 }
+        for id in doomed {
+            do {
+                try await store.delete(id: id)
+            } catch {
+                LogCollector.shared.append(level: .error, text: "[store] failed to delete empty session \(String(id.prefix(8))): \(error)")
+            }
+            sessions.removeAll { $0.id == id }
+            settings.sessionWorkspaces.removeValue(forKey: id)
+            settings.sessionCategories.removeValue(forKey: id)
+            settings.sessionProfile.removeValue(forKey: id)
+            settings.bookmarkedSessions.removeAll { $0 == id }
+            settings.todos.removeValue(forKey: id)
+            settings.composerDrafts.removeValue(forKey: id)
+            settings.sessionTitles.removeValue(forKey: id)
+        }
+        saveSettings()
+        await reloadSessions()
+        // Never strand the app with no chat at all.
+        if activeSessionID == nil {
+            if let newest = sessions
+                .filter({ !$0.id.hasPrefix("Cron-") })
+                .max(by: { $0.updatedAt < $1.updatedAt }) {
+                await setActiveSession(newest.id, preserveUndo: true)
+            } else {
+                await ensureRuntime()
+                let fresh = Session()
+                try? await store.create(fresh)
+                await reloadSessions(selecting: fresh.id)
+                await setActiveSession(fresh.id, preserveUndo: true)
+            }
+        }
+        _ = surfaceToast(doomed.count == 1 ? "Empty chat cleared." : "\(doomed.count) empty chats cleared.")
+        return doomed.count
+    }
+
+    func toggleOutline() { outlineOpen.toggle() }
+
+    func closeOutline() { outlineOpen = false }
+
+    func isOutlineOpen() -> Bool { outlineOpen }
+
+    /// Storage backend, for the Settings segmented control (the old switch read
+    /// its own state backwards).
+    func currentTesseraOff() -> Bool { settings.tesseraOff }
 
     // MARK: Rename / archive / duplicate
 
@@ -402,6 +609,10 @@ extension AppState {
             if showArchived { showArchived = false }
         } else {
             settings.archivedSessions.append(id)
+            // The row leaves the list without a trace; surface where it went
+            // and how to get it back — mis-taps happen (same routed path as
+            // the delete toast: here the feedback IS the feature).
+            surfaceToast("Conversation archived — find it under “Show archived conversations”.")
         }
         saveSettings()
     }
@@ -612,6 +823,8 @@ extension AppState {
     }
 
     func setConfirmColumn(_ id: String?) { confirmColumn = id }
+
+    func setConfirmCard(_ id: String?) { confirmCard = id }
 
     func deleteKanbanColumn(_ id: String) {
         settings.kanbanColumns.removeAll { $0.id == id }
@@ -1200,20 +1413,46 @@ extension AppState {
 
     // MARK: Settings
 
-    // MARK: Steering
+    // MARK: Mid-stream sends (honest queue)
 
     /// True while a turn is streaming / running tool calls in THAT session.
     func isTurnActive(sessionID: String) -> Bool {
         activeTurns[sessionID] != nil
     }
 
-    /// Deliver mid-run user guidance (reference /steer) to the turn in the SAME
-    /// session only. A message typed in a different chat must never steer
-    /// another chat's run — it starts its own turn instead.
-    func submitSteer(_ text: String, sessionID: String) {
-        guard activeTurns[sessionID] != nil else { return }
-        let existing = activeTurns[sessionID]?.steerText
-        activeTurns[sessionID]?.steerText = existing.map { $0 + "\n" + text } ?? text
+    /// Whether the client's current chat view displays a live turn block right
+    /// now. `WebUIHost`'s push layer uses this at broadcast time: a `#live-turn`
+    /// / `#live-turn-text` / `#live-turn-thinking` op only has an element to
+    /// land on while this is true, so their broadcasts are gated on it (the
+    /// engine would otherwise log "Element not found: #live-turn…" when the
+    /// user has moved off the owning chat).
+    func liveTurnShown() -> Bool {
+        activeTabID == "chat" && activeTurns[activeSessionID ?? ""] != nil
+    }
+
+    /// Queue a message typed while this session's turn is running (UX-04).
+    /// It renders immediately as a "Queued · N" chip above the composer and
+    /// runs as its own turn — in order — after the current reply finishes.
+    func queueSend(_ text: String, sessionID: String) {
+        queueSendSeq += 1
+        queuedSends[sessionID, default: []].append(QueuedSend(id: queueSendSeq, text: text))
+    }
+
+    /// Remove a queued message before it runs; an empty slot is dropped so the
+    /// chip row disappears and nothing stale renders.
+    func removeQueuedSend(_ id: Int, sessionID: String) {
+        guard var list = queuedSends[sessionID] else { return }
+        list.removeAll { $0.id == id }
+        queuedSends[sessionID] = list.isEmpty ? nil : list
+    }
+
+    /// Pop the oldest queued message for the next turn (single drainer: the
+    /// turn-end path calls this once, then runTurn's own end drains the next).
+    func popQueuedSend(_ sessionID: String) -> QueuedSend? {
+        guard var list = queuedSends[sessionID], !list.isEmpty else { return nil }
+        let first = list.removeFirst()
+        queuedSends[sessionID] = list.isEmpty ? nil : list
+        return first
     }
 
     func setTheme(_ theme: String) {
@@ -1373,7 +1612,7 @@ extension AppState {
         saveSettings()
         // In a hosted daemon the UI was handed the daemon's boot-time pair;
         // detach it so the rebuild below picks the newly selected medium (the
-        // daemon's gateway/bot agents keep their boot-time pair until the
+        // hosted/bot agents keep their boot-time pair until the
         // daemon restarts - same as the pre-daemon architecture).
         let wasHosted = attachedStorage != nil
         attachedStorage = nil
@@ -1397,7 +1636,7 @@ extension AppState {
         crumb("storage: connected to \(settings.activeStorage) (backend=\(runtimeBackend))")
         await reloadAll()
         if wasHosted {
-            hint("Storage connected. Gateway/bot services keep their boot-time backend until the daemon restarts.", kind: "success")
+            hint("Storage connected. Bot services keep their boot-time backend until the daemon restarts.", kind: "success")
         } else {
             hint("Storage connected.", kind: "success")
         }
@@ -1473,7 +1712,7 @@ extension AppState {
     // MARK: Boot
 
     @discardableResult
-    func crumb(_ s: String) -> String {
+    nonisolated func crumb(_ s: String) -> String {
         FileHandle.standardError.write(Data("CRUMB \(s)\n".utf8))
         return s
     }

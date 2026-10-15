@@ -1,5 +1,5 @@
 {
-  "originHash" : "a5c08a1b3e0e5596f76a262c354b60bc2f397c9cae72d4c6fb2bddf0058e4dcb",
+  "originHash" : "d681eb45a5aa4a7e06b6a0cf37d741189a056b2c1b7d290e1585ed13394217f2",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -42,7 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/no-webui.git",
       "state" : {
-        "revision" : "61b8bddc5907094e0c087f288f105933f5bd9089"
+        "revision" : "0886e7bce33d5ca3010cf2fcdc8f6761a3458f07",
+        "version" : "2.1.0"
       }
     },
     {
@@ -212,8 +213,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/swift-mcp.git",
       "state" : {
-        "revision" : "5003705bc673530cec1febc0b9f1278a2be2324d",
-        "version" : "2.0.0"
+        "revision" : "8560e5ff59ab85b1640b0646e37b13e1b75a450e",
+        "version" : "2.1.1"
       }
     },
     {

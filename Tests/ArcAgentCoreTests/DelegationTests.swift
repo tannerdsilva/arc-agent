@@ -122,169 +122,171 @@ struct SlowScriptedClient: LLMClient {
 // MARK: - Delegation tests
 // =========================================================================
 
-@Suite("Delegation", .serialized)
-struct DelegationTests {
+extension ArcCoreTestRoot {
+    @Suite("Delegation", .serialized)
+    struct DelegationTests {
 
-    private func makeParentConfig(
-        filePath: String,
-        steerProbe: Bool = false,
-        llmClient: (any LLMClient)? = nil
-    ) throws -> ArcAgent.Configuration {
-        let registry = try ArcAgentCore.buildDefaultRegistry()
-        return ArcAgent.Configuration(
-            model: "test-model",
-            provider: "openai",
-            baseURL: URL(string: "https://api.openai.com/v1")!,
-            apiKey: "k",
-            registry: registry,
-            sessionStore: VolatileSessionStore(),
-            memoryProvider: nil,
-            skills: [],
-            maxIterations: 5,
-            maxTurnDuration: 60,
-            persistSessions: false,
-            approvalMode: .off,
-            maxContextTokens: 64_000,
-            delegation: DelegationConfig(maxConcurrentChildren: 4, maxTurns: 5, defaultTimeout: 60),
-            llmClient: llmClient ?? ParentAwareScriptedClient(filePath: filePath, steerProbe: steerProbe)
-        )
-    }
-
-    private func primeAgent(_ config: ArcAgent.Configuration) async throws -> ArcAgent {
-        let agent = ArcAgent(config: config)
-        try await agent.prime()
-        return agent
-    }
-
-    @Test("delegate_task returns the child's real final answer")
-    func delegationReturnsRealSummary() async throws {
-        let target = FileManager.default.temporaryDirectory
-            .appendingPathComponent("arc-delegation-\(UUID().uuidString).txt")
-        try "42".write(to: target, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: target) }
-
-        let agent = try await primeAgent(try makeParentConfig(filePath: target.path))
-
-        let response = try await agent.runConversation(
-            message: "Use your delegation tool to read the file and report its content."
-        )
-        await agent.shutdownHTTPClient()
-
-        // The parent must relay the child's ACTUAL tool result — not the old
-        // stub's synthesized "Completed: <goal prefix 80>".
-        #expect(response.contains("42"), "parent should relay the child's real summary, got: \(response)")
-        #expect(response.contains("Child said"), "parent should wrap the child's summary, got: \(response)")
-    }
-
-    @Test("child registry strips the delegation toolset (no recursion)")
-    func childRegistryStripsDelegation() throws {
-        let registry = try ArcAgentCore.buildDefaultRegistry()
-        let parent = ArcAgent.Configuration(
-            model: "m",
-            provider: "openai",
-            baseURL: URL(string: "https://api.openai.com/v1")!,
-            apiKey: "k",
-            registry: registry,
-            sessionStore: VolatileSessionStore(),
-            memoryProvider: nil,
-            maxIterations: 5
-        )
-
-        // No allowedToolsets → inherit everything EXCEPT the delegation toolset.
-        let inherited = DelegationManager.makeChildConfiguration(
-            parent: parent, goal: "g", context: "", allowedToolsets: [], maxTurns: 5
-        )
-        #expect(inherited.disabledToolsets.contains("delegation"))
-        #expect(!inherited.disabledToolsets.contains("file"))
-        #expect(!inherited.disabledToolsets.contains("terminal"))
-
-        // Explicit toolsets → intersection, plus the always-blocked set.
-        let fileOnly = DelegationManager.makeChildConfiguration(
-            parent: parent, goal: "g", context: "", allowedToolsets: ["file"], maxTurns: 5
-        )
-        #expect(fileOnly.disabledToolsets.contains("delegation"))
-        #expect(fileOnly.disabledToolsets.contains("terminal"))
-        #expect(!fileOnly.disabledToolsets.contains("file"))
-    }
-
-    @Test("steering is delivered to a running child")
-    func steeringReachesChild() async throws {
-        let target = FileManager.default.temporaryDirectory
-            .appendingPathComponent("arc-delegate-steer-\(UUID().uuidString).txt")
-        try "1".write(to: target, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: target) }
-
-        let agent = try await primeAgent(try makeParentConfig(filePath: target.path, steerProbe: true))
-        guard let manager = DelegateTaskTool.manager else {
-            Issue.record("manager not wired by prime()")
-            return
+        private func makeParentConfig(
+            filePath: String,
+            steerProbe: Bool = false,
+            llmClient: (any LLMClient)? = nil
+        ) throws -> ArcAgent.Configuration {
+            let registry = try ArcAgentCore.buildDefaultRegistry()
+            return ArcAgent.Configuration(
+                model: "test-model",
+                provider: "openai",
+                baseURL: URL(string: "https://api.openai.com/v1")!,
+                apiKey: "k",
+                registry: registry,
+                sessionStore: VolatileSessionStore(),
+                memoryProvider: nil,
+                skills: [],
+                maxIterations: 5,
+                maxTurnDuration: 60,
+                persistSessions: false,
+                approvalMode: .off,
+                maxContextTokens: 64_000,
+                delegation: DelegationConfig(maxConcurrentChildren: 4, maxTurns: 5, defaultTimeout: 60),
+                llmClient: llmClient ?? ParentAwareScriptedClient(filePath: filePath, steerProbe: steerProbe)
+            )
         }
 
-        let id = try await manager.spawn(
-            goal: "Read the file at \(target.path) and report its content",
-            context: "",
-            allowedToolsets: ["file"]
-        )
-        try await manager.steer(id: id, message: "URGENT please continue")
-
-        guard let stream = await manager.stream(id: id) else {
-            Issue.record("no stream")
-            return
-        }
-        var result = ""
-        for try await chunk in stream { result += chunk }
-        await agent.shutdownHTTPClient()
-        #expect(result.contains("steer received"), "child should drain the steer, got: \(result)")
-    }
-
-    @Test("cancel stops a running child and marks it cancelled")
-    func cancelStopsChild() async throws {
-        let agent = try await primeAgent(try makeParentConfig(
-            filePath: "/tmp/never-read.txt",
-            llmClient: SlowScriptedClient(sleepSeconds: 5)
-        ))
-        guard let manager = DelegateTaskTool.manager else {
-            Issue.record("manager not wired by prime()")
-            return
+        private func primeAgent(_ config: ArcAgent.Configuration) async throws -> ArcAgent {
+            let agent = ArcAgent(config: config)
+            try await agent.prime()
+            return agent
         }
 
-        let id = try await manager.spawn(goal: "slow task", allowedToolsets: [])
-        try await Task.sleep(nanoseconds: 200_000_000)  // let the child start
-        guard let stream = await manager.stream(id: id) else {
-            Issue.record("no stream")
+        @Test("delegate_task returns the child's real final answer")
+        func delegationReturnsRealSummary() async throws {
+            let target = FileManager.default.temporaryDirectory
+                .appendingPathComponent("arc-delegation-\(UUID().uuidString).txt")
+            try "42".write(to: target, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: target) }
+
+            let agent = try await primeAgent(try makeParentConfig(filePath: target.path))
+
+            let response = try await agent.runConversation(
+                message: "Use your delegation tool to read the file and report its content."
+            )
             await agent.shutdownHTTPClient()
-            return
+
+            // The parent must relay the child's ACTUAL tool result — not the old
+            // stub's synthesized "Completed: <goal prefix 80>".
+            #expect(response.contains("42"), "parent should relay the child's real summary, got: \(response)")
+            #expect(response.contains("Child said"), "parent should wrap the child's summary, got: \(response)")
         }
-        try await manager.cancel(id: id)
-        await agent.shutdownHTTPClient()
 
-        let status = await manager.agent(id: id)?.status
-        #expect(status == .cancelled)
+        @Test("child registry strips the delegation toolset (no recursion)")
+        func childRegistryStripsDelegation() throws {
+            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let parent = ArcAgent.Configuration(
+                model: "m",
+                provider: "openai",
+                baseURL: URL(string: "https://api.openai.com/v1")!,
+                apiKey: "k",
+                registry: registry,
+                sessionStore: VolatileSessionStore(),
+                memoryProvider: nil,
+                maxIterations: 5
+            )
 
-        var result = ""
-        for try await chunk in stream { result += chunk }
-        #expect(result.contains("Cancelled"))
-    }
+            // No allowedToolsets → inherit everything EXCEPT the delegation toolset.
+            let inherited = DelegationManager.makeChildConfiguration(
+                parent: parent, goal: "g", context: "", allowedToolsets: [], maxTurns: 5
+            )
+            #expect(inherited.disabledToolsets.contains("delegation"))
+            #expect(!inherited.disabledToolsets.contains("file"))
+            #expect(!inherited.disabledToolsets.contains("terminal"))
 
-    @Test("concurrency cap throws tooManyChildren")
-    func concurrencyCap() async throws {
-        let registry = try ArcAgentCore.buildDefaultRegistry()
-        let parent = ArcAgent.Configuration(
-            model: "m",
-            provider: "openai",
-            baseURL: URL(string: "https://api.openai.com/v1")!,
-            apiKey: "k",
-            registry: registry,
-            sessionStore: VolatileSessionStore(),
-            memoryProvider: nil,
-            maxIterations: 5,
-            llmClient: SlowScriptedClient(sleepSeconds: 5)
-        )
-        let capped = DelegationManager(maxChildren: 1, parentConfiguration: parent)
-        _ = try await capped.spawn(goal: "slow first", allowedToolsets: [])
-        await #expect(throws: DelegationError.self) {
-            _ = try await capped.spawn(goal: "second", allowedToolsets: [])
+            // Explicit toolsets → intersection, plus the always-blocked set.
+            let fileOnly = DelegationManager.makeChildConfiguration(
+                parent: parent, goal: "g", context: "", allowedToolsets: ["file"], maxTurns: 5
+            )
+            #expect(fileOnly.disabledToolsets.contains("delegation"))
+            #expect(fileOnly.disabledToolsets.contains("terminal"))
+            #expect(!fileOnly.disabledToolsets.contains("file"))
         }
-        await capped.cancelAll()
+
+        @Test("steering is delivered to a running child")
+        func steeringReachesChild() async throws {
+            let target = FileManager.default.temporaryDirectory
+                .appendingPathComponent("arc-delegate-steer-\(UUID().uuidString).txt")
+            try "1".write(to: target, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: target) }
+
+            let agent = try await primeAgent(try makeParentConfig(filePath: target.path, steerProbe: true))
+            guard let manager = DelegateTaskTool.manager else {
+                Issue.record("manager not wired by prime()")
+                return
+            }
+
+            let id = try await manager.spawn(
+                goal: "Read the file at \(target.path) and report its content",
+                context: "",
+                allowedToolsets: ["file"]
+            )
+            try await manager.steer(id: id, message: "URGENT please continue")
+
+            guard let stream = await manager.stream(id: id) else {
+                Issue.record("no stream")
+                return
+            }
+            var result = ""
+            for try await chunk in stream { result += chunk }
+            await agent.shutdownHTTPClient()
+            #expect(result.contains("steer received"), "child should drain the steer, got: \(result)")
+        }
+
+        @Test("cancel stops a running child and marks it cancelled")
+        func cancelStopsChild() async throws {
+            let agent = try await primeAgent(try makeParentConfig(
+                filePath: "/tmp/never-read.txt",
+                llmClient: SlowScriptedClient(sleepSeconds: 5)
+            ))
+            guard let manager = DelegateTaskTool.manager else {
+                Issue.record("manager not wired by prime()")
+                return
+            }
+
+            let id = try await manager.spawn(goal: "slow task", allowedToolsets: [])
+            try await Task.sleep(nanoseconds: 200_000_000)  // let the child start
+            guard let stream = await manager.stream(id: id) else {
+                Issue.record("no stream")
+                await agent.shutdownHTTPClient()
+                return
+            }
+            try await manager.cancel(id: id)
+            await agent.shutdownHTTPClient()
+
+            let status = await manager.agent(id: id)?.status
+            #expect(status == .cancelled)
+
+            var result = ""
+            for try await chunk in stream { result += chunk }
+            #expect(result.contains("Cancelled"))
+        }
+
+        @Test("concurrency cap throws tooManyChildren")
+        func concurrencyCap() async throws {
+            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let parent = ArcAgent.Configuration(
+                model: "m",
+                provider: "openai",
+                baseURL: URL(string: "https://api.openai.com/v1")!,
+                apiKey: "k",
+                registry: registry,
+                sessionStore: VolatileSessionStore(),
+                memoryProvider: nil,
+                maxIterations: 5,
+                llmClient: SlowScriptedClient(sleepSeconds: 5)
+            )
+            let capped = DelegationManager(maxChildren: 1, parentConfiguration: parent)
+            _ = try await capped.spawn(goal: "slow first", allowedToolsets: [])
+            await #expect(throws: DelegationError.self) {
+                _ = try await capped.spawn(goal: "second", allowedToolsets: [])
+            }
+            await capped.cancelAll()
+        }
     }
 }

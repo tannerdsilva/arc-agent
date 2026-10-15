@@ -60,13 +60,20 @@ extension AppState {
 
     /// The complete application shell (topbar + iconbar + panel + main). Toasts
     /// are rendered separately so each region is a single-rooted fragment.
-    func appShell() async -> String {
+    ///
+    /// Returns the typed page body. arc's chrome is hand-built html, so this is
+    /// the one place arc mints trust for it (`.trusted(_:)`) — and from here the
+    /// compiler carries that type to `HTMLDocument(body:)`, so no unlabelled
+    /// string can become a page. a fragment patch that needs the bytes reads
+    /// `.html`.
+    func appShell() async -> UnsafeMarkup {
         let iconbar = iconbarHTML()
         let panel = await panelHTML()
         let main = await mainContentHTML()
 
-        return """
+        return .trusted("""
         <div id="app" data-size="\(esc(settings.textSize))">
+        <a class="skip-link" href="#composer-input">Skip to composer</a>
         \(topbarHTML())
         <div id="app-body">
         <aside id="iconbar">\(iconbar)</aside>
@@ -74,20 +81,31 @@ extension AppState {
         \(main)
         \(workspaceDockHTML())
         \(workspacePanelHTML())
+        <div id="drawer-scrim" class="drawer-scrim" aria-hidden="true"></div>
         </div>
         <div id="modal-root">\(modalRootHTML())</div>
         <div id="toasts" data-component-id="toast-dismiss" data-event="click">\(toastsHTML())</div>
         </div>
-        """
+        """)
     }
 
     /// Thin full-width bar across the top of the screen (arc-style): a
     /// colorless lightning mark centred with the current chat's name beside it.
     func topbarHTML() -> String {
         let name = esc(topbarLabel())
-        let bolt = WebUIIcon(.zap, size: .medium).render()
+        let bolt = WebUIIcon(.zap, size: .medium).markup.html
+        // UX-19/T12: below 1024px the left panel becomes an overlay drawer
+        // opened from this toggle. The open/closed CLASS stays client-owned
+        // (overlay.js flips `#app.drawer-open` — it survives every fragment
+        // patch and owns both the visual and the aria truth). The control
+        // itself is wired to the engine (`data-component-id` + a click handler
+        // in Actions) so clicks route instead of logging the engine's
+        // "click on unwired control #drawer-toggle" warning.
+        let drawerToggle = btn("drawer-toggle", "", "drawer-toggle-btn", "&#9776;",
+                               " aria-label=\"Toggle sidebar\" aria-expanded=\"false\" data-component-id=\"drawer-toggle\" data-event=\"click\"")
         return """
         <header id="topbar">
+          \(drawerToggle)
           <div class="topbar-center">
             <span class="topbar-bolt">\(bolt)</span>
             <span class="topbar-name">\(name)</span>
@@ -118,15 +136,23 @@ extension AppState {
             .filter { $0 != "settings" }
             .map { id -> String in
                 guard let tab = sidebarTab(id) else { return "" }
-                let cls = id == activeTabID ? "icon-btn active" : "icon-btn"
+                let isActive = id == activeTabID
+                let cls = isActive ? "icon-btn active" : "icon-btn"
+                // UX-07 roving rail: the ACTIVE nav item is the single tab
+                // stop; the others are tabindex="-1" and reached with
+                // ArrowUp/ArrowDown (overlay roves tabindex with focus).
+                let rove = isActive ? " tabindex=\"0\"" : " tabindex=\"-1\""
                 let iconHTML = SidebarTabIconRenderer.render(tab.icon)
                 return btn("nav-\(id)", "nav-\(id)", cls, iconHTML,
-                           " title=\"\(esc(tab.title))\" data-tip=\"\(esc(tab.tooltip))\"")
+                           " data-tip=\"\(esc(tab.title))\"" + rove)
             }
             .joined()
+        let settingsActive = activeTabID == "settings"
         let settingsBtn = btn("nav-settings", "nav-settings",
-                              activeTabID == "settings" ? "icon-btn active" : "icon-btn",
-                              ViewID.settings.icon, " title=\"Settings\" data-tip=\"Settings\"")
+                              settingsActive ? "icon-btn active" : "icon-btn",
+                              ViewID.settings.icon,
+                              " data-tip=\"Settings\""
+                                + (settingsActive ? " tabindex=\"0\"" : " tabindex=\"-1\""))
         return """
         <div class="iconbar-top" style="display:flex;flex-direction:column;gap:6px;align-items:center;">\(top)</div>
         <div class="iconbar-bottom" style="display:flex;flex-direction:column;gap:6px;align-items:center;">\(settingsBtn)</div>
@@ -134,49 +160,75 @@ extension AppState {
     }
 
     func toastsHTML() -> String {
-        let items = toasts.map { t -> String in
+        // UX-27: cap the visible stack so it can never cover the chat header.
+        // The newest toasts win (the most recent action is the one the user is
+        // still reacting to); anything older collapses into a "+N more" marker
+        // that is informational only (the toasts themselves still expire on
+        // their TTL tick).
+        let visible = toasts.suffix(3)
+        let overflow = toasts.count - visible.count
+        let items = visible.map { t -> String in
             let dot = "<span class=\"toast-dot\"></span>"
-            let x = btn("t-\(t.id)", "", "toast-x", WebUIIcon(.x, size: .small).render())
-            return "<div class=\"toast \(t.kind)\">\(dot)<span>\(esc(t.text))</span>\(x)</div>"
+            let x = btn("t-\(t.id)", "", "toast-x", WebUIIcon(.x, size: .small).markup.html)
+            // The optional action button (UX-06 Undo) rides between the
+            // message and the ✕; the wire dispatches on `ta-<action.id>-<id>`.
+            let action = t.action.map { a in
+                btn("ta-\(a.id)-\(t.id)", "", "toast-action", esc(a.label))
+            } ?? ""
+            return "<div class=\"toast \(t.kind)\">\(dot)<span>\(esc(t.text))</span>\(action)\(x)</div>"
         }
-        return items.joined()
+        let more = overflow > 0
+            ? "<div class=\"toast toast-more\">+\(overflow) more</div>"
+            : ""
+        // Clipboard side-channel for the shared-link copy (UX-06): consumed
+        // by the overlay's post-patch pass; single-shot — the state is read
+        // and cleared here so a later toast push never re-emits it.
+        let marker = pendingCopyURL.map {
+            "<span id=\"pending-copy\" data-copy-url=\"\(esc($0))\"></span>"
+        } ?? ""
+        pendingCopyURL = nil
+        return items.joined() + more + marker
     }
 
-    /// Centered confirmation surfaced when a chat or profile delete is requested.
+    /// The one confirmation dialog. Chat and profile deletes arm their original
+    /// state fields; newer guards (workspaces) arm `pendingConfirm` — so every
+    /// destructive action gets the same dialog, the same Cancel/Delete pair, a
+    /// real dialog role, and (via the overlay) the same focus + Escape handling.
     func modalHTML() -> String {
-        if let pid = confirmProfileDelete,
-           let p = profiles.first(where: { $0.name == pid }) {
-            let title = trunc(p.title.isEmpty ? p.name : p.title, 48)
-            return """
-            <div class="modal-overlay" id="modal-overlay">
-              <div class="modal-card">
-                <h3>Delete profile?</h3>
-                <p>The profile “\(esc(title))” will be permanently deleted. This cannot be undone.</p>
-                <div class="modal-actions" data-component-id="modal" data-event="click">
-                  <button type="button" id="modal-cancel" class="ghost-btn">Cancel</button>
-                  <button type="button" id="modal-confirm" class="danger-btn">Delete</button>
-                </div>
-              </div>
-            </div>
-            """
-        }
-        guard let mid = confirmDeleteID,
-              let s = sessions.first(where: { $0.id == mid }) else {
-            return ""
-        }
-        let title = trunc(sessionTitle(s), 48)
+        guard let req = activeConfirm else { return "" }
         return """
         <div class="modal-overlay" id="modal-overlay">
-          <div class=\"modal-card\">
-            <h3>Delete conversation?</h3>
-            <p>The chat “\(esc(title))” will be permanently deleted. This cannot be undone.</p>
-            <div class=\"modal-actions\" data-component-id=\"modal\" data-event=\"click\">
-              <button type=\"button\" id=\"modal-cancel\" class=\"ghost-btn\">Cancel</button>
-              <button type=\"button\" id=\"modal-confirm\" class=\"danger-btn\">Delete</button>
+          <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+            <h3 id="modal-title">\(esc(req.title))</h3>
+            <p>\(esc(req.body))</p>
+            <div class="modal-actions" data-component-id="modal" data-event="click">
+              <button type="button" id="modal-cancel" class="ghost-btn">Cancel</button>
+              <button type="button" id="modal-confirm" class="danger-btn">Delete</button>
             </div>
           </div>
         </div>
         """
+    }
+
+    /// The armed destructive action, from whichever source carries it. Deriving
+    /// one shape here keeps the dialog identical everywhere while leaving the
+    /// chat/profile delete paths (the riskiest in the app) exactly as they were.
+    var activeConfirm: ConfirmRequest? {
+        if let pid = confirmProfileDelete,
+           let p = profiles.first(where: { $0.name == pid }) {
+            let title = trunc(p.title.isEmpty ? p.name : p.title, 48)
+            return ConfirmRequest(
+                kind: "profile", id: pid, title: "Delete profile?",
+                body: "The profile “\(title)” will be permanently deleted. This cannot be undone.")
+        }
+        if let mid = confirmDeleteID,
+           let s = sessions.first(where: { $0.id == mid }) {
+            let title = trunc(sessionTitle(s), 48)
+            return ConfirmRequest(
+                kind: "chat", id: mid, title: "Delete conversation?",
+                body: "The chat “\(title)” will be deleted. You can undo this for a few seconds.")
+        }
+        return pendingConfirm
     }
 
     /// Right-click menu for a category chip: rename, color palette, divider,
@@ -318,26 +370,48 @@ extension AppState {
     // MARK: Chat panel
 
     func chatPanel(todos: Bool = false) -> String {
-        let newBtn = btn("chat-new", "chat-new", "plus-btn", WebUIIcon(.plus, size: .medium).render(), " title=\"New chat\"")
-        let archBtn = btn("chat-showarch", "chat-showarch", "icon-btn" + (showArchived ? " active" : ""), WebUIIcon(.archive, size: .medium).render(), " title=\"Show archived\"")
-        // The Todos page reuses this panel but stripped down: title "Todos",
-        // no archived toggle, no "+" new chat, minimal rows.
-        let actions = todos ? "" : archBtn + newBtn
+        let newBtn = btn("chat-new", "chat-new", "plus-btn", WebUIIcon(.plus, size: .medium).markup.html, " title=\"New chat\"")
+        // UX-18: one archive affordance. The text link below the filter bar
+        // owns "Show/Hide archived conversations" (explicit label, chevron
+        // state, and it is back in the tab order — it is the only control
+        // now). The header's bare archive glyph is gone: two controls doing
+        // the same thing read as noise.
+        let actions = todos ? "" : newBtn
+        // UX-62: empty drafts pile up from a stray `+` — three identical
+        // "New chat · 0 msg" rows is exactly the clutter this clears — and
+        // there was no way to remove them. Offer the cleanup only where it
+        // applies (the Chats list, not the archived view) and only when there
+        // is something to clear. The chat you are currently in is never
+        // counted: clearing must not close the composer out from under you.
+        let activeEmpty = sessions.first(where: { $0.id == activeSessionID })
+            .map { $0.messageCount == 0 } ?? false
+        let emptyDrafts = sessions.filter {
+            !$0.id.hasPrefix("Cron-") && !isArchived($0.id) && $0.messageCount == 0
+        }.count
+        let clearableDrafts = max(0, emptyDrafts - (activeEmpty ? 1 : 0))
+        let clearBtn = (!todos && !showArchived && clearableDrafts > 0)
+            ? btn(
+                "chat-clear-empty", "chat-clear-empty", "arch-link",
+                "<span class=\"arch-ico\">\(WebUIIcon(.trash, size: .small).markup.html)</span><span> Clear \(clearableDrafts) empty chat\(clearableDrafts == 1 ? "" : "s")</span>",
+                " data-tip=\"Delete conversations with no messages\"")
+            : ""
         let head = """
         <div class="panel-head">
           <span class="panel-title">\(todos ? "Todos" : "Chats")</span>
           <div class="panel-actions">\(actions)</div>
         </div>
         <div class="filter-bar">
-          <span class="filter-ico">\(WebUIIcon(.search, size: .small).render())</span>
-          <input id="chat-search-input" data-component-id="chat-search-input" type="text" placeholder="Filter conversations…" value="\(esc(chatFilter))">
+          <span class="filter-ico">\(WebUIIcon(.search, size: .small).markup.html)</span>
+          <input id="chat-search-input" data-component-id="chat-search-input" type="search" placeholder="Filter conversations…" aria-label="Filter conversations" value="\(esc(chatFilter))">
         </div>
         \(categoryCloudHTML())
         \(todos ? "" : """
         <button type="button" id="chat-showarch-link" data-component-id="chat-showarch" class="arch-link" title="Toggle archived">
-          <span class="arch-ico">\(WebUIIcon(showArchived ? .chevronDown : .chevronRight, size: .small).render())</span><span>\(showArchived ? " Hide archived conversations" : " Show archived conversations")</span>
+          <span class="arch-ico">\(WebUIIcon(showArchived ? .chevronDown : .chevronRight, size: .small).markup.html)</span><span>\(showArchived ? " Hide archived conversations" : " Show archived conversations")</span>
         </button>
+        \(showArchived ? "<div class=\"arch-mode-note\">Showing archived conversations only.</div>" : "")
         """)
+        \(clearBtn)
         """
         var rows: [String] = []
         let bookmarks = settings.bookmarkedSessions
@@ -368,13 +442,25 @@ extension AppState {
             }
         }
         if rows.isEmpty {
-            let msg = todos ? "No chats yet."
-                : (showArchived ? "No archived chats." : "No chats yet — press + to start one.")
-            rows.append("<div class=\"empty-hint\">\(msg)</div>")
+            // Tell the truth about WHY the list is empty: an unmatched filter
+            // must not claim the workspace has no chats at all.
+            let msg: String
+            if !chatFilter.isEmpty {
+                msg = "No chats match “\(chatFilter)”."
+            } else if todos {
+                msg = "No chats yet."
+            } else if showArchived {
+                msg = "No archived chats."
+            } else if activeCategory != "all" && activeCategory != "unassigned" {
+                msg = "No chats in this category yet."
+            } else {
+                msg = "No chats yet — press + to start one."
+            }
+            rows.append("<div class=\"empty-hint\">\(esc(msg))</div>")
         }
         return """
         \(head)
-        <div class="panel-body" id="sess-list-body" data-component-id="sess-list" data-event="click">
+        <div class="panel-body" id="sess-list-body" data-scroll-key="sessions" data-component-id="sess-list" data-event="click">
           \(rows.joined())
         </div>
         """
@@ -389,8 +475,8 @@ extension AppState {
         let unActive = activeCategory == "unassigned" ? " active" : ""
         var chips = """
         <div class="cat-bar" data-component-id="cat-pick" data-event="click">
-          <button type="button" id="cat-all" class="cat-chip\(allActive)">All</button>
-          <button type="button" id="cat-unassigned" class="cat-chip\(unActive)">Unassigned</button>
+          <button type="button" id="cat-all" class="cat-chip\(allActive)" tabindex="-1">All</button>
+          <button type="button" id="cat-unassigned" class="cat-chip\(unActive)" tabindex="-1">Unassigned</button>
         """
         for cat in settings.chatCategories {
             let cid = enc(cat.id)
@@ -405,7 +491,7 @@ extension AppState {
                     <span class="cat-dot" style="background:\(cat.color)"></span>
                     <span>\(esc(cat.name))</span>
                   </button>
-                  \(btn("cat-del-\(cid)", "", "chip-x", WebUIIcon(.x, size: .small).render(), " title=\"Delete category\""))
+                  \(btn("cat-del-\(cid)", "", "chip-x", WebUIIcon(.x, size: .small).markup.html, " title=\"Delete category\""))
                 </div>
                 """
             } else {
@@ -417,8 +503,8 @@ extension AppState {
                 """
             }
         }
-        let plusLabel = addingCategory ? WebUIIcon(.x, size: .small).render() : WebUIIcon(.plus, size: .small).render()
-        chips += btn("cat-add", "", "cat-chip cat-add", plusLabel, " title=\"" + (addingCategory ? "Cancel" : "Add category") + "\"")
+        let plusLabel = addingCategory ? WebUIIcon(.x, size: .small).markup.html : WebUIIcon(.plus, size: .small).markup.html
+        chips += btn("cat-add", "", "cat-chip cat-add", plusLabel, " title=\"" + (addingCategory ? "Cancel" : "Add category") + "\" tabindex=\"-1\"")
         chips += "</div>"
         if addingCategory {
             let swatches = AppState.palette.enumerated().map { i, c in
@@ -458,7 +544,10 @@ extension AppState {
         guard let live = activeTurns[sessionID] else { return "" }
         let label = liveStatusLabel(live)
         guard !label.isEmpty else { return "" }
-        return "<span class=\"sess-status\"><span class=\"sess-status-dot\"></span>\(esc(label))</span>"
+        // the label is its own node so a tight row ellipsises it
+        // (`.sess-status-label`) instead of overflowing the count/time — or, as
+        // it did, wrapping the meta line and growing the row 56 -> 92px.
+        return "<span class=\"sess-status\"><span class=\"sess-status-dot\"></span><span class=\"sess-status-label\">\(esc(label))</span></span>"
     }
 
     /// arc-parity relative time: 1m / 12m / 3h / 4d / Aug 28 (+year if older
@@ -495,8 +584,8 @@ extension AppState {
         let rows = sessions.map { sessionRow($0, todos: todos) }.joined()
         return """
         <div class="sess-group" data-grp="\(key)">
-          <button type="button" class="sess-group-head" id="sess-grp-\(key)" title="\(esc(title))">
-            <span class="sess-caret">\(WebUIIcon(.chevronDown, size: .small).render())</span>
+          <button type="button" class="sess-group-head" id="sess-grp-\(key)" title="\(esc(title))" tabindex="-1">
+            <span class="sess-caret">\(WebUIIcon(.chevronDown, size: .small).markup.html)</span>
             <span class="sess-group-title">\(esc(title))</span>
           </button>
           <div class="sess-group-rows">\(rows)</div>
@@ -506,15 +595,22 @@ extension AppState {
 
     func sessionRow(_ s: Session, todos: Bool = false) -> String {
         let encID = enc(s.id)
-        let active = s.id == activeSessionID ? " active" : ""
+        let isActiveRow = s.id == activeSessionID
+        let active = isActiveRow ? " active" : ""
         let archived = isArchived(s.id) ? " archived" : ""
         let title = trunc(sessionTitle(s), 40)
+        // UX-07 roving: the ROW is the single tab stop (active row tabindex
+        // 0, everyone else -1; ArrowUp/Down moves focus between rows). The
+        // open button and the ⋮ menu are quiet utilities: out of the tab
+        // order, but still reachable by keyboard through the row (Enter opens,
+        // Menu/Shift+F10 opens the ⋮ menu).
+        let rowTab = isActiveRow ? "0" : "-1"
         if todos {
             // Minimal variant for the Todos page: chat title only — no meta,
             // no ⋮ menu, no category dot, no pin badge.
             return """
-            <div class="sess-row\(active)\(archived)">
-              <button type="button" id="s-open-\(encID)" class="sess-open">
+            <div class="sess-row\(active)\(archived)" tabindex="\(rowTab)" role="group" aria-label="\(esc(title))" data-sid="\(s.id)"\(isActiveRow ? " aria-current=\"true\"" : "")>
+              <button type="button" id="s-open-\(encID)" class="sess-open" tabindex="-1">
                 <span class="sess-title">\(esc(title))</span>
               </button>
             </div>
@@ -525,7 +621,7 @@ extension AppState {
         let count = s.messages.isEmpty ? s.messageCount : s.messages.count
         let epochMs = Int(s.updatedAt.timeIntervalSince1970 * 1000)
         let meta = "\(count) msg • <span class=\"rel-time\" data-reltime=\"\(epochMs)\">\(relTimeLabel(s.updatedAt))</span>" + (archived.isEmpty ? "" : " • Archived") + liveStatusPill(s.id)
-        let pinBadge = booked ? "<span class=\"pin-badge\" title=\"Pinned\">" + WebUIIcon(.bookmark, size: .small).render() + "</span>" : ""
+        let pinBadge = booked ? "<span class=\"pin-badge\" title=\"Pinned\">" + WebUIIcon(.bookmark, size: .small).markup.html + "</span>" : ""
         let pinLabel = booked ? "Unpin conversation" : "Pin conversation"
         let shared = isSessionShared(s.id)
         let shareBadge = shared ? "<span class=\"share-badge\" title=\"Shared session\">Shared</span>" : ""
@@ -537,10 +633,10 @@ extension AppState {
         // right of "Set category" (arc parity), keeping category option
         // button ids so the existing chat-menu wire handles them unchanged.
         let noneCls = catID == nil ? " menu-sel" : ""
-        var catSub = "<button type=\"button\" id=\"sm-uncat-\(encID)\" class=\"" + noneCls.trimmingCharacters(in: .whitespaces) + "\">No Project" + (catID == nil ? " " + WebUIIcon(.check, size: .small).render() : "") + "</button>"
+        var catSub = "<button type=\"button\" id=\"sm-uncat-\(encID)\" class=\"" + noneCls.trimmingCharacters(in: .whitespaces) + "\">No Project" + (catID == nil ? " " + WebUIIcon(.check, size: .small).markup.html : "") + "</button>"
         for c in settings.chatCategories {
             let sel = c.id == catID ? " menu-sel" : ""
-            let check = c.id == catID ? " " + WebUIIcon(.check, size: .small).render() : ""
+            let check = c.id == catID ? " " + WebUIIcon(.check, size: .small).markup.html : ""
             catSub += """
             <button type="button" id="sm-cat-\(enc(c.id)).\(encID)" class="\(sel)" data-sid="\(s.id)">
               <span class="cat-dot" style="background:\(c.color)"></span><span>\(esc(c.name))\(check)</span>
@@ -554,7 +650,7 @@ extension AppState {
         let catPanel = """
         <div class="chat-menu-panel" id="catpanel-\(encID)" hidden>
           <div class="cat-panel-head">
-            <button type="button" id="sm-catback-\(encID)" class="cat-panel-back" title="Back">\(WebUIIcon(.chevronLeft, size: .small).render())</button>
+            <button type="button" id="sm-catback-\(encID)" class="cat-panel-back" title="Back">\(WebUIIcon(.chevronLeft, size: .small).markup.html)</button>
             <span class="cat-panel-title">Move to Category</span>
           </div>
           <div class="cat-panel-list">\(catSub)</div>
@@ -562,7 +658,7 @@ extension AppState {
         """
         let catOpts = """
         <button type="button" id="sm-catmenu-\(encID)" class="menu-item-head catmenu-head">
-          <span>Move to Category</span><span class="menu-arrow">\(WebUIIcon(.chevronRight, size: .small).render())</span>
+          <span>Move to Category</span><span class="menu-arrow">\(WebUIIcon(.chevronRight, size: .small).markup.html)</span>
         </button>
         """
         let rowDotContent: String
@@ -574,7 +670,7 @@ extension AppState {
         let menu = """
         <div class="menu-wrap">
           <div class="menu-left">\(catDot)</div>
-          <button type="button" id="s-menu-\(encID)" class="menu-dots" title="Chat actions">\(rowDotContent)</button>
+          <button type="button" id="s-menu-\(encID)" class="menu-dots" title="Chat actions" tabindex="-1">\(rowDotContent)</button>
           <div class="chat-menu" data-component-id="chat-menu" data-event="click" id="menu-\(encID)">
             <div class="chat-menu-items">
             <button type="button" id="sm-copy-\(encID)" data-sid="\(s.id)">Copy conversation link</button>
@@ -591,8 +687,8 @@ extension AppState {
         </div>
         """
         return """
-        <div class="sess-row\(active)\(archived)">
-          <button type="button" id="s-open-\(encID)" class="sess-open">
+        <div class="sess-row\(active)\(archived)" tabindex="\(rowTab)" role="group" aria-label="\(esc(title))" data-sid="\(s.id)"\(isActiveRow ? " aria-current=\"true\"" : "")>
+          <button type="button" id="s-open-\(encID)" class="sess-open" tabindex="-1">
             <span class="sess-title">\(pinBadge)\(shareBadge)\(esc(title))</span>
             <span class="sess-meta">\(meta)</span>
           </button>
@@ -604,14 +700,14 @@ extension AppState {
     // MARK: Skills panel
 
     func skillsPanel() -> String {
-        let newBtn = btn("skill-new", "skill-new", "plus-btn", WebUIIcon(.plus, size: .medium).render(), " title=\"Add skill\"")
+        let newBtn = btn("skill-new", "skill-new", "plus-btn", WebUIIcon(.plus, size: .medium).markup.html, " title=\"Add skill\"")
         let head = """
         <div class="panel-head">
           <span class="panel-title">Skills</span>
           <div class="panel-actions">\(newBtn)</div>
         </div>
         <div class="filter-bar">
-          <input id="skill-search-input" data-component-id="skill-search-input" type="text" placeholder="Search skills…" value="\(esc(skillFilter))">
+          <input id="skill-search-input" data-component-id="skill-search-input" type="search" placeholder="Filter skills…" aria-label="Filter skills" value="\(esc(skillFilter))">
         </div>
         """
         let filtered = skills.filter {
@@ -630,7 +726,7 @@ extension AppState {
                 return """
                 <div class="skill-group" data-grp-skill="\(esc(cat))">
                   <button type="button" class="skill-cat-head" id="skcat-\(enc(cat))" title="Toggle section">
-                    <span class="skill-cat-caret">\(WebUIIcon(.chevronDown, size: .small).render())</span>
+                    <span class="skill-cat-caret">\(WebUIIcon(.chevronDown, size: .small).markup.html)</span>
                     <span class="skill-cat-title">\(esc(cat))</span>
                     <span class="skill-cat-count">(\(list.count))</span>
                   </button>
@@ -639,7 +735,11 @@ extension AppState {
                 """
             }
         if rows.isEmpty {
-            rows.append("<div class=\"empty-hint\">No skills match.</div>")
+            // Zero skills is not the same as "nothing matched a filter".
+            let msg = skills.isEmpty
+                ? "No skills yet — press + to create one."
+                : "No skills match “\(skillFilter)”."
+            rows.append("<div class=\"empty-hint\">\(esc(msg))</div>")
         }
         return """
         \(head)
@@ -656,14 +756,14 @@ extension AppState {
         let dis = enabled ? "" : " disabled"
         return """
         <div class="skill-row\(active)\(dis)">
-          <label class="switch" title="\(enabled ? "Enabled" : "Disabled")">
-            <input type="checkbox" id="sk-toggle-\(encName)" value="sk-toggle-\(encName)" data-event="change" data-no-restore \(enabled ? "checked" : "")>
-            <span class="track"></span><span class="knob"></span>
-          </label>
           <button type="button" id="sk-open-\(encName)" class="sess-open skill-open">
             <span class="sk-name">\(esc(skill.name))</span>
             <span class="sk-desc">\(esc(trunc(skill.description, 64)))</span>
           </button>
+          <label class="switch" title="\(enabled ? "Included in this chat" : "Excluded from this chat")">
+            <input type="checkbox" id="sk-toggle-\(encName)" value="sk-toggle-\(encName)" data-event="change" data-no-restore aria-label="\(enabled ? "Included in this chat" : "Excluded from this chat")" \(enabled ? "checked" : "")>
+            <span class="track"></span><span class="knob"></span>
+          </label>
         </div>
         """
     }
@@ -671,7 +771,7 @@ extension AppState {
     // MARK: Profiles panel
 
     func profilesPanel() -> String {
-        let newBtn = btn("profile-new", "profile-new", "plus-btn", WebUIIcon(.plus, size: .medium).render(), " title=\"Add profile\"")
+        let newBtn = btn("profile-new", "profile-new", "plus-btn", WebUIIcon(.plus, size: .medium).markup.html, " title=\"Add profile\"")
         let head = """
         <div class="panel-head">
           <span class="panel-title">Profiles</span>
@@ -710,13 +810,20 @@ extension AppState {
         </div>
         """
         var rows: [String] = []
+        // The `mcp` group is ONE bridge tool however many servers are
+        // configured, so a bare "1 tool" misleads — the count is meaningless
+        // without knowing whether anything is behind it.
+        let mcpServers = arcConfig.mcpServers.count
         for (toolset, tools) in toolsets {
             let encTS = enc(toolset)
             let disabled = settings.disabledToolsets.contains(toolset)
             let group = "<div class=\"tool-group\">\(esc(toolset))</div>"
+            let summary = toolset == "mcp"
+                ? "\(tools.count) tool · \(mcpServers) server\(mcpServers == 1 ? "" : "s") configured"
+                : "\(tools.count) tool\(tools.count == 1 ? "" : "s")"
             let toggle = """
             <div class="list-row" style="padding:6px 10px">
-              <span class="lr-sub" style="flex:1">\(tools.count) tool\(tools.count == 1 ? "" : "s")</span>
+              <span class="lr-sub" style="flex:1">\(summary)</span>
               <label class="switch" title="\(disabled ? "Toolset disabled" : "Toolset enabled")">
                 <input type="checkbox" id="ts-\(encTS)" value="ts-\(encTS)" data-component-id="tools-toggle" data-event="change" data-no-restore \(disabled ? "" : "checked")>
                 <span class="track"></span><span class="knob"></span>
@@ -724,6 +831,9 @@ extension AppState {
             </div>
             """
             var toolRows: [String] = []
+            if toolset == "mcp", mcpServers == 0 {
+                toolRows.append("<div class=\"empty-hint\">No MCP servers configured — add one in Settings → MCP servers. Until then this bridge has nothing to call.</div>")
+            }
             for t in tools {
                 let encT = enc(t.name)
                 let active = t.name == selectedTool ? " active" : ""
@@ -748,7 +858,7 @@ extension AppState {
     // MARK: Workspaces panel
 
     func workspacesPanel() -> String {
-        let newBtn = btn("ws-new", "ws-new", "plus-btn", WebUIIcon(.plus, size: .medium).render(), " title=\"New workspace\"")
+        let newBtn = btn("ws-new", "ws-new", "plus-btn", WebUIIcon(.plus, size: .medium).markup.html, " title=\"New workspace\"")
         let head = """
         <div class="panel-head">
           <span class="panel-title">Workspaces</span>
@@ -765,7 +875,7 @@ extension AppState {
                 <span class="lr-name">\(esc(entry.name))</span>
                 <span class="lr-sub">\(esc(entry.path == WorkspaceEntry.defaultPath(for: "main") ? "home folder (default)" : trunc(entry.path, 58)))</span>
               </button>
-              <div class="row-actions">\(btn("ws-del-\(encWS)", "", "icon-mini danger", WebUIIcon(.x, size: .small).render(), " title=\"Delete\""))</div>
+              <div class="row-actions">\(entry.name == "main" ? "" : btn("ws-del-\(encWS)", "", "icon-mini danger", WebUIIcon(.x, size: .small).markup.html, " title=\"Delete\""))</div>
             </div>
             """)
         }
@@ -789,6 +899,7 @@ extension AppState {
           <div class="list-row"><a href="#preferences" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">Preferences</span></a></div>
           <div class="list-row"><a href="#storage" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">Storage</span></a></div>
           <div class="list-row"><a href="#tool-plugins" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">Tool plugins</span></a></div>
+          <div class="list-row"><a href="#mcp-servers" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">MCP servers</span></a></div>
           <div class="list-row"><a href="#sidebar-plugins" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">Sidebar plugins</span></a></div>
           <div class="list-row"><a href="#about" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">About</span></a></div>
         </div>
@@ -849,11 +960,13 @@ extension AppState {
         let title = session.map { trunc(sessionTitle($0), 60) } ?? "Chat"
         let count = session.map { $0.messages.isEmpty ? $0.messageCount : $0.messages.count } ?? 0
         let model = settings.modelConfig(named: configName)?.model ?? configName
-        let meta = "\(esc(model)) • \(count) messages"
-        let delLabel = pendingDelete ? "Confirm?" : WebUIIcon(.x, size: .small).render()
+        // UX-59: a fresh chat rendered "· 0 messages" — noise before there is
+        // anything to count. Show the count only once the chat has messages.
+        let meta = count > 0 ? "\(esc(model)) • \(count) \(count == 1 ? "message" : "messages")" : esc(model)
+        let delLabel = pendingDelete ? "Confirm?" : WebUIIcon(.trash, size: .small).markup.html
         let delClass = pendingDelete ? "sess-confirm" : "icon-mini danger"
         let regenBtn = """
-        <button type="button" id="regen-btn" class="icon-mini" title="Regenerate last reply">\(WebUIIcon(.refreshCw, size: .small).render())</button>
+        <button type="button" id="regen-btn" class="icon-mini" data-tip="Regenerate last reply">\(WebUIIcon(.refreshCw, size: .small).markup.html)</button>
         """
         return """
         <header class="chat-header" id="chat-header">
@@ -863,7 +976,7 @@ extension AppState {
           </div>
           <div class="row-actions-main" style="margin:0" data-component-id="regen" data-event="click">
             \(regenBtn)
-            \(btn("chat-del", "chat-del", delClass, delLabel, " title=\"Delete chat\""))
+            \(btn("chat-del", "chat-del", delClass, delLabel, " data-tip=\"Delete chat\""))
           </div>
         </header>
         """
@@ -874,10 +987,10 @@ extension AppState {
             return """
             <div class="main-view" style="justify-content:center">
               <div class="blank">
-                <div class="blank-ico">\(WebUIIcon(.messageSquare, size: .extraLarge).render())</div>
+                <div class="blank-ico">\(WebUIIcon(.messageSquare, size: .extraLarge).markup.html)</div>
                 <div class="blank-title">Welcome to ARC Agent</div>
                 <div class="blank-sub">Pick a conversation on the left, or start a new one.</div>
-                \(btn("blank-chat-new", "blank-chat-new", "primary-btn blank-cta", WebUIIcon(.plus, size: .small).render() + "<span>New chat</span>"))
+                \(btn("blank-chat-new", "blank-chat-new", "primary-btn blank-cta", WebUIIcon(.plus, size: .small).markup.html + "<span>New chat</span>"))
               </div>
             </div>
             """
@@ -893,7 +1006,7 @@ extension AppState {
         // of the scroll viewport.
         let scroll = """
         <div class="chat-scroll-wrap">
-          <div class="chat-scroll" id="chat-scroll" data-scroll-key="chat"\(follow)>
+          <div class="chat-scroll" id="chat-scroll" data-scroll-key="chat" data-session="\(esc(activeSessionID ?? ""))"\(follow)>
             <div class="chat-inner" id="chat-inner">
               \(messagesHTML(session?.messages ?? []))
             </div>
@@ -911,18 +1024,19 @@ extension AppState {
     /// entirely when the appearance setting is off.
     var outlineToggleHTML: String {
         guard settings.showConversationOutline else { return "" }
-        return "<button type=\"button\" id=\"outline-toggle\" class=\"outline-toggle-btn\" title=\"Conversation outline\" aria-label=\"Toggle conversation outline\">&#9776;</button>"
+        return "<button type=\"button\" id=\"outline-toggle\" data-component-id=\"outline-toggle\" data-event=\"click\" class=\"outline-toggle-btn\" data-tip=\"Conversation outline\" aria-label=\"Toggle conversation outline\">&#9776;</button>"
     }
 
     /// The outline panel itself (server-rendered shell; the JS fills entries
-    /// from the rendered user message anchors and handles jumps).
+    /// from the rendered user message anchors and handles jumps). Open state is
+    /// server-owned — see `AppState.outlineOpen`.
     var outlinePanelHTML: String {
         guard settings.showConversationOutline else { return "" }
         return """
-        <div id="outline-panel" role="navigation" aria-label="Conversation outline" hidden>
+        <div id="outline-panel" role="navigation" aria-label="Conversation outline"\(outlineOpen ? "" : " hidden")>
           <div class="outline-header">
             <span>Outline</span>
-            <button type="button" id="outline-close" class="outline-close-btn" title="Close outline" aria-label="Close outline">&#215;</button>
+            <button type="button" id="outline-close" data-component-id="outline-close" data-event="click" class="outline-close-btn" title="Close outline" aria-label="Close outline">&#215;</button>
           </div>
           <div id="outline-entries" class="outline-entries"></div>
         </div>
@@ -955,28 +1069,17 @@ extension AppState {
             }
             i = j
         }
-        // Live turn + steer bubble belong to their owning session only.
+        // Live turn belongs to its owning session only.
         if let live = activeTurns[activeSessionID ?? ""] {
-            // A pending steer renders as a arc-style steer indicator: a
-            // transient italic banner with the uppercase STEER badge, below
-            // the messages (never persisted as a message).
-            if let steer = live.steerText, !steer.isEmpty {
-                html.append("""
-                <div class="steer-indicator">
-                  <span class="steer-badge">Steer</span>
-                  <span class="steer-body">\(esc(steer))</span>
-                </div>
-                """)
-            }
             html.append(liveMessageHTML(live))
         }
         if html.isEmpty {
             html.append("""
             <div class="blank">
-              <div class="blank-ico">\(WebUIIcon(.messageSquare, size: .extraLarge).render())</div>
+              <div class="blank-ico">\(WebUIIcon(.messageSquare, size: .extraLarge).markup.html)</div>
               <div class="blank-title">This chat is empty</div>
               <div class="blank-sub">Say hello below — or type / for the command list.</div>
-              <button type="button" class="ghost-btn blank-cta" data-focus-composer>\(WebUIIcon(.edit, size: .small).render())<span>Start typing</span></button>
+              <button type="button" class="ghost-btn blank-cta" data-focus-composer>\(WebUIIcon(.edit, size: .small).markup.html)<span>Start typing</span></button>
             </div>
             """)
         }
@@ -995,7 +1098,7 @@ extension AppState {
         let timeSpan = ts.isEmpty ? "" : "<span class=\"msg-time\">\(esc(ts))</span>"
         let right = usage.isEmpty && timeSpan.isEmpty
             ? "" : "<span class=\"mm-right\">\(usage)\(timeSpan)</span>"
-        return "<div class=\"msg-meta\"><span class=\"mm-left\"><span class=\"role-icon assistant\">\(WebUIIcon(.star, size: .small).render())</span> ARC Agent\(tpsChip)</span><span class=\"mm-spacer\"></span>\(right)</div>"
+        return "<div class=\"msg-meta\"><span class=\"mm-left\"><span class=\"role-icon assistant\">\(WebUIIcon(.star, size: .small).markup.html)</span> ARC Agent\(tpsChip)</span><span class=\"mm-spacer\"></span>\(right)</div>"
     }
 
     /// The body (markdown + tool cards) of an assistant reply.
@@ -1073,12 +1176,12 @@ extension AppState {
 
     /// A collapsible reasoning row (icon + label + caret), shared by every
     /// activity display mode. The key keeps its open state across re-renders.
-    func thinkingRowHTML(_ text: String, key: String, innerID: String? = nil) -> String {
+    func thinkingRowHTML(_ text: String, key: String, innerID: String? = nil, hidden: Bool = false) -> String {
         let inner = innerID.map { "<span id=\"\($0)\">" + esc(text) + "</span>" } ?? esc(text)
-        return "<details class=\"thinking-row\"" + webuiKeyAttr(key) + "><summary>"
-            + WebUIIcon(.edit, size: .small).render()
+        return "<details class=\"thinking-row\"" + (hidden ? " hidden" : "") + webuiKeyAttr(key) + "><summary>"
+            + WebUIIcon(.edit, size: .small).markup.html
             + "<span class=\"tw-label\">Thinking</span><span class=\"tw-spacer\"></span>"
-            + "<span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).render() + "</span>"
+            + "<span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).markup.html + "</span>"
             + "</summary><div class=\"tc-detail\">" + inner + "</div></details>"
     }
 
@@ -1138,10 +1241,10 @@ extension AppState {
                     detail.append("<div class=\"msg-body interim\">" + mdBox(interim) + "</div>")
                 }
                 detail.append(toolChipsHTML(calls, results: pair.1))
-                rows.append("<details class=\"worklog-summary\" id=\"\(target)\" data-webui-key=\"\(target)\"><summary>" + WebUIIcon(.tool, size: .small).render()
+                rows.append("<details class=\"worklog-summary\" id=\"\(target)\" data-webui-key=\"\(target)\"><summary>" + WebUIIcon(.tool, size: .small).markup.html
                     + "<span>" + esc(summary) + "</span><span class=\"tw-spacer\"></span>"
-                    + "<button class=\"tw-copy\" type=\"button\" data-copy-target=\"\(target)\" title=\"Copy this activity\">" + WebUIIcon(.copy, size: .small).render() + "</button>"
-                    + "<span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).render() + "</span></summary><div class=\"wl-detail\">" + detail.joined() + "</div></details>")
+                    + "<button class=\"tw-copy\" type=\"button\" data-copy-target=\"\(target)\" title=\"Copy this activity\" tabindex=\"-1\">" + WebUIIcon(.copy, size: .small).markup.html + "</button>"
+                    + "<span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).markup.html + "</span></summary><div class=\"wl-detail\">" + detail.joined() + "</div></details>")
             }
         } else {
             // transparent_stream: full cards, block pre-opened.
@@ -1156,6 +1259,11 @@ extension AppState {
         }
 
         let label = finalMsg.turnDuration.map { "Processed " + formatTurnDuration($0) } ?? "Turn activity"
+        // UX-55: a tool-using turn collapsed to a bare "Processed Xs",
+        // indistinguishable from a plain reply. Count tools across the turn's
+        // rounds and annotate the summary (cards stay behind the disclosure).
+        let totalTools = rounds.reduce(0) { $0 + (($1.0.toolCalls ?? []).count) }
+        let toolNote = totalTools > 0 ? "<span class=\"tw-tools\">· \(totalTools) tool\(totalTools == 1 ? "" : "s")</span>" : ""
         let terminalCard = finalMsg.terminalReason.map { terminalCardHTML(for: $0) } ?? ""
         let worklogKey = "tw-\(turnIndex)-\(String(format: "%.3f", finalMsg.createdAt?.timeIntervalSince1970 ?? 0))"
         return """
@@ -1165,8 +1273,9 @@ extension AppState {
             <summary>
               <span class="tw-dot"></span>
               <span class="tw-label">\(esc(label))</span>
+              \(toolNote)
               <span class="tw-spacer"></span>
-              <span class="tw-caret">\(WebUIIcon(.chevronRight, size: .small).render())</span>
+              <span class="tw-caret">\(WebUIIcon(.chevronRight, size: .small).markup.html)</span>
             </summary>
             <div class="wl-detail tw-body">
               \(rows.joined())
@@ -1240,7 +1349,7 @@ extension AppState {
                 detail.append("<div class=\"msg-body interim\">" + mdBox(interim) + "</div>")
             }
             detail.append(toolChipsHTML(calls, results: results))
-            return "<details class=\"worklog-summary\"" + webuiKeyAttr(mk.isEmpty ? "" : "ws-" + mk) + "><summary>" + WebUIIcon(.tool, size: .small).render() + "<span>" + esc(summary) + "</span><span class=\"tw-spacer\"></span><span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).render() + "</span></summary><div class=\"wl-detail\">" + detail.joined() + "</div></details>"
+            return "<details class=\"worklog-summary\"" + webuiKeyAttr(mk.isEmpty ? "" : "ws-" + mk) + "><summary>" + WebUIIcon(.tool, size: .small).markup.html + "<span>" + esc(summary) + "</span><span class=\"tw-spacer\"></span><span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).markup.html + "</span></summary><div class=\"wl-detail\">" + detail.joined() + "</div></details>"
         }
     }
 
@@ -1255,12 +1364,12 @@ extension AppState {
             body += "<div class=\"tc-label\">Result</div><pre class=\"tc-block\">" + esc(result) + "</pre>"
         }
         return "<details class=\"tool-card\" data-webui-key=\"tc-\(esc(c.id))\"><summary>"
-            + WebUIIcon(.tool, size: .small).render()
+            + WebUIIcon(.tool, size: .small).markup.html
             + "<span class=\"tc-name\">" + esc(c.function.name) + "</span>"
             + "<span class=\"tc-arg\">" + toolArgSummary(args) + "</span>"
             + "<span class=\"tw-spacer\"></span>"
-            + "<button class=\"tc-copy\" type=\"button\" data-copy=\"" + esc(args) + "\" title=\"Copy arguments\">" + WebUIIcon(.copy, size: .small).render() + "</button>"
-            + "<span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).render() + "</span>"
+            + "<button class=\"tc-copy\" type=\"button\" data-copy=\"" + esc(args) + "\" title=\"Copy arguments\" tabindex=\"-1\">" + WebUIIcon(.copy, size: .small).markup.html + "</button>"
+            + "<span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).markup.html + "</span>"
             + "</summary><div class=\"tc-detail\">" + body + "</div></details>"
     }
 
@@ -1301,11 +1410,11 @@ extension AppState {
                 ?? m.createdAt.map { "tr-\(Int($0.timeIntervalSince1970 * 1000))" } ?? ""
             let anchor = rawIdx >= 0 ? " id=\"msg-\(rawIdx)\"" : ""
             let card = "<details class=\"tool-card\"" + webuiKeyAttr(resultKey) + "><summary>"
-                + WebUIIcon(.tool, size: .small).render()
+                + WebUIIcon(.tool, size: .small).markup.html
                 + "<span class=\"tc-name\">" + esc(m.name ?? "tool") + "</span>"
                 + "<span class=\"tc-arg\">" + preview + "</span>"
                 + "<span class=\"tw-spacer\"></span>"
-                + "<span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).render() + "</span>"
+                + "<span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).markup.html + "</span>"
                 + "</summary><div class=\"tc-detail\"><div class=\"tc-label\">Result</div><pre class=\"tc-block\">" + esc(content) + "</pre></div></details>"
             return """
             <div class="msg assistant"\(anchor)>
@@ -1346,7 +1455,7 @@ extension AppState {
         return """
         <div class="limit-card">
           <div class="limit-head">
-            <span class="limit-ico">\(WebUIIcon(.zap, size: .small).render())</span>
+            <span class="limit-ico">\(WebUIIcon(.zap, size: .small).markup.html)</span>
             <span class="limit-title">Tool iteration limit reached</span>
           </div>
           <div class="limit-sub">Stopped because the tool iteration limit was reached.</div>
@@ -1364,7 +1473,7 @@ extension AppState {
         return """
         <div class="limit-card">
           <div class="limit-head">
-            <span class="limit-ico">\(WebUIIcon(icon, size: .small).render())</span>
+            <span class="limit-ico">\(WebUIIcon(icon, size: .small).markup.html)</span>
             <span class="limit-title">\(esc(title))</span>
           </div>
           <div class="limit-sub">\(esc(sub))</div>
@@ -1389,9 +1498,17 @@ extension AppState {
         let mode = settings.activityDisplay
         let streamText = esc(live.assistantText).replacingOccurrences(of: "\n", with: "<br>")
         let cursor = live.status == "running" ? "<span class=\"stream-cursor\"></span>" : ""
-        let thinkingRow = mode != "hide_all_activity" && !live.thinking.isEmpty
-            ? thinkingRowHTML(live.thinking, key: "live-think", innerID: "live-turn-thinking")
-            : ""
+        // The thinking row's `#live-turn-thinking` span must exist in the served
+        // markup from the turn's first render: the streaming push writes its
+        // reasoning into that span with `FragmentUpdate.text` ops, and a span
+        // that only materializes alongside the first reasoning chunk lets a
+        // coalesced early op hit "[WebUIEngine] Element not found:
+        // #live-turn-thinking". The row is hidden at rest (no reasoning yet,
+        // or the activity-display mode suppresses it) and the structural
+        // re-render unhides it the moment reasoning begins — the span is
+        // always present, invisible or not.
+        let thinkingRow = thinkingRowHTML(live.thinking, key: "live-think", innerID: "live-turn-thinking",
+            hidden: mode == "hide_all_activity" || live.thinking.isEmpty)
         let chips = mode == "transparent_stream" && !live.toolChips.isEmpty
             ? "<div class=\"tool-pills\">" + live.toolChips.joined() + "</div>"
             : ""
@@ -1401,16 +1518,16 @@ extension AppState {
             let name = live.toolName.map { " " + $0 } ?? ""
             let started = live.toolStartedAt.map { "<span class=\"msg-elapsed\" data-elapsed data-started=\"\(Int($0.timeIntervalSince1970 * 1000))\">\(fmtElapsed($0))</span>" } ?? ""
             status = mode == "hide_all_activity" ? ""
-                : "<div class=\"live-status\"><span>" + WebUIIcon(.tool, size: .small).render() + " Running" + esc(name) + "…</span>" + started + "</div>"
+                : "<div class=\"live-status\"><span>" + WebUIIcon(.tool, size: .small).markup.html + " Running" + esc(name) + "…</span>" + started + "</div>"
         case "error":
-            status = "<div class=\"live-status\" style=\"color:var(--danger)\"><span>" + WebUIIcon(.alertTriangle, size: .small).render() + " " + esc(live.error ?? "Turn failed") + "</span></div>"
+            status = "<div class=\"live-status\" style=\"color:var(--danger)\"><span>" + WebUIIcon(.alertTriangle, size: .small).markup.html + " " + esc(live.error ?? "Turn failed") + "</span></div>"
         case "approval":
-            status = "<div class=\"live-status\"><span>" + WebUIIcon(.alertTriangle, size: .small).render() + " Waiting for your approval…</span></div>"
+            status = "<div class=\"live-status\"><span>" + WebUIIcon(.alertTriangle, size: .small).markup.html + " Waiting for your approval…</span></div>"
         case "done":
             status = ""
         default:
             status = mode == "hide_all_activity" ? ""
-                : "<div class=\"live-status\"><span>" + WebUIIcon(.edit, size: .small).render() + " Responding…</span></div>"
+                : "<div class=\"live-status\"><span>" + WebUIIcon(.edit, size: .small).markup.html + " Responding…</span></div>"
         }
         let body = "<div class=\"msg-body\" id=\"live-turn-body\" style=\"white-space:pre-wrap\"><span id=\"live-turn-text\">" + streamText + "</span>" + cursor + "</div>"
         // arc parity: live tokens-per-second chip in the streaming header.
@@ -1423,9 +1540,9 @@ extension AppState {
         // the growth ever moves (CLS: the status line was being pushed down
         // per token).
         return """
-        <div class="msg assistant" id="live-turn" data-session="\(esc(live.sessionID))">
+        <div class="msg assistant streaming" id="live-turn" data-streaming="true" data-session="\(esc(live.sessionID))">
           <div style="width:100%">
-            <div class="msg-meta"><span class="mm-left">ARC Agent\(tpsChip)</span><span class="mm-spacer"></span><span class="mm-right">\(elapsedSpan)</span></div>
+            <div class="msg-meta"><span class="mm-left"><span class="role-icon assistant">\(WebUIIcon(.star, size: .small).markup.html)</span> ARC Agent\(tpsChip)</span><span class="mm-spacer"></span><span class="mm-right">\(elapsedSpan)</span></div>
             \(status)
             \(thinkingRow)
             \(body)
@@ -1462,20 +1579,20 @@ extension AppState {
         <div class="approval-card visible">
           <div class="approval-inner">
             <div class="approval-head">
-              <span class="approval-ico">\(WebUIIcon(.alertTriangle, size: .small).render())</span><span class="approval-title">Approval required</span>
-              <button type="button" class="approval-collapse" id="approval-collapse" title="Collapse">\(WebUIIcon(.chevronDown, size: .small).render())</button>
-              <button type="button" id="approval-dismiss" data-component-id="approval-dismiss" data-event="click" class="approval-dismiss" title="Dismiss">\(WebUIIcon(.x, size: .small).render())</button>
+              <span class="approval-ico">\(WebUIIcon(.alertTriangle, size: .small).markup.html)</span><span class="approval-title">Approval required</span>
+              <button type="button" class="approval-collapse" id="approval-collapse" title="Collapse">\(WebUIIcon(.chevronDown, size: .small).markup.html)</button>
+              <button type="button" id="approval-dismiss" data-component-id="approval-dismiss" data-event="click" class="approval-dismiss" title="Dismiss">\(WebUIIcon(.x, size: .small).markup.html)</button>
             </div>
             \(desc)
             <div class="approval-cmd"><code>\(esc(command))</code></div>
             <div class="approval-btns">
-              <button type="button" id="approval-once" data-component-id="approval-once" data-event="click" class="approval-btn once">\(WebUIIcon(.check, size: .small).render())<span class="approval-btn-label">Allow once</span></button>
-              <button type="button" id="approval-session" data-component-id="approval-session" data-event="click" class="approval-btn session">\(WebUIIcon(.lock, size: .small).render())<span class="approval-btn-label">Allow session</span></button>
-              <button type="button" id="approval-always" data-component-id="approval-always" data-event="click" class="approval-btn always">\(WebUIIcon(.star, size: .small).render())<span class="approval-btn-label">Always allow</span></button>
-              <button type="button" id="approval-deny" data-component-id="approval-deny" data-event="click" class="approval-btn deny">\(WebUIIcon(.x, size: .small).render())<span class="approval-btn-label">Deny</span></button>
+              <button type="button" id="approval-once" data-component-id="approval-once" data-event="click" class="approval-btn once">\(WebUIIcon(.check, size: .small).markup.html)<span class="approval-btn-label">Allow once</span></button>
+              <button type="button" id="approval-session" data-component-id="approval-session" data-event="click" class="approval-btn session">\(WebUIIcon(.lock, size: .small).markup.html)<span class="approval-btn-label">Allow session</span></button>
+              <button type="button" id="approval-always" data-component-id="approval-always" data-event="click" class="approval-btn always">\(WebUIIcon(.star, size: .small).markup.html)<span class="approval-btn-label">Always allow</span></button>
+              <button type="button" id="approval-deny" data-component-id="approval-deny" data-event="click" class="approval-btn deny">\(WebUIIcon(.x, size: .small).markup.html)<span class="approval-btn-label">Deny</span></button>
             </div>
             <div class="approval-yolo-row">
-              <button type="button" id="approval-yolo" data-component-id="approval-yolo" data-event="click" class="approval-btn yolo">\(WebUIIcon(.zap, size: .small).render())<span class="approval-btn-label">Skip all this session</span></button>
+              <button type="button" id="approval-yolo" data-component-id="approval-yolo" data-event="click" class="approval-btn yolo">\(WebUIIcon(.zap, size: .small).markup.html)<span class="approval-btn-label">Skip all this session</span></button>
             </div>
           </div>
         </div>
@@ -1499,9 +1616,9 @@ extension AppState {
         <div class="clarify-card visible">
           <div class="clarify-inner">
             <div class="clarify-head">
-              <span class="clarify-ico">\(WebUIIcon(.badgeQuestionMark, size: .small).render())</span><span class="clarify-title">Clarification needed</span>
+              <span class="clarify-ico">\(WebUIIcon(.badgeQuestionMark, size: .small).markup.html)</span><span class="clarify-title">Clarification needed</span>
               <span class="clarify-countdown" id="clarify-countdown" data-expires="\(expiryMs)">\(remaining)s</span>
-              <button type="button" class="clarify-collapse" id="clarify-collapse" title="Collapse">\(WebUIIcon(.chevronDown, size: .small).render())</button>
+              <button type="button" class="clarify-collapse" id="clarify-collapse" title="Collapse">\(WebUIIcon(.chevronDown, size: .small).markup.html)</button>
             </div>
             <div class="clarify-question">\(esc(pc.question))</div>
             \(choicesBlock)
@@ -1523,7 +1640,7 @@ extension AppState {
     func yoloPillHTML() -> String {
         """
         <div class="yolo-pill">
-          <span class="yolo-ico">\(WebUIIcon(.zap, size: .small).render())</span>
+          <span class="yolo-ico">\(WebUIIcon(.zap, size: .small).markup.html)</span>
           <span class="yolo-text">Approvals skipped for this session</span>
           <button type="button" id="yolo-off" data-component-id="yolo-off" data-event="click" class="yolo-off">Restore</button>
         </div>
@@ -1549,7 +1666,7 @@ extension AppState {
         return """
         <div class="msg-foot">
           <span class="msg-actions">
-            <button type="button" class="msg-copy-btn msg-action-btn" data-copy="\(esc(m.content ?? ""))" title="Copy response">\(WebUIIcon(.copy, size: .small).render())</button>
+            <button type="button" class="msg-copy-btn msg-action-btn" data-copy="\(esc(m.content ?? ""))" title="Copy response" tabindex="-1">\(WebUIIcon(.copy, size: .small).markup.html)</button>
           </span>
         </div>
         """
@@ -1635,7 +1752,7 @@ extension AppState {
                 <circle class="ctx-ring-track" cx="12" cy="12" r="9.75"></circle>
                 <circle class="ctx-ring-value" cx="12" cy="12" r="9.75" style="stroke-dasharray:\(circ);stroke-dashoffset:\(offset)"></circle>
               </svg>
-              <span class="ctx-ring-center">\(pct)</span>
+              <span class="ctx-ring-center">\(pct >= 100 ? "99+" : "\(pct)%")</span>
             </span>
           </button>
           <div class="ctx-tooltip" role="tooltip">
@@ -1722,14 +1839,14 @@ extension AppState {
         let attachmentsHTML: String = {
             var chips = ""
             for (i, path) in attachments.enumerated() {
-                let x = btn("att-del-\(i)", "", "chip-x", WebUIIcon(.x, size: .small).render())
+                let x = btn("att-del-\(i)", "", "chip-x", WebUIIcon(.x, size: .small).markup.html)
                 chips += "<span class=\"chip\">@\(esc(trunc(path, 50)))\(x)</span>"
             }
             return chips
         }()
 
         let isBooked = activeSessionID.map { isBookmarked($0) } ?? false
-        let bookLabel = isBooked ? WebUIIcon(.star, size: .small).render() : WebUIIcon(.star, size: .small).render()
+        let bookLabel = isBooked ? WebUIIcon(.star, size: .small).markup.html : WebUIIcon(.star, size: .small).markup.html
 
         // arc-parity composer dropdowns (workspace / profile / model /
         // thinking) — custom panels rendered by the server, replacing the
@@ -1757,9 +1874,9 @@ extension AppState {
         // While a turn runs, the send control becomes a red stop button.
         let sendButton: String
         if running {
-            sendButton = #"<button type="button" id="cb-send" data-component-id="stop-turn" class="send-btn stop" title="Stop">"# + WebUIIcon(.square, size: .medium).render() + #"</button>"#
+            sendButton = #"<button type="button" id="cb-send" data-component-id="stop-turn" class="send-btn stop" title="Stop">"# + WebUIIcon(.square, size: .medium).markup.html + #"</button>"#
         } else {
-            sendButton = #"<button type="submit" id="cb-send" data-component-id="cb-send" class="send-btn" title="Send">"# + WebUIIcon(.arrowUp, size: .medium).render() + #"</button>"#
+            sendButton = #"<button type="submit" id="cb-send" data-component-id="cb-send" class="send-btn" title="Send">"# + WebUIIcon(.arrowUp, size: .medium).markup.html + #"</button>"#
         }
 
         let selOpen = wsSelectOpen || profileSelectOpen || modelSelectOpen || thinkSelectOpen
@@ -1767,21 +1884,50 @@ extension AppState {
         <div class="composer-wrap" id="composer-wrap">
           <div id="composer-flyout">\(composerFlyoutHTML())</div>
           <div id="cmd-dropdown" class="cmd-dropdown" aria-label="Slash commands"></div>
+          \(queuedSendsHTML())
           \(selectionChipsHTML())
           <form id="composer-form" data-component-id="composer-form" class="composer-bar\(selOpen ? " sel-open" : "")">
             <div class="attach-chips" id="attach-chips" data-component-id="att-chips" data-event="click">\(attachmentsHTML)</div>
-            <textarea id="composer-input" name="composer-input" data-component-id="composer-input" data-session="\(esc(sid))" data-prevent-enter="send" placeholder="\(running ? "Steer the current response…" : "Message ARC…")" rows="1" style="min-height:24px">\(esc(draft))</textarea>
+            <textarea id="composer-input" name="composer-input" data-component-id="composer-input" data-session="\(esc(sid))" data-draft="\(esc(draft))" data-prevent-enter="send" placeholder="\(running ? "Send another message — queued after this reply." : "Message ARC…")" rows="1" style="min-height:24px">\(esc(draft))</textarea>
             <div class="composer-toolbar">
-              \(btn("cb-file", "cb-file", "tool-btn" + (filePopOpen ? " on" : ""), WebUIIcon(.paperclip, size: .medium).render(), " title=\"Attach a file\""))
-              \(btn("cb-bookmark", "cb-bookmark", "tool-btn" + (isBooked ? " on" : ""), bookLabel, " title=\"Bookmark this chat\""))
+              \(btn("cb-file", "cb-file", "tool-btn" + (filePopOpen ? " on" : ""), WebUIIcon(.paperclip, size: .medium).markup.html, " data-tip=\"Attach a file\""))
+              \(btn("cb-bookmark", "cb-bookmark", "tool-btn" + (isBooked ? " on" : ""), bookLabel, " data-tip=\"Bookmark this chat\""))
               \(selectors)
               <span class="spacer"></span>
               \(activeSession().map { ctxIndicatorHTML($0) } ?? "")
               \(sendButton)
             </div>
           </form>
+          <span id="dd-dismiss" data-component-id="dd-dismiss" data-event="click" hidden></span>
           \(filePop)
           <div id="slash-data" hidden>\(esc(slashDataJSON()))</div>
+        </div>
+        """
+    }
+
+    // MARK: Mid-stream queue chips (UX-04)
+
+    /// The "Queued · N" row above the composer: mid-stream sends that will run
+    /// as their own turns after the current reply, oldest first. Each chip
+    /// carries a ✕ that removes it before it runs. Only rendered for the
+    /// active chat, so a queue never leaks across sessions.
+    func queuedSendsHTML() -> String {
+        let sid = activeSessionID ?? ""
+        let list = queuedSends[sid] ?? []
+        guard !list.isEmpty else { return "" }
+        // UX-29: the instruction lives ONCE — in the running composer
+        // placeholder. A chip carries count + excerpt + remove control, and
+        // the remove control's title/aria-label explains what removing does.
+        let removeTip = "Remove queued message — it runs after the current reply finishes."
+        var chips = ""
+        for q in list {
+            chips += btn("qs-del-\(q.id)", "", "queued-chip",
+                         "<span class=\"queued-chip-text\">\(esc(trunc(q.text, 90)))</span><span class=\"queued-chip-x\" aria-label=\"\(removeTip)\">✕</span>",
+                         " title=\"\(removeTip)\"")
+        }
+        return """
+        <div id="queued-sends" class="queued-sends" data-component-id="queued-sends" data-event="click">
+          <span class="queued-count">Queued · \(list.count)</span>\(chips)
         </div>
         """
     }
@@ -1798,13 +1944,13 @@ extension AppState {
         let model = settings.modelConfig(named: config)?.model ?? config
         let think = thinkingLevel(for: activeSessionID)
 
-        let wsTrigger = ddTrigger(id: "cb-ws-toggle", icon: WebUIIcon(.folder, size: .small).render(),
+        let wsTrigger = ddTrigger(id: "cb-ws-toggle", icon: WebUIIcon(.folder, size: .small).markup.html,
                                   label: ws.isEmpty ? "Workspace" : ws, title: "Workspace")
-        let ppTrigger = ddTrigger(id: "cb-profile-toggle", icon: WebUIIcon(.user, size: .small).render(),
+        let ppTrigger = ddTrigger(id: "cb-profile-toggle", icon: WebUIIcon(.user, size: .small).markup.html,
                                   label: profile.isEmpty ? "Default" : profile, title: "Profile")
-        let mdTrigger = ddTrigger(id: "cb-model-toggle", icon: WebUIIcon(.box, size: .small).render(),
+        let mdTrigger = ddTrigger(id: "cb-model-toggle", icon: WebUIIcon(.box, size: .small).markup.html,
                                   label: model.isEmpty ? "Model" : model, title: "Model")
-        let thTrigger = ddTrigger(id: "cb-think-toggle", icon: WebUIIcon(.circleGauge, size: .small).render(),
+        let thTrigger = ddTrigger(id: "cb-think-toggle", icon: WebUIIcon(.circleGauge, size: .small).markup.html,
                                   label: think.isEmpty ? "Off" : think.capitalized, title: "Thinking")
 
         return wsDropdown(trigger: wsTrigger)
@@ -1821,7 +1967,7 @@ extension AppState {
         let tip = label.isEmpty ? title : "\(title) — \(label)"
         return """
         <button type="button" id="\(id)" data-component-id="\(id)" class="dd-trigger" title="\(esc(tip))">
-          \(icon)<span class="dd-trigger-label">\(esc(label))</span>\(WebUIIcon(.chevronDown, size: .small).render())
+          \(icon)<span class="dd-trigger-label">\(esc(label))</span>\(WebUIIcon(.chevronDown, size: .small).markup.html)
         </button>
         """
     }
@@ -1854,7 +2000,7 @@ extension AppState {
     func mainModelDropdown() -> String {
         let active = settings.modelConfigs.first(where: { $0.name == settings.activeConfig })
         let label = active.map { "\($0.name) · \($0.model)" } ?? "No configuration selected"
-        let trigger = ddTrigger(id: "mainmc-toggle", icon: WebUIIcon(.zap, size: .medium).render(), label: label, title: "Main model")
+        let trigger = ddTrigger(id: "mainmc-toggle", icon: WebUIIcon(.zap, size: .medium).markup.html, label: label, title: "Main model")
         let vis = mainModelPickerOpen ? "" : " hidden"
         var rows: [String] = []
         for c in settings.modelConfigs {
@@ -1899,17 +2045,17 @@ extension AppState {
           \(trigger)
           <div class="dd-pop dd-pop-ws\(vis)" data-component-id="ws-pick" data-event="click">
             <div class="dd-search">
-              <input id="ws-search-input" data-component-id="ws-search-input" data-event="input" data-no-restore type="text" placeholder="Search workspaces…" spellcheck="false" autocomplete="off" value="\(esc(wsSelectQuery))">
-              \(wsSelectQuery.isEmpty ? "" : btn("ws-search-clear", "ws-search-clear", "dd-clear", WebUIIcon(.x, size: .small).render()))
+              <input id="ws-search-input" data-component-id="ws-search-input" data-event="input" data-no-restore type="text" placeholder="Search workspaces…" aria-label="Search workspaces" spellcheck="false" autocomplete="off" value="\(esc(wsSelectQuery))">
+              \(wsSelectQuery.isEmpty ? "" : btn("ws-search-clear", "ws-search-clear", "dd-clear", WebUIIcon(.x, size: .small).markup.html))
             </div>
             <div class="dd-list">\(rows.joined())\(empty)</div>
             <div class="dd-foot">
               <button type="button" id="ws-choose-path" data-component-id="ws-choose-path" class="dd-foot-row">
-                <span class="dd-foot-ico">\(WebUIIcon(.folderPlus, size: .small).render())</span>
+                <span class="dd-foot-ico">\(WebUIIcon(.folderPlus, size: .small).markup.html)</span>
                 <span class="dd-foot-txt"><span class="dd-row-title">Choose workspace path</span><span class="dd-row-sub">Add a validated path and switch this conversation</span></span>
               </button>
               <button type="button" id="ws-manage" data-component-id="ws-manage" class="dd-foot-row">
-                <span class="dd-foot-ico">\(WebUIIcon(.settings, size: .small).render())</span>
+                <span class="dd-foot-ico">\(WebUIIcon(.settings, size: .small).markup.html)</span>
                 <span class="dd-foot-txt"><span class="dd-row-title">Manage workspaces</span><span class="dd-row-sub">Open the Spaces panel</span></span>
               </button>
             </div>
@@ -1927,7 +2073,7 @@ extension AppState {
         var rows: [String] = []
         for p in profiles {
             let on = !activeProfileName.isEmpty && p.name == activeProfileName
-            let check = on ? " " + WebUIIcon(.check, size: .small).render() : ""
+            let check = on ? " " + WebUIIcon(.check, size: .small).markup.html : ""
             let model = p.model ?? settings.modelConfig(named: settings.activeConfig)?.model ?? "inherit"
             // Skills are active by default; the runtime gates on
             // settings.disabledSkills (see Actions.swift), not profileSkills.
@@ -1949,7 +2095,7 @@ extension AppState {
             <div class="dd-list dd-list-profile">\(rows.joined())</div>
             <div class="dd-foot">
               <button type="button" id="pp-manage" data-component-id="pp-manage" class="dd-foot-row">
-                <span class="dd-foot-ico">\(WebUIIcon(.settings, size: .small).render())</span>
+                <span class="dd-foot-ico">\(WebUIIcon(.settings, size: .small).markup.html)</span>
                 <span class="dd-foot-txt"><span class="dd-row-title">Manage profiles</span></span>
               </button>
             </div>
@@ -1958,7 +2104,12 @@ extension AppState {
         """
     }
 
-    /// Model dropdown: scope note + search + CONFIGURED list with badges.
+    /// Model dropdown: scope note + search + one clean row per model.
+    /// UX-20: each row carries a state dot (green when it is the chat's
+    /// active config), the config name in normal case, a check for the
+    /// selected row and a secondary line with the actual model + provider;
+    /// the shouty uppercase pill, the SELECTED micro-caps badge and the
+    /// CONFIGURED section header are gone. The search input stays.
     func mdDropdown(trigger: String) -> String {
         let vis = modelSelectOpen ? "" : " hidden"
         let active = configName(for: activeSessionID)
@@ -1967,13 +2118,21 @@ extension AppState {
         for c in settings.modelConfigs {
             if !q.isEmpty && !c.name.lowercased().contains(q) && !c.model.lowercased().contains(q) { continue }
             let sel = c.name == active
-            let selBadge = sel ? "<span class=\"dd-badge sel\">SELECTED</span>" : ""
+            let check = sel ? " " + WebUIIcon(.check, size: .small).markup.html : ""
+            // UX-35: the secondary line carries provider + endpoint only — the
+            // model id is already the row's title, so repeating it here wraps
+            // the row and reads as noise. Quant/context would also belong here.
+            var meta: [String] = []
+            if !c.provider.isEmpty { meta.append(esc(c.provider)) }
+            if !c.baseURL.isEmpty { meta.append(esc(shortURL(c.baseURL))) }
+            let sub = meta.joined(separator: " · ")
             rows.append(ddRow(id: "mc-\(enc(c.name))", body: """
+            <span class="dd-dot\(sel ? " on" : "")"></span>
             <span class="dd-model-main">
-              <span class="dd-row-title">\(esc(c.model))</span>
-              <span class="dd-badges"><span class="dd-badge">\(esc(c.name.uppercased())) (CUSTOM)</span>\(selBadge)</span>
+              <span class="dd-row-title">\(esc(c.name))\(check)</span>
+              <span class="dd-row-sub">\(sub)</span>
             </span>
-            """))
+            """, extraClass: "dd-model-row"))
         }
         let empty = rows.isEmpty
             ? "<div class=\"dd-empty\">No models match “\(esc(modelSelectQuery))”</div>" : ""
@@ -1983,10 +2142,9 @@ extension AppState {
           <div class="dd-pop dd-pop-model\(vis)" data-component-id="model-pick" data-event="click">
             <div class="dd-note">Applies to this conversation from your next message.</div>
             <div class="dd-search">
-              <input id="model-search-input" data-component-id="model-search-input" data-event="input" data-no-restore type="text" placeholder="Search models…" spellcheck="false" autocomplete="off" value="\(esc(modelSelectQuery))">
-              \(modelSelectQuery.isEmpty ? "" : btn("model-search-clear", "model-search-clear", "dd-clear", WebUIIcon(.x, size: .small).render()))
+              <input id="model-search-input" data-component-id="model-search-input" data-event="input" data-no-restore type="text" placeholder="Search models…" aria-label="Search models" spellcheck="false" autocomplete="off" value="\(esc(modelSelectQuery))">
+              \(modelSelectQuery.isEmpty ? "" : btn("model-search-clear", "model-search-clear", "dd-clear", WebUIIcon(.x, size: .small).markup.html))
             </div>
-            <div class="dd-section">CONFIGURED</div>
             <div class="dd-list">\(rows.joined())\(empty)</div>
           </div>
         </div>
@@ -2000,7 +2158,7 @@ extension AppState {
         var rows: [String] = []
         for lv in ["off", "low", "medium", "high", "max"] {
             let on = lv == current
-            let check = on ? " " + WebUIIcon(.check, size: .small).render() : ""
+            let check = on ? " " + WebUIIcon(.check, size: .small).markup.html : ""
             rows.append(ddRow(id: "tp-\(lv)", body: """
             <span class="dd-row-title">\(lv.capitalized)\(check)</span>
             """))
@@ -2042,9 +2200,13 @@ extension AppState {
         guard let name = selectedSkill,
               let skill = skills.first(where: { $0.name == name })
         else {
+            // An empty library needs the create-first copy, not "select one".
+            let hint = skills.isEmpty
+                ? "No skills yet — create your first one with + above."
+                : "Select a skill to see its description."
             return """
             <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(WebUIIcon(.star, size: .extraLarge).render())</div><div>Select a skill to see its description.</div></div>
+              <div class="blank"><div class="big">\(WebUIIcon(.star, size: .extraLarge).markup.html)</div><div>\(hint)</div></div>
             </div>
             """
         }
@@ -2059,7 +2221,8 @@ extension AppState {
               <div class="mem-head">
                 <div><h1 class="detail-title" style="margin:0">\(esc(skill.name))</h1>
                 <div class="detail-sub">\(esc(skill.category ?? ""))\(skill.tags.isEmpty ? "" : " • " + skill.tags.map(esc).joined(separator: ", "))</div></div>
-                \(btn("sk-edit", "skill-edit", "icon-mini", WebUIIcon(.edit, size: .small).render(), " title=\"Edit skill\""))
+                \(btn("sk-edit", "skill-edit", "icon-mini", WebUIIcon(.edit, size: .small).markup.html, " title=\"Edit skill\""))
+                \(btn("sk-delete", "skill-delete", "icon-mini danger", WebUIIcon(.trash, size: .small).markup.html, " title=\"Delete skill\""))
               </div>
               <p style="color:var(--text);font-size:0.98em;margin:0 0 12px">\(esc(skill.description))</p>
               <div class="detail-body" style="margin-top:14px">\(body)</div>
@@ -2195,7 +2358,7 @@ extension AppState {
         else {
             return """
             <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(WebUIIcon(.user, size: .extraLarge).render())</div><div>Select a profile to see its details.</div></div>
+              <div class="blank"><div class="big">\(WebUIIcon(.user, size: .extraLarge).markup.html)</div><div>Select a profile to see its details.</div></div>
             </div>
             """
         }
@@ -2204,9 +2367,9 @@ extension AppState {
         let toolsetsNote = set.isEmpty ? "all (not overridden)" : set.joined(separator: ", ")
         let encName = enc(p.name)
         let isDefault = p.name == "default"
-        let headIcons = btn("pr-edit-\(encName)", "", "icon-mini", WebUIIcon(.edit, size: .medium).render(), " title=\"Edit profile\"")
-            + btn("pr-sel-\(encName)", "", "icon-mini", WebUIIcon(.check, size: .medium).render(), " title=\"Select profile for this chat\"")
-            + (isDefault ? "" : btn("pr-del-\(encName)", "", "icon-mini danger", WebUIIcon(.trash, size: .medium).render(), " title=\"Delete profile\""))
+        let headIcons = btn("pr-edit-\(encName)", "", "icon-mini", WebUIIcon(.edit, size: .medium).markup.html, " title=\"Edit profile\"")
+            + btn("pr-sel-\(encName)", "", "icon-mini", WebUIIcon(.check, size: .medium).markup.html, " title=\"Select profile for this chat\"")
+            + (isDefault ? "" : btn("pr-del-\(encName)", "", "icon-mini danger", WebUIIcon(.trash, size: .medium).markup.html, " title=\"Delete profile\""))
         return """
         <div class="main-view">
           <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
@@ -2276,7 +2439,7 @@ extension AppState {
             <div class="pn-draft-row">
               <span class="pn-draft-name">\(esc(label))</span>
               <span class="pn-draft-desc">\(esc(desc))</span>
-              \(btn("pcs-rm-\(enc(name))", "", "icon-mini danger", WebUIIcon(.x, size: .small).render(), " title=\"Remove skill\""))
+              \(btn("pcs-rm-\(enc(name))", "", "icon-mini danger", WebUIIcon(.x, size: .small).markup.html, " title=\"Remove skill\""))
             </div>
             """
         }
@@ -2296,7 +2459,7 @@ extension AppState {
             : ""
         let picker = """
         <div class="dd pn-picker">
-          \(ddTrigger(id: "pcs-toggle", icon: WebUIIcon(.plus, size: .medium).render(), label: "Add skill", title: "Pin a skill into this profile's context"))
+          \(ddTrigger(id: "pcs-toggle", icon: WebUIIcon(.plus, size: .medium).markup.html, label: "Add skill", title: "Pin a skill into this profile's context"))
           <div class="dd-pop dd-pop-ws\(open)" data-component-id="pcs" data-event="click">
             <div class="dd-list">\(optRows)\(noOpts)</div>
           </div>
@@ -2321,7 +2484,7 @@ extension AppState {
     }
 
     /// arc-parity profile card: PROFILE eyebrow + key/value rows with
-    /// badges (ACTIVE / (default) / Gateway running / code-block model).
+    /// badges (ACTIVE / (default) / Daemon running / code-block model).
     func profileCardHTML(_ p: Profile) -> String {
         let activeProfile = profileName(for: activeSessionID) ?? ""
         let isActive = !activeProfile.isEmpty && activeProfile == p.name
@@ -2331,20 +2494,20 @@ extension AppState {
         let providerName = p.provider ?? "custom"
         let keyCount = settings.modelConfigs.filter { !$0.apiKey.isEmpty }.count
         let keyLabel = keyCount > 0 ? "\(keyCount) \(keyCount == 1 ? "key" : "keys") configured" : "None"
-        let statusBadges = (isActive ? "<span class=\"pl-badge badge-active\">ACTIVE</span>" : "<span class=\"pl-badge badge-inactive\">INACTIVE</span>")
-            + (isDefault ? " <span class=\"pl-badge badge-default\">(default)</span>" : "")
-        let gateway = gatewayRunning
-            ? "<span class=\"pl-badge badge-green\"><span class=\"pl-dot\"></span>Gateway running</span>"
-            : "<span class=\"pl-badge badge-red\">Gateway stopped</span>"
+        let statusBadges = (isActive ? "<span class=\"pl-badge badge-active\">ACTIVE</span>" : "<span class=\"pl-badge badge-inactive\">IDLE</span>")
+            + (isDefault ? " <span class=\"pl-badge badge-default\">DEFAULT</span>" : "")
+        let daemon = daemonRunning
+            ? "<span class=\"pl-badge badge-green\"><span class=\"pl-dot\"></span>Daemon running</span>"
+            : "<span class=\"pl-badge badge-red\">Daemon stopped</span>"
         return """
         <div class="pl-card">
           <div class="pl-eyebrow">PROFILE</div>
           <div class="pl-row"><span class="pl-k">Status</span><span class="pl-v">\(statusBadges)</span></div>
-          <div class="pl-row"><span class="pl-k">Gateway</span><span class="pl-v">\(gateway)</span></div>
+          <div class="pl-row"><span class="pl-k">Daemon</span><span class="pl-v">\(daemon)</span></div>
           <div class="pl-row"><span class="pl-k">Model</span><span class="pl-v"><code class="pl-code">\(esc(modelName))</code></span></div>
           <div class="pl-row"><span class="pl-k">Provider</span><span class="pl-v">\(esc(providerName))</span></div>
           <div class="pl-row"><span class="pl-k">API key</span><span class="pl-v">\(esc(keyLabel))</span></div>
-          <div class="pl-row"><span class="pl-k">Skills</span><span class="pl-v">\(skillCount) / \(skills.count) skills</span></div>
+          <div class="pl-row"><span class="pl-k">Skills</span><span class="pl-v">\(skillCount) of \(skills.count) active</span></div>
         </div>
         """
     }
@@ -2357,7 +2520,7 @@ extension AppState {
         else {
             return """
             <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(WebUIIcon(.tool, size: .extraLarge).render())</div><div>Select a tool to see its definition and parameters.</div></div>
+              <div class="blank"><div class="big">\(WebUIIcon(.tool, size: .extraLarge).markup.html)</div><div>Select a tool to see its definition and parameters.</div></div>
             </div>
             """
         }
@@ -2368,9 +2531,9 @@ extension AppState {
             <div class="detail-card">
               <h1 class="detail-title">\(toolEmojiIcon(tool.emoji)) \(esc(tool.name))</h1>
               <div class="detail-sub">\(esc(tool.toolset)) toolset</div>
-              <div class="kv"><span class="k">Description</span><span class="v">\(esc(tool.description))</span></div>
-              <div class="kv"><span class="k">Toolset</span><span class="v">\(esc(tool.toolset))</span></div>
-              <div class="kv"><span class="k">Requires env</span><span class="v">\(tool.requiresEnv.isEmpty ? "none" : esc(tool.requiresEnv.joined(separator: ", ")))</span></div>
+              <div class="akv"><span class="akv-k">Description</span><span class="akv-v">\(esc(tool.description))</span></div>
+              <div class="akv"><span class="akv-k">Toolset</span><span class="akv-v">\(esc(tool.toolset))</span></div>
+              <div class="akv"><span class="akv-k">Requires env</span><span class="akv-v">\(tool.requiresEnv.isEmpty ? "none" : esc(tool.requiresEnv.joined(separator: ", ")))</span></div>
               <h3 style="margin:16px 0 6px">Parameters</h3>
               \(params)
             </div>
@@ -2434,7 +2597,14 @@ extension AppState {
             let m = pluginManifests[name]
             let on = allow?.contains(name) ?? true
             let tools = (m?.tools ?? []).map { $0.name }
-            let toolChips = tools.map { "<span class='mc-badge' style='margin-right:4px'>\(esc($0))</span>" }.joined()
+            // UX-22: the chip row used to run to the card edge and cut the
+            // last chip mid-token (`pkg_…`). The chips now live in a wrapping
+            // flex row; long package tokens break inside the badge instead of
+            // clipping at the card edge.
+            let toolChips = tools.map { "<span class='mc-badge'>\(esc($0))</span>" }.joined()
+            let toolsLine = tools.isEmpty
+                ? "No tools"
+                : #"Tools: <span class="plug-chips">\#(toolChips)</span>"#
             return """
             <div class="set-row" style="flex-direction:column;align-items:stretch;gap:4px">
               <div style="display:flex;align-items:center;justify-content:space-between">
@@ -2445,7 +2615,7 @@ extension AppState {
                 </label>
               </div>
               <div class="set-hint">\(esc(m?.description ?? ""))</div>
-              <div class="set-hint">\(tools.isEmpty ? "No tools" : "Tools: " + toolChips)</div>
+              <div class="set-hint">\(toolsLine)</div>
             </div>
             """
         }.joined()
@@ -2454,6 +2624,104 @@ extension AppState {
           <div class="set-label">Rescan<small>Re-read <code>~/.arc/plugins</code> after adding or editing a plugin.</small></div>
           <button type="button" id="plugin-rescan" data-component-id="plugin-rescan" data-event="click" class="btn">Rescan plugins</button>
         </div>
+        """
+    }
+
+    // MARK: MCP servers (Settings)
+
+    /// Settings → MCP servers: the `mcp_servers` block of `~/.arc/config.json`,
+    /// editable in place.
+    ///
+    /// The agent never sees one tool per server — it sees the single `mcp_tool`
+    /// bridge (Tools panel). What this panel owns is the launch spec of each
+    /// server process, which is why the useful action on a row is Test: it
+    /// starts the server and lists the tools it actually exposes, the only way
+    /// to learn a server's tool names before the agent tries to call one.
+    func mcpSettingsHTML() -> String {
+        if addingMCPServer { return mcpFormHTML() }
+        let names = arcConfig.mcpServers.keys.sorted()
+        guard !names.isEmpty else {
+            return """
+            <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
+              <div class="set-label">No MCP servers configured.</div>
+              <div class="set-hint">A server is a child process that speaks the Model Context Protocol over stdio — filesystem access, GitHub, databases. Once added it is started on first use, and the agent reaches its tools through the single <code>mcp_tool</code> bridge (Tools panel): ask the agent to call <code>mcp_tool</code> with <code>action: "list"</code> to see every server and tool. <code>mcp_servers</code> in <code>~/.arc/config.json</code> is the source of truth, and this panel edits exactly that block. Arguments reach the process verbatim; nothing is run through a shell.</div>
+              \(btn("mcp-add", "mcp-add", "btn", "Add server"))
+            </div>
+            """
+        }
+        let rows = names.map { name -> String in
+            let cfg = arcConfig.mcpServers[name]
+            let argv = ([cfg?.command ?? ""] + (cfg?.args ?? [])).joined(separator: " ")
+            let status: String
+            if let error = mcpTestError[name] {
+                status = "<div class='set-hint' style='color:var(--danger,#e5484d)'>Probe failed: \(esc(trunc(error, 220)))</div>"
+            } else if let tools = mcpToolCatalog[name] {
+                let chips = tools.isEmpty
+                    ? "<em>no tools</em>"
+                    : tools.map { "<span class='mc-badge'>\(esc($0))</span>" }.joined()
+                status = "<div class='set-hint'>Tools: <span class='plug-chips'>\(chips)</span></div>"
+            } else {
+                status = "<div class='set-hint'>Not probed yet — press Test to start it and list its tools.</div>"
+            }
+            return """
+            <div class="set-row" data-component-id="mcp-list" style="flex-direction:column;align-items:stretch;gap:4px">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                <div class="set-label">\(esc(name))</div>
+                <div class="row-actions">
+                  \(btn("mcp-test-\(enc(name))", "", "btn", "Test"))
+                  \(btn("mcp-edit-\(enc(name))", "", "btn", "Edit"))
+                  \(btn("mcp-del-\(enc(name))", "", "icon-mini danger", WebUIIcon(.x, size: .small).markup.html, " title=\"Delete\""))
+                </div>
+              </div>
+              <div class="set-hint"><code>\(esc(trunc(argv, 140)))</code></div>
+              \(status)
+            </div>
+            """
+        }.joined()
+        return rows + """
+        <div class="set-row">
+          <div class="set-label">Add a server<small>Written to <code>~/.arc/config.json</code>; the running agent is re-pointed immediately.</small></div>
+          \(btn("mcp-add", "mcp-add", "btn", "Add server"))
+        </div>
+        """
+    }
+
+    /// The add/edit form for one MCP server preset. Field names are the
+    /// submit payload keys (`extractFormData` keys by `name`), so renaming one
+    /// silently breaks the save — the contract test pins all four.
+    func mcpFormHTML() -> String {
+        let title = editingMCPServer == nil ? "New MCP server" : "Edit MCP server"
+        return """
+        <form id="mcp-form" data-component-id="mcp-form" class="detail-card" style="max-width:640px">
+          <h1 class="detail-title">\(esc(title))</h1>
+          <div class="detail-sub">The server is launched directly, as <code>/usr/bin/env &lt;command&gt; &lt;args…&gt;</code> — never through a shell — with arc's own credentials stripped from its environment. Save, then press Test on the row to start it and list the tools it exposes.</div>
+          <div class="form-grid">
+            <div>
+              <label for="mcp-name-input">Name</label>
+              <input id="mcp-name-input" name="mcp-name-input" data-component-id="mcp-name-input" type="text" placeholder="filesystem" autofocus value="\(esc(formValues["mcp-name-input"] ?? ""))">
+              <small style="color:var(--muted);font-size:0.75em">How the agent selects this server. Lowercase letters, digits, '-' and '_'.</small>
+            </div>
+            <div>
+              <label for="mcp-command-input">Command</label>
+              <input id="mcp-command-input" name="mcp-command-input" data-component-id="mcp-command-input" type="text" placeholder="npx" value="\(esc(formValues["mcp-command-input"] ?? ""))">
+              <small style="color:var(--muted);font-size:0.75em">One executable, resolved through PATH. Everything else belongs in Arguments.</small>
+            </div>
+            <div>
+              <label for="mcp-args-input">Arguments (one per line)</label>
+              <textarea id="mcp-args-input" name="mcp-args-input" data-component-id="mcp-args-input" rows="4" placeholder="-y&#10;@modelcontextprotocol/server-filesystem&#10;/Users/you/project">\(esc(formValues["mcp-args-input"] ?? ""))</textarea>
+              <small style="color:var(--muted);font-size:0.75em">Passed verbatim as argv — quotes are not interpreted, so an argument containing spaces works as typed.</small>
+            </div>
+            <div>
+              <label for="mcp-env-input">Environment (KEY=VALUE, one per line)</label>
+              <textarea id="mcp-env-input" name="mcp-env-input" data-component-id="mcp-env-input" rows="3" placeholder="GITHUB_PERSONAL_ACCESS_TOKEN=ghp_…">\(esc(formValues["mcp-env-input"] ?? ""))</textarea>
+              <small style="color:var(--muted);font-size:0.75em">arc strips its own ARC_/OPENAI_/ANTHROPIC_ variables from every MCP server — this is how a server gets its own credentials.</small>
+            </div>
+          </div>
+          <div class="row-actions-main">
+            <button type="submit" class="primary-btn">Save</button>
+            \(btn("mcp-cancel", "mcp-cancel", "ghost-btn", "Cancel"))
+          </div>
+        </form>
         """
     }
 
@@ -2549,12 +2817,12 @@ extension AppState {
         <div class="main-view">
           <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
             <div class="detail-card">
-              <h1 class="detail-title">\(WebUIIcon(.grid, size: .large).render()) Workspaces</h1>
+              <h1 class="detail-title">\(WebUIIcon(.grid, size: .large).markup.html) Workspaces</h1>
               <div class="detail-sub">Workspaces are folders on this computer. Each chat keeps its own workspace, chosen in the chat composer.</div>
-              <div class="kv"><span class="k">Default</span><span class="v">\(esc(ws))</span></div>
-              <div class="kv"><span class="k">Folder</span><span class="v">\(esc(path))</span></div>
-              <div class="kv"><span class="k">Sessions</span><span class="v">\(sessions.count)</span></div>
-              <div class="kv"><span class="k">Note</span><span class="v">All chats share one session list; switching a chat's workspace changes its working folder, not the conversation list.</span></div>
+              <div class="akv"><span class="akv-k">Default</span><span class="akv-v">\(esc(ws))</span></div>
+              <div class="akv"><span class="akv-k">Folder</span><span class="akv-v">\(esc(path))</span></div>
+              <div class="akv"><span class="akv-k">Sessions</span><span class="akv-v">\(sessions.count)</span></div>
+              <div class="akv"><span class="akv-k">Note</span><span class="akv-v">All chats share one session list; switching a chat's workspace changes its working folder, not the conversation list.</span></div>
             </div>
           </div>
         </div>
@@ -2724,7 +2992,7 @@ extension AppState {
         }
         let storagePickerHTML = """
         <div class="dd dd-settings">
-          \(ddTrigger(id: "storage-pick-toggle", icon: WebUIIcon(.database, size: .small).render(), label: storageMediumLabel(effectiveMedium), title: "Storage medium in use"))
+          \(ddTrigger(id: "storage-pick-toggle", icon: WebUIIcon(.database, size: .small).markup.html, label: storageMediumLabel(effectiveMedium), title: "Storage medium in use"))
           <div class="dd-pop dd-pop-down\(storagePickVis)" data-component-id="storage-pick" data-event="click">
             <div class="dd-note">Pick a medium, then press <strong>Save and Connect</strong> to switch.</div>
             <div class="dd-list">\(storagePickRows.joined())</div>
@@ -2766,14 +3034,14 @@ extension AppState {
         <form id="storage-conn-form" data-component-id="storage-conn-form" class="form-grid" style="margin-top:14px;border-top:1px dashed var(--border);padding-top:14px">
           <input type="hidden" id="storage-edit-id" name="storage-edit-id" data-component-id="storage-edit-id" value="\(esc(se?.id ?? ""))">
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
-            <div><label for="sc-name">Name</label><input id="sc-name" name="sc-name" data-component-id="sc-name" placeholder="Home relay" value="\(esc(se?.name ?? ""))"></div>
-            <div><label for="sc-ip">Server IP / host</label><input id="sc-ip" name="sc-ip" data-component-id="sc-ip" placeholder="10.0.0.1" value="\(esc(se?.serverIP ?? ""))"></div>
-            <div><label for="sc-port">Port</label><input id="sc-port" name="sc-port" data-component-id="sc-port" type="number" min="1" max="65535" placeholder="51820" value="\(se.map { String($0.serverPort) } ?? "")"></div>
+            <div><label for="sc-name">Name</label><input id="sc-name" name="sc-name" data-component-id="sc-name" autocomplete="off" placeholder="Home relay" value="\(esc(se?.name ?? ""))"></div>
+            <div><label for="sc-ip">Server IP / host</label><input id="sc-ip" name="sc-ip" data-component-id="sc-ip" autocomplete="off" placeholder="10.0.0.1" value="\(esc(se?.serverIP ?? ""))"></div>
+            <div><label for="sc-port">Port</label><input id="sc-port" name="sc-port" data-component-id="sc-port" type="number" min="1" max="65535" autocomplete="off" placeholder="51820" value="\(se.map { String($0.serverPort) } ?? "")"></div>
           </div>
           <div><label for="sc-app">Application id</label><input id="sc-app" name="sc-app" data-component-id="sc-app" type="number" min="0" max="65535" placeholder="1" value="\(se.map { String($0.application) } ?? "")"></div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-            <div><label for="sc-pub">Server public key</label><input id="sc-pub" name="sc-pub" data-component-id="sc-pub" placeholder="base64 (32 bytes)" value="\(esc(se?.serverPublicKey ?? ""))"></div>
-            <div><label for="sc-priv">Client private key</label><input id="sc-priv" name="sc-priv" data-component-id="sc-priv" type="password" placeholder="base64 (32 bytes)" value="\(esc(se?.myPrivateKey ?? ""))"></div>
+            <div><label for="sc-pub">Server public key</label><input id="sc-pub" name="sc-pub" data-component-id="sc-pub" autocomplete="off" placeholder="base64 (32 bytes)" value="\(esc(se?.serverPublicKey ?? ""))"></div>
+            <div><label for="sc-priv">Client private key</label><input id="sc-priv" name="sc-priv" data-component-id="sc-priv" type="password" autocomplete="new-password" placeholder="base64 (32 bytes)" value="\(esc(se?.myPrivateKey ?? ""))"></div>
           </div>
           <div class="row-actions-main" style="margin:0">
             <button type="submit" class="primary-btn">\(se == nil ? "Add storage" : "Update storage")</button>
@@ -2828,7 +3096,7 @@ extension AppState {
         ]
         let themeCards = themeDefs.map { t in
             let active = settings.theme == t.key ? " active" : ""
-            return "<button type=\"button\" id=\"thm-\(t.key)\" data-theme-choice=\"\(t.key)\" class=\"theme-pick-btn\(active)\" title=\"\(t.label)\"><span class=\"thm-preview\" style=\"\(t.preview)\"><span class=\"thm-ic\">\(WebUIIcon(t.icon, size: .medium).render())</span></span><span class=\"thm-label\">\(t.label)</span></button>"
+            return "<button type=\"button\" id=\"thm-\(t.key)\" data-theme-choice=\"\(t.key)\" class=\"theme-pick-btn\(active)\" title=\"\(t.label)\"><span class=\"thm-preview\" style=\"\(t.preview)\"><span class=\"thm-ic\">\(WebUIIcon(t.icon, size: .medium).markup.html)</span></span><span class=\"thm-label\">\(t.label)</span></button>"
         }.joined()
         let sizeCards = ThemeSize.allCases.map { s in
             let active = settings.textSize == s.rawValue ? " active" : ""
@@ -2859,7 +3127,8 @@ extension AppState {
             ("hide_all_activity", "Final answer only"),
         ].map { mode, label in
             let active = settings.activityDisplay == mode ? " active" : ""
-            return "<button type=\"button\" id=\"actdisp-\(mode)\" class=\"bubble-opt\(active)\">\(label)</button>"
+            let pressed = settings.activityDisplay == mode ? "true" : "false"
+            return "<button type=\"button\" id=\"actdisp-\(mode)\" class=\"bubble-opt\(active)\" aria-pressed=\"\(pressed)\">\(label)</button>"
         }.joined()
 
         // Sidebar tabs (arc-style chips; Chat + Settings are always
@@ -2881,11 +3150,12 @@ extension AppState {
         let tabChips = chipKeys.map { key -> String in
             let label = tabDefs.first { $0.key == key }?.label ?? key
             let on = !settings.hiddenSidebarTabs.contains(key)
+            // UX-13: real buttons (keyboard-operable) with a visible pressed
+            // state; the off chip is dimmed and labels itself "Hidden".
             return """
-            <label class="side-tab-chip\(on ? " on" : "")">
-              <input type="checkbox" id="st-\(enc(key))" value="st-\(enc(key))" data-component-id="side-tab-chips" data-event="change" data-no-restore \(on ? "checked" : "")>
-              <span>\(label)</span>
-            </label>
+            <button type="button" id="st-\(enc(key))" value="st-\(enc(key))" class="side-tab-chip\(on ? " on" : " off")" aria-pressed="\(on)" data-no-restore draggable="true">
+              <span>\(label)</span>\(on ? "" : "<em class=\"chip-hint\">Hidden</em>")
+            </button>
             """
         }.joined()
 
@@ -2957,7 +3227,7 @@ extension AppState {
                       <label class="aux-field">Model configuration
                         <div class="dd">
                           <button type="button" id="auxmc-toggle-\(task.key)" data-component-id="auxmc-toggle" class="dd-trigger" title="Auxiliary model configuration">
-                            <span class="dd-trigger-label">\(esc(triggerLabel))</span>\(WebUIIcon(.chevronDown, size: .small).render())
+                            <span class="dd-trigger-label">\(esc(triggerLabel))</span>\(WebUIIcon(.chevronDown, size: .small).markup.html)
                           </button>
                           <div class="dd-pop dd-pop-ws\(pickVis)" data-component-id="auxmc" data-event="click">
                             <div class="dd-list">\(pkRows.joined())</div>
@@ -2991,7 +3261,7 @@ extension AppState {
                 summary = "Main model"
             }
             return """
-            <div class="set-row">
+            <div class="set-row" title="\(esc(task.detail))">
               <div class="set-label">\(esc(task.displayName))<small>\(esc(task.detail)). Currently: \(esc(summary)).</small></div>
               <div class="aux-right" data-component-id="aux-edit" data-event="click">
                 \(btn("aux-edit-\(task.key)", "", "ghost-btn", has ? "Edit" : "Configure"))
@@ -3032,7 +3302,7 @@ extension AppState {
                   </div>
                   <div class="set-row" style="flex-direction:column;align-items:stretch;gap:8px">
                     <div class="set-label">Sidebar tabs</div>
-                    <div class="side-tab-chips">\(tabChips)</div>
+                    <div class="side-tab-chips" data-component-id="side-tab-chips" data-event="click">\(tabChips)</div>
                     <input type="hidden" id="sidebar-tab-order" data-component-id="sidebar-tab-order" data-event="change" value="\(esc(settings.sidebarTabs.joined(separator: ",")))">
                     <div class="set-hint">Choose which tabs appear in the sidebar and rail. Drag chips to reorder them. Chat and Settings are always visible.</div>
                   </div>
@@ -3075,15 +3345,15 @@ extension AppState {
                 <div data-component-id="modelcfg-list" data-event="click">\(mcRows.isEmpty ? "<div class=\"empty-hint\">No model configurations.</div>" : mcRows)</div>
                 <form id="modelcfg-add-form" data-component-id="modelcfg-add-form" class="form-grid" style="margin-top:14px;border-top:1px dashed var(--border);padding-top:14px">
                   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
-                    <div><label for="mc-name">Name</label><input id="mc-name" name="mc-name" data-component-id="mc-name" placeholder="deepseek-v4-flash"></div>
-                    <div><label for="mc-model">Model</label><input id="mc-model" name="mc-model" data-component-id="mc-model" placeholder="deepseek-v4-flash"></div>
-                    <div><label for="mc-provider">Provider</label><input id="mc-provider" name="mc-provider" data-component-id="mc-provider" placeholder="custom"></div>
+                    <div><label for="mc-name">Name</label><input id="mc-name" name="mc-name" data-component-id="mc-name" autocomplete="off" spellcheck="false" placeholder="deepseek-v4-flash"></div>
+                    <div><label for="mc-model">Model</label><input id="mc-model" name="mc-model" data-component-id="mc-model" autocomplete="off" spellcheck="false" placeholder="deepseek-v4-flash"></div>
+                    <div><label for="mc-provider">Provider</label><input id="mc-provider" name="mc-provider" data-component-id="mc-provider" autocomplete="off" spellcheck="false" placeholder="custom"></div>
                   </div>
-                  <div><label for="mc-baseurl">Base URL</label><input id="mc-baseurl" name="mc-baseurl" data-component-id="mc-baseurl" placeholder="https://api.openai.com/v1"></div>
+                  <div><label for="mc-baseurl">Base URL</label><input id="mc-baseurl" name="mc-baseurl" data-component-id="mc-baseurl" autocomplete="off" spellcheck="false" placeholder="https://api.openai.com/v1"></div>
                   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-                    <div><label for="mc-apikey">API key (optional)</label><input id="mc-apikey" name="mc-apikey" data-component-id="mc-apikey" type="password" placeholder="sk-…"></div>
-                    <div><label for="mc-ctx">Context length (optional)</label><input id="mc-ctx" name="mc-ctx" data-component-id="mc-ctx" type="text" placeholder="128000"></div>
-                    <div><label for="mc-maxtok">Max output tokens (optional)</label><input id="mc-maxtok" name="mc-maxtok" data-component-id="mc-maxtok" type="text" placeholder="32768"></div>
+                    <div><label for="mc-apikey">API key (optional)</label><input id="mc-apikey" name="mc-apikey" data-component-id="mc-apikey" type="password" autocomplete="new-password" spellcheck="false" placeholder="sk-…"></div>
+                    <div><label for="mc-ctx">Context length (optional)</label><input id="mc-ctx" name="mc-ctx" data-component-id="mc-ctx" type="text" autocomplete="off" placeholder="128000"></div>
+                    <div><label for="mc-maxtok">Max output tokens (optional)</label><input id="mc-maxtok" name="mc-maxtok" data-component-id="mc-maxtok" type="text" autocomplete="off" placeholder="32768"></div>
                   </div>
                   <div class="row-actions-main" style="margin:0">
                     <button type="submit" class="primary-btn">Add configuration</button>
@@ -3102,7 +3372,7 @@ extension AppState {
               <div class="detail-card" style="margin-top:12px">
                 <h3 style="margin:0 0 6px">Auxiliary models</h3>
                 <div class="detail-sub" style="margin-bottom:10px">Auxiliary tasks (vision, compression, approval, titles, …) use a dedicated model from the <code>auxiliary</code> block of ~/.arc/config.json. Empty overrides fall back to the chat's main model.</div>
-                \(auxRows)
+                <div class="aux-list">\(auxRows)</div>
               </div>
             </section>
 
@@ -3140,6 +3410,16 @@ extension AppState {
               </div>
             </section>
 
+            <section class="set-section" id="mcp-servers">
+              <h2>MCP servers</h2>
+              <div class="detail-card">
+                <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
+                  <div class="set-label">External tool servers<small>Child processes speaking the Model Context Protocol over stdio. The agent reaches every one of their tools through the single <code>mcp_tool</code> bridge; this panel owns the <code>mcp_servers</code> block of <code>~/.arc/config.json</code>.</small></div>
+                </div>
+                \(mcpSettingsHTML())
+              </div>
+            </section>
+
             <section class="set-section" id="sidebar-plugins">
               <h2>Sidebar plugins</h2>
               <div class="detail-card">
@@ -3153,12 +3433,12 @@ extension AppState {
             <section class="set-section" id="about">
               <h2>About</h2>
               <div class="detail-card">
-                <div class="kv"><span class="k">Version</span><span class="v">\(esc(ArcAgentCore.version)) (webui \(esc(WebUIVersion.version)))</span></div>
-                <div class="kv"><span class="k">Workspace</span><span class="v">\(esc(workspaceName(for: activeSessionID))) — \(esc(workspacePath(for: activeSessionID)))</span></div>
-                <div class="kv"><span class="k">Sessions</span><span class="v">\(sessions.count)</span></div>
-                <div class="kv"><span class="k">Skills</span><span class="v">\(skills.count)</span></div>
-                <div class="kv"><span class="k">Tools</span><span class="v">\(registry.allTools.count)</span></div>
-                <div class="kv"><span class="k">Profiles</span><span class="v">\(profiles.count)</span></div>
+                <div class="akv"><span class="akv-k">Version</span><span class="akv-v">\(esc(ArcAgentCore.version)) (webui \(esc(WebUIVersion.version)))</span></div>
+                <div class="akv"><span class="akv-k">Workspace</span><span class="akv-v nowrap" title="\(esc(workspacePath(for: activeSessionID)))">\(esc(workspaceName(for: activeSessionID))) — \(esc(workspacePath(for: activeSessionID)))</span></div>
+                <div class="akv"><span class="akv-k">Sessions</span><span class="akv-v">\(sessions.count)</span></div>
+                <div class="akv"><span class="akv-k">Skills</span><span class="akv-v">\(skills.count)</span></div>
+                <div class="akv"><span class="akv-k">Tools</span><span class="akv-v">\(registry.allTools.count)</span></div>
+                <div class="akv"><span class="akv-k">Profiles</span><span class="akv-v">\(profiles.count)</span></div>
               </div>
             </section>
           </div>
@@ -3171,7 +3451,7 @@ extension AppState {
     // MARK: Kanban
 
     func kanbanPanel() -> String {
-        let newBtn = btn("kb-addcol", "kb-addcol", "plus-btn", addingColumn ? WebUIIcon(.x, size: .small).render() : WebUIIcon(.plus, size: .small).render(), " title=\"" + (addingColumn ? "Cancel" : "Add column") + "\"")
+        let newBtn = btn("kb-addcol", "kb-addcol", "plus-btn", addingColumn ? WebUIIcon(.x, size: .small).markup.html : WebUIIcon(.plus, size: .small).markup.html, " title=\"" + (addingColumn ? "Cancel" : "Add column") + "\"")
         let head = """
         <div class="panel-head">
           <span class="panel-title">Kanban</span>
@@ -3182,7 +3462,7 @@ extension AppState {
         for col in settings.kanbanColumns {
             let cid = enc(col.id)
             let count = settings.kanbanCards.filter { $0.columnID == col.id }.count
-            let confirm = confirmColumn == col.id ? " Confirm?" : WebUIIcon(.x, size: .small).render()
+            let confirm = confirmColumn == col.id ? " Confirm?" : WebUIIcon(.x, size: .small).markup.html
             let delCls = confirmColumn == col.id ? "sess-confirm" : "icon-mini danger"
             rows.append("""
             <div class="list-row">
@@ -3232,7 +3512,7 @@ extension AppState {
         guard !settings.kanbanColumns.isEmpty else {
             return """
             <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(WebUIIcon(.columns, size: .extraLarge).render())</div><div>No columns yet — add one in the panel.</div></div>
+              <div class="blank"><div class="big">\(WebUIIcon(.columns, size: .extraLarge).markup.html)</div><div>No columns yet — add one in the panel.</div></div>
             </div>
             """
         }
@@ -3270,8 +3550,8 @@ extension AppState {
             <span class="kb-col-name">\(esc(col.name))</span>
             <span class="kb-col-count">\(cards.count)</span>
             <div class="kb-col-actions">
-              \(btn("kb-rencol-\(cid)", "", "icon-mini", WebUIIcon(.edit, size: .small).render(), " title=\"Rename column\" data-colid=\"\(col.id)\""))
-              \(btn("kb-bdel-\(cid)", "", confirmColumn == col.id ? "icon-mini danger sess-confirm" : "icon-mini danger", confirmColumn == col.id ? "Confirm?" : WebUIIcon(.x, size: .small).render(), " title=\"Delete column\""))
+              \(btn("kb-rencol-\(cid)", "", "icon-mini", WebUIIcon(.edit, size: .small).markup.html, " title=\"Rename column\" data-colid=\"\(col.id)\""))
+              \(btn("kb-bdel-\(cid)", "", confirmColumn == col.id ? "sess-confirm" : "icon-mini danger", confirmColumn == col.id ? "Confirm?" : WebUIIcon(.x, size: .small).markup.html, " title=\"Delete column\""))
             </div>
           </div>
           <div class="kb-cards">\(cardHTML)</div>
@@ -3283,15 +3563,20 @@ extension AppState {
     func kanbanCardHTML(_ card: KBCard) -> String {
         let encc = enc(card.id)
         let idx = settings.kanbanColumns.firstIndex { $0.id == card.columnID } ?? 0
-        let left = idx > 0 ? btn("kb-movel-\(encc)", "", "icon-mini", WebUIIcon(.chevronLeft, size: .small).render(), " title=\"Move left\"") : ""
-        let right = idx < settings.kanbanColumns.count - 1 ? btn("kb-mover-\(encc)", "", "icon-mini", WebUIIcon(.chevronRight, size: .small).render(), " title=\"Move right\"") : ""
+        let left = idx > 0 ? btn("kb-movel-\(encc)", "", "icon-mini", WebUIIcon(.chevronLeft, size: .small).markup.html, " title=\"Move left\"") : ""
+        let right = idx < settings.kanbanColumns.count - 1 ? btn("kb-mover-\(encc)", "", "icon-mini", WebUIIcon(.chevronRight, size: .small).markup.html, " title=\"Move right\"") : ""
+        // Two-step delete, matching the column header: the first click arms the
+        // card and the button becomes "Confirm?" (a single click used to bin it).
+        let armed = confirmCard == card.id
+        let delCls = armed ? "sess-confirm" : "icon-mini danger"
+        let delLabel = armed ? "Confirm?" : WebUIIcon(.x, size: .small).markup.html
         return """
         <div class="kb-card">
           <div class="kb-card-title" data-cardid="\(card.id)">\(esc(trunc(card.title, 70)))</div>
           <div class="kb-card-actions">
-            \(btn("kb-edit-\(encc)", "", "icon-mini", WebUIIcon(.edit, size: .small).render(), " title=\"Edit title\" data-cardid=\"\(card.id)\""))
+            \(btn("kb-edit-\(encc)", "", "icon-mini", WebUIIcon(.edit, size: .small).markup.html, " title=\"Edit title\" data-cardid=\"\(card.id)\""))
             \(left)\(right)
-            \(btn("kb-del-\(encc)", "", "icon-mini danger", WebUIIcon(.x, size: .small).render(), " title=\"Delete card\""))
+            \(btn("kb-del-\(encc)", "", delCls, delLabel, " title=\"Delete card\""))
           </div>
         </div>
         """
@@ -3306,10 +3591,10 @@ extension AppState {
         </div>
         """
         let items: [(key: String, title: String, sub: String, glyph: String)] = [
-            ("memory", "My Notes", "MEMORY.md", WebUIIcon(.fileText, size: .large).render()),
-            ("user", "User Profile", "USER.md", WebUIIcon(.user, size: .large).render()),
-            ("soul", "Agent Soul", "SOUL.md", WebUIIcon(.star, size: .large).render()),
-            ("context", "Project Context", "AGENTS.md", WebUIIcon(.folder, size: .large).render()),
+            ("memory", "My Notes", "MEMORY.md", WebUIIcon(.fileText, size: .large).markup.html),
+            ("user", "User Profile", "USER.md", WebUIIcon(.user, size: .large).markup.html),
+            ("soul", "Agent Soul", "SOUL.md", WebUIIcon(.star, size: .large).markup.html),
+            ("context", "Project Context", "AGENTS.md", WebUIIcon(.folder, size: .large).markup.html),
         ]
         let boxes = items.map { it in
             let active = memoryDoc == it.key ? " active" : ""
@@ -3328,7 +3613,7 @@ extension AppState {
         guard let doc = memoryDoc else {
             return """
             <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(WebUIIcon(.database, size: .extraLarge).render())</div><div>Select a document from the panel.</div></div>
+              <div class="blank"><div class="big">\(WebUIIcon(.database, size: .extraLarge).markup.html)</div><div>Select a document from the panel.</div></div>
             </div>
             """
         }
@@ -3375,14 +3660,14 @@ extension AppState {
             """
         }
         let contentHTML = memoryContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "<div class=\"empty-hint\">\(esc(sub)) is empty. Press " + WebUIIcon(.edit, size: .small).render() + " to start writing.</div>"
+            ? "<div class=\"empty-hint\">\(esc(sub)) is empty. Press " + WebUIIcon(.edit, size: .small).markup.html + " to start writing.</div>"
             : mdBox(memoryContent)
         return """
         <div class="main-view"><div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
           <div class="detail-card">
             <div class="mem-head">
               <div><h1 class="detail-title" style="margin:0">\(title)</h1><div class="detail-sub">\(esc(sub)) — \(esc(meta.note))</div></div>
-              \(btn("mem-edit", "mem-edit", "icon-mini", WebUIIcon(.edit, size: .small).render(), " title=\"Edit \(esc(sub))\""))
+              \(btn("mem-edit", "mem-edit", "icon-mini", WebUIIcon(.edit, size: .small).markup.html, " title=\"Edit \(esc(sub))\""))
             </div>
             <div class="detail-body" style="margin-top:14px">\(contentHTML)</div>
           </div>
@@ -3409,7 +3694,7 @@ extension AppState {
         let head = """
         <div class="panel-head">
           <span class="panel-title">Logs</span>
-          \(btn("log-clear", "log-clear", "icon-mini", WebUIIcon(.trash, size: .small).render(), " title=\"Clear logs\""))
+          \(btn("log-clear", "log-clear", "icon-mini", WebUIIcon(.trash, size: .small).markup.html, " title=\"Clear logs\""))
         </div>
         """
         let chips = ["all", "info", "warn", "error"].map { lvl -> String in
@@ -3421,9 +3706,9 @@ extension AppState {
         \(head)
         <div class="panel-body">
           <div class="log-stats">
-            <span class="log-stat"><span class="dot dot-info"></span>\(info)</span>
-            <span class="log-stat"><span class="dot dot-warn"></span>\(warn)</span>
-            <span class="log-stat"><span class="dot dot-err"></span>\(err)</span>
+            <span class="log-stat" title="Info lines"><span class="dot dot-info"></span>\(info) info</span>
+            <span class="log-stat" title="Warning lines"><span class="dot dot-warn"></span>\(warn) warn</span>
+            <span class="log-stat" title="Error lines"><span class="dot dot-err"></span>\(err) error</span>
           </div>
           <div class="log-chips" data-component-id="log-filter" data-event="click">\(chips)</div>
           <div class="log-panel-note">In-app log stream. Captured lines from this process appear here instead of the terminal.</div>
@@ -3490,13 +3775,29 @@ extension AppState {
         // MARK: Workspace panel (right side)
 
     /// The fixed, vertically-centered rounded toggle on the far right edge.
-    /// Only rendered while the panel is closed — the panel is dismissed via
-    /// its own ✕, so the arrow disappears once the panel is open.
+    /// Rendered in BOTH states — while closed it is the open handle, while
+    /// open it becomes the collapse tab (chevron flips, symmetric affordance).
+    /// The wrapper must keep its `data-component-id="workspace"` anchor across
+    /// both states: a re-render that drops it makes the engine drop routing
+    /// for the region (`[WebUIEngine] Patch for #ws-dock dropped routing
+    /// anchor data-component-id=workspace`), which is exactly how closes
+    /// used to dead-end.
     func workspaceDockHTML() -> String {
-        guard !workspaceOpen else { return "<div id=\"ws-dock\"></div>" }
+        let open = workspaceOpen
+        let icon = open ? WebUIIcon(.chevronRight, size: .medium).markup.html
+                        : WebUIIcon(.chevronLeft, size: .medium).markup.html
+        let title = open ? "Collapse workspace" : "Open workspace"
+        // UX-30: while the panel is open, exactly ONE close control is visible
+        // — the header ✕. The dock's collapse tab used to float at the panel's
+        // mid-right edge over the file rows (two competing close affordances).
+        // When open the tab is hidden, but the anchored wrapper keeps its
+        // `data-component-id` — the engine's routing anchor is stable in both
+        // states (UX-03); when closed the dock returns as the open handle.
+        let cls = open ? "ws-dock-btn ws-dock-open" : "ws-dock-btn"
+        let attrHidden = open ? " hidden" : ""
         return """
         <div id="ws-dock" data-component-id="workspace" data-event="click">
-          <button type="button" id="w-dock" class="ws-dock-btn" title="Open workspace">\(WebUIIcon(.chevronLeft, size: .medium).render())</button>
+          <button type="button" id="w-dock" class="\(cls)"\(attrHidden) title="\(title)">\(icon)</button>
         </div>
         """
     }
@@ -3513,7 +3814,7 @@ extension AppState {
         <div class="ws-menu-wrap" data-component-id="workspace" data-event="click">
           <button type="button" id="w-menu" class="icon-mini" title="Workspace options">⋮</button>
           <div class="chat-menu ws-menu" id="ws-menu">
-            <button type="button" id="w-hidden" class="\(showHiddenFiles ? "menu-sel" : "")">\(showHiddenFiles ? "<span class=\"chk\">" + WebUIIcon(.checkSquare, size: .small).render() + "</span>" : "<span class=\"chk\">" + WebUIIcon(.square, size: .small).render() + "</span>") Show hidden files</button>
+            <button type="button" id="w-hidden" class="\(showHiddenFiles ? "menu-sel" : "")">\(showHiddenFiles ? "<span class=\"chk\">" + WebUIIcon(.checkSquare, size: .small).markup.html + "</span>" : "<span class=\"chk\">" + WebUIIcon(.square, size: .small).markup.html + "</span>") Show hidden files</button>
           </div>
         </div>
         """
@@ -3538,11 +3839,11 @@ extension AppState {
           <div class="panel-head ws-head">
             <span class="panel-title">Workspace</span>
             <div class="ws-tools" data-component-id="workspace" data-event="click">
-              \(btn("w-new", "", "icon-mini", WebUIIcon(.plus, size: .small).render(), " title=\"New file\""))
-              \(btn("w-newfolder", "", "icon-mini", WebUIIcon(.folder, size: .small).render(), " title=\"New folder\""))
-              \(btn("w-upload", "", "icon-mini", WebUIIcon(.upload, size: .small).render(), " title=\"Upload files or drop them here\""))
+              \(btn("w-new", "", "icon-mini", WebUIIcon(.plus, size: .small).markup.html, " title=\"New file\""))
+              \(btn("w-newfolder", "", "icon-mini", WebUIIcon(.folder, size: .small).markup.html, " title=\"New folder\""))
+              \(btn("w-upload", "", "icon-mini", WebUIIcon(.upload, size: .small).markup.html, " title=\"Upload files or drop them here\""))
               \(wsMenu)
-              \(btn("w-close", "", "icon-mini", WebUIIcon(.x, size: .small).render(), " title=\"Close workspace\""))
+              \(btn("w-close", "", "icon-mini", WebUIIcon(.x, size: .small).markup.html, " title=\"Close workspace\""))
             </div>
           </div>
           \(create)
@@ -3569,7 +3870,7 @@ extension AppState {
             return """
             <div class="ws-preview">
               <div class="ws-preview-head">
-                <button type="button" id="w-preview-back" class="icon-mini" title="Back to files">\(WebUIIcon(.chevronLeft, size: .small).render())</button>
+                <button type="button" id="w-preview-back" class="icon-mini" title="Back to files">\(WebUIIcon(.chevronLeft, size: .small).markup.html)</button>
                 <span class="ws-preview-name" title="\(esc(path))">\(esc(name))</span>
               </div>
               <div class="ws-preview-scroll">\(body)</div>
@@ -3653,11 +3954,11 @@ extension AppState {
                 let encPath = enc(rp)
                 if isDir {
                     let isExp = expanded.contains(rp)
-                    let caret = isExp ? WebUIIcon(.chevronDown, size: .small).render() : WebUIIcon(.chevronRight, size: .small).render()
-                    lines.append("<button type=\"button\" id=\"w-toggle-\(encPath)\" class=\"ws-row\" style=\"padding-left:\(pad)px\" title=\"\(esc(rp))\"><span class=\"ws-caret\">\(caret)</span><span class=\"ws-ic\">\(WebUIIcon(.folder, size: .small).render())</span><span class=\"ws-name\">\(esc(name))</span></button>")
+                    let caret = isExp ? WebUIIcon(.chevronDown, size: .small).markup.html : WebUIIcon(.chevronRight, size: .small).markup.html
+                    lines.append("<button type=\"button\" id=\"w-toggle-\(encPath)\" class=\"ws-row\" style=\"padding-left:\(pad)px\" title=\"\(esc(rp))\"><span class=\"ws-caret\">\(caret)</span><span class=\"ws-ic\">\(WebUIIcon(.folder, size: .small).markup.html)</span><span class=\"ws-name\">\(esc(name))</span></button>")
                     if isExp { walk(entry, prefix: rp, depth: depth + 1) }
                 } else {
-                    lines.append("<button type=\"button\" id=\"w-file-\(encPath)\" class=\"ws-row\" style=\"padding-left:\(pad + 4)px\" title=\"\(esc(rp))\"><span class=\"ws-ic\">\(WebUIIcon(.file, size: .small).render())</span><span class=\"ws-name\">\(esc(name))</span></button>")
+                    lines.append("<button type=\"button\" id=\"w-file-\(encPath)\" class=\"ws-row\" style=\"padding-left:\(pad + 4)px\" title=\"\(esc(rp))\"><span class=\"ws-ic\">\(WebUIIcon(.file, size: .small).markup.html)</span><span class=\"ws-name\">\(esc(name))</span></button>")
                 }
             }
         }
@@ -3667,7 +3968,7 @@ extension AppState {
     }
 
     func wsFileIcon(_ name: String) -> String {
-        return WebUIIcon(.file, size: .small).render()
+        return WebUIIcon(.file, size: .small).markup.html
     }
 }
 
@@ -3695,38 +3996,30 @@ extension AppState {
     }
 }
 
-// MARK: - GitHub page
-
-extension AppState {
-
-    /// Left panel: repository summary + commit list (newest first). Unpushed
-    /// commits carry the theme-accent badge; the selected commit is active.
-}
-
 /// Map a harness tool emoji to its colorless line-drawing equivalent.
 /// Unknown or nil emoji render nothing (or a generic file glyph for a
 /// non-nil unknown), so no colored emoji ever reaches the UI.
 func toolEmojiIcon(_ emoji: String?) -> String {
     guard let e = emoji, !e.isEmpty else { return "" }
     switch e {
-    case "📋": return WebUIIcon(.fileText, size: .small).render()
-    case "🔍": return WebUIIcon(.search, size: .small).render()
-    case "💬": return WebUIIcon(.messageSquare, size: .small).render()
-    case "➕": return WebUIIcon(.plus, size: .small).render()
-    case "🗑️", "🗑": return WebUIIcon(.trash, size: .small).render()
-    case "👥": return WebUIIcon(.user, size: .small).render()
-    case "📄": return WebUIIcon(.file, size: .small).render()
-    case "🌐": return WebUIIcon(.globe, size: .small).render()
-    case "🔄": return WebUIIcon(.refreshCw, size: .small).render()
-    case "💻": return WebUIIcon(.terminal, size: .small).render()
-    case "🧠": return WebUIIcon(.database, size: .small).render()
-    case "✏️", "✏": return WebUIIcon(.edit, size: .small).render()
-    case "🎯": return WebUIIcon(.target, size: .small).render()
-    case "⏹️", "⏹": return WebUIIcon(.stopCircle, size: .small).render()
-    case "📚", "📖": return WebUIIcon(.book, size: .small).render()
-    case "✅": return WebUIIcon(.check, size: .small).render()
-    case "🚫": return WebUIIcon(.x, size: .small).render()
-    default: return WebUIIcon(.file, size: .small).render()
+    case "📋": return WebUIIcon(.fileText, size: .small).markup.html
+    case "🔍": return WebUIIcon(.search, size: .small).markup.html
+    case "💬": return WebUIIcon(.messageSquare, size: .small).markup.html
+    case "➕": return WebUIIcon(.plus, size: .small).markup.html
+    case "🗑️", "🗑": return WebUIIcon(.trash, size: .small).markup.html
+    case "👥": return WebUIIcon(.user, size: .small).markup.html
+    case "📄": return WebUIIcon(.file, size: .small).markup.html
+    case "🌐": return WebUIIcon(.globe, size: .small).markup.html
+    case "🔄": return WebUIIcon(.refreshCw, size: .small).markup.html
+    case "💻": return WebUIIcon(.terminal, size: .small).markup.html
+    case "🧠": return WebUIIcon(.database, size: .small).markup.html
+    case "✏️", "✏": return WebUIIcon(.edit, size: .small).markup.html
+    case "🎯": return WebUIIcon(.target, size: .small).markup.html
+    case "⏹️", "⏹": return WebUIIcon(.stopCircle, size: .small).markup.html
+    case "📚", "📖": return WebUIIcon(.book, size: .small).markup.html
+    case "✅": return WebUIIcon(.check, size: .small).markup.html
+    case "🚫": return WebUIIcon(.x, size: .small).markup.html
+    default: return WebUIIcon(.file, size: .small).markup.html
     }
 }
 

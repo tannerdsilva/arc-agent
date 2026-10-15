@@ -423,15 +423,15 @@ extension AppState {
         let linkPop = queueLinksOpen == e.id ? queueLinkPopupHTML(e, plan: plan) : ""
         return """
         <div class="queue-row\(missing)\(statusCls)" draggable="true" data-qid="\(e.id)">
-          <span class="queue-grip" title="Drag to reorder">\(WebUIIcon(.moreVertical, size: .small).render())</span>
+          <span class="queue-grip" title="Drag to reorder">\(WebUIIcon(.moreVertical, size: .small).markup.html)</span>
           <span class="queue-idx">\(index + 1)</span>
           <div class="queue-main">
             <div class="queue-text">\(esc(todo?.text ?? "⚠︎ todo no longer exists"))</div>
             <div class="queue-meta">\(esc(queueChatLabel(e.chatID))) · \(inputsChips)</div>
           </div>
-          <button type="button" id="queue-inputs-\(e.id)" class="icon-mini queue-link-btn" title="Feed earlier task output into this task">\(WebUIIcon(.link, size: .small).render())</button>
+          <button type="button" id="queue-inputs-\(e.id)" class="icon-mini queue-link-btn" title="Feed earlier task output into this task">\(WebUIIcon(.link, size: .small).markup.html)</button>
           <span class="queue-status\(statusCls)">\(esc(statusText))</span>
-          <button type="button" id="queue-del-\(e.id)" class="icon-mini danger" title="Remove from queue">\(WebUIIcon(.x, size: .small).render())</button>
+          <button type="button" id="queue-del-\(e.id)" class="icon-mini danger" title="Remove from queue">\(WebUIIcon(.x, size: .small).markup.html)</button>
         </div>
         \(linkPop)
         """
@@ -496,7 +496,7 @@ extension AppState {
         <div class="queue-picker">
           <div class="queue-picker-head">
             <span>Add todos from your chats</span>
-            <button type="button" id="queue-picker-close" class="icon-mini">\(WebUIIcon(.x, size: .small).render())</button>
+            <button type="button" id="queue-picker-close" class="icon-mini">\(WebUIIcon(.x, size: .small).markup.html)</button>
           </div>
           \(body)
           <div class="queue-picker-foot">
@@ -512,7 +512,7 @@ extension AppState {
         let rows = plan.enumerated().map { i, e in queueRowHTML(e, index: i, plan: plan) }.joined()
         let empty = plan.isEmpty ? """
             <div class="todo-empty">
-              <div class="todo-empty-ico">\(WebUIIcon(.fastForward, size: .extraLarge).render())</div>
+              <div class="todo-empty-ico">\(WebUIIcon(.fastForward, size: .extraLarge).markup.html)</div>
               <div>Nothing queued yet</div>
               <small>Add todos from any chat below, drag to reorder, then run them.</small>
             </div>
@@ -539,12 +539,12 @@ extension AppState {
             runBtns = """
             <div class="queue-ctrl-btns">
               <button type="button" id="queue-run-sync" class="queue-run-btn" title="Run tasks in the shown order; linked tasks receive earlier output as context">
-                <span class="queue-run-ico">\(WebUIIcon(.play, size: .small).render())</span>Run sequential
+                <span class="queue-run-ico">\(WebUIIcon(.play, size: .small).markup.html)</span>Run sequential
               </button>
               <button type="button" id="queue-run-async" class="queue-run-btn" title="Run each chat at the same time; same-chat tasks are combined">
-                <span class="queue-run-ico">\(WebUIIcon(.fastForward, size: .small).render())</span>Run parallel
+                <span class="queue-run-ico">\(WebUIIcon(.fastForward, size: .small).markup.html)</span>Run parallel
               </button>
-              <button type="button" id="queue-picker-toggle" class="queue-add-btn">\(WebUIIcon(.plus, size: .small).render()) Add tasks</button>
+              <button type="button" id="queue-picker-toggle" class="queue-add-btn">\(WebUIIcon(.plus, size: .small).markup.html) Add tasks</button>
             </div>
             <div class="queue-loop-row">
               <label class="queue-loop-toggle" title="Repeat the sequential run; linked later tasks feed back on the next pass">
@@ -598,11 +598,12 @@ extension Controller {
                 guard await self.app.queueRunActive == false else { return [] }
                 let pusher = self.push
                 let sequential = tid == "queue-run-sync"
+                let app = self.app
                 Task {
                     if sequential {
-                        await self.app.runQueueSequential(pusher: pusher)
+                        await app.runQueueSequential(pusher: pusher)
                     } else {
-                        await self.app.runQueueParallel(pusher: pusher)
+                        await app.runQueueParallel(pusher: pusher)
                     }
                 }
                 return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]

@@ -15,6 +15,11 @@ public enum AppShell {
     /// The page template: the framework's component sheet links FIRST, arc's own chrome +
     /// scheme sheet LAST.
     ///
+    /// The body is an `UnsafeMarkup`, not a `String`: 2.0's document body carries the
+    /// type, so a page cannot come from an unlabelled string. arc's chrome is hand-built
+    /// markup, so `appShell()` mints it once via `.trusted(_:)` — the single greppable
+    /// place arc vouches for its own html.
+    ///
     /// Two parameters, not one, and the order is the contract. `HTMLDocument` emits
     /// `stylesheetURL:` (the base sheet) before `themeStylesheetURL:`, and its `head:` slot —
     /// where arc's link used to live — renders *before* both. arc's markup leans on the
@@ -25,7 +30,7 @@ public enum AppShell {
     public static func makeDocument(
         sheetURL: String,
         overlayURL: String
-    ) -> @Sendable (String, String) -> WebUI.HTMLDocument {
+    ) -> @Sendable (UnsafeMarkup, String) -> WebUI.HTMLDocument {
         { body, themeAttrs in
             WebUI.HTMLDocument(
                 title: "ARC Agent",

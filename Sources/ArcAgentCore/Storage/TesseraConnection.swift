@@ -84,7 +84,7 @@ private struct PendingRecord {
 /// One WireGuard tunnel serves all ARC Agent storage (sessions, memory,
 /// profiles). It mirrors the role `GlobalEnvironment` played for the LMDB
 /// backend: a single shared handle, opened lazily, reused for the process
-/// lifetime, and closed via ``shutdown()`` at gateway teardown. Opening a
+/// lifetime, and closed via ``shutdown()`` at daemon teardown. Opening a
 /// second tunnel to the same server under the same WireGuard identity would
 /// race on the server's per-peer state, so every consumer funnels through
 /// this actor.
@@ -447,7 +447,7 @@ public actor TesseraConnection {
             // relay is still recreating its KCP control blocks (triggered on
             // connect/roam), which can drop the initial EOSE replies. Rather than
             // tearing down and reconnecting — which re-triggers that reset and
-            // pushes the gateway into an endless reconnect churn — re-subscribe on
+            // pushes the daemon into an endless reconnect churn — re-subscribe on
             // the SAME tunnel and re-wait. `subscribe` is idempotent (each call
             // writes a REQ), and the relay upserts the subscription and re-emits
             // EOSE every time a REQ for it arrives.

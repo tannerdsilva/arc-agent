@@ -35,7 +35,7 @@ provider (add/replace/remove/batch + prefetch seam), session_search, web
 search/extract, tts/transcription, image/video generation, delegation
 (steer/stop/list), cron, kanban core, projects, skill_manage/skills_list,
 tool_search, send_message, checkpoints, goals, heartbeat, personality,
-deliverable mode, verify-on-stop, tool gateway, context references/scanner,
+deliverable mode, verify-on-stop, tool policy, context references/scanner,
 learning graph/journey CLI, OSV audit CLI, approvals suggest.
 
 ## 3. Gaps → impact on speed / responses
@@ -69,10 +69,10 @@ learning graph/journey CLI, OSV audit CLI, approvals suggest.
 | R4 | **Think-scrubber** | `think_scrubber.StreamingThinkScrubber` — strips Thinking Process preamble from streamed text | **Missing** (no scrubber; relies on adapter behavior) | Medium. Streams can leak reasoning preamble to users; scrubber is cheap to port (stateful tag buffer). |
 | R5 | Kanban collaboration verbs | `kanban_comment/link/attach/attach_url/attachments/heartbeat/unblock` | Arc has only `block/complete/create/list/show` | Medium for multi-profile usage. |
 | R6 | **Post-turn background review nudges** | `background_review.py` (1,081 lines) + `conversation_loop` post-turn hook (skill/memory review nudges) | **Missing** | Medium. reference quietly reminds the agent of relevant memory/skills after turns; quality compounding over time. |
-| R7 | Curator execution surface | `curator.py`/`curator_backup.py` + `reference curator` CLI + scheduled trigger | Arc has `Skills/Curator.swift` (policy/state/prompt — `isDue`, `transitions`, review prompts) but **no `arc curator` command and no trigger wiring** | Medium. Logic done; CLI + cron/gateway trigger completes it (auto skill pruning/archiving keeps skill index lean → smaller prompt). |
+| R7 | Curator execution surface | `curator.py`/`curator_backup.py` + `reference curator` CLI + scheduled trigger | Arc has `Skills/Curator.swift` (policy/state/prompt — `isDue`, `transitions`, review prompts) but **no `arc curator` command and no trigger wiring** | Medium. Logic done; CLI + cron/daemon trigger completes it (auto skill pruning/archiving keeps skill index lean → smaller prompt). |
 | R8 | Verification evidence | `verification_evidence.py`: terminal results carry `{cmd, cwd, exit_code, hash}` | Arc terminal tool shows exit_code/cwd context; no hash/evidence dict | Low. Mostly cosmetic for audits. |
 | R9 | LSP integration | `reference lsp` + lsp.md (JSON-RPC stdio client for symbols/diagnostics) | **Not implemented** (deferred from prior batch; largest single item) | Medium for coding-centric sessions. |
-| R10 | Queue/dispatch of other agents' runs | reference `queue`/`dispatch` semantics | Not implemented (gateway registry API was approval-blocked during earlier inspection) | Medium for multi-agent ops. |
+| R10 | Queue/dispatch of other agents' runs | reference `queue`/`dispatch` semantics | Not implemented (the registry API probe was approval-blocked during earlier inspection) | Medium for multi-agent ops. |
 
 ### C. Explicitly out of scope for Arc (by design — not "missing")
 
@@ -122,7 +122,7 @@ Arc is **at parity on the entire conversation-pipeline core** (prompt tiers,
 caching, compression, batches, recovery, sanitization, aux routing, MoA,
 context engines) and on the high-value feature batch ported in the last two
 sessions (projects, skills, goals, heartbeats, checkpoints, blueprints,
-personality, context refs, tool gateway, deliverables, verify-on-stop, learning
+personality, context refs, tool policy, deliverables, verify-on-stop, learning
 graph, OSV). The meaningful remaining *speed* gap is **prompt weight from 65
 unconditionally-registered tool schemas** (S1 — deferred registry + manifest,
 plus its natural S2/R2 companions); the meaningful remaining *response* gaps

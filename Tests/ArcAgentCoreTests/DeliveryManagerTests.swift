@@ -57,89 +57,94 @@ final class StubAdapter: PlatformAdapter, @unchecked Sendable {
 
 // MARK: - Local platform handling (the regression)
 
-@Test("send to 'api' platform does not throw when no adapter is registered")
-func sendApiLocalNoThrow() async {
-    let dm = DeliveryManager()
-    let target = ChatTarget(platform: "api", chatID: "s1")
-    let msg = OutgoingMessage(text: "hello from api")
-    // Must NOT throw. Before the fix this threw `.unknownPlatform("api")`.
-    await #expect(throws: Never.self) {
-        try await dm.send(message: msg, to: target)
-    }
-}
-
-@Test("send to 'webui' platform does not throw when no adapter is registered")
-func sendWebUILocalNoThrow() async {
-    let dm = DeliveryManager()
-    let target = ChatTarget(platform: "webui", chatID: "s2")
-    let msg = OutgoingMessage(text: "hello from webui")
-    // Must NOT throw. Before the fix this threw `.unknownPlatform("webui")`.
-    await #expect(throws: Never.self) {
-        try await dm.send(message: msg, to: target)
-    }
-}
-
-// MARK: - Push platforms still behave correctly
-
-@Test("registered push platform still routes through its adapter")
-func registeredPushRoutes() async {
-    let dm = DeliveryManager()
-    let stub = StubAdapter(name: "telegram")
-    await dm.register(adapter: stub)
-    let target = ChatTarget(platform: "telegram", chatID: "chat-99")
-    let msg = OutgoingMessage(text: "ping")
-    try? await dm.send(message: msg, to: target)
-    #expect(stub.sentCount == 1)
-}
-
-@Test("unregistered push platform still throws unknownPlatform")
-func unregisteredPushThrows() async {
-    let dm = DeliveryManager()
-    let stub = StubAdapter(name: "telegram")
-    await dm.register(adapter: stub)
-    // "discord" is NOT registered and is NOT a local platform.
-    let target = ChatTarget(platform: "discord", chatID: "chan-1")
-    let msg = OutgoingMessage(text: "should fail")
-    do {
-        try await dm.send(message: msg, to: target)
-        // If it did NOT throw, the test fails.
-        #expect(Bool(false), "expected unknownPlatform to be thrown for unregistered push platform")
-    } catch let error as GatewayError {
-        switch error {
-        case .unknownPlatform(let p):
-            #expect(p == "discord")
-        default:
-            #expect(Bool(false), "expected .unknownPlatform, got \(error)")
+extension ArcCoreTestRoot {
+    @Suite("Delivery Manager Tests", .serialized)
+    struct DeliveryManagerTests {
+        @Test("send to 'api' platform does not throw when no adapter is registered")
+        func sendApiLocalNoThrow() async {
+            let dm = DeliveryManager()
+            let target = ChatTarget(platform: "api", chatID: "s1")
+            let msg = OutgoingMessage(text: "hello from api")
+            // Must NOT throw. Before the fix this threw `.unknownPlatform("api")`.
+            await #expect(throws: Never.self) {
+                try await dm.send(message: msg, to: target)
+            }
         }
-    } catch {
-        #expect(Bool(false), "expected GatewayError, got \(error)")
+
+        @Test("send to 'webui' platform does not throw when no adapter is registered")
+        func sendWebUILocalNoThrow() async {
+            let dm = DeliveryManager()
+            let target = ChatTarget(platform: "webui", chatID: "s2")
+            let msg = OutgoingMessage(text: "hello from webui")
+            // Must NOT throw. Before the fix this threw `.unknownPlatform("webui")`.
+            await #expect(throws: Never.self) {
+                try await dm.send(message: msg, to: target)
+            }
+        }
+
+        // MARK: - Push platforms still behave correctly
+
+        @Test("registered push platform still routes through its adapter")
+        func registeredPushRoutes() async {
+            let dm = DeliveryManager()
+            let stub = StubAdapter(name: "telegram")
+            await dm.register(adapter: stub)
+            let target = ChatTarget(platform: "telegram", chatID: "chat-99")
+            let msg = OutgoingMessage(text: "ping")
+            _ = try? await dm.send(message: msg, to: target)
+            #expect(stub.sentCount == 1)
+        }
+
+        @Test("unregistered push platform still throws unknownPlatform")
+        func unregisteredPushThrows() async {
+            let dm = DeliveryManager()
+            let stub = StubAdapter(name: "telegram")
+            await dm.register(adapter: stub)
+            // "discord" is NOT registered and is NOT a local platform.
+            let target = ChatTarget(platform: "discord", chatID: "chan-1")
+            let msg = OutgoingMessage(text: "should fail")
+            do {
+                try await dm.send(message: msg, to: target)
+                // If it did NOT throw, the test fails.
+                #expect(Bool(false), "expected unknownPlatform to be thrown for unregistered push platform")
+            } catch let error as MessagingError {
+                switch error {
+                case .unknownPlatform(let p):
+                    #expect(p == "discord")
+                default:
+                    #expect(Bool(false), "expected .unknownPlatform, got \(error)")
+                }
+            } catch {
+                #expect(Bool(false), "expected MessagingError, got \(error)")
+            }
+        }
+
+        // MARK: - Response-silence convention (reference stream-consumer silence)
+
+        @Test("isSilentResponse matches only the exact whole-response markers")
+        func silenceMarkerExactMatch() {
+            #expect(DeliveryManager.isSilentResponse("NO_REPLY"))
+            #expect(DeliveryManager.isSilentResponse("[SILENT]"))
+            #expect(DeliveryManager.isSilentResponse("  NO_REPLY\n"))
+            #expect(DeliveryManager.isSilentResponse("\n[SILENT]\n"))
+            #expect(!DeliveryManager.isSilentResponse(""))
+            #expect(!DeliveryManager.isSilentResponse("no reply"))
+            #expect(!DeliveryManager.isSilentResponse("NO_REPLY, actually..."))
+        }
+
+        @Test("silent responses (NO_REPLY / [SILENT]) are never delivered to push adapters")
+        func silentResponsesSuppressed() async {
+            let dm = DeliveryManager()
+            let stub = StubAdapter(name: "telegram")
+            await dm.register(adapter: stub)
+            let target = ChatTarget(platform: "telegram", chatID: "chat-77")
+            for text in ["NO_REPLY", "  NO_REPLY  ", "[SILENT]", "\n[SILENT]\n"] {
+                _ = try? await dm.send(message: OutgoingMessage(text: text), to: target)
+            }
+            #expect(stub.sentCount == 0, "silent markers must never reach the adapter")
+            // Near-miss text (a real reply containing the marker) is delivered normally.
+            _ = try? await dm.send(message: OutgoingMessage(text: "NO_REPLY please"), to: target)
+            #expect(stub.sentCount == 1, "non-silent text must still be delivered")
+        }
     }
-}
-
-// MARK: - Response-silence convention (reference stream-consumer silence)
-
-@Test("isSilentResponse matches only the exact whole-response markers")
-func silenceMarkerExactMatch() {
-    #expect(DeliveryManager.isSilentResponse("NO_REPLY"))
-    #expect(DeliveryManager.isSilentResponse("[SILENT]"))
-    #expect(DeliveryManager.isSilentResponse("  NO_REPLY\n"))
-    #expect(DeliveryManager.isSilentResponse("\n[SILENT]\n"))
-    #expect(!DeliveryManager.isSilentResponse(""))
-    #expect(!DeliveryManager.isSilentResponse("no reply"))
-    #expect(!DeliveryManager.isSilentResponse("NO_REPLY, actually..."))
-}
-
-@Test("silent responses (NO_REPLY / [SILENT]) are never delivered to push adapters")
-func silentResponsesSuppressed() async {
-    let dm = DeliveryManager()
-    let stub = StubAdapter(name: "telegram")
-    await dm.register(adapter: stub)
-    let target = ChatTarget(platform: "telegram", chatID: "chat-77")
-    for text in ["NO_REPLY", "  NO_REPLY  ", "[SILENT]", "\n[SILENT]\n"] {
-        try? await dm.send(message: OutgoingMessage(text: text), to: target)
-    }
-    #expect(stub.sentCount == 0, "silent markers must never reach the adapter")
-    // Near-miss text (a real reply containing the marker) is delivered normally.
-    try? await dm.send(message: OutgoingMessage(text: "NO_REPLY please"), to: target)
-    #expect(stub.sentCount == 1, "non-silent text must still be delivered")
 }

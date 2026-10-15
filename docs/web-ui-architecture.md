@@ -17,7 +17,7 @@ There is no standalone UI process any more: the daemon (`arc serve` →
 (`HTTPServerService`, Hummingbird: `/health`, `POST /v1/chat`) and the platform
 adapters — one `ServiceGroup` per process — so the UI shares the daemon's
 storage pair, log sink and shutdown. The surface is gated by the `webui` block
-of `gateway.json` (on by default).
+of `daemon.json` (on by default).
 
 ## Layout
 
@@ -36,13 +36,24 @@ Sources/ArcWebUI/
 ├── Queue.swift            — run-queue model/engine (sequential + parallel, output chaining)
 ├── NewFeatures.swift      — tabbed panels, todos, scheduled tasks, regenerate
 ├── Insights.swift         — usage insights (top-10 skills, token/activity charts)
-├── GitHub.swift / LogCollector.swift / Helpers.swift
+├── MCPRules.swift         — Settings → MCP servers: form text → launch spec, validated
+├── AppState+MCP.swift     — that panel's state: config write + live manager rebind
+├── LogCollector.swift / Helpers.swift
 └── Assets/                — host files the build plugins consume (never compiled):
                              `overlay.js` (the client overlay) plus `webui-assets.json`
 
 (The theme catalog lives in `Sources/ArcTheme/`; the daemon lives in
 `Sources/ArcDaemon/` — `DaemonPlan` resolves the surfaces, `ArcDaemon.run`
 composes the tree.)
+
+Note on MCP: the web UI turn loop dispatches tools straight through the
+registry (no `ArcAgent`), so nothing in this process points the shared
+`MCPClientManager` at `mcp_servers` unless the app does it — `AppState.init`
+binds it at boot and every MCP config edit re-binds it. Without that, the
+`mcp_tool` bridge is inert in the web UI however the config file reads. The
+agent sees the bridge toggled by the `mcp` toolset in the Tools panel; the
+Settings → MCP servers panel owns the launch spec (add/edit/delete/probe) and
+writes the same `~/.arc/config.json` block the CLI (`arc mcp list`) reads.
 
 Tests/ArcAgentWebUITests/     — emission + catalog invariants for the web UI target (no coverage
                                 until the scheme sheet shipped inert), plus the palette pins:
@@ -203,7 +214,7 @@ One file remains in `Sources/ArcAgentCore/WebUI/`:
 
 The original Swift-DSL view subsystem (View/ViewBuilder/HTMLDocument/CSSRule/…)
 was removed in 2026-09 after the UI moved to no-webui — it had zero remaining
-product references. The gateway's `WebSocketHandler.swift` / `WebSocketServer.swift`
-were removed in the same migration: the gateway's second UI surface could never
-render (`GatewayService` passed `onUI: nil`), so the socket server was listening
-for pages that were never served.
+product references. A second, hand-rolled UI surface (`WebSocketHandler.swift` /
+`WebSocketServer.swift`) was removed in the same migration: it could never
+render (no `onUI` closure was ever configured), so the socket server was
+listening for pages that were never served.

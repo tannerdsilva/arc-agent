@@ -347,7 +347,7 @@ struct McpCmd: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "mcp",
         abstract: "Inspect configured MCP servers.",
-        subcommands: [McpList.self]
+        subcommands: [McpList.self, McpLocal.self]
     )
 }
 
@@ -369,6 +369,86 @@ struct McpList: AsyncParsableCommand {
         for (name, server) in config.mcpServers {
             print("  \(name): \(server.command) \(server.args.joined(separator: " "))")
         }
+    }
+}
+
+/// `arc mcp local` — inspect arc's own tool surface over the in-process MCP wire.
+///
+/// No subprocess and no socket: the same `MCPClient` and dispatcher the daemon
+/// serves, with the local process as the caller (so every tool is visible).
+struct McpLocal: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "local",
+        abstract: "Inspect arc's own tool surface over the in-process MCP wire."
+    )
+
+    @Option(name: .long, help: "Call one tool by name (default: list the catalog).")
+    var call: String?
+
+    @Option(name: .long, help: "JSON arguments object for --call.")
+    var args: String = "{}"
+
+    @Flag(name: .long, help: "Emit JSON instead of text.")
+    var json = false
+
+    func run() async throws {
+        let registry = try ArcAgentCore.buildDefaultRegistry()
+        let dispatcher = ArcToolDispatcher(registry: registry)
+        let bridge = LocalMCPBridge(dispatcher: dispatcher)
+
+        if let tool = call {
+            let result = try await bridge.call(tool, argumentsJSON: args)
+            await bridge.close()
+            if json {
+                print(try Self.encode([
+                    "tool": tool,
+                    "isError": result.isError,
+                    "text": result.text,
+                ]))
+            } else {
+                print(result.text)
+            }
+            return
+        }
+
+        let tools = try await bridge.tools()
+        await bridge.close()
+        let tagged = tools.map { (tool: $0, access: Self.accessLabel(dispatcher, for: $0.name)) }
+
+        if json {
+            print(try Self.encode([
+                "count": tagged.count,
+                "tools": tagged.map { entry in
+                    [
+                        "name": entry.tool.name,
+                        "description": entry.tool.description ?? "",
+                        "access": entry.access,
+                    ]
+                },
+            ]))
+            return
+        }
+
+        print("⚡ ARC Agent — MCP tools (in-process)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        for entry in tagged {
+            print("  \(entry.tool.name)  [\(entry.access)]")
+        }
+        print("")
+        print("  \(tagged.count) tool(s) reachable by the local process")
+    }
+
+    /// The level the dispatcher requires for a tool, as a word.
+    private static func accessLabel(_ dispatcher: ArcToolDispatcher, for name: String) -> String {
+        guard let level = dispatcher.requiredAccess(named: name) else { return "unserved" }
+        return String(describing: level)
+    }
+
+    /// `--args` is a JSON object; the bridge owns decoding and reporting a bad one.
+    private static func encode(_ payload: [String: Any]) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        return String(decoding: data, as: UTF8.self)
     }
 }
 
