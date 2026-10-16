@@ -522,9 +522,17 @@ public struct MutableToolRegistry: ToolRegistry {
     /// plugins (reference agent_init plugin toolset bundling). When
     /// `enabledPlugins` is non-nil only plugins in the allow-list install
     /// (reference `plugins.enabled` semantics).
+    ///
+    /// `sources` contributes tools reached through a carrier rather than declared
+    /// in this module — a pack over the in-process carrier, and later a trusted
+    /// peer's catalog. Each tool installs through `register(_:)`, so a source
+    /// carrying a name the registry already holds is a thrown
+    /// ``ToolRegistryError/duplicateName`` instead of a silent second entry the
+    /// model cannot disambiguate.
     public static func make(
         pluginRegistry: PluginRegistry? = nil,
-        enabledPlugins: Set<String>? = nil
+        enabledPlugins: Set<String>? = nil,
+        sources: [any ToolSource] = []
     ) async throws -> MutableToolRegistry {
         let builtIn = try ArcAgentCore.buildDefaultRegistry()
         var registry = MutableToolRegistry(builtIn: builtIn)
@@ -533,6 +541,11 @@ public struct MutableToolRegistry: ToolRegistry {
         for tool in await plugins.tools() {
             if let allow = enabledPlugins, !allow.contains(tool.plugin) { continue }
             registry.install(pluginTool: tool)
+        }
+        for source in sources {
+            for tool in try await source.tools() {
+                try registry.register(tool)
+            }
         }
         return registry
     }
