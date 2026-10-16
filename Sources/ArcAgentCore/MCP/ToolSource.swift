@@ -11,10 +11,12 @@ import MCP
 ///
 /// A tool minted here is an ordinary ``AgentTool``: the loop, the schema builder
 /// and the disclosure machinery cannot tell it from a built-in, which is the
-/// point. Placement is a property of the source's *carrier*, never of the tool:
-/// a source built over ``LocalMCPBridge`` reaches tools that exist only in this
-/// address space, so a pack that captures state (a key, an unlocked store, a live
-/// connection) has no out-of-process form to be re-placed onto.
+/// point. Placement is declared by the *tool* (``AgentTool/placement``), because
+/// that is where the contract is enforced; a source sets it for every tool it
+/// mints. A source built over ``LocalMCPBridge`` reaches tools that exist only in
+/// this address space, so a pack that captures state — a key, an unlocked store,
+/// a live connection — declares ``ToolPlacement/inProcessOnly`` and has no
+/// carrier that can serve it outward.
 public protocol ToolSource: Sendable {
 
     /// The source's name, for logging and duplicate-name diagnostics.
@@ -56,21 +58,45 @@ public struct LocalPackToolSource: ToolSource {
     /// The toolset every tool this pack serves belongs to.
     public let toolset: String
 
+    /// The placement every tool this pack serves declares.
+    ///
+    /// ``ToolPlacement/inProcessOnly`` for a pack whose tools hold state that must
+    /// not leave this address space — the declaration lives with the wiring that
+    /// knows where the pack runs, and the roster alone cannot express it when the
+    /// pack shares a toolset that is otherwise reachable.
+    public let placement: ToolPlacement
+
     /// The carrier this source reaches its pack through.
     ///
     /// Public so its owner can close it (``LocalMCPBridge/close()``) — the source
     /// never owns a session's lifecycle.
     public let bridge: LocalMCPBridge
 
-    public init(name: String = "local", toolset: String, bridge: LocalMCPBridge) {
+    public init(
+        name: String = "local",
+        toolset: String,
+        placement: ToolPlacement = .anyCarrier,
+        bridge: LocalMCPBridge
+    ) {
         self.name = name
         self.toolset = toolset
+        self.placement = placement
         self.bridge = bridge
     }
 
     /// Reaches an explicit dispatcher over the in-process carrier.
-    public init(name: String = "local", toolset: String, dispatcher: ArcToolDispatcher) {
-        self.init(name: name, toolset: toolset, bridge: LocalMCPBridge(dispatcher: dispatcher))
+    public init(
+        name: String = "local",
+        toolset: String,
+        placement: ToolPlacement = .anyCarrier,
+        dispatcher: ArcToolDispatcher
+    ) {
+        self.init(
+            name: name,
+            toolset: toolset,
+            placement: placement,
+            bridge: LocalMCPBridge(dispatcher: dispatcher)
+        )
     }
 
     public func tools() async throws -> [any AgentTool] {
@@ -80,6 +106,7 @@ public struct LocalPackToolSource: ToolSource {
                 toolset: toolset,
                 description: descriptor.description ?? "",
                 schema: Self.schema(from: descriptor.inputSchema),
+                placement: placement,
                 bridge: bridge
             )
         }
@@ -109,6 +136,10 @@ struct PackToolEntry: AgentTool {
     let toolset: String
     let description: String
     let schema: JSONSchema
+    /// Declared by the source that minted this tool, never by the pack itself:
+    /// the pack is reached through a carrier, and the carrier is what knows
+    /// whether its tools can exist anywhere else.
+    let placement: ToolPlacement
     let handler: ToolHandler
 
     init(
@@ -116,12 +147,14 @@ struct PackToolEntry: AgentTool {
         toolset: String,
         description: String,
         schema: JSONSchema,
+        placement: ToolPlacement,
         bridge: LocalMCPBridge
     ) {
         self.name = name
         self.toolset = toolset
         self.description = description
         self.schema = schema
+        self.placement = placement
         self.handler = { arguments in
             // Encoded here, in the calling scope: a non-Sendable `[String: Any]`
             // cannot be forwarded into the bridge actor as a parameter, which is

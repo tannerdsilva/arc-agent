@@ -1,5 +1,26 @@
 import Foundation
 
+// MARK: - Placement (Protocols First)
+
+/// Where a tool's capability may be exercised.
+///
+/// Declared by the *tool*, because that is where the contract is enforced:
+/// ``ArcToolDispatcher`` reads it when it decides what a caller may see, so one
+/// tool can be held below its toolset's tier without inventing a toolset for it.
+public enum ToolPlacement: Sendable {
+
+    /// Reachable by any carrier the tool's access tier admits.
+    case anyCarrier
+
+    /// Exercised only in this address space.
+    ///
+    /// For a tool whose state cannot leave the process — an encryption key, an
+    /// unlocked store, a live connection. Maps to `.root` whatever the toolset's
+    /// tier says, so no socket caller (loopback included) reaches it, while the
+    /// agent and the in-process carrier still do.
+    case inProcessOnly
+}
+
 // MARK: - Tool Protocol (Protocols First)
 
 /// A tool executable by the agent.
@@ -75,6 +96,14 @@ public protocol AgentTool: Sendable {
     /// sent to the LLM. The default is empty.
     var requiresEnv: [String] { get }
 
+    /// Where this tool's capability may be exercised.
+    ///
+    /// The default is ``ToolPlacement/anyCarrier``. A tool that captures state
+    /// which cannot leave the process declares ``ToolPlacement/inProcessOnly``,
+    /// and ``ArcToolDispatcher`` then serves it to `.root` callers only — the
+    /// agent and the in-process carrier — whatever its toolset's tier says.
+    var placement: ToolPlacement { get }
+
     /// An optional emoji for display purposes (e.g. `"📄"` for file tools).
     /// The default is `nil`.
     var emoji: String? { get }
@@ -89,6 +118,9 @@ extension AgentTool {
 
     /// Default: no required environment variables.
     public var requiresEnv: [String] { [] }
+
+    /// Default: reachable wherever its toolset's tier admits it.
+    public var placement: ToolPlacement { .anyCarrier }
 
     /// Default: no emoji.
     public var emoji: String? { nil }

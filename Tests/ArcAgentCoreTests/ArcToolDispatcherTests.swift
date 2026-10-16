@@ -164,6 +164,94 @@ extension ArcCoreTestRoot {
             #expect(dispatcher.toolCatalog(for: .admin).map(\.name) == ["pkg_build"])
         }
 
+        @Test("a tool can be held below its toolset's tier")
+        func placementTightensBelowToolsetTier() {
+            // `web` is loopback-servable, so only the tool's own declaration can
+            // hold it back.
+            let held = ArcToolDispatcher(entries: [
+                ToolEntry(
+                    name: "db_mutate",
+                    toolset: "web",
+                    description: "Mutates a field in the encrypted store.",
+                    schema: .object(properties: ["field": .string(description: "Field")]),
+                    handler: { _ in "ok" },
+                    placement: .inProcessOnly
+                )
+            ])
+
+            #expect(held.requiredAccess(named: "db_mutate") == .root)
+            #expect(held.toolCatalog(for: .root).map(\.name) == ["db_mutate"])
+            #expect(held.toolCatalog(for: .admin).isEmpty)
+            #expect(held.toolCatalog(for: .public).isEmpty)
+
+            // Control: the same tool in the same toolset *without* the declaration
+            // is served to loopback — so the placement is what holds it back, not
+            // the toolset.
+            let open = ArcToolDispatcher(entries: [
+                ToolEntry(
+                    name: "db_read",
+                    toolset: "web",
+                    description: "Reads a field from the encrypted store.",
+                    schema: .object(properties: ["field": .string(description: "Field")]),
+                    handler: { _ in "ok" }
+                )
+            ])
+            #expect(open.toolCatalog(for: .admin).map(\.name) == ["db_read"])
+        }
+
+        @Test("an internal pack's tool stays in this process while its toolset is reachable")
+        func internalPackStaysInProcess() async throws {
+            // The pack holds the key; the model only ever names the field. Its
+            // toolset (`web`) is loopback-servable, so the placement is the only
+            // thing keeping it off the wire.
+            let inner = ToolEntry(
+                name: "db_mutate",
+                toolset: "web",
+                description: "Mutates a field in the encrypted store.",
+                schema: .object(
+                    properties: ["field": .string(description: "Field to mutate")],
+                    required: ["field"]
+                ),
+                handler: { arguments in
+                    let field: String = try ToolArguments.required(arguments, key: "field")
+                    return "mutated \(field) [the key never left this process]"
+                }
+            )
+            let source = LocalPackToolSource(
+                toolset: "web",
+                placement: .inProcessOnly,
+                dispatcher: ArcToolDispatcher(entries: [inner])
+            )
+
+            // (a) the agent surface sees it, carrying the declaration
+            let tool = try #require(try await source.tools().first)
+            #expect(tool.placement == .inProcessOnly)
+            #expect(tool.toolset == "web")
+
+            // (b) the in-process carrier runs it
+            let result = try await tool.handler(["field": "email"])
+            #expect(result.contains("the key never left this process"))
+
+            // (c) assembled into the registry the agent reads, and served outward:
+            // absent from the loopback catalog while its own toolset's tools are
+            // still there.
+            var registry = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
+            try registry.register(tool)
+            let outward = ArcToolDispatcher(registry: registry)
+
+            let loopback = Set(outward.toolCatalog(for: .admin).map(\.name))
+            #expect(!loopback.contains("db_mutate"))
+            #expect(loopback.contains("web_search"))
+            #expect(Set(outward.toolCatalog(for: .root).map(\.name)).contains("db_mutate"))
+
+            // (d) the gate's input: a `.admin` caller is below what this tool
+            // requires, which is what the server's gate refuses with `-32000`
+            // (proven live for `terminal` in rung 2 — same gate, same mapping).
+            #expect(outward.requiredAccess(named: "db_mutate") == .root)
+
+            await source.bridge.close()
+        }
+
         @Test("the roster admits every plugin namespace the machine actually has")
         func admittedPluginNamespacesCoverInstalledPlugins() async throws {
             // The measured half of the decision: the installed plugin's 25 tools

@@ -55,6 +55,15 @@ public struct ToolEntry: Sendable {
     /// the LLM.
     public let requiresEnv: [String]
 
+    /// Where this tool's capability may be exercised.
+    ///
+    /// Defaults to ``ToolPlacement/anyCarrier``. Declare
+    /// ``ToolPlacement/inProcessOnly`` for a tool that captures state which must
+    /// not leave the process — an encryption key, an unlocked store, a live
+    /// connection — and no socket caller can reach it, whatever its toolset's
+    /// tier says.
+    public let placement: ToolPlacement
+
     /// An optional emoji for display purposes (e.g. `"📄"` for file tools).
     public let emoji: String?
 
@@ -70,6 +79,7 @@ public struct ToolEntry: Sendable {
     ///   - handler: Closure that executes the tool.
     ///   - checkFn: Optional availability check. `nil` means always available.
     ///   - requiresEnv: Environment variables this tool needs.
+    ///   - placement: Where the tool's capability may be exercised.
     ///   - emoji: Optional display emoji.
     public init(
         name: String,
@@ -79,6 +89,7 @@ public struct ToolEntry: Sendable {
         handler: @escaping ToolHandler,
         checkFn: ToolRequirementCheck? = nil,
         requiresEnv: [String] = [],
+        placement: ToolPlacement = .anyCarrier,
         emoji: String? = nil
     ) {
         self.name = name
@@ -88,6 +99,7 @@ public struct ToolEntry: Sendable {
         self.handler = handler
         self.checkFn = checkFn
         self.requiresEnv = requiresEnv
+        self.placement = placement
         self.emoji = emoji
     }
 }

@@ -35,7 +35,7 @@ public struct ArcToolDispatcher: MCPToolDispatcher {
 
     public func toolCatalog(for callerAccessLevel: AccessLevel) -> [MCPToolDescriptor] {
         entries.compactMap { entry in
-            guard callerAccessLevel >= Self.access(for: entry.toolset) else { return nil }
+            guard callerAccessLevel >= Self.access(for: entry) else { return nil }
             return MCPToolDescriptor(
                 name: entry.name,
                 description: entry.description,
@@ -46,7 +46,7 @@ public struct ArcToolDispatcher: MCPToolDispatcher {
 
     public func requiredAccess(named name: String) -> AccessLevel? {
         guard let entry = entries.first(where: { $0.name == name }) else { return nil }
-        return Self.access(for: entry.toolset)
+        return Self.access(for: entry)
     }
 
     public func callTool(
@@ -63,7 +63,17 @@ public struct ArcToolDispatcher: MCPToolDispatcher {
 
     // MARK: - Access policy
 
-    /// The level a toolset requires. Deny by default.
+    /// The access a tool requires: its own placement, then its toolset's tier.
+    ///
+    /// Placement is consulted first because it is the narrower declaration — a
+    /// tool that holds state it cannot release is served to this process only,
+    /// whatever its toolset's tier would admit.
+    static func access(for entry: any AgentTool) -> AccessLevel {
+        if entry.placement == .inProcessOnly { return .root }
+        return access(for: entry.toolset)
+    }
+
+    /// The level a toolset's tools default to. Deny by default.
     ///
     /// The caller's level is set by the carrier, not by arc: the in-process
     /// client and a stdio caller arrive as `.root`, a loopback TCP caller as
