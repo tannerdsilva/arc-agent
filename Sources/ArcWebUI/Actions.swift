@@ -637,6 +637,49 @@ extension AppState {
         await flush()
     }
 
+    /// Construct the core turn engine for this session (Option B collapse).
+    /// The web UI drives the shared `ArcAgent` loop; the agent runs engine-only
+    /// (`persistSessions = false`) so the web UI owns the transcript store and
+    /// preserves rich per-message metadata without double writes. It still
+    /// restores prior history from the same store at the start of its turn.
+    func makeTurnAgent(preset: ModelConfigPreset, sessionID: String) async -> ArcAgent? {
+        guard let httpClient, let store else { return nil }
+        guard let baseURL = URL(string: preset.baseURL) else {
+            _ = toast("Invalid provider base URL.", kind: "error")
+            return nil
+        }
+        let pctx = profileContext(for: sessionID)
+        let thinkLevel = thinkingLevel(for: sessionID)
+        let effort = pctx?.reasoningEffort ?? (thinkLevel == "off" ? nil : thinkLevel)
+        let recipe = resolveContextRecipe(for: sessionID)
+        let agent = ArcAgent(config: ArcAgent.Configuration(
+            model: preset.model,
+            provider: preset.provider.isEmpty ? "custom" : preset.provider,
+            baseURL: baseURL,
+            apiKey: preset.apiKey,
+            registry: registry,
+            sessionStore: store,
+            memoryProvider: memory,
+            maxIterations: max(1, Self.effectiveMaxTurns()),
+            maxTurnDuration: 120,
+            persistSessions: false,
+            approvalMode: .manual,
+            maxContextTokens: preset.contextLength ?? 64_000,
+            sessionID: sessionID,
+            contextLength: preset.contextLength,
+            platformHint: "webui",
+            moa: arcConfig.moa,
+            reasoningEffort: effort,
+            temperature: preset.temperature,
+            topP: preset.topP,
+            maxOutputTokens: preset.maxOutputTokens,
+            disabledToolsets: Set(settings.disabledToolsets),
+            contextRecipe: recipe
+        ))
+        await agent.setupClient(httpClient: httpClient)
+        return agent
+    }
+
     func runTurn(
         userText raw: String,
         pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void,
@@ -685,7 +728,7 @@ extension AppState {
         // effort below) follow the profile instead of the chat's config.
         let pctx = profileContext(for: sessionID)
         let effectivePreset = pctx.map { preset.applying($0) } ?? preset
-        guard let client = makeClient(for: effectivePreset) else {
+        guard makeClient(for: effectivePreset) != nil else {
             _ = toast("No usable model configuration '\(configName)'. Add one in Settings → Preferences.", kind: "error")
             _ = await refreshFragments()
             return
@@ -789,244 +832,150 @@ extension AppState {
             await throttle()
         }
 
-        var history = session.messages
-        // arc-parity context compression: when the estimate exceeds the
-        // budget, the `compression` auxiliary model (Qwen3.6) summarizes the
-        // older tail and a recent window replaces it for the model-facing
-        // request. The stored transcript stays intact. Applies at most once
-        // per session (durable summary).
-        let (compressed, didCompress) = await compressHistoryIfNeeded(history, sessionID: sessionID)
-        if didCompress {
-            history = compressed
-            _ = hint("Conversation history compressed (est. \(estimateTokens(history)) tokens now).")
+        // ==== Unified turn engine (Option B collapse) ====
+        // The web UI now drives the core `ArcAgent` turn loop via `streamTurn`,
+        // consuming its structured event stream. The core owns the system prompt
+        // (full context recipe, progressive tool disclosure, plugin hooks,
+        // auto-compression and provider recovery), so this surface and the
+        // daemon send the identical context and behave identically by
+        // construction. Persistence stays web-UI-owned: the agent runs
+        // `persistSessions = false`, so the rich per-message metadata (usage,
+        // tps, turnDuration, displayText) is preserved and there is no double
+        // write; the agent still restores prior history from the store at the
+        // start of its turn for continuity.
+        guard let agent = await makeTurnAgent(preset: effectivePreset, sessionID: sessionID) else {
+            _ = toast("Unable to start the turn engine.", kind: "error")
+            activeTurns[sessionID] = nil
+            await reloadSessions(selecting: selectAfter ? sessionID : nil)
+            return
         }
+        turnAgents[sessionID] = agent
+        defer { turnAgents[sessionID] = nil }
+
         var assistantText = ""
         var reasoningAccum = ""
-        let tools = registry.buildToolSchemas(enabled: [], disabled: Set(settings.disabledToolsets))
         var finalError: String?
-        var recovery = TurnRecoveryState()
-        guardrails = Self.freshGuardrails()
-        await guardrails.resetTurn()
-        let maxTurns = max(1, Self.effectiveMaxTurns())
+        var lastUsage: Usage?
         var turnCompleted = false
+        let turnStart = Date()
+        // Reconstructed committed from the flat event stream. The core does not
+        // persist (`persistSessions = false`); we fold events back into the same
+        // assistant(toolCalls)+tool-result message layout the daemon writes, so
+        // the web UI and daemon produce identical committeds.
+        var committed: [Message] = []
+        var curContent = ""
+        var curReasoning = ""
+        var curCalls: [ToolCall] = []
 
-        turnLoop: for _ in 0..<maxTurns {
-            if activeTurns[sessionID]?.stopped == true { break }
-            let sys = await buildSystemPrompt(config: preset, sessionID: sessionID)
-            var messages = [Message(role: .system, content: sys)]
-            messages.append(contentsOf: history)
-
-            // Mixture-of-Agents advisory (reference moa_loop parity): when enabled
-            // in Settings and reference models are configured in
-            // ~/.arc/config.json, fan out reference calls first and prepend the
-            // joined advisory to the model-facing context.
-            if settings.moaEnabled, !arcConfig.moa.referenceModels.isEmpty {
-                await appendMoAAdvisory(to: &messages, preset: preset, userText: turn.userText)
-            }
-
-            var contentAccum = ""
-            reasoningAccum = ""
-            var toolAccum: [Int: (id: String?, name: String?, args: String)] = [:]
-            var streamError: String?
-            var roundUsage: Usage?
-            var roundContentChars = 0
-            let roundStart = Date()
-
-            let thinkLevel = thinkingLevel(for: sessionID)
-            let effort = pctx?.reasoningEffort ?? (thinkLevel == "off" ? nil : thinkLevel)
-            var stream = client.stream(messages: messages, tools: tools, reasoningEffort: effort)
-                var roundTokensRecorded = false
-                var streamAttempts = 0
-                while true {
-                    streamAttempts += 1
-                    do {
-                    for try await delta in stream {
-                    if activeTurns[sessionID]?.stopped == true { break }
-                    if !roundTokensRecorded, let u = delta.usage {
-                        roundTokensRecorded = true
-                        recordTokensBurned(u.totalTokens > 0 ? u.totalTokens : u.promptTokens + u.completionTokens)
-                    }
-                    if let u = delta.usage { roundUsage = u }
-                    if let c = delta.content {
-                        contentAccum += c
-                        assistantText += c
-                        roundContentChars += c.count
-                    }
-                    if let r = delta.reasoning {
-                        reasoningAccum += r
-                        activeTurns[sessionID]?.thinking = reasoningAccum
-                    }
-                    if let tcs = delta.toolCalls {
-                        for tc in tcs {
-                            var entry = toolAccum[tc.index] ?? (nil, nil, "")
-                            if let id = tc.id { entry.id = id }
-                            if let name = tc.name { entry.name = name }
-                            entry.args += tc.arguments ?? ""
-                            toolAccum[tc.index] = entry
-                        }
-                    }
+        do {
+            let events = agent.streamTurn(message: userContent)
+            for try await event in events {
+                switch event {
+                case .textDelta(let t):
+                    assistantText += t
+                    curContent += t
                     activeTurns[sessionID]?.assistantText = assistantText
-                    activeTurns[sessionID]?.status = contentAccum.isEmpty && !toolAccum.isEmpty ? "tool" : "running"
-                    // arc parity: live tokens-per-second estimate while streaming.
-                    let roundElapsed = max(0.2, Date().timeIntervalSince(roundStart))
-                    activeTurns[sessionID]?.tps = roundContentChars > 0 ? (Double(roundContentChars) / 4.0) / roundElapsed : nil
+                    activeTurns[sessionID]?.status = curCalls.isEmpty ? "running" : "tool"
                     await throttle()
-                }
-                    break
-                } catch {
-                    // Provider fault recovery (arc parity): retry transient
-                    // failures (429/5xx/timeouts/empty) with rate-limit-aware
-                    // backoff — but only before any output was emitted, so the
-                    // user never sees duplicate text.
-                    let canRetry = activeTurns[sessionID]?.stopped != true
-                        && contentAccum.isEmpty && toolAccum.isEmpty && reasoningAccum.isEmpty
-                        && streamAttempts < 3 && classifyError(error) == .retryable
-                    guard canRetry else {
-                        streamError = "\(error)"
-                        break
+                case .reasoningDelta(let r):
+                    reasoningAccum += r
+                    curReasoning += r
+                    activeTurns[sessionID]?.thinking = reasoningAccum
+                    await throttle()
+                case .toolCallStarted(let id, let name, let args):
+                    let call = ToolCall(id: id, type: "function",
+                                        function: ToolCallFunction(name: name, arguments: args))
+                    curCalls.append(call)
+                    activeTurns[sessionID]?.toolName = call.function.name
+                    activeTurns[sessionID]?.toolStartedAt = Date()
+                    activeTurns[sessionID]?.toolChips = curCalls.map { "\u{2699} \($0.function.name)" }
+                    activeTurns[sessionID]?.status = "tool"
+                    await flush()
+                case .toolCallFinished(let id, let name, let result):
+                    activeTurns[sessionID]?.toolName = nil
+                    activeTurns[sessionID]?.toolStartedAt = nil
+                    let asst = Message(role: .assistant,
+                                       content: curContent.isEmpty ? nil : curContent,
+                                       toolCalls: curCalls.isEmpty ? nil : curCalls,
+                                       createdAt: Date(),
+                                       reasoning: curReasoning.isEmpty ? nil : curReasoning)
+                    committed.append(asst)
+                    committed.append(Message(role: .tool, content: result, name: name,
+                                              toolCallID: id, createdAt: Date()))
+                    curContent = ""
+                    curReasoning = ""
+                    curCalls = []
+                    await flush()
+                case .usage(let u):
+                    lastUsage = u
+                    let elapsed = max(0.2, Date().timeIntervalSince(turnStart))
+                    activeTurns[sessionID]?.tps = u.completionTokens > 0
+                        ? Double(u.completionTokens) / elapsed : nil
+                    recordTokensBurned(u.totalTokens > 0 ? u.totalTokens : u.promptTokens + u.completionTokens)
+                case .completed(let finalText):
+                    assistantText = finalText
+                    let elapsed = max(0.2, Date().timeIntervalSince(turnStart))
+                    let finalTps: Double? = lastUsage.flatMap { u in
+                        u.completionTokens > 0 ? Double(u.completionTokens) / elapsed : nil
                     }
-                    if case LLMError.rateLimited(let retryAfter) = error {
-                        await Self.rateLimits.recordThrottle(route: "\(preset.provider)/\(preset.model)", retryAfter: retryAfter)
+                    let wasInterrupted = activeTurns[sessionID]?.stopped == true
+                    committed.append(Message(role: .assistant,
+                                              content: finalText,
+                                              createdAt: Date(),
+                                              reasoning: reasoningAccum.isEmpty ? nil : reasoningAccum,
+                                              usage: lastUsage,
+                                              tps: finalTps,
+                                              terminalReason: wasInterrupted ? "user_stopped" : nil,
+                                              turnDuration: max(0, Date().timeIntervalSince(turn.startedAt))))
+                    activeTurns[sessionID]?.assistantText = finalText
+                    activeTurns[sessionID]?.status = "done"
+                    turnCompleted = true
+                    await flush()
+                case .failed(let msg):
+                    finalError = msg
+                    if assistantText.isEmpty {
+                        assistantText = msg
+                        activeTurns[sessionID]?.assistantText = msg
                     }
-                    let backoff = await Self.rateLimits.backoffSeconds(route: "\(preset.provider)/\(preset.model)")
-                    try? await Task.sleep(nanoseconds: UInt64(max(backoff, 0.75) * 1_000_000_000))
-                    stream = client.stream(messages: messages, tools: tools, reasoningEffort: effort)
-                }
-                if streamError != nil { break }
-                }
-
-            let calls: [ToolCall] = toolAccum.sorted { $0.key < $1.key }.compactMap { _, e in
-                guard let name = e.name, let id = e.id else { return nil }
-                return ToolCall(id: id, type: "function", function: ToolCallFunction(name: name, arguments: e.args))
-            }
-
-            if let streamError {
-                finalError = streamError
-                break
-            }
-            if activeTurns[sessionID]?.stopped == true { break }
-
-            // Empty-round storm guard (reference bounded empty responses): a full
-            // round that yields nothing is retried with a nudge, at most
-            // `TurnRecoveryState.emptyStormThreshold` times.
-            if streamError == nil, activeTurns[sessionID]?.stopped != true,
-               contentAccum.isEmpty, reasoningAccum.isEmpty, toolAccum.isEmpty {
-                recovery.emptyStormStreak += 1
-                if recovery.emptyStormStreak < TurnRecoveryState.emptyStormThreshold {
-                    history.append(Message(role: .user, content: Self.emptyResponseNudge))
-                    _ = hint("Empty response from provider; nudging retry (\(recovery.emptyStormStreak)/\(TurnRecoveryState.emptyStormThreshold)).")
-                    continue
+                    activeTurns[sessionID]?.status = "error"
                 }
             }
-
-            if calls.isEmpty {
-                // Final assistant turn.
-                // arc parity: final TPS = real output tokens / wall-clock
-                // duration (matches the round's usage report when available).
-                let finalElapsed = max(0.2, Date().timeIntervalSince(roundStart))
-                let finalTps: Double? = roundUsage.flatMap { u in
-                    u.completionTokens > 0 ? Double(u.completionTokens) / finalElapsed : nil
-                }
-                let asstMsg = Message(
-                    role: .assistant,
-                    content: contentAccum,
-                    createdAt: Date(),
-                    reasoning: reasoningAccum.isEmpty ? nil : reasoningAccum,
-                    usage: roundUsage,
-                    tps: finalTps,
-                    turnDuration: max(0, Date().timeIntervalSince(turn.startedAt))
-                )
-                history.append(asstMsg)
-                if let store {
-                    await persistMessage(asstMsg, sessionID: sessionID, store: store, healWith: history)
-                }
-                if let u = roundUsage {
-                    await Self.recordUsage(u, preset: preset)
-                }
-                turnCompleted = true
-                break turnLoop
-            }
-
-            // Tool round.
-            let asstMsg = Message(role: .assistant, content: contentAccum.isEmpty ? nil : contentAccum, toolCalls: calls, createdAt: Date(), reasoning: reasoningAccum.isEmpty ? nil : reasoningAccum)
-            history.append(asstMsg)
-            if let store {
-                await persistMessage(asstMsg, sessionID: sessionID, store: store, healWith: history)
-            }
-            activeTurns[sessionID]?.toolChips = calls.map { "⚙ \($0.function.name)" }
-            activeTurns[sessionID]?.status = "tool"
-            if activeSessionID == sessionID {
-                await pusher(await transcriptFragments())
-            }
-            await flush()
-
-            for call in calls {
-                if activeTurns[sessionID]?.stopped == true { break }
-                // Tool-progress boundary: name + start stamp drive the live
-                // status line ("Running web_search… 0:07") while the call runs.
-                activeTurns[sessionID]?.toolName = call.function.name
-                activeTurns[sessionID]?.toolStartedAt = Date()
-                await flush()
-                let result = await runTool(call, sessionID: sessionID, pusher: pusher, headless: headless)
-                activeTurns[sessionID]?.toolName = nil
-                activeTurns[sessionID]?.toolStartedAt = nil
-                let toolMsg = Message(role: .tool, content: result, name: call.function.name, toolCallID: call.id, createdAt: Date())
-                history.append(toolMsg)
-                if let store {
-                    await persistMessage(toolMsg, sessionID: sessionID, store: store, healWith: history)
-                }
-                // Commit boundary: the tool result must appear in the transcript.
-                if activeSessionID == sessionID {
-                    await pusher(await transcriptFragments())
-                }
-            }
-            activeTurns[sessionID]?.toolChips = []
-            activeTurns[sessionID]?.status = "running"
+        } catch {
+            finalError = "\(error)"
         }
 
-        // Finalize: drop the live bubble, resync from the store, rebuild.
         let wasStopped = activeTurns[sessionID]?.stopped == true
-
-        // Interrupted turns (user stop or provider disconnect) still leave a
-        // real assistant reply + status card in the transcript, so the turn's
-        // dropdown ("Processed Xm Ys"), any partial output, and the
-        // interruption reason survive reloads exactly like a normal turn.
+        // Interrupted/failed turns still leave an assistant + status marker so the
+        // partial output and interruption reason survive reload like a normal turn.
         if !turnCompleted, wasStopped || finalError != nil {
             let reason = wasStopped ? "user_stopped" : "disconnected"
-            let partial = assistantText.trimmingCharacters(in: .whitespacesAndNewlines)
             let notice = wasStopped
-                ? "Turn interrupted — stopped by the user."
-                : "Turn interrupted — the connection to the model was lost."
-            let interrupt = Message(
-                role: .assistant,
-                content: partial.isEmpty ? notice : partial,
-                createdAt: Date(),
-                reasoning: activeTurns[sessionID]?.thinking,
-                terminalReason: reason,
-                turnDuration: max(0, Date().timeIntervalSince(turn.startedAt))
-            )
-            history.append(interrupt)
-            if let store {
-                await persistMessage(interrupt, sessionID: sessionID, store: store, healWith: history)
-            }
+                ? "Turn interrupted \u{2014} stopped by the user."
+                : "Turn interrupted \u{2014} the connection to the model was lost."
+            let partial = assistantText.trimmingCharacters(in: .whitespacesAndNewlines)
+            committed.append(Message(role: .assistant,
+                                      content: partial.isEmpty ? notice : partial,
+                                      createdAt: Date(),
+                                      reasoning: reasoningAccum.isEmpty ? nil : reasoningAccum,
+                                      terminalReason: reason,
+                                      turnDuration: max(0, Date().timeIntervalSince(turn.startedAt))))
             turnCompleted = true
         }
 
-        // arc parity: when the budget is exhausted cleanly (no error, no
-        // user stop, no final answer yet), append the iteration-limit nudge,
-        // take one final no-tool call for the summary, and mark it so the UI
-        // can render the "Tool iteration limit reached" status card
-        // (reference `handle_max_iterations` + webui fallback injection).
-        if !turnCompleted, finalError == nil, !wasStopped {
-            await handleIterationLimit(
-                history: &history,
-                sessionID: sessionID,
-                preset: effectivePreset,
-                store: store,
-                effort: pctx?.reasoningEffort ?? (thinkingLevel(for: sessionID) == "off" ? nil : thinkingLevel(for: sessionID)),
-                throttle: throttle,
-                flush: flush
-            )
+        // Commit the reconstructed committed to the web-UI-owned store (the core
+        // wrote nothing). Replays identically to a daemon turn.
+        session.messages.append(contentsOf: committed)
+        if let idx = sessions.firstIndex(where: { $0.id == sessionID }) {
+            sessions[idx] = session
+        }
+        sessionVersion += 1
+        if let store {
+            for m in committed {
+                await persistMessage(m, sessionID: sessionID, store: store, healWith: session.messages)
+            }
+        }
+        if let lastUsage {
+            await Self.recordUsage(lastUsage, preset: effectivePreset)
         }
 
         activeTurns[sessionID] = nil
@@ -1068,6 +1017,7 @@ extension AppState {
     /// so stopping one chat never affects another's running turn.
     func requestStopTurn(sessionID: String) {
         activeTurns[sessionID]?.stopped = true
+        Task { await self.turnAgents[sessionID]?.interruptTurn() }
         // Resolve any pending approval so a waiting turn can finish promptly.
         if let pa = pendingApproval, pa.sessionID == sessionID {
             pendingApproval = nil
@@ -3228,3 +3178,10 @@ final class Controller: Sendable {
         }
     }
 }
+
+
+
+
+
+
+

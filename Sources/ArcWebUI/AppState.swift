@@ -1009,6 +1009,13 @@ actor AppState {
     // MARK: Runtime pieces (rebuilt when workspace / tessera mode changes)
 
     var httpClient: HTTPClient?
+
+    /// Core turn engines per session (Option B collapse). Each session's
+    /// `ArcAgent` persists nothing itself (`persistSessions = false`); the web
+    /// UI owns the transcript store and reconstructs messages from the agent's
+    /// event stream. Retained so the Stop button can call `interruptTurn()`.
+    var turnAgents: [String: ArcAgent] = [:]
+
     var store: (any SessionStore)?
     /// The storage backend this process actually constructed: "tessera" or
     /// "file". Honest label vs `settings.tesseraOff` because the boot-time
@@ -1799,3 +1806,4 @@ actor AppState {
         return cat.name
     }
 }
+

@@ -507,7 +507,7 @@ public actor ArcAgent: Service {
 
     /// Set up the LLM client for session-host use (without calling `run()`).
     /// The caller owns the HTTPClient lifecycle.
-    func setupClient(httpClient: HTTPClient) async {
+    public func setupClient(httpClient: HTTPClient) async {
         self.httpClient = httpClient
         makeAuxRouter()
         await wireSmartApproval()
@@ -1027,7 +1027,7 @@ public actor ArcAgent: Service {
 
     /// Request cooperative interruption of the current turn. Honored at the
     /// next iteration boundary — in-flight API calls finish first.
-    func interruptTurn() {
+    public func interruptTurn() {
         turnInterrupted = true
     }
 
