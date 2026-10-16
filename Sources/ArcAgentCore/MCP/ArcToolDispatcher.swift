@@ -63,34 +63,78 @@ public struct ArcToolDispatcher: MCPToolDispatcher {
 
     // MARK: - Access policy
 
-    /// The level a toolset requires. Deny by default, in two tiers.
+    /// The level a toolset requires. Deny by default.
     ///
     /// The caller's level is set by the carrier, not by arc: the in-process
     /// client and a stdio caller arrive as `.root`, a loopback TCP caller as
-    /// `.admin`, and any other address as `.public` — swift-mcp's
-    /// `TCPTransport.defaultAccessResolver`.
+    /// `.admin`, and any other address as `.public` — arc's own resolver, since
+    /// swift-mcp's `TCPTransport.defaultAccessResolver` never matches NIO's
+    /// address description.
     ///
     /// - `.root` — filesystem writes, shell, code execution, desktop and browser
-    ///   control. Local process only. These must never be reachable over a
-    ///   socket, and none are listed below.
-    /// - `.admin` — everything else: informational and organisational toolsets.
+    ///   control, and **anything named in neither roster**. Local process only;
+    ///   none of it is reachable over a socket.
+    /// - `.admin` — the toolsets `localMachineToolsets` names explicitly.
     ///   Reachable from loopback, never from a non-loopback address.
     /// - `.public` — deliberately nothing. No arc toolset is exposed to an
     ///   unauthenticated network caller. `MCPToolConfiguration` defaults
     ///   `requiredAccess` to `.public`, which is what made every registered tool
     ///   reachable over TCP before this gate existed.
+    ///
+    /// An unnamed toolset falls to `.root` rather than to "no such tool" on
+    /// purpose: `requiredAccess(named:)` returning nil is the framework's
+    /// unknown-tool signal (`-32602`), so nil would also hide an internal tool
+    /// from arc's own in-process carrier. Fail-closed here means **denied to
+    /// carriers, not denied to the agent.**
     static func access(for toolset: String) -> AccessLevel {
-        localOnlyToolsets.contains(toolset) ? .root : .admin
+        if inProcessOnlyToolsets.contains(toolset) { return .root }
+        if localMachineToolsets.contains(toolset) { return .admin }
+        return .root
     }
 
     /// Toolsets requiring the local process: arbitrary filesystem, shell,
     /// code-execution and desktop control.
-    static let localOnlyToolsets: Set<String> = [
+    static let inProcessOnlyToolsets: Set<String> = [
         "file",
         "terminal",
         "code_execution",
         "computer_use",
         "browser",
+    ]
+
+    /// Every toolset a loopback client may reach.
+    ///
+    /// Closed on purpose. A toolset absent from both rosters is served to no
+    /// socket, so adding a name here is the conscious act of exposing it to the
+    /// local machine — and `ArcToolDispatcherTests.everyToolsetIsDeclared` stays
+    /// red until a new built-in toolset gets that decision.
+    ///
+    /// The final block is a **foreign namespace**, not arc's vocabulary: a plugin
+    /// names its own toolset in its manifest (`PluginRegistry.swift:430`, falling
+    /// back to `plugins`). Those entries are arc granting a plugin a reach it did
+    /// not have before, and the reach a claim can confer is bounded by this roster
+    /// — a plugin declaring `file` is still `.root`, because a claim can restrict
+    /// but never expand. (Deciding a plugin's reach by its *identity* rather than
+    /// by the string it claims is the contained follow-up; it needs a source
+    /// marker the dispatcher cannot see yet.)
+    static let localMachineToolsets: Set<String> = [
+        // arc's own toolsets
+        "core",
+        "web",
+        "skills",
+        "todo",
+        "project",
+        "delegation",
+        "kanban",
+        "profile",
+        "messaging",
+        "mcp",
+        "tools",
+        // admitted plugin namespaces — measured 2026-10-16: the only installed
+        // plugin declares `swift-package-utilitykit` for all 25 of its tools,
+        // and `plugins` is arc's fallback for a manifest that omits the field.
+        "plugins",
+        "swift-package-utilitykit",
     ]
 
     // MARK: - Caller resolution
