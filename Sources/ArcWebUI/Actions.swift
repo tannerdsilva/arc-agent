@@ -57,13 +57,25 @@ extension AppState {
 
     /// Build the system prompt for a chat, mirroring ArcAgent's construction:
     /// identity, optional profile SOUL, skills index, persistent memory.
+    ///
+    /// Segment inclusion is gated by the per-session context recipe
+    /// (global defaults < profile defaults < session overrides), resolved
+    /// through the same `ResolvedContextRecipe.resolve` path `SessionAgent`
+    /// uses — so the web UI's visible turns honor the same "Context" toggles
+    /// as the daemon/headless surfaces. Segments this builder doesn't render
+    /// (tools, guidance, project context, timestamp) are simply absent here,
+    /// so toggling them is naturally a no-op on the web UI.
     func buildSystemPrompt(config preset: ModelConfigPreset, sessionID: String?) async -> String {
+        let recipe = resolveContextRecipe(for: sessionID)
+        let on: (ContextSegment) -> Bool = { recipe.isEnabled($0) }
         var parts = [
             "You are ARC, a Swift-native AI agent harness.",
             "You assist the user directly and precisely. When a task calls for a tool, use it confidently — tools are safe, isolated, and expected.",
         ]
         // Profile SOUL + pinned context skills. The bound profile is resolved
-        // once; both blocks share it.
+        // once; both blocks share it. The SOUL preamble is identity (always
+        // on, like the core's identity block); pinned context skills gate on
+        // the skills segment.
         let boundName = profileName(for: sessionID)
         let boundProfile = boundName.flatMap { n in profiles.first { $0.name == n } }
         if let p = boundProfile,
@@ -71,7 +83,7 @@ extension AppState {
             parts.append("[Profile: \(p.name)]\n\(soul)")
         }
         // Pinned profile skills: full SKILL.md content, always in context.
-        if let p = boundProfile,
+        if on(.skills), let p = boundProfile,
            let pinned = p.contextSkills, !pinned.isEmpty {
             let pinnedSkills = skills.filter { pinned.contains($0.name) }
             if !pinnedSkills.isEmpty {
@@ -79,7 +91,9 @@ extension AppState {
             }
         }
         parts.append("Active configuration: model \(preset.model) via \(preset.provider.isEmpty ? "custom" : preset.provider).")
-        parts.append("Working directory: \(workspacePath(for: sessionID))")
+        if on(.environment) {
+            parts.append("Working directory: \(workspacePath(for: sessionID))")
+        }
         // Skills — arc-parity mandatory section (framing + index), per-profile
         // override when the chat is bound to a profile, otherwise the global
         // list (inherited by profiles without overrides).
@@ -89,19 +103,32 @@ extension AppState {
         // The section's framing instructs the model to load skills with
         // `skill_view`; render it only when this app's registry exposes the
         // loader.
-        if !allowed.isEmpty, registry.lookup(name: "skill_view") != nil {
+        if on(.skills), !allowed.isEmpty, registry.lookup(name: "skill_view") != nil {
             parts.append(SkillsPrompt.section(index: buildSkillsIndex(allowed)))
         }
         // Memory
         if let mem = memory {
-            if let m = try? await mem.readMemory(), !m.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if on(.memory), let m = try? await mem.readMemory(), !m.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 parts.append("Persistent notes (internal memory):\n\(m)")
             }
-            if let u = try? await mem.readUser(), !u.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if on(.userProfile), let u = try? await mem.readUser(), !u.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 parts.append("About the user:\n\(u)")
             }
         }
         return parts.joined(separator: "\n\n")
+    }
+
+    /// Resolve the per-session context recipe for a chat, mirroring
+    /// `SessionAgent`: global defaults < profile defaults < session overrides.
+    private func resolveContextRecipe(for sessionID: String?) -> ResolvedContextRecipe {
+        let boundName = profileName(for: sessionID)
+        let boundProfile = boundName.flatMap { n in profiles.first { $0.name == n } }
+        let session = sessionID.flatMap { id in sessions.first { $0.id == id } }
+        return ResolvedContextRecipe.resolve(
+            global: settings.contextDefaults,
+            profile: boundProfile?.contextDefaults,
+            session: session?.contextOverrides
+        )
     }
 
     /// Execute one tool call and return its result string. Terminal commands
