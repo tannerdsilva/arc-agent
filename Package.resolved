@@ -1,5 +1,5 @@
 {
-  "originHash" : "d681eb45a5aa4a7e06b6a0cf37d741189a056b2c1b7d290e1585ed13394217f2",
+  "originHash" : "bf82613657a37e9864464a0820509e52270e0a54e2742d008951bbe8850939f4",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/bedrock.git",
       "state" : {
-        "revision" : "e6225cb114c6daf0f39ea2af765a60106566160a",
-        "version" : "8.0.0"
+        "revision" : "b7b1e744bf908bcbe351af3e2c5c41aca148cc16",
+        "version" : "9.0.0"
       }
     },
     {
@@ -213,8 +213,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/swift-mcp.git",
       "state" : {
-        "revision" : "8560e5ff59ab85b1640b0646e37b13e1b75a450e",
-        "version" : "2.1.1"
+        "revision" : "ff6b02e2f44071a72352e7664033f2b2183fef8f",
+        "version" : "2.1.2"
       }
     },
     {
@@ -321,8 +321,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/SwiftSlash.git",
       "state" : {
-        "revision" : "89654221a526ad4496f59c32746025067d72491a",
-        "version" : "5.0.1"
+        "revision" : "5dda27d1ebae38ce42e9440f3580cbc778c8af8b",
+        "version" : "6.0.0"
       }
     },
     {
@@ -330,8 +330,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/wireguard-swift",
       "state" : {
-        "revision" : "c44539e0e8fc2b1513d1d9bfeb6e963982f23bde",
-        "version" : "0.1.1"
+        "revision" : "68f2d9ea73dab9376b28de11089d3d9290737165",
+        "version" : "0.1.2"
       }
     },
     {

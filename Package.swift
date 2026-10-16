@@ -33,7 +33,7 @@ let package = Package(
         ),
 		.package(
 			url: "https://github.com/tannerdsilva/swift-mcp.git",
-			"2.1.1"..<"3.0.0"
+			"2.1.2"..<"3.0.0"
 		),
         .package(
             url: "https://github.com/apple/swift-nio.git",
@@ -53,7 +53,7 @@ let package = Package(
         ),
         .package(
             url: "https://github.com/tannerdsilva/SwiftSlash.git",
-            from: "5.0.1"
+            "6.0.0"..<"7.0.0"
         ),
         .package(
             url: "https://github.com/apple/swift-log.git",
@@ -198,6 +198,19 @@ let package = Package(
             dependencies: [
                 .target(name: "ArcAssetTool"),
             ]
+        ),
+
+        // ── Test fixture: process-placement observer ──────────────
+        // No product: a test-only executable that observes the placement of the
+        // children arc spawns from *inside a launch* — the only place arc's
+        // explicit `.own` differs from the resolved default. The test targets
+        // spawn it, so it must be an in-package executable target.
+        .executableTarget(
+            name: "ArcSubprocessFixture",
+            dependencies: [
+                .target(name: "ArcAgentCore"),
+                .product(name: "SwiftSlash", package: "SwiftSlash"),
+            ],
         ),
 
         // ── Tests ─────────────────────────────────────────────────

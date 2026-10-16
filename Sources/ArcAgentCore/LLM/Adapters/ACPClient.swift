@@ -48,6 +48,10 @@ public actor ACPClient {
     // MARK: - Lifecycle (reference initialize / session/new)
 
     /// Start the ACP process and run `initialize`; returns the server info.
+    ///
+    /// The child is spawned with `.own` placement: arc owns the process group
+    /// of everything it spawns, so one teardown signal reaches the ACP server
+    /// and its tree. See `docs/process-placement.md`.
     public func start() async throws -> [String: Any] {
         if child == nil {
             var command = Command(
@@ -57,7 +61,11 @@ public actor ACPClient {
             if let cwd = config.workingDirectory {
                 command.workingDirectory = Path(cwd)
             }
-            let acp = ChildProcess(command, dataChannels: [
+            // `.own`, for the same reason as `SubprocessRunner`: arc owns the
+            // process group of everything it spawns, so one teardown signal
+            // reaches the ACP server and its tree. arc never requests
+            // `.detached` — a detached child is unreachable by design.
+            let acp = ChildProcess(command, processGroup: .own, dataChannels: [
                 STDOUT_FILENO: .write(.toParentProcess(stream: .init(), separator: [0x0A])),
                 STDERR_FILENO: .write(.toNull),  // stderr is never protocol data
                 STDIN_FILENO: .read(.fromParentProcess(stream: .init())),
