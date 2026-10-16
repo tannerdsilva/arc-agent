@@ -96,11 +96,14 @@ public struct Session: Sendable, Codable {
     /// The signing identity that owns this session's transcript. Nil for
     /// legacy records (treated as owned by the current identity).
     public var owner: String?
+    /// Per-session context recipe overrides. Nil = inherit from profile/global.
+    public var contextOverrides: ContextRecipe?
 
     private enum CodingKeys: String, CodingKey {
         case id, createdAt, updatedAt, model, provider, title, messages
         case source, userID, parentSessionID, workspaceKey, endedAt
         case inputTokens, outputTokens, systemPrompt, config, owner
+        case contextOverrides
     }
 
     public init(
@@ -121,7 +124,8 @@ public struct Session: Sendable, Codable {
         outputTokens: Int? = nil,
         systemPrompt: String? = nil,
         config: SessionConfigSnapshot? = nil,
-        owner: String? = nil
+        owner: String? = nil,
+        contextOverrides: ContextRecipe? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -141,6 +145,7 @@ public struct Session: Sendable, Codable {
         self.systemPrompt = systemPrompt
         self.config = config
         self.owner = owner
+        self.contextOverrides = contextOverrides
     }
 
     public init(from decoder: Decoder) throws {
@@ -162,6 +167,7 @@ public struct Session: Sendable, Codable {
         systemPrompt = try c.decodeIfPresent(String.self, forKey: .systemPrompt)
         config = try c.decodeIfPresent(SessionConfigSnapshot.self, forKey: .config)
         owner = try c.decodeIfPresent(String.self, forKey: .owner)
+        contextOverrides = try c.decodeIfPresent(ContextRecipe.self, forKey: .contextOverrides)
         messageCount = 0  // re-derived by the store (never persisted)
     }
 }

@@ -49,6 +49,7 @@ public actor SessionAgent: Service {
             let resolvedBaseURL: URL
             let resolvedSOUL: String?
             let resolvedContext: ProfileContextConfig?
+            let resolvedProfileDefaults: ContextRecipe?
 
             if let profileConfig = try await profileManager.get(name: profile) {
                 resolvedModel = profileConfig.model ?? agentConfig.model
@@ -63,6 +64,7 @@ public actor SessionAgent: Service {
                 }
                 resolvedSOUL = profileConfig.soulMD
                 resolvedContext = profileConfig.context
+                resolvedProfileDefaults = profileConfig.contextDefaults
             } else {
                 resolvedModel = agentConfig.model
                 resolvedProvider = agentConfig.provider
@@ -73,6 +75,7 @@ public actor SessionAgent: Service {
                 }
                 resolvedSOUL = nil
                 resolvedContext = nil
+                resolvedProfileDefaults = nil
             }
 
             // Storage backend. When Tessera is configured, sessions and
@@ -99,6 +102,21 @@ public actor SessionAgent: Service {
 
             logger.info("step: building tool registry")
             let toolRegistry = try await MutableToolRegistry.make(enabledPlugins: pluginAllowList())
+
+            // Resolve the per-session context recipe: global defaults <
+            // profile defaults < session overrides.
+            logger.info("step: resolving context recipe")
+            let sessionOverrides: ContextRecipe?
+            if let existingSession = try? await sessionStore.get(id: sessionID) {
+                sessionOverrides = existingSession.contextOverrides
+            } else {
+                sessionOverrides = nil
+            }
+            let resolvedRecipe = ResolvedContextRecipe.resolve(
+                global: agentConfig.contextDefaults,
+                profile: resolvedProfileDefaults,
+                session: sessionOverrides
+            )
 
             logger.info("step: creating ArcAgent")
             let agent = ArcAgent(config: ArcAgent.Configuration(
@@ -131,7 +149,8 @@ public actor SessionAgent: Service {
                 temperature: resolvedContext?.temperature,
                 topP: resolvedContext?.topP,
                 maxOutputTokens: resolvedContext?.maxOutputTokens,
-                mcpServers: agentConfig.mcpServers
+                mcpServers: agentConfig.mcpServers,
+                contextRecipe: resolvedRecipe
             ))
             logger.info("step: setting up client")
             await agent.setupClient(httpClient: httpClient)

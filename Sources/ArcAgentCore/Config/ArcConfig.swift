@@ -105,6 +105,9 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     public var checkpoints: CheckpointsConfig?
     /// Event hooks: outbound webhook targets (reference `hooks.outbound`).
     public var hooks: HooksConfig = HooksConfig()
+    /// Global default context recipe applied to sessions that carry no
+    /// profile or session override. Nil = today's behavior (all segments on).
+    public var contextDefaults: ContextRecipe?
 
     /// Configuration for web search/extract backends (reference `web` block).
     public struct WebConfig: Codable, Sendable, Equatable {
@@ -160,6 +163,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         case toolSearch = "tool_search"
         case checkpoints
         case hooks
+        case contextDefaults = "context_defaults"
         case processWatch = "process_watch"
     }
 
@@ -186,6 +190,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         goals: GoalsConfig = GoalsConfig(),
         checkpoints: CheckpointsConfig? = nil,
         hooks: HooksConfig = HooksConfig(),
+        contextDefaults: ContextRecipe? = nil,
         processWatch: ProcessWatchConfig = ProcessWatchConfig()
     ) {
         self.model = model
@@ -208,6 +213,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.goals = goals
         self.checkpoints = checkpoints
         self.hooks = hooks
+        self.contextDefaults = contextDefaults
         self.processWatch = processWatch
     }
 
@@ -235,6 +241,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.toolSearch = try container.decodeIfPresent(ToolSearchConfig.self, forKey: .toolSearch) ?? ToolSearchConfig()
         self.checkpoints = try container.decodeIfPresent(CheckpointsConfig.self, forKey: .checkpoints)
         self.hooks = try container.decodeIfPresent(HooksConfig.self, forKey: .hooks) ?? HooksConfig()
+        self.contextDefaults = try container.decodeIfPresent(ContextRecipe.self, forKey: .contextDefaults)
         self.processWatch = try container.decodeIfPresent(ProcessWatchConfig.self, forKey: .processWatch)
             ?? ProcessWatchConfig()
     }

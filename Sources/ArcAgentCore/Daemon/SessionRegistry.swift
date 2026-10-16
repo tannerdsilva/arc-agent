@@ -77,6 +77,9 @@ public actor SessionRegistry {
         public let backgroundReviewWindow: Int
         /// External MCP servers (reference top-level `mcp_servers`).
         public let mcpServers: [String: MCPServerConfig]
+        /// Global default context recipe (reference `context_defaults`) applied
+        /// to sessions with no profile/session override. Nil = all segments on.
+        public let contextDefaults: ContextRecipe?
         /// Prebuilt process storage (the daemon resolves ONE pair for the whole
         /// process). When nil, each session agent constructs its own — the
         /// standalone path.
@@ -93,6 +96,7 @@ public actor SessionRegistry {
             maxIterations: Int? = nil,
             toolLoopCap: Int? = nil,
             mcpServers: [String: MCPServerConfig] = [:],
+            contextDefaults: ContextRecipe? = nil,
             verifyOnStop: Bool = false,
             skillInlineCommands: Bool = true,
             backgroundReviewAfter: Int = 0,
@@ -113,6 +117,7 @@ public actor SessionRegistry {
             self.maxIterations = maxIterations
             self.toolLoopCap = toolLoopCap
             self.mcpServers = mcpServers
+            self.contextDefaults = contextDefaults
             self.storage = storage
         }
     }

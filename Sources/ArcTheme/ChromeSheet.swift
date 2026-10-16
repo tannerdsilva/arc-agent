@@ -899,6 +899,8 @@ public static let css: String = """
       font-size: 1.05em; font-weight: 700; margin: 0 0 10px;
       padding-bottom: 6px; border-bottom: 1px solid var(--border);
     }
+    .set-section .set-desc { color: var(--muted); font-size: 0.9em; margin: 0 0 14px; max-width: 62ch; line-height: 1.5; }
+    .panel-note { color: var(--muted); font-size: 0.88em; padding: 0 16px; line-height: 1.5; }
     .set-row { display: flex; align-items: center; gap: 14px; padding: 7px 0; }
     .set-row .set-label { flex: 1; font-size: 0.92em; }
     .set-row .set-label small { display: block; color: var(--muted); font-size: 0.92em; margin-top: 1px; }

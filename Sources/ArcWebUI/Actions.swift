@@ -1193,6 +1193,7 @@ final class Controller: Sendable {
         wireTools(router)
         wireWorkspaces(router)
         wireSettings(router)
+        wireContext(router)
         wirePlugins(router)
         wireMCP(router)
         wireSidebarPluginToggles(router)
@@ -2444,6 +2445,21 @@ final class Controller: Sendable {
     }
 
     // MARK: Tool plugins (Settings)
+
+    private func wireContext(_ router: EventRouter) {
+        // Context segment toggles. Each checkbox carries the segment in `value`
+        // (the engine delivers no targetId), so one wire serves all segments;
+        // `checked` is the new on/off state.
+        wire(router, id: "ctxseg-toggle", events: ["change"]) { event in
+            let tid = event.string("targetId") ?? event.string("value") ?? ""
+            guard tid.hasPrefix("ctxseg-") else { return [] }
+            let raw = String(tid.dropFirst("ctxseg-".count))
+            guard let seg = ContextSegment(rawValue: raw) else { return [] }
+            let on = event.checked == true
+            await self.app.setContextSegment(seg, on: on)
+            return await self.app.refreshFragments()
+        }
+    }
 
     private func wirePlugins(_ router: EventRouter) {
         wire(router, id: "plugin-toggle", events: ["change"]) { event in

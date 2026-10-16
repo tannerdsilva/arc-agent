@@ -80,6 +80,7 @@ public enum ArcDaemon {
             maxIterations: arc.effectiveMaxTurns(),
             toolLoopCap: arc.effectiveToolLoopCap(),
             mcpServers: arc.mcpServers,
+            contextDefaults: WebUIContextDefaults.loadFromDisk() ?? arc.contextDefaults,
             storage: storage
         )
 

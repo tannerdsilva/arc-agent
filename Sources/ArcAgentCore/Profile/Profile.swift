@@ -126,6 +126,10 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
     /// the user having loaded each skill explicitly).
     public var contextSkills: [String]?
 
+    /// Default context recipe applied to new chats bound to this profile.
+    /// Nil = inherit global defaults.
+    public var contextDefaults: ContextRecipe?
+
     /// Visual avatar configuration.
     public var avatar: AvatarConfig?
 
@@ -157,6 +161,7 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
         soulMD: String? = nil,
         context: ProfileContextConfig? = nil,
         contextSkills: [String]? = nil,
+        contextDefaults: ContextRecipe? = nil,
         avatar: AvatarConfig? = nil,
         group: String? = nil,
         isPinned: Bool = false
@@ -173,6 +178,7 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
         self.soulMD = soulMD
         self.context = context
         self.contextSkills = contextSkills
+        self.contextDefaults = contextDefaults
         self.avatar = avatar
         self.group = group
         self.isPinned = isPinned

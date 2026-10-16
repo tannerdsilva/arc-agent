@@ -189,7 +189,8 @@ public actor ArcAgent: Service {
             mcpServers: [String: MCPServerConfig] = [:],
             disabledToolsets: Set<String> = [],
             delegation: DelegationConfig = DelegationConfig(),
-            llmClient: (any LLMClient)? = nil
+            llmClient: (any LLMClient)? = nil,
+            contextRecipe: ResolvedContextRecipe? = nil
         ) {
             self.model = model
             self.provider = provider
@@ -233,6 +234,7 @@ public actor ArcAgent: Service {
             self.disabledToolsets = disabledToolsets
             self.delegation = delegation
             self.llmClient = llmClient
+            self.contextRecipe = contextRecipe
         }
 
         /// External MCP servers (reference `mcp_servers`).
@@ -248,6 +250,8 @@ public actor ArcAgent: Service {
         /// When set, ``prime()`` uses it instead of building one from the
         /// config's baseURL/apiKey.
         public var llmClient: (any LLMClient)?
+    /// Resolved per-session context segment recipe; nil means all-on (default).
+    public var contextRecipe: ResolvedContextRecipe?
     }
 
     // MARK: - State
@@ -3234,6 +3238,9 @@ public actor ArcAgent: Service {
         }
 
         // ── Stable tier ──
+        let enabled: (ContextSegment) -> Bool = { self.config.contextRecipe?.isEnabled($0) ?? true }
+
+        // ── Stable tier ──
         var stable = """
             You are ARC Agent, an intelligent AI assistant created by Nous Research.
             You are helpful, knowledgeable, and direct. You assist users with a wide
@@ -3242,6 +3249,10 @@ public actor ArcAgent: Service {
 
             You communicate clearly, admit uncertainty when appropriate, and prioritize
             being genuinely useful over being verbose.
+            """
+
+        if enabled(.tools) {
+            stable += """
 
             ## Available Tools
 
@@ -3249,6 +3260,10 @@ public actor ArcAgent: Service {
             the user's request.
 
             \(buildToolsIndex())
+            """
+        }
+
+        stable += """
 
             ## Rules
 
@@ -3259,6 +3274,7 @@ public actor ArcAgent: Service {
             """
 
         // ── Universal guidance (arc parity: hermes prompt_builder guides) ──
+        if enabled(.guidance) {
         if config.taskCompletionGuidance {
             stable += "\n\n" + PromptGuidance.taskCompletion
         }
@@ -3281,6 +3297,7 @@ public actor ArcAgent: Service {
         if config.toolUseEnforcement {
             stable += "\n\n" + PromptGuidance.toolUseEnforcement(for: config.model)
         }
+        }
 
         // Environment hints (stable per machine).
         let osDescription: String
@@ -3289,6 +3306,7 @@ public actor ArcAgent: Service {
         #else
         osDescription = "Linux (\(ProcessInfo.processInfo.operatingSystemVersionString))"
         #endif
+        if enabled(.environment) {
         stable += """
 
 
@@ -3300,15 +3318,16 @@ public actor ArcAgent: Service {
             - Working directory for tools (relative paths resolve here): \(FileManager.default.currentDirectoryPath)
             - Use ~/... paths (or absolute paths) for user-visible locations; the `terminal` tool's shell expands `~`, and `write_file` accepts paths relative to the working directory.
             """
+        }
 
         // ── Personality overlay (reference `/personality`, `agent.system_prompt`) ──
-        if !config.personalityPrompt.isEmpty {
+        if enabled(.personality), !config.personalityPrompt.isEmpty {
             stable += "\n\n## Personality\n\n\(config.personalityPrompt)"
         }
 
         // ── Context tier ──
         var context = ""
-        if config.injectProjectContext {
+        if enabled(.projectContext), config.injectProjectContext {
             let files = await loadContextFiles()
             if !files.isEmpty {
                 context += "## Workspace & Project Context\n\n"
@@ -3324,25 +3343,31 @@ public actor ArcAgent: Service {
         // `skill_view`; inject the section only when the registry actually
         // exposes the loader, so the prompt never advertises a tool the
         // surface lacks.
-        if !config.skills.isEmpty, config.registry.lookup(name: "skill_view") != nil {
+        if enabled(.skills), !config.skills.isEmpty, config.registry.lookup(name: "skill_view") != nil {
             volatile += "## Skills (mandatory)\n\n\(Self.skillsMandatoryFraming)\n\n<available_skills>\n\(buildSkillsIndex(config.skills))\n</available_skills>\n\n"
         }
         if let memory = config.memoryProvider {
-            let memoryContent = MemoryManager.scrub(try await memory.readMemory())
-            if !memoryContent.isEmpty {
-                volatile += "## Memory (Your Persistent Notes)\n\n\(MemoryManager.fence(memoryContent))\n\n"
+            if enabled(.memory) {
+                let memoryContent = MemoryManager.scrub(try await memory.readMemory())
+                if !memoryContent.isEmpty {
+                    volatile += "## Memory (Your Persistent Notes)\n\n\(MemoryManager.fence(memoryContent))\n\n"
+                }
             }
-            let userContent = try await memory.readUser()
-            if !userContent.isEmpty {
-                volatile += "## User Profile\n\n\(MemoryManager.scrub(userContent))\n\n"
+            if enabled(.userProfile) {
+                let userContent = try await memory.readUser()
+                if !userContent.isEmpty {
+                    volatile += "## User Profile\n\n\(MemoryManager.scrub(userContent))\n\n"
+                }
             }
         }
-        volatile += Self.timestampLine(
-            sessionID: sessionID,
-            model: config.model,
-            provider: config.provider,
-            platform: config.platformHint
-        )
+        if enabled(.timestamp) {
+            volatile += Self.timestampLine(
+                sessionID: sessionID,
+                model: config.model,
+                provider: config.provider,
+                platform: config.platformHint
+            )
+        }
 
         let prompt = stable + "\n\n" + context + "\n\n" + volatile
         cachedSystemPrompt = prompt

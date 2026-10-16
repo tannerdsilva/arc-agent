@@ -184,6 +184,16 @@ extension AppState {
         pendingDelete = false
     }
 
+    /// Flip a built-in context segment in the global default recipe (the
+    /// left-panel "Context" tab). Persisted to settings.json; the daemon reads
+    /// it at boot so new sessions inherit the choice.
+    func setContextSegment(_ seg: ContextSegment, on: Bool) {
+        var recipe = settings.contextDefaults ?? ContextRecipe()
+        recipe.segments[seg] = on
+        settings.contextDefaults = recipe
+        saveSettings()
+    }
+
     /// Mark the next chat-scroll render with `data-follow="bottom"` so a
     /// full page load always opens the active conversation at the bottom.
     func armScrollToBottom() {

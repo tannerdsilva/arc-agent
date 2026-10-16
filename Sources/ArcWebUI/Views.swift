@@ -364,7 +364,28 @@ extension AppState {
             return tasksPanel()
         case .todos:
             return chatPanel(todos: true)
+        case .context:
+            return contextPanel()
         }
+    }
+
+    // MARK: Context panel
+
+    /// Left-panel "Context" tab: a compact header. The segment editor lives in
+    /// the main area (`contextMain`).
+    func contextPanel() -> String {
+        let head = """
+        <div class="panel-head">
+          <span class="panel-title">Context</span>
+        </div>
+        """
+        let note = """
+        <div class="panel-note">
+          Toggle the segments included when building this agent's system prompt.
+          Changes apply to new sessions (the global default).
+        </div>
+        """
+        return head + note
     }
 
     // MARK: Chat panel
@@ -954,7 +975,41 @@ extension AppState {
             return tasksMain()
         case .todos:
             return todosPanelHTML()
+        case .context:
+            return contextMain()
         }
+    }
+
+    // MARK: Context main
+
+    /// Main-area "Context" editor: every built-in context segment as a switch
+    /// row. The wire flips the global default recipe in settings.json; the
+    /// daemon reads it at boot so new sessions inherit the choice.
+    func contextMain() -> String {
+        let rows = ContextSegment.allCases.map { seg -> String in
+            let on = settings.contextDefaults?.segments[seg] ?? true
+            let title = on ? "Included in this agent's prompt" : "Excluded from this agent's prompt"
+            return """
+            <div class="set-row">
+              <div class="set-label">\(seg.label)<small>\(seg.rawValue)</small></div>
+              <label class="switch" title="\(title)">
+                <input type="checkbox" id="ctxseg-\(seg.rawValue)" value="ctxseg-\(seg.rawValue)" data-component-id="ctxseg-toggle" data-event="change" aria-label="\(title)"\(on ? " checked" : "")>
+                <span class="track"></span><span class="knob"></span>
+              </label>
+            </div>
+            """
+        }.joined(separator: "\n")
+        return """
+        <div class="main-view">
+          <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
+            <section class="set-section">
+              <h2>Context segments</h2>
+              <p class="set-desc">Choose which built-in context segments are included when building the system prompt for this agent. Segments left on (the default) appear; toggled-off segments are omitted. This is the global default applied to new sessions.</p>
+              \(rows)
+            </section>
+          </div>
+        </div>
+        """
     }
 
     // MARK: Chat main
