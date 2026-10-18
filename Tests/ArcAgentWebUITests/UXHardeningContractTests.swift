@@ -627,16 +627,39 @@ extension ArcWebUITestRoot {
 
         // MARK: - B6/F51 the composer at narrow widths
 
-        @Test("the composer wraps and its chips go icon-only before they overflow")
+        @Test("the composer wraps; its chips keep short labels to 700px then go icon-only, with >= 44px targets at the tablet widths")
         func composerSurvivesNarrowWindows() {
             let css = Self.sheetSource
             #expect(css.contains(".composer-toolbar { display: flex; align-items: center; gap: 2px; padding: 2px 2px 0; flex-wrap: wrap;"),
                     "without wrap, `#cb-send` rendered 200px off-screen at an 820px window")
-            #expect(css.contains("@media (max-width: 1180px) {"))
-            #expect(css.contains(".composer-toolbar .dd-trigger-label { display: none; }"),
-                    "the model chip is ~210px on its own; icon-only is what keeps the row on one line")
+            #expect(css.contains("@media (max-width: 1180px) {"),
+                    "the composer's first narrow breakpoint must exist")
             #expect(css.contains(".composer-toolbar .send-btn { flex: 0 0 auto; }"),
                     "the send button must never be the thing that shrinks away")
+            // UX-05: at 1024 the chips went icon-only with 21px-tall hit
+            // targets. Labels must stay visible down to the mobile breakpoint
+            // (truncated, never dropped), every glyph-only control must reach
+            // a 44px target at the tablet widths, and only below 700px — where
+            // there is no hover title at all — do the chips go icon-only.
+            #expect(css.contains(".composer-toolbar .dd-trigger-label { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }"),
+                    "at the 1180 breakpoint the chip labels must truncate, not disappear (UX-05)")
+            #expect(css.contains(".composer-toolbar .tool-btn { width: 44px; height: 44px; }"),
+                    "the attach/bookmark glyphs must reach a 44px target at 1024 (UX-05)")
+            #expect(css.contains(".composer-toolbar .send-btn { width: 44px; height: 44px; }"),
+                    "Send must reach a 44px target at 1024 (UX-05)")
+            #expect(css.contains("@media (max-width: 700px) {\n      .composer-toolbar .dd-trigger-label { display: none; }"),
+                    "labels go icon-only only below 700px; at 1024 they stay visible (UX-05)")
+            // Every glyph-only composer button carries an accessible name to
+            // back the icon-only state (the data-tip pill is hover-only).
+            let views = Self.views
+            #expect(views.contains("data-tip=\"Attach a file\" aria-label=\"Attach a file\""),
+                    "the attach button must carry an aria-label (UX-05)")
+            #expect(views.contains("data-tip=\"Bookmark this chat\" aria-label=\"Bookmark this chat\""),
+                    "the bookmark button must carry an aria-label (UX-05)")
+            #expect(views.contains("id=\"cb-send\" data-component-id=\"cb-send\" class=\"send-btn\" title=\"Send\" aria-label=\"Send\""),
+                    "Send must carry an aria-label matching its title (UX-05)")
+            #expect(views.contains("class=\"dd-trigger\" title=\"\\(esc(tip))\" aria-label=\"\\(esc(tip))\""),
+                    "every .dd-trigger chip must carry an aria-label so the icon-only state stays named (UX-05)")
         }
 
         // MARK: - B7/F46/F53 the outline

@@ -2231,9 +2231,34 @@ public static let css: String = """
        the backstop so nothing can ever leave the viewport. */
     .composer-toolbar .dd-trigger { min-width: 0; }
     .composer-toolbar .send-btn { flex: 0 0 auto; }
+    /* Below ~1180px the four selector chips tighten: the model chip is ~210px
+       wide on its own, and at 820px the whole row used to push `#cb-send`
+       200px off-screen. The .dd-trigger already truncates its label with an
+       ellipsis, so the chip now CAPS the label instead of dropping it —
+       the model/workspace value is the composer's most important context
+       (UX-05: unlabelled gears at 1024 with 21px-tall hit targets). */
     @media (max-width: 1180px) {
+      .composer-toolbar .dd-trigger-label { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .composer-toolbar .dd-trigger { padding: 8px 10px; }
+    }
+    /* UX-05: at the 1024 tablet width every composer control — the chip
+       triggers, the attach/bookmark glyphs and Send — keeps at least a 44px
+       hit target (they were 21-38px). Labels stay visible so the targets
+       carry their meaning; the wrapping toolbar is the backstop so nothing
+       can ever leave the viewport. */
+    @media (max-width: 1024px) {
+      .composer-toolbar .dd-trigger,
+      .composer-toolbar .tool-btn,
+      .composer-toolbar .send-btn { min-height: 44px; }
+      .composer-toolbar .tool-btn { width: 44px; height: 44px; }
+      .composer-toolbar .send-btn { width: 44px; height: 44px; }
+    }
+    /* Below 700px the rail-plus-composer strip cannot pay for four labelled
+       chips at 44px; the chips go icon-only here — their labels were never
+       visible on a touch viewport anyway — while the 44px targets above
+       keep every control operable. */
+    @media (max-width: 700px) {
       .composer-toolbar .dd-trigger-label { display: none; }
-      .composer-toolbar .dd-trigger { padding: 6px 7px; }
     }
     .tool-btn {
       width: 30px; height: 30px;

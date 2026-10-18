@@ -1824,9 +1824,9 @@ extension AppState {
         // While a turn runs, the send control becomes a red stop button.
         let sendButton: String
         if running {
-            sendButton = #"<button type="button" id="cb-send" data-component-id="stop-turn" class="send-btn stop" title="Stop">"# + WebUIIcon(.square, size: .medium).markup.html + #"</button>"#
+            sendButton = #"<button type="button" id="cb-send" data-component-id="stop-turn" class="send-btn stop" title="Stop" aria-label="Stop">"# + WebUIIcon(.square, size: .medium).markup.html + #"</button>"#
         } else {
-            sendButton = #"<button type="submit" id="cb-send" data-component-id="cb-send" class="send-btn" title="Send">"# + WebUIIcon(.arrowUp, size: .medium).markup.html + #"</button>"#
+            sendButton = #"<button type="submit" id="cb-send" data-component-id="cb-send" class="send-btn" title="Send" aria-label="Send">"# + WebUIIcon(.arrowUp, size: .medium).markup.html + #"</button>"#
         }
 
         let selOpen = wsSelectOpen || profileSelectOpen || modelSelectOpen || thinkSelectOpen
@@ -1840,8 +1840,8 @@ extension AppState {
             <div class="attach-chips" id="attach-chips" data-component-id="att-chips" data-event="click">\(attachmentsHTML)</div>
             <textarea id="composer-input" name="composer-input" data-component-id="composer-input" data-session="\(esc(sid))" data-draft="\(esc(draft))" data-prevent-enter="send" placeholder="\(running ? "Send another message — queued after this reply." : "Message ARC…")" rows="1" style="min-height:24px">\(esc(draft))</textarea>
             <div class="composer-toolbar">
-              \(btn("cb-file", "cb-file", "tool-btn" + (filePopOpen ? " on" : ""), WebUIIcon(.paperclip, size: .medium).markup.html, " data-tip=\"Attach a file\""))
-              \(btn("cb-bookmark", "cb-bookmark", "tool-btn" + (isBooked ? " on" : ""), bookLabel, " data-tip=\"Bookmark this chat\""))
+              \(btn("cb-file", "cb-file", "tool-btn" + (filePopOpen ? " on" : ""), WebUIIcon(.paperclip, size: .medium).markup.html, " data-tip=\"Attach a file\" aria-label=\"Attach a file\""))
+              \(btn("cb-bookmark", "cb-bookmark", "tool-btn" + (isBooked ? " on" : ""), bookLabel, " data-tip=\"Bookmark this chat\" aria-label=\"Bookmark this chat\""))
               \(selectors)
               <span class="spacer"></span>
               \(activeSession().map { ctxIndicatorHTML($0) } ?? "")
@@ -1916,7 +1916,7 @@ extension AppState {
         // name permanently, mid-word).
         let tip = label.isEmpty ? title : "\(title) — \(label)"
         return """
-        <button type="button" id="\(id)" data-component-id="\(id)" class="dd-trigger" title="\(esc(tip))">
+        <button type="button" id="\(id)" data-component-id="\(id)" class="dd-trigger" title="\(esc(tip))" aria-label="\(esc(tip))">
           \(icon)<span class="dd-trigger-label">\(esc(label))</span>\(WebUIIcon(.chevronDown, size: .small).markup.html)
         </button>
         """
