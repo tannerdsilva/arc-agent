@@ -215,6 +215,7 @@ public static let css: String = """
       gap: 6px;
       background: var(--sidebar);
       border-right: 1px solid var(--border);
+      position: relative;
     }
     .icon-btn {
       width: 40px; height: 40px;
@@ -291,7 +292,31 @@ public static let css: String = """
     .icon-mini[data-tip]:hover::after,
     .tool-btn[data-tip]:hover::after,
     .outline-toggle-btn[data-tip]:hover::after { opacity: 1; transition-delay: 0.18s; }
-    #iconbar .iconbar-bottom { margin-top: auto; }
+    /* The rail's two groups own their layout here (the inline styles they used
+       to carry could not be overridden by any short-height compaction rule).
+       The BOTTOM group pins the Settings slot to the rail's bottom edge with
+       absolute positioning (UX-03): it takes no flow space, so an over-full
+       top group can never push the gear out of the window, and tooltips keep
+       working because the rail itself stays overflow: visible. */
+    #iconbar .iconbar-top,
+    #iconbar .iconbar-bottom {
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+    }
+    #iconbar .iconbar-top { flex: 1 1 auto; min-height: 0; }
+    #iconbar .iconbar-bottom {
+      position: absolute; bottom: 6px; left: 0; right: 0;
+      flex: 0 0 auto;
+    }
+    /* Short windows (UX-03): the 12-icon rail is 570px tall at default
+       spacing and overflowed the 539px app body at 1280×577, clipping the
+       Settings gear. Compact spacing fits all 12 icons in a 577px window,
+       and the pinned bottom group keeps the gear reachable regardless of how
+       many plugin tabs the rail grows. */
+    @media (max-height: 640px) {
+      #iconbar { gap: 2px; padding: 6px 0; }
+      #iconbar .iconbar-top,
+      #iconbar .iconbar-bottom { gap: 2px; }
+    }
 
     /* Panel (left of main, same width for every view) */
     #panel {

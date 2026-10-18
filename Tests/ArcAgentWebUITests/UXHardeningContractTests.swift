@@ -973,6 +973,29 @@ extension ArcWebUITestRoot {
 
         /// A placeholder is not a label: it vanishes on input and is not an
         /// accessible name. Every filter field needs one.
+        // MARK: - UX-03 (2026-10-18 wave 2) Settings gear reachable at short heights
+
+        /// At 1280×577 the 12-icon rail (570px at default spacing) overflowed the
+        /// 539px app body and pushed the Settings gear below the fold with no
+        /// scroll path. The bottom slot must be pinned to the rail's bottom edge
+        /// (out of flow) and the rail must compact at short heights; the geometry
+        /// freedoms that made the old inline styles unreachable are gone too.
+        @Test("the icon rail compacts at short heights and pins the Settings slot")
+        func iconRailKeepsSettingsReachable() {
+            let css = Self.sheetSource
+            let views = Self.views
+            #expect(css.contains("#iconbar .iconbar-bottom {\n      position: absolute; bottom: 6px; left: 0; right: 0;"),
+                    "the Settings slot must be pinned to the rail's bottom edge (UX-03)")
+            #expect(!css.contains("#iconbar .iconbar-bottom { margin-top: auto; }"),
+                    "the margin-top:auto pin is back: an over-full rail pushes the gear below the fold")
+            #expect(css.contains("@media (max-height: 640px) {"),
+                    "the short-height compaction breakpoint must exist (UX-03)")
+            #expect(css.contains("#iconbar { gap: 2px; padding: 6px 0; }"),
+                    "the rail must compact at short heights (was 6px gaps / 12px padding)")
+            #expect(!views.contains("style=\"display:flex;flex-direction:column;gap:6px;align-items:center;\""),
+                    "the inline group styles (which blocked any compaction rule) must stay gone")
+        }
+
         @Test("the filter fields carry accessible names")
         func filterFieldsAreNamed() {
             let views = Self.views

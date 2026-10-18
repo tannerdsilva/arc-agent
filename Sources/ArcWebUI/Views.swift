@@ -154,8 +154,8 @@ extension AppState {
                               " data-tip=\"Settings\""
                                 + (settingsActive ? " tabindex=\"0\"" : " tabindex=\"-1\""))
         return """
-        <div class="iconbar-top" style="display:flex;flex-direction:column;gap:6px;align-items:center;">\(top)</div>
-        <div class="iconbar-bottom" style="display:flex;flex-direction:column;gap:6px;align-items:center;">\(settingsBtn)</div>
+        <div class="iconbar-top">\(top)</div>
+        <div class="iconbar-bottom">\(settingsBtn)</div>
         """
     }
 
