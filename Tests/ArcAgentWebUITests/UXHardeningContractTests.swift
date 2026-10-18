@@ -1115,6 +1115,37 @@ extension ArcWebUITestRoot {
                     "a removed row's replacement (by data-sid) must be found so a deleted chat still lands focus sensibly (UX-08)")
         }
 
+        // MARK: - UX-07 (2026-10-18 wave 2) collapse the rail on narrow widths
+
+        /// At 480×900 the 12-icon vertical rail persisted and ate a 46px column
+        /// (rail 46 / main 434). Below 600px the rail must collapse into a
+        /// horizontal strip under the topbar: window never scrolls horizontally
+        /// (the strip's own overflow owns that), Settings stays pinned at the
+        /// visible right edge, and the drawer clears the strip so every nav
+        /// destination stays reachable.
+        @Test("below 600px the rail collapses to a horizontal strip without taxing the window width")
+        func railCollapsesAtNarrowWidths() {
+            let css = Self.sheetSource
+            #expect(css.contains("@media (max-width: 599.98px) {"),
+                    "the rail-collapse breakpoint must exist below 600px (UX-07)")
+            #expect(css.contains("#app-body { flex-direction: column; }"),
+                    "the app body must stack so the rail stops taxing the window width (UX-07)")
+            let railBlock = "@media (max-width: 599.98px) {"
+            guard let r0 = css.range(of: railBlock) else { return }
+            let rest = css[r0.upperBound...]
+            let block = rest.prefix(900)
+            #expect(block.contains("flex: 0 0 auto; width: 100%; height: 44px;"),
+                    "the rail must become a full-width horizontal strip (UX-07)")
+            #expect(block.contains("flex-direction: row; align-items: center;"),
+                    "the strip lays its icons out in a row (UX-07)")
+            #expect(block.contains("overflow-x: auto; overflow-y: hidden;"),
+                    "the strip scrolls internally so the WINDOW never overflows (UX-07)")
+            #expect(block.contains("position: sticky; bottom: auto; left: auto; right: 0;"),
+                    "the Settings slot must stay pinned to the visible right edge of the strip (UX-07)")
+            #expect(block.contains("#panel { top: 82px; left: 0; width: 100vw; }"),
+                    "the drawer must open below the rail strip so the rail stays tappable (UX-07)")
+        }
+
         @Test("the filter fields carry accessible names")
         func filterFieldsAreNamed() {
             let views = Self.views

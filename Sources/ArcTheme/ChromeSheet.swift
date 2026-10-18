@@ -3178,6 +3178,35 @@ public static let css: String = """
       #ws-dock { padding: 8px 4px; }
       .ws-dock-btn { width: 36px; height: 36px; }
     }
+    /* Below 600px the vertical 12-icon rail eats the whole left column and a
+       third of a 480px window. Collapse it into a single 44px horizontal
+       strip under the topbar: the app body becomes a column, the rail scrolls
+       sideways (its own overflow, so the WINDOW never does), and the Settings
+       slot stays pinned to the visible right edge with position:sticky — the
+       gear and every other destination stay reachable without any column
+       width tax, so the composer gets the full window. */
+    @media (max-width: 599.98px) {
+      #app-body { flex-direction: column; }
+      #iconbar {
+        flex: 0 0 auto; width: 100%; height: 44px;
+        flex-direction: row; align-items: center;
+        gap: 4px; padding: 2px 6px;
+        overflow-x: auto; overflow-y: hidden;
+        border-right: none; border-bottom: 1px solid var(--border);
+      }
+      #iconbar .iconbar-top { flex: 0 0 auto; min-height: 0; }
+      #iconbar .iconbar-top,
+      #iconbar .iconbar-bottom { flex-direction: row; }
+      #iconbar .iconbar-bottom {
+        position: sticky; bottom: auto; left: auto; right: 0;
+        flex: 0 0 auto; align-items: center;
+        background: var(--sidebar); padding-left: 6px;
+      }
+      /* the drawer opens after the topbar AND the rail strip, so the rail
+         stays tappable while the drawer is open (UX-61 principle) */
+      #panel { top: 82px; left: 0; width: 100vw; }
+      .drawer-scrim { top: 82px; left: 0; }
+    }
     """
 
 }
