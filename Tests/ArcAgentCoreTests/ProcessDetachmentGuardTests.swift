@@ -154,5 +154,72 @@ extension ArcCoreTestRoot {
 			}
 			#expect(offenders.isEmpty, "detached/foreign placements found:\n\(offenders.joined(separator: "\n"))")
 		}
+
+		// MARK: - the spawn census
+
+		private static func filesContaining(_ token: String, in files: [String], under root: String) -> [String] {
+			var found: [String] = []
+			for file in files {
+				guard let text = try? String(contentsOfFile: file, encoding: .utf8) else { continue }
+				if codeOnly(text).contains(token) {
+					found.append(file.replacingOccurrences(of: root + "/", with: ""))
+				}
+			}
+			return found.sorted()
+		}
+
+		/// From the SwiftSlash surface, so `ChildProcess(` does not read as a
+		/// Foundation `Process()`.
+		private static func filesConstructingFoundationProcess(in files: [String], under root: String) -> [String] {
+			var found: [String] = []
+			for file in files {
+				guard let text = try? String(contentsOfFile: file, encoding: .utf8) else { continue }
+				let code = codeOnly(text)
+					.replacingOccurrences(of: "ChildProcess(", with: "SwiftSlashSpawn(")
+				if code.contains("Process()") {
+					found.append(file.replacingOccurrences(of: root + "/", with: ""))
+				}
+			}
+			return found.sorted()
+		}
+
+		/// Every spawn site in the tree, pinned.
+		///
+		/// A placement is only expressible where a spawner can express one, so the
+		/// set of spawners IS the contract's blast radius — and a census is what
+		/// keeps that set from growing quietly.
+		///
+		/// - `ChildProcess(` carries the placement. The audited pair hardcode
+		///   `.own`; `ArcSubprocessFixture` is a test executable that ships in no
+		///   product and deliberately asks for nothing, so the inherited cascade has
+		///   a subject.
+		/// - `Process()` cannot express a placement at all — a Foundation child
+		///   joins arc's OWN group. That is a documented carve-out (see the note in
+		///   `ProcessRegistry`), not something this test discovered: three
+		///   short-lived helpers (`ps`, `kill`, a hook interpreter) plus three
+		///   long-lived children that predate the contract. Named here so the debt
+		///   stays visible and a seventh site has to be argued for rather than
+		///   slipped in.
+		@Test("the spawn census is exactly the audited set")
+		func spawnCensusIsAudited() {
+			let root = Self.sourcesRoot()
+			let files = Self.swiftFiles(under: root)
+
+			let swiftSlash = Self.filesContaining("ChildProcess(", in: files, under: root)
+			#expect(swiftSlash == [
+				"ArcAgentCore/LLM/Adapters/ACPClient.swift",
+				"ArcAgentCore/Support/SubprocessRunner.swift",
+				"ArcSubprocessFixture/ArcSubprocessFixture.swift",
+			], "SwiftSlash spawn sites changed: \(swiftSlash.joined(separator: ", "))")
+
+			let foundation = Self.filesConstructingFoundationProcess(in: files, under: root)
+			#expect(foundation == [
+				"ArcAgentCore/Hooks/HookBus.swift",
+				"ArcAgentCore/Process/ProcessRegistry.swift",
+				"ArcAgentCore/Process/ProcessWatch.swift",
+				"ArcAgentCore/Tools/ComputerUseTool.swift",
+				"ArcWebUI/SidecarPlugin.swift",
+			], "Foundation spawn sites changed — such a child joins arc's own group and cannot be torn down as a group: \(foundation.joined(separator: ", "))")
+		}
 	}
 }

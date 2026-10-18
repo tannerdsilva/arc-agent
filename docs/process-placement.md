@@ -1,8 +1,9 @@
 # Process Placement
 
-The contract for the process groups arc creates. Every child arc spawns is
+The contract for the process groups arc creates. Every child spawned through arc's two audited sites is
 reachable by one signal at teardown, and nothing arc did not spawn is
-reachable by it. This document is the reference for that contract: what
+reachable by it. Where the contract does not yet reach is named in §5: a
+Foundation spawn cannot express a placement at all. This document is the reference for that contract: what
 each placement means, why arc asks for the one it asks for, how the
 guarantee survives a nested launch, and where it stops.
 
@@ -118,6 +119,15 @@ Stated plainly, because callers rely on the edges:
   mechanism can pull it back; that needs a container or a cgroup. The
   guarantee is *cooperative descendants*. In arc this is not a soft edge —
   `DetachmentPolicy` refuses the command line that would do it.
+- **A `Foundation.Process` child joins arc's own group.** Foundation's `Process`
+  has no placement knob, so five sites spawn that way: three short-lived helpers
+  (a `ps` snapshot, a `/bin/kill` call, a hook interpreter) and three long-lived
+  children that predate the contract (the background shell in `ProcessRegistry`,
+  the cua driver in `ComputerUseTool`, a web-UI sidecar). They are reached when
+  arc's own group is signalled at shutdown, but never by a *per-child* group
+  signal — so a `ProcessRegistry` kill reaches the pid and not its grandchildren.
+  `ProcessDetachmentGuardTests` pins the exact set, so a sixth site cannot appear
+  unnoticed, and migrating one means giving it a placement-bearing spawner.
 - **`SIGKILL` of arc cannot be handled.** Nothing runs, so the tree is
   reparented rather than signalled. `SIGTERM` and `SIGINT` are the graceful
   paths and both are handled by the service group.
@@ -150,7 +160,8 @@ side lets a consumer drag the other back below the floor.
 | `SubprocessRunnerTests` | the child arc spawns leads its own group, in its own session |
 | `SubprocessCascadeTests` | a nested launch joins the enclosing group; one group signal takes fixture + shell + grandchild |
 | `DetachmentPolicyTests` | refusal/pass-through matrix; the refusal is identical on the foreground and background paths |
-| `ProcessDetachmentGuardTests` | no source requests `.detached`; the scanner masks comments and self-checks that masking |
+| `ProcessDetachmentGuardTests` | no source requests `.detached`; the scanner masks comments and self-checks that masking; the spawn census pins the audited set and names the Foundation carve-out |
+| `ACPSpawnContractTests` | the ACP child leads its own group; a full `initialize` → `session/new` → `prompt` round trip against a fake peer; `shutdown()` reaps |
 | `SubprocessLadderPlacementTests` (swift-mcp) | the transport's shutdown ladder stops a child that leads no group |
 
 Placement is asserted in process, never through `ps`: the suites read

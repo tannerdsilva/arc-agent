@@ -7,7 +7,7 @@ This project has completed five feature-build phases and is now in **vascular ha
 The core architecture is built and proven:
 - **204 Swift source files** across five built targets — ArcAgentCore (164), ArcWebUI (22), ArcTheme (2), ArcDaemon (2), the `arc-agent` CLI (13) — plus the `ArcAssetTool` generator (1)
 - **Swift 6 language mode** — every target compiles under Swift 6 strict concurrency (no `.swiftLanguageMode(.v5)` pins remain); a clean rebuild is warning-free from arc's own sources
-- **922 tests** — 750 core (93 suites) + 157 web UI (23 suites) + 15 daemon (1 suite). The environment-gated core test asserts the live `~/.arc/config.json` aux layout and the reference oMLX models, and fails on a machine configured with a different provider — that is the only expected red
+- **1,099 tests** — 881 core (122 suites) + 203 web UI (30 suites) + 15 daemon (2 suites), all green. The `~/.arc/config.json` aux layout is pinned as a fixture rather than read from the developer's live config: it had been the only expected red, and a permanently red run is how a real regression goes unread
 - **15 dependencies** (AsyncHTTPClient, ArgumentParser, System, ServiceLifecycle, tessera, Hummingbird, swift-mcp, swift-nio, swift-nio-ssl, swift-nio-extras, swift-http-types, SwiftSlash, swift-log, no-webui, ArcSidebarTabs — tessera and ArcSidebarTabs are **local path pins** while they are co-developed; no-webui is version-pinned at 2.0.0)
 - **53 registered tools** across 16 toolsets (arc parity incl. `project_*`, `skill_manage`, `skills_list`, `tool_search`, `send_message`; the reference media/webhook/code-execution ports stay deleted)
 - **Gateway stack** — HTTP server, Telegram adapter, MCP server, session management
@@ -31,7 +31,7 @@ When asked to produce code, assume it is:
 | AGENTS.md | This file |
 | README.md | Updated |
 | Source files | 204 Swift files in `Sources/` (ArcAgentCore 164, ArcWebUI 22, ArcTheme 2, ArcDaemon 2, arc-agent CLI 13, ArcAssetTool 1) |
-| Tests | 922 (750 core in 93 suites + 157 web UI in 23 suites + 15 daemon in 1 suite); the environment-gated live-config test is the only expected red |
+| Tests | 1,099 (881 core in 122 suites + 203 web UI in 30 suites + 15 daemon in 2 suites); all green — no expected failures |
 | Build | Clean — verified on a clean rebuild in Swift 6 language mode; 0 warnings from arc's own sources (the only warnings are 10 `#UnnecessaryEffectMarker` notes emitted from the path-pinned tessera dependency) |
 | Branch | `dev` (active — one squash-merge of the `nowebui` line; `master` is its base) |
 
