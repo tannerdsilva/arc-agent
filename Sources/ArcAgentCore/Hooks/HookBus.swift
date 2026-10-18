@@ -3,6 +3,7 @@ import AsyncHTTPClient
 import NIOCore
 import NIOHTTP1
 import Crypto
+import SwiftSlash
 
 // MARK: - Event Hooks (reference `website/docs/user-guide/features/hooks.md`)
 
@@ -242,37 +243,44 @@ public actor HookBus {
 
     private func runFileHook(_ hook: FileHook, _ job: HookJob) async {
         do {
-            let process = Process()
+            // A hook is run-to-completion with a payload on stdin and a 30 s bound
+            // — exactly `SubprocessRunner`. The old form blocked a thread in
+            // `waitUntilExit()` while a second task slept to `terminate()` it, and
+            // the terminate raced the reap; the runner's timeout signals the whole
+            // process group and reaps it before returning.
+            let executable = hook.interpreter == nil ? hook.handlerURL.path : "/usr/bin/env"
+            // A path SwiftSlash cannot execute produces no child at all, and the
+            // launch then waits on a continuation nothing resumes — so refuse it
+            // here, where the old `Process.run()` would have thrown.
+            guard executable.hasPrefix("/"),
+                  FileManager.default.isExecutableFile(atPath: executable)
+            else {
+                LoggerHolder.log("hook \(hook.name) failed: not an executable: \(executable)")
+                return
+            }
+            var command: Command
             if let interpreter = hook.interpreter {
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                process.arguments = [interpreter, hook.handlerURL.path, job.event]
+                command = Command(
+                    absolutePath: Path("/usr/bin/env"),
+                    arguments: [interpreter, hook.handlerURL.path, job.event])
             } else {
-                process.executableURL = hook.handlerURL
-                process.arguments = [job.event]
+                command = Command(
+                    absolutePath: Path(hook.handlerURL.path),
+                    arguments: [job.event])
             }
-            let input = Pipe()
-            let output = Pipe()
-            let errorPipe = Pipe()
-            process.standardInput = input
-            process.standardOutput = output
-            process.standardError = errorPipe
+            command.inheritCurrentEnvironment()
 
-            try process.run()
             let body = try JSONSerialization.data(withJSONObject: hookJSONPayload(job), options: [])
-            input.fileHandleForWriting.write(body)
-            try? input.fileHandleForWriting.close()
+            let outcome = try await SubprocessRunner.runBytes(
+                command, timeout: 30, stdin: Array(body))
 
-            // Bounded wait: 30 s cap, then kill.
-            let deadline = Task {
-                try? await Task.sleep(nanoseconds: 30_000_000_000)
-                if process.isRunning { process.terminate() }
-            }
-            process.waitUntilExit()
-            deadline.cancel()
-
-            let stderr = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            if process.terminationStatus != 0, !stderr.isEmpty {
-                LoggerHolder.log("hook \(hook.name): \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
+            // stderr is the hook's own diagnostics; it is only interesting when the
+            // hook failed (unchanged from the pipe form).
+            if outcome.exitCodeValue != 0 {
+                let stderr = String(data: outcome.stderr, encoding: .utf8) ?? ""
+                if !stderr.isEmpty {
+                    LoggerHolder.log("hook \(hook.name): \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
+                }
             }
         } catch {
             LoggerHolder.log("hook \(hook.name) failed: \(error)")

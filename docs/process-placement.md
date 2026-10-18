@@ -1,20 +1,24 @@
 # Process Placement
 
-The contract for the process groups arc creates. Every child spawned through arc's two audited sites is
+The contract for the process groups arc creates. Every child arc spawns is
 reachable by one signal at teardown, and nothing arc did not spawn is
-reachable by it. Where the contract does not yet reach is named in §5: a
-Foundation spawn cannot express a placement at all. This document is the reference for that contract: what
-each placement means, why arc asks for the one it asks for, how the
-guarantee survives a nested launch, and where it stops.
+reachable by it. This document is the reference for that contract: what each
+placement means, why arc asks for the one it asks for, how the guarantee
+survives a nested launch, and where it stops.
 
 > **Status (implemented):** arc pins `SwiftSlash 6.0.0` and `swift-mcp 2.1.2`
-> and passes `processGroup: .own` at both of its spawn sites
-> (`Support/SubprocessRunner.swift`, `LLM/Adapters/ACPClient.swift`).
+> and passes `processGroup: .own` at every one of its spawn sites. Two entry
+> points own the spawn: `Support/SubprocessRunner.swift` for a
+> run-to-completion child and `Support/SubprocessSession.swift` for a
+> long-lived one; `LLM/Adapters/ACPClient.swift` predates the session type and
+> keeps its own handshake plumbing on the same placement.
 > Placement-aware teardown is in the transport of the pinned swift-mcp, so a
 > child that itself spawns through the same library joins the enclosing group
 > instead of escaping into its own. `Tools/DetachmentPolicy.swift` refuses a
 > command line that detaches, and `TerminalTool` applies it ahead of both the
-> foreground and the background path.
+> foreground and the background path. **Foundation `Process` is gone from the
+> tree** — the census test asserts zero sites, so a reintroduced one fails by
+> name rather than quietly re-opening the hole.
 
 ## 1. The three invariants
 
@@ -119,15 +123,17 @@ Stated plainly, because callers rely on the edges:
   mechanism can pull it back; that needs a container or a cgroup. The
   guarantee is *cooperative descendants*. In arc this is not a soft edge —
   `DetachmentPolicy` refuses the command line that would do it.
-- **A `Foundation.Process` child joins arc's own group.** Foundation's `Process`
-  has no placement knob, so five sites spawn that way: three short-lived helpers
-  (a `ps` snapshot, a `/bin/kill` call, a hook interpreter) and three long-lived
-  children that predate the contract (the background shell in `ProcessRegistry`,
-  the cua driver in `ComputerUseTool`, a web-UI sidecar). They are reached when
-  arc's own group is signalled at shutdown, but never by a *per-child* group
-  signal — so a `ProcessRegistry` kill reaches the pid and not its grandchildren.
-  `ProcessDetachmentGuardTests` pins the exact set, so a sixth site cannot appear
-  unnoticed, and migrating one means giving it a placement-bearing spawner.
+- **No Foundation `Process` child remains, and the census keeps it that way.**
+  `Process` has no placement knob, so any child it spawns silently joins arc's
+  *own* group — a per-child teardown reaches the pid and never the tree beneath
+  it, which is exactly how a backgrounded `swift test` used to survive its own
+  session's kill. Seven call sites across five files used to spawn that way (a
+  `ps` snapshot, a `/bin/kill` call, a hook interpreter, the background shell,
+  a `pkill`-helper that existed only to emulate a group signal, the cua driver,
+  a web-UI sidecar); all of them now ride one of the two SwiftSlash entry
+  points. `ProcessDetachmentGuardTests` fails on any `Process()` in the tree and
+  names the offender, since the whole point is that the *next* one cannot appear
+  unnoticed.
 - **`SIGKILL` of arc cannot be handled.** Nothing runs, so the tree is
   reparented rather than signalled. `SIGTERM` and `SIGINT` are the graceful
   paths and both are handled by the service group.
@@ -158,9 +164,11 @@ side lets a consumer drag the other back below the floor.
 | suite | asserts |
 |---|---|
 | `SubprocessRunnerTests` | the child arc spawns leads its own group, in its own session |
+| `SubprocessSessionTests` | the long-lived entry point gives the child its own group, streams raw bytes with no newline eaten, and reaps on `terminate()` |
 | `SubprocessCascadeTests` | a nested launch joins the enclosing group; one group signal takes fixture + shell + grandchild |
 | `DetachmentPolicyTests` | refusal/pass-through matrix; the refusal is identical on the foreground and background paths |
-| `ProcessDetachmentGuardTests` | no source requests `.detached`; the scanner masks comments and self-checks that masking; the spawn census pins the audited set and names the Foundation carve-out |
+| `ProcessDetachmentGuardTests` | no source requests `.detached`; the scanner masks comments and self-checks that masking; the spawn census pins four `.own` sites and **zero** Foundation `Process()` |
+| `BackgroundProcessTests` | the registry over a session: start, poll, log, list, kill-the-group, exit reason |
 | `ACPSpawnContractTests` | the ACP child leads its own group; a full `initialize` → `session/new` → `prompt` round trip against a fake peer; `shutdown()` reaps |
 | `SubprocessLadderPlacementTests` (swift-mcp) | the transport's shutdown ladder stops a child that leads no group |
 

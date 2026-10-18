@@ -189,17 +189,20 @@ extension ArcCoreTestRoot {
 		/// set of spawners IS the contract's blast radius — and a census is what
 		/// keeps that set from growing quietly.
 		///
-		/// - `ChildProcess(` carries the placement. The audited pair hardcode
-		///   `.own`; `ArcSubprocessFixture` is a test executable that ships in no
+		/// - `ChildProcess(` carries the placement, and it is now the ONLY kind of
+		///   spawn in the tree. Two entry points own it: `SubprocessRunner` for a
+		///   run-to-completion child and `SubprocessSession` for a long-lived one.
+		///   `ACPClient` predates the session type and keeps its own handshake
+		///   plumbing; `ArcSubprocessFixture` is a test executable that ships in no
 		///   product and deliberately asks for nothing, so the inherited cascade has
 		///   a subject.
-		/// - `Process()` cannot express a placement at all — a Foundation child
-		///   joins arc's OWN group. That is a documented carve-out (see the note in
-		///   `ProcessRegistry`), not something this test discovered: three
-		///   short-lived helpers (`ps`, `kill`, a hook interpreter) plus three
-		///   long-lived children that predate the contract. Named here so the debt
-		///   stays visible and a seventh site has to be argued for rather than
-		///   slipped in.
+		/// - `Process()` is the Foundation spawner, which **cannot express a
+		///   placement at all** — such a child silently joins arc's OWN process
+		///   group, so a per-child teardown reaches a pid and never the tree beneath
+		///   it. The set is empty, and this assertion is what keeps it empty: a
+		///   reintroduced `Process()` fails by name instead of quietly re-opening
+		///   the hole that `docs/process-placement.md` had to document as a
+		///   carve-out.
 		@Test("the spawn census is exactly the audited set")
 		func spawnCensusIsAudited() {
 			let root = Self.sourcesRoot()
@@ -209,17 +212,13 @@ extension ArcCoreTestRoot {
 			#expect(swiftSlash == [
 				"ArcAgentCore/LLM/Adapters/ACPClient.swift",
 				"ArcAgentCore/Support/SubprocessRunner.swift",
+				"ArcAgentCore/Support/SubprocessSession.swift",
 				"ArcSubprocessFixture/ArcSubprocessFixture.swift",
 			], "SwiftSlash spawn sites changed: \(swiftSlash.joined(separator: ", "))")
 
 			let foundation = Self.filesConstructingFoundationProcess(in: files, under: root)
-			#expect(foundation == [
-				"ArcAgentCore/Hooks/HookBus.swift",
-				"ArcAgentCore/Process/ProcessRegistry.swift",
-				"ArcAgentCore/Process/ProcessWatch.swift",
-				"ArcAgentCore/Tools/ComputerUseTool.swift",
-				"ArcWebUI/SidecarPlugin.swift",
-			], "Foundation spawn sites changed — such a child joins arc's own group and cannot be torn down as a group: \(foundation.joined(separator: ", "))")
+			#expect(foundation.isEmpty,
+				"Foundation `Process()` is banned in this tree: such a child joins arc's own process group, cannot be torn down as a group, and has no placement knob. Use `SubprocessRunner` (run-to-completion) or `SubprocessSession` (long-lived). Offenders: \(foundation.joined(separator: ", "))")
 		}
 	}
 }

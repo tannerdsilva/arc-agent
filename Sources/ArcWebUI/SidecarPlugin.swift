@@ -1,3 +1,4 @@
+import ArcAgentCore
 import ArcSidebarTabs
 import Foundation
 import Logging
@@ -10,10 +11,11 @@ import Logging
 // objects; the process boundary is the only difference vs. an in-process
 // plugin.
 //
-// `SidecarConnection` is an actor owning the child process, the pipes,
-// and the pending-RPC map. Incoming lines are hoisted into it via
-// `readabilityHandler` (single-threaded per handle — the accepted
-// Foundation I/O pattern, also used by the MCP stdio client).
+// `SidecarConnection` is an actor owning the child session, the pending-RPC
+// map and the reader tasks. Incoming lines are delivered by the session's byte
+// pumps — no `readabilityHandler`, no Foundation I/O queue, and no child joining
+// arc's own process group (the old `Process` form did exactly that, so a
+// sidecar's own children were unreachable at teardown).
 
 // MARK: - Connection
 
@@ -24,10 +26,8 @@ public actor SidecarConnection {
     /// (`host.workspacePath`, `host.toast`, `host.navigate`, …).
     public typealias HostHandler = @Sendable (String, SidecarValue?) async throws -> SidecarValue
 
-    private var process: Process?
-    private var stdinPipe: Pipe?
-    private var stdoutPipe: Pipe?
-    private var stderrPipe: Pipe?
+    private var session: SubprocessSession?
+    private var readers: [Task<Void, Never>] = []
     private var nextID = 0
     private var pending: [Int: CheckedContinuation<SidecarValue, Error>] = [:]
     private let binary: String
@@ -52,101 +52,91 @@ public actor SidecarConnection {
         self.logger = logger ?? Logger(label: "arc-agent.sidecar-plugins")
     }
 
-    /// Spawn the plugin process and attach pipes.
-    public func connect() throws {
+    /// Spawn the plugin process and attach the channel readers.
+    public func connect() async throws {
         guard FileManager.default.isExecutableFile(atPath: binary) else {
             throw SidecarConnectionError.notExecutable(binary)
         }
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: binary)
-        let stdin = Pipe()
-        let stdout = Pipe()
-        let stderr = Pipe()
-        proc.standardInput = stdin
-        proc.standardOutput = stdout
-        proc.standardError = stderr
-        // JSON-lines protocol; keep the plugin's stderr visible in logs.
-        proc.terminationHandler = { [weak self] p in
-            Task { await self?.processExited(p.terminationStatus) }
+        // The same session type every other long-lived child arc owns: `.own`
+        // placement, byte channels, one reap task.
+        let session = SubprocessSession(executable: binary)
+        self.session = session
+        let pid = try await session.start()
+        startReaders(session)
+        logger.info("sidecar plugin started: \(binary) (pid \(pid))")
+    }
+
+    /// Attach the three readers: plugin output, plugin stderr, and the exit
+    /// watcher that fails in-flight calls instead of leaving them suspended.
+    private func startReaders(_ session: SubprocessSession) {
+        // JSON-lines protocol. One accumulator per stream, fed by the session's
+        // byte pump — the same framing the old `readabilityHandler` fed.
+        let outAccumulator = SidecarLineAccumulator { [weak self] line in
+            Task { await self?.handle(line: line) }
         }
-        try proc.run()
-        process = proc
-        stdinPipe = stdin
-        stdoutPipe = stdout
-        stderrPipe = stderr
-        startReader(handle: stdout.fileHandleForReading, stderrHandle: stderr.fileHandleForReading)
-        logger.info("sidecar plugin started: \(binary) (pid \(proc.processIdentifier))")
+        let errAccumulator = SidecarLineAccumulator { [weak self] line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            Task { await self?.logStderr(trimmed) }
+        }
+        readers = [
+            Task { for await bytes in session.stdout { outAccumulator.feed(Data(bytes)) } },
+            Task { for await bytes in session.stderr { errAccumulator.feed(Data(bytes)) } },
+            Task { [weak self] in
+                let code = await session.waitForExit()
+                await self?.processExited(Int32(code ?? -1))
+            },
+        ]
+    }
+
+    private func logStderr(_ line: String) {
+        logger.info("sidecar[\(binary)]: \(line)")
     }
 
     /// Host→plugin RPC. `params` may be nil.
     public func call(_ method: String, params: SidecarValue? = nil) async throws -> SidecarValue {
+        guard let session, await session.isRunning() else {
+            throw SidecarConnectionError.processExited(-1)
+        }
         nextID += 1
         let id = nextID
         let env = SidecarEnvelope.request(id: id, method: method, params: params)
+        do {
+            try await session.write(encodeLine(env))
+        } catch {
+            throw SidecarConnectionError.processExited(-1)
+        }
+        // The continuation is registered *after* the frame is flushed, and that
+        // ordering is safe: `write` returning resumes this task and it runs
+        // atomically up to the next suspension, while the reply handler needs this
+        // actor — so a reply that arrives instantly is queued behind us, never
+        // dropped for want of a pending id.
         return try await withCheckedThrowingContinuation { cont in
             pending[id] = cont
-            do {
-                try stdinPipe?.fileHandleForWriting.write(contentsOf: encodeLine(env))
-            } catch {
-                pending.removeValue(forKey: id)
-                cont.resume(throwing: error)
-            }
         }
     }
 
     /// Tear the process down. Idempotent.
-    public func disconnect() {
-        try? stdinPipe?.fileHandleForWriting.close()
-        stdoutPipe?.fileHandleForReading.readabilityHandler = nil
-        stderrPipe?.fileHandleForReading.readabilityHandler = nil
-        process?.terminate()
-        process = nil
-        stdinPipe = nil
-        stdoutPipe = nil
-        stderrPipe = nil
+    public func disconnect() async {
+        if let session { await session.shutdown() }
+        session = nil
+        for reader in readers { await reader.value }
+        readers = []
         for (_, cont) in pending {
             cont.resume(throwing: SidecarConnectionError.processExited(-1))
         }
         pending.removeAll()
     }
 
-    public var isRunning: Bool { process != nil }
+    /// True while a session is attached. Liveness itself is the exit watcher's
+    /// job — it is what fails pending calls when the child goes away.
+    public var isRunning: Bool { session != nil }
 
     // MARK: Reader
 
-    private func startReader(handle: FileHandle, stderrHandle: FileHandle) {
-        let channel = self
-        let outAccumulator = SidecarLineAccumulator { line in
-            Task { await channel.handle(line: line) }
-        }
-        handle.readabilityHandler = { h in
-            let data = h.availableData
-            if data.isEmpty {
-                h.readabilityHandler = nil
-                return
-            }
-            outAccumulator.feed(data)
-        }
-        let errAccumulator = SidecarLineAccumulator { line in
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                channel.logger.info("sidecar[\(channel.binary)]: \(trimmed)")
-            }
-        }
-        stderrHandle.readabilityHandler = { h in
-            let data = h.availableData
-            if data.isEmpty {
-                h.readabilityHandler = nil
-                return
-            }
-            errAccumulator.feed(data)
-        }
-    }
-
     private func processExited(_ code: Int32) {
         logger.warning("sidecar plugin exited (code \(code)): \(binary)")
-        stdoutPipe?.fileHandleForReading.readabilityHandler = nil
-        stderrPipe?.fileHandleForReading.readabilityHandler = nil
+        session = nil
         for (_, cont) in pending {
             cont.resume(throwing: SidecarConnectionError.processExited(code))
         }
@@ -187,15 +177,15 @@ public actor SidecarConnection {
         }
     }
 
-    private func write(_ env: SidecarEnvelope) {
-        try? stdinPipe?.fileHandleForWriting.write(contentsOf: encodeLine(env))
+    private func write(_ env: SidecarEnvelope) async {
+        guard let session else { return }
+        try? await session.write(encodeLine(env))
     }
 
-    private func encodeLine(_ env: SidecarEnvelope) -> Data {
-        let data = (try? JSONEncoder().encode(env)) ?? Data()
-        var line = data
+    private func encodeLine(_ env: SidecarEnvelope) -> [UInt8] {
+        var line = (try? JSONEncoder().encode(env)) ?? Data()
         line.append(0x0A)
-        return line
+        return Array(line)
     }
 }
 

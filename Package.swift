@@ -153,7 +153,6 @@ let package = Package(
                 .product(name: "WebUIDesignSystem", package: "no-webui"),
                 // the shipped-asset protocol the generated ThemeSheetAssets conforms to.
                 .product(name: "WebUICore", package: "no-webui"),
-                .product(name: "SwiftSlash", package: "SwiftSlash"),
                 .product(name: "AsyncHTTPClient", package: "async-http-client"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOHTTP1", package: "swift-nio"),

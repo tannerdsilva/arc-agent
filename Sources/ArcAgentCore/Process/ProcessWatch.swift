@@ -1,5 +1,6 @@
 import Foundation
 import ServiceLifecycle
+import SwiftSlash
 
 // MARK: - Process watching (plan B) + owned-process events (plan A)
 //
@@ -182,21 +183,46 @@ public enum ProcessWatchCollector {
         #endif
     }
 
+    /// `kill(1)`, or the path a distro actually ships it at.
+    static func killPath() -> String {
+        #if os(Linux)
+        for candidate in ["/bin/kill", "/usr/bin/kill"] where FileManager.default.isExecutableFile(atPath: candidate) {
+            return candidate
+        }
+        return "/bin/kill"
+        #else
+        return "/bin/kill"
+        #endif
+    }
+
     /// Take a full process snapshot (all users, not just own).
+    ///
+    /// `ps` is run-to-completion with captured output, so it rides
+    /// ``SubprocessRunner`` like every other bounded child arc spawns: one spawn
+    /// path, `.own` placement, and a real timeout instead of a pipe read that can
+    /// block forever on a wedged `ps`.
     public static func collect(timeout: TimeInterval = 20) async throws -> [ProcessRecord] {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: psPath())
-        proc.arguments = [
-            "-axww",
-            "-o", "pid=", "-o", "ppid=", "-o", "state=", "-o", "pcpu=",
-            "-o", "pmem=", "-o", "comm=", "-o", "lstart=", "-o", "command=",
-        ]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        proc.standardError = pipe
-        try proc.run()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let text = String(data: data, encoding: .utf8) else {
+        var command = Command(
+            absolutePath: Path(psPath()),
+            arguments: [
+                "-axww",
+                "-o", "pid=", "-o", "ppid=", "-o", "state=", "-o", "pcpu=",
+                "-o", "pmem=", "-o", "comm=", "-o", "lstart=", "-o", "command=",
+            ])
+        command.inheritCurrentEnvironment()
+        let outcome: SubprocessOutcome
+        do {
+            outcome = try await SubprocessRunner.runBytes(command, timeout: timeout)
+        } catch {
+            throw ProcessWatchError.collect("ps failed: \(error)")
+        }
+        if outcome.exitCodeValue != 0 {
+            let message = String(data: outcome.stderr, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            throw ProcessWatchError.collect(
+                "ps exited \(outcome.exitCodeValue)\(message.isEmpty ? "" : ": \(message)")")
+        }
+        guard let text = String(data: outcome.stdout, encoding: .utf8) else {
             throw ProcessWatchError.collect("ps produced non-UTF8 output")
         }
         var out: [ProcessRecord] = []
@@ -578,21 +604,29 @@ public actor ProcessWatchService: Service {
                 throw ProcessWatchError.controlNotPermitted(info.processName)
             }
         }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/kill")
-        process.arguments = ["-s", signalName, String(pid)]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
+        // `/bin/kill` by argv, no shell — a run-to-completion child, so it rides the
+        // same spawner as `ps`. The executable is checked before the spawn: a path
+        // that cannot be executed creates no child at all, and the launch would wait
+        // on a continuation nothing resumes rather than throwing.
+        let kill = ProcessWatchCollector.killPath()
+        guard FileManager.default.isExecutableFile(atPath: kill) else {
+            throw ProcessWatchError.signalFailed(pid, "no kill(1) at \(kill)")
+        }
+        var command = Command(
+            absolutePath: Path(kill),
+            arguments: ["-s", signalName, String(pid)])
+        command.inheritCurrentEnvironment()
+        let outcome: SubprocessOutcome
         do {
-            try process.run()
+            outcome = try await SubprocessRunner.runBytes(command, timeout: 10)
         } catch {
             throw ProcessWatchError.signalFailed(pid, error.localizedDescription)
         }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        let message = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if process.terminationStatus != 0 {
-            throw ProcessWatchError.signalFailed(pid, message.isEmpty ? "exit \(process.terminationStatus)" : message)
+        let message = String(data: outcome.stderr, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if outcome.exitCodeValue != 0 {
+            throw ProcessWatchError.signalFailed(
+                pid, message.isEmpty ? "exit \(outcome.exitCodeValue)" : message)
         }
         return "sent \(signalName) to \(pid) (\(info.processName))"
     }
