@@ -660,7 +660,19 @@
   // snapshot whenever it finds no live focus to record. Clicks inside the
   // dialog itself never overwrite the remembered trigger. The snapshots stay
   // keyed by id + data-sid because the patch replaces the trigger's node.
+  //
+  // The restore is keyed to a TRANSITION, not to the snapshot alone: the close
+  // round-trip delivers several fragment patches in one batch and the runtime
+  // calls enhancePatched for each. The old restoreModalFocus began with an
+  // early guard (activeElement !== body → forget the trigger), and the very
+  // first patch in the batch ran while the dialog was STILL in the DOM — with
+  // focus on #modal-cancel — so the guard wiped the memory before the removal
+  // patch arrived. syncModalFocus therefore tracks whether the dialog was open
+  // on the previous pass (modalWasOpen) and performs the restore exactly once,
+  // on the pass where the card is first gone — right after the DOM actually
+  // reflects the removal. No other code path restores.
   var modalReturnFocus = null;
+  var modalWasOpen = false;
   document.addEventListener('click', function (e) {
     var card = modalCard();
     if (card && card.contains(e.target)) return;
@@ -669,9 +681,22 @@
     modalReturnFocus = { id: (t.id || '').trim(), sid: rowSidOf(t) };
   }, true);
 
+  // Runs after every patch. While the dialog is present: adopt the pointer
+  // snapshot if none is live, and land focus on Cancel. On the pass where the
+  // dialog has just been removed, hand focus back to the trigger that opened
+  // it — this is the single restore seam, and it fires only after the DOM
+  // reflects the removal, so no earlier fragment in the batch can clear the
+  // memory before it is used.
   function syncModalFocus() {
     var card = modalCard();
-    if (!card) return;
+    if (!card) {
+      if (modalWasOpen) {
+        modalWasOpen = false;
+        restoreFocusToTrigger();
+      }
+      return;
+    }
+    modalWasOpen = true;
     if (card.contains(document.activeElement)) return;
     // activeElement is usually <body> here (the modal patch just disconnected
     // the focused trigger) — fall back to the pointer-time snapshot. When a
@@ -687,16 +712,16 @@
     if (target) target.focus();
   }
 
-  // Runs after a patch that removed the dialog: if the modal is gone and focus
-  // fell back to <body>, hand focus back to the remembered trigger — re-queried
-  // by id (or by its session row's data-sid) because the fragment patch may
-  // have replaced the node — and clear the memory on every restore so the next
-  // open records a fresh trigger. A trigger that no longer resolves (e.g. the
-  // session was actually deleted) leaves focus alone — no throw, no jump.
-  function restoreModalFocus() {
-    if (document.activeElement !== document.body) { modalReturnFocus = null; return; }
-    var card = modalCard();
-    if (card || !modalReturnFocus) return;
+  // The dialog is gone and was open on the previous pass: hand focus back to
+  // the remembered trigger — re-queried by id (or by its session row's
+  // data-sid) because the fragment patch may have replaced the node. The
+  // memory is consumed once so the next open records a fresh trigger, and it
+  // is never cleared while a card is present (this is the only caller and it
+  // only ever runs with the card gone). A trigger that no longer resolves
+  // (e.g. the session was actually deleted) leaves focus alone — no throw, no
+  // jump.
+  function restoreFocusToTrigger() {
+    if (!modalReturnFocus) return;
     var mem = modalReturnFocus;
     modalReturnFocus = null;
     var id = (mem && mem.id) ? String(mem.id).trim() : '';
@@ -961,10 +986,9 @@
     // activated — return focus to its equivalent so the keyboard trail does
     // not reset to <body>.
     restoreFocusAfterPatch();
-    // UX-08: a patch that removed the confirmation dialog must return focus
-    // to the control that opened it (the generic restore above can't — the
-    // dialog's own focus moves overwrite its memory).
-    restoreModalFocus();
+    // UX-08: focus return for the confirmation dialog rides syncModalFocus's
+    // open→closed transition (above), which fires exactly when the removal
+    // patch lands in the DOM — one restore path, no double-fire.
     // UX-45: `+` (new chat) leaves focus on the button; the app asked for the
     // composer and the new chat's fragment just landed — put the caret in it.
     if (focusComposerWanted) {

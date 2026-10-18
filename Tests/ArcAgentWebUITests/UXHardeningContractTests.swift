@@ -1099,6 +1099,12 @@ extension ArcWebUITestRoot {
         /// capture-phase click listener BEFORE that patch (focus-time recording
         /// already sees <body>), and restore has to resolve the snapshot through
         /// the session row's data-sid because the trigger's node gets replaced.
+        ///
+        /// Wave-2: the close round-trip delivers several fragment patches in one
+        /// batch, so restore is keyed to syncModalFocus's open→closed transition
+        /// (modalWasOpen) — it fires exactly on the pass where the card is first
+        /// gone, and no early-clear guard may wipe the memory while an earlier
+        /// fragment still has the dialog in the DOM.
         @Test("table sort/filter controls are named and the modal returns focus to its trigger")
         func tableControlsNamedAndModalRestoresFocus() {
             let overlay = Self.overlay
@@ -1133,7 +1139,15 @@ extension ArcWebUITestRoot {
                     "when the modal patch has already dropped focus to <body>, syncModalFocus must keep/proceed with the pointer snapshot instead of skipping — the old body-excluding gate is what lost the trigger (UX-08)")
             #expect(modal.contains("rowSidOf(document.activeElement)"),
                     "a live non-body trigger is still recorded by sid as a fallback (UX-08)")
-            #expect(modal.contains("function restoreModalFocus()"),
+            #expect(modal.contains("var modalWasOpen = false;") && modal.contains("modalWasOpen = true;"),
+                    "syncModalFocus must track the open/closed transition so the restore fires only after the removal patch lands (UX-08)")
+            #expect(modal.contains("if (modalWasOpen) {") &&
+                    modal.contains("restoreFocusToTrigger();") &&
+                    modal.contains("modalWasOpen = false;"),
+                    "the restore must run exactly once, on the pass where the card is first gone (UX-08)")
+            #expect(!modal.contains("document.activeElement !== document.body) { modalReturnFocus = null"),
+                    "no early-clear guard may wipe the trigger memory while the dialog is still present in the DOM (UX-08)")
+            #expect(modal.contains("function restoreFocusToTrigger()"),
                     "a restore path for the dialog's trigger must exist (UX-08)")
             #expect(modal.contains(".sess-row[data-sid]") && modal.contains("getAttribute('data-sid') === sid"),
                     "restore must resolve the trigger's replacement through the session row's data-sid (UX-08)")
@@ -1141,8 +1155,8 @@ extension ArcWebUITestRoot {
                     "a re-focused session row must become keyboard-focusable (UX-08)")
             #expect(modal.contains("if (!nu) return;"),
                     "an unresolvable trigger (the session was actually deleted) must no-op, not throw (UX-08)")
-            #expect(overlay.contains("restoreModalFocus();"),
-                    "the restore must run in the post-patch seam (UX-08)")
+            #expect(!overlay.contains("restoreModalFocus();"),
+                    "the restore must ride syncModalFocus's transition — no separate post-patch call that could double-fire (UX-08)")
         }
 
         // MARK: - UX-07 (2026-10-18 wave 2) collapse the rail on narrow widths
