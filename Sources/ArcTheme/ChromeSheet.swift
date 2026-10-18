@@ -835,11 +835,12 @@ public static let css: String = """
     .form-grid textarea { min-height: 90px; resize: vertical; font-family: ui-monospace, Menlo, monospace; font-size: 0.85em; }
     .primary-btn {
       background: var(--accent);
-      /* WCAG AA label on the accent fill: the label is the theme's opposite
-         token (text in light mode, bg in dark mode) so the pair clears 4.5:1
-         on every scheme's accent (mono's grey accent fails white text at
-         3.38 and black fails it in dark mode — the mode-swap covers both). */
-      color: var(--text);
+      /* WCAG AA label on the accent fill: `--accent-fg` is chosen per scheme
+         and per mode against that scheme's `--accent` (the mode-swap to
+         text/bg failed Graphite light, where a dark accent meets a dark
+         label at 1.18:1). Every scheme x mode pair clears 4.5:1 — enforced
+         by PrimaryButtonAccentContrastTests. */
+      color: var(--accent-fg);
       border: none;
       border-radius: var(--radius-sm);
       padding: 8px 16px;
@@ -848,7 +849,6 @@ public static let css: String = """
       cursor: pointer;
       transition: background 0.15s;
     }
-    html[data-theme="dark"] .primary-btn { color: var(--bg); }
     .primary-btn:hover { background: var(--accent-strong); }
     .primary-btn:disabled, .primary-btn[disabled] { opacity: 0.45; cursor: default; }
     .primary-btn:disabled:hover { background: var(--accent); }
