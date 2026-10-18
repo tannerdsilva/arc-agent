@@ -1259,7 +1259,16 @@ public static let css: String = """
        blocks and tables keep the full body width and scroll horizontally
        rather than wrapping inside the narrower measure. */
     .msg.assistant .msg-body { text-align: left; max-width: 46rem; }
-    .msg.assistant .msg-body table { display: block; overflow-x: auto; max-width: 100%; }
+    /* Markdown tables (UX-04): the renderer wraps tables in .msg-table-wrap,
+       which scrolls horizontally when the columns need more room than the
+       reading column offers. `table-layout: auto` + `min-width: 100%` size
+       columns to their content, so a long identifier or number forces the
+       whole table wider (and the wrapper to scroll) instead of breaking
+       mid-word; cells break only at word boundaries. */
+    .msg-table-wrap { overflow-x: auto; max-width: 100%; }
+    .msg-table-wrap table { min-width: 100%; }
+    .msg-body table th,
+    .msg-body table td { overflow-wrap: break-word; }
     /* Role header: avatar rail + name (left); usage + time grouped right. */
     .msg-meta {
       font-size: 12px; font-weight: 500; color: var(--muted);

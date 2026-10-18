@@ -1019,6 +1019,27 @@ extension ArcWebUITestRoot {
                     "the inline group styles (which blocked any compaction rule) must stay gone")
         }
 
+        // MARK: - UX-04 (2026-10-18 wave 2) markdown tables scroll instead of breaking tokens
+
+        /// At 1024 the six-column target table compressed its columns and
+        /// `.msg-body`'s `overflow-wrap: anywhere` split identifiers and
+        /// numbers mid-word (`ArcAgentCo` / `re`, `~28,0` / `00`). The renderer
+        /// now wraps tables in `.msg-table-wrap` (asserted in MarkdownParityTests)
+        /// and the sheet gives the wrapper the horizontal overflow contract,
+        /// with cells breaking only at word boundaries.
+        @Test("markdown tables size to their content and scroll in a wrapper, never breaking identifiers mid-word")
+        func markdownTablesScrollInsteadOfBreakingTokens() {
+            let css = Self.sheetSource
+            #expect(css.contains(".msg-table-wrap { overflow-x: auto; max-width: 100%; }"),
+                    "the table wrapper must own the horizontal scroll (UX-04)")
+            #expect(css.contains(".msg-table-wrap table { min-width: 100%; }"),
+                    "the table must at least fill the wrapper so headers span it (UX-04)")
+            #expect(css.contains(".msg-body table th,\n    .msg-body table td { overflow-wrap: break-word; }"),
+                    "cells must break only at word boundaries — the inherited `anywhere` split identifiers (UX-04)")
+            #expect(!css.contains(".msg.assistant .msg-body table { display: block; overflow-x: auto; max-width: 100%; }"),
+                    "the old display:block table rule is gone — with the wrapper it clipped the scroll path (UX-04)")
+        }
+
         @Test("the filter fields carry accessible names")
         func filterFieldsAreNamed() {
             let views = Self.views

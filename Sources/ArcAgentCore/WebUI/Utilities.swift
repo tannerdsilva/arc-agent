@@ -261,8 +261,13 @@ private struct MarkdownBlockParser {
             let cells = row.map { "<td>" + renderInlineMarkdown($0) + "</td>" }.joined()
             bodyHTML += "<tr>" + cells + "</tr>\n"
         }
-        return "<table>\n<thead>\n<tr>" + headCells + "</tr>\n</thead>\n<tbody>\n"
-            + bodyHTML + "</tbody>\n</table>"
+        // Wrapped in .msg-table-wrap (UX-04): the table sizes its columns to
+        // their content and the wrapper scrolls horizontally when they are
+        // too wide for the reading column, so long identifiers and numbers
+        // never break mid-word. The wrapper is inert everywhere else the
+        // renderer is used.
+        return "<div class=\"msg-table-wrap\"><table>\n<thead>\n<tr>" + headCells + "</tr>\n</thead>\n<tbody>\n"
+            + bodyHTML + "</tbody>\n</table></div>"
     }
 
     static func heading(_ trimmed: String) -> String? {
