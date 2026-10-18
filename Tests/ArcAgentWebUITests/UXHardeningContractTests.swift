@@ -1062,6 +1062,59 @@ extension ArcWebUITestRoot {
                     "the accessible name must no longer be the 40-char truncated string (UX-06)")
         }
 
+        // MARK: - UX-08 (2026-10-18 wave 2) names, pressed state, sort labels, focus restore
+
+        /// The audit found 16 visible buttons with no text/aria/title (12 rail
+        /// icons + regen + chat-del + file + bookmark) and selection cards that
+        /// only painted `.active`. Icon-only controls need real accessible
+        /// names; selection cards need aria-pressed mirroring the selection.
+        @Test("icon-only shell buttons carry accessible names and selection cards carry aria-pressed")
+        func shellButtonsAreNamedAndSelectionIsPressed() {
+            let views = Self.views
+            // Every rail icon (nav-<id>) keeps its data-tip pill AND gains an
+            // aria-label for AT/touch (the pill is hover-only). Settings too.
+            #expect(views.contains("data-tip=\"\\(esc(tab.title))\" aria-label=\"\\(esc(tab.title))\""),
+                    "each rail button must pair its hover pill with an aria-label (UX-08)")
+            #expect(views.contains("data-tip=\"Settings\" aria-label=\"Settings\""),
+                    "the Settings rail button must carry an aria-label (UX-08)")
+            // Theme / text-size / scheme cards mark selection with .active —
+            // that state must reach assistive tech as aria-pressed.
+            #expect(views.contains("class=\"theme-pick-btn\\(active)\" title=\"\\(t.label)\" aria-pressed=\"\\(pressed)\""),
+                    "theme cards must reflect selection via aria-pressed (UX-08)")
+            #expect(views.contains("class=\"font-size-pick-btn\\(active)\" title=\"\\(s.label)\" aria-pressed=\"\\(pressed)\""),
+                    "text-size cards must reflect selection via aria-pressed (UX-08)")
+            #expect(views.contains("aria-pressed=\"\\(pressed)\" style=\"--sw-accent:\\(accent)\""),
+                    "scheme tiles must reflect selection via aria-pressed (UX-08)")
+        }
+
+        /// The markdown-table enhancer minted sort buttons whose whole accessible
+        /// name was the '⇅' glyph, a filter input with only a placeholder, and no
+        /// sort-order announcement; and closing the delete modal dropped focus to
+        /// <body> because the modal's own focus moves overwrote the generic
+        /// patch-restore's memory.
+        @Test("table sort/filter controls are named and the modal returns focus to its trigger")
+        func tableControlsNamedAndModalRestoresFocus() {
+            let overlay = Self.overlay
+            #expect(overlay.contains("sort.setAttribute('aria-label', 'Sort by '"),
+                    "the sort button must announce the column it sorts (UX-08)")
+            #expect(overlay.contains("hc.removeAttribute('aria-sort')"),
+                    "aria-sort must be cleared from the other columns on each sort (UX-08)")
+            #expect(overlay.contains("target.setAttribute('aria-sort', dir === 'asc' ? 'ascending' : 'descending')"),
+                    "the sorted column must announce ascending/descending (UX-08)")
+            #expect(overlay.contains("filter.setAttribute('aria-label', 'Filter table rows')"),
+                    "the filter field needs an accessible name — a placeholder is not one (UX-08)")
+            #expect(overlay.contains("var modalReturnFocus = null;"),
+                    "the overlay must remember the control that opened the confirmation dialog (UX-08)")
+            #expect(overlay.contains("modalReturnFocus = document.activeElement;"),
+                    "the trigger must be recorded when the dialog takes focus (UX-08)")
+            #expect(overlay.contains("function restoreModalFocus()"),
+                    "a restore path for the dialog's trigger must exist (UX-08)")
+            #expect(overlay.contains("restoreModalFocus();"),
+                    "the restore must run in the post-patch seam (UX-08)")
+            #expect(overlay.contains("rowSidOf(t)") && overlay.contains("nu.setAttribute('tabindex', '0')"),
+                    "a removed row's replacement (by data-sid) must be found so a deleted chat still lands focus sensibly (UX-08)")
+        }
+
         @Test("the filter fields carry accessible names")
         func filterFieldsAreNamed() {
             let views = Self.views

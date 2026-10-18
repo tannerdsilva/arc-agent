@@ -430,6 +430,10 @@
           sort.type = 'button';
           sort.className = 'markdown-table-sort';
           sort.title = 'Sort column';
+          // UX-08: the glyph alone ('⇅') was the whole accessible name. The
+          // button must name the column it sorts, and the header must expose
+          // the applied sort order via aria-sort.
+          sort.setAttribute('aria-label', 'Sort by ' + (th.textContent || 'this column'));
           sort.textContent = '\u21C5';
           sort.addEventListener('click', (function (tbl, colIdx) {
             return function () {
@@ -438,6 +442,18 @@
               var dir = asc ? 'desc' : 'asc';
               tbl.setAttribute('data-sort-col', String(colIdx));
               tbl.setAttribute('data-sort-dir', dir);
+              var hdr = tbl.querySelector('thead tr');
+              if (hdr) {
+                for (var h = 0; h < hdr.children.length; h++) {
+                  var hc = hdr.children[h];
+                  if (!hc || !hc.removeAttribute) continue;
+                  if (hc.removeAttribute) hc.removeAttribute('aria-sort');
+                }
+                var target = hdr.children[colIdx];
+                if (target && target.setAttribute) {
+                  target.setAttribute('aria-sort', dir === 'asc' ? 'ascending' : 'descending');
+                }
+              }
               var body = tbl.querySelector('tbody');
               if (!body) return;
               var rows = Array.prototype.slice.call(body.querySelectorAll('tr'));
@@ -452,6 +468,7 @@
               var sels = tbl.querySelectorAll('.markdown-table-sort');
               for (var s = 0; s < sels.length; s++) {
                 sels[s].textContent = s === colIdx ? (dir === 'asc' ? '\u25B2' : '\u25BC') : '\u21C5';
+                sels[s].setAttribute('aria-label', 'Sort by ' + (sels[s].closest ? (sels[s].closest('th').textContent || '') : ''));
               }
             };
           })(table, c));
@@ -464,6 +481,9 @@
         filter.type = 'text';
         filter.className = 'markdown-table-filter';
         filter.placeholder = 'Filter table';
+        // UX-08: the filter field is icon/placeholder-only; a placeholder is
+        // not an accessible name.
+        filter.setAttribute('aria-label', 'Filter table rows');
         // Delegated on the table so the handler survives any re-render that
         // replaces the input element.
         table.addEventListener('input', function (ev) {
@@ -622,12 +642,57 @@
     return document.querySelector('.modal-overlay .modal-card');
   }
 
+  // UX-08: remember the control whose activation opened the confirmation
+  // dialog. Closing it (Cancel/confirm/Escape) is a fragment patch that
+  // removes #modal-overlay and the browser drops focus to <body> — the
+  // generic patch-restore alone cannot help because its lastFocusedControl is
+  // overwritten by the modal's own focus moves (Cancel/Delete take focus
+  // inside the dialog). Restoring from THIS memory puts the keyboard user
+  // back on the trigger (or its re-rendered replacement).
+  var modalReturnFocus = null;
   function syncModalFocus() {
     var card = modalCard();
     if (!card) return;
     if (card.contains(document.activeElement)) return;
+    if (!modalReturnFocus &&
+        document.activeElement && document.activeElement !== document.body &&
+        !card.contains(document.activeElement)) {
+      modalReturnFocus = document.activeElement;
+    }
     var target = card.querySelector('#modal-cancel') || card.querySelector('button');
     if (target) target.focus();
+  }
+
+  // Runs after a patch that removed the dialog: if the modal is gone and focus
+  // fell back to <body>, hand focus back to the remembered trigger — re-queried
+  // by id (or by its session row's data-sid) because the fragment patch may
+  // have replaced the node — and clear the memory either way so the next open
+  // records a fresh trigger.
+  function restoreModalFocus() {
+    if (document.activeElement !== document.body) { modalReturnFocus = null; return; }
+    var card = modalCard();
+    if (card || !modalReturnFocus) return;
+    var t = modalReturnFocus;
+    modalReturnFocus = null;
+    if (!t || !t.focus) return;
+    if (!t.isConnected) {
+      var id = (t.id || '').trim();
+      var sid = rowSidOf(t);
+      var nu = null;
+      if (id) nu = document.getElementById(id);
+      if (!nu && sid) {
+        var rows = document.querySelectorAll('.sess-row[data-sid]');
+        for (var i = 0; i < rows.length; i++) {
+          if (rows[i].getAttribute('data-sid') === sid) { nu = rows[i]; break; }
+        }
+      }
+      if (!nu) return;
+      if (sid) nu.setAttribute('tabindex', '0');
+      t = nu;
+    }
+    if (t.disabled || t.getAttribute('aria-hidden') === 'true') return;
+    if (getComputedStyle ? getComputedStyle(t).display === 'none' : false) return;
+    t.focus({ preventScroll: true });
   }
 
   document.addEventListener('keydown', function (e) {
@@ -875,6 +940,10 @@
     // activated — return focus to its equivalent so the keyboard trail does
     // not reset to <body>.
     restoreFocusAfterPatch();
+    // UX-08: a patch that removed the confirmation dialog must return focus
+    // to the control that opened it (the generic restore above can't — the
+    // dialog's own focus moves overwrite its memory).
+    restoreModalFocus();
     // UX-45: `+` (new chat) leaves focus on the button; the app asked for the
     // composer and the new chat's fragment just landed — put the caret in it.
     if (focusComposerWanted) {

@@ -143,15 +143,17 @@ extension AppState {
                 // ArrowUp/ArrowDown (overlay roves tabindex with focus).
                 let rove = isActive ? " tabindex=\"0\"" : " tabindex=\"-1\""
                 let iconHTML = SidebarTabIconRenderer.render(tab.icon)
+                // UX-08: icon-only rail buttons need an accessible name; the
+                // data-tip pill is hover-only (and invisible to AT and touch).
                 return btn("nav-\(id)", "nav-\(id)", cls, iconHTML,
-                           " data-tip=\"\(esc(tab.title))\"" + rove)
+                           " data-tip=\"\(esc(tab.title))\" aria-label=\"\(esc(tab.title))\"" + rove)
             }
             .joined()
         let settingsActive = activeTabID == "settings"
         let settingsBtn = btn("nav-settings", "nav-settings",
                               settingsActive ? "icon-btn active" : "icon-btn",
                               ViewID.settings.icon,
-                              " data-tip=\"Settings\""
+                              " data-tip=\"Settings\" aria-label=\"Settings\""
                                 + (settingsActive ? " tabindex=\"0\"" : " tabindex=\"-1\""))
         return """
         <div class="iconbar-top">\(top)</div>
@@ -3052,11 +3054,15 @@ extension AppState {
         ]
         let themeCards = themeDefs.map { t in
             let active = settings.theme == t.key ? " active" : ""
-            return "<button type=\"button\" id=\"thm-\(t.key)\" data-theme-choice=\"\(t.key)\" class=\"theme-pick-btn\(active)\" title=\"\(t.label)\"><span class=\"thm-preview\" style=\"\(t.preview)\"><span class=\"thm-ic\">\(WebUIIcon(t.icon, size: .medium).markup.html)</span></span><span class=\"thm-label\">\(t.label)</span></button>"
+            // UX-08: the card marks selection visually (.active) — the pressed
+            // state must reach assistive tech too.
+            let pressed = active.isEmpty ? "false" : "true"
+            return "<button type=\"button\" id=\"thm-\(t.key)\" data-theme-choice=\"\(t.key)\" class=\"theme-pick-btn\(active)\" title=\"\(t.label)\" aria-pressed=\"\(pressed)\"><span class=\"thm-preview\" style=\"\(t.preview)\"><span class=\"thm-ic\">\(WebUIIcon(t.icon, size: .medium).markup.html)</span></span><span class=\"thm-label\">\(t.label)</span></button>"
         }.joined()
         let sizeCards = ThemeSize.allCases.map { s in
             let active = settings.textSize == s.rawValue ? " active" : ""
-            return "<button type=\"button\" id=\"fsz-\(s.rawValue)\" class=\"font-size-pick-btn\(active)\" title=\"\(s.label)\"><span class=\"fsz-preview\" style=\"font-size:\(s.previewPx)\">Aa</span><span class=\"fsz-label\">\(s.label)</span></button>"
+            let pressed = active.isEmpty ? "false" : "true"
+            return "<button type=\"button\" id=\"fsz-\(s.rawValue)\" class=\"font-size-pick-btn\(active)\" title=\"\(s.label)\" aria-pressed=\"\(pressed)\"><span class=\"fsz-preview\" style=\"font-size:\(s.previewPx)\">Aa</span><span class=\"fsz-label\">\(s.label)</span></button>"
         }.joined()
         // the scheme grid renders from the catalog: identity — id, label, swatch — comes from
         // the providers themselves, so the picker cannot list a scheme the sheet does not
@@ -3064,12 +3070,15 @@ extension AppState {
         // tile's border), the rest are the preview dots.
         let swatches = ArcThemeCatalog.entries.map { entry in
             let active = settings.colorScheme == entry.id ? " active" : ""
+            // UX-08: the scheme tile is a selection card like theme/size — its
+            // pressed state must reach assistive tech, not just the .active class.
+            let pressed = active.isEmpty ? "false" : "true"
             let accent = entry.swatch.first ?? ""
             let dots = entry.swatch.dropFirst().map { d in
                 "<span class=\"scheme-dot\" style=\"background:\(d)\"></span>"
             }.joined()
             return """
-            <button type="button" id="scheme-\(enc(entry.id))" data-scheme-choice="\(esc(entry.id))" class="scheme-tile\(active)" title="\(esc(entry.label))" style="--sw-accent:\(accent)">
+            <button type="button" id="scheme-\(enc(entry.id))" data-scheme-choice="\(esc(entry.id))" class="scheme-tile\(active)" title="\(esc(entry.label))" aria-pressed="\(pressed)" style="--sw-accent:\(accent)">
               <span class="scheme-dots">\(dots)</span>
               <span class="scheme-name">\(esc(entry.label))</span>
             </button>
