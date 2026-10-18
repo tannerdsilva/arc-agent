@@ -43,6 +43,31 @@ extension ArcWebUITestRoot {
         private static var host: String { source("Sources/ArcWebUI/WebUIHost.swift") }
         private static var fileStore: String { source("Sources/ArcAgentCore/Session/SessionStore.swift") }
 
+        // MARK: - UX-02 (2026-10-18) tool/MCP schema rows use the adaptive card
+
+        @Test("the tool/MCP schema renderer emits .akv rows, never the dark .kv card")
+        func schemaRowsUseAdaptiveKV() {
+            let views = Self.views
+            // `schemaHTML` shared the design system's `.kv` card (a permanently-dark
+            // navy code card) with the migrated tool card, so tool parameter rows were
+            // black-on-navy in light themes (UX-02, observed 1.23:1). The schema rows
+            // must use the arc `.akv` classes like the Description/Toolset meta rows.
+            guard let start = views.range(of: "func schemaHTML(_ schema: JSONSchema) -> String {") else {
+                #expect(Bool(false), "schemaHTML must still exist")
+                return
+            }
+            let rest = views[start.upperBound...]
+            let end = rest.range(of: "\n    }\n")?.lowerBound ?? rest.endIndex
+            let body = String(rest[..<end])
+            #expect(body.contains("class=\"akv\">"), "the schema rows must use the adaptive .akv card")
+            #expect(body.contains("class=\"akv-k\""), "the schema key span must use .akv-k")
+            #expect(body.contains("class=\"akv-v\""), "the schema value span must use .akv-v")
+            #expect(!body.contains("class=\"kv\""),
+                    "the dark .kv card is back in schemaHTML: tool/MCP parameter rows go black-on-navy in light themes")
+            #expect(!body.contains("class=\"k\""), "the design-system .k key span is back in schemaHTML")
+            #expect(!body.contains("class=\"v\""), "the design-system .v value span is back in schemaHTML")
+        }
+
         // MARK: - A1/F38 the task form's dead gap
 
         @Test("the task form's field basis is scoped to the row that shares it")

@@ -2679,19 +2679,19 @@ extension AppState {
         var rows: [String] = []
         switch schema {
         case .object(let desc, let properties, let required):
-            if let d = desc { rows.append("<div class=\"kv\"><span class=\"k\">Object</span><span class=\"v\">\(esc(d))</span></div>") }
+            if let d = desc { rows.append("<div class=\"akv\"><span class=\"akv-k\">Object</span><span class=\"akv-v\">\(esc(d))</span></div>") }
             let req = Set(required ?? [])
             for (key, prop) in properties.sorted(by: { $0.key < $1.key }) {
                 let typeLabel = schemaTypeLabel(prop)
                 let r = req.contains(key) ? " <span class='mc-badge' style='margin-left:6px'>required</span>" : ""
                 let detail = schemaOneLine(prop)
-                rows.append("<div class=\"kv\"><span class=\"k\">\(esc(key))<small style=\"color:var(--muted)\"> (\(esc(typeLabel)))</small></span><span class=\"v\">\(esc(detail))\(r)</span></div>")
+                rows.append("<div class=\"akv\"><span class=\"akv-k\">\(esc(key))<small style=\"color:var(--muted)\"> (\(esc(typeLabel)))</small></span><span class=\"akv-v\">\(esc(detail))\(r)</span></div>")
             }
         case .array(let desc, let items):
-            rows.append("<div class=\"kv\"><span class=\"k\">Array of</span><span class=\"v\">\(esc(schemaTypeLabel(items))) — \(esc(desc ?? ""))</span></div>")
+            rows.append("<div class=\"akv\"><span class=\"akv-k\">Array of</span><span class=\"akv-v\">\(esc(schemaTypeLabel(items))) — \(esc(desc ?? ""))</span></div>")
         default:
-            rows.append("<div class=\"kv\"><span class=\"k\">Type</span><span class=\"v\">\(esc(schemaTypeLabel(schema)))</span></div>")
-            if let d = schemaDescription(schema) { rows.append("<div class=\"kv\"><span class=\"k\">Description</span><span class=\"v\">\(esc(d))</span></div>") }
+            rows.append("<div class=\"akv\"><span class=\"akv-k\">Type</span><span class=\"akv-v\">\(esc(schemaTypeLabel(schema)))</span></div>")
+            if let d = schemaDescription(schema) { rows.append("<div class=\"akv\"><span class=\"akv-k\">Description</span><span class=\"akv-v\">\(esc(d))</span></div>") }
         }
         return rows.joined()
     }
