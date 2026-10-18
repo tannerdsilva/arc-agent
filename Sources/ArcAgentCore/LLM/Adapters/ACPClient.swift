@@ -53,6 +53,17 @@ public actor ACPClient {
     /// of everything it spawns, so one teardown signal reaches the ACP server
     /// and its tree. See `docs/process-placement.md`.
     public func start() async throws -> [String: Any] {
+        // A command that is not an absolute, executable path makes the spawn fail,
+        // and a failed SwiftSlash spawn traps the process rather than throwing — so
+        // a mistyped config would take the whole daemon down. Fail as a value
+        // instead; this is the only reason the guard lives here rather than in a
+        // caller.
+        guard config.command.hasPrefix("/"),
+              FileManager.default.isExecutableFile(atPath: config.command)
+        else {
+            throw LLMError.networkError(
+                "ACP server is not an executable absolute path: \(config.command)")
+        }
         if child == nil {
             var command = Command(
                 absolutePath: Path(config.command),
