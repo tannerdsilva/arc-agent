@@ -649,15 +649,39 @@
   // overwritten by the modal's own focus moves (Cancel/Delete take focus
   // inside the dialog). Restoring from THIS memory puts the keyboard user
   // back on the trigger (or its re-rendered replacement).
+  //
+  // The trigger must be captured at POINTER time, not focus time: the very
+  // fragment patch that ADDS the dialog also re-renders the chat header,
+  // which disconnects the focused control, so by the time syncModalFocus
+  // runs the browser has already dropped focus to <body> and there is
+  // nothing left to record. A document-level capture-phase click listener
+  // snapshots the activated control (its id plus the data-sid of the
+  // sess-row that owns it) BEFORE the patch, and syncModalFocus adopts that
+  // snapshot whenever it finds no live focus to record. Clicks inside the
+  // dialog itself never overwrite the remembered trigger. The snapshots stay
+  // keyed by id + data-sid because the patch replaces the trigger's node.
   var modalReturnFocus = null;
+  document.addEventListener('click', function (e) {
+    var card = modalCard();
+    if (card && card.contains(e.target)) return;
+    var t = e.target && e.target.closest ? e.target.closest('[id]') : null;
+    if (!t || !t.id) return;
+    modalReturnFocus = { id: (t.id || '').trim(), sid: rowSidOf(t) };
+  }, true);
+
   function syncModalFocus() {
     var card = modalCard();
     if (!card) return;
     if (card.contains(document.activeElement)) return;
-    if (!modalReturnFocus &&
-        document.activeElement && document.activeElement !== document.body &&
-        !card.contains(document.activeElement)) {
-      modalReturnFocus = document.activeElement;
+    // activeElement is usually <body> here (the modal patch just disconnected
+    // the focused trigger) — fall back to the pointer-time snapshot. When a
+    // live focus target does survive (programmatic open), record it directly.
+    if (!modalReturnFocus && document.activeElement &&
+        document.activeElement !== document.body) {
+      modalReturnFocus = {
+        id: (document.activeElement.id || '').trim(),
+        sid: rowSidOf(document.activeElement)
+      };
     }
     var target = card.querySelector('#modal-cancel') || card.querySelector('button');
     if (target) target.focus();
@@ -666,33 +690,30 @@
   // Runs after a patch that removed the dialog: if the modal is gone and focus
   // fell back to <body>, hand focus back to the remembered trigger — re-queried
   // by id (or by its session row's data-sid) because the fragment patch may
-  // have replaced the node — and clear the memory either way so the next open
-  // records a fresh trigger.
+  // have replaced the node — and clear the memory on every restore so the next
+  // open records a fresh trigger. A trigger that no longer resolves (e.g. the
+  // session was actually deleted) leaves focus alone — no throw, no jump.
   function restoreModalFocus() {
     if (document.activeElement !== document.body) { modalReturnFocus = null; return; }
     var card = modalCard();
     if (card || !modalReturnFocus) return;
-    var t = modalReturnFocus;
+    var mem = modalReturnFocus;
     modalReturnFocus = null;
-    if (!t || !t.focus) return;
-    if (!t.isConnected) {
-      var id = (t.id || '').trim();
-      var sid = rowSidOf(t);
-      var nu = null;
-      if (id) nu = document.getElementById(id);
-      if (!nu && sid) {
-        var rows = document.querySelectorAll('.sess-row[data-sid]');
-        for (var i = 0; i < rows.length; i++) {
-          if (rows[i].getAttribute('data-sid') === sid) { nu = rows[i]; break; }
-        }
+    var id = (mem && mem.id) ? String(mem.id).trim() : '';
+    var sid = (mem && mem.sid) ? String(mem.sid) : '';
+    var nu = null;
+    if (id) nu = document.getElementById(id);
+    if (!nu && sid) {
+      var rows = document.querySelectorAll('.sess-row[data-sid]');
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i].getAttribute('data-sid') === sid) { nu = rows[i]; break; }
       }
-      if (!nu) return;
-      if (sid) nu.setAttribute('tabindex', '0');
-      t = nu;
     }
-    if (t.disabled || t.getAttribute('aria-hidden') === 'true') return;
-    if (getComputedStyle ? getComputedStyle(t).display === 'none' : false) return;
-    t.focus({ preventScroll: true });
+    if (!nu) return;
+    if (sid) nu.setAttribute('tabindex', '0');
+    if (nu.disabled || nu.getAttribute('aria-hidden') === 'true') return;
+    if (getComputedStyle ? getComputedStyle(nu).display === 'none' : false) return;
+    nu.focus({ preventScroll: true });
   }
 
   document.addEventListener('keydown', function (e) {

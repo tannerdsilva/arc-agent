@@ -1092,6 +1092,13 @@ extension ArcWebUITestRoot {
         /// sort-order announcement; and closing the delete modal dropped focus to
         /// <body> because the modal's own focus moves overwrote the generic
         /// patch-restore's memory.
+        ///
+        /// The focus fix is pinned at the mechanism, not the symptom: the very
+        /// patch that OPENS the dialog re-renders the chat header and disconnects
+        /// the focused trigger, so the trigger has to be snapshotted by a
+        /// capture-phase click listener BEFORE that patch (focus-time recording
+        /// already sees <body>), and restore has to resolve the snapshot through
+        /// the session row's data-sid because the trigger's node gets replaced.
         @Test("table sort/filter controls are named and the modal returns focus to its trigger")
         func tableControlsNamedAndModalRestoresFocus() {
             let overlay = Self.overlay
@@ -1103,16 +1110,39 @@ extension ArcWebUITestRoot {
                     "the sorted column must announce ascending/descending (UX-08)")
             #expect(overlay.contains("filter.setAttribute('aria-label', 'Filter table rows')"),
                     "the filter field needs an accessible name — a placeholder is not one (UX-08)")
-            #expect(overlay.contains("var modalReturnFocus = null;"),
-                    "the overlay must remember the control that opened the confirmation dialog (UX-08)")
-            #expect(overlay.contains("modalReturnFocus = document.activeElement;"),
-                    "the trigger must be recorded when the dialog takes focus (UX-08)")
-            #expect(overlay.contains("function restoreModalFocus()"),
+            // The modal block: state, pointer capture, sync, restore, then the
+            // Escape/Tab trap. Scoped so the pins cannot match lookalike code
+            // elsewhere in the overlay (six other document click listeners).
+            guard let m0 = overlay.range(of: "var modalReturnFocus = null;"),
+                  let m1 = overlay.range(of: "document.addEventListener('keydown', function (e) {",
+                                         range: m0.upperBound..<overlay.endIndex) else {
+                #expect(Bool(false), "the modal focus block (state + capture + sync + restore) must exist (UX-08)")
+                return
+            }
+            let modal = overlay[m0.lowerBound..<m1.lowerBound]
+            #expect(modal.contains("document.addEventListener('click', function (e) {") &&
+                    modal.contains("closest('[id]')") &&
+                    modal.contains("}, true);"),
+                    "the trigger must be snapshotted by a capture-phase click listener, before the patch that adds the dialog replaces it (UX-08)")
+            #expect(modal.contains("modalReturnFocus = { id: (t.id || '').trim(), sid: rowSidOf(t) };"),
+                    "the snapshot must remember the activated control by id and session-row sid (UX-08)")
+            #expect(modal.contains("card.contains(e.target)"),
+                    "clicks inside the dialog itself must not overwrite the remembered trigger (UX-08)")
+            #expect(modal.contains("!modalReturnFocus && document.activeElement") &&
+                    !modal.contains("document.activeElement !== document.body &&"),
+                    "when the modal patch has already dropped focus to <body>, syncModalFocus must keep/proceed with the pointer snapshot instead of skipping — the old body-excluding gate is what lost the trigger (UX-08)")
+            #expect(modal.contains("rowSidOf(document.activeElement)"),
+                    "a live non-body trigger is still recorded by sid as a fallback (UX-08)")
+            #expect(modal.contains("function restoreModalFocus()"),
                     "a restore path for the dialog's trigger must exist (UX-08)")
+            #expect(modal.contains(".sess-row[data-sid]") && modal.contains("getAttribute('data-sid') === sid"),
+                    "restore must resolve the trigger's replacement through the session row's data-sid (UX-08)")
+            #expect(modal.contains("nu.setAttribute('tabindex', '0')"),
+                    "a re-focused session row must become keyboard-focusable (UX-08)")
+            #expect(modal.contains("if (!nu) return;"),
+                    "an unresolvable trigger (the session was actually deleted) must no-op, not throw (UX-08)")
             #expect(overlay.contains("restoreModalFocus();"),
                     "the restore must run in the post-patch seam (UX-08)")
-            #expect(overlay.contains("rowSidOf(t)") && overlay.contains("nu.setAttribute('tabindex', '0')"),
-                    "a removed row's replacement (by data-sid) must be found so a deleted chat still lands focus sensibly (UX-08)")
         }
 
         // MARK: - UX-07 (2026-10-18 wave 2) collapse the rail on narrow widths
