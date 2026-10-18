@@ -1040,6 +1040,28 @@ extension ArcWebUITestRoot {
                     "the old display:block table rule is gone — with the wrapper it clipped the scroll path (UX-04)")
         }
 
+        // MARK: - UX-06 (2026-10-18 wave 2) full session title on hover + accessible name
+
+        /// Identical 40-char-truncated titles made conversations
+        /// indistinguishable: the visible clamp is fine, but the full stored
+        /// title must ride the row's `title`, its accessible name, and a
+        /// `data-full-title` attribute that the rename flow seeds from
+        /// (wave 4, UX-21) — seeds it from the rendered text and the stored
+        /// title is silently lost.
+        @Test("session rows carry the full title on hover, as their accessible name, and in data-full-title")
+        func sessionRowsCarryTheFullTitle() {
+            let views = Self.views
+            // Both row variants (chat list and todos page) must splice the
+            // full-title attribute bundle in (exactly two splice sites).
+            let splice = views.components(separatedBy: "role=\"group\"\\(fullAttr)").count
+            #expect(splice == 3,
+                    "both session-row variants must splice the full-title bundle on the row (found \\(splice - 1) sites)")
+            #expect(views.contains("title=\"\\(esc(full))\" aria-label=\"\\(esc(full))\" data-full-title=\"\\(esc(full))\""),
+                    "the bundle must carry title + aria-label + data-full-title, all with the FULL stored title (UX-06)")
+            #expect(!views.contains("role=\"group\" aria-label=\"\\(esc(title))\""),
+                    "the accessible name must no longer be the 40-char truncated string (UX-06)")
+        }
+
         @Test("the filter fields carry accessible names")
         func filterFieldsAreNamed() {
             let views = Self.views

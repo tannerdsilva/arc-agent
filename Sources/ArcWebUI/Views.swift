@@ -551,7 +551,13 @@ extension AppState {
         let isActiveRow = s.id == activeSessionID
         let active = isActiveRow ? " active" : ""
         let archived = isArchived(s.id) ? " archived" : ""
-        let title = trunc(sessionTitle(s), 40)
+        // UX-06: the VISIBLE title stays clamped to 40 chars, but the full
+        // stored title rides the row's `title` (hover), its accessible name
+        // (aria-label) and a `data-full-title` the rename flow seeds from
+        // (wave 4) — identical truncated rows are otherwise indistinguishable.
+        let full = sessionTitle(s)
+        let title = trunc(full, 40)
+        let fullAttr = " title=\"\(esc(full))\" aria-label=\"\(esc(full))\" data-full-title=\"\(esc(full))\""
         // UX-07 roving: the ROW is the single tab stop (active row tabindex
         // 0, everyone else -1; ArrowUp/Down moves focus between rows). The
         // open button and the ⋮ menu are quiet utilities: out of the tab
@@ -562,7 +568,7 @@ extension AppState {
             // Minimal variant for the Todos page: chat title only — no meta,
             // no ⋮ menu, no category dot, no pin badge.
             return """
-            <div class="sess-row\(active)\(archived)" tabindex="\(rowTab)" role="group" aria-label="\(esc(title))" data-sid="\(s.id)"\(isActiveRow ? " aria-current=\"true\"" : "")>
+            <div class="sess-row\(active)\(archived)" tabindex="\(rowTab)" role="group"\(fullAttr) data-sid="\(s.id)"\(isActiveRow ? " aria-current=\"true\"" : "")>
               <button type="button" id="s-open-\(encID)" class="sess-open" tabindex="-1">
                 <span class="sess-title">\(esc(title))</span>
               </button>
@@ -637,7 +643,7 @@ extension AppState {
         </div>
         """
         return """
-        <div class="sess-row\(active)\(archived)" tabindex="\(rowTab)" role="group" aria-label="\(esc(title))" data-sid="\(s.id)"\(isActiveRow ? " aria-current=\"true\"" : "")>
+        <div class="sess-row\(active)\(archived)" tabindex="\(rowTab)" role="group"\(fullAttr) data-sid="\(s.id)"\(isActiveRow ? " aria-current=\"true\"" : "")>
           <button type="button" id="s-open-\(encID)" class="sess-open" tabindex="-1">
             <span class="sess-title">\(pinBadge)\(esc(title))</span>
             <span class="sess-meta">\(meta)</span>
