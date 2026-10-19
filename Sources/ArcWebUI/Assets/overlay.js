@@ -1545,7 +1545,12 @@
     var openBtn = row && row.querySelector('.sess-open');
     var sid = b.getAttribute('data-sid');
     if (!row || !openBtn || !sid) return;
-    var current = ((openBtn.querySelector('.sess-title') || {}).textContent || '').trim();
+    // Seed from the full stored title (data-full-title on the row, UX-06) —
+    // never from the truncated 40-char row text, which would commit permanent
+    // truncation when the rename is committed (UX-21). Fall back to the
+    // rendered title for rows that predate the attribute.
+    var current = (row.getAttribute('data-full-title') || '').trim()
+        || ((openBtn.querySelector('.sess-title') || {}).textContent || '').trim();
     var input = document.createElement('input');
     input.type = 'text';
     input.className = 'rename-input';
