@@ -184,6 +184,13 @@ struct ArcComponentsTests {
         #expect(html.contains("class=\"detail-sub\">devops</div>"))
     }
 
+    @Test("a detail card with no sub-line omits the node entirely")
+    func detailCardWithoutSub() {
+        let html = DetailCard(title: "Skill") { Paragraph("body") }.markup.html
+        #expect(html.contains("class=\"detail-card\""))
+        #expect(!html.contains("detail-sub"), "an empty sub-line renders a visible gap in the sheet")
+    }
+
     // MARK: DropdownRow
 
     @Test("dropdown row emits dd-row with id and type button")

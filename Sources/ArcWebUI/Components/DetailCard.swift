@@ -9,7 +9,7 @@ public struct DetailCard: WebUI.View {
 
 	public init(
 		title: String,
-		sub: String,
+		sub: String = "",
 		@ViewBuilder body: () -> [any WebUI.View] = { [] }
 	) {
 		self.title = title
@@ -24,10 +24,14 @@ public struct DetailCard: WebUI.View {
 		buffer.endOpenTag()
 		Text(title).render(into: &buffer)
 		buffer.endElement()
-		buffer.beginElement("div", "class=\"detail-sub\"")
-		buffer.endOpenTag()
-		Text(sub).render(into: &buffer)
-		buffer.endElement()
+		// an absent sub-line is absent, not empty: the sheet's `.detail-sub`
+		// carries its own margins, and an empty div renders a visible gap.
+		if !sub.isEmpty {
+			buffer.beginElement("div", "class=\"detail-sub\"")
+			buffer.endOpenTag()
+			Text(sub).render(into: &buffer)
+			buffer.endElement()
+		}
 		for view in body { view.render(into: &buffer) }
 		buffer.endElement()
 	}
