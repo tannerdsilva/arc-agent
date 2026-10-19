@@ -1548,6 +1548,36 @@
     }
   }
 
+  // ---- Workspace preview copy (UX-12): the preview's copy control is
+  // client-side, and the toast follows the clipboard promise — the same
+  // owner rule as the conversation-link copy above. `innerText` gives the
+  // rendered text for a markdown preview and the raw text for a <pre>.
+  document.addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest('#ws-preview-copy') : null;
+    if (!btn) return;
+    var body = document.querySelector('.ws-preview-scroll .ws-preview-body');
+    var text = body ? (body.innerText || body.textContent || '') : '';
+    function copied() { flashToast('File content copied.'); }
+    function failed() { flashToast('Could not copy the file.', 'error'); }
+    if (!text.trim()) { failed(); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(copied).catch(failed);
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        if (!document.execCommand('copy')) failed();
+        else copied();
+      } catch (err) { failed(); }
+      document.body.removeChild(ta);
+    }
+  });
+
+
   // ---- Rename conversation: inline edit of the row title, committed
   // through a hidden form that rides the normal runtime pipeline.
   // The row title lives inside a <button>, and an <input> must never

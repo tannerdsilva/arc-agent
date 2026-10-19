@@ -3871,10 +3871,17 @@ extension AppState {
             // not readable. Code keeps `white-space: pre` (via the monospace
             // pre-wrap body, which still wraps).
             let body: String
-            if let content = previewContent, isMarkdown {
-                body = "<div class=\"ws-preview-body\">\(renderMarkdown(content))</div>"
+            if let content = previewContent {
+                if isMarkdown {
+                    body = "<div class=\"ws-preview-body\">\(renderMarkdown(content))</div>"
+                } else {
+                    body = "<pre class=\"ws-preview-body\">\(esc(content))</pre>"
+                }
             } else {
-                body = "<pre class=\"ws-preview-body\">\(esc(previewContent ?? ""))</pre>"
+                // UX-12: an unreadable preview keeps its reason on screen —
+                // `previewNote` names the cause (binary, too large, not utf-8,
+                // read failure); an empty <pre> told the reader nothing.
+                body = "<div class=\"empty-hint\">\(esc(previewNote ?? "No preview."))</div>"
             }
             return """
             <div class="ws-preview">
@@ -3882,7 +3889,6 @@ extension AppState {
                 <button type="button" id="w-preview-back" class="icon-mini" title="Back to files">\(WebUIIcon(.chevronLeft, size: .small).markup.html)</button>
                 <span class="ws-preview-name" title="\(esc(path))\(isMarkdown ? " (markdown)" : "")">\(esc(name))</span>
                 <button type="button" id="ws-preview-copy" class="icon-mini" title="Copy content">\(WebUIIcon(.copy, size: .small).markup.html)</button>
-                <button type="button" id="ws-preview-open" class="icon-mini" title="Open in editor">\(WebUIIcon(.externalLink, size: .small).markup.html)</button>
               </div>
               <div class="ws-preview-scroll">\(body)</div>
             </div>

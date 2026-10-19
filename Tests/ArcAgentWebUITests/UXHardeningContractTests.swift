@@ -392,6 +392,25 @@ extension ArcWebUITestRoot {
         }
 
 
+        // MARK: - UX-12 regression guard: preview reasons + live chrome
+
+        /// The preview pane must keep the reason it cannot render (binary,
+        /// too large, not utf-8, read failure) instead of an empty <pre>, and
+        /// every control in its head must have an owner: the copy control is
+        /// client-side, the open-in-editor control was markup-only and is gone.
+        @Test("workspace previews keep their no-preview reason and the copy control is wired")
+        func workspacePreviewContracts() {
+            let views = Self.views
+            let overlay = Self.overlay
+            #expect(views.contains("esc(previewNote ?? \"No preview.\")"),
+                    "an unreadable preview must name the reason, not render an empty box")
+            #expect(overlay.contains("#ws-preview-copy"),
+                    "the preview copy control must have a client owner")
+            #expect(!views.contains("ws-preview-open"),
+                    "the unwired open-in-editor control must not ship")
+        }
+
+
         // MARK: - UX-01 slash autocomplete consumer
 
         @Test("the slash menu payload has a client consumer wired to open/filter/insert")
