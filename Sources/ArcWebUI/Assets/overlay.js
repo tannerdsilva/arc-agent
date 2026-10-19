@@ -1197,6 +1197,18 @@
     buildOutline();
   }
 
+  // ---- Context window chip (UX-23): a <button> that responds to activation,
+  // not just hover. Click toggles the tooltip (focus-within already opens it
+  // for keyboard users via the CSS); touch gets a path too.
+  document.addEventListener('click', function (e) {
+    var chip = e.target && e.target.closest ? e.target.closest('.ctx-indicator') : null;
+    if (!chip) return;
+    var wrap = chip.closest('.ctx-indicator-wrap');
+    if (!wrap) return;
+    var open = wrap.classList.toggle('ctx-open');
+    chip.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+
   // ---- Session group headers (Today / Last Week / Older): collapse
   // and expand entirely client-side.
   document.addEventListener('click', function (e) {
