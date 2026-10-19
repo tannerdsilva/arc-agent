@@ -495,7 +495,7 @@ extension AppState {
         return """
         <div class="main-view"><div class="main-scroll" data-scroll-key="tasks-main">
           <h2 class="todo-title">Scheduled tasks</h2>
-          <p class="todo-sub">Recurring prompts run headless in their own chat, kept out of the main chat list. Select a task on the left to see its controls and chat, or create a new one below.</p>
+          <p class="todo-sub">Pick a task on the left to see its controls and chat, or create a new one below.</p>
           \(taskFormHTML())
         </div></div>
         """

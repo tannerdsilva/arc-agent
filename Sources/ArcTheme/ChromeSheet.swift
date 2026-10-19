@@ -483,7 +483,8 @@ public static let css: String = """
     .sess-row:focus-within .menu-dots { color: var(--text); background: var(--surface); }
     .sess-open {
       flex: 1; min-width: 0;
-      display: flex; flex-direction: column; gap: 2px;
+      display: flex; flex-direction: column; justify-content: center; gap: 2px;
+      min-height: 28px;
       text-align: left;
       background: transparent; border: none;
       padding: 8px 8px;
@@ -859,6 +860,10 @@ public static let css: String = """
     .form-grid input:focus, .form-grid select:focus, .form-grid textarea:focus { border-color: var(--accent-border); }
     .form-grid textarea { min-height: 90px; resize: vertical; font-family: ui-monospace, Menlo, monospace; font-size: 0.85em; }
     .inline-err { color: var(--danger); font-size: 0.8em; margin-top: 4px; }
+    /* Round-3 UX-35: an invalid field must LOOK invalid, not only announce it
+       through aria-invalid; the inline message stays the explanation. */
+    .input-invalid { border-color: var(--danger) !important; }
+    .req-tag { margin-left: 6px; font-size: 0.72em; font-weight: 500; letter-spacing: 0.02em; color: var(--muted); text-transform: uppercase; }
     [hidden] { display: none !important; }
     .primary-btn {
       background: var(--accent);
@@ -1215,6 +1220,9 @@ public static let css: String = """
       border-bottom: 1px solid var(--border);
       background: var(--sidebar);
     }
+    /* Round-3 UX-36: the title column must be allowed to shrink, or the
+       ellipsis never engages and narrow windows cut the title mid-word. */
+    .chat-header > div:first-child { flex: 1 1 auto; min-width: 0; }
     .chat-title { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0.01em; }
     .chat-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
@@ -1282,6 +1290,7 @@ public static let css: String = """
     .msg-meta {
       font-size: 12px; font-weight: 500; color: var(--muted);
       margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+      flex-wrap: wrap; row-gap: 4px;
     }
     .msg-meta .mm-left { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
     .msg-meta .mm-spacer { flex: 1 1 auto; }
@@ -1311,6 +1320,7 @@ public static let css: String = """
       background: var(--surface);
       font-size: 12px; font-weight: 500;
       font-variant-numeric: tabular-nums;
+      white-space: nowrap;
       vertical-align: 1px; line-height: 1.4;
     }
     .msg-usage-inline {
@@ -3191,9 +3201,9 @@ public static let css: String = """
        third of a 480px window. Collapse it into a single 44px horizontal
        strip under the topbar: the app body becomes a column, the rail scrolls
        sideways (its own overflow, so the WINDOW never does), and the Settings
-       slot stays pinned to the visible right edge with position:sticky — the
-       gear and every other destination stay reachable without any column
-       width tax, so the composer gets the full window. */
+       slot rides at the END of that strip (in flow, not sticky: pinning it
+       over the strip covered Todos at 480px — round-3 UX-29), so every
+       destination stays reachable and the composer gets the full window. */
     @media (max-width: 599.98px) {
       #app-body { flex-direction: column; }
       #iconbar {
@@ -3206,10 +3216,18 @@ public static let css: String = """
       #iconbar .iconbar-top { flex: 0 0 auto; min-height: 0; }
       #iconbar .iconbar-top,
       #iconbar .iconbar-bottom { flex-direction: row; }
+      /* The Settings slot used to be sticky, which parked the gear on top of
+         whichever destination happened to be under it (round-3 UX-29: at 480
+         it covered the Todos button). Keep it in flow at the END of the strip
+         and let the strip itself scroll; the fade below is the scroll cue. */
       #iconbar .iconbar-bottom {
-        position: sticky; bottom: auto; left: auto; right: 0;
+        position: static; bottom: auto; left: auto; right: auto;
         flex: 0 0 auto; align-items: center;
-        background: var(--sidebar); padding-left: 6px;
+        background: transparent; padding-left: 0; padding-right: 4px;
+      }
+      #iconbar {
+        -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent 100%);
+        mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent 100%);
       }
       /* the drawer opens after the topbar AND the rail strip, so the rail
          stays tappable while the drawer is open (UX-61 principle) */

@@ -300,10 +300,13 @@ extension AppState {
 
         // y-axis: ticks at 0/25/50/75/100% of the peak. The rows are absolutely
         // positioned in a 220px column that matches .ins-chart, so each label
-        // sits at the height of the bar it quantifies.
+        // sits at the height of the bar it quantifies. The 100% label is
+        // skipped — the "peak" callout above already prints that number, and
+        // two copies of it overlapped (round-3 UX-43).
         let yTicks = [0.0, 0.25, 0.5, 0.75, 1.0].map { frac -> String in
             let v = Int(Double(maxVal) * frac)
-            return "<div class=\"ins-ytick-row\" style=\"bottom:\(frac * 100)%\"><span class=\"ins-ylabel\">\(Self.fmtCount(v))</span><span class=\"ins-ytick\"></span></div>"
+            let label = frac >= 1.0 ? "" : "<span class=\"ins-ylabel\">\(Self.fmtCount(v))</span>"
+            return "<div class=\"ins-ytick-row\" style=\"bottom:\(frac * 100)%\">\(label)<span class=\"ins-ytick\"></span></div>"
         }.joined()
 
         return """
