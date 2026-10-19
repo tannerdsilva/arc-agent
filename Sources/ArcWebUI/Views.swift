@@ -2382,10 +2382,10 @@ extension AppState {
 
     func profileKV(_ p: Profile) -> String {
         var rows = ""
-        rows += "<div class=\"kv\"><span class=\"k\">Name</span><span class=\"v\">\(esc(p.name))</span></div>"
-        rows += "<div class=\"kv\"><span class=\"k\">Model</span><span class=\"v\">\(esc(p.model ?? "inherit"))</span></div>"
-        rows += "<div class=\"kv\"><span class=\"k\">Provider</span><span class=\"v\">\(esc(p.provider ?? "inherit"))</span></div>"
-        if let b = p.baseURL { rows += "<div class=\"kv\"><span class=\"k\">Base URL</span><span class=\"v\">\(esc(b))</span></div>" }
+        rows += "<div class=\"akv\"><span class=\"akv-k\">Name</span><span class=\"akv-v\">\(esc(p.name))</span></div>"
+        rows += "<div class=\"akv\"><span class=\"akv-k\">Model</span><span class=\"akv-v\">\(esc(p.model ?? "inherit"))</span></div>"
+        rows += "<div class=\"akv\"><span class=\"akv-k\">Provider</span><span class=\"akv-v\">\(esc(p.provider ?? "inherit"))</span></div>"
+        if let b = p.baseURL { rows += "<div class=\"akv\"><span class=\"akv-k\">Base URL</span><span class=\"akv-v\">\(esc(b))</span></div>" }
         return rows
     }
 
@@ -2394,18 +2394,18 @@ extension AppState {
     func profileContextHTML(_ p: Profile) -> String {
         var rows = ""
         if let ctx = p.context, !ctx.isEmpty {
-            rows += "<div class=\"kv\"><span class=\"k\">Context window</span><span class=\"v\">\(ctx.contextLength.map { "\($0) tokens" } ?? "inherit")</span></div>"
-            rows += "<div class=\"kv\"><span class=\"k\">Max output</span><span class=\"v\">\(ctx.maxOutputTokens.map { "\($0) tokens" } ?? "inherit")</span></div>"
-            rows += "<div class=\"kv\"><span class=\"k\">Reasoning effort</span><span class=\"v\">\(esc(ctx.reasoningEffort ?? "inherit"))</span></div>"
-            rows += "<div class=\"kv\"><span class=\"k\">Temperature</span><span class=\"v\">\(ctx.temperature.map { String($0) } ?? "inherit")</span></div>"
-            rows += "<div class=\"kv\"><span class=\"k\">Top P</span><span class=\"v\">\(ctx.topP.map { String($0) } ?? "inherit")</span></div>"
-            rows += "<div class=\"kv\"><span class=\"k\">Compress at</span><span class=\"v\">\(ctx.compressionBudget.map { "\($0) tokens" } ?? "inherit")</span></div>"
+            rows += "<div class=\"akv\"><span class=\"akv-k\">Context window</span><span class=\"akv-v\">\(ctx.contextLength.map { "\($0) tokens" } ?? "inherit")</span></div>"
+            rows += "<div class=\"akv\"><span class=\"akv-k\">Max output</span><span class=\"akv-v\">\(ctx.maxOutputTokens.map { "\($0) tokens" } ?? "inherit")</span></div>"
+            rows += "<div class=\"akv\"><span class=\"akv-k\">Reasoning effort</span><span class=\"akv-v\">\(esc(ctx.reasoningEffort ?? "inherit"))</span></div>"
+            rows += "<div class=\"akv\"><span class=\"akv-k\">Temperature</span><span class=\"akv-v\">\(ctx.temperature.map { String($0) } ?? "inherit")</span></div>"
+            rows += "<div class=\"akv\"><span class=\"akv-k\">Top P</span><span class=\"akv-v\">\(ctx.topP.map { String($0) } ?? "inherit")</span></div>"
+            rows += "<div class=\"akv\"><span class=\"akv-k\">Compress at</span><span class=\"akv-v\">\(ctx.compressionBudget.map { "\($0) tokens" } ?? "inherit")</span></div>"
         } else {
-            rows += "<div class=\"kv\"><span class=\"k\">Context</span><span class=\"v\">inherit (no overrides)</span></div>"
+            rows += "<div class=\"akv\"><span class=\"akv-k\">Context</span><span class=\"akv-v\">inherit (no overrides)</span></div>"
         }
         if let pinned = p.contextSkills, !pinned.isEmpty {
             let names = pinned.map { esc($0) }.joined(separator: ", ")
-            rows += "<div class=\"kv\"><span class=\"k\">Context skills</span><span class=\"v\">\(names)</span></div>"
+            rows += "<div class=\"akv\"><span class=\"akv-k\">Context skills</span><span class=\"akv-v\">\(names)</span></div>"
         }
         return rows
     }
