@@ -17,6 +17,11 @@ extension ArcWebUITestRoot {
             #expect(html.contains("id=\"app\""))
             #expect(html.contains("id=\"topbar\""))
             #expect(html.contains("id=\"iconbar\""))
+            // the regions later phases' pins read: an empty panel or main would
+            // still satisfy the three ids above, and would silently invalidate
+            // every fragment-scoped pin built on this entry point.
+            #expect(html.contains("id=\"panel\""), "the page renders no panel region")
+            #expect(html.contains("id=\"main\""), "the page renders no main region")
             #expect(html.count > 5_000, "the page is suspiciously small — the fixture is not seeding state")
         }
 
