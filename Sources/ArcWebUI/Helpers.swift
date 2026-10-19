@@ -86,3 +86,27 @@ func btn(_ id: String, _ component: String, _ cls: String, _ label: String, _ ex
     let routing = component.isEmpty ? "" : " data-component-id=\"\(component)\""
     return "<button type=\"button\" id=\"\(id)\"\(extra)\(routing) class=\"\(cls)\">\(label)</button>"
 }
+
+// MARK: - Typed markup bridge
+
+/// materialize a fragment view into the wire type the push pipeline carries.
+///
+/// `FragmentUpdate.html` is a `String`; converting at this one edge is what
+/// lets every builder above it return a typed view while the push path, the
+/// deduper and the client stay unchanged.
+@inlinable
+func fragment(_ id: String, _ view: some WebUI.View) -> FragmentUpdate {
+    FragmentUpdate(id: id, html: view.markup.html)
+}
+
+/// temporary migration bridge: a builder a LATER phase still owns, embedded in
+/// an otherwise-typed tree. every call site carries `// TODO(phase N)` and the
+/// total is zero at phase 8 (see the plan's ledger).
+@inlinable
+func legacy(_ html: String) -> some WebUI.View {
+    Raw(.trusted(html))
+}
+
+/// render a typed view where a `-> String` signature must survive one more phase.
+@inlinable
+func render<V: WebUI.View>(_ view: V) -> String { view.markup.html }
