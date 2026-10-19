@@ -182,14 +182,17 @@ extension AppState {
 
     func insightsMain() -> String {
         let totalUses = insights.skillStats.values.reduce(0) { $0 + $1.uses }
-        let touched = insights.skillStats.values.filter { $0.uses > 0 || $0.views > 0 || $0.patches > 0 }.count
+        // "Skills Used" counts skills that were actually invoked (uses > 0),
+        // not merely touched (views/patches). "touched" is a broader metric
+        // that includes views and patches — keep the label honest.
+        let used = insights.skillStats.values.filter { $0.uses > 0 }.count
         let skillNames = Array(Set(skills.map(\.name)).union(insights.skillStats.keys)).sorted()
 
         // Section 1 — skill usage
         let bubbles = """
         <div class="ins-bubbles">
           \(statBubble(label: "Total Invocations", value: Self.fmtCount(totalUses), icon: WebUIIcon(.star, size: .large).markup.html))
-          \(statBubble(label: "Skills Used", value: "\(touched)/\(skillNames.count)", icon: WebUIIcon(.book, size: .large).markup.html))
+          \(statBubble(label: "Skills Used", value: "\(used)/\(skillNames.count)", icon: WebUIIcon(.book, size: .large).markup.html))
         </div>
         """
         // Top 10 skills by times used (keeps the panel uncluttered).
@@ -295,9 +298,17 @@ extension AppState {
             return "<div class=\"ins-xlabel\" data-sparse=\"\(idx % step == 0 ? "0" : "1")\">\(text)</div>"
         }.joined()
 
+        // y-axis ticks: 0, 25%, 50%, 75%, 100% of the peak, compactly formatted.
+        let ySteps = [0.0, 0.25, 0.5, 0.75, 1.0]
+        let yaxis = ySteps.map { frac -> String in
+            let v = Int(Double(maxVal) * frac)
+            return "<div class=\"ins-yaxis\"><span class=\"ins-ytick\"></span><span class=\"ins-ylabel\">\(Self.fmtCount(v))</span></div>"
+        }.joined()
+
         return """
         <div class="ins-chart-wrap">
           <div class="ins-scale">peak \(Self.fmtCount(maxVal))</div>
+          <div class="ins-yaxis">\(yaxis)</div>
           <div class="ins-chart">\(bars)</div>
           <div class="ins-xaxis">\(labels)</div>
         </div>

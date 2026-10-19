@@ -3207,6 +3207,12 @@ public static let css: String = """
       #panel { top: 82px; left: 0; width: 100vw; }
       .drawer-scrim { top: 82px; left: 0; }
     }
+    /* ── Insights daily tokens chart y-axis (UX-14) ────────────────── */
+    .ins-yaxis { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+    .ins-ytick { width: 6px; height: 1px; background: var(--border); }
+    .ins-ylabel { min-width: 44px; text-align: right; white-space: nowrap; }
+
     """
 
 }
+
