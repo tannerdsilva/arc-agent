@@ -806,7 +806,7 @@ extension AppState {
                 let encT = enc(t.name)
                 let active = t.name == selectedTool ? " active" : ""
                 let avail = (t.checkFn?() ?? true)
-                let badge = avail ? "" : " <span class=\'lr-sub\'(needs env)</span>"
+                let badge = avail ? "" : " <span class='lr-sub'>(needs env)</span>"
                 toolRows.append("""
                 <div class="list-row\(active)" data-component-id="tool-list">
                   <button type="button" id="tl-open-\(encT)" class="sess-open" style="padding:0">

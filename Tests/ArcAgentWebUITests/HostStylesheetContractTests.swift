@@ -92,7 +92,11 @@ extension ArcWebUITestRoot {
         /// the token extraction itself, over one source text (pure, so the scanner can be
         /// pinned by a synthetic sample instead of trusted).
         static func classTokens(in text: String) -> [String] {
-            let scanned = text
+            // escaped-quote markup (single-line Swift strings) emits the same
+            // classes as triple-quoted markup: unescape first so a class that
+            // ships from a `class="…"` literal cannot bypass the census.
+            let normalized = text.replacingOccurrences(of: "\\\"", with: "\"")
+            let scanned = normalized
                 .split(separator: "\n", omittingEmptySubsequences: false)
                 .map { line -> String in
                     guard let comment = line.range(of: "//") else { return String(line) }

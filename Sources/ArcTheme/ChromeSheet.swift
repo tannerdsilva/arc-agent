@@ -936,6 +936,9 @@ public static let css: String = """
     }
     .set-row select:focus, .set-row input:focus { border-color: var(--accent-border); }
     .set-hint { color: var(--muted); font-size: 0.86em; }
+    /* the incomplete-storage note (set-warn) was markup-only until the census
+       learned to read escaped-quote markup; a warning needs its colour. */
+    .set-warn { color: var(--warning); }
     .side-tab-chips { display: flex; flex-wrap: wrap; gap: 8px; }
     .side-tab-chip {
       display: inline-flex; align-items: center; gap: 6px;
@@ -1199,6 +1202,10 @@ public static let css: String = """
        edge, and a long unbroken package token breaks inside its badge. */
     .plug-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 2px; max-width: 100%; vertical-align: middle; }
     .plug-chips .mc-badge { margin-right: 0; max-width: 100%; overflow-wrap: anywhere; }
+    /* UX-25: the sidecar's startup outcome on the plugin row. Without these
+       rules the failure badge is plain hint text and reads as enabled. */
+    .plugin-failed { color: var(--danger); }
+    .plugin-running { color: var(--success); }
 
     /* ─── Chat main (reference look: centered column, rails, bubbles) ── */
     .chat-main { flex: 1; display: flex; flex-direction: column; min-height: 0; position: relative; }

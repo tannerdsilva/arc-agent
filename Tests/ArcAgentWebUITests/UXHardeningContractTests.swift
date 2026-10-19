@@ -392,6 +392,19 @@ extension ArcWebUITestRoot {
         }
 
 
+        // MARK: - UX-15 regression guard: the tools filter and the env badge
+
+        /// the wave-3 tool filter shipped without a test, and its same commit
+        /// left the `(needs env)` badge with no `>` — the span parsed empty.
+        @Test("the tools panel keeps a working filter and a well-formed env badge")
+        func toolsFilterAndBadge() {
+            let views = Self.views
+            #expect(views.contains("id=\"tool-search-input\""),
+                    "the tools list must stay searchable")
+            #expect(views.contains("<span class='lr-sub'>(needs env)</span>"),
+                    "the env badge must be well-formed or it renders as an empty span")
+        }
+
         // MARK: - UX-12 regression guard: preview reasons + live chrome
 
         /// The preview pane must keep the reason it cannot render (binary,
