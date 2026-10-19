@@ -652,6 +652,7 @@ extension AppState {
             // Unarchiving while in the archived-only view: exit it so the
             // conversation reappears in the normal list immediately.
             if showArchived { showArchived = false }
+            surfaceToast("Conversation restored to the main list.")
         } else {
             settings.archivedSessions.append(id)
             // The row leaves the list without a trace; surface where it went
@@ -817,14 +818,19 @@ extension AppState {
         saveSettings()
     }
 
-    func setAddingCard(_ columnID: String?) { addingCardColumnID = columnID }
+    func setAddingCard(_ columnID: String?) {
+        addingCardColumnID = columnID
+        kanbanAddError = nil
+    }
 
     func addKanbanCard(_ title: String, in columnID: String) {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else {
+            kanbanAddError = "Give the card a title."
             _ = hint("Card needs a title.", kind: "error")
             return
         }
+        kanbanAddError = nil
         settings.kanbanCards.append(KBCard(id: UUID().uuidString, columnID: columnID, title: t))
         addingCardColumnID = nil
         saveSettings()
@@ -1885,7 +1891,7 @@ extension AppState {
             }
             guard let t = reply.content?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !t.isEmpty else { return }
-            let title = String(t.prefix(44))
+            let title = String(t.prefix(90))
             guard title != sessionTitle(session) else { return }
             settings.sessionTitles[sessionID] = title
             saveSettings()

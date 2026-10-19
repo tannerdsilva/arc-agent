@@ -876,6 +876,9 @@ actor AppState {
     /// Kanban UI mode (phase: kanban).
     var addingColumn = false
     var addingCardColumnID: String? = nil
+    /// Round-3 UX-34: inline reason for an empty card title, rendered next to
+    /// the field instead of only in a corner toast.
+    var kanbanAddError: String? = nil
     var confirmColumn: String? = nil
     /// Card awaiting delete confirmation — the board's in-place two-step, the
     /// same guard `confirmColumn` already gives columns.
@@ -1752,18 +1755,23 @@ actor AppState {
     }
 
     func sessionTitle(_ s: Session) -> String {
+        // Round-3 UX-30: 44 chars cut every long prompt mid-phrase and the
+        // clipped string was all that hover, aria and the delete dialog ever
+        // saw. Keep a longer stored/derived title — the ROW still clamps it
+        // visually, so the list looks the same while the full name is
+        // available everywhere a person needs to identify the chat.
         if let custom = settings.sessionTitles[s.id],
            !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return custom
         }
         if let first = s.messages.first(where: { $0.role == .user }),
            let c = first.content, !c.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return trunc(c, 44)
+            return trunc(c, 90)
         }
         // Unloaded summaries carry the title hint (first user message) in
         // `title`; fall back to "New chat" only when neither exists.
         if let t = s.title, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return trunc(t, 44)
+            return trunc(t, 90)
         }
         return "New chat"
     }
