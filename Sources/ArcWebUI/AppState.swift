@@ -695,6 +695,7 @@ actor AppState {
     var skills: [Skill] = []
     var selectedSkill: String?
     var skillFilter = ""
+    var toolFilter = ""
     var skillVersion = 0
 
     var profiles: [Profile] = []

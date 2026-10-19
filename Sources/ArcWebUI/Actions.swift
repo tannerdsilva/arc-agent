@@ -2013,6 +2013,10 @@ final class Controller: Sendable {
             await self.app.setSkillFilter(event.string("value") ?? "")
             return await self.app.skillPanelFragment()
         }
+        wire(router, id: "tool-search-input", events: ["input"]) { event in
+            await self.app.setToolFilter(event.string("value") ?? "")
+            return await self.app.refreshFragments()
+        }
         wire(router, id: "skill-list", events: ["click", "change"]) { event in
             // Clicks resolve the row from targetId (the id inside the boundary);
             // a checkbox change carries no targetId, so the row identity rides

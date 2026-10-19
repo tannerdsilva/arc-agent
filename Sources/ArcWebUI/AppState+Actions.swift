@@ -1016,6 +1016,10 @@ extension AppState {
         skillFilter = text
     }
 
+    func setToolFilter(_ text: String) {
+        toolFilter = text
+    }
+
     func selectSkill(_ name: String) {
         selectedSkill = name
         createSkill = false

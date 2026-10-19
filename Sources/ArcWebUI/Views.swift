@@ -771,6 +771,9 @@ extension AppState {
         <div class="panel-head">
           <span class="panel-title">Tools</span>
         </div>
+        <div class="filter-bar">
+          <input id="tool-search-input" data-component-id="tool-search-input" type="search" placeholder="Filter tools…" aria-label="Filter tools" value="\(esc(toolFilter))">
+        </div>
         """
         var rows: [String] = []
         // The `mcp` group is ONE bridge tool however many servers are
@@ -780,10 +783,12 @@ extension AppState {
         for (toolset, tools) in toolsets {
             let encTS = enc(toolset)
             let disabled = settings.disabledToolsets.contains(toolset)
+            // UX-15: filter tools by name so the catalog is searchable.
+            let filtered = toolFilter.isEmpty ? tools : tools.filter { $0.name.localizedCaseInsensitiveContains(toolFilter) }
             let group = "<div class=\"tool-group\">\(esc(toolset))</div>"
             let summary = toolset == "mcp"
-                ? "\(tools.count) tool · \(mcpServers) server\(mcpServers == 1 ? "" : "s") configured"
-                : "\(tools.count) tool\(tools.count == 1 ? "" : "s")"
+                ? "\(filtered.count) tool · \(mcpServers) server\(mcpServers == 1 ? "" : "s") configured"
+                : "\(filtered.count) tool\(filtered.count == 1 ? "" : "s")"
             let toggle = """
             <div class="list-row" style="padding:6px 10px">
               <span class="lr-sub" style="flex:1">\(summary)</span>
@@ -797,11 +802,11 @@ extension AppState {
             if toolset == "mcp", mcpServers == 0 {
                 toolRows.append("<div class=\"empty-hint\">No MCP servers configured — add one in Settings → MCP servers. Until then this bridge has nothing to call.</div>")
             }
-            for t in tools {
+            for t in filtered {
                 let encT = enc(t.name)
                 let active = t.name == selectedTool ? " active" : ""
                 let avail = (t.checkFn?() ?? true)
-                let badge = avail ? "" : " <span class='lr-sub'>(needs env)</span>"
+                let badge = avail ? "" : " <span class=\'lr-sub\'(needs env)</span>"
                 toolRows.append("""
                 <div class="list-row\(active)" data-component-id="tool-list">
                   <button type="button" id="tl-open-\(encT)" class="sess-open" style="padding:0">
@@ -2163,13 +2168,15 @@ extension AppState {
         guard let name = selectedSkill,
               let skill = skills.first(where: { $0.name == name })
         else {
-            // An empty library needs the create-first copy, not "select one".
-            let hint = skills.isEmpty
-                ? "No skills yet — create your first one with + above."
-                : "Select a skill to see its description."
+            // UX-16: one empty state, one CTA. A real "Create skill" button
+            // in the canvas (the sidebar + is the other path).
+            let createBtn = btn("skill-new", "skill-new", "primary-btn", WebUIIcon(.plus, size: .medium).markup.html + " Create skill", " title=\"Create skill\"")
             return """
             <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(WebUIIcon(.star, size: .extraLarge).markup.html)</div><div>\(hint)</div></div>
+              <div class="blank"><div class="big">\(WebUIIcon(.star, size: .extraLarge).markup.html)</div>
+                <div>\(skills.isEmpty ? "No skills yet." : "Select a skill to see its description.")</div>
+                <div style="margin-top:12px">\(createBtn)</div>
+              </div>
             </div>
             """
         }
