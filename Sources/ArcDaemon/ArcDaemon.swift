@@ -115,6 +115,12 @@ public enum ArcDaemon {
                 thirdPartyPlugins: sidecarPlugins,
                 sidecarManager: sidecarManager
             )
+            // Surface sidecar startup outcomes so the plugin row can render a
+            // failure badge instead of looking "enabled" (UX-25).
+            if let uiHost {
+                let outcomes = await sidecarManager.startupOutcome
+                uiHost.setPluginStartupOutcomes(outcomes)
+            }
         }
 
         // ── tool plugins ──────────────────────────────────────────

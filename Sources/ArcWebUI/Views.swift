@@ -2582,6 +2582,13 @@ extension AppState {
             let toolsLine = tools.isEmpty
                 ? "No tools"
                 : #"Tools: <span class="plug-chips">\#(toolChips)</span>"#
+            var statusLine = ""
+            if let reason = self.pluginStartupOutcome[name] {
+                statusLine = "<div class=\"set-hint plugin-failed\">Sidecar failed to start: \(esc(reason))</div>"
+            } else if on {
+                statusLine = "<div class=\"set-hint plugin-running\">Sidecar running</div>"
+            }
+
             return """
             <div class="set-row" style="flex-direction:column;align-items:stretch;gap:4px">
               <div style="display:flex;align-items:center;justify-content:space-between">
@@ -2593,6 +2600,7 @@ extension AppState {
               </div>
               <div class="set-hint">\(esc(m?.description ?? ""))</div>
               <div class="set-hint">\(toolsLine)</div>
+              \(statusLine)
             </div>
             """
         }.joined()

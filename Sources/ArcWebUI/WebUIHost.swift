@@ -394,4 +394,15 @@ public struct WebUIHost: Service {
         app.crumb("host: teardown — releasing app state")
         await app.shutdown()
     }
+
+    /// Record sidecar startup outcomes on the app state, called by the daemon
+    /// after discovery so the plugin row can render a failure badge (UX-25).
+    public func setPluginStartupOutcomes(_ outcomes: [String: SidecarPluginManager.PluginStartupOutcome]) {
+        for (name, outcome) in outcomes {
+            switch outcome {
+            case .running: Task { await self.app.setPluginStartupOutcome(name, nil) }
+            case .failed(let reason): Task { await self.app.setPluginStartupOutcome(name, reason) }
+            }
+        }
+    }
 }

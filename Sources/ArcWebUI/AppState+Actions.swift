@@ -1116,6 +1116,18 @@ extension AppState {
         saveSettings()
     }
 
+    /// Record the sidecar startup outcome per plugin, as returned by
+    /// `SidecarPluginManager.startupOutcome`. Called after discovery so the
+    /// Settings → Tool plugins row can render a failure badge (UX-25).
+    func setPluginStartupOutcomes(_ outcomes: [String: SidecarPluginManager.PluginStartupOutcome]) {
+        for (name, outcome) in outcomes {
+            switch outcome {
+            case .running: pluginStartupOutcome[name] = nil
+            case .failed(let reason): pluginStartupOutcome[name] = reason
+            }
+        }
+    }
+
     /// The profile bound to the active chat, if any. Empty = global context.
     func activeSkillContext() -> String {
         profileName(for: activeSessionID) ?? ""

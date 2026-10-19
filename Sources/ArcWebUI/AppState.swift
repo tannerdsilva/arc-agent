@@ -973,6 +973,11 @@ actor AppState {
     /// data source (arc plugin metadata parity).
     var pluginManifests: [String: PluginManifest] = [:]
 
+    /// Sidecar startup outcome per plugin: nil = sidecar started and is
+    /// running; non-nil = the failure reason, shown as a badge on the
+    /// plugin row so a failed sidecar never reads as "enabled" (UX-25).
+    var pluginStartupOutcome: [String: String] = [:]
+
     // MARK: MCP server presets (Settings → MCP servers)
 
     /// The add/edit form is open (either adding a new server or editing the

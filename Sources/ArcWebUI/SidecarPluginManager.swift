@@ -50,6 +50,17 @@ public actor SidecarPluginManager {
     /// `~/.arc/plugins`).
     public nonisolated(unsafe) static var testPluginsRoot: String?
 
+    /// Outcome of each plugin's sidecar startup: `.running` when the
+    /// process started and the handshake completed, `.failed(reason)` when
+    /// it did not. Populated by `discover()` and consumed by the Settings
+    /// → Tool plugins row so a failed sidecar can never look "enabled".
+    public enum PluginStartupOutcome: Sendable, Equatable {
+        case running
+        case failed(String)
+    }
+
+    public private(set) var startupOutcome: [String: PluginStartupOutcome] = [:]
+
     public static var pluginsRoot: URL {
         if let override = testPluginsRoot, !override.isEmpty {
             return URL(fileURLWithPath: override)
@@ -136,8 +147,12 @@ public actor SidecarPluginManager {
                 logger.info("sidecar plugin loaded: \(name) v\(manifest.version ?? "0.0.0") (\(descriptors.count) tab(s)) from \(binary)")
             } catch {
                 await connection.disconnect()
+                startupOutcome[name] = .failed(String(describing: error))
                 logger.warning("sidecar plugin '\(name)' failed to start: \(error)")
             }
+        }
+        for p in plugins {
+            startupOutcome[p.name] = .running
         }
         return plugins
     }
