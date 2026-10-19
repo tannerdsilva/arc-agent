@@ -2960,7 +2960,7 @@ public static let css: String = """
     .ws-preview-body {
       margin: 0; padding: 10px 12px;
       font-family: ui-monospace, "SF Mono", Menlo, monospace;
-      font-size: 0.8em; line-height: 1.45; white-space: pre;
+      font-size: 0.8em; line-height: 1.45; white-space: pre-wrap;
       color: var(--text);
     }
     .ws-path {

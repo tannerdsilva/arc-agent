@@ -3835,13 +3835,24 @@ extension AppState {
         guard workspaceOpen else { return "" }
         if let path = previewPath {
             let name = URL(fileURLWithPath: path).lastPathComponent
-            let body = previewContent.map { "<pre class=\"ws-preview-body\">\(esc($0))</pre>" }
-                ?? "<div class=\"empty-hint\">\(esc(previewNote ?? "No preview."))</div>"
+            let isMarkdown = path.lowercased().hasSuffix(".md")
+            // UX-12: wrap text previews (pre-wrap) and render markdown for
+            // .md files — the dock is for glancing, raw markdown syntax is
+            // not readable. Code keeps `white-space: pre` (via the monospace
+            // pre-wrap body, which still wraps).
+            let body: String
+            if let content = previewContent, isMarkdown {
+                body = "<div class=\"ws-preview-body\">\(renderMarkdown(content))</div>"
+            } else {
+                body = "<pre class=\"ws-preview-body\">\(esc(previewContent ?? ""))</pre>"
+            }
             return """
             <div class="ws-preview">
               <div class="ws-preview-head">
                 <button type="button" id="w-preview-back" class="icon-mini" title="Back to files">\(WebUIIcon(.chevronLeft, size: .small).markup.html)</button>
-                <span class="ws-preview-name" title="\(esc(path))">\(esc(name))</span>
+                <span class="ws-preview-name" title="\(esc(path))\(isMarkdown ? " (markdown)" : "")">\(esc(name))</span>
+                <button type="button" id="ws-preview-copy" class="icon-mini" title="Copy content">\(WebUIIcon(.copy, size: .small).markup.html)</button>
+                <button type="button" id="ws-preview-open" class="icon-mini" title="Open in editor">\(WebUIIcon(.externalLink, size: .small).markup.html)</button>
               </div>
               <div class="ws-preview-scroll">\(body)</div>
             </div>
