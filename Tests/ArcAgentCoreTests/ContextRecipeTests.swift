@@ -169,5 +169,114 @@ extension ArcCoreTestRoot {
             #expect(prompt.contains("## Environment"))
             #expect(prompt.contains("Conversation started:"))
         }
+
+        // MARK: - Full per-segment matrix
+
+        /// The prose marker that identifies each segment's region of the prompt.
+        /// Every marker is unique to its segment, so presence/absence is
+        /// unambiguous when toggling.
+        private func marker(for seg: ContextSegment) -> String {
+            switch seg {
+            case .memory: return "## Memory (Your Persistent Notes)"
+            case .userProfile: return "## User Profile"
+            case .skills: return "## Skills (mandatory)"
+            case .projectContext: return "## Workspace & Project Context"
+            case .environment: return "## Environment"
+            case .guidance: return "## Finishing the job"
+            case .personality: return "## Personality"
+            case .timestamp: return "Conversation started:"
+            case .tools: return "## Available Tools"
+            }
+        }
+
+        private func makeFullConfig(recipe: ResolvedContextRecipe) throws -> ArcAgent.Configuration {
+            var registry = CompileTimeToolRegistry()
+            try? registry.register(SkillViewTool.entry)
+
+            let memDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("arc-ctx-mem-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: memDir, withIntermediateDirectories: true)
+            try "persistent test memory note".write(to: memDir.appendingPathComponent("MEMORY.md"), atomically: true, encoding: .utf8)
+            try "user profile test".write(to: memDir.appendingPathComponent("USER.md"), atomically: true, encoding: .utf8)
+
+            let projDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("arc-ctx-proj-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: projDir, withIntermediateDirectories: true)
+            try "# AGENTS\ncontext marker".write(to: projDir.appendingPathComponent("AGENTS.md"), atomically: true, encoding: .utf8)
+
+            return ArcAgent.Configuration(
+                model: "test-model",
+                provider: "openai",
+                baseURL: URL(string: "https://api.openai.com/v1")!,
+                apiKey: "sk-test",
+                registry: registry,
+                sessionStore: tempStore(),
+                memoryProvider: FileMemoryProvider(directory: memDir),
+                skills: [defaultSkill()],
+                maxIterations: 10,
+                maxTurnDuration: 30,
+                persistSessions: false,
+                approvalMode: .off,
+                query: nil,
+                maxContextTokens: 64_000,
+                personalityPrompt: "Be terse.",
+                sessionID: "ctx-full",
+                injectProjectContext: true,
+                contextDirectory: projDir,
+                contextRecipe: recipe
+            )
+        }
+
+        /// Every segment is individually toggled off and asserted absent, while
+        /// every other segment stays present — proving the switches are
+        /// independent (no off-by-one, no deselect-adjacent regressions).
+        @Test("each segment individually disabled removes only its own marker")
+        func eachDisabledRemovesOnlyItsMarker() async throws {
+            for seg in ContextSegment.allCases {
+                let recipe = ResolvedContextRecipe(segments: [seg: false])
+                let config = try makeFullConfig(recipe: recipe)
+                let box = ClientScripts(responses: [LLMResponse(content: "ok", finishReason: "stop")])
+                let prompt = try await systemPrompt(config: config, box: box)
+
+                #expect(!prompt.contains(marker(for: seg)),
+                        "disabled \(seg) should be absent from the prompt")
+                for other in ContextSegment.allCases where other != seg {
+                    #expect(prompt.contains(marker(for: other)),
+                            "enabled \(other) should remain when only \(seg) is off")
+                }
+            }
+        }
+
+        /// Turning every switch off must leave only the untoggleable identity
+        /// and rules core — no segment marker may leak through.
+        @Test("all segments disabled leaves only identity and rules")
+        func allDisabledOnlyCore() async throws {
+            let recipe = ResolvedContextRecipe(all: false)
+            let config = try makeFullConfig(recipe: recipe)
+            let box = ClientScripts(responses: [LLMResponse(content: "ok", finishReason: "stop")])
+            let prompt = try await systemPrompt(config: config, box: box)
+
+            #expect(prompt.contains("You are ARC Agent"), "identity must remain")
+            for seg in ContextSegment.allCases {
+                #expect(!prompt.contains(marker(for: seg)),
+                        "\(seg) must be absent when all switches are off")
+            }
+        }
+
+        /// With every switch on, all nine segments are present — the positive
+        /// control for the matrix (and proof the full-config harness itself
+        /// is set up to render every region).
+        @Test("all segments enabled includes every marker")
+        func allEnabledIncludesEveryMarker() async throws {
+            let recipe = ResolvedContextRecipe(all: true)
+            let config = try makeFullConfig(recipe: recipe)
+            let box = ClientScripts(responses: [LLMResponse(content: "ok", finishReason: "stop")])
+            let prompt = try await systemPrompt(config: config, box: box)
+
+            for seg in ContextSegment.allCases {
+                #expect(prompt.contains(marker(for: seg)),
+                        "enabled \(seg) should be present")
+            }
+        }
     }
 }
