@@ -134,11 +134,9 @@ public struct DaemonConfig: Sendable {
     }
 
     public static func defaultHome() -> URL {
-        let fm = FileManager.default
-        // One home for everything the daemon reads: `~/.arc`. The web UI's
-        // `.arc-agent-webui` directory remains UI state only.
-        let base = fm.homeDirectoryForCurrentUser.appendingPathComponent(".arc", isDirectory: true)
-        return base
+        // One home for everything the daemon reads: `~/.arc` (or `$ARC_HOME`).
+        // The web UI's `.arc-agent-webui` directory remains UI state only.
+        ArcHome.root
     }
 }
 

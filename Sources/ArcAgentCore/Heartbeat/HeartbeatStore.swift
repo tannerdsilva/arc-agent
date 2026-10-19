@@ -62,8 +62,7 @@ public enum HeartbeatInterval {
 public actor HeartbeatStore {
 
     /// Storage file (overridden in tests via ``setStorageURL``).
-    private nonisolated(unsafe) static var storageURL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".arc/heartbeats.json")
+    private nonisolated(unsafe) static var storageURL = ArcHome.heartbeats
 
     public static func setStorageURL(_ url: URL) {
         storageURL = url

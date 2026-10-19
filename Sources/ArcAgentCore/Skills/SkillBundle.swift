@@ -59,8 +59,7 @@ public struct SkillBundle: Codable, Sendable, Equatable {
 public enum SkillBundleStore {
     /// The default bundle directory.
     public static func defaultDirectory() -> URL {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent(".arc/skill-bundles", isDirectory: true)
+        ArcHome.skillBundles
     }
 
     public static func save(_ bundle: SkillBundle, directory: URL = SkillBundleStore.defaultDirectory()) throws -> URL {

@@ -31,13 +31,12 @@ struct CuratorCmd: AsyncParsableCommand {
     func run() async throws {
         let config = loadConfig()
         let fm = FileManager.default
-        let home = fm.homeDirectoryForCurrentUser
-        let skillsDir = home.appendingPathComponent(".arc/skills")
-        let curatorDir = home.appendingPathComponent(".arc/curator")
+        let skillsDir = ArcHome.skills
+        let curatorDir = ArcHome.curator
         let backupsDir = curatorDir.appendingPathComponent("backups")
         let archiveDir = curatorDir.appendingPathComponent("archive")
         let stateURL = curatorDir.appendingPathComponent("state.json")
-        let cronURL = home.appendingPathComponent(".arc/cron-jobs.json")
+        let cronURL = ArcHome.cronJobs
 
         // ── Skill edit locks (agent_powers) ─────────────────────────────
         let lockedNames = Set(config.agentPowers.lockedSkills)

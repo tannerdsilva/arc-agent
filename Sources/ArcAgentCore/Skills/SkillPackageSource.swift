@@ -48,8 +48,7 @@ public enum SkillPackageSource {
     ) async throws -> URL {
         // 1. Bare name against the registry.
         if isBareName(bundle) {
-            let reg = registry ?? FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".arc/skill-packages")
+            let reg = registry ?? ArcHome.skillPackages
             let candidate = reg.appendingPathComponent(bundle)
             if FileManager.default.fileExists(atPath: candidate.appendingPathComponent("manifest.json").path) {
                 return candidate

@@ -25,8 +25,7 @@ public actor ProfileManager {
     /// Base URL for profile storage (~/.arc/profiles/).
     public static var profilesDir: String {
         if let override = testProfilesRoot, !override.isEmpty { return override }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/profiles", isDirectory: true).path
+        return ArcHome.profiles.path
     }
 
     /// Test seam: when set, overrides the profile storage root so tests never

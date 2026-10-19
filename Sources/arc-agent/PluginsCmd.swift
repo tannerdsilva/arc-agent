@@ -116,8 +116,7 @@ struct PluginsTest: AsyncParsableCommand {
             toolset: toolSpec.toolset ?? "plugins",
             requiresEnv: toolSpec.requiresEnv ?? [],
             schema: toolSpec.schema,
-            cwdOverride: FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".arc/plugins/\(plugin)", isDirectory: true)
+            cwdOverride: ArcHome.plugins.appendingPathComponent(plugin, isDirectory: true)
         )
         let data = argsJSON.data(using: .utf8) ?? Data()
         let args: [String: Any]

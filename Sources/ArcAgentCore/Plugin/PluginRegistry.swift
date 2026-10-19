@@ -286,8 +286,7 @@ public struct PluginTool: Sendable {
     /// Invoke the plugin binary: JSON `{"tool": name, "args": {...}}` on
     /// stdin → JSON `{"result": "..."}` on stdout. Bounded: 60s, 1MB.
     public func invoke(args: [String: Any]) async throws -> String {
-        let cwd = cwdOverride ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/plugins/\(plugin)")
+        let cwd = cwdOverride ?? ArcHome.plugins.appendingPathComponent(plugin)
         let exe = try resolveExecutable(cwd: cwd)
         var processArgs = self.args
         if let entry {
@@ -377,8 +376,7 @@ public actor PluginRegistry {
     private let logger = Logger(label: "arc.plugins")
 
     public init(pluginsDir: URL? = nil) {
-        self.pluginsDir = pluginsDir ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/plugins", isDirectory: true)
+        self.pluginsDir = pluginsDir ?? ArcHome.plugins
     }
 
     /// Rescan the plugins directory (reference scans every agent init).

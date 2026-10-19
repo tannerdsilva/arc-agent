@@ -132,8 +132,7 @@ public enum SearchEnv {
         if let v = ProcessInfo.processInfo.environment[name], !v.isEmpty {
             return v.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        let envPath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/.env")
+        let envPath = ArcHome.env
         guard let content = try? String(contentsOf: envPath, encoding: .utf8) else {
             return ""
         }

@@ -25,8 +25,7 @@ public struct ArcProject: Codable, Sendable, Equatable {
 /// stored as `~/.arc/projects.json`). An actor: all mutation is serialized.
 public actor ProjectStore {
 
-    private nonisolated(unsafe) static var _fileURL: URL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".arc/projects.json")
+    private nonisolated(unsafe) static var _fileURL: URL = ArcHome.projects
 
     /// Locations file (test seam — redirects storage, never touches the real
     /// `~/.arc/projects.json` in tests).

@@ -54,8 +54,7 @@ public actor SidecarPluginManager {
         if let override = testPluginsRoot, !override.isEmpty {
             return URL(fileURLWithPath: override)
         }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/plugins", isDirectory: true)
+        return ArcHome.plugins
     }
 
     private var connections: [SidecarConnection] = []

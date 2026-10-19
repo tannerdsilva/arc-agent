@@ -167,8 +167,7 @@ public actor HookBus {
     /// `HookRegistry.discover_and_load()`). Handlers are `handler.py`
     /// (executed by `python3`) — same `handle(event, context)` contract.
     public func loadFileHooks(directory: URL? = nil) async {
-        let base = directory ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/hooks")
+        let base = directory ?? ArcHome.hooks
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: base, includingPropertiesForKeys: nil
         ) else { return }

@@ -234,7 +234,7 @@ struct WorkspaceEntry: Codable, Equatable {
         if name == "main" {
             return home.appendingPathComponent("workspace").path
         }
-        return home.appendingPathComponent(".arc/workspaces/\(name)").path
+        return ArcHome.workspaces.appendingPathComponent(name).path
     }
 }
 
@@ -1207,8 +1207,7 @@ actor AppState {
     /// The raw `~/.arc/config.json` (no environment overrides applied) — the
     /// file the aux editor reads and writes so env vars never get baked in.
     static func rawArcConfig() -> ArcConfig {
-        let url = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/config.json")
+        let url = ArcHome.config
         if let data = try? Data(contentsOf: url),
            let cfg = try? JSONDecoder().decode(ArcConfig.self, from: data) {
             return cfg

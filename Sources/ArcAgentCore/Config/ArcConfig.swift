@@ -723,8 +723,7 @@ public func loadConfig(from configURL: URL? = nil) -> ArcConfig {
     var config = ArcConfig()
 
     // Determine the config file URL
-    let resolvedURL = configURL ?? FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".arc/config.json")
+    let resolvedURL = configURL ?? ArcHome.config
 
     // Secrets live in ~/.arc/.env; the process environment wins over the file.
     // Only the tessera private key is sourced here today — the other tessera
@@ -793,11 +792,11 @@ public func loadConfig(from configURL: URL? = nil) -> ArcConfig {
 ///
 /// - Parameters:
 ///   - config: The configuration to save.
-///   - configURL: The config file URL. Defaults to `~/.arc/config.json`.
+///   - configURL: The config file URL. Defaults to `~/.arc/config.json`
+///     (`$ARC_HOME/config.json` when `ARC_HOME` is set).
 /// - Throws: If the file cannot be written.
 public func saveConfig(_ config: ArcConfig, to configURL: URL? = nil) throws {
-    let resolvedURL = configURL ?? FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".arc/config.json")
+    let resolvedURL = configURL ?? ArcHome.config
     let configDir = resolvedURL.deletingLastPathComponent()
 
     try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)

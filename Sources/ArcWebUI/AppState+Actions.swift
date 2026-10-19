@@ -1382,8 +1382,7 @@ extension AppState {
     }
 
     func skillsDir() -> URL? {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/skills")
+        ArcHome.skills
     }
 
     // MARK: Profiles

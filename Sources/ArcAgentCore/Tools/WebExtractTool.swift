@@ -176,8 +176,7 @@ public enum WebExtractTool {
     }
 
     private static func writeCache(_ content: String, url: String) -> String {
-        let dir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/cache/web", isDirectory: true)
+        let dir = ArcHome.cache.appendingPathComponent("web", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let digest = SHA256.hash(data: Data(url.utf8)).map { String(format: "%02x", $0) }.joined()
         let file = dir.appendingPathComponent("\(String(digest.prefix(16))).md")

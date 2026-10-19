@@ -346,8 +346,7 @@ struct Serve: AsyncParsableCommand {
 
         // Surfaces live in ~/.arc/daemon.json (per-platform blocks; env-var
         // overrides on top). One daemon composes them all.
-        let arcHome = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc", isDirectory: true)
+        let arcHome = ArcHome.root
         let daemonConfig = DaemonConfig.load(
             home: arcHome,
             environment: ProcessInfo.processInfo.environment
@@ -380,6 +379,16 @@ struct Setup: AsyncParsableCommand {
         print("⚡ ARC Agent Setup")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("")
+
+        // Instance data directory (ARC_HOME). The default is `~/.arc`; entering
+        // a path relocates this instance's config, secrets, and data. Set
+        // `ARC_HOME` when launching so later commands target this instance.
+        let defaultHome = ArcHome.root.path
+        print("Instance data directory (ARC_HOME) [\(defaultHome)]: ", terminator: "")
+        if let input = readLine(), !input.isEmpty {
+            ArcHome.setOverride(input)
+        }
+        let instanceHome = ArcHome.root.path
 
         var config = ArcConfig()
 
@@ -420,12 +429,17 @@ struct Setup: AsyncParsableCommand {
         // Save config
         try saveConfig(config)
         print("")
-        print("✅ Configuration saved to ~/.arc/config.json")
+        print("✅ Configuration saved to \(instanceHome)/config.json")
         print("")
         print("Next steps:")
         print("  1. Set your API key: export ARC_API_KEY=sk-...")
-        print("     Or add it to ~/.arc/.env")
-        print("  2. Run: arc chat -q \"hello world\"")
+        print("     Or add it to \(instanceHome)/.env")
+        if ArcHome.overridden {
+            print("  2. Launch this instance with: export ARC_HOME=\(instanceHome)")
+            print("  3. Run: arc chat -q \"hello world\"")
+        } else {
+            print("  2. Run: arc chat -q \"hello world\"")
+        }
     }
 }
 

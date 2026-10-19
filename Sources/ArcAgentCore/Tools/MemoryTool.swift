@@ -13,8 +13,7 @@ struct MemoryTool {
 
     /// The file provider used when no provider has been injected.
     nonisolated(unsafe) static var fallbackProvider: (any MemoryProvider) = FileMemoryProvider(
-        directory: FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/memories")
+        directory: ArcHome.memories
     )
 
     nonisolated(unsafe) static var entry = ToolEntry(

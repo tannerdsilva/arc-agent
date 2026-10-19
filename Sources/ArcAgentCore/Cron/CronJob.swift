@@ -72,8 +72,7 @@ public actor FileCronStore: CronStore {
     private let directory: URL
 
     public init(directory: URL? = nil) {
-        let dir = directory ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/cron")
+        let dir = directory ?? ArcHome.cron
         self.directory = dir
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }

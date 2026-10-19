@@ -244,8 +244,7 @@ public struct FileSessionStore: SessionStore {
     /// - Parameter directory: The directory for session files.
     ///   Defaults to `~/.arc/sessions/`.
     public init(directory: URL? = nil) {
-        let defaultDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/sessions")
+        let defaultDir = ArcHome.sessions
         self.directory = directory ?? defaultDir
         try? FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
     }

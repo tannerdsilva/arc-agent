@@ -253,7 +253,7 @@ private func expand(_ path: String) -> String {
 }
 
 private func skillsDir() throws -> URL {
-    let base = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".arc/skills")
+    let base = ArcHome.skills
     try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
     return base
 }

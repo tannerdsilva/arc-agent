@@ -124,8 +124,7 @@ public struct FileMemoryProvider: MemoryProvider {
     /// - Parameter directory: The directory for memory files.
     ///   Defaults to `~/.arc/memories/`.
     public init(directory: URL? = nil) {
-        let defaultDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/memories")
+        let defaultDir = ArcHome.memories
         self.directory = directory ?? defaultDir
         try? FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
     }

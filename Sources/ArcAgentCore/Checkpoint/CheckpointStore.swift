@@ -25,8 +25,7 @@ public struct Checkpoint: Codable, Sendable, Equatable {
 public actor CheckpointStore {
 
     public nonisolated(unsafe) static var storageURL: URL = {
-        let base = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/checkpoints")
+        let base = ArcHome.checkpoints
         return base.appendingPathComponent("registry.json")
     }()
 
