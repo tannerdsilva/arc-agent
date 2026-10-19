@@ -858,6 +858,8 @@ public static let css: String = """
     }
     .form-grid input:focus, .form-grid select:focus, .form-grid textarea:focus { border-color: var(--accent-border); }
     .form-grid textarea { min-height: 90px; resize: vertical; font-family: ui-monospace, Menlo, monospace; font-size: 0.85em; }
+    .inline-err { color: var(--danger); font-size: 0.8em; margin-top: 4px; }
+    [hidden] { display: none !important; }
     .primary-btn {
       background: var(--accent);
       /* WCAG AA label on the accent fill: `--accent-fg` is chosen per scheme

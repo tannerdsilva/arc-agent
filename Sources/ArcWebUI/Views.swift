@@ -2246,14 +2246,22 @@ extension AppState {
     }
 
     func skillCreateForm() -> String {
+        let nameErr = self.skillCreateErrors["skill-name-input"]
+        let descErr = self.skillCreateErrors["skill-desc-input"]
+        let nameAria = nameErr != nil ? "aria-invalid=\"true\" aria-describedby=\"skill-name-err\"" : ""
+        let descAria = descErr != nil ? "aria-invalid=\"true\" aria-describedby=\"skill-desc-err\"" : ""
+        let nameErrHidden = nameErr == nil ? "hidden" : ""
+        let descErrHidden = descErr == nil ? "hidden" : ""
+        let nameErrText = esc(nameErr ?? "")
+        let descErrText = esc(descErr ?? "")
         let form = """
         <form id="skill-create-form" data-component-id="skill-create-form" class="detail-card" style="max-width:720px">
           <h1 class="detail-title">New skill</h1>
           <div class="detail-sub">A skill is a SKILL.md file with YAML frontmatter (name, description) found under the skills directory.</div>
           <div class="form-grid">
-            <div><label for="skill-name-input">Name</label><input id="skill-name-input" name="skill-name-input" data-component-id="skill-name-input" data-event="input" placeholder="my-skill"></div>
+            <div><label for="skill-name-input">Name</label><input id="skill-name-input" name="skill-name-input" data-component-id="skill-name-input" data-event="input" placeholder="my-skill" \(nameAria)><span id="skill-name-err" class="inline-err" \(nameErrHidden)>\(nameErrText)</span></div>
             <div><label for="skill-cat-input">Category</label><input id="skill-cat-input" name="skill-cat-input" data-component-id="skill-cat-input" data-event="input" placeholder="e.g. devops"></div>
-            <div><label for="skill-desc-input">Description</label><input id="skill-desc-input" name="skill-desc-input" data-component-id="skill-desc-input" data-event="input" placeholder="Short description"></div>
+            <div><label for="skill-desc-input">Description</label><input id="skill-desc-input" name="skill-desc-input" data-component-id="skill-desc-input" data-event="input" placeholder="Short description" \(descAria)><span id="skill-desc-err" class="inline-err" \(descErrHidden)>\(descErrText)</span></div>
             <div><label for="skill-content-input">Content (Markdown)</label><textarea id="skill-content-input" name="skill-content-input" data-component-id="skill-content-input" data-event="input" placeholder="How to use this skill…"></textarea></div>
           </div>
           <div class="row-actions-main">

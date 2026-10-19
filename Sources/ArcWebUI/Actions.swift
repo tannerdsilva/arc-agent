@@ -2034,6 +2034,10 @@ final class Controller: Sendable {
         for field in ["skill-name-input", "skill-cat-input", "skill-desc-input", "skill-content-input"] {
             wire(router, id: field, events: ["input"]) { event in
                 await self.app.storeFormValue(field, event.string("value") ?? "")
+                // UX-26: clear the inline error as the user types in a field.
+                if field == "skill-name-input" || field == "skill-desc-input" {
+                    await self.app.clearSkillCreateError(for: field)
+                }
                 return []
             }
         }
@@ -2153,13 +2157,18 @@ final class Controller: Sendable {
     }
 
     private func createSkill(name: String, desc: String, content: String, category: String = "") async -> [FragmentUpdate] {
-        guard !name.isEmpty, !desc.isEmpty else {
-            _ = await app.hint("Skill needs at least a name and a description.", kind: "error")
-            return await app.refreshFragments()
+        var errors: [String: String] = [:]
+        if name.isEmpty { errors["skill-name-input"] = "Skill needs a name." }
+        if desc.isEmpty { errors["skill-desc-input"] = "Skill needs a description." }
+        if !errors.isEmpty {
+            await self.app.setSkillCreateErrors(errors)
+            _ = await self.app.hint("Skill needs at least a name and a description.", kind: "error")
+            return await self.app.refreshFragments()
         }
-        guard let dir = await app.skillsDir() else {
-            _ = await app.hint("No skills directory available.", kind: "error")
-            return await app.refreshFragments()
+        await self.app.setSkillCreateErrors([:])
+        guard let dir = await self.app.skillsDir() else {
+            _ = await self.app.hint("No skills directory available.", kind: "error")
+            return await self.app.refreshFragments()
         }
         let skillDir = dir.appendingPathComponent(name)
         do {
@@ -2169,14 +2178,14 @@ final class Controller: Sendable {
             body += "---\n\n\(content)"
             try body.write(to: skillDir.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
         } catch {
-            _ = await app.hint("Failed to create skill: \(error)", kind: "error")
-            return await app.refreshFragments()
+            _ = await self.app.hint("Failed to create skill: \(error)", kind: "error")
+            return await self.app.refreshFragments()
         }
-        await app.reloadSkills()
-        await app.setCreateSkill(false)
-        await app.selectSkill(name)
-        _ = await app.hint("Skill '\(name)' created.")
-        return await app.refreshFragments()
+        await self.app.reloadSkills()
+        await self.app.setCreateSkill(false)
+        await self.app.selectSkill(name)
+        _ = await self.app.hint("Skill '\(name)' created.")
+        return await self.app.refreshFragments()
     }
 
     private func deleteSkill(_ name: String) async {

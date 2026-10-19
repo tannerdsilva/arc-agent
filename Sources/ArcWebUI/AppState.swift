@@ -978,6 +978,26 @@ actor AppState {
     /// plugin row so a failed sidecar never reads as "enabled" (UX-25).
     var pluginStartupOutcome: [String: String] = [:]
 
+    /// Actor-isolated setter for `pluginStartupOutcome` (called from the host).
+    func setPluginStartupOutcome(_ name: String, _ reason: String?) {
+        if let reason { pluginStartupOutcome[name] = reason } else { pluginStartupOutcome[name] = nil }
+    }
+
+    /// Inline required-field errors for the skills create form: keyed by
+    /// input id (`skill-name-input`, `skill-desc-input`). Populated by the
+    /// submit wire and cleared on next input (UX-26).
+    var skillCreateErrors: [String: String] = [:]
+
+    /// Actor-isolated setter for `skillCreateErrors` (called from the wire).
+    func setSkillCreateErrors(_ errors: [String: String]) {
+        skillCreateErrors = errors
+    }
+
+    /// Actor-isolated clearer for a single skill-create error field.
+    func clearSkillCreateError(for field: String) {
+        skillCreateErrors[field] = nil
+    }
+
     // MARK: MCP server presets (Settings → MCP servers)
 
     /// The add/edit form is open (either adding a new server or editing the
