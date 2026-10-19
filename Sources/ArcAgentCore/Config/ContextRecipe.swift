@@ -54,6 +54,33 @@ public struct ContextRecipe: Codable, Sendable, Equatable {
         self.custom = custom
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case segments, custom
+    }
+
+    /// Tolerant decoding: an unknown segment key (e.g. the retired `.tools`
+    /// segment persisted by an older build) is dropped instead of throwing,
+    /// so a stale settings.json still loads.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        var segments: [ContextSegment: Bool] = [:]
+        if let raw = try c.decodeIfPresent([String: Bool].self, forKey: .segments) {
+            for (key, value) in raw {
+                if let seg = ContextSegment(rawValue: key) { segments[seg] = value }
+            }
+        }
+        self.segments = segments
+        self.custom = try c.decodeIfPresent([String].self, forKey: .custom)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        var raw: [String: Bool] = [:]
+        for (seg, value) in segments { raw[seg.rawValue] = value }
+        try c.encode(raw, forKey: .segments)
+        try c.encodeIfPresent(custom, forKey: .custom)
+    }
+
     /// Non-optional view of the free-form blocks.
     public var customItems: [String] { custom ?? [] }
 

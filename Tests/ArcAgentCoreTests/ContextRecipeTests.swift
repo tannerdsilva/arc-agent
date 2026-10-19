@@ -79,6 +79,20 @@ extension ArcCoreTestRoot {
             #expect(ContextRecipe.stitchCustom([" a ", "a"]) == ["a"], "trim then dedupe")
         }
 
+        @Test("a stale settings recipe with a retired segment still decodes")
+        func tolerantDecodeDropsUnknownSegment() throws {
+            let json = #"{"segments":{"memory":false,"tools":false,"environment":true}}"#
+            let recipe = try JSONDecoder().decode(ContextRecipe.self, from: Data(json.utf8))
+            #expect(recipe.segments[.memory] == false)
+            #expect(recipe.segments[.environment] == true)
+            #expect(recipe.segments[.personality] == nil)
+            // Re-encoding drops the unknown key and round-trips cleanly.
+            let data = try JSONEncoder().encode(recipe)
+            let decoded = try JSONDecoder().decode(ContextRecipe.self, from: data)
+            #expect(decoded == recipe)
+            #expect(!String(data: data, encoding: .utf8)!.contains("\"tools\""))
+        }
+
         // MARK: - Prompt segment toggles
 
         private func tempStore() -> FileSessionStore {
