@@ -1047,6 +1047,37 @@ actor AppState {
 
     // MARK: Init
 
+    /// render-test seam: a deterministic state with no storage, no config reads and
+    /// no background work.
+    ///
+    /// the production init resolves storage, reads `~/.arc-agent-webui/settings.json`
+    /// and `~/.arc/config.json`, installs the global `AgentPowers` gate and spawns an
+    /// unstructured task; none of that belongs in a render test, and none of it is
+    /// needed to draw a fragment. every renderer reads only the fields below.
+    struct RenderFixture: Sendable {
+        var settings = AppSettings()
+        var sessions: [Session] = []
+        var messages: [Message] = []
+        var arcConfig = ArcConfig()
+        var activeSessionID: String?
+        var activeTabID: String = "chat"
+        var toasts: [Toast] = []
+        var toolsets: [(name: String, tools: [any AgentTool])] = []
+    }
+
+    init(renderFixture fixture: RenderFixture) {
+        self.settings = fixture.settings
+        self.sessions = fixture.sessions
+        self.arcConfig = fixture.arcConfig
+        self.activeSessionID = fixture.activeSessionID
+        self.activeTabID = fixture.activeTabID
+        self.toasts = fixture.toasts
+        self.toolsets = fixture.toolsets
+        self.registry = MutableToolRegistry(builtIn: CompileTimeToolRegistry())
+        self.sidebarPlugins = []
+        self.pluginTabs = [:]
+    }
+
     init(thirdPartyPlugins: [any SidebarTabPlugin] = []) async throws {
         self.registry = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
         let grouped = Dictionary(grouping: self.registry.allTools, by: { $0.toolset })
