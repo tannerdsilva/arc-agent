@@ -683,6 +683,10 @@ actor AppState {
     }
     var activeSessionID: String?
     var sessionVersion = 0
+    /// The client-side draft created by `+` that has not yet been persisted:
+    /// it lives only in memory until the first send writes it to the store.
+    /// Navigating away from an untouched draft drops it.
+    var draftSessionID: String?
     /// Text of the last submit per session, for the draft guard window (see
     /// `storeComposerDraft`): a trailing debounced input frame carrying the
     /// just-sent text must not resurrect the cleared draft.

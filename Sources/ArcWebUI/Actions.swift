@@ -1705,31 +1705,17 @@ final class Controller: Sendable {
         // a double-click on + (or pressing + while the fresh chat is already
         // open) used to mint duplicate empty rows. A pristine empty chat is
         // indistinguishable from the one already on screen, so keep it.
-        // `isPristineNewChat` reads the store-backed truth, not the lagging
-        // `messageCount` mirror — a chat that just received its first message
-        // must NOT read as empty.
         if let activeID = await app.activeSessionID,
            await app.isPristineNewChat(activeID) {
             await app.setActiveSession(activeID)
             return
         }
-        guard let store = await app.storeRef() else {
-            _ = await app.toast("No storage available — cannot create a chat.", kind: "error")
-            return
-        }
+        // UX-10: do not persist an untouched new chat. Create a client-side
+        // draft instead — it only hits the store on the first send.
         let session = Session()
-        do {
-            try await store.create(session)
-        } catch {
-            // Never select a session the store refused: that is the phantom-
-            // session path (blank canvas now, lost turns later).
-            LogCollector.shared.append(level: .error, text: "[store] failed to create session \(String(session.id.prefix(8))): \(error)")
-            _ = await app.toast("Could not create the chat — storage error (see Logs).", kind: "error")
-            return
-        }
-        await app.reloadSessions(selecting: session.id)
+        await app.setDraftSession(session)
         await app.setActiveSession(session.id)
-        _ = await app.hint("New chat created.")
+        _ = await app.hint("New chat.")
     }
 
     private func sessionListAction(_ tid: String) async -> [FragmentUpdate] {
@@ -1794,6 +1780,13 @@ final class Controller: Sendable {
         // not queued: it starts its own concurrent turn (the two runs are
         // independent).
         let sid = await app.activeSessionID ?? ""
+        // UX-10: if this chat is still a client-side draft (created by `+` and
+        // never sent), persist it to the store on the first send so the
+        // conversation survives past this page. A draft that is navigated away
+        // from before any send is simply dropped (see setActiveSession).
+        if await app.isDraftSession(sid) {
+            await app.persistDraftSession(sid)
+        }
         if await app.isTurnActive(sessionID: sid) {
             await app.queueSend(withContexts, sessionID: sid)
             return await app.chatFragments()

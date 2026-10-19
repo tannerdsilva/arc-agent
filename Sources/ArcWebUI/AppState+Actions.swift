@@ -132,6 +132,11 @@ extension AppState {
         // (falling back to the newest chat) passes preserveUndo so the Undo
         // toast survives the very moment that raised it.
         if !preserveUndo { undoableDelete = nil }
+        // UX-10: leaving an untouched draft drops it — the client-side draft
+        // created by `+` never reaches the store unless a message is sent.
+        if let draft = draftSessionID, draft != id {
+            draftSessionID = nil
+        }
         attachments = []
         forceScrollBottom = true
         // Follow the chat's own workspace (right panel + composer selector).
@@ -142,6 +147,42 @@ extension AppState {
             await ensureSessionMessages(id)
         }
         evictOverloadedCache()
+    }
+
+    /// Promote a client-side draft (created by `+`) to the in-memory draft
+    /// slot. The draft is not persisted to the store until the first send.
+    func setDraftSession(_ session: Session) {
+        draftSessionID = session.id
+        // Mirror the new chat into the in-memory sessions cache so the
+        // sidebar can render it (with 0 messages) before it is persisted.
+        if !sessions.contains(where: { $0.id == session.id }) {
+            sessions.insert(session, at: 0)
+            sessionVersion += 1
+        }
+    }
+
+    /// True when `sessionID` is the untouched client-side draft created by
+    /// `+` — not yet persisted to the store.
+    func isDraftSession(_ sessionID: String) -> Bool {
+        draftSessionID == sessionID
+    }
+
+    /// Persist the client-side draft to the store (first send). After this
+    /// the draft is a normal session and `draftSessionID` is cleared.
+    func persistDraftSession(_ sessionID: String) async {
+        guard draftSessionID == sessionID,
+              let store = await storeRef(),
+              let idx = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
+        do {
+            try await store.create(sessions[idx])
+        } catch {
+            LogCollector.shared.append(level: .error, text: "[store] failed to persist draft session \(String(sessionID.prefix(8))): \(error)")
+            return
+        }
+        draftSessionID = nil
+        // Reload so the store-backed list picks up the persisted session and
+        // the sidebar row keeps its place.
+        await reloadSessions(selecting: sessionID)
     }
 
     func clearPendingDelete() {
