@@ -357,8 +357,11 @@ extension ArcWebUITestRoot {
             // (T23 audit: wired regions do not swallow client listeners on this
             // pair — probes showed all phases firing — so this is an ownership
             // choice, not a workaround for lost events.)
-            #expect(Self.actions.contains("surfaceToast(\"Conversation link copied.\")"),
-                    "the server half must surface the copy toast")
+            // UX-24: the overlay owns the copy toast now; the server only
+            // stages the URL marker. The overlay's post-patch pass reads it,
+            // writes the clipboard, and flashes exactly one toast.
+            #expect(!Self.actions.contains("surfaceToast(\"Conversation link copied.\")"),
+                    "the server must NOT surface the copy toast — the overlay owns it (UX-24)")
             #expect(Self.appState.contains("func markCopyLink(_ sessionID: String)"),
                     "the server must stage the link for the client clipboard write")
             #expect(Self.appState.contains("var pendingCopyURL: String? = nil"),

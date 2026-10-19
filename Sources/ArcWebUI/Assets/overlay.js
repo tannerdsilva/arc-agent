@@ -1529,7 +1529,10 @@
       flashToast('Could not copy the link.', 'error');
     }
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(target).catch(writeFailed);
+      navigator.clipboard.writeText(target).then(function () {
+        // The overlay owns the toast: exactly one, from the clipboard result.
+        flashToast('Conversation link copied.');
+      }).catch(writeFailed);
     } else {
       var ta = document.createElement('textarea');
       ta.value = target;
@@ -1537,7 +1540,10 @@
       ta.style.opacity = '0';
       document.body.appendChild(ta);
       ta.select();
-      try { if (!document.execCommand('copy')) writeFailed(); } catch (err) { writeFailed(); }
+      try {
+        if (!document.execCommand('copy')) writeFailed();
+        else flashToast('Conversation link copied.');
+      } catch (err) { writeFailed(); }
       document.body.removeChild(ta);
     }
   }

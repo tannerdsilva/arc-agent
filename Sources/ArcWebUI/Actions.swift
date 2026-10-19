@@ -1589,17 +1589,17 @@ final class Controller: Sendable {
                 return []   // client-side inline editor
             }
             if tid.hasPrefix("sm-copy-") {
-                // The server owns the copy side effect: it surfaces the
-                // "copied" toast and hands the resolved URL back inside the
-                // #toasts fragment as a hidden marker that the overlay's
-                // post-patch pass writes to the clipboard. (T23 audit: wired
-                // regions do not swallow client listeners on this pair — this
-                // route exists because the toast+clipboard pair belongs in one
-                // owner, the server, not because client JS is unreachable.)
+                // The server hands the resolved URL back inside the #toasts
+                // fragment as a hidden marker that the overlay's post-patch
+                // pass writes to the clipboard. The overlay now owns the
+                // toast: it flashes "Conversation link copied." on success
+                // and "Could not copy the link." on failure — exactly one
+                // toast, owned by the clipboard result (UX-24). The server
+                // must not surface its own success toast, or a failed write
+                // would show the wrong message first.
                 guard let sid = dec(String(tid.dropFirst("sm-copy-".count))) else { return [] }
                 await self.app.markCopyLink(sid)
-                _ = await self.app.surfaceToast("Conversation link copied.")
-                let toastsDiv = "<div id=\"toasts\" data-component-id=\"toast-dismiss\" data-event=\"click\">\(await self.app.toastsHTML())</div>"
+                let toastsDiv = "<div id=\"toasts\" data-component-id=\"toast-dismiss\" data-event=\"click\">\\(await self.app.toastsHTML())</div>"
                 return [FragmentUpdate(id: "toasts", html: toastsDiv)]
             }
             if tid.hasPrefix("sm-pin-"), let id = dec(String(tid.dropFirst("sm-pin-".count))) {
