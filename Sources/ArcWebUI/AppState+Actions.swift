@@ -136,6 +136,10 @@ extension AppState {
         // created by `+` never reaches the store unless a message is sent.
         if let draft = draftSessionID, draft != id {
             draftSessionID = nil
+            // the untouched draft was never persisted: drop its row so the
+            // sidebar does not keep a ghost "New chat" the store never lists.
+            sessions.removeAll { $0.id == draft }
+            sessionVersion += 1
         }
         attachments = []
         forceScrollBottom = true
@@ -171,7 +175,7 @@ extension AppState {
     /// the draft is a normal session and `draftSessionID` is cleared.
     func persistDraftSession(_ sessionID: String) async {
         guard draftSessionID == sessionID,
-              let store = await storeRef(),
+              let store = storeRef(),
               let idx = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
         do {
             try await store.create(sessions[idx])

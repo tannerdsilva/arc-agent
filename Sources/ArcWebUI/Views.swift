@@ -2170,7 +2170,7 @@ extension AppState {
         else {
             // UX-16: one empty state, one CTA. A real "Create skill" button
             // in the canvas (the sidebar + is the other path).
-            let createBtn = btn("skill-new", "skill-new", "primary-btn", WebUIIcon(.plus, size: .medium).markup.html + " Create skill", " title=\"Create skill\"")
+            let createBtn = btn("skill-new-main", "skill-new", "primary-btn", WebUIIcon(.plus, size: .medium).markup.html + " Create skill", " title=\"Create skill\"")
             return """
             <div class="main-view" style="justify-content:center">
               <div class="blank"><div class="big">\(WebUIIcon(.star, size: .extraLarge).markup.html)</div>

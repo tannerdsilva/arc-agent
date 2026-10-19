@@ -2034,9 +2034,14 @@ final class Controller: Sendable {
         for field in ["skill-name-input", "skill-cat-input", "skill-desc-input", "skill-content-input"] {
             wire(router, id: field, events: ["input"]) { event in
                 await self.app.storeFormValue(field, event.string("value") ?? "")
-                // UX-26: clear the inline error as the user types in a field.
+                // UX-26: clear the inline error as the user types in a field —
+                // only pay for a fragment when an error was actually showing
+                // (the engine restores the field's value and caret across the
+                // patch, so the clear lands without disturbing the keystroke).
                 if field == "skill-name-input" || field == "skill-desc-input" {
-                    await self.app.clearSkillCreateError(for: field)
+                    if await self.app.clearSkillCreateError(for: field) {
+                        return await self.app.refreshFragments()
+                    }
                 }
                 return []
             }

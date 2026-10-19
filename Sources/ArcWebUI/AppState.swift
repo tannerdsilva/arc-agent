@@ -993,9 +993,14 @@ actor AppState {
         skillCreateErrors = errors
     }
 
-    /// Actor-isolated clearer for a single skill-create error field.
-    func clearSkillCreateError(for field: String) {
+    /// Actor-isolated clearer for a single skill-create error field. Returns
+    /// true when an error was showing, so the wire only pays for a fragment on
+    /// the transition — typing in a clean field costs nothing.
+    @discardableResult
+    func clearSkillCreateError(for field: String) -> Bool {
+        let had = skillCreateErrors[field] != nil
         skillCreateErrors[field] = nil
+        return had
     }
 
     // MARK: MCP server presets (Settings → MCP servers)

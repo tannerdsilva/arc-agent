@@ -392,6 +392,34 @@ extension ArcWebUITestRoot {
         }
 
 
+        // MARK: - wave-3 cleanup guards: ids, draft rows, inline-error clears
+
+        @Test("the canvas create CTA keeps a unique id and the sidebar keeps its own")
+        func skillCTAHasDistinctID() {
+            let views = Self.views
+            #expect(views.contains("btn(\"skill-new-main\", \"skill-new\""),
+                    "the canvas CTA must not duplicate the sidebar's DOM id")
+            #expect(views.contains("btn(\"skill-new\", \"skill-new\""),
+                    "the sidebar + keeps its id")
+        }
+
+        @Test("leaving an untouched draft drops its row")
+        func draftRowDroppedOnNavigate() {
+            let src = Self.appStateActions
+            #expect(src.contains("sessions.removeAll { $0.id == draft }"),
+                    "a draft that never reached the store must not linger in the sidebar")
+            #expect(!src.contains("let store = await storeRef()"),
+                    "storeRef() is synchronous — an unnecessary await buys a warning")
+        }
+
+        @Test("clearing a skill-create error reports whether it was showing")
+        func skillErrorClearIsObservable() {
+            #expect(Self.appState.contains("func clearSkillCreateError(for field: String) -> Bool"),
+                    "the wire needs the transition to decide whether to re-render")
+            #expect(Self.actions.contains("if await self.app.clearSkillCreateError(for: field)"),
+                    "typing must clear the rendered error, not only the state")
+        }
+
         // MARK: - UX-15 regression guard: the tools filter and the env badge
 
         /// the wave-3 tool filter shipped without a test, and its same commit
