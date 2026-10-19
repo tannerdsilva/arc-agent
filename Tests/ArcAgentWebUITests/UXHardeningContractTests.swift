@@ -373,6 +373,24 @@ extension ArcWebUITestRoot {
             #expect(Self.overlay.contains("copyFromServerMarker();"),
                     "the clipboard handoff must run out of the post-patch seam")
         }
+        // MARK: - UX-24 regression guard: the copy-link fragment must interpolate
+
+        /// The copy-link branch builds its `#toasts` fragment by hand. A
+        /// double-escaped interpolation compiles clean and ships the literal
+        /// source text instead of the rendered toasts — the marker never
+        /// reaches the client, the clipboard is never written, and the toast
+        /// box displays the raw interpolation. The older pin only asserted
+        /// that the server's own success toast was gone, so it could not see
+        /// this. This pin reads the interpolation itself.
+        @Test("the copy-link toasts fragment interpolates toastsHTML(), never literal source")
+        func copyLinkToastsInterpolates() {
+            let actions = Self.actions
+            #expect(actions.contains("\\(await self.app.toastsHTML())</div>"),
+                    "the copy-link branch must interpolate its toasts fragment")
+            #expect(!actions.contains("\\\\(await self.app.toastsHTML())</div>"),
+                    "a double-escaped interpolation ships literal source text — the marker never renders")
+        }
+
 
         // MARK: - UX-01 slash autocomplete consumer
 

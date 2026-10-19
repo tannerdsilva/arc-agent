@@ -1599,7 +1599,7 @@ final class Controller: Sendable {
                 // would show the wrong message first.
                 guard let sid = dec(String(tid.dropFirst("sm-copy-".count))) else { return [] }
                 await self.app.markCopyLink(sid)
-                let toastsDiv = "<div id=\"toasts\" data-component-id=\"toast-dismiss\" data-event=\"click\">\\(await self.app.toastsHTML())</div>"
+                let toastsDiv = "<div id=\"toasts\" data-component-id=\"toast-dismiss\" data-event=\"click\">\(await self.app.toastsHTML())</div>"
                 return [FragmentUpdate(id: "toasts", html: toastsDiv)]
             }
             if tid.hasPrefix("sm-pin-"), let id = dec(String(tid.dropFirst("sm-pin-".count))) {
