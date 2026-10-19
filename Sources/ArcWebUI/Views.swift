@@ -83,7 +83,7 @@ extension AppState {
         \(workspacePanelHTML())
         <div id="drawer-scrim" class="drawer-scrim" aria-hidden="true"></div>
         </div>
-        <div id="modal-root">\(modalRootHTML())</div>
+        <div id="modal-root">\(await modalRootHTML())</div>
         <div id="toasts" data-component-id="toast-dismiss" data-event="click">\(toastsHTML())</div>
         </div>
         """)
@@ -319,11 +319,106 @@ extension AppState {
         """
     }
 
-    /// Everything rendered in #modal-root (delete confirmation + category menu + share panel).
-    func modalRootHTML() -> String {
-        modalHTML() + categoryMenuHTML() + sharePanelHTML()
+    /// Everything rendered in #modal-root (delete confirmation + category menu + share panel + new-session panel).
+    func modalRootHTML() async -> String {
+        let panel = await newSessionPanelHTML()
+        return modalHTML() + categoryMenuHTML() + sharePanelHTML() + panel
     }
 
+    // MARK: - New-session creation panel
+
+    /// The "Create session" panel: per-session context toggles (each with a
+    /// "Show context" disclosure of the literal prompt text), a stitched
+    /// free-form custom-context list, and Create / Create-with-Defaults.
+    func newSessionPanelHTML() async -> String {
+        guard showNewSessionPanel else { return "" }
+        let segRows = await segmentRowsHTML()
+        let customRows = customContextRowsHTML()
+        let customPreview = customContextPreviewHTML()
+        return """
+        <div class="modal-overlay" id="new-session-overlay">
+          <div class="modal-card session-panel" data-component-id="new-session-panel" data-event="click" role="dialog" aria-modal="true" aria-labelledby="ns-title">
+            <div class="session-panel-head">
+              <h3 id="ns-title">New session</h3>
+              <button type="button" id="ns-cancel" class="icon-mini" title="Close">✕</button>
+            </div>
+            <p class="session-panel-sub">Choose what context this session includes. Turn a segment off to omit it, or reveal its literal prompt text.</p>
+            <div class="session-scroll">
+              <section class="set-section">
+                <h2>Context</h2>
+                <p class="set-desc">Segments are on by default; disabling one excludes its region from this session's system prompt.</p>
+                \(segRows)
+              </section>
+              <section class="set-section">
+                <h2>Custom context</h2>
+                <p class="set-desc">Add your own text. Any number of blocks are stitched into a single "Custom Context" section.</p>
+                <div class="session-custom-list" id="ns-custom-list">\(customRows)</div>
+                <button type="button" id="ns-custom-add" class="ghost-btn session-add-btn">+ Add custom context</button>
+                \(customPreview)
+              </section>
+            </div>
+            <div class="modal-actions session-panel-actions">
+              <button type="button" id="ns-defaults" class="ghost-btn">Create with Defaults</button>
+              <button type="button" id="ns-create" class="primary-btn">Create Session</button>
+            </div>
+          </div>
+        </div>
+        """
+    }
+
+    /// Each context segment as a switch row + "Show context" disclosure.
+    private func segmentRowsHTML() async -> String {
+        var out: [String] = []
+        for seg in ContextSegment.allCases {
+            let on = newSessionRecipe.segments[seg] ?? true
+            let title = on ? "Included in this session's prompt" : "Excluded from this session's prompt"
+            let preview = await contextSegmentPreview(seg)
+            out.append("""
+            <div class="session-seg">
+              <div class="set-row">
+                <div class="set-label">\(seg.label)<small>\(seg.rawValue)</small></div>
+                <label class="switch" title="\(title)">
+                  <input type="checkbox" id="ns-seg-\(seg.rawValue)" value="ns-seg-\(seg.rawValue)" data-component-id="ns-seg" data-event="change" aria-label="\(title)"\(on ? " checked" : "")>
+                  <span class="track"></span><span class="knob"></span>
+                </label>
+              </div>
+              <details class="ctx-preview" id="ns-preview-\(seg.rawValue)">
+                <summary>Show context</summary>
+                <pre>\(esc(preview))</pre>
+              </details>
+            </div>
+            """)
+        }
+        return out.joined(separator: "\n")
+    }
+
+    /// The add/remove free-form custom-context rows.
+    private func customContextRowsHTML() -> String {
+        newSessionCustom.enumerated().map { idx, text -> String in
+            """
+            <div class="session-custom-row">
+              <textarea id="ns-custom-\(idx)" data-component-id="ns-custom" data-event="change" class="session-custom-input" rows="2" placeholder="Add context for this session…" spellcheck="false">\(esc(text))</textarea>
+              <button type="button" id="ns-custom-rm-\(idx)" class="icon-mini danger" title="Remove" aria-label="Remove this context block">✕</button>
+            </div>
+            """
+        }.joined(separator: "\n")
+    }
+
+    /// The stitched "Custom Context" literal preview (snapshot at render time).
+    private func customContextPreviewHTML() -> String {
+        let items = newSessionCustom
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !items.isEmpty else { return "" }
+        return """
+        <details class="ctx-preview" id="ns-preview-custom">
+          <summary>Show preview</summary>
+          <pre>## Custom Context
+
+        \(esc(items.joined(separator: "\n\n")))</pre>
+        </details>
+        """
+    }
 
     // MARK: - Panel
 
@@ -364,28 +459,7 @@ extension AppState {
             return tasksPanel()
         case .todos:
             return chatPanel(todos: true)
-        case .context:
-            return contextPanel()
         }
-    }
-
-    // MARK: Context panel
-
-    /// Left-panel "Context" tab: a compact header. The segment editor lives in
-    /// the main area (`contextMain`).
-    func contextPanel() -> String {
-        let head = """
-        <div class="panel-head">
-          <span class="panel-title">Context</span>
-        </div>
-        """
-        let note = """
-        <div class="panel-note">
-          Toggle the segments included when building this agent's system prompt.
-          Changes apply to new sessions (the global default).
-        </div>
-        """
-        return head + note
     }
 
     // MARK: Chat panel
@@ -975,41 +1049,7 @@ extension AppState {
             return tasksMain()
         case .todos:
             return todosPanelHTML()
-        case .context:
-            return contextMain()
         }
-    }
-
-    // MARK: Context main
-
-    /// Main-area "Context" editor: every built-in context segment as a switch
-    /// row. The wire flips the global default recipe in settings.json; the
-    /// daemon reads it at boot so new sessions inherit the choice.
-    func contextMain() -> String {
-        let rows = ContextSegment.allCases.map { seg -> String in
-            let on = settings.contextDefaults?.segments[seg] ?? true
-            let title = on ? "Included in this agent's prompt" : "Excluded from this agent's prompt"
-            return """
-            <div class="set-row">
-              <div class="set-label">\(seg.label)<small>\(seg.rawValue)</small></div>
-              <label class="switch" title="\(title)">
-                <input type="checkbox" id="ctxseg-\(seg.rawValue)" value="ctxseg-\(seg.rawValue)" data-component-id="ctxseg-toggle" data-event="change" aria-label="\(title)"\(on ? " checked" : "")>
-                <span class="track"></span><span class="knob"></span>
-              </label>
-            </div>
-            """
-        }.joined(separator: "\n")
-        return """
-        <div class="main-view">
-          <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
-            <section class="set-section">
-              <h2>Context segments</h2>
-              <p class="set-desc">Choose which built-in context segments are included when building the system prompt for this agent. Segments left on (the default) appear; toggled-off segments are omitted. This is the global default applied to new sessions.</p>
-              \(rows)
-            </section>
-          </div>
-        </div>
-        """
     }
 
     // MARK: Chat main

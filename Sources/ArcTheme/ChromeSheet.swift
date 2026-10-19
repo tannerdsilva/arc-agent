@@ -2716,6 +2716,26 @@ public static let css: String = """
     .danger-btn { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
     .danger-btn:hover { background: var(--danger); color: var(--surface); }
 
+    /* ─── New-session creation panel ──────────────────────────────────────────── */
+    .session-panel { width: min(580px, calc(100vw - 40px)); max-height: min(82vh, 760px); display: flex; flex-direction: column; }
+    .session-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .session-panel-head h3 { margin: 0; font-size: 1.08em; }
+    .session-panel-sub { margin: 4px 0 14px; color: var(--muted); font-size: 0.9em; line-height: 1.5; }
+    .session-scroll { overflow-y: auto; flex: 1 1 auto; min-height: 0; padding-right: 4px; }
+    .session-panel .set-section { margin-bottom: 18px; }
+    .session-seg { border-bottom: 1px solid var(--border); }
+    .session-seg .set-row { padding: 6px 0; }
+    .ctx-preview { margin: 0 0 10px; }
+    .ctx-preview summary { cursor: pointer; color: var(--muted); font-size: 0.82em; user-select: none; padding: 2px 0; }
+    .ctx-preview summary:hover { color: var(--text); }
+    .ctx-preview pre { margin: 6px 0 0; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; font-size: 0.82em; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; color: var(--muted); }
+    .session-custom-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+    .session-custom-row { display: flex; align-items: flex-start; gap: 8px; }
+    .session-custom-input { flex: 1; min-width: 0; resize: vertical; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 0.88em; line-height: 1.5; font-family: inherit; }
+    .session-custom-input:focus { border-color: var(--accent-border); outline: none; }
+    .session-custom-row .icon-mini { margin-top: 4px; }
+    .session-add-btn { width: 100%; margin-top: 2px; }
+    .session-panel-actions { margin-top: 14px; justify-content: flex-end; }
     /* ─── Kanban ─────────────────────────────────────────────── */
     .kb-pcol { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .kanban-main { overflow: hidden; }

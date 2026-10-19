@@ -184,14 +184,177 @@ extension AppState {
         pendingDelete = false
     }
 
-    /// Flip a built-in context segment in the global default recipe (the
-    /// left-panel "Context" tab). Persisted to settings.json; the daemon reads
-    /// it at boot so new sessions inherit the choice.
-    func setContextSegment(_ seg: ContextSegment, on: Bool) {
-        var recipe = settings.contextDefaults ?? ContextRecipe()
-        recipe.segments[seg] = on
-        settings.contextDefaults = recipe
-        saveSettings()
+    // MARK: - New-session creation panel (per-session context)
+
+    /// Open the "Create session" panel, seeding the recipe from the resolved
+    /// global+profile defaults so the user sees what a default new session
+    /// inherits (and can override per-segment + add custom context).
+    func openNewSessionPanel() {
+        let boundName = profileName(for: activeSessionID)
+        let boundProfile = boundName.flatMap { n in profiles.first { $0.name == n } }
+        let resolved = ResolvedContextRecipe.resolve(
+            global: settings.contextDefaults,
+            profile: boundProfile?.contextDefaults,
+            session: nil
+        )
+        var recipe = ContextRecipe()
+        for seg in ContextSegment.allCases {
+            recipe.segments[seg] = resolved.isEnabled(seg)
+        }
+        newSessionRecipe = recipe
+        newSessionCustom = recipe.customItems.isEmpty ? [""] : recipe.customItems
+        activeCustomIndex = 0
+        showNewSessionPanel = true
+    }
+
+    func closeNewSessionPanel() {
+        showNewSessionPanel = false
+    }
+
+    /// Remember which custom-context textarea was last focused (change frames
+    /// carry no targetId, so the row index is captured via the click channel).
+    func setActiveCustomIndex(_ idx: Int) {
+        activeCustomIndex = idx
+    }
+
+    /// Flip one segment in the in-progress panel recipe.
+    func setNewSessionSegment(_ seg: ContextSegment, on: Bool) {
+        newSessionRecipe.segments[seg] = on
+    }
+
+    func setNewSessionCustom(_ idx: Int, text: String) {
+        guard newSessionCustom.indices.contains(idx) else { return }
+        newSessionCustom[idx] = text
+    }
+
+    func addNewSessionCustom() {
+        newSessionCustom.append("")
+    }
+
+    func removeNewSessionCustom(_ idx: Int) {
+        guard newSessionCustom.indices.contains(idx) else { return }
+        if newSessionCustom.count > 1 {
+            newSessionCustom.remove(at: idx)
+        } else {
+            newSessionCustom[idx] = ""
+        }
+    }
+
+    /// Stitch the panel's free-form rows into the recipe's `custom` list
+    /// (non-empty, de-duplicated). nil when nothing was entered.
+    func finalizedNewSessionRecipe() -> ContextRecipe {
+        ContextRecipe(
+            segments: newSessionRecipe.segments,
+            custom: ContextRecipe.stitchCustom(newSessionCustom)
+        )
+    }
+
+    /// Create a session from the panel. `recipe` nil = inherit the
+    /// profile/global defaults (never set a per-session override).
+    func createNewSession(recipe: ContextRecipe?) async -> [FragmentUpdate] {
+        await ensureRuntime()
+        guard let store = storeRef() else {
+            _ = toast("No storage available — cannot create a chat.", kind: "error")
+            return await refreshFragments()
+        }
+        var session = Session()
+        if let recipe, !recipe.isEmpty {
+            session.contextOverrides = recipe
+        }
+        do {
+            try await store.create(session)
+        } catch {
+            LogCollector.shared.append(level: .error, text: "[store] failed to create session \(String(session.id.prefix(8))): \(error)")
+            _ = toast("Could not create the chat — storage error (see Logs).", kind: "error")
+            return await refreshFragments()
+        }
+        showNewSessionPanel = false
+        await reloadSessions(selecting: session.id)
+        await setActiveSession(session.id)
+        _ = hint("New chat created.")
+        return await refreshFragments()
+    }
+
+    /// The literal prompt block a context segment contributes, for the panel's
+    /// "Show context" disclosure. Data-driven segments read live values.
+    func contextSegmentPreview(_ seg: ContextSegment) async -> String {
+        let sid = activeSessionID
+        switch seg {
+        case .memory:
+            if let mem = memory, let m = try? await mem.readMemory(),
+               !m.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "## Memory (Your Persistent Notes)\n\n\(previewCap(m))"
+            }
+            return "## Memory (Your Persistent Notes)\n\n(No persistent notes yet.)"
+        case .userProfile:
+            if let mem = memory, let u = try? await mem.readUser(),
+               !u.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "## User Profile\n\n\(previewCap(u))"
+            }
+            return "## User Profile\n\n(No user profile yet.)"
+        case .skills:
+            let pname = profileName(for: sid)
+            let disabled = pname.flatMap { settings.profileSkills[$0] } ?? settings.disabledSkills
+            let allowed = skills.filter { !disabled.contains($0.name) }
+            if registry.lookup(name: "skill_view") != nil, !allowed.isEmpty {
+                return "## Skills (mandatory)\n\n<available_skills>\n\(previewCap(buildSkillsIndex(allowed)))\n</available_skills>"
+            }
+            return "## Skills (mandatory)\n\n(No skills available.)"
+        case .environment:
+            #if os(macOS)
+            let os = "macOS (\(ProcessInfo.processInfo.operatingSystemVersionString))"
+            #else
+            let os = "Linux (\(ProcessInfo.processInfo.operatingSystemVersionString))"
+            #endif
+            return """
+            ## Environment
+
+            - OS: \(os)
+            - Home directory: \(NSHomeDirectory())
+            - Working directory for tools: \(workspacePath(for: sid))
+            """
+        case .projectContext:
+            let files = await previewContextFiles(for: workspacePath(for: sid))
+            if files.isEmpty {
+                return "## Workspace & Project Context\n\n(No AGENTS.md / CLAUDE.md / .cursorrules found.)"
+            }
+            return "## Workspace & Project Context\n\n" + files.map { "### \($0)\n\(previewCap($1, 320))" }.joined(separator: "\n\n")
+        case .guidance:
+            return "## Finishing the job\n\n- Use your tools to take action — do not describe what you would do.\n- Keep working until the task is actually complete."
+        case .personality:
+            // The personality overlay is config-defined; surface its framing.
+            return "## Personality\n\n(If a personality overlay is set for this agent's config, it is injected here.)"
+        case .timestamp:
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "EEEE, MMMM dd, yyyy"
+            let model = configName(for: sid)
+            let cfg = settings.modelConfig(named: model)
+            let provider = cfg?.provider.isEmpty == false ? cfg!.provider : "custom"
+            return "Conversation started: \(formatter.string(from: Date())) | Session: \(String((sid ?? "").prefix(8))) | Model: \(cfg?.model ?? model) | Provider: \(provider)"
+        }
+    }
+
+    /// Truncate a preview block so the disclosure stays readable.
+    private func previewCap(_ s: String, _ n: Int = 600) -> String {
+        s.count <= n ? s : String(s.prefix(n)) + "\n…"
+    }
+
+    /// Read AGENTS.md / .arc.md / CLAUDE.md / .cursorrules from a directory
+    /// for the project-context preview.
+    private func previewContextFiles(for dir: String) async -> [(String, String)] {
+        let fm = FileManager.default
+        var out: [(String, String)] = []
+        for name in ["AGENTS.md", ".arc.md", "CLAUDE.md", ".cursorrules"] {
+            let url = URL(fileURLWithPath: dir).appendingPathComponent(name)
+            guard fm.fileExists(atPath: url.path),
+                  let data = try? Data(contentsOf: url),
+                  let content = String(data: data, encoding: .utf8) else { continue }
+            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            out.append((name, trimmed))
+        }
+        return out
     }
 
     /// Mark the next chat-scroll render with `data-follow="bottom"` so a

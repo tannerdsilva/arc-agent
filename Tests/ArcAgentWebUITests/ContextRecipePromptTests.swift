@@ -55,7 +55,7 @@ extension ArcWebUITestRoot {
             #expect(resolved.isEnabled(.memory) == false)
             #expect(resolved.isEnabled(.skills) == false)
             #expect(resolved.isEnabled(.userProfile) == false)
-            #expect(resolved.isEnabled(.tools) == true)
+            #expect(resolved.isEnabled(.projectContext) == true)
             #expect(resolved.isEnabled(.environment) == true)
         }
 

@@ -3255,8 +3255,10 @@ public actor ArcAgent: Service {
             being genuinely useful over being verbose.
             """
 
-        if enabled(.tools) {
-            stable += """
+        // The "Available Tools" index is always included — tool availability is
+        // governed by `disabledToolsets` (profile/global), which filters both
+        // this index and the schemas; there is no prompt-only tools toggle.
+        stable += """
 
             ## Available Tools
 
@@ -3265,7 +3267,6 @@ public actor ArcAgent: Service {
 
             \(buildToolsIndex())
             """
-        }
 
         stable += """
 
@@ -3339,6 +3340,12 @@ public actor ArcAgent: Service {
                     context += "### \(name)\n\(content)\n\n"
                 }
             }
+        }
+
+        // User-authored free-form context blocks, stitched into one section.
+        // Not gated by any segment toggle — it is directly authored per session.
+        if let recipe = config.contextRecipe, !recipe.custom.isEmpty {
+            context += "## Custom Context\n\n" + recipe.custom.joined(separator: "\n\n") + "\n\n"
         }
 
         // ── Volatile tier ──

@@ -19,7 +19,6 @@ enum ViewID: String, CaseIterable {
     case tasks = "tasks"
     case todos = "todos"
     case settings = "settings"
-    case context = "context"
 
     var title: String {
         switch self {
@@ -35,7 +34,6 @@ enum ViewID: String, CaseIterable {
         case .tasks: return "Scheduled Tasks"
         case .todos: return "Todos"
         case .settings: return "Settings"
-        case .context: return "Context"
         }
     }
 
@@ -54,7 +52,6 @@ enum ViewID: String, CaseIterable {
         case .tasks: return "Tasks"
         case .todos: return "Todos"
         case .settings: return "Settings"
-        case .context: return "Context"
         }
     }
 
@@ -74,7 +71,6 @@ enum ViewID: String, CaseIterable {
         case .tasks: return "clock"
         case .todos: return "check"
         case .settings: return "settings"
-        case .context: return "file-text"
         }
     }
 
@@ -92,7 +88,6 @@ enum ViewID: String, CaseIterable {
         case .tasks: return WebUIIcon(.clock, size: .large).markup.html
         case .todos: return WebUIIcon(.check, size: .large).markup.html
         case .settings: return WebUIIcon(.settings, size: .large).markup.html
-        case .context: return WebUIIcon(.fileText, size: .large).markup.html
         }
     }
 }
@@ -358,13 +353,13 @@ struct AppSettings: Codable, Equatable {
     var sidebarTabs: [String] = AppSettings.defaultSidebarTabs
     /// Tabs currently hidden from the rail (subset of sidebarTabs).
     var hiddenSidebarTabs: [String] = []
-    /// Global default context recipe (the left-panel "Context" tab). Segments
-    /// not present inherit the code default (all on). nil = today's behavior.
+    /// Global default context recipe for new sessions. Segments not present
+    /// inherit the code default (all on). nil = today's behavior.
     var contextDefaults: ContextRecipe?
     /// Sessions where approvals are skipped (reference "/api/session/yolo" parity):
     /// the user tapped "Skip all this session" in an approval card.
     var yoloSessions: [String] = []
-    static let defaultSidebarTabs = ["skills", "profiles", "tools", "workspaces", "kanban", "memory", "insights", "logs", "tasks", "todos", "context"]
+    static let defaultSidebarTabs = ["skills", "profiles", "tools", "workspaces", "kanban", "memory", "insights", "logs", "tasks", "todos"]
     static var defaultSidebarTabsKeys: [String] { defaultSidebarTabs }
     /// Rebuild a canonical sidebar list from a possibly-partial stored list:
     /// present keys keep their relative order; keys missing from the stored
@@ -849,6 +844,21 @@ actor AppState {
     var shareDraftRole: ShareRole = .contribute
     /// Staged grantees pending Save (replaces the live grant on commit).
     var shareStaged: [ShareGrantee] = []
+
+    /// New-session creation panel. The per-session context controls live here
+    /// (the old "Context" tab was folded into it).
+    var showNewSessionPanel = false
+    /// The in-progress per-session context recipe edited in the panel. It is
+    /// seeded from the resolved global+profile defaults when the panel opens,
+    /// so the user sees (and can override) what a default new session inherits.
+    var newSessionRecipe = ContextRecipe()
+    /// The free-form custom-context drafts being edited (add/remove rows). On
+    /// "Create Session" these are stitched (non-empty, de-duplicated) into the
+    /// session's `contextOverrides.custom`.
+    var newSessionCustom: [String] = [""]
+    /// Which custom-context textarea the user last focused (change frames carry
+    /// no targetId, so the index is captured via the panel's click boundary).
+    var activeCustomIndex = 0
 
     /// Chat list filtering (phase: categories).
     var chatFilter = ""

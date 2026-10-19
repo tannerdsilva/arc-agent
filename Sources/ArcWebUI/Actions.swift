@@ -31,7 +31,7 @@ extension AppState {
         u.append(FragmentUpdate(id: "ws-panel", html: workspacePanelHTML()))
         let toastsDiv = "<div id=\"toasts\" data-component-id=\"toast-dismiss\" data-event=\"click\">\(toastsHTML())</div>"
         u.append(FragmentUpdate(id: "toasts", html: toastsDiv))
-        let modalDiv = "<div id=\"modal-root\">\(modalRootHTML())</div>"
+        let modalDiv = "<div id=\"modal-root\">\(await modalRootHTML())</div>"
         u.append(FragmentUpdate(id: "modal-root", html: modalDiv))
         return u
     }
@@ -1149,7 +1149,7 @@ final class Controller: Sendable {
         wireTools(router)
         wireWorkspaces(router)
         wireSettings(router)
-        wireContext(router)
+        wireNewSessionPanel(router)
         wirePlugins(router)
         wireMCP(router)
         wireSidebarPluginToggles(router)
@@ -1233,12 +1233,12 @@ final class Controller: Sendable {
 
     private func wireChat(_ router: EventRouter) {
         wire(router, id: "chat-new", events: ["click"]) { _ in
-            await self.newChat()
+            await self.app.openNewSessionPanel()
             return await self.app.refreshFragments()
         }
         // Blank-canvas CTA: the same action as the sidebar "+".
         wire(router, id: "blank-chat-new", events: ["click"]) { _ in
-            await self.newChat()
+            await self.app.openNewSessionPanel()
             return await self.app.refreshFragments()
         }
         // click-only: `#sess-list-body` declares data-event="click", and a change
@@ -1869,8 +1869,8 @@ final class Controller: Sendable {
             return await app.chatFragments()
         }
         if name == "new" {
-            await self.newChat()
-            _ = await app.hint("Started a new chat.")
+            await self.app.openNewSessionPanel()
+            _ = await app.hint("Configure the new session's context, or create with defaults.")
             return await app.chatFragments()
         }
         if name == "title" {
@@ -2402,18 +2402,57 @@ final class Controller: Sendable {
 
     // MARK: Tool plugins (Settings)
 
-    private func wireContext(_ router: EventRouter) {
-        // Context segment toggles. Each checkbox carries the segment in `value`
-        // (the engine delivers no targetId), so one wire serves all segments;
-        // `checked` is the new on/off state.
-        wire(router, id: "ctxseg-toggle", events: ["change"]) { event in
+    private func wireNewSessionPanel(_ router: EventRouter) {
+        // Segment toggles (change). Each checkbox carries the segment in `value`
+        // (change frames carry no targetId); `checked` is the new state.
+        wire(router, id: "ns-seg", events: ["change"]) { event in
             let tid = event.string("targetId") ?? event.string("value") ?? ""
-            guard tid.hasPrefix("ctxseg-") else { return [] }
-            let raw = String(tid.dropFirst("ctxseg-".count))
+            guard tid.hasPrefix("ns-seg-") else { return [] }
+            let raw = String(tid.dropFirst("ns-seg-".count))
             guard let seg = ContextSegment(rawValue: raw) else { return [] }
-            let on = event.checked == true
-            await self.app.setContextSegment(seg, on: on)
+            await self.app.setNewSessionSegment(seg, on: event.checked == true)
             return await self.app.refreshFragments()
+        }
+        // Custom free-form textarea edits (change): no re-render while typing.
+        // The change frame carries the text in `value` but no row identity, so
+        // the index is whatever textarea was last focused (captured via the
+        // panel's click boundary below).
+        wire(router, id: "ns-custom", events: ["change"]) { event in
+            let idx = await self.app.activeCustomIndex
+            await self.app.setNewSessionCustom(idx, text: event.string("value") ?? "")
+            return []
+        }
+        // One click boundary on the panel card dispatches every button by
+        // targetId (the engine reports the nearest id-bearing control inside
+        // the boundary), mirroring the share panel.
+        wire(router, id: "new-session-panel", events: ["click"]) { event in
+            let tid = event.string("targetId") ?? ""
+            if tid.hasPrefix("ns-custom-rm-") {
+                let idx = Int(String(tid.dropFirst("ns-custom-rm-".count))) ?? 0
+                await self.app.removeNewSessionCustom(idx)
+                return await self.app.refreshFragments()
+            }
+            if tid.hasPrefix("ns-custom-") {
+                // A textarea was focused: remember its index for the change
+                // handler (change frames carry no targetId).
+                let idx = Int(String(tid.dropFirst("ns-custom-".count))) ?? 0
+                await self.app.setActiveCustomIndex(idx)
+                return []
+            }
+            switch tid {
+            case "ns-custom-add":
+                await self.app.addNewSessionCustom()
+                return await self.app.refreshFragments()
+            case "ns-create":
+                return await self.app.createNewSession(recipe: self.app.finalizedNewSessionRecipe())
+            case "ns-defaults":
+                return await self.app.createNewSession(recipe: nil)
+            case "ns-cancel":
+                await self.app.closeNewSessionPanel()
+                return await self.app.refreshFragments()
+            default:
+                return []
+            }
         }
     }
 

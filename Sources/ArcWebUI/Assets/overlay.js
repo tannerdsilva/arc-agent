@@ -842,6 +842,27 @@
     nu.focus({ preventScroll: true });
   }
 
+  // ---- Context-preview disclosures (new-session panel): keep the ones the
+  // user opened across fragment re-renders, because a segment toggle repaints
+  // the whole panel. `toggle` does not bubble, so each <details> is bound once;
+  // open ids are remembered and re-applied on every enhance pass.
+  var openDisclosures = {};
+  function syncOpenDisclosures(scope) {
+    var node = (scope && scope.querySelectorAll) ? scope : document;
+    var list = node.querySelectorAll('details.ctx-preview');
+    for (var i = 0; i < list.length; i++) {
+      var d = list[i];
+      if (!d.__bound) {
+        d.__bound = true;
+        d.addEventListener('toggle', function () {
+          if (this.open) openDisclosures[this.id] = true;
+          else delete openDisclosures[this.id];
+        });
+      }
+      if (d.id && openDisclosures[d.id]) d.open = true;
+    }
+  }
+
   function enhanceAll() {
     resizeComposerIfNew();
     enhanceMarkdownTables(document);
@@ -852,6 +873,7 @@
     syncOutline();
     bootSettingsSpy();
     copyFromServerMarker();
+    syncOpenDisclosures(document);
   }
 
   function enhancePatched(changed) {
@@ -871,6 +893,7 @@
     syncOutline();
     bootSettingsSpy();
     copyFromServerMarker();
+    syncOpenDisclosures(changed && changed.length ? changed[0] : document);
     // T26: a fragment patch may have just replaced the control the user
     // activated — return focus to its equivalent so the keyboard trail does
     // not reset to <body>.

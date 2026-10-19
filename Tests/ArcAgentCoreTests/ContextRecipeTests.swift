@@ -21,13 +21,13 @@ extension ArcCoreTestRoot {
 
         @Test("merge resolves global < profile < session precedence per segment")
         func mergePrecedence() {
-            let global = ContextRecipe(segments: [.memory: false, .tools: false])
-            let profile = ContextRecipe(segments: [.tools: true])
+            let global = ContextRecipe(segments: [.memory: false, .environment: false])
+            let profile = ContextRecipe(segments: [.environment: true])
             let session = ContextRecipe(segments: [.skills: false])
             let resolved = ResolvedContextRecipe.resolve(global: global, profile: profile, session: session)
 
             #expect(resolved.isEnabled(.memory) == false)        // from global
-            #expect(resolved.isEnabled(.tools) == true)          // profile beats global
+            #expect(resolved.isEnabled(.environment) == true)    // profile beats global
             #expect(resolved.isEnabled(.skills) == false)        // from session
             #expect(resolved.isEnabled(.userProfile) == true)    // default
             #expect(resolved.isEnabled(.timestamp) == true)      // default
@@ -42,17 +42,41 @@ extension ArcCoreTestRoot {
 
             #expect(resolved.isEnabled(.guidance) == false)      // from profile
             #expect(resolved.isEnabled(.personality) == true)    // session beats profile
-            #expect(resolved.isEnabled(.tools) == true)          // default
+            #expect(resolved.isEnabled(.environment) == true)    // default
         }
 
         @Test("a recipe round-trips through Codable")
         func codableRoundTrip() throws {
-            let recipe = ContextRecipe(segments: [.tools: false, .memory: false, .personality: true])
+            let recipe = ContextRecipe(segments: [.environment: false, .memory: false, .personality: true], custom: ["custom note"])
             let data = try JSONEncoder().encode(recipe)
             let decoded = try JSONDecoder().decode(ContextRecipe.self, from: data)
             #expect(decoded == recipe)
-            #expect(decoded.segments[.tools] == false)
+            #expect(decoded.segments[.environment] == false)
             #expect(decoded.segments[.personality] == true)
+            #expect(decoded.customItems == ["custom note"])
+        }
+
+        @Test("custom blocks are stitched into a single Custom Context section")
+        func customBlocksStitched() async throws {
+            let recipe = ResolvedContextRecipe(segments: [
+                .projectContext: false, .personality: false,
+            ], custom: ["First authored note.", "Second authored note."])
+            let config = makeConfig(contextRecipe: recipe)
+            let box = ClientScripts(responses: [LLMResponse(content: "ok", finishReason: "stop")])
+            let prompt = try await systemPrompt(config: config, box: box)
+
+            #expect(prompt.contains("## Custom Context"))
+            #expect(prompt.contains("First authored note."))
+            #expect(prompt.contains("Second authored note."))
+        }
+
+        @Test("stitchCustom drops blanks and duplicates; nil when empty")
+        func stitchCustomBehavior() {
+            #expect(ContextRecipe.stitchCustom([""]) == nil)
+            #expect(ContextRecipe.stitchCustom(["  ", "\n"]) == nil)
+            #expect(ContextRecipe.stitchCustom(["alpha", "beta"]) == ["alpha", "beta"])
+            #expect(ContextRecipe.stitchCustom(["alpha", "  ", "alpha", "beta"]) == ["alpha", "beta"])
+            #expect(ContextRecipe.stitchCustom([" a ", "a"]) == ["a"], "trim then dedupe")
         }
 
         // MARK: - Prompt segment toggles
@@ -139,7 +163,7 @@ extension ArcCoreTestRoot {
         @Test("disabling segments removes them from the system prompt")
         func disabledSegmentsAbsent() async throws {
             let recipe = ResolvedContextRecipe(segments: [
-                .tools: false, .skills: false, .environment: false,
+                .skills: false, .environment: false,
                 .personality: false, .timestamp: false, .projectContext: false,
             ])
             let config = makeConfig(contextRecipe: recipe, injectProjectContext: true)
@@ -147,7 +171,7 @@ extension ArcCoreTestRoot {
             let prompt = try await systemPrompt(config: config, box: box)
 
             #expect(prompt.contains("You are ARC Agent"), "identity must remain")
-            #expect(!prompt.contains("## Available Tools"))
+            #expect(prompt.contains("## Available Tools"), "tools index is always on (no prompt-only toggle)")
             #expect(!prompt.contains("## Skills (mandatory)"))
             #expect(!prompt.contains("## Environment"))
             #expect(!prompt.contains("## Personality"))
@@ -185,7 +209,6 @@ extension ArcCoreTestRoot {
             case .guidance: return "## Finishing the job"
             case .personality: return "## Personality"
             case .timestamp: return "Conversation started:"
-            case .tools: return "## Available Tools"
             }
         }
 
@@ -280,25 +303,25 @@ extension ArcCoreTestRoot {
             }
         }
 
-        /// The .tools Context toggle governs the prose "## Available Tools"
-        /// index only. It must NOT remove the function-calling schemas handed
-        /// to the model, so a chat with "tool context" off can still recognise
-        /// and call tools. This documents (and guards) that distinction.
-        @Test("tools toggle hides prose index but schemas still reach the model")
-        func toolsToggleHidesProseNotSchemas() async throws {
-            let recipe = ResolvedContextRecipe(segments: [.tools: false])
+        /// The "Available Tools" prose index is always included (there is no
+        /// prompt-only tools toggle). It must never remove the function-calling
+        /// schemas handed to the model, so a chat can still recognise and call
+        /// tools.
+        @Test("tools index always present and schemas reach the model")
+        func toolsIndexAlwaysPresentAndSchemasReachModel() async throws {
+            let recipe = ResolvedContextRecipe(segments: [.skills: false, .environment: false])
             let config = try makeFullConfig(recipe: recipe)
             let box = ClientScripts(responses: [LLMResponse(content: "ok", finishReason: "stop")])
             let prompt = try await systemPrompt(config: config, box: box)
 
-            #expect(!prompt.contains("## Available Tools"),
-                    "the tools prose index must be hidden when .tools is off")
+            #expect(prompt.contains("## Available Tools"),
+                    "the tools prose index must always be present")
 
             let schemas = box.recordedTools().first ?? nil
             #expect(schemas != nil && !schemas!.isEmpty,
-                    "tool schemas must still be sent to the model when .tools is off")
+                    "tool schemas must still be sent to the model")
             #expect(schemas!.contains { ($0["function"] as? [String: Any])?["name"] as? String == "skill_view" },
-                    "a registered tool's schema must remain available when only .tools is off")
+                    "a registered tool's schema must remain available")
         }
 
         /// The real off-switch for tools is disabledToolsets: it removes the
