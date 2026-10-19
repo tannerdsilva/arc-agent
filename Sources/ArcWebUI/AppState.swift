@@ -1063,6 +1063,8 @@ actor AppState {
         var activeTabID: String = "chat"
         var toasts: [Toast] = []
         var toolsets: [(name: String, tools: [any AgentTool])] = []
+        var categoryMenu: CategoryMenu? = nil
+        var pendingConfirm: ConfirmRequest? = nil
     }
 
     init(renderFixture fixture: RenderFixture) {
@@ -1073,6 +1075,8 @@ actor AppState {
         self.activeTabID = fixture.activeTabID
         self.toasts = fixture.toasts
         self.toolsets = fixture.toolsets
+        self.categoryMenu = fixture.categoryMenu
+        self.pendingConfirm = fixture.pendingConfirm
         self.registry = MutableToolRegistry(builtIn: CompileTimeToolRegistry())
         self.sidebarPlugins = []
         self.pluginTabs = [:]
