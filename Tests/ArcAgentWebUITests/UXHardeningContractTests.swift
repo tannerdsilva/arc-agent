@@ -1199,5 +1199,36 @@ extension ArcWebUITestRoot {
             #expect(views.contains("aria-label=\"Search models\""), "the model search must be named")
         }
 
+        @Test("outline entries are client-side links that keep the panel open")
+        func outlineEntriesKeepPanelOpen() {
+            let overlay = Self.overlay
+            #expect(overlay.contains("var b = document.createElement('a')"),
+                    "outline entries must be <a> links, not <button>s (UX-20)")
+            #expect(overlay.contains("b.href = '#' + m.id"),
+                    "each entry must point at its message anchor (UX-20)")
+            #expect(overlay.contains("e.preventDefault();"),
+                    "entry click must be prevented from server round-trip (UX-20)")
+            #expect(overlay.contains("e.preventDefault();"),
+                    "outline entry click must be prevented from server round-trip (UX-20)")
+            #expect(overlay.contains("m.scrollIntoView({ block: 'start', behavior: 'smooth' })"),
+                    "outline entry click must scroll the target message into view (UX-20)")
+            #expect(overlay.contains("m.scrollIntoView({ block: 'start', behavior: 'smooth' })"),
+                    "entry click must scroll the target message into view (UX-20)")
+        }
+
+        // MARK: - UX-21 (wave 4) rename seeds from the full stored title
+
+        @Test("rename input seeds from data-full-title, not the truncated row text")
+        func renameSeedsFromFullTitle() {
+            let overlay = Self.overlay
+            let views = Self.views
+            #expect(views.contains("data-full-title="),
+                    "the session row must carry the full stored title (UX-06/UX-21)")
+            #expect(overlay.contains("row.getAttribute('data-full-title')"),
+                    "rename must seed from the row's data-full-title (UX-21)")
+            #expect(overlay.contains("data-full-title"),
+                    "rename must not seed from the truncated row text (UX-21)")
+        }
+
     }
 }

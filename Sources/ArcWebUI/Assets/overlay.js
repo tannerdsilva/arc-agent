@@ -1139,7 +1139,9 @@
 
   // ---- Conversation outline (reference #2124): the toggle opens the panel;
   // entries are the open chat's user messages, built on demand from the
-  // rendered anchors. Jumping releases the stick — the reader is choosing a
+  // rendered anchors. Entries are plain client-side links: a click jumps to
+  // the message anchor and keeps the panel open (no server round-trip, no
+  // panel close). Jumping releases the stick — the reader is choosing a
   // position and must not be yanked back to the live text. Delegated, so it
   // survives every re-render.
   function buildOutline() {
@@ -1149,8 +1151,8 @@
     var msgs = document.querySelectorAll('.chat-inner .msg.user[id^="msg-user-"]');
     for (var i = 0; i < msgs.length; i++) {
       (function (m, idx) {
-        var b = document.createElement('button');
-        b.type = 'button';
+        var b = document.createElement('a');
+        b.href = '#' + m.id;
         b.className = 'outline-entry';
         var num = document.createElement('span');
         num.className = 'outline-entry-num';
@@ -1162,7 +1164,8 @@
         b.title = raw.slice(0, 240);
         b.appendChild(num);
         b.appendChild(txt);
-        b.addEventListener('click', function () {
+        b.addEventListener('click', function (e) {
+          e.preventDefault();
           stick = false;
           m.scrollIntoView({ block: 'start', behavior: 'smooth' });
           m.classList.remove('outline-jump-flash');
@@ -1171,11 +1174,8 @@
           setTimeout(function () { m.classList.remove('outline-jump-flash'); }, 1400);
           var s = chatScroller();
           if (s) updateJumpBtn(s);
-          // The panel's open state is server-owned now, so closing is a click
-          // on the server-wired close control (it used to flip `hidden` here,
-          // which the next fragment push would have undone).
-          var close = document.getElementById('outline-close');
-          if (close) close.click();
+          // Panel stays open: entries are client-side only now. The close
+          // button is the only server-owned control in the panel.
         });
         entries.appendChild(b);
       })(msgs[i], i);
