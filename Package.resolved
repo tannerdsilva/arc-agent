@@ -1,5 +1,5 @@
 {
-  "originHash" : "bf82613657a37e9864464a0820509e52270e0a54e2742d008951bbe8850939f4",
+  "originHash" : "5601d4d98e4eff773c6722a40b23c7bc53ba497e910e539c5d39b21010aeedee",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -42,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/no-webui.git",
       "state" : {
-        "revision" : "0886e7bce33d5ca3010cf2fcdc8f6761a3458f07",
-        "version" : "2.1.0"
+        "revision" : "baf7ec7ace60e59eb356399e7e3601df4e668bf9",
+        "version" : "2.2.0"
       }
     },
     {
@@ -87,8 +87,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/rawdog.git",
       "state" : {
-        "revision" : "99afc54d3de7015b2dde3886727c9d82f9c32998",
-        "version" : "22.0.0"
+        "revision" : "35a2ea5f34ea8aaf9ed025d86abcdfe496c11ff9",
+        "version" : "22.0.1"
       }
     },
     {
@@ -301,7 +301,7 @@
     {
       "identity" : "swift-syntax",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-syntax.git",
+      "location" : "https://github.com/swiftlang/swift-syntax.git",
       "state" : {
         "revision" : "79e4b74a295b6eb74a8b585e3a39d29e70c1dbd1",
         "version" : "603.0.2"
