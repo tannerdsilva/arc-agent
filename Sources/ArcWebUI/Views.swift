@@ -386,9 +386,11 @@ extension AppState {
             if ab != bb { return ab }
             return a.updatedAt > b.updatedAt
         }
-        // arc parity: chats are bucketed into Today / Last Week / Older
-        // (youngest first within each bucket); each bucket is collapsible.
-        let buckets: [(String, String)] = [("today", "Today"), ("week", "Last Week"), ("older", "Older")]
+        // arc parity: chats are bucketed into Today / Yesterday / Earlier this
+        // week / Older (youngest first within each bucket); each bucket is
+        // collapsible. Yesterday splits out of the 1-6 day band so a chat from
+        // last night is not mislabelled as "a week old" every morning.
+        let buckets: [(String, String)] = [("today", "Today"), ("yesterday", "Yesterday"), ("week", "Earlier this week"), ("older", "Older")]
         var grouped: [String: [Session]] = [:]
         for s in sorted { grouped[bucketKey(s.updatedAt), default: []].append(s) }
         for (key, title) in buckets {
@@ -525,11 +527,14 @@ extension AppState {
         return "\(months[m - 1]) \(day)"
     }
 
-    /// Bucket key: today (same calendar day), week (1–6 days ago), older (7+).
+    /// Bucket key: today (same calendar day), yesterday (1 day ago), week
+    /// (2-6 days ago), older (7+). Yesterday splits out of the old 1-6 day
+    /// band so a chat from last night is not mislabelled "a week old".
     func bucketKey(_ d: Date) -> String {
         let cal = Calendar.current
         let days = cal.dateComponents([.day], from: cal.startOfDay(for: d), to: cal.startOfDay(for: Date())).day ?? 0
         if days <= 0 { return "today" }
+        if days == 1 { return "yesterday" }
         if days < 7 { return "week" }
         return "older"
     }
