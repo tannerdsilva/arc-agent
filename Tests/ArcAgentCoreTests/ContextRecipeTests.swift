@@ -189,7 +189,7 @@ extension ArcCoreTestRoot {
             }
         }
 
-        private func makeFullConfig(recipe: ResolvedContextRecipe) throws -> ArcAgent.Configuration {
+        private func makeFullConfig(recipe: ResolvedContextRecipe, disabledToolsets: Set<String> = []) throws -> ArcAgent.Configuration {
             var registry = CompileTimeToolRegistry()
             try? registry.register(SkillViewTool.entry)
 
@@ -223,6 +223,7 @@ extension ArcCoreTestRoot {
                 sessionID: "ctx-full",
                 injectProjectContext: true,
                 contextDirectory: projDir,
+                disabledToolsets: disabledToolsets,
                 contextRecipe: recipe
             )
         }
@@ -275,8 +276,48 @@ extension ArcCoreTestRoot {
 
             for seg in ContextSegment.allCases {
                 #expect(prompt.contains(marker(for: seg)),
-                        "enabled \(seg) should be present")
+                        "enabled \\(seg) should be present")
             }
+        }
+
+        /// The .tools Context toggle governs the prose "## Available Tools"
+        /// index only. It must NOT remove the function-calling schemas handed
+        /// to the model, so a chat with "tool context" off can still recognise
+        /// and call tools. This documents (and guards) that distinction.
+        @Test("tools toggle hides prose index but schemas still reach the model")
+        func toolsToggleHidesProseNotSchemas() async throws {
+            let recipe = ResolvedContextRecipe(segments: [.tools: false])
+            let config = try makeFullConfig(recipe: recipe)
+            let box = ClientScripts(responses: [LLMResponse(content: "ok", finishReason: "stop")])
+            let prompt = try await systemPrompt(config: config, box: box)
+
+            #expect(!prompt.contains("## Available Tools"),
+                    "the tools prose index must be hidden when .tools is off")
+
+            let schemas = box.recordedTools().first ?? nil
+            #expect(schemas != nil && !schemas!.isEmpty,
+                    "tool schemas must still be sent to the model when .tools is off")
+            #expect(schemas!.contains { ($0["function"] as? [String: Any])?["name"] as? String == "skill_view" },
+                    "a registered tool's schema must remain available when only .tools is off")
+        }
+
+        /// The real off-switch for tools is disabledToolsets: it removes the
+        /// schemas from the model request entirely, so the model cannot call
+        /// a disabled toolset's tools.
+        @Test("disabledToolsets removes tool schemas from the model request")
+        func disabledToolsetsRemovesSchemas() async throws {
+            let recipe = ResolvedContextRecipe(all: true)
+            let config = try makeFullConfig(recipe: recipe, disabledToolsets: ["core"])
+            let box = ClientScripts(responses: [LLMResponse(content: "ok", finishReason: "stop")])
+            _ = try await systemPrompt(config: config, box: box)
+
+            // With the only registered toolset disabled, no leading request
+            // may advertise skill_view. (tools may be nil, empty, or non-empty.)
+            let requests = box.recordedTools()
+            #expect(!requests.isEmpty, "at least one model request must be made")
+            let names = requests.flatMap { ($0 ?? []).compactMap { ($0["function"] as? [String: Any])?["name"] as? String } }
+            #expect(!names.contains("skill_view"),
+                    "a disabled toolset's tool must be removed from the schemas")
         }
     }
 }

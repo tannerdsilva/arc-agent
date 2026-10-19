@@ -16,22 +16,25 @@ final class ClientScripts: @unchecked Sendable {
     private var responses: [LLMResponse]
     private var streamScripts: [[LLMDelta]]
     private var calls: [[Message]] = []
+    private var toolsCalls: [[[String: Any]]?] = []
 
     init(responses: [LLMResponse], streamScripts: [[LLMDelta]] = []) {
         self.responses = responses
         self.streamScripts = streamScripts
     }
 
-    func nextResponse(messages: [Message]) -> LLMResponse {
+    func nextResponse(messages: [Message], tools: [[String: Any]]?) -> LLMResponse {
         lock.lock(); defer { lock.unlock() }
         calls.append(messages)
+        toolsCalls.append(tools)
         if responses.isEmpty { return LLMResponse(content: "done", finishReason: "stop") }
         return responses.removeFirst()
     }
 
-    func nextStreamScript(messages: [Message]) -> [LLMDelta] {
+    func nextStreamScript(messages: [Message], tools: [[String: Any]]?) -> [LLMDelta] {
         lock.lock(); defer { lock.unlock() }
         calls.append(messages)
+        toolsCalls.append(tools)
         if streamScripts.isEmpty { return [] }
         return streamScripts.removeFirst()
     }
@@ -40,17 +43,22 @@ final class ClientScripts: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         return calls
     }
+
+    func recordedTools() -> [[[String: Any]]?] {
+        lock.lock(); defer { lock.unlock() }
+        return toolsCalls
+    }
 }
 
 struct ScriptedClient: LLMClient {
     let box: ClientScripts
 
     func complete(messages: [Message], tools: [[String: Any]]?) async throws -> LLMResponse {
-        box.nextResponse(messages: messages)
+        box.nextResponse(messages: messages, tools: tools)
     }
 
     func stream(messages: [Message], tools: [[String: Any]]?) -> AsyncThrowingStream<LLMDelta, Error> {
-        let script = box.nextStreamScript(messages: messages)
+        let script = box.nextStreamScript(messages: messages, tools: tools)
         return AsyncThrowingStream { continuation in
             Task {
                 for delta in script {
