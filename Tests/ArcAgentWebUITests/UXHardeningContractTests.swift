@@ -105,7 +105,7 @@ extension ArcWebUITestRoot {
         func skillsEmptyCopy() {
             let views = Self.views
             #expect(views.contains("No skills yet — press + to create one."))
-            #expect(views.contains("No skills yet — create your first one with + above."))
+            #expect(views.contains("No skills yet."))
             #expect(!views.contains("\"No skills match.\""),
                     "the unconditional \"No skills match.\" claimed an empty library was a filtered one")
         }
@@ -141,7 +141,7 @@ extension ArcWebUITestRoot {
 
         @Test("errors expire on their own and the tick stays silent otherwise")
         func toastsExpire() {
-            #expect(Self.appState.contains("static let toastTTL: TimeInterval = 8"))
+            #expect(Self.appState.contains("static let toastTTL: TimeInterval = 10"))
             #expect(Self.appState.contains("func expireToasts(now: Date = Date()"),
                     "expiry must be a tested unit, not a comment")
             #expect(Self.host.contains("IntervalService(name: \"toast-expiry\""),

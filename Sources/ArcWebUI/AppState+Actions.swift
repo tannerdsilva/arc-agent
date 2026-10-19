@@ -502,7 +502,7 @@ extension AppState {
                .max(by: { $0.updatedAt < $1.updatedAt }) {
             await setActiveSession(newest.id, preserveUndo: true)
         }
-        _ = surfaceToast("Conversation deleted.", action: ToastAction(id: "undo-delete", label: "Undo"))
+        _ = surfaceToast("Conversation deleted. Undo for 10 seconds.", action: ToastAction(id: "undo-delete", label: "Undo"))
     }
 
     /// Resurrect the chat the Undo toast points at (UX-06): re-create the

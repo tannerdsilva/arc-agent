@@ -1315,7 +1315,9 @@ actor AppState {
 
     /// How long a surfaced error stays on screen before it clears itself. Long
     /// enough to read and act on, short enough that it never becomes furniture.
-    static let toastTTL: TimeInterval = 8
+    /// The delete-undo toast advertises "Undo for 10 seconds", so this must
+    /// match that window exactly.
+    static let toastTTL: TimeInterval = 10
 
     /// Drop toasts past their TTL. Returns true only when the set actually
     /// changed, so the host broadcasts a fragment set that shrank and stays

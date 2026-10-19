@@ -228,7 +228,7 @@ extension AppState {
             let title = trunc(sessionTitle(s), 48)
             return ConfirmRequest(
                 kind: "chat", id: mid, title: "Delete conversation?",
-                body: "The chat “\(title)” will be deleted. You can undo this for a few seconds.")
+                body: "The chat “\(title)” will be deleted. You can undo this for 10 seconds.")
         }
         return pendingConfirm
     }
