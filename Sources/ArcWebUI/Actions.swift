@@ -2609,8 +2609,12 @@ final class Controller: Sendable {
             guard let tid = event.string("targetId"), tid.hasPrefix("fsz-") else { return [] }
             let size = String(tid.dropFirst("fsz-".count))
             await self.app.setTextSize(size)
+            // UX-22: apply text-size to the live page without a reload.
+            // `refreshFragments(includeApp:)` re-renders the #app shell,
+            // which carries `data-size` (Views.swift:75) — the live page
+            // changes in the same tick as the hint.
             _ = await self.app.hint("Text size updated.")
-            return await self.app.refreshFragments()
+            return await self.app.refreshFragments(includeApp: true)
         }
         wire(router, id: "scheme-pick", events: ["click"]) { event in
             guard let tid = event.string("targetId"), tid.hasPrefix("scheme-") else { return [] }

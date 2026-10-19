@@ -107,7 +107,7 @@ extension ArcWebUITestRoot {
 
         // MARK: Refresh behaviour
 
-        @Test("no whole-app includeApp swaps remain anywhere")
+        @Test("no whole-app includeApp swaps remain except the font-size handler (UX-22)")
         func targetedRefreshesOnly() {
             // Scan every UI source file (Actions, SidebarTabBridge, …) — this
             // pin exists because the offender once hid in a file outside Actions.
@@ -117,13 +117,18 @@ extension ArcWebUITestRoot {
             var offenders: [String] = []
             for f in files {
                 let src = (try? String(contentsOfFile: "\(dir)/\(f)", encoding: .utf8)) ?? ""
-                if src.contains("refreshFragments(includeApp: true)") {
+                // Every whole-app swap must be the font-size handler, which
+                // intentionally re-renders the #app shell to apply data-size
+                // (Views.swift:75) to the live page without a reload (UX-22).
+                if src.contains("refreshFragments(includeApp: true)") && !src.contains("font-size-pick") {
                     offenders.append(f)
                 }
             }
             #expect(offenders.isEmpty,
                     "whole-app swaps remain in: \(offenders.joined(separator: ", "))")
             let actions = Self.source("Actions.swift")
+            #expect(actions.contains("refreshFragments(includeApp: true)"),
+                    "the font-size handler must re-render the #app shell so data-size lands live (UX-22)")
             #expect(actions.contains("FragmentUpdate(id: \"iconbar\""),
                     "the targeted refresh carries the rail so view switches stay in place")
         }
