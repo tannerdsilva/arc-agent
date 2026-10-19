@@ -2316,6 +2316,13 @@ extension AppState {
             </div>
             """
         }
+        // UX-13: with exactly one profile there is nothing to "select" —
+        // auto-select it so the canvas is never a dead end. Only when two
+        // or more profiles exist does the empty "Select a profile" state
+        // stay on screen.
+        if selectedProfile == nil && profiles.count == 1 {
+            selectedProfile = profiles[0].name
+        }
         guard let name = selectedProfile,
               let p = profiles.first(where: { $0.name == name })
         else {
