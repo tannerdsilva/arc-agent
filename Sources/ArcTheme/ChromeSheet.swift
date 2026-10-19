@@ -3217,9 +3217,15 @@ public static let css: String = """
       .drawer-scrim { top: 82px; left: 0; }
     }
     /* ── Insights daily tokens chart y-axis (UX-14) ────────────────── */
-    .ins-yaxis { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+    /* UX-14: a real vertical axis. The tick rows are absolutely positioned in a
+       220px column that matches .ins-chart, so a label sits at the height of the
+       bar it quantifies; the wave-3 strip laid the five ticks in a row. */
+    .ins-chart-row { display: flex; align-items: stretch; gap: 8px; }
+    .ins-chart-row .ins-chart { flex: 1 1 auto; min-width: 0; }
+    .ins-yaxis { position: relative; flex: 0 0 52px; height: 220px; font-size: 11px; color: var(--muted); }
+    .ins-ytick-row { position: absolute; right: 0; display: flex; align-items: center; gap: 4px; transform: translateY(50%); }
     .ins-ytick { width: 6px; height: 1px; background: var(--border); }
-    .ins-ylabel { min-width: 44px; text-align: right; white-space: nowrap; }
+    .ins-ylabel { text-align: right; white-space: nowrap; }
 
     """
 

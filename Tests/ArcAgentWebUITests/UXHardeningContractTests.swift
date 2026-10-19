@@ -420,6 +420,20 @@ extension ArcWebUITestRoot {
                     "typing must clear the rendered error, not only the state")
         }
 
+        @Test("the insights chart's y-axis is a vertical column aligned to the bars")
+        func insightsYAxisIsVertical() {
+            let insights = Self.insights
+            let sheet = Self.sheetSource
+            #expect(insights.contains("ins-chart-row"),
+                    "the chart must sit beside its axis, not under a strip")
+            #expect(insights.contains("ins-ytick-row"),
+                    "ticks are absolutely positioned rows in a vertical column")
+            #expect(!insights.contains("<div class=\"ins-yaxis\"><span class=\"ins-ytick\">"),
+                    "the horizontal strip layout must not return")
+            #expect(sheet.contains(".ins-yaxis { position: relative; flex: 0 0 52px; height: 220px;"),
+                    "the axis column must match the chart height")
+        }
+
         // MARK: - UX-15 regression guard: the tools filter and the env badge
 
         /// the wave-3 tool filter shipped without a test, and its same commit

@@ -298,18 +298,21 @@ extension AppState {
             return "<div class=\"ins-xlabel\" data-sparse=\"\(idx % step == 0 ? "0" : "1")\">\(text)</div>"
         }.joined()
 
-        // y-axis ticks: 0, 25%, 50%, 75%, 100% of the peak, compactly formatted.
-        let ySteps = [0.0, 0.25, 0.5, 0.75, 1.0]
-        let yaxis = ySteps.map { frac -> String in
+        // y-axis: ticks at 0/25/50/75/100% of the peak. The rows are absolutely
+        // positioned in a 220px column that matches .ins-chart, so each label
+        // sits at the height of the bar it quantifies.
+        let yTicks = [0.0, 0.25, 0.5, 0.75, 1.0].map { frac -> String in
             let v = Int(Double(maxVal) * frac)
-            return "<div class=\"ins-yaxis\"><span class=\"ins-ytick\"></span><span class=\"ins-ylabel\">\(Self.fmtCount(v))</span></div>"
+            return "<div class=\"ins-ytick-row\" style=\"bottom:\(frac * 100)%\"><span class=\"ins-ylabel\">\(Self.fmtCount(v))</span><span class=\"ins-ytick\"></span></div>"
         }.joined()
 
         return """
         <div class="ins-chart-wrap">
           <div class="ins-scale">peak \(Self.fmtCount(maxVal))</div>
-          <div class="ins-yaxis">\(yaxis)</div>
-          <div class="ins-chart">\(bars)</div>
+          <div class="ins-chart-row">
+            <div class="ins-yaxis" aria-hidden="true">\(yTicks)</div>
+            <div class="ins-chart">\(bars)</div>
+          </div>
           <div class="ins-xaxis">\(labels)</div>
         </div>
         """
