@@ -2893,10 +2893,17 @@ public actor ArcAgent: Service {
         guard let tool = args["tool"] as? String, !tool.isEmpty else {
             return "Error: 'tool' (string) is required."
         }
+        // Disabled-toolset enforcement for the bridge: tool_describe/tool_call
+        // accept ANY registry tool by name (never the enabled/deferred manifest),
+        // so a model can address a disabled tool and burn a turn on the rejection.
+        // Reject disabled targets here, before routing into full dispatch.
+        guard let entry = config.registry.lookup(name: tool) else {
+            return "Error: Unknown tool '\(tool)'."
+        }
+        guard !config.disabledToolsets.contains(entry.toolset) else {
+            return "Error: Tool '\(tool)' is disabled (toolset '\(entry.toolset)' is disabled by configuration)."
+        }
         if name == "tool_describe" {
-            guard let entry = config.registry.lookup(name: tool) else {
-                return "Error: Unknown tool '\(tool)'."
-            }
             let schema = ProgressiveToolDisclosure.schema(for: entry)
             guard let pretty = try? JSONSerialization.data(withJSONObject: schema, options: [.prettyPrinted, .sortedKeys]),
                   let text = String(data: pretty, encoding: .utf8) else {
@@ -2907,9 +2914,6 @@ public actor ArcAgent: Service {
         // tool_call
         guard tool != "tool_call", tool != "tool_describe", tool != "tool_search" else {
             return "Error: cannot invoke bridge tool '\(tool)' through tool_call."
-        }
-        guard config.registry.lookup(name: tool) != nil else {
-            return "Error: Unknown tool '\(tool)'."
         }
         let inner: String
         if let innerArgs = args["arguments"] as? [String: Any] {
