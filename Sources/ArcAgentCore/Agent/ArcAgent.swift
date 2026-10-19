@@ -2213,7 +2213,7 @@ public actor ArcAgent: Service {
 
         let limitText = "The conversation reached the maximum iteration limit. Please start a new session."
         emit(.textDelta(limitText))
-        emit(.completed(finalText: limitText))
+        emit(.completed(finalText: limitText, terminalReason: "max_iterations"))
         await persistConversationIfNeeded()
     }
 

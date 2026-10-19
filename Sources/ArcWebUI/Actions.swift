@@ -237,17 +237,42 @@ extension AppState {
     /// Approve / Deny (or stops the turn). Returns true when approved.
     func requestUserApproval(command: String, description: String, sessionID: String, pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void) async -> Bool {
         guard activeTurns[sessionID] != nil else { return false }
-        let stream = AsyncStream<Bool>.makeStream()
+        let stream = AsyncStream<ApprovalDecision>.makeStream()
         pendingApproval = PendingApproval(command: command, description: description, sessionID: sessionID, continuation: stream.continuation)
         activeTurns[sessionID]?.status = "approval"
         await pusher(await liveFragments())
-        for await granted in stream.stream {
+        for await decision in stream.stream {
             activeTurns[sessionID]?.status = "running"
             await pusher(await liveFragments())
-            return granted
+            return decision != .deny
         }
         activeTurns[sessionID]?.status = "running"
         return false
+    }
+
+    /// Present a permission card for the **core** turn engine's approval gate
+    /// (the collapsed `ArcAgent` path) and return the user's decision. Wired as
+    /// the agent's ``ApprovalPresenter`` via `setApprovalPresenter(_:)` so the
+    /// core's `ApprovalManager` applies always-allow / allow-session through its
+    /// own plumbing — no double bookkeeping against the web UI's own manager.
+    func presentCoreApproval(_ request: ApprovalRequest,
+                             pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void) async -> ApprovalDecision {
+        guard activeTurns[request.sessionKey] != nil else { return .deny }
+        let stream = AsyncStream<ApprovalDecision>.makeStream()
+        pendingApproval = PendingApproval(command: request.command,
+                                          description: request.description,
+                                          sessionID: request.sessionKey,
+                                          continuation: stream.continuation)
+        activeTurns[request.sessionKey]?.status = "approval"
+        await pusher(await liveFragments())
+        var decision: ApprovalDecision = .deny
+        for await d in stream.stream {
+            decision = d
+            break
+        }
+        activeTurns[request.sessionKey]?.status = "running"
+        await pusher(await liveFragments())
+        return decision
     }
 
     /// arc-parity clarify request: the agent's `clarify` tool pauses the
@@ -566,75 +591,21 @@ extension AppState {
         return max(0, Date().timeIntervalSince(t.startedAt))
     }
 
-    private func handleIterationLimit(
-        history: inout [Message],
-        sessionID: String,
-        preset: ModelConfigPreset,
-        store: (any SessionStore)?,
-        effort: String?,
-        throttle: @escaping () async -> Void,
-        flush: @escaping () async -> Void
-    ) async {
-        let nudge = Message(
-            role: .user,
-            content: "You've reached the maximum number of tool-calling iterations allowed. "
-                + "Please provide a final response summarizing what you've found and accomplished so far, "
-                + "without calling any more tools.",
-            createdAt: Date()
-        )
-        history.append(nudge)
-        if let store { await persistMessage(nudge, sessionID: sessionID, store: store) }
-        await flush()
-
-        // One final no-tool call: the model cannot emit tool calls, so the
-        // result is either a summary or empty → graceful fallback (reference
-        // `final_response` fallback text).
-        var summary = ""
-        var reasoning = ""
-        var usage: Usage?
-        guard let client = makeClient(for: preset) else {
-            // No client for the configured model: fall back to graceful text.
-            let f = Message(role: .assistant, content: "I reached the iteration limit and couldn't generate a summary.", createdAt: Date(), terminalReason: "max_iterations", turnDuration: turnDurationSeconds(sessionID))
-            history.append(f)
-            if let store { await persistMessage(f, sessionID: sessionID, store: store) }
-            await flush()
-            return
+    /// Accumulate per-round `.usage` events into a turn-total. The core emits
+    /// one `.usage` per model round; overwriting (the old behaviour) dropped
+    /// every round but the last from the persisted message and per-turn record.
+    private static func accumulateUsage(_ acc: Usage?, _ next: Usage) -> Usage {
+        guard let acc else { return next }
+        let cached: Int? = switch (acc.cachedPromptTokens, next.cachedPromptTokens) {
+        case (nil, nil): nil
+        case (let a?, let b?): a + b
+        case (let a?, nil): a
+        case (nil, let b?): b
         }
-        var msgs = [Message(role: .system, content: await buildSystemPrompt(config: preset, sessionID: sessionID))]
-        msgs.append(contentsOf: history)
-        let started = Date()
-        do {
-            let stream = client.stream(messages: msgs, tools: [], reasoningEffort: effort)
-            for try await delta in stream {
-                if activeTurns[sessionID]?.stopped == true { break }
-                if let c = delta.content { summary += c; activeTurns[sessionID]?.assistantText = summary }
-                if let r = delta.reasoning { reasoning += r; activeTurns[sessionID]?.thinking = reasoning }
-                if let u = delta.usage { usage = u }
-                await throttle()
-            }
-        } catch {
-            // Provider fault during the final call: no retry (reference returns
-            // the graceful fallback in this case); keep any partial text.
-        }
-        let elapsed = max(0.2, Date().timeIntervalSince(started))
-        let tps: Double? = usage.flatMap { u in u.completionTokens > 0 ? Double(u.completionTokens) / elapsed : nil }
-        let finalText = summary.isEmpty
-            ? "I reached the iteration limit and couldn't generate a summary."
-            : summary
-        let final = Message(
-            role: .assistant,
-            content: finalText,
-            createdAt: Date(),
-            reasoning: reasoning.isEmpty ? nil : reasoning,
-            usage: usage,
-            tps: tps,
-            terminalReason: "max_iterations",
-            turnDuration: turnDurationSeconds(sessionID)
-        )
-        history.append(final)
-        if let store { await persistMessage(final, sessionID: sessionID, store: store) }
-        if let u = usage { await Self.recordUsage(u, preset: preset) }
-        await flush()
+        return Usage(promptTokens: acc.promptTokens + next.promptTokens,
+                     completionTokens: acc.completionTokens + next.completionTokens,
+                     totalTokens: acc.totalTokens + next.totalTokens,
+                     cachedPromptTokens: cached)
     }
 
     /// Construct the core turn engine for this session (Option B collapse).
@@ -852,6 +823,14 @@ extension AppState {
         turnAgents[sessionID] = agent
         defer { turnAgents[sessionID] = nil }
 
+        // Wire the core approval presenter: dangerous commands now surface the
+        // browser permission card instead of failing closed with a note (the
+        // pre-collapse approval flow only ran on the web UI's own runTool path).
+        await agent.setApprovalPresenter { [weak self] request in
+            guard let self else { return .deny }
+            return await self.presentCoreApproval(request, pusher: pusher)
+        }
+
         var assistantText = ""
         var reasoningAccum = ""
         var finalError: String?
@@ -907,12 +886,12 @@ extension AppState {
                     curCalls = []
                     await flush()
                 case .usage(let u):
-                    lastUsage = u
+                    lastUsage = Self.accumulateUsage(lastUsage, u)
                     let elapsed = max(0.2, Date().timeIntervalSince(turnStart))
                     activeTurns[sessionID]?.tps = u.completionTokens > 0
                         ? Double(u.completionTokens) / elapsed : nil
                     recordTokensBurned(u.totalTokens > 0 ? u.totalTokens : u.promptTokens + u.completionTokens)
-                case .completed(let finalText):
+                case .completed(let finalText, let terminalReason):
                     assistantText = finalText
                     let elapsed = max(0.2, Date().timeIntervalSince(turnStart))
                     let finalTps: Double? = lastUsage.flatMap { u in
@@ -925,7 +904,7 @@ extension AppState {
                                               reasoning: reasoningAccum.isEmpty ? nil : reasoningAccum,
                                               usage: lastUsage,
                                               tps: finalTps,
-                                              terminalReason: wasInterrupted ? "user_stopped" : nil,
+                                              terminalReason: wasInterrupted ? "user_stopped" : terminalReason,
                                               turnDuration: max(0, Date().timeIntervalSince(turn.startedAt))))
                     activeTurns[sessionID]?.assistantText = finalText
                     activeTurns[sessionID]?.status = "done"
@@ -1021,7 +1000,7 @@ extension AppState {
         // Resolve any pending approval so a waiting turn can finish promptly.
         if let pa = pendingApproval, pa.sessionID == sessionID {
             pendingApproval = nil
-            pa.continuation.yield(false)
+            pa.continuation.yield(.deny)
             pa.continuation.finish()
         }
         // Resolve any pending clarification the same way (card disappears).

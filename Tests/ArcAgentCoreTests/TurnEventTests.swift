@@ -119,7 +119,7 @@ extension ArcCoreTestRoot {
         }
 
         private func completedText(_ events: [AgentTurnEvent]) -> String? {
-            for case .completed(let text) in events.reversed() {
+            for case .completed(let text, _) in events.reversed() {
                 return text
             }
             return nil

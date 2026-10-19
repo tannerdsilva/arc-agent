@@ -531,7 +531,9 @@ struct PendingApproval {
     let command: String
     let description: String
     let sessionID: String
-    let continuation: AsyncStream<Bool>.Continuation
+    /// Yields the user's decision. Now carries the core ``ApprovalDecision``
+    /// because the collapsed turn engine's approval presenter drives this card.
+    let continuation: AsyncStream<ApprovalDecision>.Continuation
 }
 
 /// arc-parity clarification request: the agent's `clarify` tool is waiting
@@ -1573,22 +1575,22 @@ actor AppState {
     func resolveApproval(_ choice: ApprovalChoice) async {
         guard let pa = pendingApproval else { return }
         pendingApproval = nil
-        let granted: Bool
+        let decision: ApprovalDecision
         switch choice {
         case .once:
-            granted = true
+            decision = .approve
         case .session:
             // reference "Allow session": pre-approve the rest of the session.
             await approvalManager?.preApproveSession(pa.sessionID)
-            granted = true
+            decision = .allowSession
         case .always:
             // reference "Always allow": persist the command to the allowlist.
             await approvalManager?.alwaysAllow(command: pa.command)
-            granted = true
+            decision = .alwaysAllow
         case .deny:
-            granted = false
+            decision = .deny
         }
-        pa.continuation.yield(granted)
+        pa.continuation.yield(decision)
         pa.continuation.finish()
     }
 
