@@ -104,8 +104,11 @@ extension ArcWebUITestRoot {
         @Test("a zero-skill library gets the create-first copy, not the filter copy")
         func skillsEmptyCopy() {
             let views = Self.views
-            #expect(views.contains("No skills yet — press + to create one."))
-            #expect(views.contains("No skills yet."))
+            // Round-3 UX-44: the sidebar no longer repeats the CTA instruction —
+            // the canvas owns the one "Create skill" button.
+            #expect(views.contains("\"No skills yet.\""))
+            #expect(!views.contains("No skills yet — press +"),
+                    "the sidebar must not repeat the create instruction the canvas CTA gives")
             #expect(!views.contains("\"No skills match.\""),
                     "the unconditional \"No skills match.\" claimed an empty library was a filtered one")
         }
@@ -1272,15 +1275,15 @@ extension ArcWebUITestRoot {
             let railBlock = "@media (max-width: 599.98px) {"
             guard let r0 = css.range(of: railBlock) else { return }
             let rest = css[r0.upperBound...]
-            let block = rest.prefix(900)
+            let block = rest.prefix(1500)
             #expect(block.contains("flex: 0 0 auto; width: 100%; height: 44px;"),
                     "the rail must become a full-width horizontal strip (UX-07)")
             #expect(block.contains("flex-direction: row; align-items: center;"),
                     "the strip lays its icons out in a row (UX-07)")
             #expect(block.contains("overflow-x: auto; overflow-y: hidden;"),
                     "the strip scrolls internally so the WINDOW never overflows (UX-07)")
-            #expect(block.contains("position: sticky; bottom: auto; left: auto; right: 0;"),
-                    "the Settings slot must stay pinned to the visible right edge of the strip (UX-07)")
+            #expect(block.contains("position: static; bottom: auto; left: auto; right: auto;"),
+                    "the Settings slot must stay in flow so it cannot cover Todos (round-3 UX-29)")
             #expect(block.contains("#panel { top: 82px; left: 0; width: 100vw; }"),
                     "the drawer must open below the rail strip so the rail stays tappable (UX-07)")
         }
@@ -1323,6 +1326,65 @@ extension ArcWebUITestRoot {
                     "rename must seed from the row's data-full-title (UX-21)")
             #expect(overlay.contains("data-full-title"),
                     "rename must not seed from the truncated row text (UX-21)")
+        }
+
+    // MARK: - Round 3 (2026-10-19) — state, empty states, pinning
+
+        @Test("rail, chips and toolset switches expose their selected state")
+        func selectionStateIsExposed() {
+            let views = Self.views
+            #expect(views.contains("aria-current=\"page\""),
+                    "the active rail destination must be aria-current (round-3 UX-33)")
+            #expect(views.contains("aria-pressed=\"\\(logFilter == lvl)\""),
+                    "log filter chips must expose aria-pressed (round-3 UX-33)")
+            #expect(views.contains("aria-label=\"Enable \\(toolset) tools\""),
+                    "each toolset switch needs an accessible name (round-3 UX-31)")
+            #expect(views.contains("aria-label=\"Regenerate last reply\""),
+                    "regen-btn must be named for AT, not only data-tip (round-3 UX-32)")
+            #expect(views.contains("aria-label=\"Delete chat\""),
+                    "chat-del must be named for AT, not only data-tip (round-3 UX-32)")
+        }
+
+        @Test("pinned chats render above the date buckets")
+        func pinnedChatsGroupFirst() {
+            let views = Self.views
+            #expect(views.contains("groupHTML(key: \"pinned\", title: \"Pinned\""),
+                    "pinned chats need their own group (round-3 UX-27)")
+            #expect(views.contains("for s in unpinned {"),
+                    "pinned chats must not be re-bucketed by date (round-3 UX-27)")
+        }
+
+        @Test("a tools filter with no matches says so once")
+        func toolsNoMatchState() {
+            let views = Self.views
+            #expect(views.contains("No tools match"),
+                    "the tools panel needs a no-match state (round-3 UX-28)")
+            #expect(views.contains("matchCount == 0"),
+                    "empty groups must be skipped under a filter (round-3 UX-28)")
+        }
+
+        @Test("the peak callout is the only 100% label on the tokens chart")
+        func insightsTopTickUnlabelled() {
+            #expect(Self.insights.contains("frac >= 1.0 ? \"\""),
+                    "the top y-axis tick must not duplicate the peak label (round-3 UX-43)")
+        }
+
+        @Test("form fragments can ask the post-patch seam for the caret")
+        func formFocusHandoff() {
+            #expect(Self.overlay.contains("data-focus-after-patch"),
+                    "overlay must honour data-focus-after-patch (round-3 UX-34/35)")
+            #expect(Self.views.contains("data-focus-after-patch"),
+                    "the add-card / skill forms must request focus after a patch")
+        }
+
+        @Test("the skip link is hidden where its target is absent")
+        func skipLinkScopedToChat() {
+            // The shell renders once, so a tab switch cannot remove the link
+            // server-side; the boot overlay hides it wherever #composer-input
+            // is not on the page (round-3 UX-42).
+            #expect(Self.overlay.contains("function syncSkipLink()"))
+            #expect(Self.overlay.contains("link.hidden = !document.getElementById('composer-input')"),
+                    "the skip link must hide when no composer exists")
         }
 
     }

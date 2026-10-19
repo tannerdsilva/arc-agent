@@ -146,7 +146,8 @@ extension AppState {
                 // UX-08: icon-only rail buttons need an accessible name; the
                 // data-tip pill is hover-only (and invisible to AT and touch).
                 return btn("nav-\(id)", "nav-\(id)", cls, iconHTML,
-                           " data-tip=\"\(esc(tab.title))\" aria-label=\"\(esc(tab.title))\"" + rove)
+                           " data-tip=\"\(esc(tab.title))\" aria-label=\"\(esc(tab.title))\""
+                             + (isActive ? " aria-current=\"page\"" : "") + rove)
             }
             .joined()
         let settingsActive = activeTabID == "settings"
@@ -154,6 +155,7 @@ extension AppState {
                               settingsActive ? "icon-btn active" : "icon-btn",
                               ViewID.settings.icon,
                               " data-tip=\"Settings\" aria-label=\"Settings\""
+                                + (settingsActive ? " aria-current=\"page\"" : "")
                                 + (settingsActive ? " tabindex=\"0\"" : " tabindex=\"-1\""))
         return """
         <div class="iconbar-top">\(top)</div>
@@ -381,18 +383,22 @@ extension AppState {
             visible = visible.filter { sessionTitle($0).localizedCaseInsensitiveContains(chatFilter) }
         }
         let ordered = visible.sorted { $0.updatedAt > $1.updatedAt }
-        let sorted = ordered.sorted { a, b in
-            let ab = bookmarks.contains(a.id), bb = bookmarks.contains(b.id)
-            if ab != bb { return ab }
-            return a.updatedAt > b.updatedAt
-        }
-        // arc parity: chats are bucketed into Today / Yesterday / Earlier this
-        // week / Older (youngest first within each bucket); each bucket is
-        // collapsible. Yesterday splits out of the 1-6 day band so a chat from
-        // last night is not mislabelled as "a week old" every morning.
-        let buckets: [(String, String)] = [("today", "Today"), ("yesterday", "Yesterday"), ("week", "Earlier this week"), ("older", "Older")]
-        var grouped: [String: [Session]] = [:]
-        for s in sorted { grouped[bucketKey(s.updatedAt), default: []].append(s) }
+                // Round-3 UX-27: a pin is a promise that the chat floats to the top.
+                // Sorting bookmarked-first and THEN bucketing by date threw that order
+                // away (the pinned row stayed in its day bucket with just a badge), so
+                // pinned chats now get their own group above the date buckets.
+                let pinned = ordered.filter { bookmarks.contains($0.id) }
+                let unpinned = ordered.filter { !bookmarks.contains($0.id) }
+                if !pinned.isEmpty {
+                    rows.append(groupHTML(key: "pinned", title: "Pinned", sessions: pinned, todos: todos))
+                }
+                // arc parity: chats are bucketed into Today / Yesterday / Earlier this
+                // week / Older (youngest first within each bucket); each bucket is
+                // collapsible. Yesterday splits out of the 1-6 day band so a chat from
+                // last night is not mislabelled "a week old" every morning.
+                let buckets: [(String, String)] = [("today", "Today"), ("yesterday", "Yesterday"), ("week", "Earlier this week"), ("older", "Older")]
+                var grouped: [String: [Session]] = [:]
+                for s in unpinned { grouped[bucketKey(s.updatedAt), default: []].append(s) }
         for (key, title) in buckets {
             if let list = grouped[key], !list.isEmpty {
                 rows.append(groupHTML(key: key, title: title, sessions: list, todos: todos))
@@ -432,8 +438,8 @@ extension AppState {
         let unActive = activeCategory == "unassigned" ? " active" : ""
         var chips = """
         <div class="cat-bar" data-component-id="cat-pick" data-event="click">
-          <button type="button" id="cat-all" class="cat-chip\(allActive)" tabindex="-1">All</button>
-          <button type="button" id="cat-unassigned" class="cat-chip\(unActive)" tabindex="-1">Unassigned</button>
+          <button type="button" id="cat-all" class="cat-chip\(allActive)" tabindex="-1" aria-pressed="\(activeCategory == "all")">All</button>
+          <button type="button" id="cat-unassigned" class="cat-chip\(unActive)" tabindex="-1" aria-pressed="\(activeCategory == "unassigned")">Unassigned</button>
         """
         for cat in settings.chatCategories {
             let cid = enc(cat.id)
@@ -453,7 +459,7 @@ extension AppState {
                 """
             } else {
                 chips += """
-                <button type="button" id="cat-\(cid)" class="cat-chip\(active)">
+                <button type="button" id="cat-\(cid)" class="cat-chip\(active)" aria-pressed="\(activeCategory == cat.id)">
                   <span class="cat-dot" style="background:\(cat.color)"></span>
                   <span>\(esc(cat.name))</span>
                 </button>
@@ -700,7 +706,7 @@ extension AppState {
         if rows.isEmpty {
             // Zero skills is not the same as "nothing matched a filter".
             let msg = skills.isEmpty
-                ? "No skills yet — press + to create one."
+                ? "No skills yet."
                 : "No skills match “\(skillFilter)”."
             rows.append("<div class=\"empty-hint\">\(esc(msg))</div>")
         }
@@ -776,6 +782,17 @@ extension AppState {
         </div>
         """
         var rows: [String] = []
+        // Round-3 UX-28: a filter with no matches used to render every toolset
+        // header reading "0 tools" and keep a detail pane for a tool that was
+        // not in the list. Say it once, and hide empty groups.
+        let matchCount = toolsets.reduce(0) { acc, entry in
+            acc + entry.tools.filter { toolFilter.isEmpty || $0.name.localizedCaseInsensitiveContains(toolFilter) }.count
+        }
+        if !toolFilter.isEmpty && matchCount == 0 {
+            return head + """
+            <div class="panel-body"><div class="empty-hint">No tools match “\(esc(toolFilter))”.</div></div>
+            """
+        }
         // The `mcp` group is ONE bridge tool however many servers are
         // configured, so a bare "1 tool" misleads — the count is meaningless
         // without knowing whether anything is behind it.
@@ -793,7 +810,7 @@ extension AppState {
             <div class="list-row" style="padding:6px 10px">
               <span class="lr-sub" style="flex:1">\(summary)</span>
               <label class="switch" title="\(disabled ? "Toolset disabled" : "Toolset enabled")">
-                <input type="checkbox" id="ts-\(encTS)" value="ts-\(encTS)" data-component-id="tools-toggle" data-event="change" data-no-restore \(disabled ? "" : "checked")>
+                <input type="checkbox" id="ts-\(encTS)" value="ts-\(encTS)" aria-label="Enable \(toolset) tools" data-component-id="tools-toggle" data-event="change" data-no-restore \(disabled ? "" : "checked")>
                 <span class="track"></span><span class="knob"></span>
               </label>
             </div>
@@ -808,14 +825,16 @@ extension AppState {
                 let avail = (t.checkFn?() ?? true)
                 let badge = avail ? "" : " <span class='lr-sub'>(needs env)</span>"
                 toolRows.append("""
-                <div class="list-row\(active)" data-component-id="tool-list">
+                <div class="list-row\(active)" data-component-id="tool-list"\(active.isEmpty ? "" : " aria-current=\"true\"")>
                   <button type="button" id="tl-open-\(encT)" class="sess-open" style="padding:0">
                     <span class="lr-name">\(toolEmojiIcon(t.emoji))\(esc(t.name))\(badge)</span>
                   </button>
                 </div>
                 """)
             }
-            rows.append(group + toggle + toolRows.joined())
+            if toolFilter.isEmpty || !filtered.isEmpty {
+                rows.append(group + toggle + toolRows.joined())
+            }
         }
         return """
         \(head)
@@ -841,7 +860,7 @@ extension AppState {
             <div class="list-row\(active)" data-component-id="workspace-list">
               <button type="button" id="ws-open-\(encWS)" class="sess-open" style="padding:0">
                 <span class="lr-name">\(esc(entry.name))</span>
-                <span class="lr-sub">\(esc(entry.path == WorkspaceEntry.defaultPath(for: "main") ? "home folder (default)" : trunc(entry.path, 58)))</span>
+                <span class="lr-sub" title="\(esc(entry.path))" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">\(esc(entry.path == WorkspaceEntry.defaultPath(for: "main") ? "home folder (default)" : trunc(entry.path, 58)))</span>
               </button>
               <div class="row-actions">\(entry.name == "main" ? "" : btn("ws-del-\(encWS)", "", "icon-mini danger", WebUIIcon(.x, size: .small).markup.html, " title=\"Delete\""))</div>
             </div>
@@ -934,7 +953,7 @@ extension AppState {
         let delLabel = pendingDelete ? "Confirm?" : WebUIIcon(.trash, size: .small).markup.html
         let delClass = pendingDelete ? "sess-confirm" : "icon-mini danger"
         let regenBtn = """
-        <button type="button" id="regen-btn" class="icon-mini" data-tip="Regenerate last reply">\(WebUIIcon(.refreshCw, size: .small).markup.html)</button>
+        <button type="button" id="regen-btn" class="icon-mini" data-tip="Regenerate last reply" aria-label="Regenerate last reply" title="Regenerate last reply">\(WebUIIcon(.refreshCw, size: .small).markup.html)</button>
         """
         return """
         <header class="chat-header" id="chat-header">
@@ -944,7 +963,7 @@ extension AppState {
           </div>
           <div class="row-actions-main" style="margin:0" data-component-id="regen" data-event="click">
             \(regenBtn)
-            \(btn("chat-del", "chat-del", delClass, delLabel, " data-tip=\"Delete chat\""))
+            \(btn("chat-del", "chat-del", delClass, delLabel, " data-tip=\"Delete chat\" aria-label=\"Delete chat\""))
           </div>
         </header>
         """
@@ -1725,8 +1744,8 @@ extension AppState {
           </button>
           <div class="ctx-tooltip" role="tooltip">
             <div class="ctx-tooltip-title">Context window</div>
-            <div class="ctx-tooltip-line">Context window: \(pct)% used (\(100 - pct)% left)</div>
-            <div class="ctx-tooltip-line">Context window: \(fmtTokens(snap.usedTokens)) / \(fmtTokens(snap.contextLength)) tokens used</div>
+            <div class="ctx-tooltip-line">\(pct)% used · \(100 - pct)% left</div>
+            <div class="ctx-tooltip-line">\(fmtTokens(snap.usedTokens)) of \(fmtTokens(snap.contextLength)) tokens used</div>
             <div class="ctx-tooltip-line">Auto-compress at \(fmtTokens(snap.threshold)) (\(thrPct)%)</div>
             \(cacheLine)
           </div>
@@ -2250,6 +2269,13 @@ extension AppState {
         let descErr = self.skillCreateErrors["skill-desc-input"]
         let nameAria = nameErr != nil ? "aria-invalid=\"true\" aria-describedby=\"skill-name-err\"" : ""
         let descAria = descErr != nil ? "aria-invalid=\"true\" aria-describedby=\"skill-desc-err\"" : ""
+        // Round-3 UX-35: mark the invalid field, and ask the post-patch seam to
+        // put the caret in the first one that failed.
+        let nameCls = nameErr != nil ? " input-invalid" : ""
+        let descCls = descErr != nil ? " input-invalid" : ""
+        let nameFocus = nameErr != nil ? " data-focus-after-patch" : ""
+        let descFocus = (descErr != nil && nameErr == nil) ? " data-focus-after-patch" : ""
+        let reqTags = "<span class=\"req-tag\">Required</span>"
         let nameErrHidden = nameErr == nil ? "hidden" : ""
         let descErrHidden = descErr == nil ? "hidden" : ""
         let nameErrText = esc(nameErr ?? "")
@@ -2259,9 +2285,9 @@ extension AppState {
           <h1 class="detail-title">New skill</h1>
           <div class="detail-sub">A skill is a SKILL.md file with YAML frontmatter (name, description) found under the skills directory.</div>
           <div class="form-grid">
-            <div><label for="skill-name-input">Name</label><input id="skill-name-input" name="skill-name-input" data-component-id="skill-name-input" data-event="input" placeholder="my-skill" \(nameAria)><span id="skill-name-err" class="inline-err" \(nameErrHidden)>\(nameErrText)</span></div>
+            <div><label for="skill-name-input">Name\(reqTags)</label><input id="skill-name-input" name="skill-name-input" data-component-id="skill-name-input" data-event="input" placeholder="my-skill" class="text-input\(nameCls)" \(nameAria)\(nameFocus)><span id="skill-name-err" class="inline-err" \(nameErrHidden)>\(nameErrText)</span></div>
             <div><label for="skill-cat-input">Category</label><input id="skill-cat-input" name="skill-cat-input" data-component-id="skill-cat-input" data-event="input" placeholder="e.g. devops"></div>
-            <div><label for="skill-desc-input">Description</label><input id="skill-desc-input" name="skill-desc-input" data-component-id="skill-desc-input" data-event="input" placeholder="Short description" \(descAria)><span id="skill-desc-err" class="inline-err" \(descErrHidden)>\(descErrText)</span></div>
+            <div><label for="skill-desc-input">Description\(reqTags)</label><input id="skill-desc-input" name="skill-desc-input" data-component-id="skill-desc-input" data-event="input" placeholder="Short description" class="text-input\(descCls)" \(descAria)\(descFocus)><span id="skill-desc-err" class="inline-err" \(descErrHidden)>\(descErrText)</span></div>
             <div><label for="skill-content-input">Content (Markdown)</label><textarea id="skill-content-input" name="skill-content-input" data-component-id="skill-content-input" data-event="input" placeholder="How to use this skill…"></textarea></div>
           </div>
           <div class="row-actions-main">
@@ -2509,6 +2535,15 @@ extension AppState {
             </div>
             """
         }
+        // Round-3 UX-28: the panel filter must also govern the detail pane —
+        // otherwise it describes a tool the list no longer shows.
+        if !toolFilter.isEmpty && !name.localizedCaseInsensitiveContains(toolFilter) {
+            return """
+            <div class="main-view" style="justify-content:center">
+              <div class="blank"><div class="big">\(WebUIIcon(.tool, size: .extraLarge).markup.html)</div><div>No tools match “\(esc(toolFilter))”.</div></div>
+            </div>
+            """
+        }
         let params = schemaHTML(tool.schema)
         return """
         <div class="main-view">
@@ -2660,7 +2695,7 @@ extension AppState {
             <div class="set-row" data-component-id="mcp-list" style="flex-direction:column;align-items:stretch;gap:4px">
               <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
                 <div class="set-label">\(esc(name))</div>
-                <div class="row-actions">
+                <div class="row-actions" style="flex-direction:row;align-items:center;gap:8px">
                   \(btn("mcp-test-\(enc(name))", "", "btn", "Test"))
                   \(btn("mcp-edit-\(enc(name))", "", "btn", "Edit"))
                   \(btn("mcp-del-\(enc(name))", "", "icon-mini danger", WebUIIcon(.x, size: .small).markup.html, " title=\"Delete\""))
@@ -3531,9 +3566,11 @@ extension AppState {
         if cardHTML.isEmpty { cardHTML = "<div class=\"kb-empty\">No cards</div>" }
         let add: String
         if addingCardColumnID == col.id {
+            let addErr = kanbanAddError
             add = """
             <form id="kb-addcard-form" data-component-id="kb-addcard-form" class="kb-addcard-form">
-              <input id="kb-addcard-name" name="kb-addcard-name" data-component-id="kb-addcard-name" type="text" placeholder="Card title" autofocus>
+              <input id="kb-addcard-name" name="kb-addcard-name" data-component-id="kb-addcard-name" type="text" placeholder="Card title" class="text-input\(addErr != nil ? " input-invalid" : "")" aria-invalid="\(addErr != nil ? "true" : "false")"\(addErr != nil ? " aria-describedby=\"kb-addcard-err\"" : "") data-focus-after-patch>
+              \(addErr.map { "<span id=\"kb-addcard-err\" class=\"inline-err\">\(esc($0))</span>" } ?? "")
               <input type="hidden" name="kb-addcard-col" value="\(col.id)">
               <div class="cat-add-actions" style="justify-content:flex-end">
                 <button type="submit" class="primary-btn">Add</button>
@@ -3700,7 +3737,7 @@ extension AppState {
         let chips = ["all", "info", "warn", "error"].map { lvl -> String in
             let label = lvl == "all" ? "All" : (lvl == "info" ? "Info" : (lvl == "warn" ? "Warn" : "Error"))
             let active = logFilter == lvl ? " active" : ""
-            return "<button type=\"button\" id=\"log-filter-\(lvl)\" class=\"chip-btn\(active)\">\(label)</button>"
+            return "<button type=\"button\" id=\"log-filter-\(lvl)\" class=\"chip-btn\(active)\" aria-pressed=\"\(logFilter == lvl)\">\(label)</button>"
         }.joined()
         return """
         \(head)

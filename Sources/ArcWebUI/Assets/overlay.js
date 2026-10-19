@@ -633,6 +633,16 @@
     if (el.value !== want) el.value = want;
   }
 
+  // Round-3 UX-42: the skip link lives in the app shell, which renders once —
+  // a tab switch only patches fragments, so the link would keep pointing at a
+  // composer that is no longer on the page. Show it only where the target
+  // exists; a keyboard user on a rail view never tabs into a dead jump.
+  function syncSkipLink() {
+    var link = document.querySelector('.skip-link');
+    if (!link) return;
+    link.hidden = !document.getElementById('composer-input');
+  }
+
   // ---- Confirmation dialog: focus, Escape, and a light focus trap.
   // The dialog is a server-rendered fragment the engine patches in, so nothing
   // moves focus into it and Escape had no owner. Land focus on Cancel, route
@@ -959,6 +969,7 @@
     stickToChat();
     syncPanelScroll();
     syncComposerDraft();
+    syncSkipLink();
     syncModalFocus();
     syncOutline();
     bootSettingsSpy();
@@ -978,6 +989,7 @@
     stickToChat();
     syncPanelScroll();
     syncComposerDraft();
+    syncSkipLink();
     syncModalFocus();
     syncOutline();
     bootSettingsSpy();
@@ -998,6 +1010,21 @@
         ci.focus();
         ci.setSelectionRange(ci.value.length, ci.value.length);
         resizeComposerIfNew();
+      }
+    }
+    // Round-3 UX-34/35: a form fragment that just landed can ask for the caret
+    // with [data-focus-after-patch] (the add-card form, the first invalid skill
+    // field). Only take focus when nothing else holds it — never yank the caret
+    // out of a field the user has already moved to.
+    var ae = document.activeElement;
+    if (!ae || ae === document.body) {
+      var want = document.querySelector('[data-focus-after-patch]');
+      if (want && want.focus) {
+        want.removeAttribute('data-focus-after-patch');
+        try { want.focus(); } catch (_) {}
+        if (want.setSelectionRange && typeof want.value === 'string') {
+          want.setSelectionRange(want.value.length, want.value.length);
+        }
       }
     }
   }
