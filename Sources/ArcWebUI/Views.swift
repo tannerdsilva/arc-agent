@@ -117,10 +117,10 @@ extension AppState {
     /// The chat name the top bar shows: the active conversation's title when
     /// one is open, otherwise a short app label.
     func topbarLabel() -> String {
-        if activeTabID == "chat", let s = activeSession() {
-            let t = sessionTitle(s)
-            return t.isEmpty ? "ARC Agent" : t
-        }
+        // UX-11: the topbar is app-level chrome on chat views — the session
+        // title lives in the chat header, not in the topbar. Rendering it
+        // twice (38px topbar + 68px chat header) wastes ~18% of a 577px
+        // window on a duplicate of the same truncated sentence.
         return "ARC Agent"
     }
 
