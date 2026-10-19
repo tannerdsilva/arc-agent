@@ -8,7 +8,7 @@ public struct DetailCard: WebUI.View {
 	public let body: [any WebUI.View]
 
 	public init(
-		title: String,
+		title: String = "",
 		sub: String = "",
 		@ViewBuilder body: () -> [any WebUI.View] = { [] }
 	) {
@@ -20,12 +20,15 @@ public struct DetailCard: WebUI.View {
 	public func render(into buffer: inout HTMLBuffer) {
 		buffer.beginElement("div", "class=\"detail-card\"")
 		buffer.endOpenTag()
-		buffer.beginElement("h1", "class=\"detail-title\"")
-		buffer.endOpenTag()
-		Text(title).render(into: &buffer)
-		buffer.endElement()
-		// an absent sub-line is absent, not empty: the sheet's `.detail-sub`
-		// carries its own margins, and an empty div renders a visible gap.
+		// a line that does not exist in the source must not exist in the output:
+		// the sheet gives both `.detail-title` and `.detail-sub` their own
+		// margins, so an empty node renders a visible gap.
+		if !title.isEmpty {
+			buffer.beginElement("h1", "class=\"detail-title\"")
+			buffer.endOpenTag()
+			Text(title).render(into: &buffer)
+			buffer.endElement()
+		}
 		if !sub.isEmpty {
 			buffer.beginElement("div", "class=\"detail-sub\"")
 			buffer.endOpenTag()
