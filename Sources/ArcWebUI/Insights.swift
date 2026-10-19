@@ -48,8 +48,7 @@ struct InsightsData: Codable, Equatable {
 extension AppState {
 
     static var insightsURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc-agent-webui/insights.json")
+        ArcHome.webUIInsights
     }
 
     static func loadInsights() -> InsightsData {

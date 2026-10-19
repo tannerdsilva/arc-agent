@@ -91,6 +91,43 @@ swift run arc-agent chat -q "hello world"
 swift run arc-agent serve
 ```
 
+## Instance data directory (`ARC_HOME`)
+
+ARC Agent resolves its config, secrets, and data from a single instance root.
+By default this is `~/.arc`, and `arc setup` writes `config.json` and `.env`
+there. Setting the `ARC_HOME` environment variable relocates the whole root, so
+a second, fully-independent agent can run on the same machine and user:
+
+| Piece | Default | With `ARC_HOME=~/arc2` |
+|---|---|---|
+| Config | `~/.arc/config.json` | `~/arc2/config.json` |
+| Secrets (`.env`) | `~/.arc/.env` | `~/arc2/.env` |
+| Daemon surfaces (`daemon.json`) | `~/.arc/daemon.json` | `~/arc2/daemon.json` |
+| Sessions / memories | `~/.arc/sessions`, `~/.arc/memories` | `~/arc2/…` |
+| Skills / plugins | `~/.arc/skills`, `~/.arc/plugins` | `~/arc2/…` |
+| Web UI settings | `~/.arc-agent-webui/settings.json` | `~/arc2/webui/settings.json` |
+| Usage ledger | `~/.arc-agent/usage.json` | `~/arc2/usage/usage.json` |
+
+Each instance keeps its own `ARC_TESSERA_PRIVATE_KEY` (identity/NOSTR keypair)
+in `$ARC_HOME/.env` and its own `tessera.application` namespace in
+`config.json`, so a second instance is its own user on the shared relay rather
+than a twin of the first. `arc setup` prompts for the instance directory
+(defaulting to the current root) and prints how to export `ARC_HOME` for the
+value chosen.
+
+Launch an isolated second instance:
+
+```bash
+export ARC_HOME=~/arc2
+arc setup                      # or accept the setup prompt's default
+tessera-setup.sh               # dir-scoped; writes keys under $ARC_HOME
+export API_PORT=8081 WEBUI_PORT=8891 MCP_SERVER_PORT=8893
+arc serve
+```
+
+Ports are env-overridable (`API_PORT`, `WEBUI_PORT`, `MCP_SERVER_PORT`); the
+WebSocket transport binds on `port + 1`, so leave that port free.
+
 ## Web UI
 
 The web UI is a **library** target, `Sources/ArcWebUI/`, mounted by the daemon as a sibling of the REST API and the adapters (`WebUIHost`, one `ServiceGroup` per process). It is built on the declarative no-webui engine (Swift DSL → HTML/CSS/JS). There is no npm, no `package.json`, no node_modules, no build pipeline — every byte of CSS and JavaScript the UI needs is embedded in the binary:

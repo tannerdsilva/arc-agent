@@ -25,6 +25,11 @@ public enum ArcHome {
         overrideRoot != nil || ProcessInfo.processInfo.environment["ARC_HOME"] != nil
     }
 
+    /// The invoking user's home directory.
+    private static var homeDirectory: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+    }
+
     /// Set/clear the in-process override. Pass `nil` to clear.
     ///
     /// Used by interactive commands that ask the user for an instance directory
@@ -87,4 +92,35 @@ public enum ArcHome {
     public static var cache: URL { root.appendingPathComponent("cache", isDirectory: true) }
     public static var curator: URL { root.appendingPathComponent("curator", isDirectory: true) }
     public static var tessera: URL { root.appendingPathComponent("tessera", isDirectory: true) }
+
+    // MARK: UI + usage state
+
+    /// WebUI state root. `~/.arc-agent-webui` by default; relocated under the
+    /// override (as `<home>/webui`) when `ARC_HOME` is set so a second
+    /// instance's UI settings are isolated too.
+    public static var webUI: URL {
+        if overridden {
+            return root.appendingPathComponent("webui", isDirectory: true)
+        }
+        return homeDirectory.appendingPathComponent(".arc-agent-webui", isDirectory: true)
+    }
+
+    /// `<webUI>/settings.json` — persisted UI + app settings / storage picker /
+    /// context defaults.
+    public static var webUISettings: URL { webUI.appendingPathComponent("settings.json") }
+
+    /// `<webUI>/insights.json` — web UI insights (skill usage counters, etc.).
+    public static var webUIInsights: URL { webUI.appendingPathComponent("insights.json") }
+
+    /// Usage-ledger root. `~/.arc-agent` by default; relocated under the
+    /// override (as `<home>/usage`) when `ARC_HOME` is set.
+    public static var usage: URL {
+        if overridden {
+            return root.appendingPathComponent("usage", isDirectory: true)
+        }
+        return homeDirectory.appendingPathComponent(".arc-agent", isDirectory: true)
+    }
+
+    /// `<usage>/usage.json` — per-day token/call ledger.
+    public static var usageLedger: URL { usage.appendingPathComponent("usage.json") }
 }

@@ -57,6 +57,8 @@ The roadmap below reflects this shift: from **feature expansion** to **vascular 
 
 A critical architectural property that must be clear at every level: which components are **singletons** (1 instance per process) and which are **N instances** (per-session, per-request, per-platform). The heap reference graph determines lifecycle, cleanup, and isolation.
 
+On-disk isolation is a separate axis from the in-process graph above. Each running instance relocates its whole config / secrets / data root via the `ARC_HOME` environment variable — `~/.arc` by default, prompted for by `arc setup`. A second `ARC_HOME` gives that instance its own identity (NOSTR keypair), `tessera.application` namespace, data root, and ports, so it is its own user on the shared relay while the REST/UI singleton graph stays per-process.
+
 ```
 Legend:
   [1]  = exactly 1 instance per process (singleton)

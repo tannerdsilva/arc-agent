@@ -178,8 +178,13 @@ public enum FileSafety {
     public static func isWriteDenied(_ path: String) -> Bool {
         let expanded = expandHome(path)
         let resolved = (expanded as NSString).resolvingSymlinksInPath
-        let denied = writeDeniedExact.map { expandHome($0) }
-        let prefixes = writeDeniedPrefixes.map { expandHome($0) }
+        var denied = writeDeniedExact.map { expandHome($0) }
+        var prefixes = writeDeniedPrefixes.map { expandHome($0) }
+        // Also protect this instance's own resolved home — covers the ARC_HOME
+        // override so a second instance's config/state is write-denied too.
+        denied.append(ArcHome.config.path)
+        denied.append(ArcHome.daemon.path)
+        prefixes.append(ArcHome.root.path + "/")
         if denied.contains(resolved) || denied.contains(expanded) { return true }
         return prefixes.contains { resolved.hasPrefix($0) || expanded.hasPrefix($0) }
     }

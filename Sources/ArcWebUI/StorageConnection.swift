@@ -166,8 +166,7 @@ public struct WebUIStorageSelection: Sendable {
     /// Missing file or missing keys returns nil (caller falls back to the
     /// CLI config defaults).
     public static func loadFromDisk() -> WebUIStorageSelection? {
-        let url = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".arc-agent-webui/settings.json")
+        let url = ArcHome.webUISettings
         return load(from: url)
     }
 
@@ -196,8 +195,7 @@ public struct WebUIContextDefaults: Sendable {
     /// Missing file or missing key returns nil (caller falls back to the CLI
     /// config defaults).
     public static func loadFromDisk() -> ContextRecipe? {
-        let url = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".arc-agent-webui/settings.json")
+        let url = ArcHome.webUISettings
         return load(from: url)
     }
 

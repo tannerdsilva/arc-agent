@@ -201,8 +201,7 @@ public actor UsageLedger {
     private var days: [String: UsageDay]
 
     public init(fileURL: URL? = nil) {
-        let resolved = fileURL ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc-agent/usage.json")
+        let resolved = fileURL ?? ArcHome.usageLedger
         self.fileURL = resolved
         if let data = try? Data(contentsOf: resolved),
            let decoded = try? JSONDecoder().decode([String: UsageDay].self, from: data) {

@@ -1280,8 +1280,7 @@ actor AppState {
     // MARK: Settings persistence
 
     static var settingsURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc-agent-webui/settings.json")
+        ArcHome.webUISettings
     }
 
     static func loadSettings() -> AppSettings {

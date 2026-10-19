@@ -192,7 +192,7 @@ public actor SessionRegistry {
                 task.cancel()
                 finish(false)
             }
-            let waiter = Task {
+            Task {
                 await task.value
                 watchdog.cancel()
                 finish(true)
