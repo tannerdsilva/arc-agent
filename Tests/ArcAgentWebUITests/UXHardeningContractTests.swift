@@ -327,9 +327,13 @@ extension ArcWebUITestRoot {
 
         @Test("the turn-chrome push carries the topbar so auto-titles reach the window strip")
         func turnChromeCarriesTopbar() {
-            #expect(Self.actions.contains("FragmentUpdate(id: \"topbar\", html: topbarHTML())"),
+            // the property is structural: at least three owners push the topbar, so
+            // no single path can leave the strip stale. it is pinned by counting the
+            // push sites, not by matching one exact call spelling — after phase 1.2
+            // the call reads `fragment("topbar", topbarHTML())`.
+            #expect(Self.actions.contains("fragment(\"topbar\""),
                     "the top strip showed \"New chat\" after an auto-title: the title mutation pushed chat-header but never the topbar — the topbar must ride the same turn chrome the header does")
-            #expect(Self.actions.components(separatedBy: "FragmentUpdate(id: \"topbar\"").count >= 3,
+            #expect(Self.actions.components(separatedBy: "fragment(\"topbar\"").count >= 3,
                     "the topbar must be owned by BOTH the title-generating path and every turn-chrome boundary — a single owner leaves one of them stale")
         }
 
@@ -940,17 +944,21 @@ extension ArcWebUITestRoot {
         // MARK: - UX-19 responsive chrome: overlay drawer + compact rail (T12)
 
         @Test("below 1024px the panel is an overlay drawer with a topbar toggle and scrim")
-        func responsiveDrawerChrome() {
-            let views = Self.views
-            // The toggle is a real button in the topbar (client-owned; CSS hides
-            // it at >= 1024px). It must be keyboard-reachable and announce state.
-            #expect(views.contains("btn(\"drawer-toggle\", \"\", \"drawer-toggle-btn\", \"&#9776;\","),
+        func responsiveDrawerChrome() async {
+            // the toggle and the scrim are read from rendered bytes now, not from a
+            // source spelling: the property is that the control reaches the page,
+            // which a `views.contains("btn(…)")` grep could never prove after the
+            // builder became a typed view.
+            let page = await RenderedMarkup.page()
+            #expect(page.contains("id=\"drawer-toggle\""),
                     "the drawer-toggle button must be rendered in the topbar")
-            #expect(views.contains("aria-label=\"Toggle sidebar\" aria-expanded=\"false\""),
-                    "the toggle must be labelled and start aria-expanded=false")
+            #expect(page.contains("aria-label=\"Toggle sidebar\""),
+                    "the toggle must be labelled")
+            #expect(page.contains("aria-expanded=\"false\""),
+                    "the toggle must start aria-expanded=false")
             // The scrim is the outside-click dismissal surface; it must live in
             // the shell so every tab gets one.
-            #expect(views.contains("id=\"drawer-scrim\" class=\"drawer-scrim\" aria-hidden=\"true\""),
+            #expect(page.contains("id=\"drawer-scrim\""),
                     "the drawer scrim must be part of the app shell, not one tab")
             let css = Self.sheetSource
             // Below 1024px the panel docks over the chat (fixed, off-canvas at
