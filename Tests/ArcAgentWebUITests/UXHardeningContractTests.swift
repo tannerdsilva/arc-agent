@@ -172,7 +172,7 @@ extension ArcWebUITestRoot {
         // MARK: - UX-27 toast kinds, anchor and stack cap
 
         @Test("toasts are kind-aware: red only for failures, anchored clear of the header, capped")
-        func toastsAreKindAware() {
+        func toastsAreKindAware() async {
             // The stack must sit at the BOTTOM edge — a success toast anchored top-right
             // used to land over the chat-header action icons, and the whole stack over
             // the window strip (w1v-12, w1v-23). UX-58 raised the anchor (16 → 120px)
@@ -192,12 +192,24 @@ extension ArcWebUITestRoot {
                     "success confirms must be green-tinted, never red")
             #expect(sheet.contains(".toast.toast-more {"),
                     "the overflow marker must exist and be visually distinct")
-            // Server-side cap: newest 3 + "+N more".
-            let views = Self.views
-            #expect(views.contains("let visible = toasts.suffix(3)"),
-                    "the rendered stack must be capped at the newest three toasts")
-            #expect(views.contains("class=\"toast toast-more\""),
+            // Server-side cap: newest 3 + "+N more". Re-based onto rendered
+            // output: the typed builder emits `class="toast toast-more"` in the
+            // HTML bytes (source now spells it `Div(class: "toast toast-more")`),
+            // so the pin reads rendered bytes, not Views.swift text.
+            var capFixture = AppState.RenderFixture()
+            capFixture.toasts = [
+                Toast(id: 1, text: "One", kind: "info"),
+                Toast(id: 2, text: "Two", kind: "info"),
+                Toast(id: 3, text: "Three", kind: "info"),
+                Toast(id: 4, text: "Four", kind: "info"),
+                Toast(id: 5, text: "Five", kind: "info"),
+            ]
+            let capApp = AppState(renderFixture: capFixture)
+            let capRendered = await capApp.toastsHTML().markup.html
+            #expect(capRendered.contains("class=\"toast toast-more\""),
                     "older toasts must collapse into a +N more marker")
+            #expect(capRendered.contains("+2 more"),
+                    "the overflow marker must report the collapsed count")
         }
 
         // MARK: - B1/F52 Enter sends
@@ -356,7 +368,7 @@ extension ArcWebUITestRoot {
         // MARK: - UX-06 feedback + undo for copy / delete
 
         @Test("deleting a chat surfaces an Undo toast and the wire can restore it")
-        func deleteHasUndoToast() {
+        func deleteHasUndoToast() async {
             let appState = Self.appState
             #expect(appState.contains("func surfaceToast(_ text: String, kind: String = \"info\", action: ToastAction? = nil)"),
                     "routine toasts stay quiet by preference — feedback toasts must be surfaced explicitly")
@@ -369,7 +381,18 @@ extension ArcWebUITestRoot {
                     "Undo must re-create the session in the store with its messages")
             #expect(appStateActions.contains("preserveUndo: true"),
                     "the delete path's auto-select must not clear the undo slot")
-            #expect(Self.views.contains("ta-\\(a.id)-\\(t.id)"),
+            // Re-based onto rendered output: the typed builder emits
+            // `id="ta-<action.id>-<toast.id>"` on the action button. Render it
+            // once and assert the wireable id is present in the bytes.
+            var undoFixture = AppState.RenderFixture()
+            undoFixture.pendingCopyURL = "https://example.com/x"
+            undoFixture.toasts = [
+                Toast(id: 2, text: "Saved", kind: "success",
+                      action: ToastAction(id: "undo-delete", label: "Undo")),
+            ]
+            let undoApp = AppState(renderFixture: undoFixture)
+            let rendered = await undoApp.toastsHTML().markup.html
+            #expect(rendered.contains("id=\"ta-undo-delete-2\""),
                     "the toast action button must be rendered with a wireable id")
             #expect(Self.actions.contains("if actionID == \"undo-delete\""),
                     "the toast wire must dispatch the undo action")
@@ -389,7 +412,9 @@ extension ArcWebUITestRoot {
                     "the server must stage the link for the client clipboard write")
             #expect(Self.appState.contains("var pendingCopyURL: String? = nil"),
                     "the staged link must ride the toasts fragment")
-            #expect(Self.views.contains("id=\"pending-copy\" data-copy-url"),
+            // Re-based onto rendered output: the builder emits `<span id="pending-copy" data-copy-url="…">`
+            // inside #toasts. Re-use the rendered fragment from above.
+            #expect(rendered.contains("id=\"pending-copy\" data-copy-url"),
                     "the hidden copy marker must be rendered inside #toasts")
             #expect(Self.overlay.contains("function copyFromServerMarker()"),
                     "the overlay must consume the marker and write the clipboard")
@@ -408,10 +433,14 @@ extension ArcWebUITestRoot {
         @Test("the copy-link toasts fragment interpolates toastsHTML(), never literal source")
         func copyLinkToastsInterpolates() {
             let actions = Self.actions
-            #expect(actions.contains("\\(await self.app.toastsHTML())</div>"),
-                    "the copy-link branch must interpolate its toasts fragment")
-            #expect(!actions.contains("\\\\(await self.app.toastsHTML())</div>"),
-                    "a double-escaped interpolation ships literal source text — the marker never renders")
+            // Re-based onto the new push spelling: the copy-link branch builds
+            // its #toasts fragment through the fragment bridge, not a hand-written
+            // `<div id="toasts" …>` wrapper string. Assert the structural spelling
+            // and that the literal wrapper is gone.
+            #expect(actions.contains("fragment(\"toasts\", await self.app.toastsHTML())"),
+                    "the copy-link branch must route its toasts through the fragment bridge")
+            #expect(!actions.contains("<div id=\"toasts\" data-component-id=\"toast-dismiss\""),
+                    "the hand-written toasts wrapper string must not survive — it ships literal markup")
         }
 
 

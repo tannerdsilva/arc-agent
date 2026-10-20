@@ -29,9 +29,8 @@ extension AppState {
         // so re-render it on session switches and workspace changes too.
         u.append(FragmentUpdate(id: "ws-dock", html: workspaceDockHTML()))
         u.append(FragmentUpdate(id: "ws-panel", html: workspacePanelHTML()))
-        let toastsDiv = "<div id=\"toasts\" data-component-id=\"toast-dismiss\" data-event=\"click\">\(toastsHTML())</div>"
-        u.append(FragmentUpdate(id: "toasts", html: toastsDiv))
-        let modalDiv = "<div id=\"modal-root\">\(modalRootHTML())</div>"
+        u.append(fragment("toasts", toastsHTML()))
+        let modalDiv = "<div id=\"modal-root\">\\(modalRootHTML())</div>"
         u.append(FragmentUpdate(id: "modal-root", html: modalDiv))
         return u
     }
@@ -1093,7 +1092,6 @@ extension AppState {
     /// turn-failure notices). Deliberately NOT `#main` — a whole-chat replacement
     /// at a boundary kills selection, scroll and focus.
     func turnChromeFragments() async -> [FragmentUpdate] {
-        let toastsDiv = "<div id=\"toasts\" data-component-id=\"toast-dismiss\" data-event=\"click\">\(toastsHTML())</div>"
         return [
             // The top strip mirrors the active chat title; a turn boundary is
             // where auto-titles first exist (first-message default or the
@@ -1103,7 +1101,7 @@ extension AppState {
             FragmentUpdate(id: "panel", html: await panelHTML()),
             FragmentUpdate(id: "chat-header", html: chatHeaderHTML()),
             FragmentUpdate(id: "composer-wrap", html: composerHTML()),
-            FragmentUpdate(id: "toasts", html: toastsDiv),
+            fragment("toasts", toastsHTML()),
         ]
     }
 
@@ -1599,8 +1597,7 @@ final class Controller: Sendable {
                 // would show the wrong message first.
                 guard let sid = dec(String(tid.dropFirst("sm-copy-".count))) else { return [] }
                 await self.app.markCopyLink(sid)
-                let toastsDiv = "<div id=\"toasts\" data-component-id=\"toast-dismiss\" data-event=\"click\">\(await self.app.toastsHTML())</div>"
-                return [FragmentUpdate(id: "toasts", html: toastsDiv)]
+                return [fragment("toasts", await self.app.toastsHTML())]
             }
             if tid.hasPrefix("sm-pin-"), let id = dec(String(tid.dropFirst("sm-pin-".count))) {
                 await self.app.toggleBookmark(id)
@@ -3146,9 +3143,7 @@ final class Controller: Sendable {
             guard tid.hasPrefix("t-"),
                   let id = Int(tid.dropFirst("t-".count)) else { return [] }
             await self.app.dismissToast(id: id)
-            let html = await self.app.toastsHTML()
-            let toastsDiv = "<div id=\"toasts\" data-component-id=\"toast-dismiss\" data-event=\"click\">\(html)</div>"
-            return [FragmentUpdate(id: "toasts", html: toastsDiv)]
+            return [fragment("toasts", await self.app.toastsHTML())]
         }
     }
 }

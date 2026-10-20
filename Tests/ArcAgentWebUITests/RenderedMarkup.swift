@@ -33,7 +33,7 @@ enum RenderedMarkup {
         case "panel":        return await app.panelHTML()
         case "main":         return await app.mainContentHTML()
         case "dock":         return await app.workspaceDockHTML()
-        case "toasts":       return await app.toastsHTML()
+        case "toasts":       return await app.toastsHTML().markup.html
         case "modal-root":   return await app.modalRootHTML()
         default:             return ""
         }

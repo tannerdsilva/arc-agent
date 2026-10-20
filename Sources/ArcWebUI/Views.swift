@@ -84,7 +84,7 @@ extension AppState {
         <div id="drawer-scrim" class="drawer-scrim" aria-hidden="true"></div>
         </div>
         <div id="modal-root">\(modalRootHTML())</div>
-        <div id="toasts" data-component-id="toast-dismiss" data-event="click">\(toastsHTML())</div>
+        <div id="toasts" data-component-id="toast-dismiss" data-event="click">\(render(toastsHTML()))</div>
         </div>
         """)
     }
@@ -126,7 +126,7 @@ extension AppState {
     }
 
     func toastsShell() -> String {
-        "<div id=\"toasts\" data-component-id=\"toast-dismiss\" data-event=\"click\">\(toastsHTML())</div>"
+        "<div id=\"toasts\" data-component-id=\"toast-dismiss\" data-event=\"click\">\(render(toastsHTML()))</div>"
     }
 
     func iconbarHTML() -> some WebUI.View {
@@ -177,7 +177,7 @@ extension AppState {
         }
     }
 
-    func toastsHTML() -> String {
+    func toastsHTML() -> some WebUI.View {
         // UX-27: cap the visible stack so it can never cover the chat header.
         // The newest toasts win (the most recent action is the one the user is
         // still reacting to); anything older collapses into a "+N more" marker
@@ -185,27 +185,31 @@ extension AppState {
         // their TTL tick).
         let visible = toasts.suffix(3)
         let overflow = toasts.count - visible.count
-        let items = visible.map { t -> String in
-            let dot = "<span class=\"toast-dot\"></span>"
-            let x = btn("t-\(t.id)", "", "toast-x", WebUIIcon(.x, size: .small).markup.html)
-            // The optional action button (UX-06 Undo) rides between the
-            // message and the ✕; the wire dispatches on `ta-<action.id>-<id>`.
-            let action = t.action.map { a in
-                btn("ta-\(a.id)-\(t.id)", "", "toast-action", esc(a.label))
-            } ?? ""
-            return "<div class=\"toast \(t.kind)\">\(dot)<span>\(esc(t.text))</span>\(action)\(x)</div>"
-        }
-        let more = overflow > 0
-            ? "<div class=\"toast toast-more\">+\(overflow) more</div>"
-            : ""
         // Clipboard side-channel for the shared-link copy (UX-06): consumed
         // by the overlay's post-patch pass; single-shot — the state is read
         // and cleared here so a later toast push never re-emits it.
-        let marker = pendingCopyURL.map {
-            "<span id=\"pending-copy\" data-copy-url=\"\(esc($0))\"></span>"
-        } ?? ""
+        let marker = pendingCopyURL
         pendingCopyURL = nil
-        return items.joined() + more + marker
+        return Group {
+            for t in visible {
+                Div(class: "toast \(t.kind)") {
+                    Span(class: "toast-dot") { }
+                    Span { Text(t.text) }
+                    if let a = t.action {
+                        ArcButton(a.label, id: "ta-\(a.id)-\(t.id)", component: nil, class: "toast-action")
+                    }
+                    ArcButton("", id: "t-\(t.id)", component: nil, class: "toast-x") {
+                        WebUIIcon(.x, size: .small)
+                    }
+                }
+            }
+            if overflow > 0 {
+                Div(class: "toast toast-more") { Text("+\(overflow) more") }
+            }
+            if let marker {
+                Span {}.attribute("id", "pending-copy").attribute("data-copy-url", marker)
+            }
+        }
     }
 
     /// The one confirmation dialog. Chat and profile deletes arm their original
