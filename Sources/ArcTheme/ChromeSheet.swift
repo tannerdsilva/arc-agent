@@ -934,6 +934,14 @@ public static let css: String = """
     .set-row { display: flex; align-items: center; gap: 14px; padding: 7px 0; }
     /* a settings nav row's anchor: was an inline style on all seven rows. */
     .panel-nav-link { color: inherit; text-decoration: none; flex: 1; }
+    /* settings stacks and rows: the same column/row recipes, repeated across
+       the panels. layout components, not utilities — each is one shape. */
+    .set-row-stack { flex-direction: column; align-items: stretch; gap: 6px; }
+    .set-row-stack-tight { flex-direction: column; align-items: stretch; gap: 4px; }
+    .row-split { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .row-actions-inline { flex-direction: row; align-items: center; gap: 8px; }
+    .probe-error { color: var(--danger, #e5484d); }
+    .mcp-form { max-width: 640px; }
     /* a numeric settings field. replaces the inline style blob four settings
        rows used to carry (`width:96px;padding:8px;background:var(--code-bg);…`)
        — a component style, not a utility: one field shape, repeated. */

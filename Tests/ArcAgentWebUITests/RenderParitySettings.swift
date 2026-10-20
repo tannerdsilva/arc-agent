@@ -125,7 +125,7 @@ struct RenderParitySettings {
 
     @Test("MCP form matches golden")
     func mcpFormGolden() async {
-        let html = await app().mcpFormHTML()
+        let html = await app().mcpFormHTML().markup.html
         Parity.capture(html, as: "mcp-form")
         Parity.expect(html, matches: "mcp-form")
     }

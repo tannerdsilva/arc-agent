@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import ArcAgentCore
 @testable import ArcWebUI
 
 extension ArcWebUITestRoot {
@@ -26,13 +27,18 @@ extension ArcWebUITestRoot {
         }
 
         @Test("the form keeps the submit payload field names")
-        func formFieldContract() {
-            let views = Self.source("Views.swift")
+        func formFieldContract() async {
+            // asserted on RENDERED bytes: these `name`s are the keys the engine's
+            // form extractor builds, so a source grep cannot prove they reach the
+            // page (and it goes on passing after the markup stops emitting them).
+            let app = AppState(renderFixture: AppState.RenderFixture())
+            let form = await app.mcpFormHTML().markup.html
             for field in ["mcp-name-input", "mcp-command-input", "mcp-args-input", "mcp-env-input"] {
-                #expect(views.contains("name=\"\(field)\""), "\(field) is a submit payload key")
+                #expect(form.contains("name=\"\(field)\""), "\(field) is a submit payload key")
             }
-            #expect(views.contains("id=\"mcp-form\" data-component-id=\"mcp-form\""),
-                    "the submit wire registers on the form id")
+            #expect(form.contains("id=\"mcp-form\""), "the submit wire registers on the form id")
+            #expect(form.contains("data-component-id=\"mcp-form\""),
+                    "the form keeps the boundary the wire dispatches on")
         }
 
         @Test("the submit wire reads exactly the fields the form names")
@@ -45,22 +51,36 @@ extension ArcWebUITestRoot {
         }
 
         @Test("row actions ride targetId from the mcp-list boundary")
-        func rowBoundaryContract() {
-            let views = Self.source("Views.swift")
+        func rowBoundaryContract() async {
+            // asserted on RENDERED bytes: this is a click-identity contract, and
+            // the source spelling of the helper that builds a button is not the
+            // thing the engine sees.
             let actions = Self.source("Actions.swift")
-            #expect(views.contains("data-component-id=\"mcp-list\""),
+            var fixture = AppState.RenderFixture()
+            fixture.arcConfig.mcpServers = [
+                "filesystem": MCPServerConfig(command: "npx", args: ["-y", "@mcp/fs"]),
+            ]
+            let auth = AppState(renderFixture: fixture)
+            let html = await auth.mcpSettingsHTML().markup.html
+
+            #expect(html.contains("data-component-id=\"mcp-list\""),
                     "rows need a boundary for the engine to route the click through")
             // `data-component-id="mcp-list"` ends in the substring `id="mcp-list"`,
             // so the component attributes are neutralized before asking whether any
             // element really carries that id (an id on the boundary is never
             // reported as targetId — trap 1 of the click-identity contract).
-            let withoutComponentAttrs = views.replacingOccurrences(
+            let withoutComponentAttrs = html.replacingOccurrences(
                 of: "data-component-id=\"", with: "data-component-id-")
             #expect(!withoutComponentAttrs.contains("id=\"mcp-list\""),
                     "the boundary element must not carry an id")
+
             for prefix in ["mcp-test-", "mcp-edit-", "mcp-del-"] {
-                #expect(views.contains("btn(\"\(prefix)\\(enc(name))\", \"\""),
-                        "\(prefix)<name> must be a control with no component id of its own")
+                #expect(html.contains("id=\"\(prefix)"),
+                        "\(prefix)<name> must reach the page as a control id")
+                // the control itself must own no component id: the container's
+                // wire resolves targetId, and an id here would shadow it.
+                #expect(!html.contains("data-component-id=\"\(prefix)"),
+                        "\(prefix)<name> must not carry a component id of its own")
                 #expect(actions.contains("tid.hasPrefix(\"\(prefix)\")"), "\(prefix) must be dispatched")
             }
         }

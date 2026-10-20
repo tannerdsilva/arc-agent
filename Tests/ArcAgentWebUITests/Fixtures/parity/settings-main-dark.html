@@ -395,11 +395,7 @@
         <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
           <div class="set-label">External tool servers<small>Child processes speaking the Model Context Protocol over stdio. The agent reaches every one of their tools through the single <code>mcp_tool</code> bridge; this panel owns the <code>mcp_servers</code> block of <code>~/.arc/config.json</code>.</small></div>
         </div>
-        <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
-  <div class="set-label">No MCP servers configured.</div>
-  <div class="set-hint">A server is a child process that speaks the Model Context Protocol over stdio — filesystem access, GitHub, databases. Once added it is started on first use, and the agent reaches its tools through the single <code>mcp_tool</code> bridge (Tools panel): ask the agent to call <code>mcp_tool</code> with <code>action: "list"</code> to see every server and tool. <code>mcp_servers</code> in <code>~/.arc/config.json</code> is the source of truth, and this panel edits exactly that block. Arguments reach the process verbatim; nothing is run through a shell.</div>
-  <button type="button" id="mcp-add" data-component-id="mcp-add" class="btn">Add server</button>
-</div>
+        <div class="set-row set-row-stack"><div class="set-label">No MCP servers configured.</div><div class="set-hint">A server is a child process that speaks the Model Context Protocol over stdio — filesystem access, GitHub, databases. Once added it is started on first use, and the agent reaches its tools through the single <code>mcp_tool</code> bridge (Tools panel): ask the agent to call <code>mcp_tool</code> with <code>action: &quot;list&quot;</code> to see every server and tool. <code>mcp_servers</code> in <code>~/.arc/config.json</code> is the source of truth, and this panel edits exactly that block. Arguments reach the process verbatim; nothing is run through a shell.</div><button id="mcp-add" data-component-id="mcp-add" class="btn" type="button">Add server</button></div>
       </div>
     </section>
 
