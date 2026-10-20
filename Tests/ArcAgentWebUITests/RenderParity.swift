@@ -479,16 +479,16 @@ struct RenderParityTests {
     func shellDefaultMatchesGolden() async {
         let app = AppState(renderFixture: .init(activeTabID: "chat"))
         let shell = await app.appShell()
-        Parity.capture(shell.html, as: "shell-default")
-        Parity.expect(shell.html, matches: "shell-default")
+        Parity.capture(shell.markup.html, as: "shell-default")
+        Parity.expect(shell.markup.html, matches: "shell-default")
     }
 
     @Test("shell drawer matches golden")
     func shellDrawerMatchesGolden() async {
         let app = AppState(renderFixture: .init(activeTabID: "chat"))
         let shell = await app.appShell()
-        Parity.capture(shell.html, as: "shell-drawer")
-        Parity.expect(shell.html, matches: "shell-drawer")
+        Parity.capture(shell.markup.html, as: "shell-drawer")
+        Parity.expect(shell.markup.html, matches: "shell-drawer")
     }
 
     @Test("iconbar chat matches golden")
@@ -515,7 +515,7 @@ struct RenderParityTests {
     @Test("toasts empty matches golden")
     func toastsEmptyMatchesGolden() async {
         let app = AppState(renderFixture: .init(toasts: []))
-        let html = await app.toastsShell()
+        let html = await app.toastsShell().markup.html
         Parity.capture(html, as: "toasts-empty")
         Parity.expect(html, matches: "toasts-empty")
     }
@@ -527,7 +527,7 @@ struct RenderParityTests {
             Toast(id: 2, text: "Saved", kind: "success", action: ToastAction(id: "undo", label: "Undo")),
             Toast(id: 3, text: "Failed", kind: "error"),
         ]))
-        let html = await app.toastsShell()
+        let html = await app.toastsShell().markup.html
         Parity.capture(html, as: "toasts-three")
         Parity.expect(html, matches: "toasts-three")
     }
@@ -541,7 +541,7 @@ struct RenderParityTests {
             Toast(id: 4, text: "Four", kind: "info"),
             Toast(id: 5, text: "Five", kind: "info"),
         ]))
-        let html = await app.toastsShell()
+        let html = await app.toastsShell().markup.html
         Parity.capture(html, as: "toasts-overflow")
         Parity.expect(html, matches: "toasts-overflow")
     }
@@ -549,7 +549,7 @@ struct RenderParityTests {
     @Test("toasts pending copy matches golden")
     func toastsPendingCopyMatchesGolden() async {
         let app = AppState(renderFixture: .init(toasts: [], pendingCopyURL: "https://example.com/x"))
-        let html = await app.toastsShell()
+        let html = await app.toastsShell().markup.html
         Parity.capture(html, as: "toasts-pending-copy")
         Parity.expect(html, matches: "toasts-pending-copy")
     }

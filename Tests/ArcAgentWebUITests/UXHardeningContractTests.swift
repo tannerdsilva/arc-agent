@@ -37,6 +37,11 @@ extension ArcWebUITestRoot {
         private static var views: String { clientText(source("Sources/ArcWebUI/Views.swift")) }
         private static var insights: String { clientText(source("Sources/ArcWebUI/Insights.swift")) }
         private static var actions: String { clientText(source("Sources/ArcWebUI/Actions.swift")) }
+        /// the rendered shell, for pins whose markup no longer lives in source.
+        /// rendered through `RenderedMarkup.page()` so the pin checks bytes,\n        /// not the string that used to emit them.
+        private static var page: String {
+            get async throws { try await RenderedMarkup.page() }
+        }
 
         /// every rendered rail button's open tag, for pins that must hold on each
         /// button rather than on one spelling found somewhere in a source file.
@@ -597,29 +602,30 @@ extension ArcWebUITestRoot {
         // MARK: - UX-07 keyboard path: skip link, roving rows, quiet utilities
 
         @Test("the chat is reachable by keyboard: skip link first, roving rows, quiet utilities")
-        func chatIsKeyboardReachable() {
-            let views = Self.views
-            #expect(views.contains("<a class=\"skip-link\" href=\"#composer-input\">Skip to composer</a>"),
+        func chatIsKeyboardReachable() async throws {
+            let page = try await Self.page
+            let skip = #"<a [^>]*skip-link[^>]*>Skip to composer</a>"#
+            #expect(page.range(of: skip, options: .regularExpression) != nil,
                     "a skip-to-composer link must be the first focusable element (UX-07)")
-            #expect(views.contains("tabindex=\"\\(rowTab)\" role=\"group\""),
+            #expect(Self.views.contains("tabindex=\"\\(rowTab)\" role=\"group\""),
                     "each session row must be the roving tab stop (active 0, others -1)")
-            #expect(views.contains("class=\"sess-open\" tabindex=\"-1\""),
+            #expect(Self.views.contains("class=\"sess-open\" tabindex=\"-1\""),
                     "the per-row open button must be out of the tab order")
-            #expect(views.contains("class=\"menu-dots\" title=\"Chat actions\" tabindex=\"-1\""),
+            #expect(Self.views.contains("class=\"menu-dots\" title=\"Chat actions\" tabindex=\"-1\""),
                     "the per-row ⋮ must be out of the tab order (reachable via Menu/Shift+F10)")
-            #expect(views.contains("class=\"tw-copy\" type=\"button\" data-copy-target=\"\\(target)\" title=\"Copy this activity\" tabindex=\"-1\""),
+            #expect(Self.views.contains("class=\"tw-copy\" type=\"button\" data-copy-target=\"\\(target)\" title=\"Copy this activity\" tabindex=\"-1\""),
                     "worklog copy buttons must be quiet (out of the tab order)")
-            #expect(views.contains("class=\"tc-copy\" type=\"button\" data-copy=\"\" + esc(args) + \"\" title=\"Copy arguments\" tabindex=\"-1\""),
+            #expect(Self.views.contains("class=\"tc-copy\" type=\"button\" data-copy=\"\" + esc(args) + \"\" title=\"Copy arguments\" tabindex=\"-1\""),
                     "tool-card copy buttons must be quiet")
             // The two copy attributes above are built by string concatenation; the
-            // doubled-backslash spelling emits the LITERAL text `\(target)` and the
-            // doubled-quote spelling emits `data-copy=""<args>""`. Both render bugs
+            // doubled-backslash spelling emits the LITERAL text `\\(target)` and the
+            // doubled-quote spelling emits `data-copy=\"\"<args>\"\"`. Both render bugs
             // live inside Swift-side escaping that clientText cannot see (it only
-            // unescapes `\"`), so pin the raw source spelling directly.
+            // unescapes `\\\"`), so pin the raw source spelling directly.
             let rawViews = Self.source("Sources/ArcWebUI/Views.swift")
             #expect(!rawViews.contains("\\\"\\\" + esc(args) + \\\"\\\""),
                     "the doubled-quote spelling is back: tool-card copy emits data-copy=\"\"<args>\"\"")
-            #expect(views.contains("data-copy=\"\\(esc(m.content ?? \"\"))\" title=\"Copy response\" tabindex=\"-1\""),
+            #expect(Self.views.contains("data-copy=\"\\(esc(m.content ?? \"\"))\" title=\"Copy response\" tabindex=\"-1\""),
                     "message copy buttons must be quiet")
             let overlay = Self.overlay
             #expect(overlay.contains("function visibleSessionRows()"),

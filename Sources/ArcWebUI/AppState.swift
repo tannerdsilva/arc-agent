@@ -1404,7 +1404,7 @@ actor AppState {
     /// by id, so the wrapper (id + routing attributes) must be re-emitted
     /// verbatim — same shape as `toastsShell()` in the page.
     func toastFragments() -> [FragmentUpdate] {
-        [FragmentUpdate(id: "toasts", html: toastsShell())]
+        [FragmentUpdate(id: "toasts", html: toastsShell().markup.html)]
     }
 
     // MARK: Runtime construction

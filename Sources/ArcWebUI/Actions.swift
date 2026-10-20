@@ -15,8 +15,8 @@ extension AppState {
             let shell = await appShell()
             let toasts = toastsShell()
             return [
-                FragmentUpdate(id: "app", html: shell.html),
-                FragmentUpdate(id: "toasts", html: toasts),
+                fragment("app", shell),
+                fragment("toasts", toasts),
             ]
         }
         var u: [FragmentUpdate] = [
@@ -3084,7 +3084,7 @@ final class Controller: Sendable {
         return [
             FragmentUpdate(id: "ws-dock", html: dock),
             FragmentUpdate(id: "ws-panel", html: panel),
-            FragmentUpdate(id: "toasts", html: toasts),
+            FragmentUpdate(id: "toasts", html: toasts.markup.html),
         ]
     }
 

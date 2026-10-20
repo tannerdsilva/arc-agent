@@ -271,7 +271,7 @@ public struct WebUIHost: Service {
             }
             await app.armScrollToBottom()
             let shell = await app.appShell()
-            return makeDocument(shell, AppShell.themeAttrs(await app.themeDefaults()))
+            return makeDocument(shell.markup, AppShell.themeAttrs(await app.themeDefaults()))
         }
 
         // "/" is the page. "/index.html" was its alias before the router existed
@@ -319,7 +319,7 @@ public struct WebUIHost: Service {
         // the boot page is rendered here, once the stamped asset urls exist, purely
         // so the log line reports a real byte count.
         let bootPageBytes = makeDocument(
-            await app.appShell(),
+            await app.appShell().markup,
             AppShell.themeAttrs(await app.themeDefaults())
         ).markup.html.utf8.count
         logger.info("serving http://\(host):\(port) (page \(bootPageBytes) bytes)")

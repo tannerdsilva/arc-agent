@@ -67,26 +67,27 @@ extension AppState {
     /// compiler carries that type to `HTMLDocument(body:)`, so no unlabelled
     /// string can become a page. a fragment patch that needs the bytes reads
     /// `.html`.
-    func appShell() async -> UnsafeMarkup {
+    func appShell() async -> some WebUI.View {
         let panel = await panelHTML()
         let main = await mainContentHTML()
 
-        return .trusted("""
-        <div id="app" data-size="\(esc(settings.textSize))">
-        <a class="skip-link" href="#composer-input">Skip to composer</a>
-        \(render(topbarHTML()))
-        <div id="app-body">
-        \(render(iconbarHTML()))
-        \(panel)
-        \(main)
-        \(workspaceDockHTML())
-        \(workspacePanelHTML())
-        <div id="drawer-scrim" class="drawer-scrim" aria-hidden="true"></div>
-        </div>
-        \(render(modalRootHTML()))
-        <div id="toasts" data-component-id="toast-dismiss" data-event="click">\(render(toastsHTML()))</div>
-        </div>
-        """)
+        return Div {
+            Link("Skip to composer", href: "#composer-input", class: "skip-link")
+            topbarHTML()
+            Div {
+                iconbarHTML()
+                legacy(panel)          // TODO(phase 3)
+                legacy(main)           // TODO(phase 3)
+                legacy(workspaceDockHTML())  // TODO(phase 7)
+                legacy(workspacePanelHTML()) // TODO(phase 7)
+                Div(id: "drawer-scrim", class: "drawer-scrim") {}
+                    .attribute("aria-hidden", "true")
+            }.attribute("id", "app-body")
+            modalRootHTML()
+            toastsShell()
+        }
+        .attribute("id", "app")
+        .attribute("data-size", settings.textSize)
     }
 
     /// Thin full-width bar across the top of the screen (arc-style): a
@@ -125,8 +126,12 @@ extension AppState {
         return "ARC Agent"
     }
 
-    func toastsShell() -> String {
-        "<div id=\"toasts\" data-component-id=\"toast-dismiss\" data-event=\"click\">\(render(toastsHTML()))</div>"
+    func toastsShell() -> some WebUI.View {
+        Div(id: "toasts") {
+            toastsHTML()
+        }
+        .attribute("data-component-id", "toast-dismiss")
+        .attribute("data-event", "click")
     }
 
     func iconbarHTML() -> some WebUI.View {

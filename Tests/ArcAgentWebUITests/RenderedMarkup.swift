@@ -18,7 +18,7 @@ enum RenderedMarkup {
     /// root, toasts) rendered from the shared fixture.
     static func page() async -> String {
         let app = AppState(renderFixture: seededFixture())
-        return await app.appShell().html
+        return await app.appShell().markup.html
     }
 
     /// one fragment by builder name, for a fragment-scoped pin.
