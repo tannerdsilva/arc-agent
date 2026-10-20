@@ -424,7 +424,7 @@ extension AppState {
           <span class="filter-ico">\(WebUIIcon(.search, size: .small).markup.html)</span>
           <input id="chat-search-input" data-component-id="chat-search-input" type="search" placeholder="Filter conversations…" aria-label="Filter conversations" value="\(esc(chatFilter))">
         </div>
-        \(categoryCloudHTML())
+        \(render(categoryCloudHTML()))
         \(todos ? "" : """
         <button type="button" id="chat-showarch-link" data-component-id="chat-showarch" class="arch-link" title="Toggle archived">
           <span class="arch-ico">\(WebUIIcon(showArchived ? .chevronDown : .chevronRight, size: .small).markup.html)</span><span>\(showArchived ? " Hide archived conversations" : " Show archived conversations")</span>
@@ -492,64 +492,83 @@ extension AppState {
         """
     }
 
-    /// Search + category filter controls above the chat list: the "All" /
-    /// "Unassigned" chips, one rounded chip per user category (name + color
-    /// dot), a "+" chip that opens an inline create form, plus the optional
-    /// delete ✕ per chip while the create form is open.
-    func categoryCloudHTML() -> String {
+    /// The category chips row: All / Unassigned / one chip per category, plus
+    /// the add (or, in manage mode, cancel) button. Chips carry `aria-pressed`
+    /// because they are filters, not navigation.
+    func categoryCloudHTML() -> some WebUI.View {
         let allActive = activeCategory == "all" ? " active" : ""
         let unActive = activeCategory == "unassigned" ? " active" : ""
-        var chips = """
-        <div class="cat-bar" data-component-id="cat-pick" data-event="click">
-          <button type="button" id="cat-all" class="cat-chip\(allActive)" tabindex="-1" aria-pressed="\(activeCategory == "all")">All</button>
-          <button type="button" id="cat-unassigned" class="cat-chip\(unActive)" tabindex="-1" aria-pressed="\(activeCategory == "unassigned")">Unassigned</button>
-        """
-        for cat in settings.chatCategories {
-            let cid = enc(cat.id)
-            let active = activeCategory == cat.id ? " active" : ""
+        let plusIcon = addingCategory ? WebUIIcon(.x, size: .small) : WebUIIcon(.plus, size: .small)
+        return Group {
+            Div(class: "cat-bar") {
+                ArcButton(id: "cat-all", component: nil, class: "cat-chip\(allActive)", tabIndex: -1) {
+                    Text("All")
+                }
+                .attribute("aria-pressed", "\(activeCategory == "all")")
+                ArcButton(id: "cat-unassigned", component: nil, class: "cat-chip\(unActive)", tabIndex: -1) {
+                    Text("Unassigned")
+                }
+                .attribute("aria-pressed", "\(activeCategory == "unassigned")")
+                for cat in settings.chatCategories {
+                    let cid = enc(cat.id)
+                    let active = activeCategory == cat.id ? " active" : ""
+                    if addingCategory {
+                        // Manage mode: container chip with a filter button + delete ✕ as
+                        // SIBLINGS (nested <button> elements would be split by the HTML
+                        // parser and break the layout).
+                        Div(class: "cat-chip\(active)") {
+                            ArcButton(id: "cat-\(cid)", component: nil, class: "cat-chip-btn") {
+                                Span(class: "cat-dot") {}
+                                    .attribute("style", "background:\(cat.color)")
+                                Span { Text(cat.name) }
+                            }
+                            ArcButton(id: "cat-del-\(cid)", component: nil, class: "chip-x") {
+                                WebUIIcon(.x, size: .small)
+                            }
+                            .attribute("title", "Delete category")
+                        }
+                    } else {
+                        ArcButton(id: "cat-\(cid)", component: nil, class: "cat-chip\(active)") {
+                            Span(class: "cat-dot") {}
+                                .attribute("style", "background:\(cat.color)")
+                            Span { Text(cat.name) }
+                        }
+                        .attribute("aria-pressed", "\(activeCategory == cat.id)")
+                    }
+                }
+                ArcButton(id: "cat-add", component: nil, class: "cat-chip cat-add", tabIndex: -1) {
+                    plusIcon
+                }
+                .attribute("title", addingCategory ? "Cancel" : "Add category")
+            }
+            .attribute("data-component-id", "cat-pick")
+            .attribute("data-event", "click")
+
             if addingCategory {
-                // Manage mode: container chip with a filter button + delete ✕ as
-                // SIBLINGS (nested <button> elements would be split by the HTML
-                // parser and break the layout).
-                chips += """
-                <div class="cat-chip\(active)">
-                  <button type="button" id="cat-\(cid)" class="cat-chip-btn">
-                    <span class="cat-dot" style="background:\(cat.color)"></span>
-                    <span>\(esc(cat.name))</span>
-                  </button>
-                  \(btn("cat-del-\(cid)", "", "chip-x", WebUIIcon(.x, size: .small).markup.html, " title=\"Delete category\""))
-                </div>
-                """
-            } else {
-                chips += """
-                <button type="button" id="cat-\(cid)" class="cat-chip\(active)" aria-pressed="\(activeCategory == cat.id)">
-                  <span class="cat-dot" style="background:\(cat.color)"></span>
-                  <span>\(esc(cat.name))</span>
-                </button>
-                """
+                Form(action: "", method: nil, id: "cat-add-form", class: "cat-add-form") {
+                    Input(id: "cat-name-input", name: "cat-name-input",
+                          placeholder: "Category name", type: .text)
+                        .attribute("data-component-id", "cat-name-input")
+                        .attribute("autofocus", "")
+                    Input(id: "cat-color-input", name: "cat-color-input", type: .hidden)
+                        .attribute("class", "color-value")
+                        .attribute("value", AppState.palette[0])
+                    Div(class: "cat-swatches") {
+                        for (i, c) in AppState.palette.enumerated() {
+                            ArcButton(id: nil, component: nil, class: "cat-swatch\(i == 0 ? " sel" : "")") {}
+                                .attribute("data-color", c)
+                                .attribute("style", "background:\(c)")
+                                .attribute("aria-label", c)
+                        }
+                    }
+                    Div(class: "cat-add-actions") {
+                        ArcButton("Add", class: "primary-btn", type: .submit)
+                        ArcButton("Cancel", id: "cat-add-cancel", component: nil, class: "ghost-btn")
+                    }
+                }
+                .attribute("data-component-id", "cat-add-form")
             }
         }
-        let plusLabel = addingCategory ? WebUIIcon(.x, size: .small).markup.html : WebUIIcon(.plus, size: .small).markup.html
-        chips += btn("cat-add", "", "cat-chip cat-add", plusLabel, " title=\"" + (addingCategory ? "Cancel" : "Add category") + "\" tabindex=\"-1\"")
-        chips += "</div>"
-        if addingCategory {
-            let swatches = AppState.palette.enumerated().map { i, c in
-                let sel = i == 0 ? " sel" : ""
-                return "<button type=\"button\" class=\"cat-swatch\(sel)\" data-color=\"\(c)\" style=\"background:\(c)\" aria-label=\"\(c)\"></button>"
-            }.joined()
-            chips += """
-            <form id="cat-add-form" data-component-id="cat-add-form" class="cat-add-form">
-              <input id="cat-name-input" name="cat-name-input" data-component-id="cat-name-input" type="text" placeholder="Category name" autofocus>
-              <input type="hidden" name="cat-color-input" id="cat-color-input" class="color-value" value="\(AppState.palette[0])">
-              <div class="cat-swatches">\(swatches)</div>
-              <div class="cat-add-actions">
-                <button type="submit" class="primary-btn">Add</button>
-                \(btn("cat-add-cancel", "", "ghost-btn", "Cancel"))
-              </div>
-            </form>
-            """
-        }
-        return chips
     }
 
     /// The running turn's state as a one-line label (`Responding…`, `Running
@@ -566,14 +585,19 @@ extension AppState {
 
     /// Sidebar live-status pill: the running turn shown on its own session row
     /// (replaces the floating "Responding…" hint that read as list noise).
-    func liveStatusPill(_ sessionID: String) -> String {
-        guard let live = activeTurns[sessionID] else { return "" }
-        let label = liveStatusLabel(live)
-        guard !label.isEmpty else { return "" }
+    func liveStatusPill(_ sessionID: String) -> some WebUI.View {
+        let label = activeTurns[sessionID].map { liveStatusLabel($0) } ?? ""
         // the label is its own node so a tight row ellipsises it
         // (`.sess-status-label`) instead of overflowing the count/time — or, as
         // it did, wrapping the meta line and growing the row 56 -> 92px.
-        return "<span class=\"sess-status\"><span class=\"sess-status-dot\"></span><span class=\"sess-status-label\">\(esc(label))</span></span>"
+        return Group {
+            if !label.isEmpty {
+                Span(class: "sess-status") {
+                    Span(class: "sess-status-dot") {}
+                    Span(class: "sess-status-label") { Text(label) }
+                }
+            }
+        }
     }
 
     /// arc-parity relative time: 1m / 12m / 3h / 4d / Aug 28 (+year if older
@@ -700,7 +724,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Span(class: "rel-time") { Text(relTimeLabel(s.updatedAt)) }
                         .attribute("data-reltime", "\(epochMs)")
                     if !archived.isEmpty { Text(" • Archived") }
-                    legacy(liveStatusPill(s.id)) // TODO(phase 2.5)
+                    liveStatusPill(s.id)
                 }
             }
             Div(class: "row-actions") {

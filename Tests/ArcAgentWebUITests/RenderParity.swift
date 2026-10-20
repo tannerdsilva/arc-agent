@@ -862,7 +862,7 @@ struct RenderParityTests {
             ChatCategory(id: "c3", name: "Admin", color: "#9D5CD0"),
         ]
         let app = AppState(renderFixture: fixture)
-        let html = await app.categoryCloudHTML()
+        let html = await app.categoryCloudHTML().markup.html
         Parity.capture(html, as: "cat-cloud")
         Parity.expect(html, matches: "cat-cloud")
     }
@@ -877,7 +877,7 @@ struct RenderParityTests {
             ChatCategory(id: "c2", name: "Personal", color: "#2F9EB7"),
         ]
         let app = AppState(renderFixture: fixture)
-        let html = await app.categoryCloudHTML()
+        let html = await app.categoryCloudHTML().markup.html
         Parity.capture(html, as: "cat-cloud-creating")
         Parity.expect(html, matches: "cat-cloud-creating")
     }
@@ -887,7 +887,7 @@ struct RenderParityTests {
         var fixture = AppState.RenderFixture()
         fixture.activeTurns = ["sess-a": LiveTurn(sessionID: "sess-a", userText: "", attachments: [])]
         let app = AppState(renderFixture: fixture)
-        let html = await app.liveStatusPill("sess-a")
+        let html = await app.liveStatusPill("sess-a").markup.html
         Parity.capture(html, as: "status-pill-live")
         Parity.expect(html, matches: "status-pill-live")
     }
@@ -895,7 +895,7 @@ struct RenderParityTests {
     @Test("status pill idle matches golden")
     func statusPillIdleMatchesGolden() async {
         let app = AppState(renderFixture: .init())
-        let html = await app.liveStatusPill("sess-a")
+        let html = await app.liveStatusPill("sess-a").markup.html
         Parity.capture(html, as: "status-pill-idle")
         Parity.expect(html, matches: "status-pill-idle")
     }

@@ -87,13 +87,20 @@ extension ArcWebUITestRoot {
         }
 
         @Test("`liveStatusPill` emits the node the sheet keys on")
-        func pillEmitsItsLabelNode() {
-            #expect(
-                Self.views.contains(
-                    "<span class=\"sess-status\"><span class=\"sess-status-dot\"></span><span class=\"sess-status-label\">\\(esc(label))</span></span>"
-                ),
-                "the pill's label must be a real node for `.sess-status-label` to constrain"
-            )
+        func pillEmitsItsLabelNode() async {
+            // the pill is typed now, so the proof is the RENDERED node: the
+            // label must be a real element for `.sess-status-label` to
+            // constrain, which a source spelling can no longer demonstrate.
+            var fixture = AppState.RenderFixture()
+            fixture.activeTurns = ["sess-a": LiveTurn(sessionID: "sess-a", userText: "", attachments: [])]
+            let app = AppState(renderFixture: fixture)
+            let pill = await app.liveStatusPill("sess-a").markup.html
+            #expect(pill.contains("<span class=\"sess-status\">"),
+                    "the pill root node is gone")
+            #expect(pill.contains("<span class=\"sess-status-dot\"></span>"),
+                    "the status dot must be an empty element beside the label")
+            #expect(pill.range(of: #"<span class="sess-status-label">[^<]+</span>"#, options: .regularExpression) != nil,
+                    "the pill's label must be a real node with text for `.sess-status-label` to constrain")
         }
 
         @Test("the fix survives the minifier")
