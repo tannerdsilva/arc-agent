@@ -623,7 +623,9 @@ extension AppState {
                 Span(class: "sess-group-title") { Text(title) }
             }
             .attribute("title", title)
-            .attribute("aria-label", title)
+            // no aria-label: the head's own `.sess-group-title` span already names
+            // it, so a label would be a redundant second name — and the phase's
+            // contract is that a conversion changes NO bytes.
             Div(class: "sess-group-rows") {
                 for s in sessions {
                     legacy(sessionRow(s, todos: todos)) // TODO(phase 2.3b)
