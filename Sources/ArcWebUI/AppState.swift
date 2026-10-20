@@ -1065,6 +1065,7 @@ actor AppState {
         var toolsets: [(name: String, tools: [any AgentTool])] = []
         var categoryMenu: CategoryMenu? = nil
         var pendingConfirm: ConfirmRequest? = nil
+        var pendingCopyURL: String? = nil
     }
 
     init(renderFixture fixture: RenderFixture) {
@@ -1077,6 +1078,7 @@ actor AppState {
         self.toolsets = fixture.toolsets
         self.categoryMenu = fixture.categoryMenu
         self.pendingConfirm = fixture.pendingConfirm
+        self.pendingCopyURL = fixture.pendingCopyURL
         self.registry = MutableToolRegistry(builtIn: CompileTimeToolRegistry())
         self.sidebarPlugins = []
         self.pluginTabs = [:]

@@ -474,4 +474,127 @@ struct RenderParityTests {
         // code content is literal
         #expect(ParityNormalize.normalize("<code>x  y</code>") == "<code>x  y</code>")
     }
+
+    @Test("shell default matches golden")
+    func shellDefaultMatchesGolden() async {
+        let app = AppState(renderFixture: .init(activeTabID: "chat"))
+        let shell = await app.appShell()
+        Parity.capture(shell.html, as: "shell-default")
+        Parity.expect(shell.html, matches: "shell-default")
+    }
+
+    @Test("shell drawer matches golden")
+    func shellDrawerMatchesGolden() async {
+        let app = AppState(renderFixture: .init(activeTabID: "chat"))
+        let shell = await app.appShell()
+        Parity.capture(shell.html, as: "shell-drawer")
+        Parity.expect(shell.html, matches: "shell-drawer")
+    }
+
+    @Test("iconbar chat matches golden")
+    func iconbarChatMatchesGolden() async {
+        var fixture = AppState.RenderFixture()
+        fixture.settings.sidebarTabs = ["skills", "profiles", "tools", "workspaces", "kanban"]
+        let app = AppState(renderFixture: fixture)
+        let html = await app.iconbarHTML()
+        Parity.capture(html, as: "iconbar-chat")
+        Parity.expect(html, matches: "iconbar-chat")
+    }
+
+    @Test("iconbar settings matches golden")
+    func iconbarSettingsMatchesGolden() async {
+        var fixture = AppState.RenderFixture()
+        fixture.settings.sidebarTabs = ["skills", "profiles", "tools", "workspaces", "kanban"]
+        fixture.activeTabID = "settings"
+        let app = AppState(renderFixture: fixture)
+        let html = await app.iconbarHTML()
+        Parity.capture(html, as: "iconbar-settings")
+        Parity.expect(html, matches: "iconbar-settings")
+    }
+
+    @Test("toasts empty matches golden")
+    func toastsEmptyMatchesGolden() async {
+        let app = AppState(renderFixture: .init(toasts: []))
+        let html = await app.toastsShell()
+        Parity.capture(html, as: "toasts-empty")
+        Parity.expect(html, matches: "toasts-empty")
+    }
+
+    @Test("toasts three matches golden")
+    func toastsThreeMatchesGolden() async {
+        let app = AppState(renderFixture: .init(toasts: [
+            Toast(id: 1, text: "Processing", kind: "info"),
+            Toast(id: 2, text: "Saved", kind: "success", action: ToastAction(id: "undo", label: "Undo")),
+            Toast(id: 3, text: "Failed", kind: "error"),
+        ]))
+        let html = await app.toastsShell()
+        Parity.capture(html, as: "toasts-three")
+        Parity.expect(html, matches: "toasts-three")
+    }
+
+    @Test("toasts overflow matches golden")
+    func toastsOverflowMatchesGolden() async {
+        let app = AppState(renderFixture: .init(toasts: [
+            Toast(id: 1, text: "One", kind: "info"),
+            Toast(id: 2, text: "Two", kind: "info"),
+            Toast(id: 3, text: "Three", kind: "info"),
+            Toast(id: 4, text: "Four", kind: "info"),
+            Toast(id: 5, text: "Five", kind: "info"),
+        ]))
+        let html = await app.toastsShell()
+        Parity.capture(html, as: "toasts-overflow")
+        Parity.expect(html, matches: "toasts-overflow")
+    }
+
+    @Test("toasts pending copy matches golden")
+    func toastsPendingCopyMatchesGolden() async {
+        let app = AppState(renderFixture: .init(toasts: [], pendingCopyURL: "https://example.com/x"))
+        let html = await app.toastsShell()
+        Parity.capture(html, as: "toasts-pending-copy")
+        Parity.expect(html, matches: "toasts-pending-copy")
+    }
+
+    @Test("modal armed matches golden")
+    func modalArmedMatchesGolden() async {
+        let app = AppState(renderFixture: .init(
+            pendingConfirm: ConfirmRequest(
+                kind: "chat", id: "sess-a",
+                title: "Delete conversation?",
+                body: "The chat “A” will be deleted. You can undo this for 10 seconds."
+            )
+        ))
+        let html = await app.modalHTML()
+        Parity.capture(html, as: "modal-armed")
+        Parity.expect(html, matches: "modal-armed")
+    }
+
+    @Test("modal empty matches golden")
+    func modalEmptyMatchesGolden() async {
+        let app = AppState(renderFixture: .init())
+        let html = await app.modalHTML()
+        Parity.capture(html, as: "modal-empty")
+        Parity.expect(html, matches: "modal-empty")
+    }
+
+    @Test("category menu matches golden")
+    func categoryMenuMatchesGolden() async {
+        var fixture = AppState.RenderFixture()
+        fixture.categoryMenu = CategoryMenu(categoryID: "c1", x: 40, y: 60)
+        fixture.settings.chatCategories = [ChatCategory(id: "c1", name: "C1", color: "#B8860B")]
+        let app = AppState(renderFixture: fixture)
+        let html = await app.categoryMenuHTML()
+        Parity.capture(html, as: "category-menu")
+        Parity.expect(html, matches: "category-menu")
+    }
+
+    @Test("category menu clamped matches golden")
+    func categoryMenuClampedMatchesGolden() async {
+        var fixture = AppState.RenderFixture()
+        fixture.categoryMenu = CategoryMenu(categoryID: "c1", x: 2000, y: 900)
+        fixture.settings.chatCategories = [ChatCategory(id: "c1", name: "C1", color: "#B8860B")]
+        let app = AppState(renderFixture: fixture)
+        let html = await app.categoryMenuHTML()
+        Parity.capture(html, as: "category-menu-clamped")
+        Parity.expect(html, matches: "category-menu-clamped")
+    }
 }
