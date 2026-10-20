@@ -615,7 +615,7 @@ struct RenderParityTests {
     @Test("panel chat matches golden")
     func panelChatMatchesGolden() async {
         let app = AppState(renderFixture: .init(activeTabID: "chat"))
-        let html = await app.panelHTML()
+        let html = await app.panelHTML().markup.html
         Parity.capture(html, as: "panel-chat")
         Parity.expect(html, matches: "panel-chat")
     }

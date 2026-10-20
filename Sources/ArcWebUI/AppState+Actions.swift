@@ -80,7 +80,7 @@ extension AppState {
 
     /// Panel-only fragment (used by filter search + skill panels).
     func skillPanelFragment() async -> [FragmentUpdate] {
-        [FragmentUpdate(id: "panel", html: await panelHTML())]
+        [fragment("panel", await panelHTML())]
     }
 
     func setCreateSkill(_ on: Bool) {
@@ -1897,7 +1897,7 @@ extension AppState {
             saveSettings()
             await pusher([
                 fragment("topbar", topbarHTML()),
-                FragmentUpdate(id: "panel", html: panelHTML()),
+                fragment("panel", await panelHTML()),
             ])
         } catch {
             // Best-effort: a failed title call leaves the auto title in place.

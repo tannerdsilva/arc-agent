@@ -30,7 +30,7 @@ enum RenderedMarkup {
         switch name {
         case "topbar":       return await app.topbarHTML().markup.html
         case "iconbar":      return await app.iconbarHTML().markup.html
-        case "panel":        return await app.panelHTML()
+        case "panel":        return await app.panelHTML().markup.html
         case "main":         return await app.mainContentHTML()
         case "dock":         return await app.workspaceDockHTML()
         case "toasts":       return await app.toastsHTML().markup.html
@@ -66,7 +66,7 @@ extension RenderedMarkup {
 
         results.append(contentsOf: controlTags(in: await app.appShell().markup.html, region: "shell"))
         for kind in ViewID.allCases {
-            results.append(contentsOf: controlTags(in: await app.renderPanel(for: kind), region: "panel.\(kind.rawValue)"))
+            results.append(contentsOf: controlTags(in: await app.renderPanel(for: kind).markup.html, region: "panel.\(kind.rawValue)"))
             results.append(contentsOf: controlTags(in: await app.renderMain(for: kind), region: "main.\(kind.rawValue)"))
         }
         results.append(contentsOf: controlTags(in: await app.workspaceDockHTML(), region: "workspace.dock"))
@@ -110,7 +110,7 @@ extension RenderedMarkup {
         var html = await app.appShell().markup.html
 
         for kind in ViewID.allCases {
-            html += await app.renderPanel(for: kind)
+            html += await app.renderPanel(for: kind).markup.html
             html += await app.renderMain(for: kind)
         }
 

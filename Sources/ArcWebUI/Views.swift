@@ -76,8 +76,8 @@ extension AppState {
             topbarHTML()
             Div {
                 iconbarHTML()
-                legacy(panel)          // TODO(phase 3)
-                legacy(main)           // TODO(phase 3)
+                panel                    // panelHTML() is now a View (phase 2.2); bridge retired
+                legacy(main)             // mainContentHTML() still String (phase 3)
                 legacy(workspaceDockHTML())  // TODO(phase 7)
                 legacy(workspacePanelHTML()) // TODO(phase 7)
                 Div(id: "drawer-scrim", class: "drawer-scrim") {}
@@ -331,43 +331,59 @@ extension AppState {
 
     // MARK: - Panel
 
-    func panelHTML() async -> String {
-        let id = "panel"
+    func panelHTML() async -> some WebUI.View {
+        // resolve the plugin seam before the synchronous view builder runs
+        let plugin: String?
         if let tab = sidebarTab(activeTabID) {
-            let inner = await tab.panelHTML()
-            return "<div id=\"\(id)\">\(inner)</div>"
+            plugin = await tab.panelHTML()
+        } else {
+            plugin = nil
         }
-        return "<div id=\"\(id)\">\(chatPanel())</div>"
+        return Div {
+            if let plugin {
+                // plugin seam: the third-party ABI is a plain html fragment
+                // (`SidebarTab.panelHTML()`), sanitized by the kit. this Raw
+                // is permanent and is the one documented Raw in this file;
+                // it is not a `legacy(...)` bridge and not counted in the
+                // bridge budget.
+                Raw(.trusted(plugin))
+            } else {
+                // chatPanel() still returns String (2.3's target); bridge it.
+                legacy(chatPanel()) // TODO(phase 2.3)
+            }
+        }.attribute("id", "panel")
     }
 
     /// Panel content for a built-in view id (dispatched through the tab
     /// protocol adapter).
-    func renderPanel(for kind: ViewID) -> String {
-        switch kind {
-        case .chat:
-            return chatPanel()
-        case .skills:
-            return skillsPanel()
-        case .profiles:
-            return profilesPanel()
-        case .tools:
-            return toolsPanel()
-        case .workspaces:
-            return workspacesPanel()
-        case .kanban:
-            return kanbanPanel()
-        case .memory:
-            return memoryPanel()
-        case .insights:
-            return insightsPanel()
-        case .settings:
-            return settingsPanel()
-        case .logs:
-            return logsPanel()
-        case .tasks:
-            return tasksPanel()
-        case .todos:
-            return chatPanel(todos: true)
+    func renderPanel(for kind: ViewID) -> some WebUI.View {
+        Group {
+            switch kind {
+            case .chat:
+                legacy(chatPanel()) // TODO(phase 2.3)
+            case .skills:
+                legacy(skillsPanel())        // TODO(phase 6)
+            case .profiles:
+                legacy(profilesPanel())      // TODO(phase 6)
+            case .tools:
+                legacy(toolsPanel())         // TODO(phase 6)
+            case .workspaces:
+                legacy(workspacesPanel())    // TODO(phase 6)
+            case .kanban:
+                legacy(kanbanPanel())        // TODO(phase 7)
+            case .memory:
+                legacy(memoryPanel())        // TODO(phase 7)
+            case .insights:
+                legacy(insightsPanel())      // TODO(phase 7) — Insights.swift
+            case .settings:
+                legacy(settingsPanel())      // TODO(phase 5)
+            case .logs:
+                legacy(logsPanel())          // TODO(phase 7)
+            case .tasks:
+                legacy(tasksPanel())         // TODO(phase 7) — NewFeatures.swift
+            case .todos:
+                legacy(chatPanel(todos: true)) // TODO(phase 2.3)
+            }
         }
     }
 
