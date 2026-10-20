@@ -283,7 +283,11 @@ extension AppState {
 
             Div(id: "cat-menu", class: "ctx-menu") {
                 if categoryMenuRename {
-                    Raw(.trusted("<form class=\"ctx-rename\" id=\"cm-rename-form-\(cid)\" data-prevent-enter=\"false\">\n<input id=\"cat-rename-input\" name=\"cat-rename-input\" value=\"\(esc(catName))\" autofocus>\n<button type=\"submit\" class=\"primary-btn\">Save</button>\n</form>"))
+                    Form(method: nil, id: "cm-rename-form-\(cid)", class: "ctx-rename") {
+                        Input(id: "cat-rename-input", name: "cat-rename-input", type: nil, value: catName, attributes: [("autofocus", "")])
+                        ArcButton("Save", id: nil, component: nil, class: "primary-btn", type: .submit)
+                    }
+                    .attribute("data-prevent-enter", "false")
                 } else {
                     ArcButton("\u{270E} Rename", id: "cm-rename-\(cid)", component: nil, class: "ctx-item")
                 }

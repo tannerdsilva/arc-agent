@@ -1064,6 +1064,7 @@ actor AppState {
         var toasts: [Toast] = []
         var toolsets: [(name: String, tools: [any AgentTool])] = []
         var categoryMenu: CategoryMenu? = nil
+        var categoryMenuRename = false
         var pendingConfirm: ConfirmRequest? = nil
         var pendingCopyURL: String? = nil
     }
@@ -1077,6 +1078,7 @@ actor AppState {
         self.toasts = fixture.toasts
         self.toolsets = fixture.toolsets
         self.categoryMenu = fixture.categoryMenu
+        self.categoryMenuRename = fixture.categoryMenuRename
         self.pendingConfirm = fixture.pendingConfirm
         self.pendingCopyURL = fixture.pendingCopyURL
         self.registry = MutableToolRegistry(builtIn: CompileTimeToolRegistry())
