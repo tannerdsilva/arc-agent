@@ -266,52 +266,57 @@ extension AppState {
     /// Right-click menu for a category chip: rename, color palette, divider,
     /// and a red delete action. Rendered over a transparent click-to-close
     /// backdrop at the mouse's viewport position.
-    func categoryMenuHTML() -> String {
+    func categoryMenuHTML() -> some WebUI.View {
         guard let menu = categoryMenu,
               let cat = settings.chatCategories.first(where: { $0.id == menu.categoryID }) else {
-            return ""
+            return Group {}
         }
         let left = max(8, min(menu.x, 1080))
         let top = max(8, min(menu.y, 760))
         let cid = enc(cat.id)
-        let swatches = AppState.palette.map { c in
-            let sel = c == cat.color ? " sel" : ""
-            return """
-            <button type="button" id="cm-color-\(c.hasPrefix("#") ? String(c.dropFirst()) : c)" data-color="\(c)" class="menu-swatch\(sel)" style="background:\(c)" aria-label="\(c)"></button>
-            """
-        }.joined()
-        let head: String
-        if categoryMenuRename {
-            head = """
-            <form class="ctx-rename" id="cm-rename-form-\(cid)" data-prevent-enter="false">
-              <input id="cat-rename-input" name="cat-rename-input" value="\(esc(cat.name))" autofocus>
-              <button type="submit" class="primary-btn">Save</button>
-            </form>
-            """
-        } else {
-            head = btn("cm-rename-\(cid)", "", "ctx-item", "✎ Rename")
-        }
-        return """
-        <div class="ctx-backdrop" id="cat-menu-close" data-component-id="cat-menu-close"></div>
-        <div class="ctx-menu" data-component-id="cat-menu" id="cat-menu" style="left:\(left)px;top:\(top)px">
-          \(head)
-          <div class="ctx-swatches">
-            <div class="ctx-label">Color</div>
-            <div class="ctx-swatch-row">\(swatches)</div>
-          </div>
-          <div class="ctx-divider"></div>
-          <button type="button" id="cm-del-\(cid)" class="ctx-item ctx-danger">Delete</button>
-        </div>
-        """
-    }
+        let catColor = cat.color
+        let catName = cat.name
 
+        return Group {
+            Div(id: "cat-menu-close", class: "ctx-backdrop") {}
+                .attribute("data-component-id", "cat-menu-close")
+
+            Div(id: "cat-menu", class: "ctx-menu") {
+                if categoryMenuRename {
+                    Raw(.trusted("<form class=\"ctx-rename\" id=\"cm-rename-form-\(cid)\" data-prevent-enter=\"false\">\n<input id=\"cat-rename-input\" name=\"cat-rename-input\" value=\"\(esc(catName))\" autofocus>\n<button type=\"submit\" class=\"primary-btn\">Save</button>\n</form>"))
+                } else {
+                    ArcButton("\u{270E} Rename", id: "cm-rename-\(cid)", component: nil, class: "ctx-item")
+                }
+
+                Div(class: "ctx-swatches") {
+                    Div(class: "ctx-label") { Text("Color") }
+                    Div(class: "ctx-swatch-row") {
+                        ForEach(AppState.palette) { c in
+                            let sel = c == catColor ? " sel" : ""
+                            let hex = c.hasPrefix("#") ? String(c.dropFirst()) : c
+                            ArcButton("", id: "cm-color-\(hex)", component: nil, class: "menu-swatch\(sel)")
+                                .attribute("data-color", c)
+                                .attribute("aria-label", c)
+                                .attribute("style", "background:\(c)")
+                        }
+                    }
+                }
+
+                Div(class: "ctx-divider") {}
+
+                ArcButton("Delete", id: "cm-del-\(cid)", component: nil, class: "ctx-item ctx-danger")
+            }
+            .attribute("data-component-id", "cat-menu")
+            .attribute("style", "left:\(left)px;top:\(top)px")
+        }
+    }
     /// Everything rendered in #modal-root (delete confirmation + category menu).
     /// Owns the `#modal-root` wrapper so the fragment id rides beside the builder
     /// that emits it.
     func modalRootHTML() -> some WebUI.View {
         Div(id: "modal-root") {
             modalHTML()
-            legacy(categoryMenuHTML()) // TODO(1.6): categoryMenuHTML becomes a typed view and this bridge retires
+            categoryMenuHTML()
         }
     }
 

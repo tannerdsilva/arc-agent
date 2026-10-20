@@ -582,7 +582,7 @@ struct RenderParityTests {
         fixture.categoryMenu = CategoryMenu(categoryID: "c1", x: 40, y: 60)
         fixture.settings.chatCategories = [ChatCategory(id: "c1", name: "C1", color: "#B8860B")]
         let app = AppState(renderFixture: fixture)
-        let html = await app.categoryMenuHTML()
+        let html = await app.categoryMenuHTML().markup.html
         Parity.capture(html, as: "category-menu")
         Parity.expect(html, matches: "category-menu")
     }
@@ -593,7 +593,7 @@ struct RenderParityTests {
         fixture.categoryMenu = CategoryMenu(categoryID: "c1", x: 2000, y: 900)
         fixture.settings.chatCategories = [ChatCategory(id: "c1", name: "C1", color: "#B8860B")]
         let app = AppState(renderFixture: fixture)
-        let html = await app.categoryMenuHTML()
+        let html = await app.categoryMenuHTML().markup.html
         Parity.capture(html, as: "category-menu-clamped")
         Parity.expect(html, matches: "category-menu-clamped")
     }
