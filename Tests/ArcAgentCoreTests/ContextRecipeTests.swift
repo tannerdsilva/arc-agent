@@ -47,20 +47,32 @@ extension ArcCoreTestRoot {
 
         @Test("a recipe round-trips through Codable")
         func codableRoundTrip() throws {
-            let recipe = ContextRecipe(segments: [.environment: false, .memory: false, .personality: true], custom: ["custom note"])
+            let recipe = ContextRecipe(segments: [.environment: false, .memory: false, .personality: true], custom: [CustomContextItem(text: "custom note")])
             let data = try JSONEncoder().encode(recipe)
             let decoded = try JSONDecoder().decode(ContextRecipe.self, from: data)
             #expect(decoded == recipe)
             #expect(decoded.segments[.environment] == false)
             #expect(decoded.segments[.personality] == true)
-            #expect(decoded.customItems == ["custom note"])
+            #expect(decoded.customItems == [CustomContextItem(text: "custom note")])
+        }
+
+        @Test("custom items decode from both bare strings and weighted objects")
+        func customWeightTolerantDecode() throws {
+            let json = #"{"segments":{"memory":false},"custom":["plain note",{"text":"strong","weight":"high"}]}"#
+            let recipe = try JSONDecoder().decode(ContextRecipe.self, from: Data(json.utf8))
+            let items = recipe.customItems
+            #expect(items[0] == CustomContextItem(text: "plain note"))
+            #expect(items[1] == CustomContextItem(text: "strong", weight: .high))
         }
 
         @Test("custom blocks are stitched into a single Custom Context section")
         func customBlocksStitched() async throws {
             let recipe = ResolvedContextRecipe(segments: [
                 .projectContext: false, .personality: false,
-            ], custom: ["First authored note.", "Second authored note."])
+            ], custom: [
+                CustomContextItem(text: "First authored note."),
+                CustomContextItem(text: "Second authored note."),
+            ])
             let config = makeConfig(contextRecipe: recipe)
             let box = ClientScripts(responses: [LLMResponse(content: "ok", finishReason: "stop")])
             let prompt = try await systemPrompt(config: config, box: box)
@@ -70,13 +82,55 @@ extension ArcCoreTestRoot {
             #expect(prompt.contains("Second authored note."))
         }
 
+        @Test("custom weight tiers rank high before medium before low in the prompt")
+        func customWeightTiers() async throws {
+            let recipe = ResolvedContextRecipe(segments: [
+                .projectContext: false, .personality: false,
+            ], custom: [
+                CustomContextItem(text: "low note", weight: .low),
+                CustomContextItem(text: "medium note", weight: .medium),
+                CustomContextItem(text: "high note", weight: .high),
+            ])
+            let config = makeConfig(contextRecipe: recipe)
+            let box = ClientScripts(responses: [LLMResponse(content: "ok", finishReason: "stop")])
+            let prompt = try await systemPrompt(config: config, box: box)
+
+            // Each tier is framed distinctly and the rank order holds.
+            #expect(prompt.contains("## Custom Context (High)"))
+            #expect(prompt.contains("You MUST follow these instructions in every response:"))
+            #expect(prompt.contains("## Custom Context (Medium)"))
+            #expect(prompt.contains("Follow these instructions for this session:"))
+            #expect(prompt.contains("## Custom Context (Low)"))
+            let hi = prompt.firstRange(of: "high note")!
+            let mid = prompt.firstRange(of: "medium note")!
+            let lo = prompt.firstRange(of: "low note")!
+            #expect(hi.lowerBound < mid.lowerBound)
+            #expect(mid.lowerBound < lo.lowerBound)
+        }
+
         @Test("stitchCustom drops blanks and duplicates; nil when empty")
         func stitchCustomBehavior() {
-            #expect(ContextRecipe.stitchCustom([""]) == nil)
-            #expect(ContextRecipe.stitchCustom(["  ", "\n"]) == nil)
-            #expect(ContextRecipe.stitchCustom(["alpha", "beta"]) == ["alpha", "beta"])
-            #expect(ContextRecipe.stitchCustom(["alpha", "  ", "alpha", "beta"]) == ["alpha", "beta"])
-            #expect(ContextRecipe.stitchCustom([" a ", "a"]) == ["a"], "trim then dedupe")
+            #expect(ContextRecipe.stitchCustom([CustomContextItem(text: "")]) == nil)
+            #expect(ContextRecipe.stitchCustom([CustomContextItem(text: "  "), CustomContextItem(text: "\n")]) == nil)
+            #expect(ContextRecipe.stitchCustom([
+                CustomContextItem(text: "alpha"), CustomContextItem(text: "beta"),
+            ]) == [CustomContextItem(text: "alpha"), CustomContextItem(text: "beta")])
+            #expect(ContextRecipe.stitchCustom([
+                CustomContextItem(text: "alpha"), CustomContextItem(text: "  "),
+                CustomContextItem(text: "alpha"), CustomContextItem(text: "beta"),
+            ]) == [CustomContextItem(text: "alpha"), CustomContextItem(text: "beta")])
+            #expect(ContextRecipe.stitchCustom([
+                CustomContextItem(text: " a "), CustomContextItem(text: "a"),
+            ]) == [CustomContextItem(text: "a")], "trim then dedupe — first weight wins")
+        }
+
+        @Test("stitchCustom keeps the first occurrence's weight on de-dupe")
+        func stitchCustomKeepsFirstWeight() {
+            let stitched = ContextRecipe.stitchCustom([
+                CustomContextItem(text: "rule", weight: .high),
+                CustomContextItem(text: "rule", weight: .low),
+            ])
+            #expect(stitched == [CustomContextItem(text: "rule", weight: .high)])
         }
 
         @Test("a stale settings recipe with a retired segment still decodes")

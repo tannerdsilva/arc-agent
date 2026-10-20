@@ -2424,6 +2424,15 @@ final class Controller: Sendable {
             await self.app.setNewSessionCustom(idx, text: event.string("value") ?? "")
             return []
         }
+        // Effective-weight select per custom row. The change frame carries the
+        // selected value but no row identity, so the index is whatever row was
+        // last focused (the click boundary below records it for `nsw-*`).
+        wire(router, id: "nsw", events: ["change"]) { event in
+            let idx = await self.app.activeCustomIndex
+            let weight = CustomContextWeight(rawValue: event.string("value") ?? "medium") ?? .medium
+            await self.app.setNewSessionCustomWeight(idx, weight: weight)
+            return []   // value is already set in the DOM; no re-render needed.
+        }
         // One click boundary on the panel card dispatches every button by
         // targetId (the engine reports the nearest id-bearing control inside
         // the boundary), mirroring the share panel.
@@ -2442,6 +2451,15 @@ final class Controller: Sendable {
             if tid == "ns-custom-add" {
                 await self.app.addNewSessionCustom()
                 return await self.app.refreshFragments()
+            }
+            if tid.hasPrefix("nsw-") {
+                // A weight select was clicked; remember its row so the `nsw`
+                // change handler can update the right item (change frames carry
+                // no targetId).
+                if let idx = Int(String(tid.dropFirst("nsw-".count))) {
+                    await self.app.setActiveCustomIndex(idx)
+                }
+                return []
             }
             if tid.hasPrefix("ns-custom-") {
                 // A textarea (or the cancel/add buttons) was clicked; only the

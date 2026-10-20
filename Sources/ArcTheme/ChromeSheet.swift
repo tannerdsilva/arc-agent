@@ -2730,7 +2730,11 @@ public static let css: String = """
     .ctx-preview summary:hover { color: var(--text); }
     .ctx-preview pre { margin: 6px 0 0; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; font-size: 0.82em; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; color: var(--muted); }
     .session-custom-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
-    .session-custom-row { display: flex; align-items: flex-start; gap: 8px; }
+    .session-custom-row { display: flex; flex-direction: column; gap: 4px; }
+    .session-custom-head { display: flex; align-items: center; gap: 8px; }
+    .session-custom-weight { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font-size: 0.82em; font-family: inherit; }
+    .session-custom-weight:focus { border-color: var(--accent-border); outline: none; }
+    .session-custom-weight-label { color: var(--muted); font-size: 0.78em; }
     .session-custom-input { flex: 1; min-width: 0; resize: vertical; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 0.88em; line-height: 1.5; font-family: inherit; }
     .session-custom-input:focus { border-color: var(--accent-border); outline: none; }
     .session-custom-row .icon-mini { margin-top: 4px; }

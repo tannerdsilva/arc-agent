@@ -392,30 +392,57 @@ extension AppState {
         return out.joined(separator: "\n")
     }
 
-    /// The add/remove free-form custom-context rows.
+    /// The add/remove free-form custom-context rows, each with an effective
+    /// weight select (low / medium / high).
     private func customContextRowsHTML() -> String {
-        newSessionCustom.enumerated().map { idx, text -> String in
-            """
+        newSessionCustom.enumerated().map { idx, item -> String in
+            let w = item.weight.rawValue
+            let sel = { (v: String) in w == v ? " selected" : "" }
+            return """
             <div class="session-custom-row">
-              <textarea id="ns-custom-\(idx)" data-component-id="ns-custom" data-event="change" class="session-custom-input" rows="2" placeholder="Add context for this session…" spellcheck="false">\(esc(text))</textarea>
-              <button type="button" id="ns-custom-rm-\(idx)" class="icon-mini danger" title="Remove" aria-label="Remove this context block">✕</button>
+              <div class="session-custom-head">
+                <label class="session-custom-weight-label" for="nsw-\(idx)">Weight</label>
+                <select id="nsw-\(idx)" data-component-id="nsw" data-event="change" class="session-custom-weight">
+                  <option value="low"\(sel("low"))>Low</option>
+                  <option value="medium"\(sel("medium"))>Medium</option>
+                  <option value="high"\(sel("high"))>High</option>
+                </select>
+                <button type="button" id="ns-custom-rm-\(idx)" class="icon-mini danger" title="Remove" aria-label="Remove this context block">✕</button>
+              </div>
+              <textarea id="ns-custom-\(idx)" data-component-id="ns-custom" data-event="change" class="session-custom-input" rows="2" placeholder="Add context for this session…" spellcheck="false">\(esc(item.text))</textarea>
             </div>
             """
         }.joined(separator: "\n")
     }
 
-    /// The stitched "Custom Context" literal preview (snapshot at render time).
+    /// The stitched "Custom Context" literal preview (snapshot at render time),
+    /// ordered by effective weight (high → medium → low) and framed exactly as
+    /// the prompt builder will render it, so the preview is truthful.
     private func customContextPreviewHTML() -> String {
-        let items = newSessionCustom
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard !items.isEmpty else { return "" }
+        let items = ContextRecipe.stitchCustom(newSessionCustom.filter {
+            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        })
+        guard let items, !items.isEmpty else { return "" }
+        var sections: [String] = []
+        let high = items.filter { $0.weight == .high }
+        if !high.isEmpty {
+            sections.append("## Custom Context (High)\n\nYou MUST follow these instructions in every response:\n\n" +
+                high.map { $0.text }.joined(separator: "\n"))
+        }
+        let medium = items.filter { $0.weight == .medium }
+        if !medium.isEmpty {
+            sections.append("## Custom Context (Medium)\n\nFollow these instructions for this session:\n\n" +
+                medium.map { $0.text }.joined(separator: "\n"))
+        }
+        let low = items.filter { $0.weight == .low }
+        if !low.isEmpty {
+            sections.append("## Custom Context (Low)\n\n" + low.map { $0.text }.joined(separator: "\n\n"))
+        }
+        guard !sections.isEmpty else { return "" }
         return """
         <details class="ctx-preview" id="ns-preview-custom">
           <summary>Show preview</summary>
-          <pre>## Custom Context
-
-        \(esc(items.joined(separator: "\n\n")))</pre>
+          <pre>\(esc(sections.joined(separator: "\n\n")))</pre>
         </details>
         """
     }

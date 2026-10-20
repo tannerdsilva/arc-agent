@@ -202,7 +202,7 @@ extension AppState {
             recipe.segments[seg] = resolved.isEnabled(seg)
         }
         newSessionRecipe = recipe
-        newSessionCustom = recipe.customItems.isEmpty ? [""] : recipe.customItems
+        newSessionCustom = recipe.customItems.isEmpty ? [CustomContextItem(text: "")] : recipe.customItems
         activeCustomIndex = 0
         showNewSessionPanel = true
     }
@@ -224,11 +224,21 @@ extension AppState {
 
     func setNewSessionCustom(_ idx: Int, text: String) {
         guard newSessionCustom.indices.contains(idx) else { return }
-        newSessionCustom[idx] = text
+        let weight = newSessionCustom[idx].weight
+        newSessionCustom[idx] = CustomContextItem(text: text, weight: weight)
+    }
+
+    /// Change the effective weight of one custom-context row. The change frame
+    /// carries the select value but no row identity, so the index is whatever
+    /// row was last focused (captured via the panel's click channel, the same
+    /// contract the text-area change handler relies on).
+    func setNewSessionCustomWeight(_ idx: Int, weight: CustomContextWeight) {
+        guard newSessionCustom.indices.contains(idx) else { return }
+        newSessionCustom[idx].weight = weight
     }
 
     func addNewSessionCustom() {
-        newSessionCustom.append("")
+        newSessionCustom.append(CustomContextItem(text: ""))
     }
 
     func removeNewSessionCustom(_ idx: Int) {
@@ -236,7 +246,7 @@ extension AppState {
         if newSessionCustom.count > 1 {
             newSessionCustom.remove(at: idx)
         } else {
-            newSessionCustom[idx] = ""
+            newSessionCustom[idx] = CustomContextItem(text: "")
         }
     }
 

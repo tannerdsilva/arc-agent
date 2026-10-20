@@ -852,10 +852,10 @@ actor AppState {
     /// seeded from the resolved global+profile defaults when the panel opens,
     /// so the user sees (and can override) what a default new session inherits.
     var newSessionRecipe = ContextRecipe()
-    /// The free-form custom-context drafts being edited (add/remove rows). On
-    /// "Create Session" these are stitched (non-empty, de-duplicated) into the
-    /// session's `contextOverrides.custom`.
-    var newSessionCustom: [String] = [""]
+    /// The free-form custom-context drafts being edited (add/remove rows,
+    /// each with an effective weight). On "Create Session" these are stitched
+    /// (non-empty, de-duplicated) into the session's `contextOverrides.custom`.
+    var newSessionCustom: [CustomContextItem] = [CustomContextItem(text: "")]
     /// Which custom-context textarea the user last focused (change frames carry
     /// no targetId, so the index is captured via the panel's click boundary).
     var activeCustomIndex = 0

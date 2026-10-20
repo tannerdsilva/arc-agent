@@ -3300,6 +3300,17 @@ public actor ArcAgent: Service {
             - Keep working until the task is actually complete.
             """
 
+        // ── High-weight custom context: promoted into the rules tier ──
+        // Position + imperative framing give it the strongest compliance.
+        // (Index the items once so the context-tier rendering below can reuse
+        // the same partition.)
+        let customItems = config.contextRecipe?.custom ?? []
+        let highCustom = customItems.filter { $0.weight == .high }
+        if !highCustom.isEmpty {
+            stable += "\n\n## Custom Context (High)\n\nYou MUST follow these instructions in every response:\n\n" +
+                highCustom.map { $0.text }.joined(separator: "\n")
+        }
+
         // ── Active profile & platform hint (arc parity: hermes prompt_builder) ──
         let profileLabel = (config.profileName?.isEmpty == false) ? config.profileName! : "default"
         let platformLabel = config.platformHint.isEmpty ? "cli" : config.platformHint
@@ -3370,6 +3381,14 @@ public actor ArcAgent: Service {
 
         // ── Context tier ──
         var context = ""
+        // Medium-weight custom context leads the context tier (higher primacy
+        // than the advisory low tier, which trails the project context). The
+        // `customItems` partition was computed in the stable tier above.
+        let mediumCustom = customItems.filter { $0.weight == .medium }
+        if !mediumCustom.isEmpty {
+            context += "## Custom Context (Medium)\n\nFollow these instructions for this session:\n\n" +
+                mediumCustom.map { $0.text }.joined(separator: "\n") + "\n\n"
+        }
         if enabled(.projectContext), config.injectProjectContext {
             let files = await loadContextFiles()
             if !files.isEmpty {
@@ -3380,10 +3399,12 @@ public actor ArcAgent: Service {
             }
         }
 
-        // User-authored free-form context blocks, stitched into one section.
-        // Not gated by any segment toggle — it is directly authored per session.
-        if let recipe = config.contextRecipe, !recipe.custom.isEmpty {
-            context += "## Custom Context\n\n" + recipe.custom.joined(separator: "\n\n") + "\n\n"
+        // Low-weight custom context trails the context tier as plain advisory
+        // prose (today's behaviour). Not gated by any segment toggle — it is
+        // directly authored per session.
+        let lowCustom = customItems.filter { $0.weight == .low }
+        if !lowCustom.isEmpty {
+            context += "## Custom Context (Low)\n\n" + lowCustom.map { $0.text }.joined(separator: "\n\n") + "\n\n"
         }
 
         // ── Volatile tier ──

@@ -95,6 +95,47 @@ extension ArcWebUITestRoot {
                 #expect(act.contains(header), "preview must surface \(header)")
             }
         }
+
+        @Test("each custom row carries a low/medium/high weight select")
+        func customRowsCarryWeightSelect() {
+            let views = Self.source("Views.swift")
+            #expect(views.contains("data-component-id=\"nsw\""))
+            #expect(views.contains("class=\"session-custom-weight\""))
+            #expect(views.contains("data-event=\"change\""))
+            for w in ["low", "medium", "high"] {
+                #expect(views.contains("value=\"\(w)\""), "weight select must offer \(w)")
+            }
+        }
+
+        @Test("the weight select is wired to set the row's weight on change")
+        func weightSelectChangeWired() {
+            let actions = Self.source("Actions.swift")
+            let weightWire = actions.slice(from: "wire(router, id: \"nsw\"", to: "wire(router, id: \"new-session-panel\"")
+            #expect(weightWire.contains("events: [\"change\"]"))
+            #expect(weightWire.contains("CustomContextWeight(rawValue:"))
+            #expect(weightWire.contains("setNewSessionCustomWeight"))
+            // It must round-trip through activeCustomIndex (change frames carry
+            // no targetId), the same contract the text-area change uses.
+            #expect(weightWire.contains("activeCustomIndex"))
+        }
+
+        @Test("clicking a weight select records the active row (nsw- branch)")
+        func weightSelectTracksActiveRow() {
+            let actions = Self.source("Actions.swift")
+            let panelWire = actions.slice(from: "wire(router, id: \"new-session-panel\"", to: "private func wirePlugins")
+            #expect(panelWire.contains("hasPrefix(\"nsw-\")"))
+            #expect(panelWire.contains("setActiveCustomIndex"))
+        }
+
+        @Test("the custom-context preview mirrors the weight-tiered prompt framing")
+        func customPreviewMirrorsTiers() {
+            let views = Self.source("Views.swift")
+            #expect(views.contains("## Custom Context (High)"))
+            #expect(views.contains("You MUST follow these instructions in every response:"))
+            #expect(views.contains("## Custom Context (Medium)"))
+            #expect(views.contains("Follow these instructions for this session:"))
+            #expect(views.contains("## Custom Context (Low)"))
+        }
     }
 }
 
