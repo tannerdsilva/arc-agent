@@ -29,7 +29,10 @@ extension AppState {
         // so re-render it on session switches and workspace changes too.
         u.append(FragmentUpdate(id: "ws-dock", html: workspaceDockHTML()))
         u.append(FragmentUpdate(id: "ws-panel", html: workspacePanelHTML()))
-        u.append(fragment("toasts", toastsHTML()))
+        // push the SHELL: the engine's replaceElement removes a target when the
+        // fragment is empty, so an inner-only push of "no toasts" would delete
+        // #toasts for the rest of the session and swallow every later toast.
+        u.append(fragment("toasts", toastsShell()))
         u.append(fragment("modal-root", modalRootHTML()))
         return u
     }
@@ -1100,7 +1103,7 @@ extension AppState {
             fragment("panel", await panelHTML()),
             FragmentUpdate(id: "chat-header", html: render(chatHeaderHTML())),
             fragment("composer-wrap", composerHTML()),
-            fragment("toasts", toastsHTML()),
+            fragment("toasts", toastsShell()),
         ]
     }
 
@@ -1596,7 +1599,7 @@ final class Controller: Sendable {
                 // would show the wrong message first.
                 guard let sid = dec(String(tid.dropFirst("sm-copy-".count))) else { return [] }
                 await self.app.markCopyLink(sid)
-                return [fragment("toasts", await self.app.toastsHTML())]
+                return [fragment("toasts", await self.app.toastsShell())]
             }
             if tid.hasPrefix("sm-pin-"), let id = dec(String(tid.dropFirst("sm-pin-".count))) {
                 await self.app.toggleBookmark(id)
@@ -3142,7 +3145,7 @@ final class Controller: Sendable {
             guard tid.hasPrefix("t-"),
                   let id = Int(tid.dropFirst("t-".count)) else { return [] }
             await self.app.dismissToast(id: id)
-            return [fragment("toasts", await self.app.toastsHTML())]
+            return [fragment("toasts", await self.app.toastsShell())]
         }
     }
 }
