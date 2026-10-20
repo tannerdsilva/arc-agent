@@ -146,33 +146,37 @@ extension AppState {
         .attribute("id", "iconbar")
     }
 
-    /// One rail button. The only thing that changes between the active and
-    /// inactive states is `aria-current="page"` plus `class="icon-btn active"`
-    /// / `tabindex="0"` — `Group` keeps it as exactly one `<button>` (no
-    /// wrapper element), so the rail renders one button per tab.
+    /// One rail tab as a button.
+    ///
+    /// UX-07 roving rail: the ACTIVE nav item is the single tab stop; every other
+    /// tab is `tabindex="-1"` and reached with ArrowUp/ArrowDown (overlay.js roves
+    /// tabindex with focus). UX-08: an icon-only button still needs an accessible
+    /// name — the `data-tip` pill is hover-only, so assistive tech and touch never
+    /// see it.
+    ///
+    /// The only thing that changes between the active and inactive states is
+    /// `aria-current="page"` plus `class="icon-btn active"` / `tabindex="0"` —
+    /// `Group` keeps it as exactly one `<button>` (no wrapper element), so the
+    /// rail renders one button per tab.
     private func railButton(_ tab: any SidebarTab, active: Bool) -> some WebUI.View {
-        Group {
+        let base = ArcButton(
+            id: "nav-\(tab.id)",
+            component: "nav-\(tab.id)",
+            class: active ? "icon-btn active" : "icon-btn",
+            tabIndex: active ? 0 : -1
+        ) {
+            SidebarTabIconRenderer.view(tab.icon)
+        }
+        .attribute("data-tip", tab.title)
+        .attribute("aria-label", tab.title)
+
+        // only the active tab announces itself as the current page; the others
+        // stay reachable but out of the tab order.
+        return Group {
             if active {
-                ArcButton(tab.title,
-                          id: "nav-\(tab.id)",
-                          component: "nav-\(tab.id)",
-                          class: "icon-btn active",
-                          tabIndex: 0) {
-                    SidebarTabIconRenderer.view(tab.icon)
-                }
-                .attribute("data-tip", tab.title)
-                .attribute("aria-label", tab.title)
-                .attribute("aria-current", "page")
+                base.attribute("aria-current", "page")
             } else {
-                ArcButton(tab.title,
-                          id: "nav-\(tab.id)",
-                          component: "nav-\(tab.id)",
-                          class: "icon-btn",
-                          tabIndex: -1) {
-                    SidebarTabIconRenderer.view(tab.icon)
-                }
-                .attribute("data-tip", tab.title)
-                .attribute("aria-label", tab.title)
+                base
             }
         }
     }
@@ -198,7 +202,7 @@ extension AppState {
                     if let a = t.action {
                         ArcButton(a.label, id: "ta-\(a.id)-\(t.id)", component: nil, class: "toast-action")
                     }
-                    ArcButton("", id: "t-\(t.id)", component: nil, class: "toast-x") {
+                    ArcButton(id: "t-\(t.id)", component: nil, class: "toast-x") {
                         WebUIIcon(.x, size: .small)
                     }
                 }

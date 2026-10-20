@@ -20,14 +20,15 @@ struct ArcComponentsTests {
         #expect(html.contains(">Save</button>"))
     }
 
-    @Test("arc button renders children instead of label")
+    @Test("arc button renders its content views")
     func arcButtonChildrenRenderInside() {
-        let html = ArcButton("ignored", class: "sess-open") {
+        // the initializer that takes a label has no content builder and this one
+        // has no label, so the old "label silently dropped" case cannot be written
+        let html = ArcButton(class: "sess-open") {
             Span { Text("click me") }
         }.markup.html
         #expect(html.contains("<span>click me</span>"))
         #expect(html.contains("type=\"button\""))
-        #expect(!html.contains("ignored"))
     }
 
     @Test("arc button omits data-component-id when component is nil")
