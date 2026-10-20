@@ -37,6 +37,22 @@ extension ArcWebUITestRoot {
         private static var views: String { clientText(source("Sources/ArcWebUI/Views.swift")) }
         private static var insights: String { clientText(source("Sources/ArcWebUI/Insights.swift")) }
         private static var actions: String { clientText(source("Sources/ArcWebUI/Actions.swift")) }
+
+        /// every rendered rail button's open tag, for pins that must hold on each
+        /// button rather than on one spelling found somewhere in a source file.
+        static func railButtonTags(_ page: String) -> [String] {
+            page.components(separatedBy: "<button")
+                .filter { $0.contains("icon-btn") && $0.contains("data-component-id=\"nav-") }
+                .map { String($0.prefix(while: { $0 != ">" })) }
+        }
+
+        /// the value of `name` in a rendered open-tag fragment, or nil.
+        static func attribute(_ name: String, in tag: String) -> String? {
+            guard let open = tag.range(of: name + "=\"") else { return nil }
+            let rest = tag[open.upperBound...]
+            guard let close = rest.firstIndex(of: "\"") else { return nil }
+            return String(rest[..<close])
+        }
         private static var appState: String { source("Sources/ArcWebUI/AppState.swift") }
         private static var appStateActions: String { source("Sources/ArcWebUI/AppState+Actions.swift") }
         private static var overlay: String { source("Sources/ArcWebUI/Assets/overlay.js") }
@@ -632,16 +648,25 @@ extension ArcWebUITestRoot {
         // MARK: - UX-12/T09 one tooltip system, one label
 
         @Test("the rail and header buttons use one tooltip mechanism with one label")
-        func oneTooltipSystemOneLabel() {
+        func oneTooltipSystemOneLabel() async {
             let views = Self.views
             let sheet = Self.sheetSource
             #expect(!views.contains("title=\"\\(esc(tab.title))\" data-tip="),
                     "the rail must not emit a native title next to data-tip (double tooltip)")
-            #expect(!views.contains("title=\"Settings\" data-tip=\"Settings\""),
-                    "the settings rail button must not emit title next to data-tip")
-            #expect(views.contains("data-tip=\"\\(esc(tab.title))\""),
-                    "the rail pill carries the unified full tab label (Chats, not Chat)")
-            #expect(views.contains("data-tip=\"Settings\""),
+            // the rail is a typed view now, so its pill + accessible name are read
+            // from rendered bytes: every icon button must carry BOTH, with the same
+            // value, and no native title.
+            let page = await RenderedMarkup.page()
+            let tags = Self.railButtonTags(page)
+            #expect(tags.count >= 5, "the rail rendered \(tags.count) buttons — the fixture or the rail is broken")
+            for tag in tags {
+                #expect(tag.contains("data-tip=\""), "a rail button carries no data-tip pill: \(tag)")
+                #expect(tag.contains("aria-label=\""), "a rail button carries no accessible name: \(tag)")
+                #expect(!tag.contains(" title=\""), "a rail button emits a native title beside data-tip (double tooltip): \(tag)")
+                #expect(Self.attribute("data-tip", in: tag) == Self.attribute("aria-label", in: tag),
+                        "the pill and the accessible name disagree on a rail button: \(tag)")
+            }
+            #expect(page.contains("data-tip=\"Settings\""),
                     "the settings pill label is Settings")
             #expect(views.contains("data-tip=\"Regenerate last reply\""),
                     "header icon button (regen) uses the data-tip pill, not a native title")
@@ -1175,13 +1200,26 @@ extension ArcWebUITestRoot {
         /// only painted `.active`. Icon-only controls need real accessible
         /// names; selection cards need aria-pressed mirroring the selection.
         @Test("icon-only shell buttons carry accessible names and selection cards carry aria-pressed")
-        func shellButtonsAreNamedAndSelectionIsPressed() {
+        func shellButtonsAreNamedAndSelectionIsPressed() async {
             let views = Self.views
             // Every rail icon (nav-<id>) keeps its data-tip pill AND gains an
             // aria-label for AT/touch (the pill is hover-only). Settings too.
-            #expect(views.contains("data-tip=\"\\(esc(tab.title))\" aria-label=\"\\(esc(tab.title))\""),
-                    "each rail button must pair its hover pill with an aria-label (UX-08)")
-            #expect(views.contains("data-tip=\"Settings\" aria-label=\"Settings\""),
+            // Read from rendered bytes: the rail is typed now, and this proves the
+            // pair exists on every button rather than that a spelling appears once.
+            let page = await RenderedMarkup.page()
+            let tags = Self.railButtonTags(page)
+            #expect(!tags.isEmpty, "the rail rendered no buttons at all")
+            for tag in tags {
+                #expect(Self.attribute("data-tip", in: tag) != nil,
+                        "a rail button lost its hover pill (UX-08): \(tag)")
+                #expect(Self.attribute("aria-label", in: tag) != nil,
+                        "a rail button lost its aria-label (UX-08): \(tag)")
+            }
+            #expect(page.contains("data-tip=\"Settings\" aria-label=\"Settings\"")
+                        || (Self.railButtonTags(page).contains { tag in
+                            Self.attribute("data-tip", in: tag) == "Settings"
+                                && Self.attribute("aria-label", in: tag) == "Settings"
+                        }),
                     "the Settings rail button must carry an aria-label (UX-08)")
             // Theme / text-size / scheme cards mark selection with .active —
             // that state must reach assistive tech as aria-pressed.
