@@ -628,14 +628,14 @@ extension AppState {
             // contract is that a conversion changes NO bytes.
             Div(class: "sess-group-rows") {
                 for s in sessions {
-                    legacy(sessionRow(s, todos: todos)) // TODO(phase 2.3b)
+                    sessionRow(s, todos: todos)
                 }
             }
         }
         .attribute("data-grp", key)
     }
 
-    func sessionRow(_ s: Session, todos: Bool = false) -> String {
+func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         let encID = enc(s.id)
         let isActiveRow = s.id == activeSessionID
         let active = isActiveRow ? " active" : ""
@@ -646,100 +646,158 @@ extension AppState {
         // (wave 4) — identical truncated rows are otherwise indistinguishable.
         let full = sessionTitle(s)
         let title = trunc(full, 40)
-        let fullAttr = " title=\"\(esc(full))\" aria-label=\"\(esc(full))\" data-full-title=\"\(esc(full))\""
         // UX-07 roving: the ROW is the single tab stop (active row tabindex
         // 0, everyone else -1; ArrowUp/Down moves focus between rows). The
         // open button and the ⋮ menu are quiet utilities: out of the tab
         // order, but still reachable by keyboard through the row (Enter opens,
         // Menu/Shift+F10 opens the ⋮ menu).
-        let rowTab = isActiveRow ? "0" : "-1"
+        let rowTab = isActiveRow ? 0 : -1
+        let rowClass = "sess-row\(active)\(archived)"
         if todos {
             // Minimal variant for the Todos page: chat title only — no meta,
             // no ⋮ menu, no category dot, no pin badge.
-            return """
-            <div class="sess-row\(active)\(archived)" tabindex="\(rowTab)" role="group"\(fullAttr) data-sid="\(s.id)"\(isActiveRow ? " aria-current=\"true\"" : "")>
-              <button type="button" id="s-open-\(encID)" class="sess-open" tabindex="-1">
-                <span class="sess-title">\(esc(title))</span>
-              </button>
-            </div>
-            """
+            let row = Div(class: rowClass) {
+                ArcButton(id: "s-open-\(encID)", component: nil, class: "sess-open", tabIndex: -1) {
+                    Span(class: "sess-title") { Text(title) }
+                }
+            }
+            .attribute("tabindex", "\(rowTab)")
+            .attribute("role", "group")
+            .attribute("title", full)
+            .attribute("aria-label", full)
+            .attribute("data-full-title", full)
+            .attribute("data-sid", s.id)
+            // aria-current is presence-only and `.attribute` takes a value, so
+            // the active shape is a second branch rather than `aria-current=""`.
+            return Group {
+                if isActiveRow {
+                    row.attribute("aria-current", "true")
+                } else {
+                    row
+                }
+            }
         }
         let booked = isBookmarked(s.id)
         // Summaries carry the metadata count; loaded sessions use the live array.
         let count = s.messages.isEmpty ? s.messageCount : s.messages.count
         let epochMs = Int(s.updatedAt.timeIntervalSince1970 * 1000)
-        let meta = "\(count) msg • <span class=\"rel-time\" data-reltime=\"\(epochMs)\">\(relTimeLabel(s.updatedAt))</span>" + (archived.isEmpty ? "" : " • Archived") + liveStatusPill(s.id)
-        let pinBadge = booked ? "<span class=\"pin-badge\" title=\"Pinned\">" + WebUIIcon(.bookmark, size: .small).markup.html + "</span>" : ""
         let pinLabel = booked ? "Unpin conversation" : "Pin conversation"
         let arcLabel = archived.isEmpty ? "Archive conversation" : "Unarchive conversation"
         let catID = categoryID(for: s.id)
         let catColor = categoryColor(for: catID)
-        let catDot = catColor.isEmpty ? "" : "<span class=\"cat-dot cat-rowdot\" style=\"background:\(catColor)\" title=\"\(esc(categoryName(for: catID)))\"></span>"
-        // Category picker inside the "⋮" menu: a hover flyout submenu to the
-        // right of "Set category" (arc parity), keeping category option
-        // button ids so the existing chat-menu wire handles them unchanged.
-        let noneCls = catID == nil ? " menu-sel" : ""
-        var catSub = "<button type=\"button\" id=\"sm-uncat-\(encID)\" class=\"" + noneCls.trimmingCharacters(in: .whitespaces) + "\">No Project" + (catID == nil ? " " + WebUIIcon(.check, size: .small).markup.html : "") + "</button>"
-        for c in settings.chatCategories {
-            let sel = c.id == catID ? " menu-sel" : ""
-            let check = c.id == catID ? " " + WebUIIcon(.check, size: .small).markup.html : ""
-            catSub += """
-            <button type="button" id="sm-cat-\(enc(c.id)).\(encID)" class="\(sel)" data-sid="\(s.id)">
-              <span class="cat-dot" style="background:\(c.color)"></span><span>\(esc(c.name))\(check)</span>
-            </button>
-            """
+        let catName = categoryName(for: catID)
+        let row = Div(class: rowClass) {
+            ArcButton(id: "s-open-\(encID)", component: nil, class: "sess-open", tabIndex: -1) {
+                Span(class: "sess-title") {
+                    if booked {
+                        Span(class: "pin-badge") { WebUIIcon(.bookmark, size: .small) }
+                            .attribute("title", "Pinned")
+                    }
+                    Text(title)
+                }
+                Span(class: "sess-meta") {
+                    Text("\(count) msg • ")
+                    Span(class: "rel-time") { Text(relTimeLabel(s.updatedAt)) }
+                        .attribute("data-reltime", "\(epochMs)")
+                    if !archived.isEmpty { Text(" • Archived") }
+                    legacy(liveStatusPill(s.id)) // TODO(phase 2.5)
+                }
+            }
+            Div(class: "row-actions") {
+                Div(class: "menu-wrap") {
+                    Div(class: "menu-left") {
+                        if !catColor.isEmpty {
+                            Span(class: "cat-dot cat-rowdot") {}
+                                .attribute("style", "background:\(catColor)")
+                                .attribute("title", catName)
+                        }
+                    }
+                    ArcButton(id: "s-menu-\(encID)", component: nil, class: "menu-dots", tabIndex: -1) {
+                        if activeTurns[s.id] != nil {
+                            Span(class: "row-spin") {}
+                            Span(class: "row-dots") { Text("⋮") }
+                        } else {
+                            Text("⋮")
+                        }
+                    }
+                    .attribute("title", "Chat actions")
+                    Div(class: "chat-menu") {
+                        Div(class: "chat-menu-items") {
+                            ArcButton("Copy conversation link", id: "sm-copy-\(encID)", class: "")
+                                .attribute("data-sid", s.id)
+                            ArcButton("Rename conversation", id: "sm-rename-\(encID)", class: "")
+                                .attribute("data-sid", s.id)
+                            ArcButton(pinLabel, id: "sm-pin-\(encID)", class: "")
+                                .attribute("data-sid", s.id)
+                            ArcButton(arcLabel, id: "sm-arc-\(encID)", class: "")
+                                .attribute("data-sid", s.id)
+                            // Category picker inside the "⋮" menu: a hover flyout
+                            // submenu to the right of "Set category" (arc parity),
+                            // keeping category option button ids so the existing
+                            // chat-menu wire handles them unchanged.
+                            ArcButton(id: "sm-catmenu-\(encID)", component: nil, class: "menu-item-head catmenu-head") {
+                                Span { Text("Move to Category") }
+                                Span(class: "menu-arrow") { WebUIIcon(.chevronRight, size: .small) }
+                            }
+                            ArcButton("Duplicate conversation", id: "sm-dup-\(encID)", class: "")
+                                .attribute("data-sid", s.id)
+                            ArcButton("Delete conversation", id: "sm-del-\(encID)", class: "danger")
+                                .attribute("data-sid", s.id)
+                        }
+                        // "Move to Category" swaps this menu's items for a
+                        // category panel (client-side panel swap; the category
+                        // buttons keep their wire ids).
+                        // The panel must be a SIBLING of .chat-menu-items: when JS
+                        // hides the items container, a nested panel would be
+                        // hidden with it.
+                        Div(class: "chat-menu-panel") {
+                            Div(class: "cat-panel-head") {
+                                ArcButton(id: "sm-catback-\(encID)", component: nil, class: "cat-panel-back") {
+                                    WebUIIcon(.chevronLeft, size: .small)
+                                }
+                                .attribute("title", "Back")
+                                Span(class: "cat-panel-title") { Text("Move to Category") }
+                            }
+                            Div(class: "cat-panel-list") {
+                                ArcButton(id: "sm-uncat-\(encID)", component: nil, class: catID == nil ? "menu-sel" : "") {
+                                    Text("No Project")
+                                    if catID == nil { WebUIIcon(.check, size: .small) }
+                                }
+                                for c in settings.chatCategories {
+                                    ArcButton(id: "sm-cat-\(enc(c.id)).\(encID)", component: nil, class: c.id == catID ? "menu-sel" : "") {
+                                        Span(class: "cat-dot") {}
+                                            .attribute("style", "background:\(c.color)")
+                                        Span {
+                                            Text(c.name)
+                                            if c.id == catID { WebUIIcon(.check, size: .small) }
+                                        }
+                                    }
+                                    .attribute("data-sid", s.id)
+                                }
+                            }
+                        }
+                        .attribute("id", "catpanel-\(encID)")
+                        .attribute("hidden", "")
+                    }
+                    .attribute("data-component-id", "chat-menu")
+                    .attribute("data-event", "click")
+                    .attribute("id", "menu-\(encID)")
+                }
+            }
         }
-        // "Move to Category" swaps this menu's items for a category panel
-        // (client-side panel swap; the category buttons keep their wire ids).
-        // The panel must be a SIBLING of .chat-menu-items: when JS hides the
-        // items container, a nested panel would be hidden with it.
-        let catPanel = """
-        <div class="chat-menu-panel" id="catpanel-\(encID)" hidden>
-          <div class="cat-panel-head">
-            <button type="button" id="sm-catback-\(encID)" class="cat-panel-back" title="Back">\(WebUIIcon(.chevronLeft, size: .small).markup.html)</button>
-            <span class="cat-panel-title">Move to Category</span>
-          </div>
-          <div class="cat-panel-list">\(catSub)</div>
-        </div>
-        """
-        let catOpts = """
-        <button type="button" id="sm-catmenu-\(encID)" class="menu-item-head catmenu-head">
-          <span>Move to Category</span><span class="menu-arrow">\(WebUIIcon(.chevronRight, size: .small).markup.html)</span>
-        </button>
-        """
-        let rowDotContent: String
-        if activeTurns[s.id] != nil {
-            rowDotContent = #"<span class="row-spin"></span><span class="row-dots">⋮</span>"#
-        } else {
-            rowDotContent = "⋮"
+        .attribute("tabindex", "\(rowTab)")
+        .attribute("role", "group")
+        .attribute("title", full)
+        .attribute("aria-label", full)
+        .attribute("data-full-title", full)
+        .attribute("data-sid", s.id)
+        return Group {
+            if isActiveRow {
+                row.attribute("aria-current", "true")
+            } else {
+                row
+            }
         }
-        let menu = """
-        <div class="menu-wrap">
-          <div class="menu-left">\(catDot)</div>
-          <button type="button" id="s-menu-\(encID)" class="menu-dots" title="Chat actions" tabindex="-1">\(rowDotContent)</button>
-          <div class="chat-menu" data-component-id="chat-menu" data-event="click" id="menu-\(encID)">
-            <div class="chat-menu-items">
-            <button type="button" id="sm-copy-\(encID)" data-sid="\(s.id)">Copy conversation link</button>
-            <button type="button" id="sm-rename-\(encID)" data-sid="\(s.id)">Rename conversation</button>
-            <button type="button" id="sm-pin-\(encID)" data-sid="\(s.id)">\(pinLabel)</button>
-            <button type="button" id="sm-arc-\(encID)" data-sid="\(s.id)">\(arcLabel)</button>
-            \(catOpts)
-            <button type="button" id="sm-dup-\(encID)" data-sid="\(s.id)">Duplicate conversation</button>
-            <button type="button" id="sm-del-\(encID)" class="danger" data-sid="\(s.id)">Delete conversation</button>
-            </div>
-            \(catPanel)
-          </div>
-        </div>
-        """
-        return """
-        <div class="sess-row\(active)\(archived)" tabindex="\(rowTab)" role="group"\(fullAttr) data-sid="\(s.id)"\(isActiveRow ? " aria-current=\"true\"" : "")>
-          <button type="button" id="s-open-\(encID)" class="sess-open" tabindex="-1">
-            <span class="sess-title">\(pinBadge)\(esc(title))</span>
-            <span class="sess-meta">\(meta)</span>
-          </button>
-          <div class="row-actions">\(menu)</div>
-        </div>
-        """
     }
 
     // MARK: Skills panel

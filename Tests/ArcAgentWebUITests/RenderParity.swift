@@ -223,8 +223,16 @@ enum ParityNormalize {
         for (name, value) in attrs {
             if booleanAttributes.contains(name) {
                 result.append("\(name)=\"\"")
-            } else if name == "class" && value.isEmpty {
-                continue // drop empty class=""
+            } else if name == "class" {
+                // `class` is a space-separated token SET, so a leading, trailing
+                // or doubled space is semantically invisible. The legacy
+                // builders emitted `class=" menu-sel"` by interpolating a
+                // prefixed flag; comparing the canonical token list lets the
+                // typed tree emit the plain spelling instead of carrying a
+                // stray space forever.
+                let tokens = value.split(whereSeparator: \.isWhitespace)
+                if tokens.isEmpty { continue } // drop empty class=""
+                result.append("class=\"\(escapeAttr(tokens.joined(separator: " ")))\"")
             } else if name == "style" && value.isEmpty {
                 continue // drop empty style=""
             } else {
@@ -750,7 +758,7 @@ struct RenderParityTests {
         fixture.settings.chatCategories = [ChatCategory(id: "c1", name: "Work", color: "#E5484D")]
         fixture.settings.sessionCategories = ["sess-a": "c1"]
         let app = AppState(renderFixture: fixture)
-        let html = await app.sessionRow(fixture.sessions[0])
+        let html = await app.sessionRow(fixture.sessions[0]).markup.html
         Parity.capture(html, as: "sess-row-active")
         Parity.expect(html, matches: "sess-row-active")
     }
@@ -764,7 +772,7 @@ struct RenderParityTests {
                     messageCount: 0, messages: []),
         ]
         let app = AppState(renderFixture: fixture)
-        let html = await app.sessionRow(fixture.sessions[0])
+        let html = await app.sessionRow(fixture.sessions[0]).markup.html
         Parity.capture(html, as: "sess-row-idle")
         Parity.expect(html, matches: "sess-row-idle")
     }
@@ -779,7 +787,7 @@ struct RenderParityTests {
         ]
         fixture.settings.archivedSessions = ["sess-c"]
         let app = AppState(renderFixture: fixture)
-        let html = await app.sessionRow(fixture.sessions[0])
+        let html = await app.sessionRow(fixture.sessions[0]).markup.html
         Parity.capture(html, as: "sess-row-archived")
         Parity.expect(html, matches: "sess-row-archived")
     }
@@ -805,7 +813,7 @@ struct RenderParityTests {
         ]
         fixture.settings.archivedSessions = ["sess-c"]
         let app = AppState(renderFixture: fixture)
-        let html = await app.sessionRow(fixture.sessions[0])
+        let html = await app.sessionRow(fixture.sessions[0]).markup.html
         #expect(html.contains("Archive conversation"),
                 "an unarchived row offered Unarchive — the menu label is reading the archived LIST, not this session")
         #expect(!html.contains("Unarchive conversation"),
@@ -825,7 +833,7 @@ struct RenderParityTests {
                     messageCount: 1, messages: [Message(role: .user, content: "hi")]),
         ]
         let app = AppState(renderFixture: fixture)
-        let html = await app.sessionRow(fixture.sessions[0])
+        let html = await app.sessionRow(fixture.sessions[0]).markup.html
         Parity.capture(html, as: "sess-row-live")
         Parity.expect(html, matches: "sess-row-live")
     }
@@ -839,7 +847,7 @@ struct RenderParityTests {
                     messageCount: 0, messages: []),
         ]
         let app = AppState(renderFixture: fixture)
-        let html = await app.sessionRow(fixture.sessions[0], todos: true)
+        let html = await app.sessionRow(fixture.sessions[0], todos: true).markup.html
         Parity.capture(html, as: "sess-row-todos")
         Parity.expect(html, matches: "sess-row-todos")
     }

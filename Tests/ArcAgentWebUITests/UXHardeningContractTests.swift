@@ -607,11 +607,14 @@ extension ArcWebUITestRoot {
             let skip = #"<a [^>]*skip-link[^>]*>Skip to composer</a>"#
             #expect(page.range(of: skip, options: .regularExpression) != nil,
                     "a skip-to-composer link must be the first focusable element (UX-07)")
-            #expect(Self.views.contains("tabindex=\"\\(rowTab)\" role=\"group\""),
+            // rows are typed now, so these pins read the RENDERED row markup:
+            // attribute order is the framework's, not a source-string spelling.
+            let panel = await RenderedMarkup.panelWithRows()
+            #expect(panel.range(of: #"<div class="sess-row[^"]*"[^>]*tabindex="(?:0|-1)"[^>]*role="group""#, options: .regularExpression) != nil,
                     "each session row must be the roving tab stop (active 0, others -1)")
-            #expect(Self.views.contains("class=\"sess-open\" tabindex=\"-1\""),
+            #expect(panel.range(of: #"<button [^>]*class="sess-open"[^>]*tabindex="-1""#, options: .regularExpression) != nil,
                     "the per-row open button must be out of the tab order")
-            #expect(Self.views.contains("class=\"menu-dots\" title=\"Chat actions\" tabindex=\"-1\""),
+            #expect(panel.range(of: #"<button [^>]*class="menu-dots"[^>]*tabindex="-1"[^>]*>"#, options: .regularExpression) != nil,
                     "the per-row ⋮ must be out of the tab order (reachable via Menu/Shift+F10)")
             #expect(Self.views.contains("class=\"tw-copy\" type=\"button\" data-copy-target=\"\\(target)\" title=\"Copy this activity\" tabindex=\"-1\""),
                     "worklog copy buttons must be quiet (out of the tab order)")
@@ -1226,17 +1229,40 @@ extension ArcWebUITestRoot {
         /// (wave 4, UX-21) — seeds it from the rendered text and the stored
         /// title is silently lost.
         @Test("session rows carry the full title on hover, as their accessible name, and in data-full-title")
-        func sessionRowsCarryTheFullTitle() {
-            let views = Self.views
-            // Both row variants (chat list and todos page) must splice the
-            // full-title attribute bundle in (exactly two splice sites).
-            let splice = views.components(separatedBy: "role=\"group\"\\(fullAttr)").count
-            #expect(splice == 3,
-                    "both session-row variants must splice the full-title bundle on the row (found \\(splice - 1) sites)")
-            #expect(views.contains("title=\"\\(esc(full))\" aria-label=\"\\(esc(full))\" data-full-title=\"\\(esc(full))\""),
-                    "the bundle must carry title + aria-label + data-full-title, all with the FULL stored title (UX-06)")
-            #expect(!views.contains("role=\"group\" aria-label=\"\\(esc(title))\""),
-                    "the accessible name must no longer be the 40-char truncated string (UX-06)")
+        func sessionRowsCarryTheFullTitle() async {
+            // The rows are typed now, so this pin reads the RENDERED row tags
+            // rather than counting splice sites in the builder source: what
+            // matters is that every row that reaches the client carries the
+            // trio, all three holding the SAME (full) stored title.
+            let panel = await RenderedMarkup.panelWithRows()
+
+            func attribute(_ name: String, in tag: String) -> String? {
+                guard let key = tag.range(of: "\(name)=\"") else { return nil }
+                let rest = tag[key.upperBound...]
+                guard let end = rest.firstIndex(of: "\"") else { return nil }
+                return String(rest[..<end])
+            }
+
+            let rowTags = panel.components(separatedBy: "<div class=\"sess-row").dropFirst().compactMap { chunk -> String? in
+                guard let end = chunk.firstIndex(of: ">") else { return nil }
+                return String(chunk[..<end])
+            }
+            #expect(rowTags.count >= 2, "the fixture must render more than one row (found \(rowTags.count))")
+            var sawATruncatableTitle = false
+            for tag in rowTags {
+                let full = attribute("data-full-title", in: tag)
+                #expect(full != nil && !full!.isEmpty,
+                        "every row must carry data-full-title (UX-06/UX-21)")
+                #expect(full == attribute("title", in: tag),
+                        "the hover title must be the same full stored title (UX-06)")
+                #expect(full == attribute("aria-label", in: tag),
+                        "the accessible name must be the same full stored title (UX-06)")
+                if let full, full.count > 40 { sawATruncatableTitle = true }
+            }
+            // floor: if no fixture title is longer than the 40-char clamp, the
+            // pin cannot tell "full title" from "truncated title" at all.
+            #expect(sawATruncatableTitle,
+                    "at least one fixture title must exceed the 40-char clamp, or this pin proves nothing")
         }
 
         // MARK: - UX-08 (2026-10-18 wave 2) names, pressed state, sort labels, focus restore
@@ -1409,10 +1435,12 @@ extension ArcWebUITestRoot {
         // MARK: - UX-21 (wave 4) rename seeds from the full stored title
 
         @Test("rename input seeds from data-full-title, not the truncated row text")
-        func renameSeedsFromFullTitle() {
+        func renameSeedsFromFullTitle() async {
             let overlay = Self.overlay
-            let views = Self.views
-            #expect(views.contains("data-full-title="),
+            // the row is typed now: the attribute is emitted by `.attribute`,
+            // so the proof is the RENDERED row, not a source spelling.
+            let panel = await RenderedMarkup.panelWithRows()
+            #expect(panel.contains("data-full-title=\""),
                     "the session row must carry the full stored title (UX-06/UX-21)")
             #expect(overlay.contains("row.getAttribute('data-full-title')"),
                     "rename must seed from the row's data-full-title (UX-21)")

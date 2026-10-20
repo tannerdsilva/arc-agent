@@ -10,6 +10,8 @@
 // suite opaquely. fatalError is never used here.
 
 @testable import ArcWebUI
+import ArcAgentCore
+import Foundation
 import WebUI
 
 enum RenderedMarkup {
@@ -37,6 +39,27 @@ enum RenderedMarkup {
         case "modal-root":   return await app.modalRootHTML().markup.html
         default:             return ""
         }
+    }
+
+    /// the session-list panel WITH rows in it: the default fixture seeds none,
+    /// so a row pin rendered against it would silently assert nothing. one row is
+    /// active (roving tab stop 0), one is archived, and the active row's title is
+    /// longer than the 40-char display clamp so a "full title" pin can tell the
+    /// full string from the truncated one.
+    static func panelWithRows() async -> String {
+        var fixture = seededFixture()
+        fixture.activeSessionID = "sess-a"
+        fixture.sessions = [
+            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                    title: "A conversation title long enough to be truncated by the row clamp",
+                    messageCount: 2, messages: []),
+            Session(id: "sess-b", createdAt: Date(timeIntervalSince1970: 1_700_000_300),
+                    updatedAt: Date(timeIntervalSince1970: 1_700_000_300), title: "Second chat",
+                    messageCount: 1, messages: []),
+        ]
+        let app = AppState(renderFixture: fixture)
+        return await app.panelHTML().markup.html
     }
 
     /// a fixture that seeds the fields the bare defaults leave empty, so every
