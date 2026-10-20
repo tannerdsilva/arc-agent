@@ -1070,6 +1070,10 @@ actor AppState {
         /// seams are the only way to pin its four states from a render test.
         var pendingApproval: PendingApproval? = nil
         var pendingClarify: PendingClarify? = nil
+        /// plugin cards only render when a manifest is discovered; the startup
+        /// outcome drives the running/failed chips.
+        var pluginManifests: [String: PluginManifest] = [:]
+        var pluginStartupOutcome: [String: String] = [:]
         var pendingCopyURL: String? = nil
         /// Left-panel chat list filter text (drives the "No chats match" branch).
         var chatFilter = ""
@@ -1099,6 +1103,8 @@ actor AppState {
         self.pendingConfirm = fixture.pendingConfirm
         self.pendingApproval = fixture.pendingApproval
         self.pendingClarify = fixture.pendingClarify
+        self.pluginManifests = fixture.pluginManifests
+        self.pluginStartupOutcome = fixture.pluginStartupOutcome
         self.pendingCopyURL = fixture.pendingCopyURL
         self.chatFilter = fixture.chatFilter
         self.showArchived = fixture.showArchived

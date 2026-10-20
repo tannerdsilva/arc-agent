@@ -1,0 +1,459 @@
+<div class="main-view">
+  <div id="main-scroll" class="main-scroll settings-wrap" data-scroll-key="main-scroll">
+    <section class="set-section" id="appearance">
+      <h2>Appearance</h2>
+      <div class="detail-card">
+        <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
+          <div class="set-label">Theme<small>Light, dark, or follow the system.</small></div>
+          <div class="thm-grid" data-component-id="theme-pick" data-event="click"><button type="button" id="thm-light" data-theme-choice="light" class="theme-pick-btn active" title="Light" aria-pressed="true"><span class="thm-preview" style="background:#FFFFFF;border:1px solid rgba(0,0,0,0.14)"><span class="thm-ic"><svg class="icon icon--md" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg></span></span><span class="thm-label">Light</span></button><button type="button" id="thm-dark" data-theme-choice="dark" class="theme-pick-btn" title="Dark" aria-pressed="false"><span class="thm-preview" style="background:#0D1117;border:1px solid rgba(255,255,255,0.10)"><span class="thm-ic"><svg class="icon icon--md" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span></span><span class="thm-label">Dark</span></button><button type="button" id="thm-system" data-theme-choice="system" class="theme-pick-btn" title="System" aria-pressed="false"><span class="thm-preview" style="background:linear-gradient(100deg,#FFFFFF 0%,#8B8B93 52%,#15151A 100%);border:1px solid rgba(0,0,0,0.12)"><span class="thm-ic"><svg class="icon icon--md" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span></span><span class="thm-label">System</span></button></div>
+        </div>
+        <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
+          <div class="set-label">Text size<small>Chat content, session names, workspace files, and memory text.</small></div>
+          <div class="fsz-grid" data-component-id="font-size-pick" data-event="click"><button type="button" id="fsz-sm" class="font-size-pick-btn" title="Small" aria-pressed="false"><span class="fsz-preview" style="font-size:10px">Aa</span><span class="fsz-label">Small</span></button><button type="button" id="fsz-md" class="font-size-pick-btn active" title="Default" aria-pressed="true"><span class="fsz-preview" style="font-size:13px">Aa</span><span class="fsz-label">Default</span></button><button type="button" id="fsz-lg" class="font-size-pick-btn" title="Large" aria-pressed="false"><span class="fsz-preview" style="font-size:17px">Aa</span><span class="fsz-label">Large</span></button><button type="button" id="fsz-xl" class="font-size-pick-btn" title="Extra Large" aria-pressed="false"><span class="fsz-preview" style="font-size:20px">Aa</span><span class="fsz-label">Extra Large</span></button></div>
+        </div>
+        <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
+          <div class="set-label">Color scheme<small>Full palette for the interface.</small></div>
+          <div class="scheme-grid" data-component-id="scheme-pick" data-event="click"><button type="button" id="scheme-ZGVmYXVsdA" data-scheme-choice="default" class="scheme-tile" title="Default" aria-pressed="false" style="--sw-accent:#B8860B">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#D9A441"></span><span class="scheme-dot" style="background:#B8860B"></span><span class="scheme-dot" style="background:#8A5A2B"></span></span>
+  <span class="scheme-name">Default</span>
+</button><button type="button" id="scheme-YXJlcw" data-scheme-choice="ares" class="scheme-tile" title="Ares" aria-pressed="false" style="--sw-accent:#E5484D">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#E5484D"></span><span class="scheme-dot" style="background:#F06A75"></span><span class="scheme-dot" style="background:#F8A5AE"></span></span>
+  <span class="scheme-name">Ares</span>
+</button><button type="button" id="scheme-bW9ubw" data-scheme-choice="mono" class="scheme-tile" title="Mono" aria-pressed="false" style="--sw-accent:#8B8B93">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#C8C8CD"></span><span class="scheme-dot" style="background:#8B8B93"></span><span class="scheme-dot" style="background:#4A4A52"></span></span>
+  <span class="scheme-name">Mono</span>
+</button><button type="button" id="scheme-Z3JhcGhpdGU" data-scheme-choice="graphite" class="scheme-tile" title="Graphite" aria-pressed="false" style="--sw-accent:#303030">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#FFFFFF"></span><span class="scheme-dot" style="background:#B8B8C0"></span><span class="scheme-dot" style="background:#3A3A42"></span></span>
+  <span class="scheme-name">Graphite</span>
+</button><button type="button" id="scheme-Z2l0aHVi" data-scheme-choice="github" class="scheme-tile" title="GitHub" aria-pressed="false" style="--sw-accent:#0969DA">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#0969DA"></span><span class="scheme-dot" style="background:#1F883D"></span><span class="scheme-dot" style="background:#30363D"></span></span>
+  <span class="scheme-name">GitHub</span>
+</button><button type="button" id="scheme-Y29kZXg" data-scheme-choice="codex" class="scheme-tile" title="Codex" aria-pressed="false" style="--sw-accent:#72B39A">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#10A37F"></span><span class="scheme-dot" style="background:#E8E8E8"></span><span class="scheme-dot" style="background:#333333"></span></span>
+  <span class="scheme-name">Codex</span>
+</button><button type="button" id="scheme-dGVycmFjb3R0YQ" data-scheme-choice="terracotta" class="scheme-tile" title="Terracotta" aria-pressed="false" style="--sw-accent:#C0785A">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#C08A6D"></span><span class="scheme-dot" style="background:#E8E8E8"></span><span class="scheme-dot" style="background:#3A3A42"></span></span>
+  <span class="scheme-name">Terracotta</span>
+</button><button type="button" id="scheme-c2xhdGU" data-scheme-choice="slate" class="scheme-tile" title="Slate" aria-pressed="false" style="--sw-accent:#4E7C99">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#7DA7C4"></span><span class="scheme-dot" style="background:#4E7C99"></span><span class="scheme-dot" style="background:#2A3F4C"></span></span>
+  <span class="scheme-name">Slate</span>
+</button><button type="button" id="scheme-cG9zZWlkb24" data-scheme-choice="poseidon" class="scheme-tile" title="Poseidon" aria-pressed="false" style="--sw-accent:#0E7C9B">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#4FC3E8"></span><span class="scheme-dot" style="background:#0E7C9B"></span><span class="scheme-dot" style="background:#0B4E63"></span></span>
+  <span class="scheme-name">Poseidon</span>
+</button><button type="button" id="scheme-c2lzeXBodXM" data-scheme-choice="sisyphus" class="scheme-tile" title="Sisyphus" aria-pressed="false" style="--sw-accent:#A78BFA">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#C4B5FD"></span><span class="scheme-dot" style="background:#8B5CF6"></span><span class="scheme-dot" style="background:#5B21B6"></span></span>
+  <span class="scheme-name">Sisyphus</span>
+</button><button type="button" id="scheme-Y2hhcml6YXJk" data-scheme-choice="charizard" class="scheme-tile" title="Charizard" aria-pressed="false" style="--sw-accent:#F97316">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#F9A03F"></span><span class="scheme-dot" style="background:#F97316"></span><span class="scheme-dot" style="background:#C2410C"></span></span>
+  <span class="scheme-name">Charizard</span>
+</button><button type="button" id="scheme-c2llbm5h" data-scheme-choice="sienna" class="scheme-tile" title="Sienna" aria-pressed="false" style="--sw-accent:#A9714B">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#D2A17E"></span><span class="scheme-dot" style="background:#A9714B"></span><span class="scheme-dot" style="background:#6B4632"></span></span>
+  <span class="scheme-name">Sienna</span>
+</button><button type="button" id="scheme-Y2F0cHB1Y2Npbg" data-scheme-choice="catppuccin" class="scheme-tile" title="Catppuccin" aria-pressed="false" style="--sw-accent:#CBA6F7">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#CDD6F4"></span><span class="scheme-dot" style="background:#C6A0F6"></span><span class="scheme-dot" style="background:#7C6FA8"></span></span>
+  <span class="scheme-name">Catppuccin</span>
+</button><button type="button" id="scheme-aGVwYnVybg" data-scheme-choice="hepburn" class="scheme-tile" title="Hepburn" aria-pressed="false" style="--sw-accent:#F278AD">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#F472B6"></span><span class="scheme-dot" style="background:#F9A8D4"></span><span class="scheme-dot" style="background:#FBCFE8"></span></span>
+  <span class="scheme-name">Hepburn</span>
+</button><button type="button" id="scheme-bm91cw" data-scheme-choice="nous" class="scheme-tile" title="Nous" aria-pressed="false" style="--sw-accent:#4682B4">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#93C5FD"></span><span class="scheme-dot" style="background:#4682B4"></span><span class="scheme-dot" style="background:#1E3A8A"></span></span>
+  <span class="scheme-name">Nous</span>
+</button><button type="button" id="scheme-bmVvbg" data-scheme-choice="neon" class="scheme-tile" title="Neon" aria-pressed="false" style="--sw-accent:#00B8FF">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#A855F7"></span><span class="scheme-dot" style="background:#00B8FF"></span><span class="scheme-dot" style="background:#22D3EE"></span></span>
+  <span class="scheme-name">Neon</span>
+</button><button type="button" id="scheme-bmVvbi1zb2Z0" data-scheme-choice="neon-soft" class="scheme-tile" title="Neon Soft" aria-pressed="false" style="--sw-accent:#C084FC">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#C084FC"></span><span class="scheme-dot" style="background:#67E8F9"></span><span class="scheme-dot" style="background:#BAE6FD"></span></span>
+  <span class="scheme-name">Neon Soft</span>
+</button><button type="button" id="scheme-bmVvbi1wYWludA" data-scheme-choice="neon-paint" class="scheme-tile" title="Neon Paint" aria-pressed="false" style="--sw-accent:#EC4899">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#EC4899"></span><span class="scheme-dot" style="background:#22D3EE"></span><span class="scheme-dot" style="background:#FDE047"></span></span>
+  <span class="scheme-name">Neon Paint</span>
+</button><button type="button" id="scheme-Z2Vpc3QtY29udHJhc3Q" data-scheme-choice="geist-contrast" class="scheme-tile" title="Geist Contrast" aria-pressed="false" style="--sw-accent:#FFF175">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#000000"></span><span class="scheme-dot" style="background:#FFFFFF"></span><span class="scheme-dot" style="background:#FFF175"></span></span>
+  <span class="scheme-name">Geist Contrast</span>
+</button><button type="button" id="scheme-emV1cw" data-scheme-choice="zeus" class="scheme-tile" title="Zeus" aria-pressed="false" style="--sw-accent:#E5B75D">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#E5B75D"></span><span class="scheme-dot" style="background:#C9A227"></span><span class="scheme-dot" style="background:#365314"></span></span>
+  <span class="scheme-name">Zeus</span>
+</button><button type="button" id="scheme-dmVyZGlncmlz" data-scheme-choice="verdigris" class="scheme-tile" title="Verdigris" aria-pressed="false" style="--sw-accent:#2F5D50">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#C0A080"></span><span class="scheme-dot" style="background:#2F5D50"></span><span class="scheme-dot" style="background:#3A3A42"></span></span>
+  <span class="scheme-name">Verdigris</span>
+</button><button type="button" id="scheme-ZHJhY3VsYQ" data-scheme-choice="dracula" class="scheme-tile" title="Dracula" aria-pressed="false" style="--sw-accent:#BD93F9">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#BD93F9"></span><span class="scheme-dot" style="background:#FF79C6"></span><span class="scheme-dot" style="background:#50FA7B"></span></span>
+  <span class="scheme-name">Dracula</span>
+</button><button type="button" id="scheme-Z3J1dmJveA" data-scheme-choice="gruvbox" class="scheme-tile" title="Gruvbox" aria-pressed="false" style="--sw-accent:#D79921">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#D79921"></span><span class="scheme-dot" style="background:#FE8019"></span><span class="scheme-dot" style="background:#B8BB26"></span></span>
+  <span class="scheme-name">Gruvbox</span>
+</button><button type="button" id="scheme-b25lLWRhcms" data-scheme-choice="one-dark" class="scheme-tile" title="One Dark" aria-pressed="false" style="--sw-accent:#61AFEF">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#61AFEF"></span><span class="scheme-dot" style="background:#C678DD"></span><span class="scheme-dot" style="background:#98C379"></span></span>
+  <span class="scheme-name">One Dark</span>
+</button><button type="button" id="scheme-dG9reW8tbmlnaHQ" data-scheme-choice="tokyo-night" class="scheme-tile" title="Tokyo Night" aria-pressed="false" style="--sw-accent:#7AA2F7">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#7AA2F7"></span><span class="scheme-dot" style="background:#BB9AF7"></span><span class="scheme-dot" style="background:#9ECE6A"></span></span>
+  <span class="scheme-name">Tokyo Night</span>
+</button><button type="button" id="scheme-cm9zZXBpbmU" data-scheme-choice="rosepine" class="scheme-tile" title="Rosé Pine" aria-pressed="false" style="--sw-accent:#B4637A">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#E0DEF4"></span><span class="scheme-dot" style="background:#B4637A"></span><span class="scheme-dot" style="background:#8A7AB5"></span></span>
+  <span class="scheme-name">Rosé Pine</span>
+</button><button type="button" id="scheme-c29sYXJpemVkLWRhcms" data-scheme-choice="solarized-dark" class="scheme-tile" title="Solarized Dark" aria-pressed="false" style="--sw-accent:#268BD2">
+  <span class="scheme-dots"><span class="scheme-dot" style="background:#268BD2"></span><span class="scheme-dot" style="background:#2AA198"></span><span class="scheme-dot" style="background:#859900"></span></span>
+  <span class="scheme-name">Solarized Dark</span>
+</button></div>
+        </div>
+          <div class="set-row">
+            <div class="set-label">Show conversation outline<small>Adds a floating button to the chat view that lists your sent messages; clicking one jumps to it.</small></div>
+            <label class="switch">
+              <input type="checkbox" id="set-showoutline" data-component-id="set-showoutline" data-event="change" data-no-restore checked>
+              <span class="track"></span><span class="knob"></span>
+            </label>
+          </div>
+          <div class="set-row">
+            <div class="set-label">Activity display<small>How thinking and tool activity appear in chats.</small></div>
+            <div class="bubble-opts" data-component-id="activity-display" data-event="click"><button type="button" id="actdisp-compact_worklog" class="bubble-opt active" aria-pressed="true">Compact Worklog</button><button type="button" id="actdisp-transparent_stream" class="bubble-opt" aria-pressed="false">Transparent Stream</button><button type="button" id="actdisp-hide_all_activity" class="bubble-opt" aria-pressed="false">Final answer only</button></div>
+          </div>
+          <div class="set-row" style="flex-direction:column;align-items:stretch;gap:8px">
+            <div class="set-label">Sidebar tabs</div>
+            <div class="side-tab-chips" data-component-id="side-tab-chips" data-event="click"><button type="button" id="st-c2tpbGxz" value="st-c2tpbGxz" class="side-tab-chip on" aria-pressed="true" data-no-restore draggable="true">
+  <span>Skills</span>
+</button><button type="button" id="st-cHJvZmlsZXM" value="st-cHJvZmlsZXM" class="side-tab-chip on" aria-pressed="true" data-no-restore draggable="true">
+  <span>Profiles</span>
+</button><button type="button" id="st-dG9vbHM" value="st-dG9vbHM" class="side-tab-chip on" aria-pressed="true" data-no-restore draggable="true">
+  <span>Tools</span>
+</button><button type="button" id="st-d29ya3NwYWNlcw" value="st-d29ya3NwYWNlcw" class="side-tab-chip on" aria-pressed="true" data-no-restore draggable="true">
+  <span>Workspace</span>
+</button><button type="button" id="st-a2FuYmFu" value="st-a2FuYmFu" class="side-tab-chip on" aria-pressed="true" data-no-restore draggable="true">
+  <span>Kanban</span>
+</button><button type="button" id="st-bWVtb3J5" value="st-bWVtb3J5" class="side-tab-chip on" aria-pressed="true" data-no-restore draggable="true">
+  <span>Memory</span>
+</button><button type="button" id="st-aW5zaWdodHM" value="st-aW5zaWdodHM" class="side-tab-chip on" aria-pressed="true" data-no-restore draggable="true">
+  <span>Insights</span>
+</button><button type="button" id="st-bG9ncw" value="st-bG9ncw" class="side-tab-chip on" aria-pressed="true" data-no-restore draggable="true">
+  <span>Logs</span>
+</button><button type="button" id="st-dGFza3M" value="st-dGFza3M" class="side-tab-chip on" aria-pressed="true" data-no-restore draggable="true">
+  <span>Tasks</span>
+</button><button type="button" id="st-dG9kb3M" value="st-dG9kb3M" class="side-tab-chip on" aria-pressed="true" data-no-restore draggable="true">
+  <span>Todos</span>
+</button></div>
+            <input type="hidden" id="sidebar-tab-order" data-component-id="sidebar-tab-order" data-event="change" value="skills,profiles,tools,workspaces,kanban,memory,insights,logs,tasks,todos">
+            <div class="set-hint">Choose which tabs appear in the sidebar and rail. Drag chips to reorder them. Chat and Settings are always visible.</div>
+          </div>
+
+      </div>
+    </section>
+
+    <section class="set-section" id="preferences">
+      <h2>Preferences</h2>
+      <div class="detail-card" style="margin-bottom:12px">
+        <div class="set-row">
+          <div class="set-label">Default thinking level<small>Applied to new chats; per-chat override in the composer.</small></div>
+          <select id="set-think" data-component-id="set-think" data-event="change"><option value="off">Off</option><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option><option value="max">Max</option></select>
+        </div>
+      </div>
+      <div class="detail-card" style="margin-top:12px">
+        <h3 style="margin:0 0 6px">Chat</h3>
+        <div class="set-row">
+          <div class="set-label">Show token usage<small>Displays input/output token count below each assistant reply. Also toggled with <code>/usage</code>.</small></div>
+          <label class="switch">
+            <input type="checkbox" id="set-showtokens" data-component-id="set-showtokens" data-event="change" data-no-restore >
+            <span class="track"></span><span class="knob"></span>
+          </label>
+        </div>
+        <div class="set-row">
+          <div class="set-label">Show token speed (TPS)<small>Displays tokens per second in assistant message headers while streaming and after a response completes. Off by default.</small></div>
+          <label class="switch">
+            <input type="checkbox" id="set-showtps" data-component-id="set-showtps" data-event="change" data-no-restore >
+            <span class="track"></span><span class="knob"></span>
+          </label>
+        </div>
+        <div class="set-row">
+          <div class="set-label">Pinned conversations limit<small>Maximum number of active conversations that can be pinned in the sidebar. Default is 3.</small></div>
+          <input type="number" id="set-pinlimit" data-component-id="set-pinlimit" data-event="change" min="1" max="99" step="1" value="3" style="width:96px;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:13px">
+        </div>
+      </div>
+      <div class="detail-card">
+        <h3 style="margin:0 0 6px">Model configurations</h3>
+        <div class="detail-sub" style="margin-bottom:10px">Add or remove the model configurations available in every chat's config selector.</div>
+        <div data-component-id="modelcfg-list" data-event="click"><div class="empty-hint">No model configurations.</div></div>
+        <form id="modelcfg-add-form" data-component-id="modelcfg-add-form" class="form-grid" style="margin-top:14px;border-top:1px dashed var(--border);padding-top:14px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+            <div><label for="mc-name">Name</label><input id="mc-name" name="mc-name" data-component-id="mc-name" autocomplete="off" spellcheck="false" placeholder="deepseek-v4-flash"></div>
+            <div><label for="mc-model">Model</label><input id="mc-model" name="mc-model" data-component-id="mc-model" autocomplete="off" spellcheck="false" placeholder="deepseek-v4-flash"></div>
+            <div><label for="mc-provider">Provider</label><input id="mc-provider" name="mc-provider" data-component-id="mc-provider" autocomplete="off" spellcheck="false" placeholder="custom"></div>
+          </div>
+          <div><label for="mc-baseurl">Base URL</label><input id="mc-baseurl" name="mc-baseurl" data-component-id="mc-baseurl" autocomplete="off" spellcheck="false" placeholder="https://api.openai.com/v1"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div><label for="mc-apikey">API key (optional)</label><input id="mc-apikey" name="mc-apikey" data-component-id="mc-apikey" type="password" autocomplete="new-password" spellcheck="false" placeholder="sk-…"></div>
+            <div><label for="mc-ctx">Context length (optional)</label><input id="mc-ctx" name="mc-ctx" data-component-id="mc-ctx" type="text" autocomplete="off" placeholder="128000"></div>
+            <div><label for="mc-maxtok">Max output tokens (optional)</label><input id="mc-maxtok" name="mc-maxtok" data-component-id="mc-maxtok" type="text" autocomplete="off" placeholder="32768"></div>
+          </div>
+          <div class="row-actions-main" style="margin:0">
+            <button type="submit" class="primary-btn">Add configuration</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="detail-card" style="margin-top:12px">
+        <h3 style="margin:0 0 6px">Main model</h3>
+        <div class="detail-sub" style="margin-bottom:10px">The model used for new chats by default. Picked from the Model configurations above.</div>
+        <div class="set-row" style="flex-direction:column;align-items:stretch;gap:8px">
+          Div(id: nil, class: Optional("dd"), children: [WebUICore.ModifiedView<WebUICore.ModifiedView<ArcWebUI.ArcButton, WebUICore.HTMLAttribute>, WebUICore.HTMLAttribute>(content: WebUICore.ModifiedView<ArcWebUI.ArcButton, WebUICore.HTMLAttribute>(content: ArcWebUI.ArcButton(id: Optional("mainmc-toggle"), component: Optional("mainmc-toggle"), class: "dd-trigger", type: ArcWebUI.ArcButton.ButtonType.button, tabIndex: nil, disabled: false, hidden: false, content: ArcWebUI.ArcButton.(unknown context at $10ef9847c).Content.views([WebUICore.WebUIIcon(name: WebUICore.IconName.zap, size: WebUICore.IconSize.small, title: nil), WebUICore.Span(id: nil, class: Optional("dd-trigger-label"), children: [WebUICore.Text(content: "No configuration selected")]), WebUICore.WebUIIcon(name: WebUICore.IconName.chevronDown, size: WebUICore.IconSize.small, title: nil)])), modifier: WebUICore.HTMLAttribute(key: "title", value: "Main model — No configuration selected")), modifier: WebUICore.HTMLAttribute(key: "aria-label", value: "Main model — No configuration selected")), WebUICore.ModifiedView<WebUICore.ModifiedView<WebUICore.Div, WebUICore.HTMLAttribute>, WebUICore.HTMLAttribute>(content: WebUICore.ModifiedView<WebUICore.Div, WebUICore.HTMLAttribute>(content: WebUICore.Div(id: nil, class: Optional("dd-pop dd-pop-ws hidden"), children: [WebUICore.Div(id: nil, class: Optional("dd-list"), children: [WebUICore.Div(id: nil, class: Optional("dd-empty"), children: [WebUICore.Text(content: "No model configurations yet — add one above.")])])]), modifier: WebUICore.HTMLAttribute(key: "data-component-id", value: "mainmc")), modifier: WebUICore.HTMLAttribute(key: "data-event", value: "click"))])
+        </div>
+      </div>
+
+      <div class="detail-card" style="margin-top:12px">
+        <h3 style="margin:0 0 6px">Auxiliary models</h3>
+        <div class="detail-sub" style="margin-bottom:10px">Auxiliary tasks (vision, compression, approval, titles, …) use a dedicated model from the <code>auxiliary</code> block of ~/.arc/config.json. Empty overrides fall back to the chat's main model.</div>
+        <div class="aux-list"><div class="set-row" title="Image and screenshot analysis">
+  <div class="set-label">Vision<small>Image and screenshot analysis. Currently: Main model.</small></div>
+  <div class="aux-right" data-component-id="aux-edit" data-event="click">
+    <button type="button" id="aux-edit-vision" class="ghost-btn">Configure</button>
+    
+  </div>
+</div><div class="set-row" title="Context summarization">
+  <div class="set-label">Compression<small>Context summarization. Currently: Main model.</small></div>
+  <div class="aux-right" data-component-id="aux-edit" data-event="click">
+    <button type="button" id="aux-edit-compression" class="ghost-btn">Configure</button>
+    
+  </div>
+</div><div class="set-row" title="Web page summarization">
+  <div class="set-label">Web extract<small>Web page summarization. Currently: Main model.</small></div>
+  <div class="aux-right" data-component-id="aux-edit" data-event="click">
+    <button type="button" id="aux-edit-web_extract" class="ghost-btn">Configure</button>
+    
+  </div>
+</div><div class="set-row" title="Smart command approval">
+  <div class="set-label">Approval<small>Smart command approval. Currently: Main model.</small></div>
+  <div class="aux-right" data-component-id="aux-edit" data-event="click">
+    <button type="button" id="aux-edit-approval" class="ghost-btn">Configure</button>
+    
+  </div>
+</div><div class="set-row" title="Standing-goal continuation judging">
+  <div class="set-label">Goal judge<small>Standing-goal continuation judging. Currently: Main model.</small></div>
+  <div class="aux-right" data-component-id="aux-edit" data-event="click">
+    <button type="button" id="aux-edit-goal_judge" class="ghost-btn">Configure</button>
+    
+  </div>
+</div><div class="set-row" title="End-of-turn work verification">
+  <div class="set-label">Verify-on-stop<small>End-of-turn work verification. Currently: Main model.</small></div>
+  <div class="aux-right" data-component-id="aux-edit" data-event="click">
+    <button type="button" id="aux-edit-verification" class="ghost-btn">Configure</button>
+    
+  </div>
+</div><div class="set-row" title="Pick-a-path fallback decisions">
+  <div class="set-label">Clarify<small>Pick-a-path fallback decisions. Currently: Main model.</small></div>
+  <div class="aux-right" data-component-id="aux-edit" data-event="click">
+    <button type="button" id="aux-edit-clarify" class="ghost-btn">Configure</button>
+    
+  </div>
+</div><div class="set-row" title="MCP tool reasoning">
+  <div class="set-label">MCP<small>MCP tool reasoning. Currently: Main model.</small></div>
+  <div class="aux-right" data-component-id="aux-edit" data-event="click">
+    <button type="button" id="aux-edit-mcp" class="ghost-btn">Configure</button>
+    
+  </div>
+</div><div class="set-row" title="Session titles">
+  <div class="set-label">Title generation<small>Session titles. Currently: Main model.</small></div>
+  <div class="aux-right" data-component-id="aux-edit" data-event="click">
+    <button type="button" id="aux-edit-title_generation" class="ghost-btn">Configure</button>
+    
+  </div>
+</div><div class="set-row" title="Memory retrieval queries">
+  <div class="set-label">Memory query rewrite<small>Memory retrieval queries. Currently: Main model.</small></div>
+  <div class="aux-right" data-component-id="aux-edit" data-event="click">
+    <button type="button" id="aux-edit-memory_query_rewrite" class="ghost-btn">Configure</button>
+    
+  </div>
+</div><div class="set-row" title="Gemini TTS tag insertion">
+  <div class="set-label">TTS audio tags<small>Gemini TTS tag insertion. Currently: Main model.</small></div>
+  <div class="aux-right" data-component-id="aux-edit" data-event="click">
+    <button type="button" id="aux-edit-tts_audio_tags" class="ghost-btn">Configure</button>
+    
+  </div>
+</div><div class="set-row" title="Skills search and install">
+  <div class="set-label">Skills hub<small>Skills search and install. Currently: Main model.</small></div>
+  <div class="aux-right" data-component-id="aux-edit" data-event="click">
+    <button type="button" id="aux-edit-skills_hub" class="ghost-btn">Configure</button>
+    
+  </div>
+</div><div class="set-row" title="Issue and task triage specs">
+  <div class="set-label">Triage specifier<small>Issue and task triage specs. Currently: Main model.</small></div>
+  <div class="aux-right" data-component-id="aux-edit" data-event="click">
+    <button type="button" id="aux-edit-triage_specifier" class="ghost-btn">Configure</button>
+    
+  </div>
+</div><div class="set-row" title="Task decomposition">
+  <div class="set-label">Kanban decomposer<small>Task decomposition. Currently: Main model.</small></div>
+  <div class="aux-right" data-component-id="aux-edit" data-event="click">
+    <button type="button" id="aux-edit-kanban_decomposer" class="ghost-btn">Configure</button>
+    
+  </div>
+</div><div class="set-row" title="Profile summaries">
+  <div class="set-label">Profile describer<small>Profile summaries. Currently: Main model.</small></div>
+  <div class="aux-right" data-component-id="aux-edit" data-event="click">
+    <button type="button" id="aux-edit-profile_describer" class="ghost-btn">Configure</button>
+    
+  </div>
+</div><div class="set-row" title="Skill-usage review pass">
+  <div class="set-label">Curator<small>Skill-usage review pass. Currently: Main model.</small></div>
+  <div class="aux-right" data-component-id="aux-edit" data-event="click">
+    <button type="button" id="aux-edit-curator" class="ghost-btn">Configure</button>
+    
+  </div>
+</div></div>
+      </div>
+    </section>
+
+    <section class="set-section" id="assistance">
+      <h2>Assistance &amp; approvals</h2>
+      <div class="detail-card">
+        <div class="set-row">
+          <div class="set-label">Smart approval<small>Flagged commands are assessed by the <code>approval</code> auxiliary model (reference smart mode): low risk auto-approves, high risk is denied, uncertainty still prompts. Off = classic prompt for every flagged command. <code>approvals: off</code> in ~/.arc/config.json always wins.</small></div>
+          <label class="switch">
+            <input type="checkbox" id="set-smart-approval" data-component-id="set-smart-approval" data-event="change" data-no-restore checked>
+            <span class="track"></span><span class="knob"></span>
+          </label>
+        </div>
+        <div class="set-row">
+          <div class="set-label">Smart pick-a-path<small>When a pick-a-path question times out (120 s), the <code>clarify</code> auxiliary model chooses the best offered answer instead of the agent's unguided judgement.</small></div>
+          <label class="switch">
+            <input type="checkbox" id="set-smart-pickapath" data-component-id="set-smart-pickapath" data-event="change" data-no-restore checked>
+            <span class="track"></span><span class="knob"></span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <section class="set-section" id="agent-limits">
+  <h2>Agent limits</h2>
+  <div class="detail-card">
+    <div class="set-row">
+      <div class="set-label">Tool iteration limit<small>Tool-calling iterations allowed per turn before the agent is asked to wrap up (reference max_turns, default 90).</small></div>
+      <div id="al-max-turns-wrap" data-component-id="al-max-turns" data-event="change">
+        <input type="number" id="al-max-turns" min="1" step="1" value="25"  style="width:96px;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:13px">
+      </div>
+    </div>
+    <div class="set-row">
+      <div class="set-label">Unlimited tool iterations<small>No iteration cap: the turn keeps running until the agent finishes the prompt on its own.</small></div>
+      <div id="al-max-turns-unl-wrap" data-component-id="al-max-turns-unlimited" data-event="change">
+        <label class="switch"><input type="checkbox" id="al-max-turns-unlimited" data-no-restore ><span class="track"></span><span class="knob"></span></label>
+      </div>
+    </div>
+    <div class="set-row" style="margin-top:14px">
+      <div class="set-label">Per-tool call cap<small>How many times one tool may run per turn before a synthetic "N calls (cap N)" reply (default 25).</small></div>
+      <div id="al-tool-cap-wrap" data-component-id="al-tool-cap" data-event="change">
+        <input type="number" id="al-tool-cap" min="1" step="1" value="25"  style="width:96px;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:13px">
+      </div>
+    </div>
+    <div class="set-row">
+      <div class="set-label">Unlimited per-tool calls<small>No synthetic call cap for any tool in a turn.</small></div>
+      <div id="al-tool-cap-unl-wrap" data-component-id="al-tool-cap-unlimited" data-event="change">
+        <label class="switch"><input type="checkbox" id="al-tool-cap-unlimited" data-no-restore ><span class="track"></span><span class="knob"></span></label>
+      </div>
+    </div>
+  </div>
+</section>
+
+    <section class="set-section" id="storage">
+  <h2>Storage</h2>
+  <div class="detail-card">
+    <h3 style="margin:0 0 6px">Storage medium</h3>
+    <div class="detail-sub" style="margin-bottom:10px">Where sessions, memory and profiles are saved. Picking a medium only stages it — press <strong>Save and Connect</strong> to actually switch.</div>
+    <div class="set-row" style="flex-direction:column;align-items:stretch;gap:8px">
+      <div class="set-label">Connected storage<small>File storage.</small></div>
+      <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
+        <div class="dd dd-settings">
+  <button id="storage-pick-toggle" data-component-id="storage-pick-toggle" class="dd-trigger" type="button" title="Storage medium in use — Local file storage" aria-label="Storage medium in use — Local file storage"><svg class="icon icon--sm" viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg><span class="dd-trigger-label">Local file storage</span><svg class="icon icon--sm" viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></button>
+  <div class="dd-pop dd-pop-down hidden" data-component-id="storage-pick" data-event="click">
+    <div class="dd-note">Pick a medium, then press <strong>Save and Connect</strong> to switch.</div>
+    <div class="dd-list"><button type="button" id="storage-pick-file" class="dd-row"><span class="dd-row-title">Local file storage <span class="dd-badges"><span class="dd-badge sel">ACTIVE</span></span></span>
+<span class="dd-row-sub">~/.arc/sessions + memories — always available, needs no relay</span></button><button type="button" id="storage-pick-config" class="dd-row"><span class="dd-row-title">Default (config.json) <span class="dd-badges"></span></span>
+<span class="dd-row-sub">Tessera from the tessera block of ~/.arc/config.json</span></button></div>
+  </div>
+</div>
+        <button type="button" id="storage-connect" data-component-id="storage-connect" class="primary-btn" disabled>Save and Connect</button>
+      </div>
+      
+    </div>
+  </div>
+  <div class="detail-card" style="margin-top:12px">
+    <h3 style="margin:0 0 6px">Tessera storages</h3>
+    <div class="detail-sub" style="margin-bottom:10px">Connections to different Tessera relays (signed NOSTR event stores). A connection must be complete (IP, port, public key, client private key) before it can be picked and connected to.</div>
+    <div class="empty-hint">No tessera storages configured.</div>
+    <form id="storage-conn-form" data-component-id="storage-conn-form" class="form-grid" style="margin-top:14px;border-top:1px dashed var(--border);padding-top:14px">
+  <input type="hidden" id="storage-edit-id" name="storage-edit-id" data-component-id="storage-edit-id" value="">
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+    <div><label for="sc-name">Name</label><input id="sc-name" name="sc-name" data-component-id="sc-name" autocomplete="off" placeholder="Home relay" value=""></div>
+    <div><label for="sc-ip">Server IP / host</label><input id="sc-ip" name="sc-ip" data-component-id="sc-ip" autocomplete="off" placeholder="10.0.0.1" value=""></div>
+    <div><label for="sc-port">Port</label><input id="sc-port" name="sc-port" data-component-id="sc-port" type="number" min="1" max="65535" autocomplete="off" placeholder="51820" value=""></div>
+  </div>
+  <div><label for="sc-app">Application id</label><input id="sc-app" name="sc-app" data-component-id="sc-app" type="number" min="0" max="65535" placeholder="1" value=""></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div><label for="sc-pub">Server public key</label><input id="sc-pub" name="sc-pub" data-component-id="sc-pub" autocomplete="off" placeholder="base64 (32 bytes)" value=""></div>
+    <div><label for="sc-priv">Client private key</label><input id="sc-priv" name="sc-priv" data-component-id="sc-priv" type="password" autocomplete="new-password" placeholder="base64 (32 bytes)" value=""></div>
+  </div>
+  <div class="row-actions-main" style="margin:0">
+    <button type="submit" class="primary-btn">Add storage</button>
+    
+  </div>
+</form>
+  </div>
+  <div class="detail-card" style="margin-top:12px">
+    <div class="set-row">
+      <div class="set-label">Mixture of Agents<small>Fan out reference-model advice before the main call. Reference models come from the <code>moa</code> block of ~/.arc/config.json; without them this does nothing.</small></div>
+      <label class="switch">
+        <input type="checkbox" id="set-moa" data-component-id="set-moa" data-event="change" data-no-restore >
+        <span class="track"></span><span class="knob"></span>
+      </label>
+    </div>
+  </div>
+</section>
+
+    <section class="set-section" id="tool-plugins">
+      <h2>Tool plugins</h2>
+      <div class="detail-card">
+        <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
+          <div class="set-label">Integrate tools<small>Tools written as Python scripts or Swift executables, discovered from <code>~/.arc/plugins/</code> (arc plugin parity). Enablement is stored in the <code>plugins.enabled</code> allow-list of <code>~/.arc/config.json</code>.</small></div>
+        </div>
+        <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
+  <div class="set-label">No tool plugins found.</div>
+  <div class="set-hint">Drop a directory with a <code>manifest.json</code> into <code>~/.arc/plugins/&lt;name&gt;/</code> and press Rescan. Each tool is an executable (or interpreter + script pair, e.g. <code>python3</code> + <code>tool.py</code>) that reads <code>{"tool": name, "args": {...}}</code> on stdin and writes <code>{"result": "..."}</code> on stdout. See <code>docs/plugin-tools.md</code> in the arc-agent repository for the full contract and examples.</div>
+</div>
+      </div>
+    </section>
+
+    <section class="set-section" id="mcp-servers">
+      <h2>MCP servers</h2>
+      <div class="detail-card">
+        <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
+          <div class="set-label">External tool servers<small>Child processes speaking the Model Context Protocol over stdio. The agent reaches every one of their tools through the single <code>mcp_tool</code> bridge; this panel owns the <code>mcp_servers</code> block of <code>~/.arc/config.json</code>.</small></div>
+        </div>
+        <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
+  <div class="set-label">No MCP servers configured.</div>
+  <div class="set-hint">A server is a child process that speaks the Model Context Protocol over stdio — filesystem access, GitHub, databases. Once added it is started on first use, and the agent reaches its tools through the single <code>mcp_tool</code> bridge (Tools panel): ask the agent to call <code>mcp_tool</code> with <code>action: "list"</code> to see every server and tool. <code>mcp_servers</code> in <code>~/.arc/config.json</code> is the source of truth, and this panel edits exactly that block. Arguments reach the process verbatim; nothing is run through a shell.</div>
+  <button type="button" id="mcp-add" data-component-id="mcp-add" class="btn">Add server</button>
+</div>
+      </div>
+    </section>
+
+    <section class="set-section" id="sidebar-plugins">
+      <h2>Sidebar plugins</h2>
+      <div class="detail-card">
+        <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
+          <div class="set-label">Third-party sidebar tabs<small>Tab packages added to the arc-agent build (see <code>docs/sidebar-tab-plugins.md</code>). Each tab appears in the rail and renders through the <code>SidebarTab</code> protocol. Hide/show any plugin tab; reordering happens in the Sidebar tabs chips above.</small></div>
+        </div>
+        <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
+  <div class="set-label">No third-party sidebar tabs registered.</div>
+  <div class="set-hint">Add a sidebar-tab package to the arc-agent build and pass its tabs to the application at startup — see <code>docs/sidebar-tab-plugins.md</code>.</div>
+</div>
+      </div>
+    </section>
+
+    <section class="set-section" id="about">
+      <h2>About</h2>
+      <div class="detail-card">
+        <div class="akv"><span class="akv-k">Version</span><span class="akv-v">0.1.0 (webui 1.0.0)</span></div>
+        <div class="akv"><span class="akv-k">Workspace</span><span class="akv-v nowrap" title="/Users/tannerdsilva/workspace">main — /Users/tannerdsilva/workspace</span></div>
+        <div class="akv"><span class="akv-k">Sessions</span><span class="akv-v">0</span></div>
+        <div class="akv"><span class="akv-k">Skills</span><span class="akv-v">0</span></div>
+        <div class="akv"><span class="akv-k">Tools</span><span class="akv-v">0</span></div>
+        <div class="akv"><span class="akv-k">Profiles</span><span class="akv-v">0</span></div>
+      </div>
+    </section>
+  </div>
+</div>
