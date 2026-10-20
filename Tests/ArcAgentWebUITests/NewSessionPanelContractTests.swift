@@ -19,6 +19,22 @@ extension ArcWebUITestRoot {
             return ""
         }
 
+        @Test("add-custom is dispatched before the generic ns-custom- prefix branch")
+        func addCustomPrioritizedOverPrefix() {
+            let actions = Self.source("Actions.swift")
+            let panelWire = actions.slice(from: "wire(router, id: \"new-session-panel\"", to: "private func wirePlugins")
+            guard let add = panelWire.range(of: "== \"ns-custom-add\""),
+                  let prefix = panelWire.range(of: "hasPrefix(\"ns-custom-\")") else {
+                #expect(Bool(false), "click boundary must contain both the add dispatch and the prefix branch")
+                return
+            }
+            // "ns-custom-add" shares the `ns-custom-` prefix with the numeric
+            // textarea ids, so the prefix branch must come AFTER the exact
+            // add match — otherwise `Int("add")` is nil and the row never appends.
+            #expect(add.lowerBound < prefix.lowerBound,
+                    "ns-custom-add must be dispatched before the generic ns-custom- prefix branch")
+        }
+
         @Test("the panel exists and the old Context tab is gone")
         func panelAndTabRemoval() {
             let views = Self.source("Views.swift")

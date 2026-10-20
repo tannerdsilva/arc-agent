@@ -645,7 +645,9 @@ extension AppState {
             topP: preset.topP,
             maxOutputTokens: preset.maxOutputTokens,
             disabledToolsets: Set(settings.disabledToolsets),
-            contextRecipe: recipe
+            contextRecipe: recipe,
+            soulMD: soulMD(for: sessionID),
+            profileName: profileName(for: sessionID)
         ))
         await agent.setupClient(httpClient: httpClient)
         return agent
@@ -2432,17 +2434,26 @@ final class Controller: Sendable {
                 await self.app.removeNewSessionCustom(idx)
                 return await self.app.refreshFragments()
             }
+            // NOTE: `ns-custom-add` is dispatched *before* the generic
+            // `ns-custom-` prefix branch below — that branch matches any id
+            // starting with `ns-custom-` (its suffix is parsed as an index, and
+            // "add" is not numeric), so a naive prefix check would swallow the
+            // add button and never append a row.
+            if tid == "ns-custom-add" {
+                await self.app.addNewSessionCustom()
+                return await self.app.refreshFragments()
+            }
             if tid.hasPrefix("ns-custom-") {
-                // A textarea was focused: remember its index for the change
-                // handler (change frames carry no targetId).
-                let idx = Int(String(tid.dropFirst("ns-custom-".count))) ?? 0
-                await self.app.setActiveCustomIndex(idx)
+                // A textarea (or the cancel/add buttons) was clicked; only the
+                // numeric-suffixed textarea ids mean "focus this row". The
+                // change frame carries no targetId, so remember the index for
+                // the `ns-custom` change handler.
+                if let idx = Int(String(tid.dropFirst("ns-custom-".count))) {
+                    await self.app.setActiveCustomIndex(idx)
+                }
                 return []
             }
             switch tid {
-            case "ns-custom-add":
-                await self.app.addNewSessionCustom()
-                return await self.app.refreshFragments()
             case "ns-create":
                 return await self.app.createNewSession(recipe: self.app.finalizedNewSessionRecipe())
             case "ns-defaults":

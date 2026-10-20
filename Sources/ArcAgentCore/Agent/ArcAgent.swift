@@ -65,6 +65,13 @@ public actor ArcAgent: Service {
         /// system prompt as a `## Personality` section. Empty = no overlay.
         public var personalityPrompt: String = ""
 
+        /// SOUL identity block (profile-scoped `SOUL.md`). When non-empty it
+        /// *replaces* the hardcoded ARC Agent identity at the top of the system
+        /// prompt, mirroring Hermes' `load_soul_md` identity slot. Nil/empty =
+        /// default ARC Agent identity. This is the identity slot only — it does
+        /// not disable the personality overlay (`personalityPrompt`).
+        public var soulMD: String? = nil
+
         /// Inject the "Finishing the job" task-completion guidance (arc
         /// parity: reference `agent.task_completion_guidance`). Default ON.
         public var taskCompletionGuidance: Bool = true
@@ -147,6 +154,10 @@ public actor ArcAgent: Service {
         /// Platform label for the prompt's session line (arc parity).
         public var platformHint: String
 
+        /// Active ARC profile name (`nil` = default). Rendered in the prompt's
+        /// active-profile hint (arc parity with Hermes).
+        public var profileName: String?
+
         public init(
             model: String,
             provider: String = "openai",
@@ -190,7 +201,9 @@ public actor ArcAgent: Service {
             disabledToolsets: Set<String> = [],
             delegation: DelegationConfig = DelegationConfig(),
             llmClient: (any LLMClient)? = nil,
-            contextRecipe: ResolvedContextRecipe? = nil
+            contextRecipe: ResolvedContextRecipe? = nil,
+            soulMD: String? = nil,
+            profileName: String? = nil
         ) {
             self.model = model
             self.provider = provider
@@ -209,6 +222,7 @@ public actor ArcAgent: Service {
             self.maxContextTokens = maxContextTokens
             self.auxiliary = auxiliary
             self.personalityPrompt = personalityPrompt
+            self.soulMD = soulMD
             self.taskCompletionGuidance = taskCompletionGuidance
             self.parallelToolCallGuidance = parallelToolCallGuidance
             self.toolAwareGuidance = toolAwareGuidance
@@ -225,6 +239,7 @@ public actor ArcAgent: Service {
             self.injectProjectContext = injectProjectContext
             self.contextDirectory = contextDirectory
             self.platformHint = platformHint
+            self.profileName = profileName
             self.moa = moa
             self.toolSearch = toolSearch
             self.skillInlineCommands = skillInlineCommands
@@ -3244,16 +3259,23 @@ public actor ArcAgent: Service {
         // ── Stable tier ──
         let enabled: (ContextSegment) -> Bool = { self.config.contextRecipe?.isEnabled($0) ?? true }
 
-        // ── Stable tier ──
-        var stable = """
-            You are ARC Agent, an intelligent AI assistant created by Nous Research.
-            You are helpful, knowledgeable, and direct. You assist users with a wide
-            range of tasks including answering questions, writing and editing code,
-            analyzing information, creative work, and executing actions via your tools.
+        // ── SOUL identity slot (mirrors Hermes `load_soul_md`) ──
+        // A profile-scoped SOUL replaces the hardcoded ARC Agent identity at
+        // the top of the prompt. When absent the default identity is used.
+        var stable: String
+        if let soul = config.soulMD?.trimmingCharacters(in: .whitespacesAndNewlines), !soul.isEmpty {
+            stable = soul
+        } else {
+            stable = """
+                You are ARC Agent, an intelligent AI assistant created by Nous Research.
+                You are helpful, knowledgeable, and direct. You assist users with a wide
+                range of tasks including answering questions, writing and editing code,
+                analyzing information, creative work, and executing actions via your tools.
 
-            You communicate clearly, admit uncertainty when appropriate, and prioritize
-            being genuinely useful over being verbose.
-            """
+                You communicate clearly, admit uncertainty when appropriate, and prioritize
+                being genuinely useful over being verbose.
+                """
+        }
 
         // The "Available Tools" index is always included — tool availability is
         // governed by `disabledToolsets` (profile/global), which filters both
@@ -3276,6 +3298,22 @@ public actor ArcAgent: Service {
               actually doing it.
             - When you say you will perform an action, do it immediately.
             - Keep working until the task is actually complete.
+            """
+
+        // ── Active profile & platform hint (arc parity: hermes prompt_builder) ──
+        let profileLabel = (config.profileName?.isEmpty == false) ? config.profileName! : "default"
+        let platformLabel = config.platformHint.isEmpty ? "cli" : config.platformHint
+        stable += """
+
+            ## Active Profile
+
+            Active ARC profile: \(profileLabel). Other profiles live under
+            ~/.arc/profiles/. Unless the user explicitly directs you to, do not
+            modify another profile's skills, plugins, cron jobs, or memories.
+
+            ## Platform
+
+            This conversation is being served on the \(platformLabel) surface.
             """
 
         // ── Universal guidance (arc parity: hermes prompt_builder guides) ──

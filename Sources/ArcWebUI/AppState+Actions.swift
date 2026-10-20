@@ -1475,6 +1475,16 @@ extension AppState {
         return ctx
     }
 
+    /// SOUL identity for a chat: the bound profile's `SOUL.md`, or nil when a
+    /// chat isn't bound to a profile or the profile has no SOUL set. Consumed
+    /// by `makeTurnAgent` to seed the core prompt's identity slot.
+    func soulMD(for sessionID: String?) -> String? {
+        guard let pname = profileName(for: sessionID),
+              let p = profiles.first(where: { $0.name == pname }) else { return nil }
+        let soul = p.soulMD?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return soul.isEmpty ? nil : soul
+    }
+
     /// Effective auto-compress threshold for a chat: the bound profile's
     /// compression budget, else the ARC_COMPRESSION_BUDGET env, else 32k.
     func compressionBudget(for sessionID: String?) -> Int {
