@@ -2933,7 +2933,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
               \(profileContextHTML(p))
               <h3 style="margin:16px 0 6px">Agent powers</h3>
               <div class="detail-sub">Lockdowns for this profile's skills and profile files (MEMORY / USER / SOUL).</div>
-              \(agentPowersSection())
+              \(render(agentPowersSection()))
             </div>
           </div>
         </div>
@@ -3483,62 +3483,93 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
     }
 
-    func agentPowersSection() -> String {
+    func agentPowersSection() -> some WebUI.View {
         let powers = arcConfig.agentPowers
-        func sw(_ id: String, _ on: Bool) -> String {
-            "<label class=\"switch\"><input type=\"checkbox\" id=\"\(id)\" data-component-id=\"\(id)\" data-event=\"change\" data-no-restore \(on ? "checked" : "")><span class=\"track\"></span><span class=\"knob\"></span></label>"
-        }
-        /// Plain switch for per-item rows: NO data-component-id on the input,
-        /// so the runtime resolves the component to the container div below
-        /// (whose wire dispatches on `targetId`). With an id on the input the
-        /// client would address the checkbox directly and the container wire
-        /// would never fire.
-        func swPlain(_ id: String, _ on: Bool) -> String {
-            "<label class=\"switch\"><input type=\"checkbox\" id=\"\(id)\" value=\"\(id)\" data-no-restore \(on ? "checked" : "")><span class=\"track\"></span><span class=\"knob\"></span></label>"
-        }
         let lockedNames = Set(powers.lockedSkills)
-        var skillRows = ""
-        for sk in skills {
-            let locked = lockedNames.contains(sk.name)
-            skillRows += "<div class=\"set-row\"><div class=\"set-label\">\(esc(sk.name))<small>Locked: skill_edit refuses this skill.</small></div>" + swPlain("ap-skill-lock-\(sk.name)", locked) + "</div>"
-        }
-        if skills.isEmpty {
-            skillRows = "<div class=\"empty-hint\">No skills discovered yet.</div>"
-        }
-        skillRows = "<div id=\"ap-skill-locks\" data-component-id=\"ap-skill-locks\" data-event=\"change\" class=\"ap-skills-scroll\">" + skillRows + "</div>"
-        let profileFiles: [(String, String, String)] = [
+
+        // two switch shapes, deliberately:
+        // - the recurring switches carry their own data-component-id so the
+        //   runtime can address the input directly;
+        // - per-item rows carry NONE, so the runtime resolves the component to
+        //   the container below (whose wire dispatches on `targetId`). an id on
+        //   the input would make the client address the checkbox and the
+        //   container wire would never fire.
+        let profileFiles: [(key: String, label: String, detail: String)] = [
             ("memory", "MEMORY.md", "the agent's persistent notes (memory tool, profile_edit)"),
             ("user", "USER.md", "the user profile"),
             ("soul", "SOUL.md", "the profile persona/prompt"),
         ]
-        var profileRows = ""
-        for (key, label, detail) in profileFiles {
-            let locked = powers.lockedProfileFiles.contains(key)
-            profileRows += "<div class=\"set-row\"><div class=\"set-label\">\(label)<small>\(detail).</small></div>" + swPlain("ap-profilefile-lock-\(key)", locked) + "</div>"
+
+        return Div {
+            DetailCard {
+                Heading("Skills", level: .h3)
+                    .attribute("style", "margin:0 0 6px")
+                SettingRow {
+                    Text("Agent can create/edit skills")
+                    Small("When off, skill_creation and skill_edit refuse, and write_file/terminal refuse writes under the skills directory. Skills become readable-only.")
+                } control: {
+                    ArcSwitch(id: "ap-skills-global", on: powers.skillsManage,
+                              component: "ap-skills-global", event: "change")
+                }
+                Div(class: "detail-sub") {
+                    Text("Locked skills")
+                    Small("Individually locked skills cannot be edited (skill_edit refuses them).")
+                }
+                .attribute("style", "margin:10px 0 4px")
+                Div(class: "ap-skills-scroll") {
+                    if skills.isEmpty {
+                        Div(class: "empty-hint") { Text("No skills discovered yet.") }
+                    } else {
+                        for sk in skills {
+                            SettingRow {
+                                Text(sk.name)
+                                Small("Locked: skill_edit refuses this skill.")
+                            } control: {
+                                ArcSwitch(id: "ap-skill-lock-\(sk.name)",
+                                          on: lockedNames.contains(sk.name),
+                                          value: "ap-skill-lock-\(sk.name)")
+                            }
+                        }
+                    }
+                }
+                .attribute("id", "ap-skill-locks")
+                .attribute("data-component-id", "ap-skill-locks")
+                .attribute("data-event", "change")
+            }
+            DetailCard {
+                Heading("Profile (MEMORY / USER / SOUL)", level: .h3)
+                    .attribute("style", "margin:0 0 6px")
+                SettingRow {
+                    Text("Agent can edit the profile")
+                    Small("When off, profile_edit and the memory tool refuse writes to MEMORY/USER/SOUL, and write_file/terminal refuse those files.")
+                } control: {
+                    ArcSwitch(id: "ap-profile-global", on: powers.profileEdit,
+                              component: "ap-profile-global", event: "change")
+                }
+                Div(class: "detail-sub") {
+                    Text("Locked profile files")
+                    Small("These cannot be edited by the agent while locked. AGENTS.md is workspace-scoped and stays outside the profile.")
+                }
+                .attribute("style", "margin:10px 0 4px")
+                Div {
+                    for f in profileFiles {
+                        SettingRow {
+                            Text(f.label)
+                            Small("\(f.detail).")
+                        } control: {
+                            ArcSwitch(id: "ap-profilefile-lock-\(f.key)",
+                                      on: powers.lockedProfileFiles.contains(f.key),
+                                      value: "ap-profilefile-lock-\(f.key)")
+                        }
+                    }
+                }
+                .attribute("id", "ap-profilefile-locks")
+                .attribute("data-component-id", "ap-profilefile-locks")
+                .attribute("data-event", "change")
+            }
+            .attribute("style", "margin-top:12px")
         }
-        profileRows = "<div id=\"ap-profilefile-locks\" data-component-id=\"ap-profilefile-locks\" data-event=\"change\">" + profileRows + "</div>"
-        return """
-        <div id="agent-powers">
-          <div class="detail-card">
-            <h3 style="margin:0 0 6px">Skills</h3>
-            <div class="set-row">
-              <div class="set-label">Agent can create/edit skills<small>When off, skill_creation and skill_edit refuse, and write_file/terminal refuse writes under the skills directory. Skills become readable-only.</small></div>
-              \(sw("ap-skills-global", powers.skillsManage))
-            </div>
-            <div class="detail-sub" style="margin:10px 0 4px">Locked skills<small>Individually locked skills cannot be edited (skill_edit refuses them).</small></div>
-            \(skillRows)
-          </div>
-          <div class="detail-card" style="margin-top:12px">
-            <h3 style="margin:0 0 6px">Profile (MEMORY / USER / SOUL)</h3>
-            <div class="set-row">
-              <div class="set-label">Agent can edit the profile<small>When off, profile_edit and the memory tool refuse writes to MEMORY/USER/SOUL, and write_file/terminal refuse those files.</small></div>
-              \(sw("ap-profile-global", powers.profileEdit))
-            </div>
-            <div class="detail-sub" style="margin:10px 0 4px">Locked profile files<small>These cannot be edited by the agent while locked. AGENTS.md is workspace-scoped and stays outside the profile.</small></div>
-            \(profileRows)
-          </div>
-        </div>
-        """
+        .attribute("id", "agent-powers")
     }
 
 

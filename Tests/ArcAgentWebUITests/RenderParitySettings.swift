@@ -57,11 +57,17 @@ struct RenderParitySettings {
     @Test("agent powers with locks matches golden")
     func agentPowersGolden() async {
         let html = await app {
+            $0.skills = [
+                Skill(name: "deploy", description: "Ship a build", content: "", tags: [],
+                      category: nil, path: URL(fileURLWithPath: "/tmp/deploy")),
+                Skill(name: "migrate", description: "Run migrations", content: "", tags: [],
+                      category: nil, path: URL(fileURLWithPath: "/tmp/migrate")),
+            ]
             $0.arcConfig.agentPowers.skillsManage = true
             $0.arcConfig.agentPowers.lockedSkills = ["deploy", "migrate"]
             $0.arcConfig.agentPowers.profileEdit = true
             $0.arcConfig.agentPowers.lockedProfileFiles = ["memory"]
-        }.agentPowersSection()
+        }.agentPowersSection().markup.html
         Parity.capture(html, as: "agent-powers-locked")
         Parity.expect(html, matches: "agent-powers-locked")
     }

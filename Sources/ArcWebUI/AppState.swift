@@ -1073,6 +1073,8 @@ actor AppState {
         /// plugin cards only render when a manifest is discovered; the startup
         /// outcome drives the running/failed chips.
         var pluginManifests: [String: PluginManifest] = [:]
+        /// discovered skills: the agent-powers lock rows render per skill.
+        var skills: [Skill] = []
         var pluginStartupOutcome: [String: String] = [:]
         var pendingCopyURL: String? = nil
         /// Left-panel chat list filter text (drives the "No chats match" branch).
@@ -1104,6 +1106,7 @@ actor AppState {
         self.pendingApproval = fixture.pendingApproval
         self.pendingClarify = fixture.pendingClarify
         self.pluginManifests = fixture.pluginManifests
+        self.skills = fixture.skills
         self.pluginStartupOutcome = fixture.pluginStartupOutcome
         self.pendingCopyURL = fixture.pendingCopyURL
         self.chatFilter = fixture.chatFilter
