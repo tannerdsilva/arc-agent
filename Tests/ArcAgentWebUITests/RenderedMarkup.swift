@@ -113,6 +113,17 @@ enum RenderedMarkup {
         return await app.composerHTML().markup.html
     }
 
+    /// the chat main region with a session, for outline/scroller pins.
+    static func chatMain() async -> String {
+        var fixture = seededFixture()
+        fixture.activeSessionID = "sess-a"
+        fixture.sessions = [Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Chat",
+                                    messageCount: 1, messages: [Message(role: .user, content: "hi")])]
+        let app = AppState(renderFixture: fixture)
+        return await app.chatMain().markup.html
+    }
+
     /// a running live turn: structural pins only — its elapsed label is clock
     /// derived, so it can never be pinned byte-for-byte.
     static func liveTurn() async -> String {

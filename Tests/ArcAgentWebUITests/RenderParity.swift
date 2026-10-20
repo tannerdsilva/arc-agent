@@ -527,7 +527,7 @@ struct RenderParityTests {
                                     updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Chat",
                                     messageCount: 4, messages: Self.phase3Thread())]
         let app = AppState(renderFixture: fixture)
-        let html = await app.chatMain()
+        let html = await app.chatMain().markup.html
         Parity.capture(html, as: "chat-main")
         Parity.expect(html, matches: "chat-main")
     }
@@ -535,7 +535,7 @@ struct RenderParityTests {
     @Test("phase 3: chat main empty state matches golden")
     func phase3ChatMainEmpty() async {
         let app = AppState(renderFixture: .init())
-        let html = await app.chatMain()
+        let html = await app.chatMain().markup.html
         Parity.capture(html, as: "chat-main-empty")
         Parity.expect(html, matches: "chat-main-empty")
     }

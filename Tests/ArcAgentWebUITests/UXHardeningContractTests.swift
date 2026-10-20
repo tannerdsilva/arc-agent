@@ -734,7 +734,8 @@ extension ArcWebUITestRoot {
                     "header icon button (cbfile) uses the data-tip pill, not a native title")
             #expect(composer.contains("data-tip=\"Bookmark this chat\""),
                     "header icon button (cbmark) uses the data-tip pill, not a native title")
-            #expect(views.contains("data-tip=\"Conversation outline\""),
+            let chat = await RenderedMarkup.chatMain()
+            #expect(chat.contains("data-tip=\"Conversation outline\""),
                     "header icon button (outline) uses the data-tip pill, not a native title")
             #expect(sheet.contains(".icon-mini[data-tip]::after"),
                     "the header pill styling must exist for icon-mini/tool-btn/outline-toggle")
@@ -873,10 +874,11 @@ extension ArcWebUITestRoot {
         // MARK: - B7/F46/F53 the outline
 
         @Test("the outline is a wired control with a server-owned open state")
-        func outlineIsWired() {
-            #expect(Self.views.contains("data-component-id=\"outline-toggle\""),
+        func outlineIsWired() async {
+            let chat = await RenderedMarkup.chatMain()
+            #expect(chat.contains("data-component-id=\"outline-toggle\""),
                     "client-only wiring made the engine log '[WebUIEngine] click on unwired control'")
-            #expect(Self.views.contains("data-component-id=\"outline-close\""))
+            #expect(chat.contains("data-component-id=\"outline-close\""))
             #expect(Self.appState.contains("var outlineOpen = false"))
             #expect(Self.actions.contains("wire(router, id: \"outline-toggle\""))
             #expect(Self.overlay.contains("function syncOutline()"),

@@ -1064,7 +1064,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         if let tab = sidebarTab(activeTabID) {
             inner = await tab.mainHTML()
         } else {
-            inner = chatMain()
+            inner = render(chatMain())
         }
         return Div(id: "main", class: activeTabID == "chat" ? "chat-main" : nil) {
             Raw(.trusted(inner))
@@ -1076,7 +1076,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     func renderMain(for kind: ViewID) -> String {
         switch kind {
         case .chat:
-            return chatMain()
+            return render(chatMain())
         case .skills:
             return skillsMain()
         case .profiles:
@@ -1150,65 +1150,114 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         .attribute("id", "chat-header")
     }
 
-    func chatMain() -> String {
-        guard activeSessionID != nil else {
-            return """
-            <div class="main-view" style="justify-content:center">
-              <div class="blank">
-                <div class="blank-ico">\(WebUIIcon(.messageSquare, size: .extraLarge).markup.html)</div>
-                <div class="blank-title">Welcome to ARC Agent</div>
-                <div class="blank-sub">Pick a conversation on the left, or start a new one.</div>
-                \(btn("blank-chat-new", "blank-chat-new", "primary-btn blank-cta", WebUIIcon(.plus, size: .small).markup.html + "<span>New chat</span>"))
-              </div>
-            </div>
-            """
-        }
+    func chatMain() -> some WebUI.View {
+        let hasSession = activeSessionID != nil
         let session = activeSession()
-
-        let header = render(chatHeaderHTML())
-        let follow = forceScrollBottom ? " data-follow=\"bottom\"" : ""
+        // the follow flag is consumed once: the render that scrolls to the
+        // bottom clears it, so a later re-render must not re-scroll.
+        let follow = forceScrollBottom
         forceScrollBottom = false
-        let scrollBtn = "<button type=\"button\" id=\"scroll-to-bottom\" class=\"scroll-to-bottom-btn\" data-component-id=\"scroll-to-bottom\" title=\"Jump to latest\" aria-label=\"Jump to latest\" hidden>&#8595;</button>"
-        // The jump button anchors to its own wrapping container so it sits
-        // just above the composer (never overlapping it), at the bottom-right
-        // of the scroll viewport.
-        let scroll = """
-        <div class="chat-scroll-wrap">
-          <div class="chat-scroll" id="chat-scroll" data-scroll-key="chat" data-session="\(esc(activeSessionID ?? ""))"\(follow)>
-            <div class="chat-inner" id="chat-inner">
-              \(render(messagesHTML(session?.messages ?? [])))
-            </div>
-          </div>
-          \(scrollBtn)
-          \(outlineToggleHTML)
-          \(outlinePanelHTML)
-        </div>
-        """
-        let composer = render(composerHTML())
-        return header + scroll + composer
+        // `.attribute` decorates the NEXT element opened, so the scroller is
+        // built on its own and decorated before it is nested in the wrapper —
+        // otherwise `data-follow` lands on `.chat-scroll-wrap`.
+        let scroller = Div(class: "chat-scroll") {
+            Div(class: "chat-inner") {
+                messagesHTML(session?.messages ?? [])
+            }
+            .attribute("id", "chat-inner")
+        }
+        .attribute("id", "chat-scroll")
+        .attribute("data-scroll-key", "chat")
+        .attribute("data-session", activeSessionID ?? "")
+        // `data-follow` is presence-only, so the scrolling shape is a branch
+        // rather than an empty attribute.
+        let followedScroller = Group {
+            if follow {
+                scroller.attribute("data-follow", "bottom")
+            } else {
+                scroller
+            }
+        }
+        let scroll = Div(class: "chat-scroll-wrap") {
+            followedScroller
+            // The jump button anchors to its own wrapping container so it sits
+            // just above the composer (never overlapping it), at the bottom-right
+            // of the scroll viewport.
+            ArcButton(id: "scroll-to-bottom", component: "scroll-to-bottom",
+                      class: "scroll-to-bottom-btn") {
+                Text("↓")
+            }
+            .attribute("title", "Jump to latest")
+            .attribute("aria-label", "Jump to latest")
+            .attribute("hidden", "")
+            outlineToggleHTML
+            outlinePanelHTML
+        }
+        return Group {
+            if hasSession {
+                chatHeaderHTML()
+                scroll
+                composerHTML()
+            } else {
+                Div(class: "main-view") {
+                    Div(class: "blank") {
+                        Div(class: "blank-ico") { WebUIIcon(.messageSquare, size: .extraLarge) }
+                        Div(class: "blank-title") { Text("Welcome to ARC Agent") }
+                        Div(class: "blank-sub") { Text("Pick a conversation on the left, or start a new one.") }
+                        ArcButton(id: "blank-chat-new", component: "blank-chat-new",
+                                  class: "primary-btn blank-cta") {
+                            WebUIIcon(.plus, size: .small)
+                            Span { Text("New chat") }
+                        }
+                    }
+                }
+                .attribute("style", "justify-content:center")
+            }
+        }
     }
 
     /// Floating "Conversation outline" button (reference #2124 parity); hidden
     /// entirely when the appearance setting is off.
-    var outlineToggleHTML: String {
-        guard settings.showConversationOutline else { return "" }
-        return "<button type=\"button\" id=\"outline-toggle\" data-component-id=\"outline-toggle\" data-event=\"click\" class=\"outline-toggle-btn\" data-tip=\"Conversation outline\" aria-label=\"Toggle conversation outline\">&#9776;</button>"
+    var outlineToggleHTML: some WebUI.View {
+        Group {
+            if settings.showConversationOutline {
+                ArcButton(id: "outline-toggle", component: "outline-toggle",
+                          class: "outline-toggle-btn") {
+                    Text("☰")
+                }
+                .attribute("data-event", "click")
+                .attribute("data-tip", "Conversation outline")
+                .attribute("aria-label", "Toggle conversation outline")
+            }
+        }
     }
 
     /// The outline panel itself (server-rendered shell; the JS fills entries
     /// from the rendered user message anchors and handles jumps). Open state is
     /// server-owned — see `AppState.outlineOpen`.
-    var outlinePanelHTML: String {
-        guard settings.showConversationOutline else { return "" }
-        return """
-        <div id="outline-panel" role="navigation" aria-label="Conversation outline"\(outlineOpen ? "" : " hidden")>
-          <div class="outline-header">
-            <span>Outline</span>
-            <button type="button" id="outline-close" data-component-id="outline-close" data-event="click" class="outline-close-btn" title="Close outline" aria-label="Close outline">&#215;</button>
-          </div>
-          <div id="outline-entries" class="outline-entries"></div>
-        </div>
-        """
+    var outlinePanelHTML: some WebUI.View {
+        Group {
+            if settings.showConversationOutline {
+                Div {
+                    Div(class: "outline-header") {
+                        Span { Text("Outline") }
+                        ArcButton(id: "outline-close", component: "outline-close",
+                                  class: "outline-close-btn") {
+                            Text("×")
+                        }
+                        .attribute("data-event", "click")
+                        .attribute("title", "Close outline")
+                        .attribute("aria-label", "Close outline")
+                    }
+                    Div(class: "outline-entries") {}
+                        .attribute("id", "outline-entries")
+                }
+                .attribute("id", "outline-panel")
+                .attribute("role", "navigation")
+                .attribute("aria-label", "Conversation outline")
+                .attribute("hidden", outlineOpen ? "" : "")
+            }
+        }
     }
 
     func messagesHTML(_ messages: [Message]) -> some WebUI.View {

@@ -1687,11 +1687,11 @@ final class Controller: Sendable {
         // scroll-to-message jump.
         wire(router, id: "outline-toggle", events: ["click"]) { _ in
             await self.app.toggleOutline()
-            return [FragmentUpdate(id: "outline-panel", html: await self.app.outlinePanelHTML)]
+            return [fragment("outline-panel", await self.app.outlinePanelHTML)]
         }
         wire(router, id: "outline-close", events: ["click"]) { _ in
             await self.app.closeOutline()
-            return [FragmentUpdate(id: "outline-panel", html: await self.app.outlinePanelHTML)]
+            return [fragment("outline-panel", await self.app.outlinePanelHTML)]
         }
     }
 
