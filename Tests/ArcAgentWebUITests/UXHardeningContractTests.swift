@@ -443,15 +443,17 @@ extension ArcWebUITestRoot {
         /// box displays the raw interpolation. The older pin only asserted
         /// that the server's own success toast was gone, so it could not see
         /// this. This pin reads the interpolation itself.
-        @Test("the copy-link toasts fragment interpolates toastsHTML(), never literal source")
+        @Test("the copy-link toasts fragment interpolates the shell, never literal source")
         func copyLinkToastsInterpolates() {
             let actions = Self.actions
             // Re-based onto the new push spelling: the copy-link branch builds
             // its #toasts fragment through the fragment bridge, not a hand-written
             // `<div id="toasts" …>` wrapper string. Assert the structural spelling
             // and that the literal wrapper is gone.
-            #expect(actions.contains("fragment(\"toasts\", await self.app.toastsHTML())"),
-                    "the copy-link branch must route its toasts through the fragment bridge")
+            // the payload is the SHELL, not the inner list: an empty inner push
+            // makes the engine remove #toasts outright (see ToastsRegionContractTests).
+            #expect(actions.contains("fragment(\"toasts\", await self.app.toastsShell())"),
+                    "the copy-link branch must route the toasts shell through the fragment bridge")
             #expect(!actions.contains("<div id=\"toasts\" data-component-id=\"toast-dismiss\""),
                     "the hand-written toasts wrapper string must not survive — it ships literal markup")
         }
