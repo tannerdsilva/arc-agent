@@ -84,6 +84,35 @@ enum RenderedMarkup {
         return user + assistant
     }
 
+    /// the composer rendered with a live session and two model configs, so the
+    /// dropdown rows and the send control all exist for pinning.
+    static func composer() async -> String {
+        var fixture = seededFixture()
+        fixture.activeSessionID = "sess-a"
+        fixture.sessions = [Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Chat",
+                                    messageCount: 1, messages: [Message(role: .user, content: "hi")])]
+        let app = AppState(renderFixture: fixture)
+        return await app.composerHTML().markup.html
+    }
+
+    /// the composer with two model configs, so the dropdown actually has rows
+    /// to render (a census against an empty list proves nothing).
+    static func composerWithModels() async -> String {
+        var fixture = seededFixture()
+        fixture.activeSessionID = "sess-a"
+        fixture.sessions = [Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Chat",
+                                    messageCount: 1, messages: [Message(role: .user, content: "hi")])]
+        fixture.settings.modelConfigs = [
+            ModelConfigPreset(name: "primary", model: "gpt-4o", provider: "openai", baseURL: ""),
+            ModelConfigPreset(name: "local", model: "llama-3", provider: "ollama", baseURL: "http://localhost:11434"),
+        ]
+        fixture.settings.activeConfig = "primary"
+        let app = AppState(renderFixture: fixture)
+        return await app.composerHTML().markup.html
+    }
+
     /// the composer's queue row: two mid-stream sends waiting on the turn.
     static func queuedRow() async -> String {
         var fixture = seededFixture()

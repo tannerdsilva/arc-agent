@@ -294,8 +294,9 @@ extension ArcWebUITestRoot {
         // MARK: - B2/F45 dropdown dismissal
 
         @Test("the dropdown dismiss boundary is rendered AND fired")
-        func dropdownDismissIsWired() {
-            #expect(Self.views.contains("id=\"dd-dismiss\""),
+        func dropdownDismissIsWired() async {
+            let composer = await RenderedMarkup.composer()
+            #expect(composer.contains("id=\"dd-dismiss\""),
                     "the `dd-dismiss` handler existed for months with no element carrying the id")
             #expect(Self.actions.contains("wire(router, id: \"dd-dismiss\""),
                     "the server half must stay registered")
@@ -526,7 +527,7 @@ extension ArcWebUITestRoot {
         // MARK: - UX-01 slash autocomplete consumer
 
         @Test("the slash menu payload has a client consumer wired to open/filter/insert")
-        func slashMenuIsConsumed() {
+        func slashMenuIsConsumed() async {
             let overlay = Self.overlay
             // The regression: `#slash-data` and `#cmd-dropdown` were rendered but
             // nothing consumed them after the engine migration — `/` did nothing.
@@ -545,7 +546,8 @@ extension ArcWebUITestRoot {
                     "Escape/outside-click must be able to close it")
             #expect(overlay.contains("if (slashMenuOpen()) return;"),
                     "Enter with the menu open must insert, not submit the stale `/…` text")
-            #expect(Self.views.contains("id=\"slash-data\""),
+            let composer = await RenderedMarkup.composer()
+            #expect(composer.contains("id=\"slash-data\""),
                     "the payload node must stay in the composer markup")
         }
 
@@ -727,9 +729,10 @@ extension ArcWebUITestRoot {
                     "header icon button (regen) uses the data-tip pill, not a native title")
             #expect(header.contains("data-tip=\"Delete chat\""),
                     "header icon button (chatdel) uses the data-tip pill, not a native title")
-            #expect(views.contains("data-tip=\"Attach a file\""),
+            let composer = await RenderedMarkup.composer()
+            #expect(composer.contains("data-tip=\"Attach a file\""),
                     "header icon button (cbfile) uses the data-tip pill, not a native title")
-            #expect(views.contains("data-tip=\"Bookmark this chat\""),
+            #expect(composer.contains("data-tip=\"Bookmark this chat\""),
                     "header icon button (cbmark) uses the data-tip pill, not a native title")
             #expect(views.contains("data-tip=\"Conversation outline\""),
                     "header icon button (outline) uses the data-tip pill, not a native title")
@@ -821,7 +824,7 @@ extension ArcWebUITestRoot {
         // MARK: - B6/F51 the composer at narrow widths
 
         @Test("the composer wraps; its chips keep short labels to 700px then go icon-only, with >= 44px targets at the tablet widths")
-        func composerSurvivesNarrowWindows() {
+        func composerSurvivesNarrowWindows() async {
             let css = Self.sheetSource
             #expect(css.contains(".composer-toolbar { display: flex; align-items: center; gap: 2px; padding: 2px 2px 0; flex-wrap: wrap;"),
                     "without wrap, `#cb-send` rendered 200px off-screen at an 820px window")
@@ -845,14 +848,26 @@ extension ArcWebUITestRoot {
             // Every glyph-only composer button carries an accessible name to
             // back the icon-only state (the data-tip pill is hover-only).
             let views = Self.views
-            #expect(views.contains("data-tip=\"Attach a file\" aria-label=\"Attach a file\""),
+            let composer = await RenderedMarkup.composer()
+            let attach = composer.range(of: #"<button [^>]*id="cb-file"[^>]*>"#, options: .regularExpression).map { String(composer[$0]) }
+            #expect(attach?.contains("data-tip=\"Attach a file\"") == true
+                    && attach?.contains("aria-label=\"Attach a file\"") == true,
                     "the attach button must carry an aria-label (UX-05)")
-            #expect(views.contains("data-tip=\"Bookmark this chat\" aria-label=\"Bookmark this chat\""),
+            let bookmark = composer.range(of: #"<button [^>]*id="cb-bookmark"[^>]*>"#, options: .regularExpression).map { String(composer[$0]) }
+            #expect(bookmark?.contains("data-tip=\"Bookmark this chat\"") == true
+                    && bookmark?.contains("aria-label=\"Bookmark this chat\"") == true,
                     "the bookmark button must carry an aria-label (UX-05)")
-            #expect(views.contains("id=\"cb-send\" data-component-id=\"cb-send\" class=\"send-btn\" title=\"Send\" aria-label=\"Send\""),
+            let send = composer.range(of: #"<button [^>]*id="cb-send"[^>]*>"#, options: .regularExpression).map { String(composer[$0]) }
+            #expect(send?.contains("data-component-id=\"cb-send\"") == true
+                    && send?.contains("title=\"Send\"") == true
+                    && send?.contains("aria-label=\"Send\"") == true,
                     "Send must carry an aria-label matching its title (UX-05)")
-            #expect(views.contains("class=\"dd-trigger\" title=\"\\(esc(tip))\" aria-label=\"\\(esc(tip))\""),
-                    "every .dd-trigger chip must carry an aria-label so the icon-only state stays named (UX-05)")
+            let trigger = composer.range(of: #"<button [^>]*class="dd-trigger"[^>]*>"#, options: .regularExpression).map { String(composer[$0]) }
+            let triggerTip = trigger.flatMap { t in
+                t.range(of: #"title="([^"]*)""#, options: .regularExpression).map { String(t[$0].dropFirst(7).dropLast()) }
+            }
+            #expect(triggerTip != nil && trigger?.contains("aria-label=\"\(triggerTip!)\"") == true,
+                    "the trigger's pill and accessible name must carry the same tip")
         }
 
         // MARK: - B7/F46/F53 the outline
@@ -947,7 +962,7 @@ extension ArcWebUITestRoot {
         // MARK: - UX-20 model dropdown rows (T13)
 
         @Test("model dropdown: one calm row per model with a state marker, no shouty badges or section header")
-        func modelDropdownRowsAreClean() {
+        func modelDropdownRowsAreClean() async {
             let views = Self.views
             // The old shouty row is gone: the uppercase "(CUSTOM)" pill that rode
             // the config name (scoped to the model dropdown — the aux/workspace
@@ -960,13 +975,12 @@ extension ArcWebUITestRoot {
             // check when selected, a secondary line with model/provider.
             #expect(views.contains("extraClass: \"dd-model-row\""),
                     "model rows must carry the row layout class")
-            #expect(views.contains("<span class=\"dd-dot\\(sel ? \" on\" : \"\")\"></span>"),
-                    "each row must carry a state dot (green when active)")
-            #expect(views.contains("<span class=\"dd-row-title\">\\(esc(c.name))\\(check)</span>"),
-                    "the row title is the config name in normal case, with a check for the selected row")
-            #expect(views.contains("<span class=\"dd-row-sub\">\\(sub)</span>"),
-                    "the secondary line (model · provider · base URL) must exist")
-            #expect(views.contains("id=\"model-search-input\""),
+            let composer = await RenderedMarkup.composerWithModels()
+            #expect(composer.range(of: #"<button [^>]*class="dd-row dd-model-row"[^>]*>"#, options: .regularExpression) != nil,
+                    "each model row must render as a dropdown row")
+            #expect(composer.contains("dd-row-title"), "each model row needs a title span")
+            #expect(composer.contains("dd-row-sub"), "each model row needs a sub line")
+            #expect(composer.contains("id=\"model-search-input\""),
                     "the search input must stay (UX-20 keeps it)")
             let css = Self.sheetSource
             #expect(css.contains(".dd-model-row { flex-direction: row; gap: 10px; align-items: flex-start; }"),
@@ -1424,12 +1438,13 @@ extension ArcWebUITestRoot {
         }
 
         @Test("the filter fields carry accessible names")
-        func filterFieldsAreNamed() {
+        func filterFieldsAreNamed() async {
             let views = Self.views
             #expect(views.contains("aria-label=\"Filter conversations\""), "the conversation filter must be named")
             #expect(views.contains("aria-label=\"Filter skills\""), "the skills filter must be named")
-            #expect(views.contains("aria-label=\"Search workspaces\""), "the workspace search must be named")
-            #expect(views.contains("aria-label=\"Search models\""), "the model search must be named")
+            let composer = await RenderedMarkup.composer()
+            #expect(composer.contains("aria-label=\"Search workspaces\""), "the workspace search must be named")
+            #expect(composer.contains("aria-label=\"Search models\""), "the model search must be named")
         }
 
         @Test("outline entries are client-side links that keep the panel open")

@@ -1099,7 +1099,7 @@ extension AppState {
             fragment("topbar", topbarHTML()),
             fragment("panel", await panelHTML()),
             FragmentUpdate(id: "chat-header", html: render(chatHeaderHTML())),
-            FragmentUpdate(id: "composer-wrap", html: composerHTML()),
+            fragment("composer-wrap", composerHTML()),
             fragment("toasts", toastsHTML()),
         ]
     }
@@ -1308,12 +1308,12 @@ final class Controller: Sendable {
             // `payload` (dynamic button, reference `_addNamedContextBlock`).
             guard let sel = event.string("payload"), !sel.isEmpty else { return [] }
             _ = await self.app.addPendingContext(sel)
-            return [FragmentUpdate(id: "composer-wrap", html: await self.app.composerHTML())]
+            return [fragment("composer-wrap", await self.app.composerHTML())]
         }
         wire(router, id: "selection-context-del", events: ["click"]) { event in
             let tid = event.string("targetId") ?? ""
             await self.app.removePendingContext(tid)
-            return [FragmentUpdate(id: "composer-wrap", html: await self.app.composerHTML())]
+            return [fragment("composer-wrap", await self.app.composerHTML())]
         }
         wire(router, id: "stop-turn", events: ["click"]) { _ in
             let sid = await self.app.activeSessionID ?? ""
@@ -1352,7 +1352,7 @@ final class Controller: Sendable {
         wire(router, id: "yolo-off", events: ["click"]) { _ in
             let sid = await self.app.activeSessionID ?? ""
             await self.app.setYolo(sid, false)
-            return [FragmentUpdate(id: "composer-wrap", html: await self.app.composerHTML())]
+            return [fragment("composer-wrap", await self.app.composerHTML())]
         }
         wire(router, id: "clarify-choice", events: ["click"]) { event in
             // Element ids are clarify-choice-0..3; the index maps to the
@@ -1795,7 +1795,7 @@ final class Controller: Sendable {
         // chrome reach every page through the turn-start broadcast a moment later
         // (runTurn), so returning them here would only replace `#main` and kill
         // the sender's scroll/selection for a frame.
-        return [FragmentUpdate(id: "composer-wrap", html: await self.app.composerHTML())]
+        return [fragment("composer-wrap", await self.app.composerHTML())]
     }
 
     /// Resolve the skill a typed invocation refers to and bump its usage

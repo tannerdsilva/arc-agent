@@ -514,7 +514,7 @@ struct RenderParityTests {
                                     updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Chat",
                                     messageCount: 1, messages: [Message(role: .user, content: "hi")])]
         let app = AppState(renderFixture: fixture)
-        let html = await app.composerHTML()
+        let html = await app.composerHTML().markup.html
         Parity.capture(html, as: "composer")
         Parity.expect(html, matches: "composer")
     }

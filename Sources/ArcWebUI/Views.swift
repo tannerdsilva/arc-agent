@@ -1184,7 +1184,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
           \(outlinePanelHTML)
         </div>
         """
-        let composer = composerHTML()
+        let composer = render(composerHTML())
         return header + scroll + composer
     }
 
@@ -2082,78 +2082,109 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
     }
 
-    func composerHTML() -> String {
+    func composerHTML() -> some WebUI.View {
         let running = activeTurns[activeSessionID ?? ""] != nil
         let sid = activeSessionID ?? ""
         let draft = settings.composerDrafts[sid] ?? ""
-
-        let attachmentsHTML: String = {
-            var chips = ""
-            for (i, path) in attachments.enumerated() {
-                let x = btn("att-del-\(i)", "", "chip-x", WebUIIcon(.x, size: .small).markup.html)
-                chips += "<span class=\"chip\">@\(esc(trunc(path, 50)))\(x)</span>"
-            }
-            return chips
-        }()
-
         let isBooked = activeSessionID.map { isBookmarked($0) } ?? false
-        let bookLabel = isBooked ? WebUIIcon(.star, size: .small).markup.html : WebUIIcon(.star, size: .small).markup.html
-
-        // arc-parity composer dropdowns (workspace / profile / model /
-        // thinking) — custom panels rendered by the server, replacing the
-        // native <select> elements.
-        let selectors = composerSelectorsHTML()
-
-        // File popover
-        let filePopVisible = filePopOpen ? "" : " hidden"
-        let recents = settings.recentFiles.prefix(6).map { r in
-            let er = enc(r)
-            return "<button type=\"button\" id=\"fr-\(er)\" class=\"fp-recent\">@\(esc(trunc(r, 60)))</button>"
-        }.joined()
-
-        let filePop = """
-        <div id="file-pop" class="file-pop\(filePopVisible)" data-component-id="file-recents" data-event="click">
-          <div class="fp-row">
-            <input id="file-path-input" data-component-id="file-path-input" type="text" placeholder="/absolute/path/to/file" value="\(esc(formValues["file-path-input"] ?? ""))">
-            \(btn("file-attach", "file-attach", "primary-btn", "Attach"))
-          </div>
-          <div class="fp-recents">Recent</div>
-          \(recents)
-        </div>
-        """
-
-        // While a turn runs, the send control becomes a red stop button.
-        let sendButton: String
-        if running {
-            sendButton = #"<button type="button" id="cb-send" data-component-id="stop-turn" class="send-btn stop" title="Stop" aria-label="Stop">"# + WebUIIcon(.square, size: .medium).markup.html + #"</button>"#
-        } else {
-            sendButton = #"<button type="submit" id="cb-send" data-component-id="cb-send" class="send-btn" title="Send" aria-label="Send">"# + WebUIIcon(.arrowUp, size: .medium).markup.html + #"</button>"#
-        }
-
         let selOpen = wsSelectOpen || profileSelectOpen || modelSelectOpen || thinkSelectOpen
-        return """
-        <div class="composer-wrap" id="composer-wrap">
-          <div id="composer-flyout">\(composerFlyoutHTML())</div>
-          <div id="cmd-dropdown" class="cmd-dropdown" aria-label="Slash commands"></div>
-          \(render(queuedSendsHTML()))
-          \(render(selectionChipsHTML()))
-          <form id="composer-form" data-component-id="composer-form" class="composer-bar\(selOpen ? " sel-open" : "")">
-            <div class="attach-chips" id="attach-chips" data-component-id="att-chips" data-event="click">\(attachmentsHTML)</div>
-            <textarea id="composer-input" name="composer-input" data-component-id="composer-input" data-session="\(esc(sid))" data-draft="\(esc(draft))" data-prevent-enter="send" placeholder="\(running ? "Send another message — queued after this reply." : "Message ARC…")" rows="1" style="min-height:24px">\(esc(draft))</textarea>
-            <div class="composer-toolbar">
-              \(btn("cb-file", "cb-file", "tool-btn" + (filePopOpen ? " on" : ""), WebUIIcon(.paperclip, size: .medium).markup.html, " data-tip=\"Attach a file\" aria-label=\"Attach a file\""))
-              \(btn("cb-bookmark", "cb-bookmark", "tool-btn" + (isBooked ? " on" : ""), bookLabel, " data-tip=\"Bookmark this chat\" aria-label=\"Bookmark this chat\""))
-              \(selectors)
-              <span class="spacer"></span>
-              \(activeSession().map { render(ctxIndicatorHTML($0)) } ?? "")
-              \(sendButton)
-            </div>
-          </form>
-          <span id="dd-dismiss" data-component-id="dd-dismiss" data-event="click" hidden></span>
-          \(filePop)
-          <div id="slash-data" hidden>\(esc(slashDataJSON()))</div>
-        </div>
-        """
+        return Div(class: "composer-wrap") {
+            Div { legacy(composerFlyoutHTML()) } // TODO(phase 4): approval/clarify/yolo cards
+                .attribute("id", "composer-flyout")
+            Div(class: "cmd-dropdown") {}
+                .attribute("id", "cmd-dropdown")
+                .attribute("aria-label", "Slash commands")
+            queuedSendsHTML()
+            selectionChipsHTML()
+            Form(action: "", method: nil, id: "composer-form",
+                 class: "composer-bar" + (selOpen ? " sel-open" : "")) {
+                Div(class: "attach-chips") {
+                    for (i, path) in attachments.enumerated() {
+                        Span(class: "chip") {
+                            Text("@\(trunc(path, 50))")
+                            ArcButton(id: "att-del-\(i)", component: nil, class: "chip-x") {
+                                WebUIIcon(.x, size: .small)
+                            }
+                        }
+                    }
+                }
+                .attribute("id", "attach-chips")
+                .attribute("data-component-id", "att-chips")
+                .attribute("data-event", "click")
+                TextArea(id: "composer-input", name: "composer-input",
+                         placeholder: running ? "Send another message — queued after this reply." : "Message ARC…",
+                         value: draft, rows: 1)
+                    .attribute("data-component-id", "composer-input")
+                    .attribute("data-session", sid)
+                    .attribute("data-draft", draft)
+                    .attribute("data-prevent-enter", "send")
+                    .attribute("style", "min-height:24px")
+                Div(class: "composer-toolbar") {
+                    ArcButton(id: "cb-file", component: "cb-file",
+                              class: "tool-btn" + (filePopOpen ? " on" : "")) {
+                        WebUIIcon(.paperclip, size: .medium)
+                    }
+                    .attribute("data-tip", "Attach a file")
+                    .attribute("aria-label", "Attach a file")
+                    // the star is the same glyph whether or not the chat is
+                    // bookmarked — `.on` is what shows state (legacy parity).
+                    ArcButton(id: "cb-bookmark", component: "cb-bookmark",
+                              class: "tool-btn" + (isBooked ? " on" : "")) {
+                        WebUIIcon(.star, size: .small)
+                    }
+                    .attribute("data-tip", "Bookmark this chat")
+                    .attribute("aria-label", "Bookmark this chat")
+                    composerSelectorsHTML()
+                    Span(class: "spacer") {}
+                    if let s = activeSession() {
+                        ctxIndicatorHTML(s)
+                    }
+                    if running {
+                        // While a turn runs, the send control becomes a red stop button.
+                        ArcButton(id: "cb-send", component: "stop-turn", class: "send-btn stop") {
+                            WebUIIcon(.square, size: .medium)
+                        }
+                        .attribute("title", "Stop")
+                        .attribute("aria-label", "Stop")
+                    } else {
+                        ArcButton(id: "cb-send", component: "cb-send", class: "send-btn", type: .submit) {
+                            WebUIIcon(.arrowUp, size: .medium)
+                        }
+                        .attribute("title", "Send")
+                        .attribute("aria-label", "Send")
+                    }
+                }
+            }
+            .attribute("data-component-id", "composer-form")
+            Span {}
+                .attribute("id", "dd-dismiss")
+                .attribute("data-component-id", "dd-dismiss")
+                .attribute("data-event", "click")
+                .attribute("hidden", "")
+            Div(class: "file-pop" + (filePopOpen ? "" : " hidden")) {
+                Div(class: "fp-row") {
+                    Input(id: "file-path-input", placeholder: "/absolute/path/to/file", type: .text)
+                        .attribute("data-component-id", "file-path-input")
+                        .attribute("value", formValues["file-path-input"] ?? "")
+                    ArcButton(id: "file-attach", component: "file-attach", class: "primary-btn") {
+                        Text("Attach")
+                    }
+                }
+                Div(class: "fp-recents") { Text("Recent") }
+                for r in settings.recentFiles.prefix(6) {
+                    ArcButton(id: "fr-\(enc(r))", component: nil, class: "fp-recent") {
+                        Text("@\(trunc(r, 60))")
+                    }
+                }
+            }
+            .attribute("id", "file-pop")
+            .attribute("data-component-id", "file-recents")
+            .attribute("data-event", "click")
+            Div { Text(slashDataJSON()) }
+                .attribute("id", "slash-data")
+                .attribute("hidden", "")
+        }
+        .attribute("id", "composer-wrap")
     }
 
     // MARK: Mid-stream queue chips (UX-04)
@@ -2194,49 +2225,56 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     /// Renders the four composer dropdown widgets (workspace, profile,
     /// model, thinking) as trigger buttons with server-rendered popovers,
     /// matching the arc agent webui look.
-    func composerSelectorsHTML() -> String {
+    func composerSelectorsHTML() -> some WebUI.View {
         let ws = workspaceName(for: activeSessionID)
         let profile = (profileName(for: activeSessionID) ?? "")
         let config = configName(for: activeSessionID)
         let model = settings.modelConfig(named: config)?.model ?? config
         let think = thinkingLevel(for: activeSessionID)
-
-        let wsTrigger = ddTrigger(id: "cb-ws-toggle", icon: WebUIIcon(.folder, size: .small).markup.html,
-                                  label: ws.isEmpty ? "Workspace" : ws, title: "Workspace")
-        let ppTrigger = ddTrigger(id: "cb-profile-toggle", icon: WebUIIcon(.user, size: .small).markup.html,
-                                  label: profile.isEmpty ? "Default" : profile, title: "Profile")
-        let mdTrigger = ddTrigger(id: "cb-model-toggle", icon: WebUIIcon(.box, size: .small).markup.html,
-                                  label: model.isEmpty ? "Model" : model, title: "Model")
-        let thTrigger = ddTrigger(id: "cb-think-toggle", icon: WebUIIcon(.circleGauge, size: .small).markup.html,
-                                  label: think.isEmpty ? "Off" : think.capitalized, title: "Thinking")
-
-        return wsDropdown(trigger: wsTrigger)
-            + ppDropdown(trigger: ppTrigger)
-            + mdDropdown(trigger: mdTrigger)
-            + thDropdown(trigger: thTrigger)
+        return Group {
+            wsDropdown(ddTrigger(id: "cb-ws-toggle", icon: .folder,
+                                 label: ws.isEmpty ? "Workspace" : ws, title: "Workspace"))
+            ppDropdown(ddTrigger(id: "cb-profile-toggle", icon: .user,
+                                 label: profile.isEmpty ? "Default" : profile, title: "Profile"))
+            mdDropdown(ddTrigger(id: "cb-model-toggle", icon: .box,
+                                 label: model.isEmpty ? "Model" : model, title: "Model"))
+            thDropdown(ddTrigger(id: "cb-think-toggle", icon: .circleGauge,
+                                 label: think.isEmpty ? "Off" : think.capitalized, title: "Thinking"))
+        }
     }
 
-    private func ddTrigger(id: String, icon: String, label: String, title: String) -> String {
+    private func ddTrigger(id: String, icon: IconName, iconSize: IconSize = .small,
+                           label: String, title: String) -> some WebUI.View {
         // the full label rides the DOM — the chip's CSS ellipsis handles
         // overflow and `title` carries the whole name, so a clipped chip stays
         // hover-readable (the old server-side truncation lost the tail of the
         // name permanently, mid-word).
         let tip = label.isEmpty ? title : "\(title) — \(label)"
-        return """
-        <button type="button" id="\(id)" data-component-id="\(id)" class="dd-trigger" title="\(esc(tip))" aria-label="\(esc(tip))">
-          \(icon)<span class="dd-trigger-label">\(esc(label))</span>\(WebUIIcon(.chevronDown, size: .small).markup.html)
-        </button>
-        """
+        return ArcButton(id: id, component: id, class: "dd-trigger") {
+            WebUIIcon(icon, size: iconSize)
+            Span(class: "dd-trigger-label") { Text(label) }
+            WebUIIcon(.chevronDown, size: .small)
+        }
+        .attribute("title", tip)
+        .attribute("aria-label", tip)
     }
 
     /// one dropdown row. the row carries only its id: the wire dispatches on
     /// `targetId`, and the engine reports the nearest id *inside* the boundary —
     /// so the boundary lives on the popover (`dd-pop`), never on the row.
+    private func ddRow(id: String, extraClass: String = "",
+                       @ViewBuilder body: () -> [any WebUI.View]) -> some WebUI.View {
+        let cls = extraClass.isEmpty ? "dd-row" : "dd-row \(extraClass)"
+        return ArcButton(id: id, component: nil, class: cls) { body() }
+    }
+
+    /// string-bodied row for the builders that are still `-> String` (profile
+    /// skills picker, storage picker). TODO(phase 5/6): delete with its callers —
+    /// it exists so the dropdown cluster could convert without dragging two
+    /// unrelated panels along.
     private func ddRow(id: String, body: String, extraClass: String = "") -> String {
         let cls = extraClass.isEmpty ? "dd-row" : "dd-row \(extraClass)"
-        return """
-        <button type="button" id="\(id)" class="\(cls)">\(body)</button>
-        """
+        return "<button type=\"button\" id=\"\(id)\" class=\"\(cls)\">\(body)</button>"
     }
 
     /// The model configuration whose values match an auxiliary override
@@ -2254,180 +2292,220 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     /// Preferences → Main model: styled dropdown over the model configs. The
     /// trigger shows the active configuration; choosing a row switches it
     /// (same state the old per-row "Use" buttons set).
-    func mainModelDropdown() -> String {
+    func mainModelDropdown() -> some WebUI.View {
         let active = settings.modelConfigs.first(where: { $0.name == settings.activeConfig })
         let label = active.map { "\($0.name) · \($0.model)" } ?? "No configuration selected"
-        let trigger = ddTrigger(id: "mainmc-toggle", icon: WebUIIcon(.zap, size: .medium).markup.html, label: label, title: "Main model")
-        let vis = mainModelPickerOpen ? "" : " hidden"
-        var rows: [String] = []
+        var rows: [any WebUI.View] = []
         for c in settings.modelConfigs {
             let sel = c.name == settings.activeConfig
-            let selBadge = sel ? "<span class=\"dd-badge sel\">SELECTED</span>" : ""
-            rows.append(ddRow(id: "mainmc-pick-\(enc(c.name))", body: """
-            <span class="dd-model-main">
-              <span class="dd-row-title">\(esc(c.name))\(selBadge)</span>
-              <span class="dd-row-sub">\(esc(c.model))\(c.provider.isEmpty ? "" : " @ " + esc(c.provider))</span>
-            </span>
-            """))
+            rows.append(ddRow(id: "mainmc-pick-\(enc(c.name))") {
+                Span(class: "dd-model-main") {
+                    Span(class: "dd-row-title") {
+                        Text(c.name)
+                        if sel {
+                            Span(class: "dd-badge sel") { Text("SELECTED") }
+                        }
+                    }
+                    Span(class: "dd-row-sub") {
+                        Text(c.provider.isEmpty ? c.model : c.model + " @ " + c.provider)
+                    }
+                }
+            })
         }
-        let empty = rows.isEmpty
-            ? "<div class=\"dd-empty\">No model configurations yet — add one above.</div>" : ""
-        return """
-        <div class="dd">
-          \(trigger)
-          <div class="dd-pop dd-pop-ws\(vis)" data-component-id="mainmc" data-event="click">
-            <div class="dd-list">\(rows.joined())\(empty)</div>
-          </div>
-        </div>
-        """
+        return Div(class: "dd") {
+            ddTrigger(id: "mainmc-toggle", icon: .zap, label: label, title: "Main model")
+            Div(class: "dd-pop dd-pop-ws" + (mainModelPickerOpen ? "" : " hidden")) {
+                Div(class: "dd-list") {
+                    for r in rows { r }
+                    if rows.isEmpty {
+                        Div(class: "dd-empty") { Text("No model configurations yet — add one above.") }
+                    }
+                }
+            }
+            .attribute("data-component-id", "mainmc")
+            .attribute("data-event", "click")
+        }
     }
 
     /// Workspace dropdown: search + list + (Choose path | Manage spaces).
-    func wsDropdown(trigger: String) -> String {
-        let vis = wsSelectOpen ? "" : " hidden"
+    func wsDropdown(_ trigger: some WebUI.View) -> some WebUI.View {
         let q = wsSelectQuery.lowercased()
-        var rows: [String] = []
+        var rows: [any WebUI.View] = []
         for ws in settings.workspaces {
             if !q.isEmpty && !ws.name.lowercased().contains(q) && !ws.path.lowercased().contains(q) { continue }
-            let encWS = enc(ws.name)
-            rows.append(ddRow(id: "ws-pick-\(encWS)", body: """
-            <span class="dd-row-title">\(esc(ws.name))</span>
-            <span class="dd-row-sub">\(esc(trunc(ws.path, 58)))</span>
-            """))
+            rows.append(ddRow(id: "ws-pick-\(enc(ws.name))") {
+                Span(class: "dd-row-title") { Text(ws.name) }
+                Span(class: "dd-row-sub") { Text(trunc(ws.path, 58)) }
+            })
         }
-        let empty = rows.isEmpty
-            ? "<div class=\"dd-empty\">No workspaces match “\(esc(wsSelectQuery))”</div>" : ""
-        return """
-        <div class="dd">
-          \(trigger)
-          <div class="dd-pop dd-pop-ws\(vis)" data-component-id="ws-pick" data-event="click">
-            <div class="dd-search">
-              <input id="ws-search-input" data-component-id="ws-search-input" data-event="input" data-no-restore type="text" placeholder="Search workspaces…" aria-label="Search workspaces" spellcheck="false" autocomplete="off" value="\(esc(wsSelectQuery))">
-              \(wsSelectQuery.isEmpty ? "" : btn("ws-search-clear", "ws-search-clear", "dd-clear", WebUIIcon(.x, size: .small).markup.html))
-            </div>
-            <div class="dd-list">\(rows.joined())\(empty)</div>
-            <div class="dd-foot">
-              <button type="button" id="ws-choose-path" data-component-id="ws-choose-path" class="dd-foot-row">
-                <span class="dd-foot-ico">\(WebUIIcon(.folderPlus, size: .small).markup.html)</span>
-                <span class="dd-foot-txt"><span class="dd-row-title">Choose workspace path</span><span class="dd-row-sub">Add a validated path and switch this conversation</span></span>
-              </button>
-              <button type="button" id="ws-manage" data-component-id="ws-manage" class="dd-foot-row">
-                <span class="dd-foot-ico">\(WebUIIcon(.settings, size: .small).markup.html)</span>
-                <span class="dd-foot-txt"><span class="dd-row-title">Manage workspaces</span><span class="dd-row-sub">Open the Spaces panel</span></span>
-              </button>
-            </div>
-          </div>
-        </div>
-        """
+        return Div(class: "dd") {
+            trigger
+            Div(class: "dd-pop dd-pop-ws" + (wsSelectOpen ? "" : " hidden")) {
+                Div(class: "dd-search") {
+                    Input(id: "ws-search-input", placeholder: "Search workspaces…", type: .text)
+                        .attribute("data-component-id", "ws-search-input")
+                        .attribute("data-event", "input")
+                        .attribute("data-no-restore", "")
+                        .attribute("aria-label", "Search workspaces")
+                        .attribute("spellcheck", "false")
+                        .attribute("autocomplete", "off")
+                        .attribute("value", wsSelectQuery)
+                    if !wsSelectQuery.isEmpty {
+                        ArcButton(id: "ws-search-clear", component: "ws-search-clear", class: "dd-clear") {
+                            WebUIIcon(.x, size: .small)
+                        }
+                    }
+                }
+                Div(class: "dd-list") {
+                    for r in rows { r }
+                    if rows.isEmpty {
+                        Div(class: "dd-empty") { Text("No workspaces match “\(wsSelectQuery)”") }
+                    }
+                }
+                Div(class: "dd-foot") {
+                    ArcButton(id: "ws-choose-path", component: "ws-choose-path", class: "dd-foot-row") {
+                        Span(class: "dd-foot-ico") { WebUIIcon(.folderPlus, size: .small) }
+                        Span(class: "dd-foot-txt") {
+                            Span(class: "dd-row-title") { Text("Choose workspace path") }
+                            Span(class: "dd-row-sub") { Text("Add a validated path and switch this conversation") }
+                        }
+                    }
+                    ArcButton(id: "ws-manage", component: "ws-manage", class: "dd-foot-row") {
+                        Span(class: "dd-foot-ico") { WebUIIcon(.settings, size: .small) }
+                        Span(class: "dd-foot-txt") {
+                            Span(class: "dd-row-title") { Text("Manage workspaces") }
+                            Span(class: "dd-row-sub") { Text("Open the Spaces panel") }
+                        }
+                    }
+                }
+            }
+            .attribute("data-component-id", "ws-pick")
+            .attribute("data-event", "click")
+        }
     }
 
-    /// Profile dropdown: per-profile cards (dot, name + check, model · skills)
-    /// plus a Manage profiles footer.
-    func ppDropdown(trigger: String) -> String {
-        let vis = profileSelectOpen ? "" : " hidden"
+    func ppDropdown(_ trigger: some WebUI.View) -> some WebUI.View {
         let activeProfileName = profileName(for: activeSessionID) ?? ""
         let total = skills.count
-        var rows: [String] = []
+        var rows: [any WebUI.View] = []
         for p in profiles {
             let on = !activeProfileName.isEmpty && p.name == activeProfileName
-            let check = on ? " " + WebUIIcon(.check, size: .small).markup.html : ""
             let model = p.model ?? settings.modelConfig(named: settings.activeConfig)?.model ?? "inherit"
             // Skills are active by default; the runtime gates on
             // settings.disabledSkills (see Actions.swift), not profileSkills.
             let onCount = enabledSkillCount(for: p.name)
-            let titleSuffix = p.title.isEmpty || p.title == p.name ? "" : " (\(esc(p.title)))"
-            rows.append(ddRow(id: "pp-\(enc(p.name))", body: """
-            <span class="dd-dot\(on ? " on" : "")"></span>
-            <span class="dd-profile-main">
-              <span class="dd-row-title">\(esc(p.name))\(titleSuffix)\(check)</span>
-              <span class="dd-row-sub">\(esc(model)) · \(onCount) / \(total)</span>
-              <span class="dd-row-sub">skills</span>
-            </span>
-            """, extraClass: "dd-profile-row"))
+            let titleSuffix = p.title.isEmpty || p.title == p.name ? "" : " (\(p.title))"
+            rows.append(ddRow(id: "pp-\(enc(p.name))", extraClass: "dd-profile-row") {
+                Span(class: "dd-dot" + (on ? " on" : "")) {}
+                Span(class: "dd-profile-main") {
+                    Span(class: "dd-row-title") {
+                        Text(p.name + titleSuffix)
+                        if on { Text(" "); WebUIIcon(.check, size: .small) }
+                    }
+                    Span(class: "dd-row-sub") { Text("\(model) · \(onCount) / \(total)") }
+                    Span(class: "dd-row-sub") { Text("skills") }
+                }
+            })
         }
-        return """
-        <div class="dd">
-          \(trigger)
-          <div class="dd-pop dd-pop-profile\(vis)" data-component-id="profile-pick" data-event="click">
-            <div class="dd-list dd-list-profile">\(rows.joined())</div>
-            <div class="dd-foot">
-              <button type="button" id="pp-manage" data-component-id="pp-manage" class="dd-foot-row">
-                <span class="dd-foot-ico">\(WebUIIcon(.settings, size: .small).markup.html)</span>
-                <span class="dd-foot-txt"><span class="dd-row-title">Manage profiles</span></span>
-              </button>
-            </div>
-          </div>
-        </div>
-        """
+        return Div(class: "dd") {
+            trigger
+            Div(class: "dd-pop" + (profileSelectOpen ? "" : " hidden")) {
+                Div(class: "dd-list dd-list-profile") {
+                    for r in rows { r }
+                }
+                Div(class: "dd-foot") {
+                    ArcButton(id: "pp-manage", component: "pp-manage", class: "dd-foot-row") {
+                        Span(class: "dd-foot-ico") { WebUIIcon(.settings, size: .small) }
+                        Span(class: "dd-foot-txt") {
+                            Span(class: "dd-row-title") { Text("Manage profiles") }
+                        }
+                    }
+                }
+            }
+            .attribute("data-component-id", "profile-pick")
+            .attribute("data-event", "click")
+        }
     }
 
-    /// Model dropdown: scope note + search + one clean row per model.
-    /// UX-20: each row carries a state dot (green when it is the chat's
-    /// active config), the config name in normal case, a check for the
-    /// selected row and a secondary line with the actual model + provider;
-    /// the shouty uppercase pill, the SELECTED micro-caps badge and the
-    /// CONFIGURED section header are gone. The search input stays.
-    func mdDropdown(trigger: String) -> String {
-        let vis = modelSelectOpen ? "" : " hidden"
+    func mdDropdown(_ trigger: some WebUI.View) -> some WebUI.View {
         let active = configName(for: activeSessionID)
         let q = modelSelectQuery.lowercased()
-        var rows: [String] = []
+        var rows: [any WebUI.View] = []
         for c in settings.modelConfigs {
             if !q.isEmpty && !c.name.lowercased().contains(q) && !c.model.lowercased().contains(q) { continue }
             let sel = c.name == active
-            let check = sel ? " " + WebUIIcon(.check, size: .small).markup.html : ""
             // UX-35: the secondary line carries provider + endpoint only — the
             // model id is already the row's title, so repeating it here wraps
             // the row and reads as noise. Quant/context would also belong here.
             var meta: [String] = []
-            if !c.provider.isEmpty { meta.append(esc(c.provider)) }
-            if !c.baseURL.isEmpty { meta.append(esc(shortURL(c.baseURL))) }
+            if !c.provider.isEmpty { meta.append(c.provider) }
+            if !c.baseURL.isEmpty { meta.append(shortURL(c.baseURL)) }
             let sub = meta.joined(separator: " · ")
-            rows.append(ddRow(id: "mc-\(enc(c.name))", body: """
-            <span class="dd-dot\(sel ? " on" : "")"></span>
-            <span class="dd-model-main">
-              <span class="dd-row-title">\(esc(c.name))\(check)</span>
-              <span class="dd-row-sub">\(sub)</span>
-            </span>
-            """, extraClass: "dd-model-row"))
+            rows.append(ddRow(id: "mc-\(enc(c.name))", extraClass: "dd-model-row") {
+                Span(class: "dd-dot" + (sel ? " on" : "")) {}
+                Span(class: "dd-model-main") {
+                    Span(class: "dd-row-title") {
+                        Text(c.name)
+                        if sel { Text(" "); WebUIIcon(.check, size: .small) }
+                    }
+                    Span(class: "dd-row-sub") { Text(sub) }
+                }
+            })
         }
-        let empty = rows.isEmpty
-            ? "<div class=\"dd-empty\">No models match “\(esc(modelSelectQuery))”</div>" : ""
-        return """
-        <div class="dd">
-          \(trigger)
-          <div class="dd-pop dd-pop-model\(vis)" data-component-id="model-pick" data-event="click">
-            <div class="dd-note">Applies to this conversation from your next message.</div>
-            <div class="dd-search">
-              <input id="model-search-input" data-component-id="model-search-input" data-event="input" data-no-restore type="text" placeholder="Search models…" aria-label="Search models" spellcheck="false" autocomplete="off" value="\(esc(modelSelectQuery))">
-              \(modelSelectQuery.isEmpty ? "" : btn("model-search-clear", "model-search-clear", "dd-clear", WebUIIcon(.x, size: .small).markup.html))
-            </div>
-            <div class="dd-list">\(rows.joined())\(empty)</div>
-          </div>
-        </div>
-        """
+        return Div(class: "dd") {
+            trigger
+            Div(class: "dd-pop dd-pop-model" + (modelSelectOpen ? "" : " hidden")) {
+                Div(class: "dd-note") { Text("Applies to this conversation from your next message.") }
+                Div(class: "dd-search") {
+                    Input(id: "model-search-input", placeholder: "Search models…", type: .text)
+                        .attribute("data-component-id", "model-search-input")
+                        .attribute("data-event", "input")
+                        .attribute("data-no-restore", "")
+                        .attribute("aria-label", "Search models")
+                        .attribute("spellcheck", "false")
+                        .attribute("autocomplete", "off")
+                        .attribute("value", modelSelectQuery)
+                    if !modelSelectQuery.isEmpty {
+                        ArcButton(id: "model-search-clear", component: "model-search-clear", class: "dd-clear") {
+                            WebUIIcon(.x, size: .small)
+                        }
+                    }
+                }
+                Div(class: "dd-list") {
+                    for r in rows { r }
+                    if rows.isEmpty {
+                        Div(class: "dd-empty") { Text("No models match “\(modelSelectQuery)”") }
+                    }
+                }
+            }
+            .attribute("data-component-id", "model-pick")
+            .attribute("data-event", "click")
+        }
     }
 
     /// Thinking-level dropdown (arc-style pill trigger + level list).
-    func thDropdown(trigger: String) -> String {
-        let vis = thinkSelectOpen ? "" : " hidden"
+    func thDropdown(_ trigger: some WebUI.View) -> some WebUI.View {
         let current = thinkingLevel(for: activeSessionID)
-        var rows: [String] = []
+        var rows: [any WebUI.View] = []
         for lv in ["off", "low", "medium", "high", "max"] {
             let on = lv == current
-            let check = on ? " " + WebUIIcon(.check, size: .small).markup.html : ""
-            rows.append(ddRow(id: "tp-\(lv)", body: """
-            <span class="dd-row-title">\(lv.capitalized)\(check)</span>
-            """))
+            rows.append(ddRow(id: "tp-\(lv)") {
+                Span(class: "dd-row-title") {
+                    Text(lv.capitalized)
+                    if on { Text(" "); WebUIIcon(.check, size: .small) }
+                }
+            })
         }
-        return """
-        <div class="dd">
-          \(trigger)
-          <div class="dd-pop dd-pop-think\(vis)" data-component-id="think-pick" data-event="click">
-            <div class="dd-list">\(rows.joined())</div>
-          </div>
-        </div>
-        """
+        return Div(class: "dd") {
+            trigger
+            Div(class: "dd-pop" + (thinkSelectOpen ? "" : " hidden")) {
+                Div(class: "dd-list") {
+                    for r in rows { r }
+                }
+            }
+            .attribute("data-component-id", "think-pick")
+            .attribute("data-event", "click")
+        }
     }
 
     // MARK: Skills main
@@ -2740,7 +2818,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             : ""
         let picker = """
         <div class="dd pn-picker">
-          \(ddTrigger(id: "pcs-toggle", icon: WebUIIcon(.plus, size: .medium).markup.html, label: "Add skill", title: "Pin a skill into this profile's context"))
+          \(render(ddTrigger(id: "pcs-toggle", icon: .plus, iconSize: .medium, label: "Add skill", title: "Pin a skill into this profile's context")))
           <div class="dd-pop dd-pop-ws\(open)" data-component-id="pcs" data-event="click">
             <div class="dd-list">\(optRows)\(noOpts)</div>
           </div>
@@ -3290,7 +3368,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
         let storagePickerHTML = """
         <div class="dd dd-settings">
-          \(ddTrigger(id: "storage-pick-toggle", icon: WebUIIcon(.database, size: .small).markup.html, label: storageMediumLabel(effectiveMedium), title: "Storage medium in use"))
+          \(render(ddTrigger(id: "storage-pick-toggle", icon: .database, label: storageMediumLabel(effectiveMedium), title: "Storage medium in use")))
           <div class="dd-pop dd-pop-down\(storagePickVis)" data-component-id="storage-pick" data-event="click">
             <div class="dd-note">Pick a medium, then press <strong>Save and Connect</strong> to switch.</div>
             <div class="dd-list">\(storagePickRows.joined())</div>
