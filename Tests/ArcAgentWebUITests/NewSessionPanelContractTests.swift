@@ -87,6 +87,21 @@ extension ArcWebUITestRoot {
             #expect(act.contains("ContextRecipe.stitchCustom(newSessionCustom)"))
         }
 
+        @Test("the custom list starts empty; rows appear only on add and remove back to none")
+        func customListStartsEmpty() {
+            let act = Self.source("AppState+Actions.swift")
+            // Seeded straight from resolved defaults (no forced blank row).
+            #expect(act.contains("newSessionCustom = recipe.customItems"))
+            // The old behaviour that pre-seeded one empty row is gone.
+            #expect(!act.contains("? [CustomContextItem"))
+            // Remove always removes (the user can get back to zero rows), and
+            // the old "clear the text instead of removing the last row" branch is gone.
+            #expect(act.contains("newSessionCustom.remove(at: idx)"))
+            // The old "clear the text instead of removing the last row" branch is gone.
+            #expect(!act.contains("if newSessionCustom.count > 1"))
+            #expect(!act.contains("newSessionCustom[idx] = CustomContextItem(text: \"\")"))
+        }
+
         @Test("per-segment previews produce their section header")
         func previewsHaveHeaders() {
             let act = Self.source("AppState+Actions.swift")

@@ -202,7 +202,7 @@ extension AppState {
             recipe.segments[seg] = resolved.isEnabled(seg)
         }
         newSessionRecipe = recipe
-        newSessionCustom = recipe.customItems.isEmpty ? [CustomContextItem(text: "")] : recipe.customItems
+        newSessionCustom = recipe.customItems
         activeCustomIndex = 0
         showNewSessionPanel = true
     }
@@ -243,11 +243,7 @@ extension AppState {
 
     func removeNewSessionCustom(_ idx: Int) {
         guard newSessionCustom.indices.contains(idx) else { return }
-        if newSessionCustom.count > 1 {
-            newSessionCustom.remove(at: idx)
-        } else {
-            newSessionCustom[idx] = CustomContextItem(text: "")
-        }
+        newSessionCustom.remove(at: idx)
     }
 
     /// Stitch the panel's free-form rows into the recipe's `custom` list
