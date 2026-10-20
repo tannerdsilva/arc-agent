@@ -446,6 +446,100 @@ struct RenderParityTests {
         Parity.expect(html, matches: "sessionGroup")
     }
 
+    // MARK: - phase 3 message-tree fixtures
+
+    private static func phase3Thread() -> [Message] {
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let usage = Usage(promptTokens: 1200, completionTokens: 340, totalTokens: 1540)
+        return [
+            Message(role: .user, content: "hello **there**", createdAt: t0),
+            Message(role: .assistant, content: nil,
+                    toolCalls: [ToolCall(id: "call_1",
+                                         function: ToolCallFunction(name: "read_file",
+                                                                    arguments: "{\"path\":\"README.md\"}"))],
+                    createdAt: t0),
+            Message(role: .tool, content: "file contents", name: "read_file",
+                    toolCallID: "call_1", createdAt: t0),
+            Message(role: .assistant, content: "All done.", createdAt: t0,
+                    usage: usage, tps: 42.5, turnDuration: 3.2),
+        ]
+    }
+
+    @Test("phase 3: user message matches golden")
+    func phase3UserMessage() async {
+        let app = AppState(renderFixture: .init())
+        let html = await app.messageHTML(Self.phase3Thread()[0], rawIdx: 0)
+        Parity.capture(html, as: "message-user")
+        Parity.expect(html, matches: "message-user")
+    }
+
+    @Test("phase 3: assistant message with tool calls matches golden")
+    func phase3AssistantMessage() async {
+        let app = AppState(renderFixture: .init())
+        let html = await app.messageHTML(Self.phase3Thread()[1], rawIdx: 1)
+        Parity.capture(html, as: "message-assistant-tools")
+        Parity.expect(html, matches: "message-assistant-tools")
+    }
+
+    @Test("phase 3: assistant message with usage matches golden")
+    func phase3AssistantUsage() async {
+        let app = AppState(renderFixture: .init())
+        let html = await app.messageHTML(Self.phase3Thread()[3], rawIdx: 3)
+        Parity.capture(html, as: "message-assistant-usage")
+        Parity.expect(html, matches: "message-assistant-usage")
+    }
+
+    @Test("phase 3: tool result message matches golden")
+    func phase3ToolMessage() async {
+        let app = AppState(renderFixture: .init())
+        let html = await app.messageHTML(Self.phase3Thread()[2], rawIdx: 2)
+        Parity.capture(html, as: "message-tool")
+        Parity.expect(html, matches: "message-tool")
+    }
+
+    @Test("phase 3: turn block matches golden")
+    func phase3TurnBlock() async {
+        let app = AppState(renderFixture: .init())
+        let seg = Array(Self.phase3Thread()[1...3])
+        let html = await app.turnBlockHTML(seg, mode: "compact_worklog", turnIndex: 1) ?? ""
+        Parity.capture(html, as: "turn-block")
+        Parity.expect(html, matches: "turn-block")
+    }
+
+    @Test("phase 3: composer matches golden")
+    func phase3Composer() async {
+        var fixture = AppState.RenderFixture()
+        fixture.activeSessionID = "sess-a"
+        fixture.sessions = [Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Chat",
+                                    messageCount: 1, messages: [Message(role: .user, content: "hi")])]
+        let app = AppState(renderFixture: fixture)
+        let html = await app.composerHTML()
+        Parity.capture(html, as: "composer")
+        Parity.expect(html, matches: "composer")
+    }
+
+    @Test("phase 3: chat main matches golden")
+    func phase3ChatMain() async {
+        var fixture = AppState.RenderFixture()
+        fixture.activeSessionID = "sess-a"
+        fixture.sessions = [Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Chat",
+                                    messageCount: 4, messages: Self.phase3Thread())]
+        let app = AppState(renderFixture: fixture)
+        let html = await app.chatMain()
+        Parity.capture(html, as: "chat-main")
+        Parity.expect(html, matches: "chat-main")
+    }
+
+    @Test("phase 3: chat main empty state matches golden")
+    func phase3ChatMainEmpty() async {
+        let app = AppState(renderFixture: .init())
+        let html = await app.chatMain()
+        Parity.capture(html, as: "chat-main-empty")
+        Parity.expect(html, matches: "chat-main-empty")
+    }
+
     @Test("chat header matches golden")
     func chatHeaderMatchesGolden() async {
         var fixture = AppState.RenderFixture()
