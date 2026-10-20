@@ -29,7 +29,7 @@ extension ArcWebUITestRoot {
                     ),
                 ]
             )
-            let legacy = await app.ctxIndicatorHTML(session)
+            let legacy = await app.ctxIndicatorHTML(session).markup.html
             #expect(!legacy.isEmpty, "legacy produced empty markup")
             let legacySVG = Self.svg(legacy)!
             let ring = ArcRing(percentage: 0).markup.html
@@ -53,7 +53,7 @@ extension ArcWebUITestRoot {
                     ),
                 ]
             )
-            let legacy = await app.ctxIndicatorHTML(session)
+            let legacy = await app.ctxIndicatorHTML(session).markup.html
             #expect(!legacy.isEmpty, "legacy produced empty markup")
             let legacySVG = Self.svg(legacy)!
             let ring = ArcRing(percentage: 37).markup.html
@@ -75,7 +75,7 @@ extension ArcWebUITestRoot {
                     ),
                 ]
             )
-            let legacy = await app.ctxIndicatorHTML(session)
+            let legacy = await app.ctxIndicatorHTML(session).markup.html
             #expect(!legacy.isEmpty, "legacy produced empty markup")
             let legacySVG = Self.svg(legacy)!
             let ring = ArcRing(percentage: 100).markup.html

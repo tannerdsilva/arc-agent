@@ -84,6 +84,16 @@ enum RenderedMarkup {
         return user + assistant
     }
 
+    /// the composer's queue row: two mid-stream sends waiting on the turn.
+    static func queuedRow() async -> String {
+        var fixture = seededFixture()
+        fixture.activeSessionID = "sess-a"
+        fixture.queuedSends = ["sess-a": [QueuedSend(id: 1, text: "first queued message"),
+                                          QueuedSend(id: 2, text: "second queued message")]]
+        let app = AppState(renderFixture: fixture)
+        return await app.queuedSendsHTML().markup.html
+    }
+
     /// the chat header rendered with a live session, for header-scoped pins.
     static func chatHeader() async -> String {
         var fixture = seededFixture()

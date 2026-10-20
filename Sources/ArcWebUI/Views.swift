@@ -1962,39 +1962,45 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         return String(n)
     }
 
-    /// Composer ring + hover tooltip, mirroring the reference client's ctx indicator.
-    func ctxIndicatorHTML(_ s: Session) -> String {
-        guard !s.messages.isEmpty else { return "" }
+    func ctxIndicatorHTML(_ s: Session) -> some WebUI.View {
         let snap = ctxSnapshot(for: s)
         let pct = snap.contextLength > 0 ? min(100, Int((Double(snap.usedTokens) / Double(snap.contextLength) * 100).rounded())) : 0
-        let circ = 61.261056745
-        let offset = circ * (1 - Double(pct) / 100)
         let level = pct > 75 ? " ctx-high" : (pct > 50 ? " ctx-mid" : "")
         let thrPct = snap.contextLength > 0 ? Int((Double(snap.threshold) / Double(snap.contextLength) * 100).rounded()) : 0
-        var cacheLine = ""
-        if let hit = snap.cacheHitPercent, let read = snap.cacheRead, let write = snap.cacheWrite {
-            cacheLine = "<div class=\"ctx-tooltip-line\">Cache: \(hit)% hit (\(fmtTokens(read)) read / \(fmtTokens(write)) write)</div>"
+        return Group {
+            if !s.messages.isEmpty {
+                Div(class: "ctx-indicator-wrap") {
+                    ArcButton(id: nil, component: nil, class: "ctx-indicator\(level)") {
+                        Span(class: "ctx-ring") {
+                            // the ring geometry lives in ArcRing: one typed view
+                            // instead of an inline <svg> string.
+                            ArcRing(percentage: pct)
+                            Span(class: "ctx-ring-center") {
+                                Text(pct >= 100 ? "99+" : "\(pct)%")
+                            }
+                        }
+                    }
+                    .attribute("title", "Context window usage")
+                    .attribute("aria-label", "Context window usage")
+                    Div(class: "ctx-tooltip") {
+                        Div(class: "ctx-tooltip-title") { Text("Context window") }
+                        Div(class: "ctx-tooltip-line") { Text("\(pct)% used · \(100 - pct)% left") }
+                        Div(class: "ctx-tooltip-line") {
+                            Text("\(fmtTokens(snap.usedTokens)) of \(fmtTokens(snap.contextLength)) tokens used")
+                        }
+                        Div(class: "ctx-tooltip-line") {
+                            Text("Auto-compress at \(fmtTokens(snap.threshold)) (\(thrPct)%)")
+                        }
+                        if let hit = snap.cacheHitPercent, let read = snap.cacheRead, let write = snap.cacheWrite {
+                            Div(class: "ctx-tooltip-line") {
+                                Text("Cache: \(hit)% hit (\(fmtTokens(read)) read / \(fmtTokens(write)) write)")
+                            }
+                        }
+                    }
+                    .attribute("role", "tooltip")
+                }
+            }
         }
-        return """
-        <div class="ctx-indicator-wrap">
-          <button type="button" class="ctx-indicator\(level)" title="Context window usage" aria-label="Context window usage">
-            <span class="ctx-ring">
-              <svg class="ctx-ring-svg" viewBox="0 0 24 24" aria-hidden="true">
-                <circle class="ctx-ring-track" cx="12" cy="12" r="9.75"></circle>
-                <circle class="ctx-ring-value" cx="12" cy="12" r="9.75" style="stroke-dasharray:\(circ);stroke-dashoffset:\(offset)"></circle>
-              </svg>
-              <span class="ctx-ring-center">\(pct >= 100 ? "99+" : "\(pct)%")</span>
-            </span>
-          </button>
-          <div class="ctx-tooltip" role="tooltip">
-            <div class="ctx-tooltip-title">Context window</div>
-            <div class="ctx-tooltip-line">\(pct)% used · \(100 - pct)% left</div>
-            <div class="ctx-tooltip-line">\(fmtTokens(snap.usedTokens)) of \(fmtTokens(snap.contextLength)) tokens used</div>
-            <div class="ctx-tooltip-line">Auto-compress at \(fmtTokens(snap.threshold)) (\(thrPct)%)</div>
-            \(cacheLine)
-          </div>
-        </div>
-        """
     }
 
     // MARK: Slash autocomplete + selection context (arc parity)
@@ -2044,22 +2050,36 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     }
 
     /// "Context N" chips above the composer (reference `_renderSelectionChips`).
-    func selectionChipsHTML() -> String {
-        guard !pendingContexts.isEmpty else { return "" }
-        var cards = ""
-        for block in pendingContexts {
-            let preview = AppState.contextPreview(block.text)
-            cards += #"<article class="selection-context-card" data-selection-id="\#(esc(block.id))">"#
-            cards += #"<div class="selection-context-accent" aria-hidden="true"></div>"#
-            cards += "<div class=\"selection-context-body\">"
-            cards += "<div class=\"selection-context-header\">"
-            cards += #"<span class="selection-context-name">\#(esc(block.name))</span>"#
-            cards += #"<button type="button" id="\#(esc(block.id))" class="selection-context-remove" title="Remove context block">&#x2715;</button>"#
-            cards += "</div>"
-            cards += #"<blockquote class="selection-context-quote">\#(esc(preview))</blockquote>"#
-            cards += "</div></article>"
+    func selectionChipsHTML() -> some WebUI.View {
+        Group {
+            if !pendingContexts.isEmpty {
+                Div(class: "selection-chips-wrap") {
+                    for block in pendingContexts {
+                        let preview = AppState.contextPreview(block.text)
+                        Article {
+                            Div(class: "selection-context-accent") {}
+                                .attribute("aria-hidden", "true")
+                            Div(class: "selection-context-body") {
+                                Div(class: "selection-context-header") {
+                                    Span(class: "selection-context-name") { Text(block.name) }
+                                    ArcButton(id: block.id, component: nil, class: "selection-context-remove") {
+                                        Text("✕")
+                                    }
+                                    .attribute("title", "Remove context block")
+                                }
+                                Blockquote(preview)
+                                    .attribute("class", "selection-context-quote")
+                            }
+                        }
+                        .attribute("class", "selection-context-card")
+                        .attribute("data-selection-id", block.id)
+                    }
+                }
+                .attribute("id", "composer-selection-chips")
+                .attribute("data-component-id", "selection-context-del")
+                .attribute("data-event", "click")
+            }
         }
-        return #"<div id="composer-selection-chips" class="selection-chips-wrap" data-component-id="selection-context-del" data-event="click">\#(cards)</div>"#
     }
 
     func composerHTML() -> String {
@@ -2115,8 +2135,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         <div class="composer-wrap" id="composer-wrap">
           <div id="composer-flyout">\(composerFlyoutHTML())</div>
           <div id="cmd-dropdown" class="cmd-dropdown" aria-label="Slash commands"></div>
-          \(queuedSendsHTML())
-          \(selectionChipsHTML())
+          \(render(queuedSendsHTML()))
+          \(render(selectionChipsHTML()))
           <form id="composer-form" data-component-id="composer-form" class="composer-bar\(selOpen ? " sel-open" : "")">
             <div class="attach-chips" id="attach-chips" data-component-id="att-chips" data-event="click">\(attachmentsHTML)</div>
             <textarea id="composer-input" name="composer-input" data-component-id="composer-input" data-session="\(esc(sid))" data-draft="\(esc(draft))" data-prevent-enter="send" placeholder="\(running ? "Send another message — queued after this reply." : "Message ARC…")" rows="1" style="min-height:24px">\(esc(draft))</textarea>
@@ -2125,7 +2145,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
               \(btn("cb-bookmark", "cb-bookmark", "tool-btn" + (isBooked ? " on" : ""), bookLabel, " data-tip=\"Bookmark this chat\" aria-label=\"Bookmark this chat\""))
               \(selectors)
               <span class="spacer"></span>
-              \(activeSession().map { ctxIndicatorHTML($0) } ?? "")
+              \(activeSession().map { render(ctxIndicatorHTML($0)) } ?? "")
               \(sendButton)
             </div>
           </form>
@@ -2142,25 +2162,31 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     /// as their own turns after the current reply, oldest first. Each chip
     /// carries a ✕ that removes it before it runs. Only rendered for the
     /// active chat, so a queue never leaks across sessions.
-    func queuedSendsHTML() -> String {
+    func queuedSendsHTML() -> some WebUI.View {
         let sid = activeSessionID ?? ""
         let list = queuedSends[sid] ?? []
-        guard !list.isEmpty else { return "" }
         // UX-29: the instruction lives ONCE — in the running composer
         // placeholder. A chip carries count + excerpt + remove control, and
         // the remove control's title/aria-label explains what removing does.
         let removeTip = "Remove queued message — it runs after the current reply finishes."
-        var chips = ""
-        for q in list {
-            chips += btn("qs-del-\(q.id)", "", "queued-chip",
-                         "<span class=\"queued-chip-text\">\(esc(trunc(q.text, 90)))</span><span class=\"queued-chip-x\" aria-label=\"\(removeTip)\">✕</span>",
-                         " title=\"\(removeTip)\"")
+        return Group {
+            if !list.isEmpty {
+                Div(class: "queued-sends") {
+                    Span(class: "queued-count") { Text("Queued · \(list.count)") }
+                    for q in list {
+                        ArcButton(id: "qs-del-\(q.id)", component: nil, class: "queued-chip") {
+                            Span(class: "queued-chip-text") { Text(trunc(q.text, 90)) }
+                            Span(class: "queued-chip-x") { Text("✕") }
+                                .attribute("aria-label", removeTip)
+                        }
+                        .attribute("title", removeTip)
+                    }
+                }
+                .attribute("id", "queued-sends")
+                .attribute("data-component-id", "queued-sends")
+                .attribute("data-event", "click")
+            }
         }
-        return """
-        <div id="queued-sends" class="queued-sends" data-component-id="queued-sends" data-event="click">
-          <span class="queued-count">Queued · \(list.count)</span>\(chips)
-        </div>
-        """
     }
 
     // MARK: Composer dropdown selectors (arc parity)

@@ -1073,6 +1073,9 @@ actor AppState {
         var showArchived = false
         /// Active turns keyed by session ID (drives the row spinner).
         var activeTurns: [String: LiveTurn] = [:]
+        /// the mid-stream queue row is only visible when a session has queued
+        /// sends; a fixture seam is the only way to pin it from a render test.
+        var queuedSends: [String: [QueuedSend]] = [:]
         /// Active category: "all" | "unassigned" | category id.
         var activeCategory = "all"
         /// Whether the category create form is open.
@@ -1094,6 +1097,7 @@ actor AppState {
         self.chatFilter = fixture.chatFilter
         self.showArchived = fixture.showArchived
         self.activeTurns = fixture.activeTurns
+        self.queuedSends = fixture.queuedSends
         self.activeCategory = fixture.activeCategory
         self.addingCategory = fixture.addingCategory
         self.registry = MutableToolRegistry(builtIn: CompileTimeToolRegistry())

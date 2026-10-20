@@ -552,15 +552,18 @@ extension ArcWebUITestRoot {
         // MARK: - UX-04 honest mid-stream queue
 
         @Test("mid-stream sends queue visibly and drain in order")
-        func midStreamSendsQueue() {
+        func midStreamSendsQueue() async {
             let views = Self.views
             #expect(views.contains("Send another message — queued after this reply."),
                     "the running placeholder must say the message is queued, not that it steers")
-            #expect(views.contains("func queuedSendsHTML() -> String"),
-                    "the composer must render the queued chips")
-            #expect(views.contains("id=\"queued-sends\""),
+            // the queue row is typed now: pin the RENDERED row, which is what the
+            // wire and the client actually see.
+            let queue = await RenderedMarkup.queuedRow()
+            #expect(queue.contains("id=\"queued-sends\""),
                     "the queue row must exist as a wired boundary")
-            #expect(views.contains("qs-del-\\(q.id)"),
+            #expect(queue.contains("data-component-id=\"queued-sends\""),
+                    "the queue row must carry the wire boundary")
+            #expect(queue.contains("id=\"qs-del-1\"") && queue.contains("id=\"qs-del-2\""),
                     "each chip must be removable through the wire")
             let appStateActions = Self.appStateActions
             #expect(appStateActions.contains("func queueSend(_ text: String, sessionID: String)"),
@@ -581,7 +584,7 @@ extension ArcWebUITestRoot {
         // MARK: - UX-29 queued-chip copy
 
         @Test("the queued chip counts once: instruction in the placeholder, count+excerpt+✕ in the chip")
-        func queuedChipCopy() {
+        func queuedChipCopy() async {
             let views = Self.views
             // The chip repeated the placeholder sentence verbatim (w1v-17): the
             // instruction must now appear exactly once — in the composer placeholder.
@@ -589,13 +592,14 @@ extension ArcWebUITestRoot {
                     "the running-composer sentence must appear exactly once (the placeholder owns it; N occurrences → N+1 components)")
             #expect(!views.contains("queued-chip-lbl"),
                     "the chip's sentence-label span is gone — a chip no longer restates the instruction")
-            #expect(views.contains("aria-label=\"\\(removeTip)\""),
+            let queue = await RenderedMarkup.queuedRow()
+            #expect(queue.contains("aria-label=\"Remove queued message — it runs after the current reply finishes.\""),
                     "the ✕ must explain removal in its aria-label")
-            #expect(views.contains(" title=\"\\(removeTip)\""),
+            #expect(queue.contains("title=\"Remove queued message — it runs after the current reply finishes.\""),
                     "the ✕ must explain removal in its title as well")
-            #expect(views.contains("class=\"queued-chip-x\""),
+            #expect(queue.contains("class=\"queued-chip-x\""),
                     "each chip keeps its remove control")
-            #expect(views.contains("<span class=\"queued-count\">Queued · \\(list.count)</span>"),
+            #expect(queue.contains("class=\"queued-count\"") && queue.contains("Queued · 2"),
                     "the count must stay once per queue row")
         }
 
