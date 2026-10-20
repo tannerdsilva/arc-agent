@@ -1423,10 +1423,21 @@ extension ArcWebUITestRoot {
     // MARK: - Round 3 (2026-10-19) — state, empty states, pinning
 
         @Test("rail, chips and toolset switches expose their selected state")
-        func selectionStateIsExposed() {
+        func selectionStateIsExposed() async {
+            // the rail is a typed view now: read the selected state off the
+            // rendered bytes, not a source spelling that only survives in a
+            // comment. the active rail button must carry aria-current="page".
+            let page = await RenderedMarkup.page()
+            let railButtons = page.components(separatedBy: "<button")
+                .filter { $0.contains("icon-btn") && $0.contains("data-component-id=\"nav-") }
+                .map { String($0.prefix(while: { $0 != ">" })) }
+            let active = railButtons.filter { $0.contains("aria-current=\"page\"") }
+            #expect(active.count == 1, "exactly one rail button must be aria-current=page (found \(active.count))")
+            #expect(railButtons.count > 0, "the rail rendered no buttons at all")
+
+            // the other pins in this group still live in source (skills panel,
+            // header buttons are not yet converted this phase).
             let views = Self.views
-            #expect(views.contains("aria-current=\"page\""),
-                    "the active rail destination must be aria-current (round-3 UX-33)")
             #expect(views.contains("aria-pressed=\"\\(logFilter == lvl)\""),
                     "log filter chips must expose aria-pressed (round-3 UX-33)")
             #expect(views.contains("aria-label=\"Enable \\(toolset) tools\""),

@@ -8,7 +8,6 @@ import WebUIDesignSystem
 extension ArcWebUITestRoot {
     /// The host stylesheet contract (ARC-5): a served page must link every stylesheet its
     /// markup depends on, and arc's own sheet must come *after* the framework's.
-    ///
     /// The failure this pins, measured on the shipped page before the fix: 55 of 233
     /// framework icons at 240 px (and one at 718 px) plus a permanently visible
     /// "reconnecting…" chip, because the page linked only arc's own sheet. `makeDocument` is
@@ -68,15 +67,15 @@ extension ArcWebUITestRoot {
         /// group); growing it is a regression.
         private static let documentedDeadClasses: Set<String> = [
             "approval-title", "arch-ico", "btn", "chat-menu-items", "clarify-title",
-            "color-value", "ctx-swatches", "dd-list-profile", "iconbar-top",
-            "ins-more-row", "insights-main", "msg-copy-btn", "outline-toggle-btn", "panel-note",
+            "color-value", "ctx-swatches", "dd-list-profile", "dd-pop-ws", "iconbar-top",
+            "ins-more-row", "insights-main", "info", "msg-copy-btn", "outline-toggle-btn", "panel-note",
             "pill-other", "queue-card", "queue-loop-count-label", "result__a",
             "result__snippet", "skill-cat-title", "task-ctrl-main", "thinking-detail",
             "todo-list", "token", "ws-head", "ws-menu", "yolo-text",
         ]
 
         /// every complete (non-interpolated) class token written into a `class="…"` attribute
-        /// by arc's own markup strings. an interpolated value (`class="panel--\(state)"`) is
+        /// by arc's own markup strings. an interpolated value (`class="panel--\\(state)"`) is
         /// dropped whole: a prefix can never be looked up in a sheet, and guessing it would
         /// make this census lie.
         ///
@@ -121,6 +120,50 @@ extension ArcWebUITestRoot {
             return tokens.sorted()
         }
 
+        /// typed-view class spellings: `class: "…"` in a `Div(class:)` / `Span(class:)` /
+        /// composite initializer. these are what survives after the string builders are gone,
+        /// so the census must read them too.
+        static func typedClassTokens(in text: String) -> [String] {
+            let normalized = text.replacingOccurrences(of: "\\\"", with: "\"")
+            let scanned = normalized
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .map { line -> String in
+                    guard let comment = line.range(of: "//") else { return String(line) }
+                    return String(line[..<comment.lowerBound])
+                }
+                .joined(separator: "\n")
+            var tokens = Set<String>()
+            var search = scanned[...]
+            while let found = search.range(of: "class: \"") {
+                let rest = search[found.upperBound...]
+                guard let close = rest.firstIndex(of: "\"") else { break }
+                let value = rest[..<close]
+                if !value.contains("\\") {
+                    for token in value.split(separator: " ") where !token.hasSuffix("-") {
+                        if isIdentifierSafe(String(token)) {
+                            tokens.insert(String(token))
+                        }
+                    }
+                }
+                search = rest[close...]
+            }
+            return tokens.sorted()
+        }
+
+        /// every class token arc's markup strings emit, from the still-string builders
+        /// (`class="…"`), union the typed-view spellings (`class: "…"`).
+        static func sourceClassTokens() throws -> [String] {
+            let root = "Sources/ArcWebUI"
+            var tokens = Set<String>()
+            guard let walker = FileManager.default.enumerator(atPath: root) else { return [] }
+            for case let path as String in walker where path.hasSuffix(".swift") {
+                let text = (try? String(contentsOfFile: "\(root)/\(path)", encoding: .utf8)) ?? ""
+                tokens.formUnion(Self.classTokens(in: text))
+                tokens.formUnion(Self.typedClassTokens(in: text))
+            }
+            return tokens.sorted()
+        }
+
         private static func markupClassTokens() throws -> [String] {
             let root = "Sources/ArcWebUI"
             var tokens = Set<String>()
@@ -139,7 +182,7 @@ extension ArcWebUITestRoot {
             let sample = """
             let a = #"<div class="lr-name icon--sm">"#
             // a comment mentioning class="language-…" is not an emitter
-            let b = "<span class=\\"panel--\\(state)\\">"
+            let b = "<span class=\"panel--\\(state)\">"
             let c = "<b class='single-quoted-is-not-scanned'>"
             """
             let tokens = Self.classTokens(in: sample)
@@ -147,21 +190,29 @@ extension ArcWebUITestRoot {
             #expect(tokens.contains("icon--sm"))
             #expect(!tokens.contains { $0.hasPrefix("panel--") }, "an interpolated value must be dropped whole")
             #expect(!tokens.contains("language-…"), "comment prose must not reach the census")
-            #expect(!tokens.contains("single-quoted-is-not-scanned"), "the scanner anchors on class=\\\" only")
+            #expect(!tokens.contains("single-quoted-is-not-scanned"), "the scanner anchors on class=\" only")
         }
 
         @Test("no new undefined classes in arc's own markup strings")
-        func markupCensus() throws {
-            let tokens = try Self.markupClassTokens()
-            #expect(!tokens.isEmpty, "the census found no markup strings — the scan is broken, not the markup")
-            let html = tokens.map { "class=\"\($0)\"" }.joined(separator: " ")
+        func markupCensus() async throws {
+            // the union: rendered bytes (the typed tree's real output) plus the
+            // source spellings that can still emit classes (legacy class="…" and
+            // typed class: "…"). a census that sees nothing is broken, not passing.
+            let rendered = await RenderedMarkup.allClasses()
+            let source = try Self.sourceClassTokens()
+            let tokens = Set(rendered).union(source)
+            #expect(
+                tokens.count >= 98,
+                "the census found \(tokens.count) classes — rendered output and source both empty; the scan is broken, not the markup (gate at half of the 197 measured)"
+            )
+            let html = tokens.sorted().map { "class=\"\($0)\"" }.joined(separator: " ")
             let arcSheet = HTMLClassValidator.definedClasses(css: ThemeSheetAssets.text)
             let undefined = HTMLClassValidator.undefinedClasses(in: html, extra: arcSheet)
             let unexpected = Set(undefined).subtracting(Self.documentedDeadClasses)
             #expect(
                 unexpected.isEmpty,
                 """
-                markup strings emit classes that neither sheet defines — give each one a rule \
+                markup strings emit classes that neither sheet defines — give each one a rule \\
                 or drop it from the markup (documented ARC-3 debt lives in this file):
                 \(unexpected.sorted().joined(separator: "\n"))
                 """
