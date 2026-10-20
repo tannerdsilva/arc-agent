@@ -129,7 +129,10 @@ extension ArcWebUITestRoot {
             let actions = Self.source("Actions.swift")
             #expect(actions.contains("refreshFragments(includeApp: true)"),
                     "the font-size handler must re-render the #app shell so data-size lands live (UX-22)")
-            #expect(actions.contains("FragmentUpdate(id: \"iconbar\""),
+            // the refresh must carry the rail so a view switch repaints the active
+            // state in place; the push spells `fragment("iconbar", …)` since the
+            // builder owns its own <aside> root (phase 1.3).
+            #expect(actions.contains("fragment(\"iconbar\""),
                     "the targeted refresh carries the rail so view switches stay in place")
         }
     }
