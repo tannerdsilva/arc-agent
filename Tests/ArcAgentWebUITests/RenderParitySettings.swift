@@ -179,7 +179,7 @@ struct RenderParitySettings {
                 "limit": .integer(description: "Max results"),
             ],
             required: ["query"])
-        let html = await app().schemaHTML(schema)
+        let html = await app().schemaHTML(schema).markup.html
         Parity.capture(html, as: "schema-simple")
         Parity.expect(html, matches: "schema-simple")
     }
@@ -196,7 +196,7 @@ struct RenderParitySettings {
                 "mode": .enum(description: "Mode", values: ["fast", "thorough"]),
             ],
             required: ["ids"])
-        let html = await app().schemaHTML(schema)
+        let html = await app().schemaHTML(schema).markup.html
         Parity.capture(html, as: "schema-nested")
         Parity.expect(html, matches: "schema-nested")
     }

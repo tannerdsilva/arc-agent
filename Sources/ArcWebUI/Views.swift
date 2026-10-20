@@ -3081,7 +3081,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             </div>
             """
         }
-        let params = schemaHTML(tool.schema)
+        let params = render(schemaHTML(tool.schema))
         return """
         <div class="main-view">
           <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
@@ -3290,25 +3290,37 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         """
     }
 
-    func schemaHTML(_ schema: JSONSchema) -> String {
-        var rows: [String] = []
-        switch schema {
-        case .object(let desc, let properties, let required):
-            if let d = desc { rows.append("<div class=\"akv\"><span class=\"akv-k\">Object</span><span class=\"akv-v\">\(esc(d))</span></div>") }
-            let req = Set(required ?? [])
-            for (key, prop) in properties.sorted(by: { $0.key < $1.key }) {
-                let typeLabel = schemaTypeLabel(prop)
-                let r = req.contains(key) ? " <span class='mc-badge' style='margin-left:6px'>required</span>" : ""
-                let detail = schemaOneLine(prop)
-                rows.append("<div class=\"akv\"><span class=\"akv-k\">\(esc(key))<small style=\"color:var(--muted)\"> (\(esc(typeLabel)))</small></span><span class=\"akv-v\">\(esc(detail))\(r)</span></div>")
+    func schemaHTML(_ schema: JSONSchema) -> some WebUI.View {
+        Group {
+            switch schema {
+            case .object(let desc, let properties, let required):
+                if let d = desc {
+                    AkvRow(key: "Object", value: d)
+                }
+                let req = Set(required ?? [])
+                // sorted: a dictionary's iteration order must never reach the page
+                for (key, prop) in properties.sorted(by: { $0.key < $1.key }) {
+                    AkvRow {
+                        Text(key)
+                        Small(" (\(schemaTypeLabel(prop)))")
+                            .attribute("style", "color:var(--muted)")
+                    } value: {
+                        Text(schemaOneLine(prop))
+                        if req.contains(key) {
+                            Span(class: "mc-badge") { Text("required") }
+                                .attribute("style", "margin-left:6px")
+                        }
+                    }
+                }
+            case .array(let desc, let items):
+                AkvRow(key: "Array of", value: "\(schemaTypeLabel(items)) — \(desc ?? "")")
+            default:
+                AkvRow(key: "Type", value: schemaTypeLabel(schema))
+                if let d = schemaDescription(schema) {
+                    AkvRow(key: "Description", value: d)
+                }
             }
-        case .array(let desc, let items):
-            rows.append("<div class=\"akv\"><span class=\"akv-k\">Array of</span><span class=\"akv-v\">\(esc(schemaTypeLabel(items))) — \(esc(desc ?? ""))</span></div>")
-        default:
-            rows.append("<div class=\"akv\"><span class=\"akv-k\">Type</span><span class=\"akv-v\">\(esc(schemaTypeLabel(schema)))</span></div>")
-            if let d = schemaDescription(schema) { rows.append("<div class=\"akv\"><span class=\"akv-k\">Description</span><span class=\"akv-v\">\(esc(d))</span></div>") }
         }
-        return rows.joined()
     }
 
     func schemaTypeLabel(_ s: JSONSchema) -> String {
