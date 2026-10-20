@@ -42,14 +42,14 @@ struct RenderParitySettings {
 
     @Test("agent limits matches golden")
     func agentLimitsGolden() async {
-        let html = await app().agentLimitsSection()
+        let html = await app().agentLimitsSection().markup.html
         Parity.capture(html, as: "agent-limits")
         Parity.expect(html, matches: "agent-limits")
     }
 
     @Test("agent limits with unlimited iterations matches golden")
     func agentLimitsUnlimitedGolden() async {
-        let html = await app { $0.arcConfig.agent.max_turns = 0 }.agentLimitsSection()
+        let html = await app { $0.arcConfig.agent.max_turns = 0 }.agentLimitsSection().markup.html
         Parity.capture(html, as: "agent-limits-unlimited")
         Parity.expect(html, matches: "agent-limits-unlimited")
     }

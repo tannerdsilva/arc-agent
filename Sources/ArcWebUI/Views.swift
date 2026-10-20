@@ -3402,7 +3402,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     /// Settings: editable tool-iteration limit and per-tool call cap
     /// (`agent.max_turns` + `guardrails.toolLoopCap`, arc parity). Values
     /// of 0/negative mean unlimited; the UI writes -1 for that state.
-    func agentLimitsSection() -> String {
+    func agentLimitsSection() -> some WebUI.View {
         let rawMax: Int? = arcConfig.agent.max_turns ?? arcConfig.max_turns
         let maxUnlimited = (rawMax ?? 1) <= 0
         let effMax = arcConfig.effectiveMaxTurns()
@@ -3411,41 +3411,76 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         let loopUnlimited = (rawLoop ?? 1) <= 0
         let effLoop = arcConfig.effectiveToolLoopCap()
         let loopValue = effLoop == Int.max ? 25 : effLoop
-        func sw(_ id: String, _ on: Bool) -> String {
-            "<label class=\"switch\"><input type=\"checkbox\" id=\"\(id)\" data-no-restore \(on ? "checked" : "")><span class=\"track\"></span><span class=\"knob\"></span></label>"
+
+        // `disabled` is presence-only and `.attribute` takes a non-optional
+        // String, so the two shapes are built rather than passed a nil.
+        func numField(_ id: String, _ value: Int, disabled: Bool) -> some WebUI.View {
+            Group {
+                if disabled {
+                    Input(id: id, type: .number, value: "\(value)")
+                        .attribute("min", "1")
+                        .attribute("step", "1")
+                        .attribute("disabled", "")
+                        .attribute("class", "num-input")
+                } else {
+                    Input(id: id, type: .number, value: "\(value)")
+                        .attribute("min", "1")
+                        .attribute("step", "1")
+                        .attribute("class", "num-input")
+                }
+            }
         }
-        let numStyle = "width:96px;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:13px"
-        return """
-        <section class="set-section" id="agent-limits">
-          <h2>Agent limits</h2>
-          <div class="detail-card">
-            <div class="set-row">
-              <div class="set-label">Tool iteration limit<small>Tool-calling iterations allowed per turn before the agent is asked to wrap up (reference max_turns, default 90).</small></div>
-              <div id="al-max-turns-wrap" data-component-id="al-max-turns" data-event="change">
-                <input type="number" id="al-max-turns" min="1" step="1" value="\(maxValue)" \(maxUnlimited ? "disabled" : "") style="\(numStyle)">
-              </div>
-            </div>
-            <div class="set-row">
-              <div class="set-label">Unlimited tool iterations<small>No iteration cap: the turn keeps running until the agent finishes the prompt on its own.</small></div>
-              <div id="al-max-turns-unl-wrap" data-component-id="al-max-turns-unlimited" data-event="change">
-                \(sw("al-max-turns-unlimited", maxUnlimited))
-              </div>
-            </div>
-            <div class="set-row" style="margin-top:14px">
-              <div class="set-label">Per-tool call cap<small>How many times one tool may run per turn before a synthetic "N calls (cap N)" reply (default 25).</small></div>
-              <div id="al-tool-cap-wrap" data-component-id="al-tool-cap" data-event="change">
-                <input type="number" id="al-tool-cap" min="1" step="1" value="\(loopValue)" \(loopUnlimited ? "disabled" : "") style="\(numStyle)">
-              </div>
-            </div>
-            <div class="set-row">
-              <div class="set-label">Unlimited per-tool calls<small>No synthetic call cap for any tool in a turn.</small></div>
-              <div id="al-tool-cap-unl-wrap" data-component-id="al-tool-cap-unlimited" data-event="change">
-                \(sw("al-tool-cap-unlimited", loopUnlimited))
-              </div>
-            </div>
-          </div>
-        </section>
-        """
+
+        return Section(id: "agent-limits", class: "set-section") {
+            Heading("Agent limits", level: .h2)
+            DetailCard {
+                SettingRow {
+                    Text("Tool iteration limit")
+                    Small("Tool-calling iterations allowed per turn before the agent is asked to wrap up (reference max_turns, default 90).")
+                } control: {
+                    Div {
+                        numField("al-max-turns", maxValue, disabled: maxUnlimited)
+                    }
+                    .attribute("id", "al-max-turns-wrap")
+                    .attribute("data-component-id", "al-max-turns")
+                    .attribute("data-event", "change")
+                }
+                SettingRow {
+                    Text("Unlimited tool iterations")
+                    Small("No iteration cap: the turn keeps running until the agent finishes the prompt on its own.")
+                } control: {
+                    Div {
+                        ArcSwitch(id: "al-max-turns-unlimited", on: maxUnlimited)
+                    }
+                    .attribute("id", "al-max-turns-unl-wrap")
+                    .attribute("data-component-id", "al-max-turns-unlimited")
+                    .attribute("data-event", "change")
+                }
+                SettingRow {
+                    Text("Per-tool call cap")
+                    Small("How many times one tool may run per turn before a synthetic \"N calls (cap N)\" reply (default 25).")
+                } control: {
+                    Div {
+                        numField("al-tool-cap", loopValue, disabled: loopUnlimited)
+                    }
+                    .attribute("id", "al-tool-cap-wrap")
+                    .attribute("data-component-id", "al-tool-cap")
+                    .attribute("data-event", "change")
+                }
+                .attribute("style", "margin-top:14px")
+                SettingRow {
+                    Text("Unlimited per-tool calls")
+                    Small("No synthetic call cap for any tool in a turn.")
+                } control: {
+                    Div {
+                        ArcSwitch(id: "al-tool-cap-unlimited", on: loopUnlimited)
+                    }
+                    .attribute("id", "al-tool-cap-unl-wrap")
+                    .attribute("data-component-id", "al-tool-cap-unlimited")
+                    .attribute("data-event", "change")
+                }
+            }
+        }
     }
 
     func agentPowersSection() -> String {
@@ -3934,7 +3969,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 <h3 style="margin:0 0 6px">Main model</h3>
                 <div class="detail-sub" style="margin-bottom:10px">The model used for new chats by default. Picked from the Model configurations above.</div>
                 <div class="set-row" style="flex-direction:column;align-items:stretch;gap:8px">
-                  \(mainModelDropdown())
+                  \(render(mainModelDropdown()))
                 </div>
               </div>
 
@@ -3965,7 +4000,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
               </div>
             </section>
 
-            \(agentLimitsSection())
+            \(render(agentLimitsSection()))
 
             \(storageSettingsHTML())
 

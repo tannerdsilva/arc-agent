@@ -932,6 +932,10 @@ public static let css: String = """
       padding-bottom: 6px; border-bottom: 1px solid var(--border);
     }
     .set-row { display: flex; align-items: center; gap: 14px; padding: 7px 0; }
+    /* a numeric settings field. replaces the inline style blob four settings
+       rows used to carry (`width:96px;padding:8px;background:var(--code-bg);…`)
+       — a component style, not a utility: one field shape, repeated. */
+    .num-input { width: 96px; padding: 8px; background: var(--code-bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
     .set-row .set-label { flex: 1; font-size: 0.92em; }
     .set-row .set-label small { display: block; color: var(--muted); font-size: 0.92em; margin-top: 1px; }
     .set-row select, .set-row input[type="text"], .set-row input[type="password"] {
