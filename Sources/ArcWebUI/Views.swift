@@ -3684,26 +3684,11 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     }
 
 
-    /// Settings → Storage: medium picker (staged, not connected until
-    /// "Save and Connect"), saved Tessera connections CRUD, and the active
-    /// medium label. Mirrors the composer-dropdown component shapes (one wire
-    /// on the popover container, rows carry only ids).
-    func storageSettingsHTML() -> String {
-        func storageMediumLabel(_ medium: String) -> String {
+    func storageSettingsHTML() -> some WebUI.View {
+        func mediumLabel(_ medium: String) -> String {
             if medium == "file" { return "Local file storage" }
             if medium == "config" { return "Default (config.json)" }
             return settings.storageConnections.first(where: { $0.id == medium })?.name ?? "Unknown storage"
-        }
-        func storagePickedLabel(_ medium: String) -> String {
-            if medium == "file" { return "Local file storage" }
-            if medium == "config" { return "Default (config.json)" }
-            return settings.storageConnections.first(where: { $0.id == medium })?.name ?? "Unknown storage"
-        }
-        func storageRowBadges(active: Bool, staged: Bool) -> String {
-            var b = ""
-            if active { b += "<span class=\"dd-badge sel\">ACTIVE</span>" }
-            if staged { b += "<span class=\"dd-badge\">SELECTED</span>" }
-            return b
         }
         // The effective medium = what the RUNTIME is actually using. A hosted
         // daemon always boots config.json's tessera (or file), so while the
@@ -3713,114 +3698,235 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         // actually connected (attach detached), the choice is the truth.
         let effectiveFile = runtimeBackend == "file"
         let effectiveMedium = effectiveFile ? "file" : (attachedStorage != nil ? "config" : settings.activeStorage)
-        let storagePickVis = storagePickOpen ? "" : " hidden"
-        var storagePickRows: [String] = []
-        storagePickRows.append(ddRow(id: "storage-pick-file", body: """
-        <span class="dd-row-title">Local file storage <span class="dd-badges">\(storageRowBadges(active: effectiveFile, staged: stagedStorage == "file"))</span></span>
-        <span class="dd-row-sub">~/.arc/sessions + memories — always available, needs no relay</span>
-        """))
-        storagePickRows.append(ddRow(id: "storage-pick-config", body: """
-        <span class="dd-row-title">Default (config.json) <span class="dd-badges">\(storageRowBadges(active: !effectiveFile && effectiveMedium == "config", staged: stagedStorage == "config"))</span></span>
-        <span class="dd-row-sub">Tessera from the tessera block of ~/.arc/config.json</span>
-        """))
-        for conn in settings.storageConnections {
-            storagePickRows.append(ddRow(id: "storage-pick-conn-\(enc(conn.id))", body: """
-            <span class="dd-row-title">\(esc(conn.name)) <span class="dd-badges">\(storageRowBadges(active: !effectiveFile && effectiveMedium == conn.id, staged: stagedStorage == conn.id))</span></span>
-            <span class="dd-row-sub">\(esc(conn.endpointLabel)) — app \(conn.application)\(incompleteNote(conn))</span>
-            """))
-        }
-        let storagePickerHTML = """
-        <div class="dd dd-settings">
-          \(render(ddTrigger(id: "storage-pick-toggle", icon: .database, label: storageMediumLabel(effectiveMedium), title: "Storage medium in use")))
-          <div class="dd-pop dd-pop-down\(storagePickVis)" data-component-id="storage-pick" data-event="click">
-            <div class="dd-note">Pick a medium, then press <strong>Save and Connect</strong> to switch.</div>
-            <div class="dd-list">\(storagePickRows.joined())</div>
-          </div>
-        </div>
-        """
-        let storageCanConnect = stagedStorage != nil && stagedStorage != effectiveMedium
-        let storageStagedNote: String
-        if let st = stagedStorage {
-            storageStagedNote = "<div class=\"set-hint\" style=\"margin:2px 0 0 0\">Selected: <strong>\(esc(storagePickedLabel(st)))</strong> — not connected yet. Press <strong>Save and Connect</strong>.</div>"
-        } else {
-            storageStagedNote = ""
-        }
-        let storageConnRows = settings.storageConnections.map { conn -> String in
-            let encID = enc(conn.id)
-            let activeBadge = !effectiveFile && effectiveMedium == conn.id ? "<span class=\"mc-badge\">connected</span>" : ""
-            let stagedBadge = stagedStorage == conn.id ? "<span class=\"mc-badge\">selected</span>" : ""
-            return """
-            <div class="mc-row">
-              <span class="mc-name">\(esc(conn.name)) \(activeBadge)\(stagedBadge)</span>
-              <span class="mc-model">\(esc(conn.endpointLabel)) · app \(conn.application)\(incompleteNote(conn))</span>
-              <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
-                <div data-component-id="storage-edit" data-event="click">\(btn("storage-edit-\(encID)", "", "ghost-btn", "Edit", " style=\"padding:4px 10px;font-size:0.8em\""))</div>
-                <div data-component-id="storage-del" data-event="click">\(btn("storage-del-\(encID)", "", "danger-btn", "Remove", " style=\"padding:4px 10px;font-size:0.8em\""))</div>
-              </div>
-            </div>
-            """
-        }.joined()
-        let storageConnList = storageConnRows.isEmpty
-            ? "<div class=\"empty-hint\">No tessera storages configured.</div>" : storageConnRows
-        func incompleteNote(_ conn: TesseraStorageConnection) -> String {
-            if let note = conn.completenessNote {
-                return " — <span class=\"set-warn\">\(esc(note))</span>"
-            }
-            return ""
-        }
-        let se = storageEdit
-        let storageConnForm = """
-        <form id="storage-conn-form" data-component-id="storage-conn-form" class="form-grid" style="margin-top:14px;border-top:1px dashed var(--border);padding-top:14px">
-          <input type="hidden" id="storage-edit-id" name="storage-edit-id" data-component-id="storage-edit-id" value="\(esc(se?.id ?? ""))">
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
-            <div><label for="sc-name">Name</label><input id="sc-name" name="sc-name" data-component-id="sc-name" autocomplete="off" placeholder="Home relay" value="\(esc(se?.name ?? ""))"></div>
-            <div><label for="sc-ip">Server IP / host</label><input id="sc-ip" name="sc-ip" data-component-id="sc-ip" autocomplete="off" placeholder="10.0.0.1" value="\(esc(se?.serverIP ?? ""))"></div>
-            <div><label for="sc-port">Port</label><input id="sc-port" name="sc-port" data-component-id="sc-port" type="number" min="1" max="65535" autocomplete="off" placeholder="51820" value="\(se.map { String($0.serverPort) } ?? "")"></div>
-          </div>
-          <div><label for="sc-app">Application id</label><input id="sc-app" name="sc-app" data-component-id="sc-app" type="number" min="0" max="65535" placeholder="1" value="\(se.map { String($0.application) } ?? "")"></div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-            <div><label for="sc-pub">Server public key</label><input id="sc-pub" name="sc-pub" data-component-id="sc-pub" autocomplete="off" placeholder="base64 (32 bytes)" value="\(esc(se?.serverPublicKey ?? ""))"></div>
-            <div><label for="sc-priv">Client private key</label><input id="sc-priv" name="sc-priv" data-component-id="sc-priv" type="password" autocomplete="new-password" placeholder="base64 (32 bytes)" value="\(esc(se?.myPrivateKey ?? ""))"></div>
-          </div>
-          <div class="row-actions-main" style="margin:0">
-            <button type="submit" class="primary-btn">\(se == nil ? "Add storage" : "Update storage")</button>
-            \(se == nil ? "" : btn("storage-cancel-edit", "storage-cancel-edit", "ghost-btn", "Cancel", " style=\"padding:4px 10px;font-size:0.8em\""))
-          </div>
-        </form>
-        """
+        let canConnect = stagedStorage != nil && stagedStorage != effectiveMedium
 
-        return """
-        <section class="set-section" id="storage">
-          <h2>Storage</h2>
-          <div class="detail-card">
-            <h3 style="margin:0 0 6px">Storage medium</h3>
-            <div class="detail-sub" style="margin-bottom:10px">Where sessions, memory and profiles are saved. Picking a medium only stages it — press <strong>Save and Connect</strong> to actually switch.</div>
-            <div class="set-row" style="flex-direction:column;align-items:stretch;gap:8px">
-              <div class="set-label">Connected storage<small>\(esc(storageDescription())).</small></div>
-              <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
-                \(storagePickerHTML)
-                <button type="button" id="storage-connect" data-component-id="storage-connect" class="primary-btn"\(storageCanConnect ? "" : " disabled")>Save and Connect</button>
-              </div>
-              \(storageStagedNote)
-            </div>
-          </div>
-          <div class="detail-card" style="margin-top:12px">
-            <h3 style="margin:0 0 6px">Tessera storages</h3>
-            <div class="detail-sub" style="margin-bottom:10px">Connections to different Tessera relays (signed NOSTR event stores). A connection must be complete (IP, port, public key, client private key) before it can be picked and connected to.</div>
-            \(storageConnList)
-            \(storageConnForm)
-          </div>
-          <div class="detail-card" style="margin-top:12px">
-            <div class="set-row">
-              <div class="set-label">Mixture of Agents<small>Fan out reference-model advice before the main call. Reference models come from the <code>moa</code> block of ~/.arc/config.json; without them this does nothing.</small></div>
-              <label class="switch">
-                <input type="checkbox" id="set-moa" data-component-id="set-moa" data-event="change" data-no-restore \(settings.moaEnabled ? "checked" : "")>
-                <span class="track"></span><span class="knob"></span>
-              </label>
-            </div>
-          </div>
-        </section>
-        """
+        func badges(active: Bool, staged: Bool) -> [any WebUI.View] {
+            var out: [any WebUI.View] = []
+            if active { out.append(Span(class: "dd-badge sel") { Text("ACTIVE") }) }
+            if staged { out.append(Span(class: "dd-badge") { Text("SELECTED") }) }
+            return out
+        }
+        func incomplete(_ conn: TesseraStorageConnection) -> [any WebUI.View] {
+            guard let note = conn.completenessNote else { return [] }
+            return [Text(" — "), Span(class: "set-warn") { Text(note) }]
+        }
+
+        let connections = settings.storageConnections
+        return Section(id: "storage", class: "set-section") {
+            Heading("Storage", level: .h2)
+            DetailCard {
+                Heading("Storage medium", level: .h3)
+                    .attribute("style", "margin:0 0 6px")
+                Div(class: "detail-sub") {
+                    Text("Where sessions, memory and profiles are saved. Picking a medium only stages it — press ")
+                    InlineCode("Save and Connect")
+                    Text(" to actually switch.")
+                }
+                .attribute("style", "margin-bottom:10px")
+                Div(class: "set-row set-row-stack-lg") {
+                    Div(class: "set-label") {
+                        Text("Connected storage")
+                        Small("\(storageDescription()).")
+                    }
+                    Div(class: "storage-picker-row") {
+                        Div(class: "dd dd-settings") {
+                            ddTrigger(id: "storage-pick-toggle", icon: .database,
+                                      label: mediumLabel(effectiveMedium),
+                                      title: "Storage medium in use")
+                            Div(class: storagePickOpen ? "dd-pop dd-pop-down" : "dd-pop dd-pop-down hidden") {
+                                Div(class: "dd-note") {
+                                    Text("Pick a medium, then press ")
+                                    InlineCode("Save and Connect")
+                                    Text(" to switch.")
+                                }
+                                Div(class: "dd-list") {
+                                    ddRow(id: "storage-pick-file") {
+                                        Span(class: "dd-row-title") {
+                                            Text("Local file storage ")
+                                            Span(class: "dd-badges") {
+                                                for b in badges(active: effectiveFile,
+                                                                staged: stagedStorage == "file") { b }
+                                            }
+                                        }
+                                        Span(class: "dd-row-sub") {
+                                            Text("~/.arc/sessions + memories — always available, needs no relay")
+                                        }
+                                    }
+                                    ddRow(id: "storage-pick-config") {
+                                        Span(class: "dd-row-title") {
+                                            Text("Default (config.json) ")
+                                            Span(class: "dd-badges") {
+                                                for b in badges(active: !effectiveFile && effectiveMedium == "config",
+                                                                staged: stagedStorage == "config") { b }
+                                            }
+                                        }
+                                        Span(class: "dd-row-sub") {
+                                            Text("Tessera from the tessera block of ~/.arc/config.json")
+                                        }
+                                    }
+                                    for conn in connections {
+                                        ddRow(id: "storage-pick-conn-\(enc(conn.id))") {
+                                            Span(class: "dd-row-title") {
+                                                Text("\(conn.name) ")
+                                                Span(class: "dd-badges") {
+                                                    for b in badges(active: !effectiveFile && effectiveMedium == conn.id,
+                                                                    staged: stagedStorage == conn.id) { b }
+                                                }
+                                            }
+                                            Span(class: "dd-row-sub") {
+                                                Text("\(conn.endpointLabel) — app \(conn.application)")
+                                                for n in incomplete(conn) { n }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            .attribute("data-component-id", "storage-pick")
+                            .attribute("data-event", "click")
+                        }
+                        ArcButton("Save and Connect", id: "storage-connect",
+                                  component: "storage-connect", class: "primary-btn",
+                                  disabled: !canConnect)
+                    }
+                    if let st = stagedStorage {
+                        Div(class: "set-hint") {
+                            Text("Selected: ")
+                            Span { Text(mediumLabel(st)) }
+                            Text(" — not connected yet. Press ")
+                            InlineCode("Save and Connect")
+                            Text(".")
+                        }
+                        .attribute("style", "margin:2px 0 0 0")
+                    }
+                }
+            }
+            DetailCard {
+                Heading("Tessera storages", level: .h3)
+                    .attribute("style", "margin:0 0 6px")
+                Div(class: "detail-sub") {
+                    Text("Connections to different Tessera relays (signed NOSTR event stores). A connection must be complete (IP, port, public key, client private key) before it can be picked and connected to.")
+                }
+                .attribute("style", "margin-bottom:10px")
+                if connections.isEmpty {
+                    Div(class: "empty-hint") { Text("No tessera storages configured.") }
+                } else {
+                    for conn in connections {
+                        let encID = enc(conn.id)
+                        Div(class: "mc-row") {
+                            Span(class: "mc-name") {
+                                Text("\(conn.name) ")
+                                if !effectiveFile && effectiveMedium == conn.id {
+                                    Span(class: "mc-badge") { Text("connected") }
+                                }
+                                if stagedStorage == conn.id {
+                                    Span(class: "mc-badge") { Text("selected") }
+                                }
+                            }
+                            Span(class: "mc-model") {
+                                Text("\(conn.endpointLabel) · app \(conn.application)")
+                                for n in incomplete(conn) { n }
+                            }
+                            Div(class: "storage-row-actions") {
+                                Div {
+                                    ArcButton("Edit", id: "storage-edit-\(encID)",
+                                              class: "ghost-btn btn-sm")
+                                }
+                                .attribute("data-component-id", "storage-edit")
+                                .attribute("data-event", "click")
+                                Div {
+                                    ArcButton("Remove", id: "storage-del-\(encID)",
+                                              class: "danger-btn btn-sm")
+                                }
+                                .attribute("data-component-id", "storage-del")
+                                .attribute("data-event", "click")
+                            }
+                        }
+                    }
+                }
+                storageConnForm(connections: connections)
+            }
+            .attribute("style", "margin-top:12px")
+            DetailCard {
+                SettingRow {
+                    Text("Mixture of Agents")
+                    Small {
+                        Text("Fan out reference-model advice before the main call. Reference models come from the ")
+                        InlineCode("moa")
+                        Text(" block of ~/.arc/config.json; without them this does nothing.")
+                    }
+                } control: {
+                    ArcSwitch(id: "set-moa", on: settings.moaEnabled,
+                              component: "set-moa", event: "change")
+                }
+            }
+            .attribute("style", "margin-top:12px")
+        }
+    }
+
+    /// the saved-connection form: the `sc-*` field names are the submit payload
+    /// keys the engine's form extractor builds, so they must not drift.
+    private func storageConnForm(connections: [TesseraStorageConnection]) -> some WebUI.View {
+        let se = storageEdit
+        return Form(id: "storage-conn-form", class: "form-grid conn-form") {
+            Input(id: "storage-edit-id", name: "storage-edit-id", type: .hidden,
+                  value: se?.id ?? "",
+                  attributes: [("data-component-id", "storage-edit-id")])
+            Div(class: "form-grid-3") {
+                Div {
+                    Label("Name", for: "sc-name")
+                    Input(id: "sc-name", name: "sc-name", placeholder: "Home relay",
+                          type: nil, value: se?.name ?? "",
+                          attributes: [("data-component-id", "sc-name"), ("autocomplete", "off")])
+                }
+                Div {
+                    Label("Server IP / host", for: "sc-ip")
+                    Input(id: "sc-ip", name: "sc-ip", placeholder: "10.0.0.1",
+                          type: nil, value: se?.serverIP ?? "",
+                          attributes: [("data-component-id", "sc-ip"), ("autocomplete", "off")])
+                }
+                Div {
+                    Label("Port", for: "sc-port")
+                    Input(id: "sc-port", name: "sc-port", placeholder: "51820",
+                          type: .number, value: se.map { String($0.serverPort) } ?? "",
+                          attributes: [("data-component-id", "sc-port"),
+                                       ("autocomplete", "off"),
+                                       ("min", "1"), ("max", "65535")])
+                }
+            }
+            Div {
+                Label("Application id", for: "sc-app")
+                Input(id: "sc-app", name: "sc-app", placeholder: "1",
+                      type: .number, value: se.map { String($0.application) } ?? "",
+                      attributes: [("data-component-id", "sc-app"),
+                                   ("min", "0"), ("max", "65535")])
+            }
+            Div(class: "form-grid-2") {
+                Div {
+                    Label("Server public key", for: "sc-pub")
+                    Input(id: "sc-pub", name: "sc-pub", placeholder: "base64 (32 bytes)",
+                          type: nil, value: se?.serverPublicKey ?? "",
+                          attributes: [("data-component-id", "sc-pub"), ("autocomplete", "off")])
+                }
+                Div {
+                    Label("Client private key", for: "sc-priv")
+                    // a private key is never a password-manager login: this input
+                    // opts out of autofill (pinned).
+                    Input(id: "sc-priv", name: "sc-priv", placeholder: "base64 (32 bytes)",
+                          type: .password, value: se?.myPrivateKey ?? "",
+                          attributes: [("data-component-id", "sc-priv"),
+                                       ("autocomplete", "new-password")])
+                }
+            }
+            Div(class: "row-actions-main row-actions-flush") {
+                ArcButton(se == nil ? "Add storage" : "Update storage",
+                          class: "primary-btn", type: .submit)
+                if se != nil {
+                    ArcButton("Cancel", id: "storage-cancel-edit",
+                              component: "storage-cancel-edit", class: "ghost-btn btn-sm")
+                }
+            }
+        }
+        .attribute("data-component-id", "storage-conn-form")
     }
 
     func settingsMain() -> String {
@@ -4144,7 +4250,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
 
             \(render(agentLimitsSection()))
 
-            \(storageSettingsHTML())
+            \(render(storageSettingsHTML()))
 
             <section class="set-section" id="tool-plugins">
               <h2>Tool plugins</h2>

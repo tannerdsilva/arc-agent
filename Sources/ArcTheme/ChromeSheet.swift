@@ -943,6 +943,14 @@ public static let css: String = """
     .probe-error { color: var(--danger, #e5484d); }
     .row-icon { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .mcp-form { max-width: 640px; }
+    .set-row-stack-lg { flex-direction: column; align-items: stretch; gap: 8px; }
+    .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .storage-picker-row { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+    .storage-row-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+    .conn-form { margin-top: 14px; border-top: 1px dashed var(--border); padding-top: 14px; }
+    .row-actions-flush { margin: 0; }
+    .btn-sm { padding: 4px 10px; font-size: 0.8em; }
     /* a numeric settings field. replaces the inline style blob four settings
        rows used to carry (`width:96px;padding:8px;background:var(--code-bg);…`)
        — a component style, not a utility: one field shape, repeated. */

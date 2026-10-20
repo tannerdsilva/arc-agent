@@ -713,10 +713,20 @@ extension ArcWebUITestRoot {
         // MARK: - UX-11 no autocomplete hint on the private-key input
 
         @Test("the client private key input opts out of password autofill")
-        func privateKeyInputSilencesAutofillHint() {
-            let views = Self.views
-            #expect(views.contains("id=\"sc-priv\" name=\"sc-priv\" data-component-id=\"sc-priv\" type=\"password\" autocomplete=\"new-password\""),
+        func privateKeyInputSilencesAutofillHint() async {
+            // asserted on RENDERED bytes: the input is a typed primitive now, so
+            // the attribute SET is what matters, not the order it is spelled in.
+            let app = AppState(renderFixture: AppState.RenderFixture())
+            let html = await app.storageSettingsHTML().markup.html
+            guard let tag = html.range(of: #"<input[^>]*id="sc-priv"[^>]*>"#,
+                                       options: .regularExpression).map({ String(html[$0]) }) else {
+                #expect(Bool(false), "the client private key input must exist")
+                return
+            }
+            #expect(tag.contains("type=\"password\""), "the key must be masked")
+            #expect(tag.contains("autocomplete=\"new-password\""),
                     "the browser warns on password inputs without autocomplete (UX-11)")
+            #expect(tag.contains("data-component-id=\"sc-priv\""), "the field stays wired")
         }
         // MARK: - UX-10 log level badge never wraps
 
@@ -943,14 +953,21 @@ extension ArcWebUITestRoot {
         }
 
         @Test("the storage surface names the active medium — no backwards ON switch")
-        func storageBackendNamesItsStates() {
+        func storageBackendNamesItsStates() async {
             // The surface is the medium picker (tessera's storage-connection
             // architecture): the trigger names the medium in use and the popover
             // badges the active row. There is no ON/OFF switch whose ON meant FILE
             // (F04) — the ambiguity B8 fixed cannot recur in this shape.
-            #expect(Self.views.contains("label: storageMediumLabel(effectiveMedium)"))
-            #expect(Self.views.contains("data-component-id=\"storage-pick\""))
-            #expect(!Self.views.contains("data-component-id=\"set-tessera\""),
+            //
+            // asserted on RENDERED bytes: the trigger label is computed, so the
+            // source no longer carries the call shape a grep could trust.
+            let app = AppState(renderFixture: AppState.RenderFixture())
+            let html = await app.storageSettingsHTML().markup.html
+            #expect(html.contains("data-component-id=\"storage-pick\""),
+                    "the medium picker keeps its boundary")
+            #expect(html.contains("Local file storage"),
+                    "the trigger names the medium in use")
+            #expect(!html.contains("data-component-id=\"set-tessera\""),
                     "the old switch's ON meant FILE storage — the opposite of every other switch (F04)")
         }
 

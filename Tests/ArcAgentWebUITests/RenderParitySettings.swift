@@ -76,7 +76,7 @@ struct RenderParitySettings {
 
     @Test("file storage matches golden")
     func storageFileGolden() async {
-        let html = await app { $0.settings.activeStorage = "file" }.storageSettingsHTML()
+        let html = await app { $0.settings.activeStorage = "file" }.storageSettingsHTML().markup.html
         Parity.capture(html, as: "storage-file")
         Parity.expect(html, matches: "storage-file")
     }
@@ -90,7 +90,7 @@ struct RenderParitySettings {
         let html = await app {
             $0.settings.storageConnections = [conn]
             $0.settings.activeStorage = "conn-1"
-        }.storageSettingsHTML()
+        }.storageSettingsHTML().markup.html
         Parity.capture(html, as: "storage-tessera")
         Parity.expect(html, matches: "storage-tessera")
     }
@@ -103,7 +103,7 @@ struct RenderParitySettings {
         let html = await app {
             $0.settings.storageConnections = [conn]
             $0.settings.activeStorage = "conn-2"
-        }.storageSettingsHTML()
+        }.storageSettingsHTML().markup.html
         Parity.capture(html, as: "storage-incomplete")
         Parity.expect(html, matches: "storage-incomplete")
     }
