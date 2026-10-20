@@ -19,7 +19,7 @@ struct RenderParitySettings {
 
     @Test("settings panel matches golden")
     func settingsPanelGolden() async {
-        let html = await app().settingsPanel()
+        let html = await app().settingsPanel().markup.html
         Parity.capture(html, as: "settings-panel")
         Parity.expect(html, matches: "settings-panel")
     }

@@ -378,7 +378,7 @@ extension AppState {
             case .insights:
                 legacy(insightsPanel())      // TODO(phase 7) — Insights.swift
             case .settings:
-                legacy(settingsPanel())      // TODO(phase 5)
+                settingsPanel()
             case .logs:
                 legacy(logsPanel())          // TODO(phase 7)
             case .tasks:
@@ -1034,24 +1034,27 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
 
     // MARK: Settings panel
 
-    func settingsPanel() -> String {
-        let head = """
-        <div class="panel-head">
-          <span class="panel-title">Settings</span>
-        </div>
-        """
-        let nav = """
-        <div class="panel-body">
-          <div class="list-row"><a href="#appearance" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">Appearance</span></a></div>
-          <div class="list-row"><a href="#preferences" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">Preferences</span></a></div>
-          <div class="list-row"><a href="#storage" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">Storage</span></a></div>
-          <div class="list-row"><a href="#tool-plugins" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">Tool plugins</span></a></div>
-          <div class="list-row"><a href="#mcp-servers" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">MCP servers</span></a></div>
-          <div class="list-row"><a href="#sidebar-plugins" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">Sidebar plugins</span></a></div>
-          <div class="list-row"><a href="#about" style="color:inherit;text-decoration:none;flex:1"><span class="lr-name">About</span></a></div>
-        </div>
-        """
-        return head + nav
+    func settingsPanel() -> some WebUI.View {
+        let rows: [(String, String)] = [
+            ("Appearance", "appearance"),
+            ("Preferences", "preferences"),
+            ("Storage", "storage"),
+            ("Tool plugins", "tool-plugins"),
+            ("MCP servers", "mcp-servers"),
+            ("Sidebar plugins", "sidebar-plugins"),
+            ("About", "about"),
+        ]
+        return Group {
+            Div(class: "panel-head") {
+                Span(class: "panel-title") { Text("Settings") }
+            }
+            Div(class: "panel-body") {
+                // every row anchors to its <section id> in the main pane
+                for r in rows {
+                    PanelNavRow(r.0, href: "#" + r.1)
+                }
+            }
+        }
     }
 
     // MARK: - Main
