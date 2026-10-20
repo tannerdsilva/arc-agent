@@ -618,7 +618,10 @@ extension ArcWebUITestRoot {
                     "the per-row ⋮ must be out of the tab order (reachable via Menu/Shift+F10)")
             #expect(Self.views.contains("class=\"tw-copy\" type=\"button\" data-copy-target=\"\\(target)\" title=\"Copy this activity\" tabindex=\"-1\""),
                     "worklog copy buttons must be quiet (out of the tab order)")
-            #expect(Self.views.contains("class=\"tc-copy\" type=\"button\" data-copy=\"\" + esc(args) + \"\" title=\"Copy arguments\" tabindex=\"-1\""),
+            // the tool card is typed now: prove the quiet tab order on the RENDERED
+            // button rather than on the concatenation that used to build it.
+            let reply = await RenderedMarkup.assistantReplyWithToolCall()
+            #expect(reply.range(of: #"<button [^>]*class="tc-copy"[^>]*tabindex="-1""#, options: .regularExpression) != nil,
                     "tool-card copy buttons must be quiet")
             // The two copy attributes above are built by string concatenation; the
             // doubled-backslash spelling emits the LITERAL text `\\(target)` and the
@@ -628,8 +631,15 @@ extension ArcWebUITestRoot {
             let rawViews = Self.source("Sources/ArcWebUI/Views.swift")
             #expect(!rawViews.contains("\\\"\\\" + esc(args) + \\\"\\\""),
                     "the doubled-quote spelling is back: tool-card copy emits data-copy=\"\"<args>\"\"")
-            #expect(Self.views.contains("data-copy=\"\\(esc(m.content ?? \"\"))\" title=\"Copy response\" tabindex=\"-1\""),
+            // attribute order is the framework's: take the whole button tag, then
+            // assert on it, instead of pinning an order that markup no longer has.
+            let copyBtn = reply.range(of: #"<button [^>]*class="msg-copy-btn msg-action-btn"[^>]*>"#,
+                                      options: .regularExpression).map { String(reply[$0]) }
+            #expect(copyBtn != nil, "the assistant reply must render its copy button")
+            #expect(copyBtn?.contains("tabindex=\"-1\"") == true,
                     "message copy buttons must be quiet")
+            #expect(copyBtn?.contains("title=\"Copy response\"") == true,
+                    "the copy button must keep its tooltip")
             let overlay = Self.overlay
             #expect(overlay.contains("function visibleSessionRows()"),
                     "the overlay must rove across visible rows only")

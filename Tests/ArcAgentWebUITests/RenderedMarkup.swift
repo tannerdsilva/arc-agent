@@ -62,6 +62,28 @@ enum RenderedMarkup {
         return await app.panelHTML().markup.html
     }
 
+    /// an assistant reply carrying a tool card and a foot: one render exercises
+    /// the two copy buttons (tool arguments + response) and their tab order.
+    static func assistantReplyWithToolCall() async -> String {
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let m = Message(role: .assistant, content: "done",
+                        toolCalls: [ToolCall(id: "call_1",
+                                             function: ToolCallFunction(name: "read_file",
+                                                                        arguments: "{\"path\":\"README.md\"}"))],
+                        createdAt: t0)
+        let app = AppState(renderFixture: seededFixture())
+        return await app.messageHTML(m, rawIdx: 0).markup.html
+    }
+
+    /// a user and an assistant message with their address ids, for the
+    /// streaming-push contract (the push targets `#msg-<rawIdx>`).
+    static func addressedMessages() async -> String {
+        let app = AppState(renderFixture: seededFixture())
+        let user = await app.messageHTML(Message(role: .user, content: "hi"), rawIdx: 0).markup.html
+        let assistant = await app.messageHTML(Message(role: .assistant, content: "hello"), rawIdx: 1).markup.html
+        return user + assistant
+    }
+
     /// the chat header rendered with a live session, for header-scoped pins.
     static func chatHeader() async -> String {
         var fixture = seededFixture()

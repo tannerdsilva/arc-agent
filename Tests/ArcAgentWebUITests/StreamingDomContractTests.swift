@@ -68,11 +68,18 @@ extension ArcWebUITestRoot {
         }
 
         @Test("committed turns and messages are addressable")
-        func committedUnitsAreAddressable() {
+        func committedUnitsAreAddressable() async {
             let views = Self.views()
             #expect(views.contains("id=\"turn-\\(turnIndex)\""), "turnBlockHTML must carry id=\"turn-<turnIndex>\"")
-            #expect(views.components(separatedBy: "id=\"msg-\\(rawIdx)\"").count == 3,
-                    "assistant and tool messageHTML variants must carry id=\"msg-<rawIdx>\"")
+            // the messages are typed now: prove the addresses on RENDERED rows.
+            // the streaming push targets these ids, so a missing one is a
+            // silently dropped update, not a cosmetic difference.
+            let rendered = await RenderedMarkup.addressedMessages()
+            #expect(rendered.contains("id=\"msg-user-0\""),
+                    "user messages must be addressable as id=\"msg-user-<rawIdx>\"")
+            #expect(rendered.contains("id=\"msg-1\""),
+                    "assistant and tool messages must carry id=\"msg-<rawIdx>\"")
+            #expect(!rendered.contains("id=\"\""), "an address attribute must never render empty")
         }
 
         @Test("the streaming push targets the live node, not the transcript")

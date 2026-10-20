@@ -468,7 +468,7 @@ struct RenderParityTests {
     @Test("phase 3: user message matches golden")
     func phase3UserMessage() async {
         let app = AppState(renderFixture: .init())
-        let html = await app.messageHTML(Self.phase3Thread()[0], rawIdx: 0)
+        let html = await app.messageHTML(Self.phase3Thread()[0], rawIdx: 0).markup.html
         Parity.capture(html, as: "message-user")
         Parity.expect(html, matches: "message-user")
     }
@@ -476,7 +476,7 @@ struct RenderParityTests {
     @Test("phase 3: assistant message with tool calls matches golden")
     func phase3AssistantMessage() async {
         let app = AppState(renderFixture: .init())
-        let html = await app.messageHTML(Self.phase3Thread()[1], rawIdx: 1)
+        let html = await app.messageHTML(Self.phase3Thread()[1], rawIdx: 1).markup.html
         Parity.capture(html, as: "message-assistant-tools")
         Parity.expect(html, matches: "message-assistant-tools")
     }
@@ -484,7 +484,7 @@ struct RenderParityTests {
     @Test("phase 3: assistant message with usage matches golden")
     func phase3AssistantUsage() async {
         let app = AppState(renderFixture: .init())
-        let html = await app.messageHTML(Self.phase3Thread()[3], rawIdx: 3)
+        let html = await app.messageHTML(Self.phase3Thread()[3], rawIdx: 3).markup.html
         Parity.capture(html, as: "message-assistant-usage")
         Parity.expect(html, matches: "message-assistant-usage")
     }
@@ -492,7 +492,7 @@ struct RenderParityTests {
     @Test("phase 3: tool result message matches golden")
     func phase3ToolMessage() async {
         let app = AppState(renderFixture: .init())
-        let html = await app.messageHTML(Self.phase3Thread()[2], rawIdx: 2)
+        let html = await app.messageHTML(Self.phase3Thread()[2], rawIdx: 2).markup.html
         Parity.capture(html, as: "message-tool")
         Parity.expect(html, matches: "message-tool")
     }
@@ -577,7 +577,7 @@ struct RenderParityTests {
     func assistantMessageMatchesGolden() async {
         let app = AppState(renderFixture: .init())
         let m = Message(role: .assistant, content: "Hello, world")
-        let html = await app.messageHTML(m)
+        let html = await app.messageHTML(m).markup.html
         Parity.capture(html, as: "assistantMessage")
         Parity.expect(html, matches: "assistantMessage")
     }

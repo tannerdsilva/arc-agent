@@ -1217,7 +1217,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         let mode = settings.activityDisplay
         while i < messages.count {
             if messages[i].role == .user {
-                html.append(messageHTML(messages[i], rawIdx: i))
+                html.append(render(messageHTML(messages[i], rawIdx: i)))
                 i += 1
                 continue
             }
@@ -1257,30 +1257,56 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     /// The role header for an assistant reply: sparkle icon + "ARC Agent" on
     /// the left; the grouped meta row carries the tokens-per-second chip, the
     /// token usage and the produced-at time on the right (arc parity).
-    func assistantRoleHeaderHTML(_ m: Message) -> String {
+    func assistantRoleHeaderHTML(_ m: Message) -> some WebUI.View {
         let tp = m.tps ?? 0
-        let tpsChip = settings.showTps && tp > 0
-            ? "<span class=\"msg-tps-inline\" title=\"Tokens per second\">\(esc(fmtTps(tp)))</span>" : ""
-        let usage = usageInlineHTML(m)
         let ts = fmtMessageTime(m.createdAt)
-        let timeSpan = ts.isEmpty ? "" : "<span class=\"msg-time\">\(esc(ts))</span>"
-        let right = usage.isEmpty && timeSpan.isEmpty
-            ? "" : "<span class=\"mm-right\">\(usage)\(timeSpan)</span>"
-        return "<div class=\"msg-meta\"><span class=\"mm-left\"><span class=\"role-icon assistant\">\(WebUIIcon(.star, size: .small).markup.html)</span> ARC Agent\(tpsChip)</span><span class=\"mm-spacer\"></span>\(right)</div>"
+        // the right group exists only when it would have content: an empty
+        // `.mm-right` would still claim layout space beside the spacer.
+        let hasUsage = settings.showTokenUsage && m.usage != nil
+        let hasTime = !ts.isEmpty
+        return Div(class: "msg-meta") {
+            Span(class: "mm-left") {
+                Span(class: "role-icon assistant") { WebUIIcon(.star, size: .small) }
+                Text(" ARC Agent")
+                if settings.showTps && tp > 0 {
+                    Span(class: "msg-tps-inline") { Text(fmtTps(tp)) }
+                        .attribute("title", "Tokens per second")
+                }
+            }
+            Span(class: "mm-spacer") {}
+            if hasUsage || hasTime {
+                Span(class: "mm-right") {
+                    if hasUsage { usageInlineHTML(m) }
+                    if hasTime {
+                        Span(class: "msg-time") { Text(ts) }
+                    }
+                }
+            }
+        }
     }
 
     /// The body (markdown + tool cards) of an assistant reply.
-    func assistantBodyHTML(_ m: Message) -> String {
+    func assistantBodyHTML(_ m: Message) -> some WebUI.View {
         let content = m.content ?? ""
-        let chips = toolChipsHTML(m.toolCalls)
-        if content.isEmpty { return chips }
-        return "<div class=\"msg-body\">\(mdBox(content))</div>" + chips
+        // markdown becomes HTML inside the renderer; it enters the tree as
+        // trusted raw at this one seam rather than as an untyped string.
+        return Group {
+            if !content.isEmpty {
+                Div(class: "msg-body") { Raw(.trusted(mdBox(content))) }
+            }
+            toolChipsHTML(m.toolCalls)
+        }
     }
 
     /// arc parity: input/output token usage, rendered inside the meta row.
-    func usageInlineHTML(_ m: Message) -> String {
-        guard settings.showTokenUsage, let u = m.usage else { return "" }
-        return "<span class=\"msg-usage-inline\">\(fmtTokens(u.promptTokens)) in · \(fmtTokens(u.completionTokens)) out</span>"
+    func usageInlineHTML(_ m: Message) -> some WebUI.View {
+        Group {
+            if settings.showTokenUsage, let u = m.usage {
+                Span(class: "msg-usage-inline") {
+                    Text("\(fmtTokens(u.promptTokens)) in · \(fmtTokens(u.completionTokens)) out")
+                }
+            }
+        }
     }
 
     /// reference `_formatTurnDuration`: <60s → "Ns"; else "Xh Ym" / "Xm Ys".
@@ -1408,7 +1434,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 if let interim = m.content, !interim.isEmpty {
                     detail.append("<div class=\"msg-body interim\">" + mdBox(interim) + "</div>")
                 }
-                detail.append(toolChipsHTML(calls, results: pair.1))
+                detail.append(render(toolChipsHTML(calls, results: pair.1)))
                 rows.append("<details class=\"worklog-summary\" id=\"\(target)\" data-webui-key=\"\(target)\"><summary>" + WebUIIcon(.tool, size: .small).markup.html
                     + "<span>" + esc(summary) + "</span><span class=\"tw-spacer\"></span>"
                     + "<button class=\"tw-copy\" type=\"button\" data-copy-target=\"\(target)\" title=\"Copy this activity\" tabindex=\"-1\">" + WebUIIcon(.copy, size: .small).markup.html + "</button>"
@@ -1432,11 +1458,11 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         // rounds and annotate the summary (cards stay behind the disclosure).
         let totalTools = rounds.reduce(0) { $0 + (($1.0.toolCalls ?? []).count) }
         let toolNote = totalTools > 0 ? "<span class=\"tw-tools\">· \(totalTools) tool\(totalTools == 1 ? "" : "s")</span>" : ""
-        let terminalCard = finalMsg.terminalReason.map { terminalCardHTML(for: $0) } ?? ""
+        let terminalCard = finalMsg.terminalReason.map { render(terminalCardHTML(for: $0)) } ?? ""
         let worklogKey = "tw-\(turnIndex)-\(String(format: "%.3f", finalMsg.createdAt?.timeIntervalSince1970 ?? 0))"
         return """
         <div class="assistant-turn" id="turn-\(turnIndex)" data-turn-duration="\(String(format: "%.0f", finalMsg.turnDuration ?? 0))">
-          \(assistantRoleHeaderHTML(finalMsg))
+          \(render(assistantRoleHeaderHTML(finalMsg)))
           <details class="turn-worklog" data-tw-session="\(esc(activeSessionID ?? ""))" data-webui-key="\(worklogKey)">
             <summary>
               <span class="tw-dot"></span>
@@ -1451,9 +1477,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
           </details>
           <div class="msg assistant">
             <div style="max-width:100%;width:100%">
-              \(assistantBodyHTML(finalMsg))
+              \(render(assistantBodyHTML(finalMsg)))
               \(terminalCard)
-              \(msgFootHTML(finalMsg))
+              \(render(msgFootHTML(finalMsg)))
             </div>
           </div>
         </div>
@@ -1478,7 +1504,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 i = j
                 continue
             }
-            out.append(messageHTML(m))
+            out.append(render(messageHTML(m)))
             i += 1
         }
         return out
@@ -1502,7 +1528,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 rows.append("<div class=\"msg-body interim\">" + mdBox(interim) + "</div>")
             }
             for c in calls {
-                rows.append(toolCardHTML(c, result: results[c.id]))
+                rows.append(render(toolCardHTML(c, result: results[c.id])))
             }
             return rows.joined()
         default:
@@ -1516,83 +1542,118 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             if let interim = m.content, !interim.isEmpty {
                 detail.append("<div class=\"msg-body interim\">" + mdBox(interim) + "</div>")
             }
-            detail.append(toolChipsHTML(calls, results: results))
+            detail.append(render(toolChipsHTML(calls, results: results)))
             return "<details class=\"worklog-summary\"" + webuiKeyAttr(mk.isEmpty ? "" : "ws-" + mk) + "><summary>" + WebUIIcon(.tool, size: .small).markup.html + "<span>" + esc(summary) + "</span><span class=\"tw-spacer\"></span><span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).markup.html + "</span></summary><div class=\"wl-detail\">" + detail.joined() + "</div></details>"
         }
     }
 
-    /// One tool call as a compact card: tool icon + name + one-line argument
-    /// summary; expands to the full arguments JSON and, when known, the result.
-    /// The card carries a stable `data-webui-key` so the engine restores its
-    /// open state across fragment re-renders with shifting row indices.
-    func toolCardHTML(_ c: ToolCall, result: String?) -> String {
+    func toolCardHTML(_ c: ToolCall, result: String?) -> some WebUI.View {
         let args = c.function.arguments
-        var body = "<div class=\"tc-label\">Arguments</div><pre class=\"tc-block\">" + esc(args) + "</pre>"
-        if let result, !result.isEmpty {
-            body += "<div class=\"tc-label\">Result</div><pre class=\"tc-block\">" + esc(result) + "</pre>"
+        let card = Details(summary: {
+            WebUIIcon(.tool, size: .small)
+            Span(class: "tc-name") { Text(c.function.name) }
+            Span(class: "tc-arg") { Raw(.trusted(toolArgSummary(args))) }
+            Span(class: "tw-spacer") {}
+            ArcButton(id: nil, component: nil, class: "tc-copy", tabIndex: -1) {
+                WebUIIcon(.copy, size: .small)
+            }
+            .attribute("data-copy", args)
+            .attribute("title", "Copy arguments")
+            Span(class: "tw-caret") { WebUIIcon(.chevronRight, size: .small) }
+        }, content: {
+            Div(class: "tc-detail") {
+                Div(class: "tc-label") { Text("Arguments") }
+                Preformatted(args).attribute("class", "tc-block")
+                if let result, !result.isEmpty {
+                    Div(class: "tc-label") { Text("Result") }
+                    Preformatted(result).attribute("class", "tc-block")
+                }
+            }
+        })
+        .attribute("class", "tool-card")
+        return Group {
+            if c.id.isEmpty {
+                card
+            } else {
+                card.attribute("data-webui-key", "tc-\(c.id)")
+            }
         }
-        return "<details class=\"tool-card\" data-webui-key=\"tc-\(esc(c.id))\"><summary>"
-            + WebUIIcon(.tool, size: .small).markup.html
-            + "<span class=\"tc-name\">" + esc(c.function.name) + "</span>"
-            + "<span class=\"tc-arg\">" + toolArgSummary(args) + "</span>"
-            + "<span class=\"tw-spacer\"></span>"
-            + "<button class=\"tc-copy\" type=\"button\" data-copy=\"" + esc(args) + "\" title=\"Copy arguments\" tabindex=\"-1\">" + WebUIIcon(.copy, size: .small).markup.html + "</button>"
-            + "<span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).markup.html + "</span>"
-            + "</summary><div class=\"tc-detail\">" + body + "</div></details>"
     }
 
-    func messageHTML(_ m: Message, rawIdx: Int = -1) -> String {
-        switch m.role {
-        case .user:
-            // Slash-command rewrites (skill invocation scaffolding) keep the
-            // typed line as the display text; the model sees `content`.
-            let content = m.displayText ?? m.content ?? ""
-            let anchor = rawIdx >= 0 ? " id=\"msg-user-\(rawIdx)\"" : ""
-            return """
-            <div class="msg user"\(anchor)>
-              <div class="msg-body user-bubble">\(mdBox(content))</div>
-            </div>
-            """
-        case .assistant:
-            // Terminal-state status card (e.g. tool iteration limit reached,
-            // turn stopped, model connection lost) under the reply that ended
-            // the turn.
-            let terminalCard = m.terminalReason.map { terminalCardHTML(for: $0) } ?? ""
-            let anchor = rawIdx >= 0 ? " id=\"msg-\(rawIdx)\"" : ""
-            return """
-            <div class="msg assistant"\(anchor)>
-              <div style="max-width:100%;width:100%">
-                \(assistantRoleHeaderHTML(m))
-                \(assistantBodyHTML(m))
-                \(terminalCard)
-                \(msgFootHTML(m))
-              </div>
-            </div>
-            """
-        case .tool:
-            // Tool results render as the same expandable card family as calls:
-            // icon + name + a one-line preview, expanding to the full output.
-            let content = m.content ?? ""
-            let preview = esc(trunc(content.replacingOccurrences(of: "\n", with: " "), 96))
-            let resultKey = m.toolCallID.map { "tr-\($0)" }
-                ?? m.createdAt.map { "tr-\(Int($0.timeIntervalSince1970 * 1000))" } ?? ""
-            let anchor = rawIdx >= 0 ? " id=\"msg-\(rawIdx)\"" : ""
-            let card = "<details class=\"tool-card\"" + webuiKeyAttr(resultKey) + "><summary>"
-                + WebUIIcon(.tool, size: .small).markup.html
-                + "<span class=\"tc-name\">" + esc(m.name ?? "tool") + "</span>"
-                + "<span class=\"tc-arg\">" + preview + "</span>"
-                + "<span class=\"tw-spacer\"></span>"
-                + "<span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).markup.html + "</span>"
-                + "</summary><div class=\"tc-detail\"><div class=\"tc-label\">Result</div><pre class=\"tc-block\">" + esc(content) + "</pre></div></details>"
-            return """
-            <div class="msg assistant"\(anchor)>
-              <div style="width:100%">
-                \(card)
-              </div>
-            </div>
-            """
-        case .system:
-            return ""
+    func messageHTML(_ m: Message, rawIdx: Int = -1) -> some WebUI.View {
+        return Group {
+            switch m.role {
+            case .user:
+                // Slash-command rewrites (skill invocation scaffolding) keep the
+                // typed line as the display text; the model sees `content`.
+                let content = m.displayText ?? m.content ?? ""
+                let bubble = Div(class: "msg user") {
+                    Div(class: "msg-body user-bubble") { Raw(.trusted(mdBox(content))) }
+                }
+                if rawIdx >= 0 {
+                    bubble.attribute("id", "msg-user-\(rawIdx)")
+                } else {
+                    bubble
+                }
+            case .assistant:
+                // Terminal-state status card (e.g. tool iteration limit reached,
+                // turn stopped, model connection lost) under the reply that ended
+                // the turn.
+                let block = Div(class: "msg assistant") {
+                    Div {
+                        assistantRoleHeaderHTML(m)
+                        assistantBodyHTML(m)
+                        if let reason = m.terminalReason {
+                            terminalCardHTML(for: reason)
+                        }
+                        msgFootHTML(m)
+                    }
+                    .attribute("style", "max-width:100%;width:100%")
+                }
+                if rawIdx >= 0 {
+                    block.attribute("id", "msg-\(rawIdx)")
+                } else {
+                    block
+                }
+            case .tool:
+                // Tool results render as the same expandable card family as calls:
+                // icon + name + a one-line preview, expanding to the full output.
+                let content = m.content ?? ""
+                let preview = trunc(content.replacingOccurrences(of: "\n", with: " "), 96)
+                let resultKey = m.toolCallID.map { "tr-\($0)" }
+                    ?? m.createdAt.map { "tr-\(Int($0.timeIntervalSince1970 * 1000))" } ?? ""
+                let card = Details(summary: {
+                    WebUIIcon(.tool, size: .small)
+                    Span(class: "tc-name") { Text(m.name ?? "tool") }
+                    Span(class: "tc-arg") { Text(preview) }
+                    Span(class: "tw-spacer") {}
+                    Span(class: "tw-caret") { WebUIIcon(.chevronRight, size: .small) }
+                }, content: {
+                    Div(class: "tc-detail") {
+                        Div(class: "tc-label") { Text("Result") }
+                        Preformatted(content).attribute("class", "tc-block")
+                    }
+                })
+                .attribute("class", "tool-card")
+                let keyed = Group {
+                    if resultKey.isEmpty {
+                        card
+                    } else {
+                        card.attribute("data-webui-key", resultKey)
+                    }
+                }
+                let block = Div(class: "msg assistant") {
+                    Div { keyed }.attribute("style", "width:100%")
+                }
+                if rawIdx >= 0 {
+                    block.attribute("id", "msg-\(rawIdx)")
+                } else {
+                    block
+                }
+            case .system:
+                // system prompts are the model's, never the reader's
+                Group {}
+            }
         }
     }
 
@@ -1600,66 +1661,68 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     /// turn abnormally. Covers the tool-iteration limit (the classic case)
     /// and interrupted turns — user stop or model connection loss — so the
     /// UI always explains WHY the turn ended the way it did.
-    func terminalCardHTML(for reason: String) -> String {
-        switch reason {
-        case "user_stopped":
-            return interruptionCardHTML(
-                icon: .square, title: "Turn stopped",
-                sub: "Stopped by the user before the reply finished.",
-                state: "Stopped by user", next: "Start a new turn to continue.")
-        case "disconnected":
-            return interruptionCardHTML(
-                icon: .alertTriangle, title: "Model connection lost",
-                sub: "The connection to the model was lost, so the turn was interrupted.",
-                state: "Disconnected", next: "Start a new turn to continue.")
-        default:
-            return limitCardHTML()
+    func terminalCardHTML(for reason: String) -> some WebUI.View {
+        Group {
+            switch reason {
+            case "user_stopped":
+                interruptionCardHTML(
+                    icon: .square, title: "Turn stopped",
+                    sub: "Stopped by the user before the reply finished.",
+                    state: "Stopped by user", next: "Start a new turn to continue.")
+            case "disconnected":
+                interruptionCardHTML(
+                    icon: .alertTriangle, title: "Model connection lost",
+                    sub: "The connection to the model was lost, so the turn was interrupted.",
+                    state: "Disconnected", next: "Start a new turn to continue.")
+            default:
+                limitCardHTML()
+            }
         }
     }
 
     /// The tool-iteration-limit status card (shown under the final reply when
-    /// the tool-iteration budget was exhausted).
-    func limitCardHTML() -> String {
-        return """
-        <div class="limit-card">
-          <div class="limit-head">
-            <span class="limit-ico">\(WebUIIcon(.zap, size: .small).markup.html)</span>
-            <span class="limit-title">Tool iteration limit reached</span>
-          </div>
-          <div class="limit-sub">Stopped because the tool iteration limit was reached.</div>
-          <div class="limit-rows">
-            <div class="limit-row"><span class="limit-k">State</span><span class="limit-v">Limit reached</span></div>
-            <div class="limit-row"><span class="limit-k">Next step</span><span class="limit-v">Start a new turn to continue.</span></div>
-          </div>
-        </div>
-        """
+    /// the tool-iteration budget was exhausted). Same shell as every other
+    /// terminal card — it only pre-dates the shared builder.
+    func limitCardHTML() -> some WebUI.View {
+        interruptionCardHTML(
+            icon: .zap, title: "Tool iteration limit reached",
+            sub: "Stopped because the tool iteration limit was reached.",
+            state: "Limit reached", next: "Start a new turn to continue.")
     }
 
     /// Shared shell for interruption status cards (same look as the limit
     /// card, distinct icon/colors per terminal reason).
-    func interruptionCardHTML(icon: IconName, title: String, sub: String, state: String, next: String) -> String {
-        return """
-        <div class="limit-card">
-          <div class="limit-head">
-            <span class="limit-ico">\(WebUIIcon(icon, size: .small).markup.html)</span>
-            <span class="limit-title">\(esc(title))</span>
-          </div>
-          <div class="limit-sub">\(esc(sub))</div>
-          <div class="limit-rows">
-            <div class="limit-row"><span class="limit-k">State</span><span class="limit-v">\(esc(state))</span></div>
-            <div class="limit-row"><span class="limit-k">Next step</span><span class="limit-v">\(esc(next))</span></div>
-          </div>
-        </div>
-        """
+    func interruptionCardHTML(icon: IconName, title: String, sub: String, state: String, next: String) -> some WebUI.View {
+        Div(class: "limit-card") {
+            Div(class: "limit-head") {
+                Span(class: "limit-ico") { WebUIIcon(icon, size: .small) }
+                Span(class: "limit-title") { Text(title) }
+            }
+            Div(class: "limit-sub") { Text(sub) }
+            Div(class: "limit-rows") {
+                Div(class: "limit-row") {
+                    Span(class: "limit-k") { Text("State") }
+                    Span(class: "limit-v") { Text(state) }
+                }
+                Div(class: "limit-row") {
+                    Span(class: "limit-k") { Text("Next step") }
+                    Span(class: "limit-v") { Text(next) }
+                }
+            }
+        }
     }
 
     /// Tool calls as compact cards (icon + name + argument summary, expanding
     /// to the full JSON and — when paired — the result). `results` pairs a
     /// call with the tool message carrying its output.
-    func toolChipsHTML(_ calls: [ToolCall]?, results: [String: String] = [:]) -> String {
-        guard let calls, !calls.isEmpty else { return "" }
-        let cards = calls.map { toolCardHTML($0, result: results[$0.id]) }
-        return "<div class=\"tool-pills\">\(cards.joined())</div>"
+    func toolChipsHTML(_ calls: [ToolCall]?, results: [String: String] = [:]) -> some WebUI.View {
+        Group {
+            if let calls, !calls.isEmpty {
+                Div(class: "tool-pills") {
+                    for c in calls { toolCardHTML(c, result: results[c.id]) }
+                }
+            }
+        }
     }
 
     func liveMessageHTML(_ live: LiveTurn) -> String {
@@ -1828,16 +1891,16 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         return f.string(from: d)
     }
 
-    /// Hover footer for completed assistant responses: copy only — the
-    /// produced-at time now lives in the message meta row.
-    func msgFootHTML(_ m: Message) -> String {
-        return """
-        <div class="msg-foot">
-          <span class="msg-actions">
-            <button type="button" class="msg-copy-btn msg-action-btn" data-copy="\(esc(m.content ?? ""))" title="Copy response" tabindex="-1">\(WebUIIcon(.copy, size: .small).markup.html)</button>
-          </span>
-        </div>
-        """
+    func msgFootHTML(_ m: Message) -> some WebUI.View {
+        Div(class: "msg-foot") {
+            Span(class: "msg-actions") {
+                ArcButton(id: nil, component: nil, class: "msg-copy-btn msg-action-btn", tabIndex: -1) {
+                    WebUIIcon(.copy, size: .small)
+                }
+                .attribute("data-copy", m.content ?? "")
+                .attribute("title", "Copy response")
+            }
+        }
     }
 
     // MARK: - Context window indicator (arc parity)
