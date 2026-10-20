@@ -124,6 +124,23 @@ enum RenderedMarkup {
         return await app.chatMain().markup.html
     }
 
+    /// a compact-worklog turn block: one tool round plus a final reply.
+    static func turnBlock() async -> String {
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let app = AppState(renderFixture: seededFixture())
+        let seg = [
+            Message(role: .assistant, content: nil,
+                    toolCalls: [ToolCall(id: "call_1",
+                                         function: ToolCallFunction(name: "read_file",
+                                                                    arguments: "{\"path\":\"README.md\"}"))],
+                    createdAt: t0, reasoning: "thinking it over"),
+            Message(role: .tool, content: "file contents", name: "read_file",
+                    toolCallID: "call_1", createdAt: t0),
+            Message(role: .assistant, content: "All done.", createdAt: t0, turnDuration: 3.2),
+        ]
+        return await app.turnBlockHTML(seg, mode: "compact_worklog", turnIndex: 1).map { render($0) } ?? ""
+    }
+
     /// a running live turn: structural pins only — its elapsed label is clock
     /// derived, so it can never be pinned byte-for-byte.
     static func liveTurn() async -> String {

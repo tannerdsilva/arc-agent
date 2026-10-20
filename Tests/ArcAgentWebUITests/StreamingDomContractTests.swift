@@ -46,8 +46,8 @@ extension ArcWebUITestRoot {
             let views = Self.views()
             #expect(views.contains("innerID: \"live-turn-thinking\""),
                     "the streamed reasoning must request its stable span (id=\"live-turn-thinking\")")
-            #expect(views.contains("\"<span id=\"\\($0)\">\""),
-                    "the reasoning-row builder must emit the span with the interpolated id")
+            #expect(live.contains("id=\"live-turn-thinking\""),
+                    "the reasoning span must be in the render, not materialize later")
         }
 
         @Test("token pushes are text ops into the stable spans")
@@ -72,8 +72,8 @@ extension ArcWebUITestRoot {
 
         @Test("committed turns and messages are addressable")
         func committedUnitsAreAddressable() async {
-            let views = Self.views()
-            #expect(views.contains("id=\"turn-\\(turnIndex)\""), "turnBlockHTML must carry id=\"turn-<turnIndex>\"")
+            let block = await RenderedMarkup.turnBlock()
+            #expect(block.contains("id=\"turn-1\""), "turnBlockHTML must carry id=\"turn-<turnIndex>\"")
             // the messages are typed now: prove the addresses on RENDERED rows.
             // the streaming push targets these ids, so a missing one is a
             // silently dropped update, not a cosmetic difference.

@@ -622,8 +622,12 @@ extension ArcWebUITestRoot {
                     "the per-row open button must be out of the tab order")
             #expect(panel.range(of: #"<button [^>]*class="menu-dots"[^>]*tabindex="-1"[^>]*>"#, options: .regularExpression) != nil,
                     "the per-row ⋮ must be out of the tab order (reachable via Menu/Shift+F10)")
-            #expect(Self.views.contains("class=\"tw-copy\" type=\"button\" data-copy-target=\"\\(target)\" title=\"Copy this activity\" tabindex=\"-1\""),
+            let turnBlock = await RenderedMarkup.turnBlock()
+            let twCopy = turnBlock.range(of: #"<button [^>]*class="tw-copy"[^>]*>"#, options: .regularExpression).map { String(turnBlock[$0]) }
+            #expect(twCopy != nil && twCopy!.contains("tabindex=\"-1\""),
                     "worklog copy buttons must be quiet (out of the tab order)")
+            #expect(twCopy?.contains("title=\"Copy this activity\"") == true,
+                    "the worklog copy button keeps its tooltip")
             // the tool card is typed now: prove the quiet tab order on the RENDERED
             // button rather than on the concatenation that used to build it.
             let reply = await RenderedMarkup.assistantReplyWithToolCall()

@@ -110,3 +110,8 @@ func legacy(_ html: String) -> some WebUI.View {
 /// render a typed view where a `-> String` signature must survive one more phase.
 @inlinable
 func render<V: WebUI.View>(_ view: V) -> String { view.markup.html }
+
+/// existential overload: a `[any View]` element (a block collected into a list)
+/// still needs to become bytes at the push edge.
+@inlinable
+func render(_ view: any WebUI.View) -> String { view.markup.html }

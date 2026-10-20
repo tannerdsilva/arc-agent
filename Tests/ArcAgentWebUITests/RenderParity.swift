@@ -501,7 +501,7 @@ struct RenderParityTests {
     func phase3TurnBlock() async {
         let app = AppState(renderFixture: .init())
         let seg = Array(Self.phase3Thread()[1...3])
-        let html = await app.turnBlockHTML(seg, mode: "compact_worklog", turnIndex: 1) ?? ""
+        let html = await app.turnBlockHTML(seg, mode: "compact_worklog", turnIndex: 1).map { render($0) } ?? ""
         Parity.capture(html, as: "turn-block")
         Parity.expect(html, matches: "turn-block")
     }

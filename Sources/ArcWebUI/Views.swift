@@ -1280,11 +1280,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             while j < messages.count, messages[j].role != .user { j += 1 }
             let seg = Array(messages[i..<j])
             if let block = turnBlockHTML(seg, mode: mode, turnIndex: i) {
-                blocks.append(legacy(block)) // TODO(phase 3.9): turnBlockHTML
+                blocks.append(block)
             } else {
-                for piece in legacySegmentHTML(seg, mode: mode) {
-                    blocks.append(legacy(piece)) // TODO(phase 3.9): legacySegmentHTML
-                }
+                blocks.append(contentsOf: legacySegmentHTML(seg, mode: mode))
             }
             i = j
         }
@@ -1423,25 +1421,40 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         return String(Int(d.timeIntervalSince1970 * 1000))
     }
 
-    /// A collapsible reasoning row (icon + label + caret), shared by every
-    /// activity display mode. The key keeps its open state across re-renders.
-    func thinkingRowHTML(_ text: String, key: String, innerID: String? = nil, hidden: Bool = false) -> String {
-        let inner = innerID.map { "<span id=\"\($0)\">" + esc(text) + "</span>" } ?? esc(text)
-        return "<details class=\"thinking-row\"" + (hidden ? " hidden" : "") + webuiKeyAttr(key) + "><summary>"
-            + WebUIIcon(.edit, size: .small).markup.html
-            + "<span class=\"tw-label\">Thinking</span><span class=\"tw-spacer\"></span>"
-            + "<span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).markup.html + "</span>"
-            + "</summary><div class=\"tc-detail\">" + inner + "</div></details>"
+    func thinkingRowHTML(_ text: String, key: String, innerID: String? = nil, hidden: Bool = false) -> some WebUI.View {
+        let row = Details(summary: {
+            WebUIIcon(.edit, size: .small)
+            Span(class: "tw-label") { Text("Thinking") }
+            Span(class: "tw-spacer") {}
+            Span(class: "tw-caret") { WebUIIcon(.chevronRight, size: .small) }
+        }, content: {
+            Div(class: "tc-detail") {
+                if let innerID {
+                    Span { Text(text) }.attribute("id", innerID)
+                } else {
+                    Text(text)
+                }
+            }
+        })
+        .attribute("class", "thinking-row")
+        // the webui key and the hidden flag are both presence-only
+        let keyed = Group {
+            if key.isEmpty {
+                row
+            } else {
+                row.attribute("data-webui-key", key)
+            }
+        }
+        return Group {
+            if hidden {
+                keyed.attribute("hidden", "")
+            } else {
+                keyed
+            }
+        }
     }
 
-    /// arc-parity turn dropdown. Wraps a completed turn's supporting
-    /// activity behind one `Processed Xm Ys` summary; only the final reply
-    /// stays visible until the user opens it. `transparent_stream` renders the
-    /// same block pre-opened (full cards visible). Returns nil for modes that
-    /// don't use the block, for trunks with no activity, and for trunks with
-    /// no final reply (stop/error edges) — callers fall back to the legacy
-    /// per-piece rendering.
-    func turnBlockHTML(_ seg: [Message], mode: String, turnIndex: Int) -> String? {
+    func turnBlockHTML(_ seg: [Message], mode: String, turnIndex: Int) -> (any WebUI.View)? {
         guard mode == "compact_worklog" || mode == "transparent_stream" else { return nil }
         guard let finalIdx = seg.lastIndex(where: { $0.role == .assistant && ($0.toolCalls ?? []).isEmpty }) else { return nil }
         var rounds: [(Message, [String: String])] = []
@@ -1466,7 +1479,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         let hasActivity = !rounds.isEmpty || reasons.contains { !$0.isEmpty }
         guard hasActivity else { return nil }
 
-        var rows: [String] = []
+        var rows: [any WebUI.View] = []
         if mode == "compact_worklog" {
             // One aggregated "Thinking" row + one "Ran N commands/tools" row
             // per tool round with a copy button (reference worklog look).
@@ -1485,15 +1498,28 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 } else {
                     summary = calls.count == 1 ? "Ran a tool" : "Ran \(calls.count) tools"
                 }
-                var detail: [String] = []
-                if let interim = m.content, !interim.isEmpty {
-                    detail.append("<div class=\"msg-body interim\">" + mdBox(interim) + "</div>")
-                }
-                detail.append(render(toolChipsHTML(calls, results: pair.1)))
-                rows.append("<details class=\"worklog-summary\" id=\"\(target)\" data-webui-key=\"\(target)\"><summary>" + WebUIIcon(.tool, size: .small).markup.html
-                    + "<span>" + esc(summary) + "</span><span class=\"tw-spacer\"></span>"
-                    + "<button class=\"tw-copy\" type=\"button\" data-copy-target=\"\(target)\" title=\"Copy this activity\" tabindex=\"-1\">" + WebUIIcon(.copy, size: .small).markup.html + "</button>"
-                    + "<span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).markup.html + "</span></summary><div class=\"wl-detail\">" + detail.joined() + "</div></details>")
+                let row = Details(summary: {
+                    WebUIIcon(.tool, size: .small)
+                    Span { Text(summary) }
+                    Span(class: "tw-spacer") {}
+                    ArcButton(id: nil, component: nil, class: "tw-copy", tabIndex: -1) {
+                        WebUIIcon(.copy, size: .small)
+                    }
+                    .attribute("data-copy-target", target)
+                    .attribute("title", "Copy this activity")
+                    Span(class: "tw-caret") { WebUIIcon(.chevronRight, size: .small) }
+                }, content: {
+                    Div(class: "wl-detail") {
+                        if let interim = m.content, !interim.isEmpty {
+                            Div(class: "msg-body interim") { Raw(.trusted(mdBox(interim))) }
+                        }
+                        toolChipsHTML(calls, results: pair.1)
+                    }
+                })
+                .attribute("class", "worklog-summary")
+                .attribute("id", target)
+                .attribute("data-webui-key", target)
+                rows.append(row)
             }
         } else {
             // transparent_stream: full cards, block pre-opened.
@@ -1512,39 +1538,44 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         // indistinguishable from a plain reply. Count tools across the turn's
         // rounds and annotate the summary (cards stay behind the disclosure).
         let totalTools = rounds.reduce(0) { $0 + (($1.0.toolCalls ?? []).count) }
-        let toolNote = totalTools > 0 ? "<span class=\"tw-tools\">· \(totalTools) tool\(totalTools == 1 ? "" : "s")</span>" : ""
-        let terminalCard = finalMsg.terminalReason.map { render(terminalCardHTML(for: $0)) } ?? ""
         let worklogKey = "tw-\(turnIndex)-\(String(format: "%.3f", finalMsg.createdAt?.timeIntervalSince1970 ?? 0))"
-        return """
-        <div class="assistant-turn" id="turn-\(turnIndex)" data-turn-duration="\(String(format: "%.0f", finalMsg.turnDuration ?? 0))">
-          \(render(assistantRoleHeaderHTML(finalMsg)))
-          <details class="turn-worklog" data-tw-session="\(esc(activeSessionID ?? ""))" data-webui-key="\(worklogKey)">
-            <summary>
-              <span class="tw-dot"></span>
-              <span class="tw-label">\(esc(label))</span>
-              \(toolNote)
-              <span class="tw-spacer"></span>
-              <span class="tw-caret">\(WebUIIcon(.chevronRight, size: .small).markup.html)</span>
-            </summary>
-            <div class="wl-detail tw-body">
-              \(rows.joined())
-            </div>
-          </details>
-          <div class="msg assistant">
-            <div style="max-width:100%;width:100%">
-              \(render(assistantBodyHTML(finalMsg)))
-              \(terminalCard)
-              \(render(msgFootHTML(finalMsg)))
-            </div>
-          </div>
-        </div>
-        """
+        return Div(class: "assistant-turn") {
+            assistantRoleHeaderHTML(finalMsg)
+            Details(summary: {
+                Span(class: "tw-dot") {}
+                Span(class: "tw-label") { Text(label) }
+                if totalTools > 0 {
+                    Span(class: "tw-tools") { Text("· \(totalTools) tool\(totalTools == 1 ? "" : "s")") }
+                }
+                Span(class: "tw-spacer") {}
+                Span(class: "tw-caret") { WebUIIcon(.chevronRight, size: .small) }
+            }, content: {
+                Div(class: "wl-detail tw-body") {
+                    for r in rows { r }
+                }
+            })
+            .attribute("class", "turn-worklog")
+            .attribute("data-tw-session", activeSessionID ?? "")
+            .attribute("data-webui-key", worklogKey)
+            Div(class: "msg assistant") {
+                Div {
+                    assistantBodyHTML(finalMsg)
+                    if let reason = finalMsg.terminalReason {
+                        terminalCardHTML(for: reason)
+                    }
+                    msgFootHTML(finalMsg)
+                }
+                .attribute("style", "max-width:100%;width:100%")
+            }
+        }
+        .attribute("id", "turn-\(turnIndex)")
+        .attribute("data-turn-duration", String(format: "%.0f", finalMsg.turnDuration ?? 0))
     }
 
     /// Legacy per-piece rendering for a completed assistant segment (used when
     /// `turnBlockHTML` declines — e.g. stop/error trunks, hide mode).
-    func legacySegmentHTML(_ seg: [Message], mode: String) -> [String] {
-        var out: [String] = []
+    func legacySegmentHTML(_ seg: [Message], mode: String) -> [any WebUI.View] {
+        var out: [any WebUI.View] = []
         var i = 0
         while i < seg.count {
             let m = seg[i]
@@ -1559,46 +1590,56 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 i = j
                 continue
             }
-            out.append(render(messageHTML(m)))
+            out.append(messageHTML(m))
             i += 1
         }
         return out
     }
 
-    /// Renders one assistant turn's supporting activity (reasoning, interim
-    /// text, tool calls + results) according to the persisted display mode
-    /// (compact_worklog | transparent_stream | hide_all_activity).
-    func activityGroupHTML(_ m: Message, calls: [ToolCall], results: [String: String], mode: String) -> String {
+    func activityGroupHTML(_ m: Message, calls: [ToolCall], results: [String: String], mode: String) -> some WebUI.View {
         let mk = msgWebuiKey(m)
-        switch mode {
-        case "hide_all_activity":
-            // Final answer only: drop the whole execution trace.
-            return ""
-        case "transparent_stream":
-            var rows: [String] = []
-            if let r = m.reasoning, !r.isEmpty {
-                rows.append(thinkingRowHTML(r, key: mk.isEmpty ? "" : "think-r\(mk)"))
+        return Group {
+            switch mode {
+            case "hide_all_activity":
+                // Final answer only: drop the whole execution trace.
+                Group {}
+            case "transparent_stream":
+                if let r = m.reasoning, !r.isEmpty {
+                    thinkingRowHTML(r, key: mk.isEmpty ? "" : "think-r\(mk)")
+                }
+                if let interim = m.content, !interim.isEmpty {
+                    Div(class: "msg-body interim") { Raw(.trusted(mdBox(interim))) }
+                }
+                for c in calls {
+                    toolCardHTML(c, result: results[c.id])
+                }
+            default:
+                // compact_worklog: one quiet, collapsible summary per turn.
+                let names = calls.map { $0.function.name }
+                let summary = "Ran " + String(calls.count) + " tool call" + (calls.count == 1 ? "" : "s") + " · " + names.joined(separator: ", ")
+                let row = Details(summary: {
+                    WebUIIcon(.tool, size: .small)
+                    Span { Text(summary) }
+                    Span(class: "tw-spacer") {}
+                    Span(class: "tw-caret") { WebUIIcon(.chevronRight, size: .small) }
+                }, content: {
+                    Div(class: "wl-detail") {
+                        if let r = m.reasoning, !r.isEmpty {
+                            Div(class: "tc-detail thinking-detail") { Text(r) }
+                        }
+                        if let interim = m.content, !interim.isEmpty {
+                            Div(class: "msg-body interim") { Raw(.trusted(mdBox(interim))) }
+                        }
+                        toolChipsHTML(calls, results: results)
+                    }
+                })
+                .attribute("class", "worklog-summary")
+                if !mk.isEmpty {
+                    row.attribute("data-webui-key", "ws-" + mk)
+                } else {
+                    row
+                }
             }
-            if let interim = m.content, !interim.isEmpty {
-                rows.append("<div class=\"msg-body interim\">" + mdBox(interim) + "</div>")
-            }
-            for c in calls {
-                rows.append(render(toolCardHTML(c, result: results[c.id])))
-            }
-            return rows.joined()
-        default:
-            // compact_worklog: one quiet, collapsible summary per turn.
-            let names = calls.map { $0.function.name }
-            let summary = "Ran " + String(calls.count) + " tool call" + (calls.count == 1 ? "" : "s") + " · " + names.joined(separator: ", ")
-            var detail: [String] = []
-            if let r = m.reasoning, !r.isEmpty {
-                detail.append("<div class=\"tc-detail thinking-detail\">" + esc(r) + "</div>")
-            }
-            if let interim = m.content, !interim.isEmpty {
-                detail.append("<div class=\"msg-body interim\">" + mdBox(interim) + "</div>")
-            }
-            detail.append(render(toolChipsHTML(calls, results: results)))
-            return "<details class=\"worklog-summary\"" + webuiKeyAttr(mk.isEmpty ? "" : "ws-" + mk) + "><summary>" + WebUIIcon(.tool, size: .small).markup.html + "<span>" + esc(summary) + "</span><span class=\"tw-spacer\"></span><span class=\"tw-caret\">" + WebUIIcon(.chevronRight, size: .small).markup.html + "</span></summary><div class=\"wl-detail\">" + detail.joined() + "</div></details>"
         }
     }
 
@@ -1864,7 +1905,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         }
                     }
                 }
-                legacy(thinkingRow) // TODO(phase 3.9): thinkingRowHTML
+                thinkingRow
                 Div(class: "msg-body") {
                     Span { Text(live.assistantText) }
                         .attribute("id", "live-turn-text")
