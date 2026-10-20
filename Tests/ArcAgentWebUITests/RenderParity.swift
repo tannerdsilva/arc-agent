@@ -433,7 +433,7 @@ struct RenderParityTests {
                     updatedAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600),
                     title: "Session B", messages: []),
         ]))
-        let html = await app.groupHTML(key: "recent", title: "Recent", sessions: await app.sessions)
+        let html = await app.groupHTML(key: "recent", title: "Recent", sessions: await app.sessions).markup.html
         Parity.capture(html, as: "sessionGroup")
         Parity.expect(html, matches: "sessionGroup")
     }
@@ -731,7 +731,7 @@ struct RenderParityTests {
                     updatedAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600), title: "Session B"),
         ]
         let app = AppState(renderFixture: fixture)
-        let html = await app.groupHTML(key: "today", title: "Today", sessions: fixture.sessions)
+        let html = await app.groupHTML(key: "today", title: "Today", sessions: fixture.sessions).markup.html
         Parity.capture(html, as: "sess-group")
         Parity.expect(html, matches: "sess-group")
     }

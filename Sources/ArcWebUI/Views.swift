@@ -453,7 +453,7 @@ extension AppState {
                 let pinned = ordered.filter { bookmarks.contains($0.id) }
                 let unpinned = ordered.filter { !bookmarks.contains($0.id) }
                 if !pinned.isEmpty {
-                    rows.append(groupHTML(key: "pinned", title: "Pinned", sessions: pinned, todos: todos))
+                    rows.append(render(groupHTML(key: "pinned", title: "Pinned", sessions: pinned, todos: todos)))
                 }
                 // arc parity: chats are bucketed into Today / Yesterday / Earlier this
                 // week / Older (youngest first within each bucket); each bucket is
@@ -464,7 +464,7 @@ extension AppState {
                 for s in unpinned { grouped[bucketKey(s.updatedAt), default: []].append(s) }
         for (key, title) in buckets {
             if let list = grouped[key], !list.isEmpty {
-                rows.append(groupHTML(key: key, title: title, sessions: list, todos: todos))
+                rows.append(render(groupHTML(key: key, title: title, sessions: list, todos: todos)))
             }
         }
         if rows.isEmpty {
@@ -609,17 +609,28 @@ extension AppState {
     }
 
     /// One collapsible bucket: caret + title + count + the session rows.
-    func groupHTML(key: String, title: String, sessions: [Session], todos: Bool = false) -> String {
-        let rows = sessions.map { sessionRow($0, todos: todos) }.joined()
-        return """
-        <div class="sess-group" data-grp="\(key)">
-          <button type="button" class="sess-group-head" id="sess-grp-\(key)" title="\(esc(title))" tabindex="-1">
-            <span class="sess-caret">\(WebUIIcon(.chevronDown, size: .small).markup.html)</span>
-            <span class="sess-group-title">\(esc(title))</span>
-          </button>
-          <div class="sess-group-rows">\(rows)</div>
-        </div>
-        """
+    /// `sessionRow` still returns `String` (2.3b) — bridged through the
+    /// sanctioned `legacy(...)` with a `// TODO(phase 2.3b)`.
+    func groupHTML(key: String, title: String, sessions: [Session], todos: Bool = false) -> some WebUI.View {
+        Div(class: "sess-group") {
+            ArcButton(
+                id: "sess-grp-\(key)",
+                component: nil,                 // the group head owns no boundary
+                class: "sess-group-head",
+                tabIndex: -1                    // quiet utility, not a tab stop
+            ) {
+                Span(class: "sess-caret") { WebUIIcon(.chevronDown, size: .small) }
+                Span(class: "sess-group-title") { Text(title) }
+            }
+            .attribute("title", title)
+            .attribute("aria-label", title)
+            Div(class: "sess-group-rows") {
+                for s in sessions {
+                    legacy(sessionRow(s, todos: todos)) // TODO(phase 2.3b)
+                }
+            }
+        }
+        .attribute("data-grp", key)
     }
 
     func sessionRow(_ s: Session, todos: Bool = false) -> String {
