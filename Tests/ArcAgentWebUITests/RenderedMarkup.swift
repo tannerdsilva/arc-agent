@@ -28,8 +28,8 @@ enum RenderedMarkup {
     static func fragment(_ name: String) async -> String {
         let app = AppState(renderFixture: seededFixture())
         switch name {
-        case "topbar":       return await app.topbarHTML()
-        case "iconbar":      return await app.iconbarHTML()
+        case "topbar":       return await app.topbarHTML().markup.html
+        case "iconbar":      return await app.iconbarHTML().markup.html
         case "panel":        return await app.panelHTML()
         case "main":         return await app.mainContentHTML()
         case "dock":         return await app.workspaceDockHTML()

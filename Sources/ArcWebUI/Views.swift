@@ -1,4 +1,5 @@
 import ArcAgentCore
+import ArcSidebarTabs
 import ArcTheme
 import Foundation
 import Logging
@@ -67,7 +68,6 @@ extension AppState {
     /// string can become a page. a fragment patch that needs the bytes reads
     /// `.html`.
     func appShell() async -> UnsafeMarkup {
-        let iconbar = iconbarHTML()
         let panel = await panelHTML()
         let main = await mainContentHTML()
 
@@ -76,7 +76,7 @@ extension AppState {
         <a class="skip-link" href="#composer-input">Skip to composer</a>
         \(render(topbarHTML()))
         <div id="app-body">
-        <aside id="iconbar">\(iconbar)</aside>
+        \(render(iconbarHTML()))
         \(panel)
         \(main)
         \(workspaceDockHTML())
@@ -129,39 +129,52 @@ extension AppState {
         "<div id=\"toasts\" data-component-id=\"toast-dismiss\" data-event=\"click\">\(toastsHTML())</div>"
     }
 
-    func iconbarHTML() -> String {
+    func iconbarHTML() -> some WebUI.View {
         // Registry-driven: Chat is always first, Settings is pinned in the
         // bottom slot, the rest follow the user's settings order minus the
         // tabs they hid. Built-ins and plugin tabs render alike.
-        let top = railTabIDs()
-            .filter { $0 != "settings" }
-            .map { id -> String in
-                guard let tab = sidebarTab(id) else { return "" }
-                let isActive = id == activeTabID
-                let cls = isActive ? "icon-btn active" : "icon-btn"
-                // UX-07 roving rail: the ACTIVE nav item is the single tab
-                // stop; the others are tabindex="-1" and reached with
-                // ArrowUp/ArrowDown (overlay roves tabindex with focus).
-                let rove = isActive ? " tabindex=\"0\"" : " tabindex=\"-1\""
-                let iconHTML = SidebarTabIconRenderer.render(tab.icon)
-                // UX-08: icon-only rail buttons need an accessible name; the
-                // data-tip pill is hover-only (and invisible to AT and touch).
-                return btn("nav-\(id)", "nav-\(id)", cls, iconHTML,
-                           " data-tip=\"\(esc(tab.title))\" aria-label=\"\(esc(tab.title))\""
-                             + (isActive ? " aria-current=\"page\"" : "") + rove)
+        Aside {
+            Div(class: "iconbar-top") {
+                for id in railTabIDs() where id != "settings" {
+                    if let tab = sidebarTab(id) { railButton(tab, active: id == activeTabID) }
+                }
             }
-            .joined()
-        let settingsActive = activeTabID == "settings"
-        let settingsBtn = btn("nav-settings", "nav-settings",
-                              settingsActive ? "icon-btn active" : "icon-btn",
-                              ViewID.settings.icon,
-                              " data-tip=\"Settings\" aria-label=\"Settings\""
-                                + (settingsActive ? " aria-current=\"page\"" : "")
-                                + (settingsActive ? " tabindex=\"0\"" : " tabindex=\"-1\""))
-        return """
-        <div class="iconbar-top">\(top)</div>
-        <div class="iconbar-bottom">\(settingsBtn)</div>
-        """
+            Div(class: "iconbar-bottom") {
+                if let settings = sidebarTab("settings") { railButton(settings, active: activeTabID == "settings") }
+            }
+        }
+        .attribute("id", "iconbar")
+    }
+
+    /// One rail button. The only thing that changes between the active and
+    /// inactive states is `aria-current="page"` plus `class="icon-btn active"`
+    /// / `tabindex="0"` — `Group` keeps it as exactly one `<button>` (no
+    /// wrapper element), so the rail renders one button per tab.
+    private func railButton(_ tab: any SidebarTab, active: Bool) -> some WebUI.View {
+        Group {
+            if active {
+                ArcButton(tab.title,
+                          id: "nav-\(tab.id)",
+                          component: "nav-\(tab.id)",
+                          class: "icon-btn active",
+                          tabIndex: 0) {
+                    SidebarTabIconRenderer.view(tab.icon)
+                }
+                .attribute("data-tip", tab.title)
+                .attribute("aria-label", tab.title)
+                .attribute("aria-current", "page")
+            } else {
+                ArcButton(tab.title,
+                          id: "nav-\(tab.id)",
+                          component: "nav-\(tab.id)",
+                          class: "icon-btn",
+                          tabIndex: -1) {
+                    SidebarTabIconRenderer.view(tab.icon)
+                }
+                .attribute("data-tip", tab.title)
+                .attribute("aria-label", tab.title)
+            }
+        }
     }
 
     func toastsHTML() -> String {

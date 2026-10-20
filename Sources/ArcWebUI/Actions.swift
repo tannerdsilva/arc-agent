@@ -20,7 +20,7 @@ extension AppState {
             ]
         }
         var u: [FragmentUpdate] = [
-            FragmentUpdate(id: "iconbar", html: "<aside id=\"iconbar\">\(iconbarHTML())</aside>"),
+            fragment("iconbar", iconbarHTML()),
             fragment("topbar", topbarHTML()),
             FragmentUpdate(id: "panel", html: await panelHTML()),
             FragmentUpdate(id: "main", html: await mainContentHTML()),

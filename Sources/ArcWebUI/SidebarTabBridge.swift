@@ -239,4 +239,21 @@ enum SidebarTabIconRenderer {
             return "<span class=\"rail-emoji\" role=\"img\" aria-hidden=\"true\">\(SidebarTabHTML.escape(glyph))</span>"
         }
     }
+
+    /// Produces the same markup as `render`, but as a typed `View` that owns
+    /// its element (no wrapper). Byte-identical to the string form.
+    static func view(_ icon: SidebarTabIcon, size: IconSize = .large) -> some WebUI.View {
+        Group {
+            switch icon {
+            case .named(let name):
+                WebUIIcon(IconName(rawValue: name) ?? .link, size: size)
+            case .custom(let name, let body):
+                WebUIIconCustom(name: name, body: body, size: size)
+            case .emoji(let glyph):
+                Span(class: "rail-emoji") { Text(glyph) }
+                    .attribute("role", "img")
+                    .attribute("aria-hidden", "true")
+            }
+        }
+    }
 }

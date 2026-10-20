@@ -418,7 +418,7 @@ struct RenderParityTests {
     @Test("topbar matches golden")
     func topbarMatchesGolden() async {
         let app = AppState(renderFixture: .init())
-        let html = await app.topbarHTML()
+        let html = await app.topbarHTML().markup.html
         Parity.capture(html, as: "topbar")
         Parity.expect(html, matches: "topbar")
     }
@@ -496,7 +496,7 @@ struct RenderParityTests {
         var fixture = AppState.RenderFixture()
         fixture.settings.sidebarTabs = ["skills", "profiles", "tools", "workspaces", "kanban"]
         let app = AppState(renderFixture: fixture)
-        let html = await app.iconbarHTML()
+        let html = await app.iconbarHTML().markup.html
         Parity.capture(html, as: "iconbar-chat")
         Parity.expect(html, matches: "iconbar-chat")
     }
@@ -507,7 +507,7 @@ struct RenderParityTests {
         fixture.settings.sidebarTabs = ["skills", "profiles", "tools", "workspaces", "kanban"]
         fixture.activeTabID = "settings"
         let app = AppState(renderFixture: fixture)
-        let html = await app.iconbarHTML()
+        let html = await app.iconbarHTML().markup.html
         Parity.capture(html, as: "iconbar-settings")
         Parity.expect(html, matches: "iconbar-settings")
     }
