@@ -1053,14 +1053,23 @@ extension ArcWebUITestRoot {
         // MARK: - UX-22 tool-plugin chips (T13)
 
         @Test("tool-plugin chips wrap instead of clipping at the card edge")
-        func toolPluginChipsWrap() {
-            let views = Self.views
-            // The chip row now lives in a wrapping `.plug-chips` flex row with the
-            // "Tools:" prefix kept outside it.
-            #expect(views.contains("Tools: <span class=\"plug-chips\">"),
+        func toolPluginChipsWrap() async {
+            // Asserted on RENDERED bytes: the chip container is a typed Span now,
+            // so the source keeps no markup to grep.
+            var fixture = AppState.RenderFixture()
+            fixture.pluginManifests = [
+                "pkg": PluginManifest(
+                    name: "pkg", version: "1.0.0", description: "A package",
+                    tools: [.init(name: "some_very_long_package_tool_name",
+                                  description: "x", command: "./t")]),
+            ]
+            let html = await AppState(renderFixture: fixture).pluginSettingsHTML().markup.html
+            #expect(html.contains("class=\"plug-chips\""),
                     "the chips must ride in the wrapping plug-chips container (UX-22)")
-            #expect(!views.contains("style='margin-right:4px'"),
-                    "the old inline-margin chip string is gone (UX-22)")
+            #expect(html.contains("Tools: "),
+                    "the prefix stays outside the chip row")
+            #expect(!html.contains("margin-right:4px"),
+                    "the old inline-margin chip style is gone (UX-22)")
             let sheet = Self.sheetSource
             #expect(sheet.contains(".plug-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 2px; max-width: 100%; vertical-align: middle; }"),
                     "the chip row must be a wrapping flex container")

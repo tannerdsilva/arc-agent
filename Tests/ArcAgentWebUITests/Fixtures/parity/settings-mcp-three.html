@@ -382,10 +382,7 @@
         <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
           <div class="set-label">Integrate tools<small>Tools written as Python scripts or Swift executables, discovered from <code>~/.arc/plugins/</code> (arc plugin parity). Enablement is stored in the <code>plugins.enabled</code> allow-list of <code>~/.arc/config.json</code>.</small></div>
         </div>
-        <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
-  <div class="set-label">No tool plugins found.</div>
-  <div class="set-hint">Drop a directory with a <code>manifest.json</code> into <code>~/.arc/plugins/&lt;name&gt;/</code> and press Rescan. Each tool is an executable (or interpreter + script pair, e.g. <code>python3</code> + <code>tool.py</code>) that reads <code>{"tool": name, "args": {...}}</code> on stdin and writes <code>{"result": "..."}</code> on stdout. See <code>docs/plugin-tools.md</code> in the arc-agent repository for the full contract and examples.</div>
-</div>
+        <div class="set-row set-row-stack"><div class="set-label">No tool plugins found.</div><div class="set-hint">Drop a directory with a <code>manifest.json</code> into <code>~/.arc/plugins/&lt;name&gt;/</code> and press Rescan. Each tool is an executable (or interpreter + script pair, e.g. <code>python3</code> + <code>tool.py</code>) that reads <code>{&quot;tool&quot;: name, &quot;args&quot;: {...}}</code> on stdin and writes <code>{&quot;result&quot;: &quot;...&quot;}</code> on stdout. See <code>docs/plugin-tools.md</code> in the arc-agent repository for the full contract and examples.</div></div>
       </div>
     </section>
 
@@ -405,10 +402,7 @@
         <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
           <div class="set-label">Third-party sidebar tabs<small>Tab packages added to the arc-agent build (see <code>docs/sidebar-tab-plugins.md</code>). Each tab appears in the rail and renders through the <code>SidebarTab</code> protocol. Hide/show any plugin tab; reordering happens in the Sidebar tabs chips above.</small></div>
         </div>
-        <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
-  <div class="set-label">No third-party sidebar tabs registered.</div>
-  <div class="set-hint">Add a sidebar-tab package to the arc-agent build and pass its tabs to the application at startup — see <code>docs/sidebar-tab-plugins.md</code>.</div>
-</div>
+        <div class="set-row set-row-stack"><div class="set-label">No third-party sidebar tabs registered.</div><div class="set-hint">Add a sidebar-tab package to the arc-agent build and pass its tabs to the application at startup — see <code>docs/sidebar-tab-plugins.md</code>.</div></div>
       </div>
     </section>
 

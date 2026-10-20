@@ -941,6 +941,7 @@ public static let css: String = """
     .row-split { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .row-actions-inline { flex-direction: row; align-items: center; gap: 8px; }
     .probe-error { color: var(--danger, #e5484d); }
+    .row-icon { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .mcp-form { max-width: 640px; }
     /* a numeric settings field. replaces the inline style blob four settings
        rows used to carry (`width:96px;padding:8px;background:var(--code-bg);…`)

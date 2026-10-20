@@ -3102,94 +3102,129 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     /// Settings → Sidebar plugins: one card per registered plugin bundle,
     /// listing its tabs with a show/hide switch. Mirrors the tool-plugin
     /// cards (name/version/description + enable toggle).
-    func sidebarPluginsSettingsHTML() -> String {
-        guard !sidebarPlugins.isEmpty else {
-            return """
-            <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
-              <div class="set-label">No third-party sidebar tabs registered.</div>
-              <div class="set-hint">Add a sidebar-tab package to the arc-agent build and pass its tabs to the application at startup — see <code>docs/sidebar-tab-plugins.md</code>.</div>
-            </div>
-            """
+    func sidebarPluginsSettingsHTML() -> some WebUI.View {
+        Group {
+            if sidebarPlugins.isEmpty {
+                Div(class: "set-row set-row-stack") {
+                    Div(class: "set-label") { Text("No third-party sidebar tabs registered.") }
+                    Div(class: "set-hint") {
+                        Text("Add a sidebar-tab package to the arc-agent build and pass its tabs to the application at startup — see ")
+                        InlineCode("docs/sidebar-tab-plugins.md")
+                        Text(".")
+                    }
+                }
+            } else {
+                for plugin in sidebarPlugins {
+                    let tabs = plugin.tabs()
+                    Div(class: "set-row set-row-stack") {
+                        Div(class: "set-label") {
+                            Text("\(plugin.name) ")
+                            Small("v\(plugin.version)")
+                        }
+                        Div(class: "set-hint") { Text(plugin.description) }
+                        for tab in tabs {
+                            let on = !settings.hiddenSidebarTabs.contains(tab.id)
+                            Div(class: "row-split") {
+                                Div(class: "row-icon") {
+                                    // a plugin renders its own icon markup; this is
+                                    // the same trusted-renderer seam as markdown.
+                                    Raw(.trusted(SidebarTabIconRenderer.render(tab.icon, size: .medium)))
+                                    Span(class: "set-label") {
+                                        Text("\(tab.title) ")
+                                        Small(tab.id)
+                                    }
+                                }
+                                ArcSwitch(id: "sbpl-\(enc(tab.id))", on: on,
+                                          component: "sidebar-plugin-toggle", event: "change",
+                                          value: "sbpl-\(enc(tab.id))")
+                            }
+                        }
+                    }
+                }
+            }
         }
-        let cards = sidebarPlugins.map { plugin -> String in
-            let tabs = plugin.tabs()
-            let tabRows = tabs.map { tab -> String in
-                let on = !settings.hiddenSidebarTabs.contains(tab.id)
-                return """
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-                  <div style="display:flex;align-items:center;gap:8px;min-width:0">
-                    \(SidebarTabIconRenderer.render(tab.icon, size: .medium))
-                    <span class="set-label">\(esc(tab.title)) <small>\(esc(tab.id))</small></span>
-                  </div>
-                  <label class="switch">
-                    <input type="checkbox" id="sbpl-\(enc(tab.id))" value="sbpl-\(enc(tab.id))" data-component-id="sidebar-plugin-toggle" data-event="change" data-no-restore \(on ? "checked" : "")>
-                    <span class="track"></span><span class="knob"></span>
-                  </label>
-                </div>
-                """
-            }.joined()
-            return """
-            <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
-              <div class="set-label">\(esc(plugin.name)) <small>v\(esc(plugin.version))</small></div>
-              <div class="set-hint">\(esc(plugin.description))</div>
-              \(tabRows)
-            </div>
-            """
-        }.joined()
-        return cards
     }
 
-    func pluginSettingsHTML() -> String {
+    func pluginSettingsHTML() -> some WebUI.View {
         let names = pluginManifests.keys.sorted()
-        guard !names.isEmpty else {
-            return """
-            <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
-              <div class="set-label">No tool plugins found.</div>
-              <div class="set-hint">Drop a directory with a <code>manifest.json</code> into <code>~/.arc/plugins/&lt;name&gt;/</code> and press Rescan. Each tool is an executable (or interpreter + script pair, e.g. <code>python3</code> + <code>tool.py</code>) that reads <code>{"tool": name, "args": {...}}</code> on stdin and writes <code>{"result": "..."}</code> on stdout. See <code>docs/plugin-tools.md</code> in the arc-agent repository for the full contract and examples.</div>
-            </div>
-            """
-        }
-        let allow = arcConfig.plugins.enabled
-        let cards = names.map { name -> String in
-            let m = pluginManifests[name]
-            let on = allow?.contains(name) ?? true
-            let tools = (m?.tools ?? []).map { $0.name }
-            // UX-22: the chip row used to run to the card edge and cut the
-            // last chip mid-token (`pkg_…`). The chips now live in a wrapping
-            // flex row; long package tokens break inside the badge instead of
-            // clipping at the card edge.
-            let toolChips = tools.map { "<span class='mc-badge'>\(esc($0))</span>" }.joined()
-            let toolsLine = tools.isEmpty
-                ? "No tools"
-                : #"Tools: <span class="plug-chips">\#(toolChips)</span>"#
-            var statusLine = ""
-            if let reason = self.pluginStartupOutcome[name] {
-                statusLine = "<div class=\"set-hint plugin-failed\">Sidecar failed to start: \(esc(reason))</div>"
-            } else if on {
-                statusLine = "<div class=\"set-hint plugin-running\">Sidecar running</div>"
+        return Group {
+            if names.isEmpty {
+                Div(class: "set-row set-row-stack") {
+                Div(class: "set-label") { Text("No tool plugins found.") }
+                Div(class: "set-hint") {
+                    Text("Drop a directory with a ")
+                    InlineCode("manifest.json")
+                    Text(" into ")
+                    InlineCode("~/.arc/plugins/<name>/")
+                    Text(" and press Rescan. Each tool is an executable (or interpreter + script pair, e.g. ")
+                    InlineCode("python3")
+                    Text(" + ")
+                    InlineCode("tool.py")
+                    Text(") that reads ")
+                    InlineCode("{\"tool\": name, \"args\": {...}}")
+                    Text(" on stdin and writes ")
+                    InlineCode("{\"result\": \"...\"}")
+                    Text(" on stdout. See ")
+                    InlineCode("docs/plugin-tools.md")
+                    Text(" in the arc-agent repository for the full contract and examples.")
+                    }
+                }
+            } else {
+                let allow = arcConfig.plugins.enabled
+                for name in names {
+                let m = pluginManifests[name]
+                let on = allow?.contains(name) ?? true
+                let tools = (m?.tools ?? []).map { $0.name }
+                Div(class: "set-row set-row-stack-tight") {
+                    Div(class: "row-split") {
+                        Div(class: "set-label") {
+                            Text("\(name) ")
+                            Small("v\(m?.version ?? "0.0.0")")
+                        }
+                        ArcSwitch(id: "plgl-\(enc(name))", on: on,
+                                  component: "plugin-toggle", event: "change",
+                                  value: "plgl-\(enc(name))")
+                    }
+                    Div(class: "set-hint") { Text(m?.description ?? "") }
+                    Div(class: "set-hint") {
+                        if tools.isEmpty {
+                            Text("No tools")
+                        } else {
+                            // UX-22: the chips live in a wrapping flex row so a long
+                            // package token breaks inside the badge instead of being
+                            // cut at the card edge.
+                            Text("Tools: ")
+                            Span(class: "plug-chips") {
+                                for t in tools {
+                                    Span(class: "mc-badge") { Text(t) }
+                                }
+                            }
+                        }
+                    }
+                    if let reason = pluginStartupOutcome[name] {
+                        Div(class: "set-hint plugin-failed") {
+                            Text("Sidecar failed to start: \(reason)")
+                        }
+                    } else if on {
+                        Div(class: "set-hint plugin-running") { Text("Sidecar running") }
+                    }
+                }
             }
-
-            return """
-            <div class="set-row" style="flex-direction:column;align-items:stretch;gap:4px">
-              <div style="display:flex;align-items:center;justify-content:space-between">
-                <div class="set-label">\(esc(name)) <small>v\(esc(m?.version ?? "0.0.0"))</small></div>
-                <label class="switch">
-                  <input type="checkbox" id="plgl-\(enc(name))" value="plgl-\(enc(name))" data-component-id="plugin-toggle" data-event="change" data-no-restore \(on ? "checked" : "")>
-                  <span class="track"></span><span class="knob"></span>
-                </label>
-              </div>
-              <div class="set-hint">\(esc(m?.description ?? ""))</div>
-              <div class="set-hint">\(toolsLine)</div>
-              \(statusLine)
-            </div>
-            """
-        }.joined()
-        return cards + """
-        <div class="set-row">
-          <div class="set-label">Rescan<small>Re-read <code>~/.arc/plugins</code> after adding or editing a plugin.</small></div>
-          <button type="button" id="plugin-rescan" data-component-id="plugin-rescan" data-event="click" class="btn">Rescan plugins</button>
-        </div>
-        """
+            Div(class: "set-row") {
+                Div(class: "set-label") {
+                    Text("Rescan")
+                    Small {
+                        Text("Re-read ")
+                        InlineCode("~/.arc/plugins")
+                        Text(" after adding or editing a plugin.")
+                    }
+                }
+                ArcButton("Rescan plugins", id: "plugin-rescan",
+                          component: "plugin-rescan", class: "btn")
+                    .attribute("data-event", "click")
+                }
+            }
+        }
     }
 
     // MARK: MCP servers (Settings)
@@ -4117,7 +4152,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
                   <div class="set-label">Integrate tools<small>Tools written as Python scripts or Swift executables, discovered from <code>~/.arc/plugins/</code> (arc plugin parity). Enablement is stored in the <code>plugins.enabled</code> allow-list of <code>~/.arc/config.json</code>.</small></div>
                 </div>
-                \(pluginSettingsHTML())
+                \(render(pluginSettingsHTML()))
               </div>
             </section>
 
@@ -4137,7 +4172,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
                   <div class="set-label">Third-party sidebar tabs<small>Tab packages added to the arc-agent build (see <code>docs/sidebar-tab-plugins.md</code>). Each tab appears in the rail and renders through the <code>SidebarTab</code> protocol. Hide/show any plugin tab; reordering happens in the Sidebar tabs chips above.</small></div>
                 </div>
-                \(sidebarPluginsSettingsHTML())
+                \(render(sidebarPluginsSettingsHTML()))
               </div>
             </section>
 

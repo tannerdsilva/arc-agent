@@ -132,14 +132,14 @@ struct RenderParitySettings {
 
     @Test("plugin settings match golden")
     func pluginSettingsGolden() async {
-        let html = await app().pluginSettingsHTML()
+        let html = await app().pluginSettingsHTML().markup.html
         Parity.capture(html, as: "settings-plugins")
         Parity.expect(html, matches: "settings-plugins")
     }
 
     @Test("sidebar plugin settings match golden")
     func sidebarPluginsGolden() async {
-        let html = await app().sidebarPluginsSettingsHTML()
+        let html = await app().sidebarPluginsSettingsHTML().markup.html
         Parity.capture(html, as: "settings-sidebar-plugins")
         Parity.expect(html, matches: "settings-sidebar-plugins")
     }
@@ -163,7 +163,7 @@ struct RenderParitySettings {
             $0.pluginStartupOutcome = ["broken": "exit status 1: permission denied"]
             $0.arcConfig.plugins.enabled = ["formatter"]
         }
-        let running = await app.pluginSettingsHTML()
+        let running = await app.pluginSettingsHTML().markup.html
         Parity.capture(running, as: "settings-plugins-status")
         Parity.expect(running, matches: "settings-plugins-status")
     }
