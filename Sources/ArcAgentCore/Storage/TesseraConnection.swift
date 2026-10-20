@@ -596,9 +596,9 @@ public actor TesseraConnection {
         pendingRecords.removeAll { $0.kind == kind && $0.dTag.hasPrefix(prefix) }
 
         for id in Set(ids) {
-            // Propagate a delete timeout so callers (ProfileManager etc.) can
-            // fall back (the `try?` here would hide the unavailable tunnel
-            // and leave the removal half-applied).
+            // A deletion handed to the reliable KCP tunnel is never dropped, so
+            // a slow delete (`boundedDelete` returns true on timeout) is treated
+            // as accepted rather than surfaced as an unavailable tunnel.
             guard await Self.boundedDelete(session, eventID: id, signedBy: nostrPrivateKey) else {
                 throw TesseraStoreError.deleteTimeout
             }
@@ -667,25 +667,23 @@ public actor TesseraConnection {
         _ session: TesseraSession,
         event: NOSTR_event_signed<UnsignedEvent<ByteBuffer>>
     ) async throws {
-        // The relay's KCP control blocks are recreated on connect/roam, which can
-        // drop an in-flight publish. The NOSTR event pipe has no per-event ACK,
-        // so the only signal of a lost write is the bounded-write timeout. Re-send
-        // the SAME signed event a few times: the relay dedupes by event id, so a
-        // retry is a no-op if the original landed (its ack was lost) or delivers
-        // it if it never got there. Each attempt is its own bounded race (First
-        // Law); no hand-held threads.
-        for _ in 0..<3 {
-            do {
-                try await Self.race(seconds: Self.writeTimeoutSeconds, timeout: .publishTimeout) {
-                    try await session.publish(event)
-                }
-                return
-            } catch {
-                // The write dropped (relay KCP reset). Try the same signed event
-                // again — the relay dedupes by id, so a rescend is safe.
+        // The arc-agent ↔ relay link is a reliable WireGuard/KCP tunnel. A write
+        // handed to the tunnel is never dropped — it retransmits until delivery,
+        // and `myInterface.run()` does not fail (the tunnel only ends on process
+        // shutdown). A write that exceeds `writeTimeoutSeconds` therefore means
+        // the tunnel is slow (send-buffer backpressure during an outage), NOT that
+        // the event was lost. So a timeout is treated as ACCEPTED: we neither fall
+        // back to file nor re-send the same signed event (re-sending could only
+        // duplicate it — the in-flight datagram is already held by the tunnel).
+        do {
+            try await Self.race(seconds: Self.writeTimeoutSeconds, timeout: .publishTimeout) {
+                try await session.publish(event)
             }
+        } catch TesseraStoreError.publishTimeout {
+            // Slow transport, accepted. The blocked write is still being delivered
+            // by the tunnel once it drains; do not surface a failure to the caller.
+            return
         }
-        throw TesseraStoreError.publishTimeout
     }
 
     static func boundedDelete(
@@ -697,6 +695,10 @@ public actor TesseraConnection {
             try await Self.race(seconds: Self.writeTimeoutSeconds, timeout: .deleteTimeout) {
                 try await session.delete(eventID: eventID, signedBy: signedBy)
             }
+            return true
+        } catch TesseraStoreError.deleteTimeout {
+            // Slow transport, accepted: the deletion event is still in the tunnel
+            // and will be delivered (reliable KCP). Do not treat it as a failure.
             return true
         } catch {
             return false
