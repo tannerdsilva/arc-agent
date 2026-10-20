@@ -296,6 +296,13 @@ extension ArcWebUITestRoot {
         @Test("the dropdown dismiss boundary is rendered AND fired")
         func dropdownDismissIsWired() async {
             let composer = await RenderedMarkup.composer()
+            let dismiss = composer.range(of: #"<span [^>]*id="dd-dismiss"[^>]*>"#,
+                                         options: .regularExpression).map { String(composer[$0]) }
+            #expect(dismiss?.contains("data-component-id=\"dd-dismiss\"") == true
+                    && dismiss?.contains("data-event=\"click\"") == true,
+                    "the dismiss target must carry the wire boundary")
+            #expect(dismiss?.contains("hidden") == true,
+                    "the dismiss target is an invisible boundary, not a visible control")
             #expect(composer.contains("id=\"dd-dismiss\""),
                     "the `dd-dismiss` handler existed for months with no element carrying the id")
             #expect(Self.actions.contains("wire(router, id: \"dd-dismiss\""),
@@ -547,6 +554,24 @@ extension ArcWebUITestRoot {
             #expect(overlay.contains("if (slashMenuOpen()) return;"),
                     "Enter with the menu open must insert, not submit the stale `/…` text")
             let composer = await RenderedMarkup.composer()
+            // the plan asks for a stronger pin than a substring: the payload must
+            // PARSE as JSON, because a malformed blob silently kills autocomplete.
+            let slashTag = composer.range(of: #"<div id="slash-data"[^>]*>[\s\S]*?</div>"#,
+                                          options: .regularExpression).map { String(composer[$0]) }
+            #expect(slashTag != nil, "the slash payload node must exist")
+            if let slashTag {
+                let inner = slashTag
+                    .replacingOccurrences(of: #"^<div[^>]*>"#, with: "", options: .regularExpression)
+                    .replacingOccurrences(of: "</div>", with: "")
+                    .replacingOccurrences(of: "&quot;", with: "\"")
+                    .replacingOccurrences(of: "&#39;", with: "'")
+                    .replacingOccurrences(of: "&lt;", with: "<")
+                    .replacingOccurrences(of: "&gt;", with: ">")
+                    .replacingOccurrences(of: "&amp;", with: "&")
+                let decoded = (try? JSONSerialization.jsonObject(with: Data(inner.utf8))) as? [String: Any]
+                #expect(decoded?["items"] != nil,
+                        "the slash payload must parse as JSON with an items array")
+            }
             #expect(composer.contains("id=\"slash-data\""),
                     "the payload node must stay in the composer markup")
         }

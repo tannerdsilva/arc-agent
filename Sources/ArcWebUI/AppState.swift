@@ -1066,6 +1066,10 @@ actor AppState {
         var categoryMenu: CategoryMenu? = nil
         var categoryMenuRename = false
         var pendingConfirm: ConfirmRequest? = nil
+        /// the composer flyout is only visible while something is armed; these
+        /// seams are the only way to pin its four states from a render test.
+        var pendingApproval: PendingApproval? = nil
+        var pendingClarify: PendingClarify? = nil
         var pendingCopyURL: String? = nil
         /// Left-panel chat list filter text (drives the "No chats match" branch).
         var chatFilter = ""
@@ -1093,6 +1097,8 @@ actor AppState {
         self.categoryMenu = fixture.categoryMenu
         self.categoryMenuRename = fixture.categoryMenuRename
         self.pendingConfirm = fixture.pendingConfirm
+        self.pendingApproval = fixture.pendingApproval
+        self.pendingClarify = fixture.pendingClarify
         self.pendingCopyURL = fixture.pendingCopyURL
         self.chatFilter = fixture.chatFilter
         self.showArchived = fixture.showArchived

@@ -1928,97 +1928,140 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
 
     // MARK: Composer flyout (arc parity: approval + clarification cards)
 
-    /// The arc-style flyout cards attached to the composer (approval /
-    /// clarification / yolo pill). Rendered above the composer input. The
-    /// session ownership check keeps prompts from leaking across chats.
-    func composerFlyoutHTML() -> String {
+    func composerFlyoutHTML() -> some WebUI.View {
         let sid = activeSessionID ?? ""
-        if let pa = pendingApproval, pa.sessionID == sid {
-            return approvalCardHTML(command: pa.command, description: pa.description)
+        return Group {
+            if let pa = pendingApproval, pa.sessionID == sid {
+                approvalCardHTML(command: pa.command, description: pa.description)
+            } else if let pc = pendingClarify, pc.sessionID == sid {
+                clarifyCardHTML(pc)
+            } else if isYolo(sid) {
+                yoloPillHTML()
+            }
         }
-        if let pc = pendingClarify, pc.sessionID == sid {
-            return clarifyCardHTML(pc)
-        }
-        if isYolo(sid) {
-            return yoloPillHTML()
-        }
-        return ""
     }
 
     /// arc-style approval card: attached to the composer, orange header,
     /// command code block, Allow once / session / always / deny + skip-all.
-    func approvalCardHTML(command: String, description: String) -> String {
-        let desc = description.isEmpty ? "" : "<div class=\"approval-desc\">\(esc(description))</div>"
-        return """
-        <div class="approval-card visible">
-          <div class="approval-inner">
-            <div class="approval-head">
-              <span class="approval-ico">\(WebUIIcon(.alertTriangle, size: .small).markup.html)</span><span class="approval-title">Approval required</span>
-              <button type="button" class="approval-collapse" id="approval-collapse" title="Collapse">\(WebUIIcon(.chevronDown, size: .small).markup.html)</button>
-              <button type="button" id="approval-dismiss" data-component-id="approval-dismiss" data-event="click" class="approval-dismiss" title="Dismiss">\(WebUIIcon(.x, size: .small).markup.html)</button>
-            </div>
-            \(desc)
-            <div class="approval-cmd"><code>\(esc(command))</code></div>
-            <div class="approval-btns">
-              <button type="button" id="approval-once" data-component-id="approval-once" data-event="click" class="approval-btn once">\(WebUIIcon(.check, size: .small).markup.html)<span class="approval-btn-label">Allow once</span></button>
-              <button type="button" id="approval-session" data-component-id="approval-session" data-event="click" class="approval-btn session">\(WebUIIcon(.lock, size: .small).markup.html)<span class="approval-btn-label">Allow session</span></button>
-              <button type="button" id="approval-always" data-component-id="approval-always" data-event="click" class="approval-btn always">\(WebUIIcon(.star, size: .small).markup.html)<span class="approval-btn-label">Always allow</span></button>
-              <button type="button" id="approval-deny" data-component-id="approval-deny" data-event="click" class="approval-btn deny">\(WebUIIcon(.x, size: .small).markup.html)<span class="approval-btn-label">Deny</span></button>
-            </div>
-            <div class="approval-yolo-row">
-              <button type="button" id="approval-yolo" data-component-id="approval-yolo" data-event="click" class="approval-btn yolo">\(WebUIIcon(.zap, size: .small).markup.html)<span class="approval-btn-label">Skip all this session</span></button>
-            </div>
-          </div>
-        </div>
-        """
+    func approvalCardHTML(command: String, description: String) -> some WebUI.View {
+        Div(class: "approval-card visible") {
+            Div(class: "approval-inner") {
+                Div(class: "approval-head") {
+                    Span(class: "approval-ico") { WebUIIcon(.alertTriangle, size: .small) }
+                    Span(class: "approval-title") { Text("Approval required") }
+                    ArcButton(id: "approval-collapse", component: nil, class: "approval-collapse") {
+                        WebUIIcon(.chevronDown, size: .small)
+                    }
+                    .attribute("title", "Collapse")
+                    ArcButton(id: "approval-dismiss", component: "approval-dismiss", class: "approval-dismiss") {
+                        WebUIIcon(.x, size: .small)
+                    }
+                    .attribute("data-event", "click")
+                    .attribute("title", "Dismiss")
+                }
+                if !description.isEmpty {
+                    Div(class: "approval-desc") { Text(description) }
+                }
+                Div(class: "approval-cmd") {
+                    InlineCode(command)
+                }
+                Div(class: "approval-btns") {
+                    ArcButton(id: "approval-once", component: "approval-once", class: "approval-btn once") {
+                        WebUIIcon(.check, size: .small)
+                        Span(class: "approval-btn-label") { Text("Allow once") }
+                    }
+                    .attribute("data-event", "click")
+                    ArcButton(id: "approval-session", component: "approval-session", class: "approval-btn session") {
+                        WebUIIcon(.lock, size: .small)
+                        Span(class: "approval-btn-label") { Text("Allow session") }
+                    }
+                    .attribute("data-event", "click")
+                    ArcButton(id: "approval-always", component: "approval-always", class: "approval-btn always") {
+                        WebUIIcon(.star, size: .small)
+                        Span(class: "approval-btn-label") { Text("Always allow") }
+                    }
+                    .attribute("data-event", "click")
+                    ArcButton(id: "approval-deny", component: "approval-deny", class: "approval-btn deny") {
+                        WebUIIcon(.x, size: .small)
+                        Span(class: "approval-btn-label") { Text("Deny") }
+                    }
+                    .attribute("data-event", "click")
+                }
+                Div(class: "approval-yolo-row") {
+                    ArcButton(id: "approval-yolo", component: "approval-yolo", class: "approval-btn yolo") {
+                        WebUIIcon(.zap, size: .small)
+                        Span(class: "approval-btn-label") { Text("Skip all this session") }
+                    }
+                    .attribute("data-event", "click")
+                }
+            }
+        }
     }
 
     /// arc-style clarification card: question, numbered choices (up to 4),
     /// free-form response row and a 120 s countdown, attached to the composer.
-    func clarifyCardHTML(_ pc: PendingClarify) -> String {
+    func clarifyCardHTML(_ pc: PendingClarify) -> some WebUI.View {
         let expiryMs = Int(pc.expiresAt.timeIntervalSince1970 * 1000)
         let remaining = max(1, Int(pc.expiresAt.timeIntervalSinceNow.rounded(.up)))
-        let choiceRows = pc.choices.enumerated().map { i, c in
-            """
-            <button type="button" id="clarify-choice-\(i)" class="clarify-choice">
-              <span class="clarify-choice-badge">\(i + 1)</span><span class="clarify-choice-text">\(esc(c))</span>
-            </button>
-            """
-        }.joined()
-        let choicesBlock = choiceRows.isEmpty ? "" : "<div class=\"clarify-choices\" data-component-id=\"clarify-choice\" data-event=\"click\">\(choiceRows)</div>"
-        return """
-        <div class="clarify-card visible">
-          <div class="clarify-inner">
-            <div class="clarify-head">
-              <span class="clarify-ico">\(WebUIIcon(.badgeQuestionMark, size: .small).markup.html)</span><span class="clarify-title">Clarification needed</span>
-              <span class="clarify-countdown" id="clarify-countdown" data-expires="\(expiryMs)">\(remaining)s</span>
-              <button type="button" class="clarify-collapse" id="clarify-collapse" title="Collapse">\(WebUIIcon(.chevronDown, size: .small).markup.html)</button>
-            </div>
-            <div class="clarify-question">\(esc(pc.question))</div>
-            \(choicesBlock)
-            <div class="clarify-response">
-              <button type="button" id="clarify-other" class="clarify-pill pill-other" title="Type your own answer">Other</button>
-              <form id="clarify-form" data-component-id="clarify-form" data-event="submit" class="clarify-free">
-                <input id="clarify-input" name="clarify-input" data-component-id="clarify-input" type="text" placeholder="Type your response..." autocomplete="off">
-                <button type="submit" id="clarify-submit" class="clarify-submit">Send</button>
-              </form>
-            </div>
-            <div class="clarify-hint">Pick a choice, or type your own answer below.</div>
-          </div>
-        </div>
-        """
+        return Div(class: "clarify-card visible") {
+            Div(class: "clarify-inner") {
+                Div(class: "clarify-head") {
+                    Span(class: "clarify-ico") { WebUIIcon(.badgeQuestionMark, size: .small) }
+                    Span(class: "clarify-title") { Text("Clarification needed") }
+                    Span(class: "clarify-countdown") { Text("\(remaining)s") }
+                        .attribute("id", "clarify-countdown")
+                        .attribute("data-expires", "\(expiryMs)")
+                    ArcButton(id: "clarify-collapse", component: nil, class: "clarify-collapse") {
+                        WebUIIcon(.chevronDown, size: .small)
+                    }
+                    .attribute("title", "Collapse")
+                }
+                Div(class: "clarify-question") { Text(pc.question) }
+                if !pc.choices.isEmpty {
+                    Div(class: "clarify-choices") {
+                        for (i, c) in pc.choices.enumerated() {
+                            ArcButton(id: "clarify-choice-\(i)", component: nil, class: "clarify-choice") {
+                                Span(class: "clarify-choice-badge") { Text("\(i + 1)") }
+                                Span(class: "clarify-choice-text") { Text(c) }
+                            }
+                        }
+                    }
+                    .attribute("data-component-id", "clarify-choice")
+                    .attribute("data-event", "click")
+                }
+                Div(class: "clarify-response") {
+                    ArcButton(id: "clarify-other", component: nil, class: "clarify-pill pill-other") {
+                        Text("Other")
+                    }
+                    .attribute("title", "Type your own answer")
+                    Form(action: "", method: nil, id: "clarify-form", class: "clarify-free") {
+                        Input(id: "clarify-input", name: "clarify-input",
+                              placeholder: "Type your response...", type: .text)
+                            .attribute("data-component-id", "clarify-input")
+                            .attribute("autocomplete", "off")
+                        ArcButton(id: "clarify-submit", component: nil, class: "clarify-submit", type: .submit) {
+                            Text("Send")
+                        }
+                    }
+                    .attribute("data-component-id", "clarify-form")
+                    .attribute("data-event", "submit")
+                }
+                Div(class: "clarify-hint") { Text("Pick a choice, or type your own answer below.") }
+            }
+        }
     }
 
     /// Session-level "approvals skipped" pill (reference yolo indicator) with a
     /// restore control.
-    func yoloPillHTML() -> String {
-        """
-        <div class="yolo-pill">
-          <span class="yolo-ico">\(WebUIIcon(.zap, size: .small).markup.html)</span>
-          <span class="yolo-text">Approvals skipped for this session</span>
-          <button type="button" id="yolo-off" data-component-id="yolo-off" data-event="click" class="yolo-off">Restore</button>
-        </div>
-        """
+    func yoloPillHTML() -> some WebUI.View {
+        Div(class: "yolo-pill") {
+            Span(class: "yolo-ico") { WebUIIcon(.zap, size: .small) }
+            Span(class: "yolo-text") { Text("Approvals skipped for this session") }
+            ArcButton(id: "yolo-off", component: "yolo-off", class: "yolo-off") {
+                Text("Restore")
+            }
+            .attribute("data-event", "click")
+        }
     }
         // MARK: Composer
 
@@ -2232,7 +2275,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         let isBooked = activeSessionID.map { isBookmarked($0) } ?? false
         let selOpen = wsSelectOpen || profileSelectOpen || modelSelectOpen || thinkSelectOpen
         return Div(class: "composer-wrap") {
-            Div { legacy(composerFlyoutHTML()) } // TODO(phase 4): approval/clarify/yolo cards
+            Div { composerFlyoutHTML() }
                 .attribute("id", "composer-flyout")
             Div(class: "cmd-dropdown") {}
                 .attribute("id", "cmd-dropdown")

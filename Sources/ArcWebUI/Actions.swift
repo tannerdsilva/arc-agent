@@ -1069,7 +1069,7 @@ extension AppState {
         if let live = activeTurns[activeSessionID ?? ""] {
             u.append(FragmentUpdate(id: "live-turn", html: render(liveMessageHTML(live)), transition: false))
         }
-        u.append(FragmentUpdate(id: "composer-flyout", html: "<div id=\"composer-flyout\">" + composerFlyoutHTML() + "</div>"))
+        u.append(fragment("composer-flyout", Div { composerFlyoutHTML() }.attribute("id", "composer-flyout")))
         return u
     }
 

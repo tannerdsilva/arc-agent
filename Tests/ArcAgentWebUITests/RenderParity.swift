@@ -540,6 +540,58 @@ struct RenderParityTests {
         Parity.expect(html, matches: "chat-main-empty")
     }
 
+    @Test("phase 4: empty flyout matches golden")
+    func phase4FlyoutEmpty() async {
+        var fixture = AppState.RenderFixture()
+        fixture.activeSessionID = "sess-a"
+        let app = AppState(renderFixture: fixture)
+        let html = await app.composerFlyoutHTML().markup.html
+        Parity.capture(html, as: "flyout-empty")
+        Parity.expect(html, matches: "flyout-empty")
+    }
+
+    @Test("phase 4: approval flyout matches golden")
+    func phase4FlyoutApproval() async {
+        var fixture = AppState.RenderFixture()
+        fixture.activeSessionID = "sess-a"
+        fixture.pendingApproval = PendingApproval(
+            command: "rm -rf /tmp/build", description: "Delete the build directory",
+            sessionID: "sess-a", continuation: AsyncStream<Bool>.makeStream().continuation)
+        let app = AppState(renderFixture: fixture)
+        let html = await app.composerFlyoutHTML().markup.html
+        Parity.capture(html, as: "flyout-approval")
+        Parity.expect(html, matches: "flyout-approval")
+    }
+
+    @Test("phase 4: clarify flyout matches golden")
+    func phase4FlyoutClarify() async {
+        var fixture = AppState.RenderFixture()
+        fixture.activeSessionID = "sess-a"
+        // a FIXED past expiry: the countdown then floors at "1s" and
+        // `data-expires` is a constant, so the golden cannot drift with the clock.
+        fixture.pendingClarify = PendingClarify(
+            question: "Which environment should I deploy to?",
+            choices: ["staging", "production"],
+            sessionID: "sess-a",
+            continuation: AsyncStream<String>.makeStream().continuation,
+            expiresAt: Date(timeIntervalSince1970: 1_700_000_000))
+        let app = AppState(renderFixture: fixture)
+        let html = await app.composerFlyoutHTML().markup.html
+        Parity.capture(html, as: "flyout-clarify")
+        Parity.expect(html, matches: "flyout-clarify")
+    }
+
+    @Test("phase 4: yolo flyout matches golden")
+    func phase4FlyoutYolo() async {
+        var fixture = AppState.RenderFixture()
+        fixture.activeSessionID = "sess-a"
+        fixture.settings.yoloSessions = ["sess-a"]
+        let app = AppState(renderFixture: fixture)
+        let html = await app.composerFlyoutHTML().markup.html
+        Parity.capture(html, as: "flyout-yolo")
+        Parity.expect(html, matches: "flyout-yolo")
+    }
+
     @Test("chat header matches golden")
     func chatHeaderMatchesGolden() async {
         var fixture = AppState.RenderFixture()
