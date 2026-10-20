@@ -477,7 +477,7 @@ extension AppState {
         let thread = """
         <div class="task-thread">
           <div class="chat-scroll" id="task-chat-scroll" data-scroll-key="tasks-thread">
-            <div class="chat-inner" id="task-chat-inner">\(messagesHTML(msgs))</div>
+            <div class="chat-inner" id="task-chat-inner">\(render(messagesHTML(msgs)))</div>
           </div>
         </div>
         """

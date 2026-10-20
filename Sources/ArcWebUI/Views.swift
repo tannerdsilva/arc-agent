@@ -1176,7 +1176,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         <div class="chat-scroll-wrap">
           <div class="chat-scroll" id="chat-scroll" data-scroll-key="chat" data-session="\(esc(activeSessionID ?? ""))"\(follow)>
             <div class="chat-inner" id="chat-inner">
-              \(messagesHTML(session?.messages ?? []))
+              \(render(messagesHTML(session?.messages ?? [])))
             </div>
           </div>
           \(scrollBtn)
@@ -1211,13 +1211,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         """
     }
 
-    func messagesHTML(_ messages: [Message]) -> String {
-        var html: [String] = []
+    func messagesHTML(_ messages: [Message]) -> some WebUI.View {
+        var blocks: [any WebUI.View] = []
         var i = 0
         let mode = settings.activityDisplay
         while i < messages.count {
             if messages[i].role == .user {
-                html.append(render(messageHTML(messages[i], rawIdx: i)))
+                blocks.append(messageHTML(messages[i], rawIdx: i))
                 i += 1
                 continue
             }
@@ -1231,27 +1231,33 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             while j < messages.count, messages[j].role != .user { j += 1 }
             let seg = Array(messages[i..<j])
             if let block = turnBlockHTML(seg, mode: mode, turnIndex: i) {
-                html.append(block)
+                blocks.append(legacy(block)) // TODO(phase 3.9): turnBlockHTML
             } else {
-                html.append(contentsOf: legacySegmentHTML(seg, mode: mode))
+                for piece in legacySegmentHTML(seg, mode: mode) {
+                    blocks.append(legacy(piece)) // TODO(phase 3.9): legacySegmentHTML
+                }
             }
             i = j
         }
         // Live turn belongs to its owning session only.
         if let live = activeTurns[activeSessionID ?? ""] {
-            html.append(liveMessageHTML(live))
+            blocks.append(liveMessageHTML(live))
         }
-        if html.isEmpty {
-            html.append("""
-            <div class="blank">
-              <div class="blank-ico">\(WebUIIcon(.messageSquare, size: .extraLarge).markup.html)</div>
-              <div class="blank-title">This chat is empty</div>
-              <div class="blank-sub">Say hello below — or type / for the command list.</div>
-              <button type="button" class="ghost-btn blank-cta" data-focus-composer>\(WebUIIcon(.edit, size: .small).markup.html)<span>Start typing</span></button>
-            </div>
-            """)
+        return Group {
+            for b in blocks { b }
+            if blocks.isEmpty {
+                Div(class: "blank") {
+                    Div(class: "blank-ico") { WebUIIcon(.messageSquare, size: .extraLarge) }
+                    Div(class: "blank-title") { Text("This chat is empty") }
+                    Div(class: "blank-sub") { Text("Say hello below — or type / for the command list.") }
+                    ArcButton(id: nil, component: nil, class: "ghost-btn blank-cta") {
+                        WebUIIcon(.edit, size: .small)
+                        Span { Text("Start typing") }
+                    }
+                    .attribute("data-focus-composer", "")
+                }
+            }
         }
-        return html.joined()
     }
 
     /// The role header for an assistant reply: sparkle icon + "ARC Agent" on
@@ -1725,10 +1731,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
     }
 
-    func liveMessageHTML(_ live: LiveTurn) -> String {
+    func liveMessageHTML(_ live: LiveTurn) -> some WebUI.View {
         let mode = settings.activityDisplay
-        let streamText = esc(live.assistantText).replacingOccurrences(of: "\n", with: "<br>")
-        let cursor = live.status == "running" ? "<span class=\"stream-cursor\"></span>" : ""
         // The thinking row's `#live-turn-thinking` span must exist in the served
         // markup from the turn's first render: the streaming push writes its
         // reasoning into that span with `FragmentUpdate.text` ops, and a span
@@ -1740,47 +1744,96 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         // always present, invisible or not.
         let thinkingRow = thinkingRowHTML(live.thinking, key: "live-think", innerID: "live-turn-thinking",
             hidden: mode == "hide_all_activity" || live.thinking.isEmpty)
-        let chips = mode == "transparent_stream" && !live.toolChips.isEmpty
-            ? "<div class=\"tool-pills\">" + live.toolChips.joined() + "</div>"
-            : ""
-        let status: String
-        switch live.status {
-        case "tool":
-            let name = live.toolName.map { " " + $0 } ?? ""
-            let started = live.toolStartedAt.map { "<span class=\"msg-elapsed\" data-elapsed data-started=\"\(Int($0.timeIntervalSince1970 * 1000))\">\(fmtElapsed($0))</span>" } ?? ""
-            status = mode == "hide_all_activity" ? ""
-                : "<div class=\"live-status\"><span>" + WebUIIcon(.tool, size: .small).markup.html + " Running" + esc(name) + "…</span>" + started + "</div>"
-        case "error":
-            status = "<div class=\"live-status\" style=\"color:var(--danger)\"><span>" + WebUIIcon(.alertTriangle, size: .small).markup.html + " " + esc(live.error ?? "Turn failed") + "</span></div>"
-        case "approval":
-            status = "<div class=\"live-status\"><span>" + WebUIIcon(.alertTriangle, size: .small).markup.html + " Waiting for your approval…</span></div>"
-        case "done":
-            status = ""
-        default:
-            status = mode == "hide_all_activity" ? ""
-                : "<div class=\"live-status\"><span>" + WebUIIcon(.edit, size: .small).markup.html + " Responding…</span></div>"
-        }
-        let body = "<div class=\"msg-body\" id=\"live-turn-body\" style=\"white-space:pre-wrap\"><span id=\"live-turn-text\">" + streamText + "</span>" + cursor + "</div>"
         // arc parity: live tokens-per-second chip in the streaming header.
         let liveTps = live.tps ?? 0
-        let tpsChip = settings.showTps && liveTps > 0
-            ? "<span class=\"msg-tps-inline\" title=\"Tokens per second\">\(esc(fmtTps(liveTps)))</span>" : ""
-        let elapsedSpan = "<span class=\"msg-elapsed\" data-elapsed data-started=\"\(Int(live.startedAt.timeIntervalSince1970 * 1000))\">\(fmtElapsed(live.startedAt))</span>"
-        // the status line sits first: everything that grows below it (reasoning,
-        // streamed text, tool pills) then reflows behind it, so nothing above
-        // the growth ever moves (CLS: the status line was being pushed down
-        // per token).
-        return """
-        <div class="msg assistant streaming" id="live-turn" data-streaming="true" data-session="\(esc(live.sessionID))">
-          <div style="width:100%">
-            <div class="msg-meta"><span class="mm-left"><span class="role-icon assistant">\(WebUIIcon(.star, size: .small).markup.html)</span> ARC Agent\(tpsChip)</span><span class="mm-spacer"></span><span class="mm-right">\(elapsedSpan)</span></div>
-            \(status)
-            \(thinkingRow)
-            \(body)
-            \(chips)
-          </div>
-        </div>
-        """
+        return Div(class: "msg assistant streaming") {
+            Div {
+                Div(class: "msg-meta") {
+                    Span(class: "mm-left") {
+                        Span(class: "role-icon assistant") { WebUIIcon(.star, size: .small) }
+                        Text(" ARC Agent")
+                        if settings.showTps && liveTps > 0 {
+                            Span(class: "msg-tps-inline") { Text(fmtTps(liveTps)) }
+                                .attribute("title", "Tokens per second")
+                        }
+                    }
+                    Span(class: "mm-spacer") {}
+                    Span(class: "mm-right") {
+                        Span(class: "msg-elapsed") { Text(fmtElapsed(live.startedAt)) }
+                            .attribute("data-elapsed", "")
+                            .attribute("data-started", "\(Int(live.startedAt.timeIntervalSince1970 * 1000))")
+                    }
+                }
+                // the status line sits first: everything that grows below it
+                // (reasoning, streamed text, tool pills) then reflows behind it,
+                // so nothing above the growth ever moves (CLS: the status line
+                // was being pushed down per token).
+                switch live.status {
+                case "tool":
+                    if mode != "hide_all_activity" {
+                        Div(class: "live-status") {
+                            Span {
+                                WebUIIcon(.tool, size: .small)
+                                Text(" Running")
+                                if let name = live.toolName {
+                                    Text(" " + name)
+                                }
+                                Text("…")
+                            }
+                            if let started = live.toolStartedAt {
+                                Span(class: "msg-elapsed") { Text(fmtElapsed(started)) }
+                                    .attribute("data-elapsed", "")
+                                    .attribute("data-started", "\(Int(started.timeIntervalSince1970 * 1000))")
+                            }
+                        }
+                    }
+                case "error":
+                    Div(class: "live-status") {
+                        Span {
+                            WebUIIcon(.alertTriangle, size: .small)
+                            Text(" " + (live.error ?? "Turn failed"))
+                        }
+                    }
+                    .attribute("style", "color:var(--danger)")
+                case "approval":
+                    Div(class: "live-status") {
+                        Span {
+                            WebUIIcon(.alertTriangle, size: .small)
+                            Text(" Waiting for your approval…")
+                        }
+                    }
+                case "done":
+                    // nothing: the committed message replaces this node
+                    Group {}
+                default:
+                    if mode != "hide_all_activity" {
+                        Div(class: "live-status") {
+                            Span {
+                                WebUIIcon(.edit, size: .small)
+                                Text(" Responding…")
+                            }
+                        }
+                    }
+                }
+                legacy(thinkingRow) // TODO(phase 3.9): thinkingRowHTML
+                Div(class: "msg-body") {
+                    Span { Text(live.assistantText) }
+                        .attribute("id", "live-turn-text")
+                    if live.status == "running" {
+                        Span(class: "stream-cursor") {}
+                    }
+                }
+                .attribute("id", "live-turn-body")
+                .attribute("style", "white-space:pre-wrap")
+                if mode == "transparent_stream" && !live.toolChips.isEmpty {
+                    Div(class: "tool-pills") { Raw(.trusted(live.toolChips.joined())) }
+                }
+            }
+            .attribute("style", "width:100%")
+        }
+        .attribute("id", "live-turn")
+        .attribute("data-streaming", "true")
+        .attribute("data-session", live.sessionID)
     }
 
     // MARK: Composer flyout (arc parity: approval + clarification cards)

@@ -113,6 +113,19 @@ enum RenderedMarkup {
         return await app.composerHTML().markup.html
     }
 
+    /// a running live turn: structural pins only — its elapsed label is clock
+    /// derived, so it can never be pinned byte-for-byte.
+    static func liveTurn() async -> String {
+        let app = AppState(renderFixture: seededFixture())
+        var live = LiveTurn(sessionID: "sess-a", userText: "hi", attachments: [])
+        live.assistantText = "streaming reply"
+        live.status = "tool"
+        live.toolName = "read_file"
+        live.toolStartedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        live.startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        return await app.liveMessageHTML(live).markup.html
+    }
+
     /// the composer's queue row: two mid-stream sends waiting on the turn.
     static func queuedRow() async -> String {
         var fixture = seededFixture()

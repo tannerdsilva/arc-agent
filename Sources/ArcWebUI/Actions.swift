@@ -1067,7 +1067,7 @@ extension AppState {
         guard activeTabID == "chat" else { return [] }
         var u: [FragmentUpdate] = []
         if let live = activeTurns[activeSessionID ?? ""] {
-            u.append(FragmentUpdate(id: "live-turn", html: liveMessageHTML(live), transition: false))
+            u.append(FragmentUpdate(id: "live-turn", html: render(liveMessageHTML(live)), transition: false))
         }
         u.append(FragmentUpdate(id: "composer-flyout", html: "<div id=\"composer-flyout\">" + composerFlyoutHTML() + "</div>"))
         return u
@@ -1082,7 +1082,7 @@ extension AppState {
         // found: #chat-inner" for every committed turn that ends off-chat.
         guard activeTabID == "chat" else { return [] }
         let session = activeSession()
-        let scroll = messagesHTML(session?.messages ?? [])
+        let scroll = render(messagesHTML(session?.messages ?? []))
         return [FragmentUpdate(id: "chat-inner", html: "<div class=\"chat-inner\" id=\"chat-inner\">\(scroll)</div>")]
     }
 

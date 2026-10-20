@@ -36,11 +36,14 @@ extension ArcWebUITestRoot {
         }
 
         @Test("the live turn and its body are addressable")
-        func liveTurnIsAddressable() {
+        func liveTurnIsAddressable() async {
+            // the live turn is typed now: pin the RENDERED node ids, which are
+            // exactly what the streaming text ops target.
+            let live = await RenderedMarkup.liveTurn()
+            #expect(live.contains("id=\"live-turn\""), "liveMessageHTML must carry id=\"live-turn\"")
+            #expect(live.contains("id=\"live-turn-body\""), "the live body must carry id=\"live-turn-body\"")
+            #expect(live.contains("id=\"live-turn-text\""), "the streaming text must sit in a stable span (id=\"live-turn-text\") for text-op writes")
             let views = Self.views()
-            #expect(views.contains("id=\"live-turn\""), "liveMessageHTML must carry id=\"live-turn\"")
-            #expect(views.contains("id=\"live-turn-body\""), "the live body must carry id=\"live-turn-body\"")
-            #expect(views.contains("id=\"live-turn-text\""), "the streaming text must sit in a stable span (id=\"live-turn-text\") for text-op writes")
             #expect(views.contains("innerID: \"live-turn-thinking\""),
                     "the streamed reasoning must request its stable span (id=\"live-turn-thinking\")")
             #expect(views.contains("\"<span id=\"\\($0)\">\""),
@@ -57,13 +60,13 @@ extension ArcWebUITestRoot {
         }
 
         @Test("tool progress is a name plus a client-ticked clock")
-        func toolProgressIsNamedAndTimed() {
+        func toolProgressIsNamedAndTimed() async {
             let actions = Self.actions()
             #expect(actions.contains("toolName = call.function.name"),
                     "the tool loop must stamp the running tool's name for the status line")
-            let views = Self.views()
-            #expect(views.contains("live.toolName"), "the tool status line must render the tool name")
-            #expect(views.contains("data-elapsed data-started="),
+            let live = await RenderedMarkup.liveTurn()
+            #expect(live.contains("read_file"), "the tool status line must render the tool name")
+            #expect(live.contains("data-elapsed") && live.contains("data-started="),
                     "the tool clock must reuse the client-ticked elapsed span")
         }
 
