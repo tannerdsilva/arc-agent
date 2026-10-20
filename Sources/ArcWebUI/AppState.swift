@@ -1022,6 +1022,11 @@ actor AppState {
 
     var httpClient: HTTPClient?
 
+    /// Long-lived observer of `TesseraConnection.shared.sessionChanges` that
+    /// live-refreshes the session list when another instance grants a share or
+    /// updates session metadata (see `startSessionChangeListener`).
+    private var sessionChangeTask: Task<Void, Never>?
+
     /// Core turn engines per session (Option B collapse). Each session's
     /// `ArcAgent` persists nothing itself (`persistSessions = false`); the web
     /// UI owns the transcript store and reconstructs messages from the agent's
@@ -1432,6 +1437,9 @@ actor AppState {
             runtimeBackend = attachedStorage.backend
             store = attachedStorage.store
             memory = attachedStorage.memory
+            if attachedStorage.backend == "tessera" {
+                startSessionChangeListener()
+            }
             return
         }
         let tesseraOff = settings.tesseraOff || runtimeTesseraOff
@@ -1455,6 +1463,7 @@ actor AppState {
                 await TesseraConnection.shared.configure(cfg)
                 store = TesseraSessionStore()
                 memory = TesseraMemoryProvider()
+                startSessionChangeListener()
             } else {
                 runtimeBackend = "file"
                 store = FileSessionStore()
@@ -1470,6 +1479,26 @@ actor AppState {
         runtimeKey = nil
     }
 
+    /// Observe shared-model session changes (metadata 3003 / share grant 3007)
+    /// and live-refresh the session list, so a conversation shared from another
+    /// instance appears without a manual reload. Debounced (≤1 relist / 300ms)
+    /// so a burst of events coalesces, and `reloadSessions` only re-renders when
+    /// the visible list actually changed — no churn from the constant message
+    /// stream. Idempotent; no-op in file mode (the stream simply never emits).
+    func startSessionChangeListener() {
+        guard sessionChangeTask == nil else { return }
+        sessionChangeTask = Task { [weak self] in
+            var lastRelist = Date.distantPast
+            for await _ in TesseraConnection.shared.sessionChanges {
+                guard let self else { return }
+                let now = Date()
+                guard now.timeIntervalSince(lastRelist) >= 0.3 else { continue }
+                lastRelist = now
+                await self.reloadSessions()
+            }
+        }
+    }
+
     /// Release the process-scoped resources this actor owns.
     ///
     /// The host calls this at the end of its `run()` (Second Law: cleanup
@@ -1482,6 +1511,8 @@ actor AppState {
     /// Idempotent, and `ensureRuntime()` re-creates the client if a live host
     /// still needs one.
     func shutdown() async {
+        sessionChangeTask?.cancel()
+        sessionChangeTask = nil
         if let client = httpClient {
             try? await client.shutdown()
             httpClient = nil

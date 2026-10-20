@@ -302,7 +302,7 @@ extension AppState {
             <p class="share-sub">“\(esc(title))”</p>
             <div class="share-list">\(empty)\(rows)</div>
             <div class="share-add-row">
-              <input id="share-pubkey" data-component-id="share-pubkey" data-event="change" type="text" placeholder="Nostr pubkey" value="\(esc(shareDraftPubkey))" spellcheck="false">
+              <input id="share-pubkey" data-component-id="share-pubkey" data-event="change, input" type="text" placeholder="Nostr pubkey" value="\(esc(shareDraftPubkey))" spellcheck="false">
               <select id="share-role" data-component-id="share-role" data-event="change">
                 <option value="contribute"\(con)>Can contribute</option>
                 <option value="read"\(ro)>Read only</option>

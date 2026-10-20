@@ -155,6 +155,19 @@ public actor TesseraConnection {
     /// read-after-write semantics; they are dropped once the echo lands.
     private var pendingRecords: [PendingRecord] = []
 
+    // MARK: Live change signal (fix — session list refreshes on share events)
+
+    /// Stream of session-list-affecting model changes (metadata/share arrivals).
+    /// The web UI's session list observes this to live-refresh without a manual
+    /// reload. Consumers should debounce — a busy shared namespace emits bursts.
+    private let (sessionChangeStream, sessionChangeContinuation) = AsyncStream<Void>.makeStream()
+
+    /// Observe externally-published metadata/share events. Emits whenever the
+    /// shared model gains a new session-metadata (3003) or share-grant (3007)
+    /// event — the events that determine which conversations appear in another
+    /// instance's session list. Use it to live-refresh the session list.
+    public nonisolated var sessionChanges: AsyncStream<Void> { sessionChangeStream }
+
     // MARK: Record index (fix #1 — bounded per-kind queries)
 
     /// The actor's record index (see ``TesseraRecordIndex``). Updated in
@@ -416,6 +429,7 @@ public actor TesseraConnection {
             nostrPrivateKey = privateKey
 
             let model = ArcModel()
+            model.attachChangeSink(sessionChangeContinuation)
             let receiver = TesseraClientReceiverStore()
             receiver.models.append(model)
 
@@ -756,6 +770,20 @@ private final class ArcModel: TesseraModel<StringContent> {
     private var latestByKey: [ReplaceableKey: NOSTR_id] = [:]
     private var historyByKey: [ReplaceableKey: [NOSTR_id]] = [:]
 
+    /// Connection-side continuation fed when a session-list-affecting event
+    /// (metadata 3003 / share grant 3007) newly arrives. Thread-safe to
+    /// assign/read under `storageLock`; yielded outside the lock.
+    private var changeContinuation: AsyncStream<Void>.Continuation?
+
+    /// Attach the connection's change stream. Called once when the model is
+    /// created so externally-published metadata/share arrivals can be observed
+    /// (drives live session-list refresh in the web UI).
+    func attachChangeSink(_ continuation: AsyncStream<Void>.Continuation?) {
+        storageLock.lock()
+        changeContinuation = continuation
+        storageLock.unlock()
+    }
+
     override var modelStorage: [NOSTR_id: UnsignedEvent<StringContent>] {
         get {
             storageLock.lock()
@@ -764,8 +792,26 @@ private final class ArcModel: TesseraModel<StringContent> {
         }
         set {
             storageLock.lock()
-            defer { storageLock.unlock() }
+            let before = storage
             storage = newValue
+            let cont = changeContinuation
+            storageLock.unlock()
+            guard cont != nil else { return }
+            // Signal a session-list-affecting change only when a metadata (3003)
+            // or share-grant (3007) event newly arrived. The scan is O(n) over
+            // the shared namespace and only runs on genuine insertion, so it
+            // stays cheap against the small cross-instance share set; the
+            // constant message stream (3001) during a turn does NOT trigger a
+            // relist. Yields outside the lock (yield is thread-safe).
+            if newValue.count > before.count {
+                for (id, event) in newValue where before[id] == nil {
+                    let k = event.kind.RAW_native()
+                    if k == 3_003 || k == 3_007 {
+                        cont?.yield()
+                        break
+                    }
+                }
+            }
         }
     }
 

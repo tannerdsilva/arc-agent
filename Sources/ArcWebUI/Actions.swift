@@ -1695,7 +1695,7 @@ final class Controller: Sendable {
             }
             return []
         }
-        wire(router, id: "share-pubkey", events: ["change"]) { event in
+        wire(router, id: "share-pubkey", events: ["change", "input"]) { event in
             await self.app.setShareDraftPubkey(event.string("value") ?? "")
             return []
         }

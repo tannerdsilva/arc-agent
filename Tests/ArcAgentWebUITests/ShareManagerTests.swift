@@ -83,4 +83,51 @@ struct ShareManagerTests {
         #expect(acts.contains("await identityPubkey()"),
                 "saveShare must not publish a grant without an owner identity")
     }
+
+    private static func body(of fn: String, in src: String) -> String {
+        guard let start = src.range(of: "func \(fn)") else { return "" }
+        let tail = src[start.lowerBound...]
+        guard let close = tail.range(of: "\n    }") else { return String(tail) }
+        return String(tail[..<close.lowerBound])
+    }
+
+    @Test("saveShare stages any pending draft pubkey before publishing (no silent loss)")
+    func saveShareStagesDraft() {
+        let acts = Self.source("AppState+Actions.swift")
+        let save = Self.body(of: "saveShare", in: acts)
+        #expect(save.contains("_ = stageShareGrantee()"),
+                "saveShare must stage a typed-but-not-Added draft before publishing")
+        let stageIdx = save.range(of: "stageShareGrantee()")?.lowerBound
+        let grantIdx = save.range(of: "TesseraShareStore.shared.grant")?.lowerBound
+        if let stageIdx, let grantIdx {
+            #expect(stageIdx < grantIdx,
+                    "the pending draft must be staged before the grant is published")
+        }
+    }
+
+    @Test("the share pubkey tracks live typing (input) as well as blur (change)")
+    func sharePubkeyTracksTyping() {
+        let views = Self.source("Views.swift")
+        #expect(views.contains("data-event=\"change, input\""),
+                "the pubkey field must track live typing, not only blur")
+        let actions = Self.source("Actions.swift")
+        #expect(actions.contains("wire(router, id: \"share-pubkey\", events: [\"change\", \"input\"])"),
+                "the pubkey wire must register the input event")
+    }
+
+    @Test("the session list live-refreshes on new share/metadata events")
+    func sessionListLiveRefreshes() {
+        let state = Self.source("AppState.swift")
+        #expect(state.contains("startSessionChangeListener"),
+                "AppState must install a change listener")
+        #expect(state.contains("sessionChangeTask"),
+                "the listener must be a cancellable task")
+        #expect(state.contains("TesseraConnection.shared.sessionChanges"),
+                "AppState must observe the connection change stream")
+        let conn = Self.source("TesseraConnection.swift")
+        #expect(conn.contains("sessionChanges"), "the connection must expose a change stream")
+        #expect(conn.contains("attachChangeSink"), "the model must attach the change sink")
+        #expect(conn.contains("3_003") && conn.contains("3_007"),
+                "only metadata/share kinds signal a session-list change")
+    }
 }

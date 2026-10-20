@@ -881,6 +881,11 @@ extension AppState {
     /// process's identity.
     func saveShare(_ id: String) async {
         guard let owner = await identityPubkey() else { return }
+        // Trap fix: a pubkey typed into the draft field but never "Added" used
+        // to be silently dropped by the save (the draft is separate from the
+        // staged list the publish reads). Stage any non-empty draft first so
+        // what the user typed is exactly what gets published.
+        _ = stageShareGrantee()
         try? await TesseraShareStore.shared.grant(sessionID: id, owner: owner, grantees: shareStaged)
         await refreshShareGrants()
     }
