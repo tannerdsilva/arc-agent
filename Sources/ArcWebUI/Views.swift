@@ -83,7 +83,7 @@ extension AppState {
         \(workspacePanelHTML())
         <div id="drawer-scrim" class="drawer-scrim" aria-hidden="true"></div>
         </div>
-        <div id="modal-root">\(modalRootHTML())</div>
+        \(render(modalRootHTML()))
         <div id="toasts" data-component-id="toast-dismiss" data-event="click">\(render(toastsHTML()))</div>
         </div>
         """)
@@ -220,20 +220,26 @@ extension AppState {
     /// state fields; newer guards (workspaces) arm `pendingConfirm` — so every
     /// destructive action gets the same dialog, the same Cancel/Delete pair, a
     /// real dialog role, and (via the overlay) the same focus + Escape handling.
-    func modalHTML() -> String {
-        guard let req = activeConfirm else { return "" }
-        return """
-        <div class="modal-overlay" id="modal-overlay">
-          <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-            <h3 id="modal-title">\(esc(req.title))</h3>
-            <p>\(esc(req.body))</p>
-            <div class="modal-actions" data-component-id="modal" data-event="click">
-              <button type="button" id="modal-cancel" class="ghost-btn">Cancel</button>
-              <button type="button" id="modal-confirm" class="danger-btn">Delete</button>
-            </div>
-          </div>
-        </div>
-        """
+    func modalHTML() -> some WebUI.View {
+        guard let req = activeConfirm else { return Group {} }
+        return Group {
+            Div(id: "modal-overlay", class: "modal-overlay") {
+                Div(class: "modal-card") {
+                    Heading(req.title, level: .h3)
+                        .attribute("id", "modal-title")
+                    Paragraph(req.body)
+                    Div(class: "modal-actions") {
+                        ArcButton("Cancel", id: "modal-cancel", component: nil, class: "ghost-btn")
+                        ArcButton("Delete", id: "modal-confirm", component: nil, class: "danger-btn")
+                    }
+                    .attribute("data-component-id", "modal")
+                    .attribute("data-event", "click")
+                }
+                .attribute("role", "dialog")
+                .attribute("aria-modal", "true")
+                .attribute("aria-labelledby", "modal-title")
+            }
+        }
     }
 
     /// The armed destructive action, from whichever source carries it. Deriving
@@ -300,8 +306,13 @@ extension AppState {
     }
 
     /// Everything rendered in #modal-root (delete confirmation + category menu).
-    func modalRootHTML() -> String {
-        modalHTML() + categoryMenuHTML()
+    /// Owns the `#modal-root` wrapper so the fragment id rides beside the builder
+    /// that emits it.
+    func modalRootHTML() -> some WebUI.View {
+        Div(id: "modal-root") {
+            modalHTML()
+            legacy(categoryMenuHTML()) // TODO(1.6): categoryMenuHTML becomes a typed view and this bridge retires
+        }
     }
 
     // MARK: - Panel

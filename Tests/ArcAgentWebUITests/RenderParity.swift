@@ -563,7 +563,7 @@ struct RenderParityTests {
                 body: "The chat “A” will be deleted. You can undo this for 10 seconds."
             )
         ))
-        let html = await app.modalHTML()
+        let html = await app.modalHTML().markup.html
         Parity.capture(html, as: "modal-armed")
         Parity.expect(html, matches: "modal-armed")
     }
@@ -571,7 +571,7 @@ struct RenderParityTests {
     @Test("modal empty matches golden")
     func modalEmptyMatchesGolden() async {
         let app = AppState(renderFixture: .init())
-        let html = await app.modalHTML()
+        let html = await app.modalHTML().markup.html
         Parity.capture(html, as: "modal-empty")
         Parity.expect(html, matches: "modal-empty")
     }

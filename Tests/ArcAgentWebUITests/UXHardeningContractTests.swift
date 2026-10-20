@@ -713,10 +713,21 @@ extension ArcWebUITestRoot {
         // MARK: - B3/F47 the dialog that was a div
 
         @Test("the confirmation is a dialog with focus, Escape and a trap")
-        func modalIsADialog() {
-            #expect(Self.views.contains("role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"modal-title\""),
-                    "no-webui treats a plain div as a div; assistive tech needs the role")
-            #expect(Self.views.contains("id=\"modal-title\""), "the label target must exist")
+        func modalIsADialog() async {
+            // the modal is rendered from the typed view now; assert on the
+            // rendered bytes rather than grepping Views.swift source.
+            let app = AppState(renderFixture: .init(pendingConfirm: ConfirmRequest(
+                kind: "chat", id: "sess-a",
+                title: "Delete conversation?",
+                body: "The chat “A” will be deleted. You can undo this for 10 seconds."
+            )))
+            let html = await app.modalHTML().markup.html
+            #expect(html.contains("role=\"dialog\""), "no-webui treats a plain div as a div; assistive tech needs the role")
+            #expect(html.contains("aria-modal=\"true\""), "the card is modally blocked")
+            #expect(html.contains("aria-labelledby=\"modal-title\""), "the card is labelled by the title")
+            #expect(html.contains("id=\"modal-title\""), "the label target must exist")
+            #expect(html.contains("id=\"modal-cancel\""), "the cancel button renders")
+            #expect(html.contains("id=\"modal-confirm\""), "the confirm button renders")
             #expect(Self.overlay.contains("function syncModalFocus()"))
             #expect(Self.overlay.contains("if (e.key === 'Escape') {"),
                     "Escape used to do nothing at all in the modal")

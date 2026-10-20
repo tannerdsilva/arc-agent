@@ -34,7 +34,7 @@ enum RenderedMarkup {
         case "main":         return await app.mainContentHTML()
         case "dock":         return await app.workspaceDockHTML()
         case "toasts":       return await app.toastsHTML().markup.html
-        case "modal-root":   return await app.modalRootHTML()
+        case "modal-root":   return await app.modalRootHTML().markup.html
         default:             return ""
         }
     }

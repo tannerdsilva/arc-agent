@@ -30,8 +30,7 @@ extension AppState {
         u.append(FragmentUpdate(id: "ws-dock", html: workspaceDockHTML()))
         u.append(FragmentUpdate(id: "ws-panel", html: workspacePanelHTML()))
         u.append(fragment("toasts", toastsHTML()))
-        let modalDiv = "<div id=\"modal-root\">\\(modalRootHTML())</div>"
-        u.append(FragmentUpdate(id: "modal-root", html: modalDiv))
+        u.append(fragment("modal-root", modalRootHTML()))
         return u
     }
 
