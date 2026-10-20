@@ -446,6 +446,39 @@ struct RenderParityTests {
         Parity.expect(html, matches: "sessionGroup")
     }
 
+    @Test("chat header matches golden")
+    func chatHeaderMatchesGolden() async {
+        var fixture = AppState.RenderFixture()
+        fixture.activeSessionID = "sess-a"
+        fixture.sessions = [
+            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Active Session",
+                    messageCount: 2, messages: [
+                        Message(role: .user, content: "hello"),
+                        Message(role: .assistant, content: "hi there"),
+                    ]),
+        ]
+        let app = AppState(renderFixture: fixture)
+        let html = await app.chatHeaderHTML().markup.html
+        Parity.capture(html, as: "chat-header")
+        Parity.expect(html, matches: "chat-header")
+    }
+
+    @Test("chat header without messages hides the count")
+    func chatHeaderFreshChatHidesCount() async {
+        var fixture = AppState.RenderFixture()
+        fixture.activeSessionID = "sess-a"
+        fixture.sessions = [
+            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Fresh",
+                    messageCount: 0, messages: []),
+        ]
+        let app = AppState(renderFixture: fixture)
+        let html = await app.chatHeaderHTML().markup.html
+        Parity.capture(html, as: "chat-header-empty")
+        Parity.expect(html, matches: "chat-header-empty")
+    }
+
     @Test("assistant message matches golden")
     func assistantMessageMatchesGolden() async {
         let app = AppState(renderFixture: .init())

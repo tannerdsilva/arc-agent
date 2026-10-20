@@ -23,7 +23,7 @@ extension AppState {
             fragment("iconbar", iconbarHTML()),
             fragment("topbar", topbarHTML()),
             fragment("panel", await panelHTML()),
-            FragmentUpdate(id: "main", html: await mainContentHTML()),
+            FragmentUpdate(id: "main", html: render(await mainContentHTML())),
         ]
         // The right-hand workspace panel follows the active chat's workspace,
         // so re-render it on session switches and workspace changes too.
@@ -1098,7 +1098,7 @@ extension AppState {
             // stale "New chat" strip is the UX-05 regression.
             fragment("topbar", topbarHTML()),
             fragment("panel", await panelHTML()),
-            FragmentUpdate(id: "chat-header", html: chatHeaderHTML()),
+            FragmentUpdate(id: "chat-header", html: render(chatHeaderHTML())),
             FragmentUpdate(id: "composer-wrap", html: composerHTML()),
             fragment("toasts", toastsHTML()),
         ]

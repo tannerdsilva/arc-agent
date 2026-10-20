@@ -69,6 +69,8 @@ extension AppState {
     /// `.html`.
     func appShell() async -> some WebUI.View {
         let panel = await panelHTML()
+        // the builder closure is synchronous, so anything async is resolved
+        // before it: the main region crosses in as an already-built view.
         let main = await mainContentHTML()
 
         return Div {
@@ -77,7 +79,7 @@ extension AppState {
             Div {
                 iconbarHTML()
                 panel                    // panelHTML() is now a View (phase 2.2); bridge retired
-                legacy(main)             // mainContentHTML() still String (phase 3)
+                main
                 legacy(workspaceDockHTML())  // TODO(phase 7)
                 legacy(workspacePanelHTML()) // TODO(phase 7)
                 Div(id: "drawer-scrim", class: "drawer-scrim") {}
@@ -1054,14 +1056,19 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
 
     // MARK: - Main
 
-    func mainContentHTML() async -> String {
-        let id = "main"
+    func mainContentHTML() async -> some WebUI.View {
+        // the sidebar tab is a third-party plugin: `mainHTML()` is a String by
+        // the SidebarTab contract, so its markup crosses the boundary as
+        // trusted raw. everything arc itself emits stays typed.
+        let inner: String
         if let tab = sidebarTab(activeTabID) {
-            let inner = await tab.mainHTML()
-            let cls = activeTabID == "chat" ? " class=\"chat-main\"" : ""
-            return "<div id=\"\(id)\"\(cls)>\(inner)</div>"
+            inner = await tab.mainHTML()
+        } else {
+            inner = chatMain()
         }
-        return "<div id=\"\(id)\">\(chatMain())</div>"
+        return Div(id: "main", class: activeTabID == "chat" ? "chat-main" : nil) {
+            Raw(.trusted(inner))
+        }
     }
 
     /// Main content for a built-in view id (dispatched through the tab
@@ -1099,32 +1106,48 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
 
     /// The chat header (title + meta + regenerate/delete) as its own node, so a turn
     /// boundary can refresh it without replacing the whole chat region.
-    func chatHeaderHTML() -> String {
+    func chatHeaderHTML() -> some WebUI.View {
         let session = activeSession()
         let configName = configName(for: activeSessionID)
         let title = session.map { trunc(sessionTitle($0), 60) } ?? "Chat"
         let count = session.map { $0.messages.isEmpty ? $0.messageCount : $0.messages.count } ?? 0
         let model = settings.modelConfig(named: configName)?.model ?? configName
-        // UX-59: a fresh chat rendered "· 0 messages" — noise before there is
-        // anything to count. Show the count only once the chat has messages.
-        let meta = count > 0 ? "\(esc(model)) • \(count) \(count == 1 ? "message" : "messages")" : esc(model)
-        let delLabel = pendingDelete ? "Confirm?" : WebUIIcon(.trash, size: .small).markup.html
         let delClass = pendingDelete ? "sess-confirm" : "icon-mini danger"
-        let regenBtn = """
-        <button type="button" id="regen-btn" class="icon-mini" data-tip="Regenerate last reply" aria-label="Regenerate last reply" title="Regenerate last reply">\(WebUIIcon(.refreshCw, size: .small).markup.html)</button>
-        """
-        return """
-        <header class="chat-header" id="chat-header">
-          <div>
-            <div class="chat-title">\(esc(title))</div>
-            <div class="chat-meta">\(meta)</div>
-          </div>
-          <div class="row-actions-main" style="margin:0" data-component-id="regen" data-event="click">
-            \(regenBtn)
-            \(btn("chat-del", "chat-del", delClass, delLabel, " data-tip=\"Delete chat\" aria-label=\"Delete chat\""))
-          </div>
-        </header>
-        """
+        return Header(class: "chat-header") {
+            Div {
+                Div(class: "chat-title") { Text(title) }
+                // UX-59: a fresh chat rendered "· 0 messages" — noise before there
+                // is anything to count. The count appears only once there are
+                // messages; the model name always does.
+                Div(class: "chat-meta") {
+                    Text(model)
+                    if count > 0 {
+                        Text(" • \(count) \(count == 1 ? "message" : "messages")")
+                    }
+                }
+            }
+            Div(class: "row-actions-main") {
+                ArcButton(id: "regen-btn", component: nil, class: "icon-mini") {
+                    WebUIIcon(.refreshCw, size: .small)
+                }
+                .attribute("data-tip", "Regenerate last reply")
+                .attribute("aria-label", "Regenerate last reply")
+                .attribute("title", "Regenerate last reply")
+                ArcButton(id: "chat-del", component: "chat-del", class: delClass) {
+                    if pendingDelete {
+                        Text("Confirm?")
+                    } else {
+                        WebUIIcon(.trash, size: .small)
+                    }
+                }
+                .attribute("data-tip", "Delete chat")
+                .attribute("aria-label", "Delete chat")
+            }
+            .attribute("style", "margin:0")
+            .attribute("data-component-id", "regen")
+            .attribute("data-event", "click")
+        }
+        .attribute("id", "chat-header")
     }
 
     func chatMain() -> String {
@@ -1142,7 +1165,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
         let session = activeSession()
 
-        let header = chatHeaderHTML()
+        let header = render(chatHeaderHTML())
         let follow = forceScrollBottom ? " data-follow=\"bottom\"" : ""
         forceScrollBottom = false
         let scrollBtn = "<button type=\"button\" id=\"scroll-to-bottom\" class=\"scroll-to-bottom-btn\" data-component-id=\"scroll-to-bottom\" title=\"Jump to latest\" aria-label=\"Jump to latest\" hidden>&#8595;</button>"

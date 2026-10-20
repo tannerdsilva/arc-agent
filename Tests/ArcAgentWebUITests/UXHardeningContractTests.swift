@@ -706,9 +706,12 @@ extension ArcWebUITestRoot {
             }
             #expect(page.contains("data-tip=\"Settings\""),
                     "the settings pill label is Settings")
-            #expect(views.contains("data-tip=\"Regenerate last reply\""),
+            // the header is typed now: prove the pill on the rendered button, not on a
+            // source spelling that no longer exists.
+            let header = await RenderedMarkup.chatHeader()
+            #expect(header.contains("data-tip=\"Regenerate last reply\""),
                     "header icon button (regen) uses the data-tip pill, not a native title")
-            #expect(views.contains("data-tip=\"Delete chat\""),
+            #expect(header.contains("data-tip=\"Delete chat\""),
                     "header icon button (chatdel) uses the data-tip pill, not a native title")
             #expect(views.contains("data-tip=\"Attach a file\""),
                     "header icon button (cbfile) uses the data-tip pill, not a native title")
@@ -1470,9 +1473,10 @@ extension ArcWebUITestRoot {
                     "log filter chips must expose aria-pressed (round-3 UX-33)")
             #expect(views.contains("aria-label=\"Enable \\(toolset) tools\""),
                     "each toolset switch needs an accessible name (round-3 UX-31)")
-            #expect(views.contains("aria-label=\"Regenerate last reply\""),
+            let header = await RenderedMarkup.chatHeader()
+            #expect(header.contains("aria-label=\"Regenerate last reply\""),
                     "regen-btn must be named for AT, not only data-tip (round-3 UX-32)")
-            #expect(views.contains("aria-label=\"Delete chat\""),
+            #expect(header.contains("aria-label=\"Delete chat\""),
                     "chat-del must be named for AT, not only data-tip (round-3 UX-32)")
         }
 

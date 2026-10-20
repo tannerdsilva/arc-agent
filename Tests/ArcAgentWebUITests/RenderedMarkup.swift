@@ -33,7 +33,7 @@ enum RenderedMarkup {
         case "topbar":       return await app.topbarHTML().markup.html
         case "iconbar":      return await app.iconbarHTML().markup.html
         case "panel":        return await app.panelHTML().markup.html
-        case "main":         return await app.mainContentHTML()
+        case "main":         return await app.mainContentHTML().markup.html
         case "dock":         return await app.workspaceDockHTML()
         case "toasts":       return await app.toastsHTML().markup.html
         case "modal-root":   return await app.modalRootHTML().markup.html
@@ -60,6 +60,19 @@ enum RenderedMarkup {
         ]
         let app = AppState(renderFixture: fixture)
         return await app.panelHTML().markup.html
+    }
+
+    /// the chat header rendered with a live session, for header-scoped pins.
+    static func chatHeader() async -> String {
+        var fixture = seededFixture()
+        fixture.activeSessionID = "sess-a"
+        fixture.sessions = [
+            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Pinned chat",
+                    messageCount: 1, messages: [Message(role: .user, content: "hello")]),
+        ]
+        let app = AppState(renderFixture: fixture)
+        return await app.chatHeaderHTML().markup.html
     }
 
     /// a fixture that seeds the fields the bare defaults leave empty, so every
