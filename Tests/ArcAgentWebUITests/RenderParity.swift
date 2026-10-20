@@ -784,11 +784,21 @@ struct RenderParityTests {
         Parity.expect(html, matches: "sess-row-archived")
     }
 
-    @Test("session row archived menu matches golden")
+    @Test("an unarchived row beside an archived one still offers Archive")
     func sessionRowArchivedMenuMatchesGolden() async {
+        // the plan asked for a "showArchived" variant, but showArchived never reaches
+        // sessionRow — it rendered byte-identical to sess-row-archived and pinned
+        // nothing. this case instead proves the menu wording is per-session: with an
+        // archived session PRESENT in state, a non-archived row must still say
+        // "Archive conversation". a list-derived label (the bug this guards) would
+        // say "Unarchive" for every row as soon as one session is archived.
         var fixture = AppState.RenderFixture()
         fixture.showArchived = true
+        fixture.activeSessionID = "sess-a"
         fixture.sessions = [
+            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Live Session",
+                    messageCount: 0, messages: []),
             Session(id: "sess-c", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
                     updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Archived Session",
                     messageCount: 0, messages: []),
@@ -796,8 +806,12 @@ struct RenderParityTests {
         fixture.settings.archivedSessions = ["sess-c"]
         let app = AppState(renderFixture: fixture)
         let html = await app.sessionRow(fixture.sessions[0])
-        Parity.capture(html, as: "sess-row-archived-menu")
-        Parity.expect(html, matches: "sess-row-archived-menu")
+        #expect(html.contains("Archive conversation"),
+                "an unarchived row offered Unarchive — the menu label is reading the archived LIST, not this session")
+        #expect(!html.contains("Unarchive conversation"),
+                "an unarchived row must not offer Unarchive just because another session is archived")
+        Parity.capture(html, as: "sess-row-unarchived-beside-archived")
+        Parity.expect(html, matches: "sess-row-unarchived-beside-archived")
     }
 
     @Test("session row live matches golden")
