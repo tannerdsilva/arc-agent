@@ -74,7 +74,7 @@ extension AppState {
         return .trusted("""
         <div id="app" data-size="\(esc(settings.textSize))">
         <a class="skip-link" href="#composer-input">Skip to composer</a>
-        \(topbarHTML())
+        \(render(topbarHTML()))
         <div id="app-body">
         <aside id="iconbar">\(iconbar)</aside>
         \(panel)
@@ -91,27 +91,28 @@ extension AppState {
 
     /// Thin full-width bar across the top of the screen (arc-style): a
     /// colorless lightning mark centred with the current chat's name beside it.
-    func topbarHTML() -> String {
-        let name = esc(topbarLabel())
-        let bolt = WebUIIcon(.zap, size: .medium).markup.html
-        // UX-19/T12: below 1024px the left panel becomes an overlay drawer
-        // opened from this toggle. The open/closed CLASS stays client-owned
-        // (overlay.js flips `#app.drawer-open` — it survives every fragment
-        // patch and owns both the visual and the aria truth). The control
-        // itself is wired to the engine (`data-component-id` + a click handler
-        // in Actions) so clicks route instead of logging the engine's
-        // "click on unwired control #drawer-toggle" warning.
-        let drawerToggle = btn("drawer-toggle", "", "drawer-toggle-btn", "&#9776;",
-                               " aria-label=\"Toggle sidebar\" aria-expanded=\"false\" data-component-id=\"drawer-toggle\" data-event=\"click\"")
-        return """
-        <header id="topbar">
-          \(drawerToggle)
-          <div class="topbar-center">
-            <span class="topbar-bolt">\(bolt)</span>
-            <span class="topbar-name">\(name)</span>
-          </div>
-        </header>
-        """
+    func topbarHTML() -> some WebUI.View {
+        Header {
+            // UX-19/T12: below 1024px the left panel becomes an overlay drawer
+            // opened from this toggle. The open/closed CLASS stays client-owned
+            // (overlay.js flips `#app.drawer-open` — it survives every fragment
+            // patch and owns both the visual and the aria truth). The control
+            // itself is wired to the engine (`data-component-id` + a click handler
+            // in Actions) so clicks route instead of logging the engine's
+            // "click on unwired control #drawer-toggle" warning.
+            ArcButton("\u{2630}",          // ☰ — the &#9776; entity in the golden; Text escapes, so emit the char
+                      id: "drawer-toggle",
+                      component: "drawer-toggle",
+                      class: "drawer-toggle-btn")
+                .attribute("aria-label", "Toggle sidebar")
+                .attribute("aria-expanded", "false")
+                .attribute("data-event", "click")
+            Div(class: "topbar-center") {
+                Span(class: "topbar-bolt") { WebUIIcon(.zap, size: .medium) }
+                Span(class: "topbar-name") { Text(topbarLabel()) }
+            }
+        }
+        .attribute("id", "topbar")
     }
 
     /// The chat name the top bar shows: the active conversation's title when

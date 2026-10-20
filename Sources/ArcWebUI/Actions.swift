@@ -21,7 +21,7 @@ extension AppState {
         }
         var u: [FragmentUpdate] = [
             FragmentUpdate(id: "iconbar", html: "<aside id=\"iconbar\">\(iconbarHTML())</aside>"),
-            FragmentUpdate(id: "topbar", html: topbarHTML()),
+            fragment("topbar", topbarHTML()),
             FragmentUpdate(id: "panel", html: await panelHTML()),
             FragmentUpdate(id: "main", html: await mainContentHTML()),
         ]
@@ -49,7 +49,7 @@ extension AppState {
 
     func logsFragments() async -> [FragmentUpdate] {
         [
-            FragmentUpdate(id: "topbar", html: topbarHTML()),
+            fragment("topbar", topbarHTML()),
             FragmentUpdate(id: "panel", html: await panelHTML()),
             FragmentUpdate(id: "log-lines", html: "<div id=\"log-lines\" class=\"logs-lines\">\(logLinesHTML())</div>"),
         ]
@@ -1099,7 +1099,7 @@ extension AppState {
             // where auto-titles first exist (first-message default or the
             // title_gen aux model), so the topbar must ride this push — a
             // stale "New chat" strip is the UX-05 regression.
-            FragmentUpdate(id: "topbar", html: topbarHTML()),
+            fragment("topbar", topbarHTML()),
             FragmentUpdate(id: "panel", html: await panelHTML()),
             FragmentUpdate(id: "chat-header", html: chatHeaderHTML()),
             FragmentUpdate(id: "composer-wrap", html: composerHTML()),

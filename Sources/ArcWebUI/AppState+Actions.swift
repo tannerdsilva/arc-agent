@@ -1896,7 +1896,7 @@ extension AppState {
             settings.sessionTitles[sessionID] = title
             saveSettings()
             await pusher([
-                FragmentUpdate(id: "topbar", html: topbarHTML()),
+                fragment("topbar", topbarHTML()),
                 FragmentUpdate(id: "panel", html: panelHTML()),
             ])
         } catch {
