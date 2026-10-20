@@ -16,7 +16,7 @@ extension ArcWebUITestRoot {
         @Test("the fixture constructs and renders the topbar")
         func fixtureRendersTheTopbar() async {
             let app = AppState(renderFixture: .init())
-            let html = await app.topbarHTML()
+            let html = await app.topbarHTML().markup.html
             #expect(html.contains("id=\"topbar\""))
         }
 
