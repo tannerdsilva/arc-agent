@@ -1,0 +1,83 @@
+<div class="panel-head">
+  <span class="panel-title">Chats</span>
+  <div class="panel-actions"><button type="button" id="chat-new" title="New chat" data-component-id="chat-new" class="plus-btn"><svg class="icon icon--md" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button></div>
+</div>
+<div class="filter-bar">
+  <span class="filter-ico"><svg class="icon icon--sm" viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+  <input id="chat-search-input" data-component-id="chat-search-input" type="search" placeholder="Filter conversations…" aria-label="Filter conversations" value="">
+</div>
+<div class="cat-bar" data-component-id="cat-pick" data-event="click">
+  <button type="button" id="cat-all" class="cat-chip active" tabindex="-1" aria-pressed="true">All</button>
+  <button type="button" id="cat-unassigned" class="cat-chip" tabindex="-1" aria-pressed="false">Unassigned</button><button type="button" id="cat-add" title="Add category" tabindex="-1" class="cat-chip cat-add"><svg class="icon icon--sm" viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button></div>
+<button type="button" id="chat-showarch-link" data-component-id="chat-showarch" class="arch-link" title="Toggle archived">
+  <span class="arch-ico"><svg class="icon icon--sm" viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg></span><span> Show archived conversations</span>
+</button>
+
+<button type="button" id="chat-clear-empty" data-tip="Delete conversations with no messages" data-component-id="chat-clear-empty" class="arch-link"><span class="arch-ico"><svg class="icon icon--sm" viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span><span> Clear 1 empty chat</span></button>
+<div class="panel-body" id="sess-list-body" data-scroll-key="sessions" data-component-id="sess-list" data-event="click">
+  <div class="sess-group" data-grp="older">
+  <button type="button" class="sess-group-head" id="sess-grp-older" title="Older" tabindex="-1">
+    <span class="sess-caret"><svg class="icon icon--sm" viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></span>
+    <span class="sess-group-title">Older</span>
+  </button>
+  <div class="sess-group-rows"><div class="sess-row active" tabindex="0" role="group" title="Hello" aria-label="Hello" data-full-title="Hello" data-sid="sess-a" aria-current="true">
+  <button type="button" id="s-open-c2Vzcy1h" class="sess-open" tabindex="-1">
+    <span class="sess-title">Hello</span>
+    <span class="sess-meta">2 msg • <span class="rel-time" data-reltime="1700000000000">Nov 14, 23</span></span>
+  </button>
+  <div class="row-actions"><div class="menu-wrap">
+  <div class="menu-left"></div>
+  <button type="button" id="s-menu-c2Vzcy1h" class="menu-dots" title="Chat actions" tabindex="-1">⋮</button>
+  <div class="chat-menu" data-component-id="chat-menu" data-event="click" id="menu-c2Vzcy1h">
+    <div class="chat-menu-items">
+    <button type="button" id="sm-copy-c2Vzcy1h" data-sid="sess-a">Copy conversation link</button>
+    <button type="button" id="sm-rename-c2Vzcy1h" data-sid="sess-a">Rename conversation</button>
+    <button type="button" id="sm-pin-c2Vzcy1h" data-sid="sess-a">Pin conversation</button>
+    <button type="button" id="sm-arc-c2Vzcy1h" data-sid="sess-a">Archive conversation</button>
+    <button type="button" id="sm-catmenu-c2Vzcy1h" class="menu-item-head catmenu-head">
+  <span>Move to Category</span><span class="menu-arrow"><svg class="icon icon--sm" viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg></span>
+</button>
+    <button type="button" id="sm-dup-c2Vzcy1h" data-sid="sess-a">Duplicate conversation</button>
+    <button type="button" id="sm-del-c2Vzcy1h" class="danger" data-sid="sess-a">Delete conversation</button>
+    </div>
+    <div class="chat-menu-panel" id="catpanel-c2Vzcy1h" hidden>
+  <div class="cat-panel-head">
+    <button type="button" id="sm-catback-c2Vzcy1h" class="cat-panel-back" title="Back"><svg class="icon icon--sm" viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></button>
+    <span class="cat-panel-title">Move to Category</span>
+  </div>
+  <div class="cat-panel-list"><button type="button" id="sm-uncat-c2Vzcy1h" class="menu-sel">No Project <svg class="icon icon--sm" viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
+</div>
+  </div>
+</div></div>
+</div><div class="sess-row" tabindex="-1" role="group" title="Session C" aria-label="Session C" data-full-title="Session C" data-sid="sess-c">
+  <button type="button" id="s-open-c2Vzcy1j" class="sess-open" tabindex="-1">
+    <span class="sess-title">Session C</span>
+    <span class="sess-meta">0 msg • <span class="rel-time" data-reltime="1700000000000">Nov 14, 23</span></span>
+  </button>
+  <div class="row-actions"><div class="menu-wrap">
+  <div class="menu-left"></div>
+  <button type="button" id="s-menu-c2Vzcy1j" class="menu-dots" title="Chat actions" tabindex="-1">⋮</button>
+  <div class="chat-menu" data-component-id="chat-menu" data-event="click" id="menu-c2Vzcy1j">
+    <div class="chat-menu-items">
+    <button type="button" id="sm-copy-c2Vzcy1j" data-sid="sess-c">Copy conversation link</button>
+    <button type="button" id="sm-rename-c2Vzcy1j" data-sid="sess-c">Rename conversation</button>
+    <button type="button" id="sm-pin-c2Vzcy1j" data-sid="sess-c">Pin conversation</button>
+    <button type="button" id="sm-arc-c2Vzcy1j" data-sid="sess-c">Archive conversation</button>
+    <button type="button" id="sm-catmenu-c2Vzcy1j" class="menu-item-head catmenu-head">
+  <span>Move to Category</span><span class="menu-arrow"><svg class="icon icon--sm" viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg></span>
+</button>
+    <button type="button" id="sm-dup-c2Vzcy1j" data-sid="sess-c">Duplicate conversation</button>
+    <button type="button" id="sm-del-c2Vzcy1j" class="danger" data-sid="sess-c">Delete conversation</button>
+    </div>
+    <div class="chat-menu-panel" id="catpanel-c2Vzcy1j" hidden>
+  <div class="cat-panel-head">
+    <button type="button" id="sm-catback-c2Vzcy1j" class="cat-panel-back" title="Back"><svg class="icon icon--sm" viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></button>
+    <span class="cat-panel-title">Move to Category</span>
+  </div>
+  <div class="cat-panel-list"><button type="button" id="sm-uncat-c2Vzcy1j" class="menu-sel">No Project <svg class="icon icon--sm" viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></button></div>
+</div>
+  </div>
+</div></div>
+</div></div>
+</div>
+</div>

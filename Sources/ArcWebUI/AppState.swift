@@ -1067,6 +1067,16 @@ actor AppState {
         var categoryMenuRename = false
         var pendingConfirm: ConfirmRequest? = nil
         var pendingCopyURL: String? = nil
+        /// Left-panel chat list filter text (drives the "No chats match" branch).
+        var chatFilter = ""
+        /// Show archived chats instead of active ones.
+        var showArchived = false
+        /// Active turns keyed by session ID (drives the row spinner).
+        var activeTurns: [String: LiveTurn] = [:]
+        /// Active category: "all" | "unassigned" | category id.
+        var activeCategory = "all"
+        /// Whether the category create form is open.
+        var addingCategory = false
     }
 
     init(renderFixture fixture: RenderFixture) {
@@ -1081,6 +1091,11 @@ actor AppState {
         self.categoryMenuRename = fixture.categoryMenuRename
         self.pendingConfirm = fixture.pendingConfirm
         self.pendingCopyURL = fixture.pendingCopyURL
+        self.chatFilter = fixture.chatFilter
+        self.showArchived = fixture.showArchived
+        self.activeTurns = fixture.activeTurns
+        self.activeCategory = fixture.activeCategory
+        self.addingCategory = fixture.addingCategory
         self.registry = MutableToolRegistry(builtIn: CompileTimeToolRegistry())
         self.sidebarPlugins = []
         self.pluginTabs = [:]

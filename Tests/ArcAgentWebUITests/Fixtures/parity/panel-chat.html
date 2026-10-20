@@ -1,0 +1,19 @@
+<div id="panel"><div class="panel-head">
+  <span class="panel-title">Chats</span>
+  <div class="panel-actions"><button type="button" id="chat-new" title="New chat" data-component-id="chat-new" class="plus-btn"><svg class="icon icon--md" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button></div>
+</div>
+<div class="filter-bar">
+  <span class="filter-ico"><svg class="icon icon--sm" viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+  <input id="chat-search-input" data-component-id="chat-search-input" type="search" placeholder="Filter conversations…" aria-label="Filter conversations" value="">
+</div>
+<div class="cat-bar" data-component-id="cat-pick" data-event="click">
+  <button type="button" id="cat-all" class="cat-chip active" tabindex="-1" aria-pressed="true">All</button>
+  <button type="button" id="cat-unassigned" class="cat-chip" tabindex="-1" aria-pressed="false">Unassigned</button><button type="button" id="cat-add" title="Add category" tabindex="-1" class="cat-chip cat-add"><svg class="icon icon--sm" viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button></div>
+<button type="button" id="chat-showarch-link" data-component-id="chat-showarch" class="arch-link" title="Toggle archived">
+  <span class="arch-ico"><svg class="icon icon--sm" viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg></span><span> Show archived conversations</span>
+</button>
+
+
+<div class="panel-body" id="sess-list-body" data-scroll-key="sessions" data-component-id="sess-list" data-event="click">
+  <div class="empty-hint">No chats yet — press + to start one.</div>
+</div></div>
