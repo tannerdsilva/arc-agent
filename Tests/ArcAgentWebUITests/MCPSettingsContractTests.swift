@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import ArcWebUI
 
 extension ArcWebUITestRoot {
     /// the Settings → MCP servers surface, pinned against the sources (the house
@@ -79,11 +80,15 @@ extension ArcWebUITestRoot {
         }
 
         @Test("the settings panel is reachable from the nav")
-        func panelIsLinked() {
-            let views = Self.source("Views.swift")
-            #expect(views.contains("href=\"#mcp-servers\""), "Settings nav links the section")
-            #expect(views.contains("id=\"mcp-servers\""), "Settings renders the section")
-            #expect(views.contains("mcpSettingsHTML()"))
+        func panelIsLinked() async {
+            // the panel is a typed view now, so the link is asserted on the
+            // RENDERED nav: a source grep would pass on a row that never emits.
+            let nav = await AppState(renderFixture: AppState.RenderFixture())
+                .settingsPanel().markup.html
+            #expect(nav.contains("href=\"#mcp-servers\""), "Settings nav links the section")
+            let main = Self.source("Views.swift")
+            #expect(main.contains("id=\"mcp-servers\""), "Settings renders the section")
+            #expect(main.contains("mcpSettingsHTML()"))
         }
 
         @Test("boot binds the shared client manager to the configured servers")

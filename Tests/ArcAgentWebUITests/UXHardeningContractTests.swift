@@ -1182,7 +1182,7 @@ extension ArcWebUITestRoot {
         /// settings chips, the composer — until the server restarts. The overlay
         /// must intercept the jump so the URL (and the history stack) never move.
         @Test("in-page #anchors are intercepted so they can never fire a navigate")
-        func inPageAnchorsDoNotNavigate() {
+        func inPageAnchorsDoNotNavigate() async {
             let overlay = Self.overlay
             #expect(overlay.contains("closest('a[href^=\"#\"]')"),
                     "the overlay must intercept same-page anchors before the browser navigates")
@@ -1193,11 +1193,15 @@ extension ArcWebUITestRoot {
             #expect(overlay.contains("target.focus({ preventScroll: true })"),
                     "a control target must receive focus (that is the skip link's whole job)")
             // The settings sub-nav rows must stay real, named, focusable links.
-            let views = Self.views
+            // asserted on the RENDERED panel: the rows are a typed composite now,
+            // and a source grep would keep passing if the anchor stopped emitting.
+            let nav = await AppState(renderFixture: AppState.RenderFixture())
+                .settingsPanel().markup.html
             for sec in ["appearance", "preferences", "storage", "tool-plugins", "sidebar-plugins", "about"] {
-                #expect(views.contains("<a href=\"#\(sec)\""),
+                #expect(nav.contains("href=\"#\(sec)\""),
                         "the settings sub-nav must keep its #\(sec) anchor")
             }
+            #expect(nav.contains("class=\"lr-name\""), "each row keeps its label")
         }
 
         /// UX-62 — empty drafts. The list showed three identical "New chat · 0 msg"
