@@ -252,7 +252,7 @@ enum SidebarTabIconRenderer {
             case .emoji(let glyph):
                 Span(class: "rail-emoji") { Text(glyph) }
                     .attribute("role", "img")
-                    .attribute("aria-hidden", "true")
+                    .aria(.hidden(.yes))
             }
         }
     }
