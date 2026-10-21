@@ -26,6 +26,10 @@ if [ ! -x "$ARC_BIN" ]; then
   fi
 fi
 ARC_LOG="${ARC_LOG:-${TMPDIR:-/tmp}/arc-serve.log}"
+# Optional: override the daemon's swift-log level (trace|debug|info|notice|
+# warning|error|critical). Empty => daemon's default (.info). Mirrors the
+# relay's RELAY_LOG_LEVEL.
+ARC_LOG_LEVEL="${ARC_LOG_LEVEL:-}"
 
 if [ ! -x "$ARC_BIN" ]; then
   echo "error: arc binary not found/executable: $ARC_BIN" >&2
@@ -39,8 +43,9 @@ if pgrep -f '[a]rc serve' >/dev/null 2>&1; then
   exit 0
 fi
 
-echo "arc-agent: starting ($ARC_BIN serve) …"
-nohup "$ARC_BIN" serve > "$ARC_LOG" 2>&1 &
+echo "arc-agent: starting ($ARC_BIN serve${ARC_LOG_LEVEL:+ --log-level $ARC_LOG_LEVEL}) …"
+# shellcheck disable=SC2086
+nohup "$ARC_BIN" serve${ARC_LOG_LEVEL:+ --log-level "$ARC_LOG_LEVEL"} > "$ARC_LOG" 2>&1 &
 disown
 
 sleep 1

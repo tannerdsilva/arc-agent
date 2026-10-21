@@ -25,8 +25,9 @@ public enum ArcDaemon {
     ) async throws {
         // Route every swift-log line into the web UI's ring buffer; the
         // daemon's own loggers (and a hosted UI's) all land there. Idempotent:
-        // whichever of daemon/host runs first installs it.
-        WebUILogging.install()
+        // whichever of daemon/host runs first installs it. `--log-level`
+        // overrides the handler's capture threshold (default .info).
+        WebUILogging.install(level: overrides.logLevel ?? .info)
 
         let plan = DaemonPlan.resolve(config: config, overrides: overrides)
         let daemonConfig = plan.configWithFilledToken(config)

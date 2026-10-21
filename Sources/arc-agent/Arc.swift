@@ -5,6 +5,23 @@ import Foundation
 import Logging
 import ServiceLifecycle
 
+/// `--log-level` value parsing: accepts the swift-log level names (case-insensitive,
+/// `warn` aliases `warning`).
+extension Logger.Level: @retroactive ExpressibleByArgument {
+    public init?(argument: String) {
+        switch argument.lowercased() {
+        case "trace": self = .trace
+        case "debug": self = .debug
+        case "info": self = .info
+        case "notice": self = .notice
+        case "warning", "warn": self = .warning
+        case "error": self = .error
+        case "critical": self = .critical
+        default: return nil
+        }
+    }
+}
+
 @main
 struct Arc: AsyncParsableCommand {
 
@@ -336,6 +353,9 @@ struct Serve: AsyncParsableCommand {
     @Flag(name: .long, help: "Use file storage instead of Tessera.")
     var tesseraOff: Bool = false
 
+    @Option(name: .long, help: "Daemon log level (trace|debug|info|notice|warning|error|critical).")
+    var logLevel: Logger.Level?
+
     func run() async throws {
         let arcConfig = loadConfig()
 
@@ -360,7 +380,8 @@ struct Serve: AsyncParsableCommand {
                 port: port,
                 telegramToken: telegramToken,
                 webuiEnabled: webui,
-                tesseraOff: tesseraOff
+                tesseraOff: tesseraOff,
+                logLevel: logLevel
             )
         )
     }
