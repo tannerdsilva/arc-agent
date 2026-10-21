@@ -965,6 +965,8 @@ public static let css: String = """
     .detail-body-lead { margin-top: 14px; }
     .mem-head-title { margin: 0; }
     .blank-cta { margin-top: 12px; }
+    /* profiles pane (phase 6.4c) */
+    .profile-form { max-width: 560px; }
     /* card spacing + heading rhythm: were inline styles on 9 settings cards. */
     .card-stack { margin-top: 12px; }
     .card-lead { margin-bottom: 12px; }

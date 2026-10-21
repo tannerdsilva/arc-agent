@@ -185,7 +185,7 @@ struct RenderParityPanels {
 				self.profile("local", "Local", nil),
 			]
 			$0.selectedProfile = "deep"
-		}.profilesMain()
+		}.profilesMain().markup.html
 		Parity.capture(html, as: "profiles-main")
 		Parity.expect(html, matches: "profiles-main")
 	}
@@ -194,7 +194,7 @@ struct RenderParityPanels {
 	func profilesMainFallbackGolden() async {
 		let html = await app {
 			$0.profiles = [self.profile("fast", "Fast", "gpt-5-mini")]
-		}.profilesMain()
+		}.profilesMain().markup.html
 		Parity.capture(html, as: "profiles-main-fallback")
 		Parity.expect(html, matches: "profiles-main-fallback")
 	}
@@ -207,15 +207,33 @@ struct RenderParityPanels {
 			                            skills: ["deploy", "rollback"])]
 			$0.selectedProfile = "deep"
 			$0.profileSkillsDraft = ["deploy", "rollback"]
-		}.profilesMain()
+		}.profilesMain().markup.html
 		Parity.capture(html, as: "profile-detail")
 		Parity.expect(html, matches: "profile-detail")
+	}
+
+	@Test("profile create form matches golden")
+	func profileCreateFormGolden() async {
+		let html = await app { $0.createProfile = true }.profilesMain().markup.html
+		Parity.capture(html, as: "profile-create-form")
+		Parity.expect(html, matches: "profile-create-form")
+	}
+
+	@Test("profile edit form matches golden")
+	func profileEditFormGolden() async {
+		let html = await app {
+			$0.profiles = [self.profile("fast", "Fast", "gpt-5-mini"),
+			               self.profile("deep", "Deep", "gpt-5")]
+			$0.editingProfile = "fast"
+		}.profilesMain().markup.html
+		Parity.capture(html, as: "profile-edit-form")
+		Parity.expect(html, matches: "profile-edit-form")
 	}
 
 	@Test("profile card, active profile, matches golden")
 	func profileCardActiveGolden() async {
 		let html = await app().profileCardHTML(
-			profile("fast", "Fast", "gpt-5-mini"))
+			profile("fast", "Fast", "gpt-5-mini")).markup.html
 		Parity.capture(html, as: "profile-card-inactive")
 		Parity.expect(html, matches: "profile-card-inactive")
 	}

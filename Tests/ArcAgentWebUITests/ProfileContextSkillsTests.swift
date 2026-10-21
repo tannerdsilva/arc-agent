@@ -29,13 +29,20 @@ extension ArcWebUITestRoot {
         }
 
         @Test("profile edit form renders the context skills section")
-        func formSection() {
-            let views = Self.source("Views.swift")
-            #expect(views.contains("Context skills"))
-            #expect(views.contains("profileContextSkillsHTML()"))
-            #expect(views.contains("pcs-toggle"))
-            #expect(views.contains("data-component-id=\"pcs\""))
-            #expect(views.contains("data-component-id=\"pcs-rm\""))
+        func formSection() async {
+            // rendered, not grepped: the picker is a view tree now, so the only
+            // honest question is whether the wiring attributes reached the DOM.
+            var f = AppState.RenderFixture()
+            f.profiles = [Profile(name: "fast", title: "Fast", description: "Quick answers",
+                                  model: "gpt-5-mini")]
+            f.editingProfile = "fast"
+            let page = await AppState(renderFixture: f).profilesMain().markup.html
+            #expect(page.contains("Context skills"), "the section keeps its heading")
+            #expect(page.contains("id=\"pcs-toggle\""), "the picker has its trigger")
+            #expect(page.contains("data-component-id=\"pcs\""),
+                    "the popover is wired by component id — a class-only marker never fires")
+            #expect(page.contains("data-component-id=\"pcs-rm\""),
+                    "the remove row is wired by component id")
         }
 
         @Test("profile wires cover picker add/remove/save")

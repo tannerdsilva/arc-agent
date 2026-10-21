@@ -1,4 +1,5 @@
 import Testing
+import WebUI
 import Foundation
 @testable import ArcWebUI
 import ArcAgentCore
@@ -203,7 +204,9 @@ struct RenderParitySettings {
 
     @Test("effort options match golden")
     func effortOptionsGolden() async {
-        let html = AppState.effortOptions(selected: "high")
+        // the ladder is data now; the <select> that renders it is the pin
+        let html = Select(id: "profile-ctx-effort", name: "profile-ctx-effort",
+                          options: AppState.effortOptions, selected: "high").markup.html
         Parity.capture(html, as: "effort-options")
         Parity.expect(html, matches: "effort-options")
     }

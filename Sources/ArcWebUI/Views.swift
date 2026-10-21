@@ -1111,7 +1111,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         case .skills:
             return render(skillsMain())
         case .profiles:
-            return profilesMain()
+            return render(profilesMain())
         case .tools:
             return render(toolsMain())
         case .workspaces:
@@ -2485,15 +2485,6 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         return ArcButton(id: id, component: nil, class: cls) { body() }
     }
 
-    /// string-bodied row for the builders that are still `-> String` (profile
-    /// skills picker, storage picker). TODO(phase 5/6): delete with its callers —
-    /// it exists so the dropdown cluster could convert without dragging two
-    /// unrelated panels along.
-    private func ddRow(id: String, body: String, extraClass: String = "") -> String {
-        let cls = extraClass.isEmpty ? "dd-row" : "dd-row \(extraClass)"
-        return "<button type=\"button\" id=\"\(id)\" class=\"\(cls)\">\(body)</button>"
-    }
-
     /// The model configuration whose values match an auxiliary override
     /// (name for the row summary), or nil when the override is custom/empty.
     func auxOverrideConfigName(_ ov: AuxiliaryOverride?) -> String? {
@@ -2949,58 +2940,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
 
     // MARK: Profiles main
 
-    func profilesMain() -> String {
-        if createProfile || editingProfile != nil {
-            let editing = editingProfile.flatMap { n in profiles.first { $0.name == n } }
-            let isEdit = editing != nil
-            let ectx = editing?.context
-            let nameVal = editing.map { " value=\"\(esc($0.name))\"" } ?? ""
-            let titleVal = editing.map { " value=\"\(esc($0.title))\"" } ?? ""
-            let descVal = editing.map { " value=\"\(esc($0.description))\"" } ?? ""
-            let ctxLen = ectx?.contextLength.map { String($0) } ?? ""
-            let maxTok = ectx?.maxOutputTokens.map { String($0) } ?? ""
-            let tempVal = ectx?.temperature.map { String($0) } ?? ""
-            let topPVal = ectx?.topP.map { String($0) } ?? ""
-            let budgetVal = ectx?.compressionBudget.map { String($0) } ?? ""
-            let effortSel = ectx?.reasoningEffort ?? ""
-            let effortOptions = AppState.effortOptions(selected: effortSel)
-            let formTitle = isEdit ? "Edit profile" : "New profile"
-            let formSub = isEdit ? "Edit the profile identity and its context parameters." : "A named, isolated agent configuration."
-            let formSubmit = isEdit ? "Save changes" : "Create profile"
-            let form = """
-            <form id="profile-create-form" data-component-id="profile-create-form" class="detail-card" style="max-width:560px">
-              <h1 class="detail-title">\(formTitle)</h1>
-              <div class="detail-sub">\(formSub)</div>
-              <div class="form-grid">
-                <div><label for="profile-name-input">Name</label><input id="profile-name-input" name="profile-name-input" data-component-id="profile-name-input" placeholder="researcher"\(nameVal)\(isEdit ? " readonly" : "")></div>
-                <div><label for="profile-title-input">Title</label><input id="profile-title-input" name="profile-title-input" data-component-id="profile-title-input" placeholder="Research Analyst"\(titleVal)></div>
-                <div><label for="profile-desc-input">Description</label><input id="profile-desc-input" name="profile-desc-input" data-component-id="profile-desc-input" placeholder="One-line mission"\(descVal)></div>
-              </div>
-              <h3 style="margin:16px 0 6px">Context parameters</h3>
-              <div class="detail-sub">Model context overrides for chats bound to this profile. Leave blank to inherit the chat's model config.</div>
-              <div class="form-grid">
-                <div><label for="profile-ctx-length">Context window (tokens)</label><input id="profile-ctx-length" name="profile-ctx-length" type="number" min="1024" step="1024" placeholder="e.g. 128000" value="\(ctxLen)"></div>
-                <div><label for="profile-ctx-maxtok">Max output (tokens)</label><input id="profile-ctx-maxtok" name="profile-ctx-maxtok" type="number" min="1" placeholder="e.g. 8192" value="\(maxTok)"></div>
-                <div><label for="profile-ctx-effort">Reasoning effort</label><select id="profile-ctx-effort" name="profile-ctx-effort" data-component-id="profile-ctx-effort">\(effortOptions)</select></div>
-                <div><label for="profile-ctx-temp">Temperature</label><input id="profile-ctx-temp" name="profile-ctx-temp" type="number" min="0" max="2" step="0.1" placeholder="e.g. 0.7" value="\(tempVal)"></div>
-                <div><label for="profile-ctx-topp">Top P</label><input id="profile-ctx-topp" name="profile-ctx-topp" type="number" min="0" max="1" step="0.05" placeholder="e.g. 0.9" value="\(topPVal)"></div>
-                <div><label for="profile-ctx-budget">Compress at (tokens)</label><input id="profile-ctx-budget" name="profile-ctx-budget" type="number" min="1024" step="1024" placeholder="e.g. 32000" value="\(budgetVal)"></div>
-              </div>
-              <h3 style="margin:16px 0 6px">Context skills</h3>
-              <div class="detail-sub">Skills pinned to this profile: their full content is loaded into every prompt for chats bound to this profile (as if the user had asked for them).</div>
-              \(profileContextSkillsHTML())
-              <div class="row-actions-main">
-                <button type="submit" class="primary-btn">\(formSubmit)</button>
-                \(btn("profile-cancel", "profile-cancel", "ghost-btn", "Cancel"))
-              </div>
-            </form>
-            """
-            return """
-            <div class="main-view">
-              <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">\(form)</div>
-            </div>
-            """
-        }
+    func profilesMain() -> some WebUI.View {
         // UX-13: with exactly one profile there is nothing to "select" —
         // auto-select it so the canvas is never a dead end. Only when two
         // or more profiles exist does the empty "Select a profile" state
@@ -3008,46 +2948,169 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         if selectedProfile == nil && profiles.count == 1 {
             selectedProfile = profiles[0].name
         }
-        guard let name = selectedProfile,
-              let p = profiles.first(where: { $0.name == name })
-        else {
-            return """
-            <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(WebUIIcon(.user, size: .extraLarge).markup.html)</div><div>Select a profile to see its details.</div></div>
-            </div>
-            """
+        return Group {
+            if createProfile || editingProfile != nil {
+                profileFormView()
+            } else if let name = selectedProfile, let p = profiles.first(where: { $0.name == name }) {
+                let set = p.enabledToolsets ?? []
+                let toolsetsNote = set.isEmpty ? "all (not overridden)" : set.joined(separator: ", ")
+                let encName = enc(p.name)
+                let isDefault = p.name == "default"
+                mainScroll {
+                    Div(class: "detail-card") {
+                        Div(class: "mem-head") {
+                            Div {
+                                DetailTitle(p.title.isEmpty ? p.name : p.title, class: "mem-head-title")
+                                Div(class: "detail-sub") {
+                                    Text(p.description.isEmpty ? "No description." : p.description)
+                                }
+                            }
+                            Div(class: "row-actions") {
+                                ArcButton(id: "pr-edit-\(encName)", class: "icon-mini", type: .button) {
+                                    WebUIIcon(.edit, size: .medium)
+                                }
+                                .attribute("title", "Edit profile")
+                                ArcButton(id: "pr-sel-\(encName)", class: "icon-mini", type: .button) {
+                                    WebUIIcon(.check, size: .medium)
+                                }
+                                .attribute("title", "Select profile for this chat")
+                                if !isDefault {
+                                    ArcButton(id: "pr-del-\(encName)", class: "icon-mini danger", type: .button) {
+                                        WebUIIcon(.trash, size: .medium)
+                                    }
+                                    .attribute("title", "Delete profile")
+                                }
+                            }
+                            .attribute("data-component-id", "profile-list")
+                            .attribute("data-event", "click")
+                        }
+                        profileCardHTML(p)
+                        Heading("Tool sets", level: .h3, class: "detail-h3")
+                        Div(class: "detail-sub") {
+                            Text("Overrides configured on the profile: \(toolsetsNote)")
+                        }
+                        Heading("Context parameters", level: .h3, class: "detail-h3")
+                        profileContextHTML(p)
+                        Heading("Agent powers", level: .h3, class: "detail-h3")
+                        Div(class: "detail-sub") {
+                            Text("Lockdowns for this profile's skills and profile files (MEMORY / USER / SOUL).")
+                        }
+                        agentPowersSection()
+                    }
+                }
+            } else {
+                Div(class: "main-view") {
+                    Div(class: "blank") {
+                        Div(class: "big") { WebUIIcon(.user, size: .extraLarge) }
+                        Div { Text("Select a profile to see its details.") }
+                    }
+                }
+                .attribute("style", "justify-content:center")
+            }
         }
-        let card = profileCardHTML(p)
-        let set = p.enabledToolsets ?? []
-        let toolsetsNote = set.isEmpty ? "all (not overridden)" : set.joined(separator: ", ")
-        let encName = enc(p.name)
-        let isDefault = p.name == "default"
-        let headIcons = btn("pr-edit-\(encName)", "", "icon-mini", WebUIIcon(.edit, size: .medium).markup.html, " title=\"Edit profile\"")
-            + btn("pr-sel-\(encName)", "", "icon-mini", WebUIIcon(.check, size: .medium).markup.html, " title=\"Select profile for this chat\"")
-            + (isDefault ? "" : btn("pr-del-\(encName)", "", "icon-mini danger", WebUIIcon(.trash, size: .medium).markup.html, " title=\"Delete profile\""))
-        return """
-        <div class="main-view">
-          <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
-            <div class="detail-card">
-              <div class="mem-head">
-                <div>
-                  <h1 class="detail-title" style="margin:0">\(esc(p.title.isEmpty ? p.name : p.title))</h1>
-                  <div class="detail-sub">\(esc(p.description.isEmpty ? "No description." : p.description))</div>
-                </div>
-                <div class="row-actions" data-component-id="profile-list" data-event="click">\(headIcons)</div>
-              </div>
-              \(card)
-              <h3 style="margin:16px 0 6px">Tool sets</h3>
-              <div class="detail-sub">Overrides configured on the profile: \(esc(toolsetsNote))</div>
-              <h3 style="margin:16px 0 6px">Context parameters</h3>
-              \(profileContextHTML(p))
-              <h3 style="margin:16px 0 6px">Agent powers</h3>
-              <div class="detail-sub">Lockdowns for this profile's skills and profile files (MEMORY / USER / SOUL).</div>
-              \(render(agentPowersSection()))
-            </div>
-          </div>
-        </div>
-        """
+    }
+
+    /// the create/edit profile form. one shape for both: `editingProfile`
+    /// decides the title, the submit verb, and whether the name is locked.
+    private func profileFormView() -> some WebUI.View {
+        let editing = editingProfile.flatMap { n in profiles.first { $0.name == n } }
+        let isEdit = editing != nil
+        let ectx = editing?.context
+        let effortSel = ectx?.reasoningEffort ?? ""
+        return mainScroll {
+            Form(method: nil, id: "profile-create-form", class: "detail-card profile-form") {
+                Heading(isEdit ? "Edit profile" : "New profile", level: .h1, class: "detail-title")
+                Div(class: "detail-sub") {
+                    Text(isEdit
+                         ? "Edit the profile identity and its context parameters."
+                         : "A named, isolated agent configuration.")
+                }
+                Div(class: "form-grid") {
+                    Div {
+                        Label("Name", for: "profile-name-input")
+                        if isEdit {
+                            Input(id: "profile-name-input", name: "profile-name-input",
+                                  placeholder: "researcher", type: nil, value: editing?.name ?? "")
+                                .attribute("data-component-id", "profile-name-input")
+                                .attribute("readonly", "")
+                        } else {
+                            Input(id: "profile-name-input", name: "profile-name-input",
+                                  placeholder: "researcher", type: nil, value: "")
+                                .attribute("data-component-id", "profile-name-input")
+                        }
+                    }
+                    Div {
+                        Label("Title", for: "profile-title-input")
+                        Input(id: "profile-title-input", name: "profile-title-input",
+                              placeholder: "Research Analyst", type: nil, value: editing?.title ?? "")
+                            .attribute("data-component-id", "profile-title-input")
+                    }
+                    Div {
+                        Label("Description", for: "profile-desc-input")
+                        Input(id: "profile-desc-input", name: "profile-desc-input",
+                              placeholder: "One-line mission", type: nil, value: editing?.description ?? "")
+                            .attribute("data-component-id", "profile-desc-input")
+                    }
+                }
+                Heading("Context parameters", level: .h3, class: "detail-h3")
+                Div(class: "detail-sub") {
+                    Text("Model context overrides for chats bound to this profile. Leave blank to inherit the chat's model config.")
+                }
+                Div(class: "form-grid") {
+                    Div {
+                        Label("Context window (tokens)", for: "profile-ctx-length")
+                        Input(id: "profile-ctx-length", name: "profile-ctx-length",
+                              placeholder: "e.g. 128000", type: .number,
+                              value: ectx?.contextLength.map(String.init) ?? "",
+                              attributes: [("min", "1024"), ("step", "1024")])
+                    }
+                    Div {
+                        Label("Max output (tokens)", for: "profile-ctx-maxtok")
+                        Input(id: "profile-ctx-maxtok", name: "profile-ctx-maxtok",
+                              placeholder: "e.g. 8192", type: .number,
+                              value: ectx?.maxOutputTokens.map(String.init) ?? "",
+                              attributes: [("min", "1")])
+                    }
+                    Div {
+                        Label("Reasoning effort", for: "profile-ctx-effort")
+                        Select(id: "profile-ctx-effort", name: "profile-ctx-effort",
+                               options: AppState.effortOptions, selected: effortSel)
+                            .attribute("data-component-id", "profile-ctx-effort")
+                    }
+                    Div {
+                        Label("Temperature", for: "profile-ctx-temp")
+                        Input(id: "profile-ctx-temp", name: "profile-ctx-temp",
+                              placeholder: "e.g. 0.7", type: .number,
+                              value: ectx?.temperature.map { String($0) } ?? "",
+                              attributes: [("min", "0"), ("max", "2"), ("step", "0.1")])
+                    }
+                    Div {
+                        Label("Top P", for: "profile-ctx-topp")
+                        Input(id: "profile-ctx-topp", name: "profile-ctx-topp",
+                              placeholder: "e.g. 0.9", type: .number,
+                              value: ectx?.topP.map { String($0) } ?? "",
+                              attributes: [("min", "0"), ("max", "1"), ("step", "0.05")])
+                    }
+                    Div {
+                        Label("Compress at (tokens)", for: "profile-ctx-budget")
+                        Input(id: "profile-ctx-budget", name: "profile-ctx-budget",
+                              placeholder: "e.g. 32000", type: .number,
+                              value: ectx?.compressionBudget.map(String.init) ?? "",
+                              attributes: [("min", "1024"), ("step", "1024")])
+                    }
+                }
+                Heading("Context skills", level: .h3, class: "detail-h3")
+                Div(class: "detail-sub") {
+                    Text("Skills pinned to this profile: their full content is loaded into every prompt for chats bound to this profile (as if the user had asked for them).")
+                }
+                profileContextSkillsHTML()
+                Div(class: "row-actions-main") {
+                    ArcButton(isEdit ? "Save changes" : "Create profile", class: "primary-btn", type: .submit)
+                    ArcButton("Cancel", id: "profile-cancel", component: "profile-cancel", class: "ghost-btn", type: .button)
+                }
+            }
+            .attribute("data-component-id", "profile-create-form")
+        }
     }
 
     func profileKV(_ p: Profile) -> String {
@@ -3061,86 +3124,96 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
 
     /// Per-profile context parameters summary (kv rows; "inherit" when unset)
     /// plus the pinned context skills, if any.
-    func profileContextHTML(_ p: Profile) -> String {
-        var rows = ""
-        if let ctx = p.context, !ctx.isEmpty {
-            rows += "<div class=\"akv\"><span class=\"akv-k\">Context window</span><span class=\"akv-v\">\(ctx.contextLength.map { "\($0) tokens" } ?? "inherit")</span></div>"
-            rows += "<div class=\"akv\"><span class=\"akv-k\">Max output</span><span class=\"akv-v\">\(ctx.maxOutputTokens.map { "\($0) tokens" } ?? "inherit")</span></div>"
-            rows += "<div class=\"akv\"><span class=\"akv-k\">Reasoning effort</span><span class=\"akv-v\">\(esc(ctx.reasoningEffort ?? "inherit"))</span></div>"
-            rows += "<div class=\"akv\"><span class=\"akv-k\">Temperature</span><span class=\"akv-v\">\(ctx.temperature.map { String($0) } ?? "inherit")</span></div>"
-            rows += "<div class=\"akv\"><span class=\"akv-k\">Top P</span><span class=\"akv-v\">\(ctx.topP.map { String($0) } ?? "inherit")</span></div>"
-            rows += "<div class=\"akv\"><span class=\"akv-k\">Compress at</span><span class=\"akv-v\">\(ctx.compressionBudget.map { "\($0) tokens" } ?? "inherit")</span></div>"
-        } else {
-            rows += "<div class=\"akv\"><span class=\"akv-k\">Context</span><span class=\"akv-v\">inherit (no overrides)</span></div>"
+    func profileContextHTML(_ p: Profile) -> some WebUI.View {
+        Group {
+            if let ctx = p.context, !ctx.isEmpty {
+                AkvRow(key: "Context window",
+                       value: ctx.contextLength.map { "\($0) tokens" } ?? "inherit")
+                AkvRow(key: "Max output",
+                       value: ctx.maxOutputTokens.map { "\($0) tokens" } ?? "inherit")
+                AkvRow(key: "Reasoning effort", value: ctx.reasoningEffort ?? "inherit")
+                AkvRow(key: "Temperature", value: ctx.temperature.map { String($0) } ?? "inherit")
+                AkvRow(key: "Top P", value: ctx.topP.map { String($0) } ?? "inherit")
+                AkvRow(key: "Compress at",
+                       value: ctx.compressionBudget.map { "\($0) tokens" } ?? "inherit")
+            } else {
+                AkvRow(key: "Context", value: "inherit (no overrides)")
+            }
+            if let pinned = p.contextSkills, !pinned.isEmpty {
+                AkvRow(key: "Context skills", value: pinned.joined(separator: ", "))
+            }
         }
-        if let pinned = p.contextSkills, !pinned.isEmpty {
-            let names = pinned.map { esc($0) }.joined(separator: ", ")
-            rows += "<div class=\"akv\"><span class=\"akv-k\">Context skills</span><span class=\"akv-v\">\(names)</span></div>"
-        }
-        return rows
     }
 
     /// The profile edit form's "Context skills" section: pinned-skill rows
     /// with remove buttons, an "Add skill" dropdown over the discovered
     /// skills, and a hidden CSV field the submit wire reads.
-    func profileContextSkillsHTML() -> String {
-        let draft = profileSkillsDraft
-        var rows = ""
-        for name in draft {
-            let known = skills.first(where: { $0.name == name })
-            let label = known?.name ?? name
-            let desc = known?.description ?? "missing"
-            rows += """
-            <div class="pn-draft-row">
-              <span class="pn-draft-name">\(esc(label))</span>
-              <span class="pn-draft-desc">\(esc(desc))</span>
-              \(btn("pcs-rm-\(enc(name))", "", "icon-mini danger", WebUIIcon(.x, size: .small).markup.html, " title=\"Remove skill\""))
-            </div>
-            """
+    func profileSkillsPickerPop(_ available: [Skill]) -> some WebUI.View {
+        Div(class: "dd-pop dd-pop-ws") {
+            Div(class: "dd-list") {
+                for s in available {
+                    ddRow(id: "pcs-pick-\(enc(s.name))") {
+                        Span(class: "dd-row-title") { Text(s.name) }
+                        Span(class: "dd-row-sub") { Text(s.description) }
+                    }
+                }
+                if available.isEmpty {
+                    Div(class: "dd-empty") { Text("All discovered skills are already pinned.") }
+                }
+            }
         }
-        let empty = draft.isEmpty ? "<div class=\"pn-draft-empty\">No pinned skills — every prompt uses the regular skill index.</div>" : ""
-        let open = profileSkillsPickerOpen ? "" : " hidden"
+        // the engine wires the picker by component id, not by class: dropping
+        // this attribute leaves a popover that renders and never responds.
+        .attribute("data-component-id", "pcs")
+        .attribute("data-event", "click")
+    }
+
+    func profileContextSkillsHTML() -> some WebUI.View {
+        let draft = profileSkillsDraft
         let chosen = Set(draft)
         let available = skills.filter { !chosen.contains($0.name) }
-        var optRows = ""
-        for s in available {
-            optRows += ddRow(id: "pcs-pick-\(enc(s.name))", body: """
-            <span class="dd-row-title">\(esc(s.name))</span>
-            <span class="dd-row-sub">\(esc(s.description))</span>
-            """)
+        return Group {
+            Div(class: "pn-draft") {
+                for name in draft {
+                    let known = skills.first(where: { $0.name == name })
+                    Div(class: "pn-draft-row") {
+                        Span(class: "pn-draft-name") { Text(known?.name ?? name) }
+                        Span(class: "pn-draft-desc") { Text(known?.description ?? "missing") }
+                        ArcButton(id: "pcs-rm-\(enc(name))", class: "icon-mini danger", type: .button) {
+                            WebUIIcon(.x, size: .small)
+                        }
+                        .attribute("title", "Remove skill")
+                    }
+                }
+                if draft.isEmpty {
+                    Div(class: "pn-draft-empty") {
+                        Text("No pinned skills — every prompt uses the regular skill index.")
+                    }
+                }
+            }
+            .attribute("data-component-id", "pcs-rm")
+            .attribute("data-event", "click")
+            Div(class: "dd pn-picker") {
+                ddTrigger(id: "pcs-toggle", icon: .plus, iconSize: .medium,
+                          label: "Add skill", title: "Pin a skill into this profile's context")
+                if profileSkillsPickerOpen {
+                    profileSkillsPickerPop(available)
+                } else {
+                    profileSkillsPickerPop(available).attribute("hidden", "")
+                }
+            }
         }
-        let noOpts = available.isEmpty
-            ? "<div class=\"dd-empty\">All discovered skills are already pinned.</div>"
-            : ""
-        let picker = """
-        <div class="dd pn-picker">
-          \(render(ddTrigger(id: "pcs-toggle", icon: .plus, iconSize: .medium, label: "Add skill", title: "Pin a skill into this profile's context")))
-          <div class="dd-pop dd-pop-ws\(open)" data-component-id="pcs" data-event="click">
-            <div class="dd-list">\(optRows)\(noOpts)</div>
-          </div>
-        </div>
-        """
-        return """
-        <div class="pn-draft" data-component-id="pcs-rm" data-event="click">
-          \(rows)\(empty)
-        </div>
-        \(picker)
-        """
     }
 
     /// <option> tags for the reasoning-effort picker ("" = inherit).
-    static func effortOptions(selected: String) -> String {
-        let levels = ["", "minimal", "low", "medium", "high", "max"]
-        return levels.map { lv in
-            let label = lv.isEmpty ? "Inherit" : lv
-            let sel = lv == selected ? " selected" : ""
-            return "<option value=\"\(lv)\"\(sel)>\(label)</option>"
-        }.joined()
-    }
+    /// the reasoning-effort options ("" = inherit). compile-time constant: the
+    /// ladder is a product decision, not a runtime lookup.
+    static let effortOptions: [SelectOption] = ["", "minimal", "low", "medium", "high", "max"]
+        .map { SelectOption(value: $0, label: $0.isEmpty ? "Inherit" : $0) }
 
     /// arc-parity profile card: PROFILE eyebrow + key/value rows with
     /// badges (ACTIVE / (default) / Daemon running / code-block model).
-    func profileCardHTML(_ p: Profile) -> String {
+    func profileCardHTML(_ p: Profile) -> some WebUI.View {
         let activeProfile = profileName(for: activeSessionID) ?? ""
         let isActive = !activeProfile.isEmpty && activeProfile == p.name
         let isDefault = p.name == "default"
@@ -3149,22 +3222,54 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         let providerName = p.provider ?? "custom"
         let keyCount = settings.modelConfigs.filter { !$0.apiKey.isEmpty }.count
         let keyLabel = keyCount > 0 ? "\(keyCount) \(keyCount == 1 ? "key" : "keys") configured" : "None"
-        let statusBadges = (isActive ? "<span class=\"pl-badge badge-active\">ACTIVE</span>" : "<span class=\"pl-badge badge-inactive\">IDLE</span>")
-            + (isDefault ? " <span class=\"pl-badge badge-default\">DEFAULT</span>" : "")
-        let daemon = daemonRunning
-            ? "<span class=\"pl-badge badge-green\"><span class=\"pl-dot\"></span>Daemon running</span>"
-            : "<span class=\"pl-badge badge-red\">Daemon stopped</span>"
-        return """
-        <div class="pl-card">
-          <div class="pl-eyebrow">PROFILE</div>
-          <div class="pl-row"><span class="pl-k">Status</span><span class="pl-v">\(statusBadges)</span></div>
-          <div class="pl-row"><span class="pl-k">Daemon</span><span class="pl-v">\(daemon)</span></div>
-          <div class="pl-row"><span class="pl-k">Model</span><span class="pl-v"><code class="pl-code">\(esc(modelName))</code></span></div>
-          <div class="pl-row"><span class="pl-k">Provider</span><span class="pl-v">\(esc(providerName))</span></div>
-          <div class="pl-row"><span class="pl-k">API key</span><span class="pl-v">\(esc(keyLabel))</span></div>
-          <div class="pl-row"><span class="pl-k">Skills</span><span class="pl-v">\(skillCount) of \(skills.count) active</span></div>
-        </div>
-        """
+        return Div(class: "pl-card") {
+            Div(class: "pl-eyebrow") { Text("PROFILE") }
+            Div(class: "pl-row") {
+                Span(class: "pl-k") { Text("Status") }
+                Span(class: "pl-v") {
+                    if isActive {
+                        Span(class: "pl-badge badge-active") { Text("ACTIVE") }
+                    } else {
+                        Span(class: "pl-badge badge-inactive") { Text("IDLE") }
+                    }
+                    if isDefault {
+                        Text(" ")
+                        Span(class: "pl-badge badge-default") { Text("DEFAULT") }
+                    }
+                }
+            }
+            Div(class: "pl-row") {
+                Span(class: "pl-k") { Text("Daemon") }
+                Span(class: "pl-v") {
+                    if daemonRunning {
+                        Span(class: "pl-badge badge-green") {
+                            Span(class: "pl-dot") { Text("") }
+                            Text("Daemon running")
+                        }
+                    } else {
+                        Span(class: "pl-badge badge-red") { Text("Daemon stopped") }
+                    }
+                }
+            }
+            Div(class: "pl-row") {
+                Span(class: "pl-k") { Text("Model") }
+                Span(class: "pl-v") {
+                    InlineCode(modelName).attribute("class", "pl-code")
+                }
+            }
+            Div(class: "pl-row") {
+                Span(class: "pl-k") { Text("Provider") }
+                Span(class: "pl-v") { Text(providerName) }
+            }
+            Div(class: "pl-row") {
+                Span(class: "pl-k") { Text("API key") }
+                Span(class: "pl-v") { Text(keyLabel) }
+            }
+            Div(class: "pl-row") {
+                Span(class: "pl-k") { Text("Skills") }
+                Span(class: "pl-v") { Text("\(skillCount) of \(skills.count) active") }
+            }
+        }
     }
 
     // MARK: Tools main
