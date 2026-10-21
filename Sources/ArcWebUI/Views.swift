@@ -291,7 +291,7 @@ extension AppState {
             Div(id: "cat-menu", class: "ctx-menu") {
                 if categoryMenuRename {
                     Form(method: nil, id: "cm-rename-form-\(cid)", class: "ctx-rename") {
-                        Input(id: "cat-rename-input", name: "cat-rename-input", type: nil, value: catName, attributes: [("autofocus", "")])
+                        Input(field: "cat-rename-input", type: nil, value: catName, attributes: [("autofocus", "")])
                         ArcButton("Save", id: nil, component: nil, class: "primary-btn", type: .submit)
                     }
                     .attribute("data-prevent-enter", "false")
@@ -548,11 +548,11 @@ extension AppState {
 
             if addingCategory {
                 Form(action: "", method: nil, id: "cat-add-form", class: "cat-add-form") {
-                    Input(id: "cat-name-input", name: "cat-name-input",
+                    Input(field: "cat-name-input",
                           placeholder: "Category name", type: .text)
                         .attribute("data-component-id", "cat-name-input")
                         .attribute("autofocus", "")
-                    Input(id: "cat-color-input", name: "cat-color-input", type: .hidden)
+                    Input(field: "cat-color-input", type: .hidden)
                         .attribute("class", "color-value")
                         .attribute("value", AppState.palette[0])
                     Div(class: "cat-swatches") {
@@ -2066,7 +2066,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                     .attribute("title", "Type your own answer")
                     Form(action: "", method: nil, id: "clarify-form", class: "clarify-free") {
-                        Input(id: "clarify-input", name: "clarify-input",
+                        Input(field: "clarify-input",
                               placeholder: "Type your response...", type: .text)
                             .attribute("data-component-id", "clarify-input")
                             .attribute("autocomplete", "off")
@@ -2328,7 +2328,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 .attribute("id", "attach-chips")
                 .attribute("data-component-id", "att-chips")
                 .attribute("data-event", "click")
-                TextArea(id: "composer-input", name: "composer-input",
+                TextArea(field: "composer-input",
                          placeholder: running ? "Send another message — queued after this reply." : "Message ARC…",
                          value: draft, rows: 1)
                     .attribute("data-component-id", "composer-input")
@@ -2816,22 +2816,22 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 Div(class: "form-grid") {
                     Div {
                         Label("Name", for: "sk-edit-name-input")
-                        Input(id: "sk-edit-name-input", name: "sk-edit-name-input", type: nil, value: nameV,
+                        Input(field: "sk-edit-name-input", type: nil, value: nameV,
                               attributes: [("data-component-id", "sk-edit-name-input"), ("data-event", "input")])
                     }
                     Div {
                         Label("Category", for: "sk-edit-cat-input")
-                        Input(id: "sk-edit-cat-input", name: "sk-edit-cat-input", placeholder: "e.g. devops", type: nil, value: catV,
+                        Input(field: "sk-edit-cat-input", placeholder: "e.g. devops", type: nil, value: catV,
                               attributes: [("data-component-id", "sk-edit-cat-input"), ("data-event", "input")])
                     }
                     Div {
                         Label("Description", for: "sk-edit-desc-input")
-                        Input(id: "sk-edit-desc-input", name: "sk-edit-desc-input", type: nil, value: descV,
+                        Input(field: "sk-edit-desc-input", type: nil, value: descV,
                               attributes: [("data-component-id", "sk-edit-desc-input"), ("data-event", "input")])
                     }
                     Div {
                         Label("Content (Markdown)", for: "sk-edit-content-input")
-                        TextArea(id: "sk-edit-content-input", name: "sk-edit-content-input", value: contentV, rows: 0)
+                        TextArea(field: "sk-edit-content-input", value: contentV, rows: 0)
                             .attribute("data-component-id", "sk-edit-content-input")
                             .attribute("data-event", "input")
                     }
@@ -2896,7 +2896,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             Span(class: "req-tag") { Text("Required") }
                         }
                         invalidField(
-                            Input(id: "skill-name-input", name: "skill-name-input", placeholder: "my-skill", type: nil,
+                            Input(field: "skill-name-input", placeholder: "my-skill", type: nil,
                                   attributes: [("data-component-id", "skill-name-input"),
                                                ("data-event", "input"),
                                                ("class", "text-input")]),
@@ -2905,7 +2905,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                     Div {
                         Label("Category", for: "skill-cat-input")
-                        Input(id: "skill-cat-input", name: "skill-cat-input", placeholder: "e.g. devops", type: nil,
+                        Input(field: "skill-cat-input", placeholder: "e.g. devops", type: nil,
                               attributes: [("data-component-id", "skill-cat-input"), ("data-event", "input")])
                     }
                     Div {
@@ -2914,7 +2914,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             Span(class: "req-tag") { Text("Required") }
                         }
                         invalidField(
-                            Input(id: "skill-desc-input", name: "skill-desc-input", placeholder: "Short description", type: nil,
+                            Input(field: "skill-desc-input", placeholder: "Short description", type: nil,
                                   attributes: [("data-component-id", "skill-desc-input"),
                                                ("data-event", "input"),
                                                ("class", "text-input")]),
@@ -2923,7 +2923,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                     Div {
                         Label("Content (Markdown)", for: "skill-content-input")
-                        TextArea(id: "skill-content-input", name: "skill-content-input",
+                        TextArea(field: "skill-content-input",
                                  placeholder: "How to use this skill…", rows: 0)
                             .attribute("data-component-id", "skill-content-input")
                             .attribute("data-event", "input")
@@ -3029,25 +3029,25 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Div {
                         Label("Name", for: "profile-name-input")
                         if isEdit {
-                            Input(id: "profile-name-input", name: "profile-name-input",
+                            Input(field: "profile-name-input",
                                   placeholder: "researcher", type: nil, value: editing?.name ?? "")
                                 .attribute("data-component-id", "profile-name-input")
                                 .attribute("readonly", "")
                         } else {
-                            Input(id: "profile-name-input", name: "profile-name-input",
+                            Input(field: "profile-name-input",
                                   placeholder: "researcher", type: nil, value: "")
                                 .attribute("data-component-id", "profile-name-input")
                         }
                     }
                     Div {
                         Label("Title", for: "profile-title-input")
-                        Input(id: "profile-title-input", name: "profile-title-input",
+                        Input(field: "profile-title-input",
                               placeholder: "Research Analyst", type: nil, value: editing?.title ?? "")
                             .attribute("data-component-id", "profile-title-input")
                     }
                     Div {
                         Label("Description", for: "profile-desc-input")
-                        Input(id: "profile-desc-input", name: "profile-desc-input",
+                        Input(field: "profile-desc-input",
                               placeholder: "One-line mission", type: nil, value: editing?.description ?? "")
                             .attribute("data-component-id", "profile-desc-input")
                     }
@@ -3059,41 +3059,41 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 Div(class: "form-grid") {
                     Div {
                         Label("Context window (tokens)", for: "profile-ctx-length")
-                        Input(id: "profile-ctx-length", name: "profile-ctx-length",
+                        Input(field: "profile-ctx-length",
                               placeholder: "e.g. 128000", type: .number,
                               value: ectx?.contextLength.map(String.init) ?? "",
                               attributes: [("min", "1024"), ("step", "1024")])
                     }
                     Div {
                         Label("Max output (tokens)", for: "profile-ctx-maxtok")
-                        Input(id: "profile-ctx-maxtok", name: "profile-ctx-maxtok",
+                        Input(field: "profile-ctx-maxtok",
                               placeholder: "e.g. 8192", type: .number,
                               value: ectx?.maxOutputTokens.map(String.init) ?? "",
                               attributes: [("min", "1")])
                     }
                     Div {
                         Label("Reasoning effort", for: "profile-ctx-effort")
-                        Select(id: "profile-ctx-effort", name: "profile-ctx-effort",
+                        Select(field: "profile-ctx-effort",
                                options: AppState.effortOptions, selected: effortSel)
                             .attribute("data-component-id", "profile-ctx-effort")
                     }
                     Div {
                         Label("Temperature", for: "profile-ctx-temp")
-                        Input(id: "profile-ctx-temp", name: "profile-ctx-temp",
+                        Input(field: "profile-ctx-temp",
                               placeholder: "e.g. 0.7", type: .number,
                               value: ectx?.temperature.map { String($0) } ?? "",
                               attributes: [("min", "0"), ("max", "2"), ("step", "0.1")])
                     }
                     Div {
                         Label("Top P", for: "profile-ctx-topp")
-                        Input(id: "profile-ctx-topp", name: "profile-ctx-topp",
+                        Input(field: "profile-ctx-topp",
                               placeholder: "e.g. 0.9", type: .number,
                               value: ectx?.topP.map { String($0) } ?? "",
                               attributes: [("min", "0"), ("max", "1"), ("step", "0.05")])
                     }
                     Div {
                         Label("Compress at (tokens)", for: "profile-ctx-budget")
-                        Input(id: "profile-ctx-budget", name: "profile-ctx-budget",
+                        Input(field: "profile-ctx-budget",
                               placeholder: "e.g. 32000", type: .number,
                               value: ectx?.compressionBudget.map(String.init) ?? "",
                               attributes: [("min", "1024"), ("step", "1024")])
@@ -3592,7 +3592,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             Div(class: "form-grid") {
                 Div {
                     Label("Name", for: "mcp-name-input")
-                    Input(id: "mcp-name-input", name: "mcp-name-input",
+                    Input(field: "mcp-name-input",
                           placeholder: "filesystem", type: .text,
                           value: formValues["mcp-name-input"] ?? "",
                           attributes: [("data-component-id", "mcp-name-input"),
@@ -3602,7 +3602,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
                 Div {
                     Label("Command", for: "mcp-command-input")
-                    Input(id: "mcp-command-input", name: "mcp-command-input",
+                    Input(field: "mcp-command-input",
                           placeholder: "npx", type: .text,
                           value: formValues["mcp-command-input"] ?? "",
                           attributes: [("data-component-id", "mcp-command-input")])
@@ -3611,7 +3611,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
                 Div {
                     Label("Arguments (one per line)", for: "mcp-args-input")
-                    TextArea(id: "mcp-args-input", name: "mcp-args-input",
+                    TextArea(field: "mcp-args-input",
                              placeholder: "-y\n@modelcontextprotocol/server-filesystem\n/Users/you/project",
                              value: formValues["mcp-args-input"] ?? "", rows: 4)
                         .attribute("data-component-id", "mcp-args-input")
@@ -3620,7 +3620,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
                 Div {
                     Label("Environment (KEY=VALUE, one per line)", for: "mcp-env-input")
-                    TextArea(id: "mcp-env-input", name: "mcp-env-input",
+                    TextArea(field: "mcp-env-input",
                              placeholder: "GITHUB_PERSONAL_ACCESS_TOKEN=ghp_…",
                              value: formValues["mcp-env-input"] ?? "", rows: 3)
                         .attribute("data-component-id", "mcp-env-input")
@@ -3715,7 +3715,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Div(class: "form-grid") {
                         Div {
                             Label("Folder path", for: "ws-path-input")
-                            Input(id: "ws-path-input", name: "ws-path-input", placeholder: "/Users/you/research or ~/research",
+                            Input(field: "ws-path-input", placeholder: "/Users/you/research or ~/research",
                                   type: .text, value: formValues["ws-path-input"] ?? "",
                                   attributes: [("data-component-id", "ws-path-input"),
                                                ("autofocus", "")])
@@ -3724,7 +3724,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         }
                         Div {
                             Label("Name (optional)", for: "ws-name-input")
-                            Input(id: "ws-name-input", name: "ws-name-input", placeholder: "derived from the folder name",
+                            Input(field: "ws-name-input", placeholder: "derived from the folder name",
                                   type: .text, value: formValues["ws-name-input"] ?? "",
                                   attributes: [("data-component-id", "ws-name-input")])
                             Small("A label for the switcher — any text except '/'.")
@@ -4121,25 +4121,25 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     private func storageConnForm(connections: [TesseraStorageConnection]) -> some WebUI.View {
         let se = storageEdit
         return Form(method: nil, id: "storage-conn-form", class: "form-grid form-sep") {
-            Input(id: "storage-edit-id", name: "storage-edit-id", type: .hidden,
+            Input(field: "storage-edit-id", type: .hidden,
                   value: se?.id ?? "",
                   attributes: [("data-component-id", "storage-edit-id")])
             Div(class: "form-grid-3") {
                 Div {
                     Label("Name", for: "sc-name")
-                    Input(id: "sc-name", name: "sc-name", placeholder: "Home relay",
+                    Input(field: "sc-name", placeholder: "Home relay",
                           type: nil, value: se?.name ?? "",
                           attributes: [("data-component-id", "sc-name"), ("autocomplete", "off")])
                 }
                 Div {
                     Label("Server IP / host", for: "sc-ip")
-                    Input(id: "sc-ip", name: "sc-ip", placeholder: "10.0.0.1",
+                    Input(field: "sc-ip", placeholder: "10.0.0.1",
                           type: nil, value: se?.serverIP ?? "",
                           attributes: [("data-component-id", "sc-ip"), ("autocomplete", "off")])
                 }
                 Div {
                     Label("Port", for: "sc-port")
-                    Input(id: "sc-port", name: "sc-port", placeholder: "51820",
+                    Input(field: "sc-port", placeholder: "51820",
                           type: .number, value: se.map { String($0.serverPort) } ?? "",
                           attributes: [("data-component-id", "sc-port"),
                                        ("autocomplete", "off"),
@@ -4148,7 +4148,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             }
             Div {
                 Label("Application id", for: "sc-app")
-                Input(id: "sc-app", name: "sc-app", placeholder: "1",
+                Input(field: "sc-app", placeholder: "1",
                       type: .number, value: se.map { String($0.application) } ?? "",
                       attributes: [("data-component-id", "sc-app"),
                                    ("min", "0"), ("max", "65535")])
@@ -4156,7 +4156,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             Div(class: "form-grid-2") {
                 Div {
                     Label("Server public key", for: "sc-pub")
-                    Input(id: "sc-pub", name: "sc-pub", placeholder: "base64 (32 bytes)",
+                    Input(field: "sc-pub", placeholder: "base64 (32 bytes)",
                           type: nil, value: se?.serverPublicKey ?? "",
                           attributes: [("data-component-id", "sc-pub"), ("autocomplete", "off")])
                 }
@@ -4164,7 +4164,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Label("Client private key", for: "sc-priv")
                     // a private key is never a password-manager login: this input
                     // opts out of autofill (pinned).
-                    Input(id: "sc-priv", name: "sc-priv", placeholder: "base64 (32 bytes)",
+                    Input(field: "sc-priv", placeholder: "base64 (32 bytes)",
                           type: .password, value: se?.myPrivateKey ?? "",
                           attributes: [("data-component-id", "sc-priv"),
                                        ("autocomplete", "new-password")])
@@ -4480,21 +4480,21 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             Div(class: "form-grid-3") {
                 Div {
                     Label("Name", for: "mc-name")
-                    Input(id: "mc-name", name: "mc-name", placeholder: "deepseek-v4-flash",
+                    Input(field: "mc-name", placeholder: "deepseek-v4-flash",
                           type: nil,
                           attributes: [("data-component-id", "mc-name"),
                                        ("autocomplete", "off"), ("spellcheck", "false")])
                 }
                 Div {
                     Label("Model", for: "mc-model")
-                    Input(id: "mc-model", name: "mc-model", placeholder: "deepseek-v4-flash",
+                    Input(field: "mc-model", placeholder: "deepseek-v4-flash",
                           type: nil,
                           attributes: [("data-component-id", "mc-model"),
                                        ("autocomplete", "off"), ("spellcheck", "false")])
                 }
                 Div {
                     Label("Provider", for: "mc-provider")
-                    Input(id: "mc-provider", name: "mc-provider", placeholder: "custom",
+                    Input(field: "mc-provider", placeholder: "custom",
                           type: nil,
                           attributes: [("data-component-id", "mc-provider"),
                                        ("autocomplete", "off"), ("spellcheck", "false")])
@@ -4502,7 +4502,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             }
             Div {
                 Label("Base URL", for: "mc-baseurl")
-                Input(id: "mc-baseurl", name: "mc-baseurl",
+                Input(field: "mc-baseurl",
                       placeholder: "https://api.openai.com/v1", type: nil,
                       attributes: [("data-component-id", "mc-baseurl"),
                                    ("autocomplete", "off"), ("spellcheck", "false")])
@@ -4510,7 +4510,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             Div(class: "form-grid-2") {
                 Div {
                     Label("API key (optional)", for: "mc-apikey")
-                    Input(id: "mc-apikey", name: "mc-apikey", placeholder: "sk-…",
+                    Input(field: "mc-apikey", placeholder: "sk-…",
                           type: .password,
                           attributes: [("data-component-id", "mc-apikey"),
                                        ("autocomplete", "new-password"),
@@ -4518,14 +4518,14 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
                 Div {
                     Label("Context length (optional)", for: "mc-ctx")
-                    Input(id: "mc-ctx", name: "mc-ctx", placeholder: "128000",
+                    Input(field: "mc-ctx", placeholder: "128000",
                           type: .text,
                           attributes: [("data-component-id", "mc-ctx"),
                                        ("autocomplete", "off")])
                 }
                 Div {
                     Label("Max output tokens (optional)", for: "mc-maxtok")
-                    Input(id: "mc-maxtok", name: "mc-maxtok", placeholder: "32768",
+                    Input(field: "mc-maxtok", placeholder: "32768",
                           type: .text,
                           attributes: [("data-component-id", "mc-maxtok"),
                                        ("autocomplete", "off")])

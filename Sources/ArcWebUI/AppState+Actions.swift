@@ -220,7 +220,7 @@ extension AppState {
     // MARK: Form values
 
     func storeFormValue(_ key: String, _ value: String) {
-        formValues[key] = value
+        formValues[FieldID(key)] = value
     }
 
     /// Per-chat composer draft (arc parity). Persisted with a 1.5 s
@@ -259,7 +259,7 @@ extension AppState {
     }
 
     func readFormValue(_ key: String) -> String {
-        formValues[key] ?? ""
+        formValues[FieldID(key)] ?? ""
     }
 
     // MARK: Chat composer
@@ -1572,7 +1572,7 @@ extension AppState {
     /// Drop the storage form's transient field values (after save/cancel).
     func clearStorageForm() {
         for k in ["sc-name", "sc-ip", "sc-port", "sc-app", "sc-pub", "sc-priv"] {
-            formValues[k] = nil
+            formValues[FieldID(k)] = nil
         }
     }
 

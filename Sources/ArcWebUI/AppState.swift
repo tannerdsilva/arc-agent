@@ -706,7 +706,7 @@ actor AppState {
 
     var selectedWorkspace: String?
 
-    var formValues: [String: String] = [:]
+    var formValues: FieldValues = [:]
     /// Debounced settings save for composer drafts (cancelled + rescheduled on
     /// each keystroke; writes at most once per ~1.5 s while typing).
     var draftSaveTask: Task<Void, Never>?
@@ -1103,7 +1103,7 @@ actor AppState {
         var createProfile = false
         var createWorkspace = false
         var editingProfile: String?
-        var formValues: [String: String] = [:]
+        var formValues: FieldValues = [:]
         var profileSkillsDraft: [String] = []
         var profileSkillsPickerOpen = false
         /// the detail panes look tools up in the registry, not in `toolsets` —
