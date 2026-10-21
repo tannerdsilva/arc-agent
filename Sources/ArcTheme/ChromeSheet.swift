@@ -955,6 +955,10 @@ public static let css: String = """
     .ts-row { padding: 6px 10px; }
     .lr-sub-grow { flex: 1; }
     .lr-sub-path { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* main panes (phase 6.4): the last inline styles on the detail surfaces. */
+    .detail-h3 { margin: 16px 0 6px; }
+    .ws-form { max-width: 560px; }
+    .form-hint { color: var(--muted); font-size: 0.75em; }
     /* card spacing + heading rhythm: were inline styles on 9 settings cards. */
     .card-stack { margin-top: 12px; }
     .card-lead { margin-bottom: 12px; }

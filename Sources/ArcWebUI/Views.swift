@@ -1113,9 +1113,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         case .profiles:
             return profilesMain()
         case .tools:
-            return toolsMain()
+            return render(toolsMain())
         case .workspaces:
-            return workspacesMain()
+            return render(workspacesMain())
         case .kanban:
             return kanbanMain()
         case .memory:
@@ -3090,41 +3090,55 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
 
     // MARK: Tools main
 
-    func toolsMain() -> String {
-        guard let name = selectedTool,
-              let tool = registry.lookup(name: name)
-        else {
-            return """
-            <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(WebUIIcon(.tool, size: .extraLarge).markup.html)</div><div>Select a tool to see its definition and parameters.</div></div>
-            </div>
-            """
+    func toolsMain() -> some WebUI.View {
+        Group {
+            if let name = selectedTool, let tool = registry.lookup(name: name) {
+                // round-3 UX-28: the panel filter must also govern the detail pane
+                // — otherwise it describes a tool the list no longer shows.
+                if !toolFilter.isEmpty && !name.localizedCaseInsensitiveContains(toolFilter) {
+                    blankMain("No tools match “\(toolFilter)”.")
+                } else {
+                    mainScroll {
+                        Div(class: "detail-card") {
+                            DetailTitle(tool.name, icon: toolIconName(tool.emoji))
+                            Div(class: "detail-sub") { Text(tool.toolset) }
+                            AkvRow(key: "Description", value: tool.description)
+                            AkvRow(key: "Toolset", value: tool.toolset)
+                            AkvRow(key: "Requires env",
+                                   value: tool.requiresEnv.isEmpty
+                                       ? "none"
+                                       : tool.requiresEnv.joined(separator: ", "))
+                            Heading("Parameters", level: .h3, class: "detail-h3")
+                            schemaHTML(tool.schema)
+                        }
+                    }
+                }
+            } else {
+                blankMain("Select a tool to see its definition and parameters.")
+            }
         }
-        // Round-3 UX-28: the panel filter must also govern the detail pane —
-        // otherwise it describes a tool the list no longer shows.
-        if !toolFilter.isEmpty && !name.localizedCaseInsensitiveContains(toolFilter) {
-            return """
-            <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(WebUIIcon(.tool, size: .extraLarge).markup.html)</div><div>No tools match “\(esc(toolFilter))”.</div></div>
-            </div>
-            """
+    }
+
+    /// the "nothing selected" pane every main uses. centres its card, so the
+    /// two callers cannot drift apart.
+    func blankMain(_ message: String) -> some WebUI.View {
+        Div(class: "main-view") {
+            Div(class: "blank") {
+                Div(class: "big") { WebUIIcon(.tool, size: .extraLarge) }
+                Div { Text(message) }
+            }
         }
-        let params = render(schemaHTML(tool.schema))
-        return """
-        <div class="main-view">
-          <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
-            <div class="detail-card">
-              <h1 class="detail-title">\(toolEmojiIcon(tool.emoji)) \(esc(tool.name))</h1>
-              <div class="detail-sub">\(esc(tool.toolset)) toolset</div>
-              <div class="akv"><span class="akv-k">Description</span><span class="akv-v">\(esc(tool.description))</span></div>
-              <div class="akv"><span class="akv-k">Toolset</span><span class="akv-v">\(esc(tool.toolset))</span></div>
-              <div class="akv"><span class="akv-k">Requires env</span><span class="akv-v">\(tool.requiresEnv.isEmpty ? "none" : esc(tool.requiresEnv.joined(separator: ", ")))</span></div>
-              <h3 style="margin:16px 0 6px">Parameters</h3>
-              \(params)
-            </div>
-          </div>
-        </div>
-        """
+        .attribute("style", "justify-content:center")
+    }
+
+    /// the scroll container every detail main wraps its card in.
+    func mainScroll(@ViewBuilder _ content: () -> [any WebUI.View]) -> some WebUI.View {
+        Div(class: "main-view") {
+            Div(id: "main-scroll", class: "main-scroll") {
+                content()
+            }
+            .attribute("data-scroll-key", "main-scroll")
+        }
     }
 
     /// Settings → Sidebar plugins: one card per registered plugin bundle,
@@ -3482,52 +3496,55 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
 
     // MARK: Workspaces main
 
-    func workspacesMain() -> String {
+    func workspacesMain() -> some WebUI.View {
         if createWorkspace {
-            let form = """
-            <form id="ws-create-form" data-component-id="ws-create-form" class="detail-card" style="max-width:560px">
-              <h1 class="detail-title">New workspace</h1>
-              <div class="detail-sub">A workspace points at any folder on this computer. The folder path is required and follows Unix path rules; the name is an optional label — leave it blank and it is derived from the folder. Sessions keep their own workspace per chat; you pick it in the chat composer.</div>
-              <div class="form-grid">
-                <div>
-                  <label for="ws-path-input">Folder path</label>
-                  <input id="ws-path-input" name="ws-path-input" data-component-id="ws-path-input" type="text" placeholder="/Users/you/research or ~/research" autofocus value="\(esc(formValues["ws-path-input"] ?? ""))">
-                  <small style="color:var(--muted);font-size:0.75em">Required. An absolute path; ~ means your home folder.</small>
-                </div>
-                <div>
-                  <label for="ws-name-input">Name (optional)</label>
-                  <input id="ws-name-input" name="ws-name-input" data-component-id="ws-name-input" type="text" placeholder="derived from the folder name" value="\(esc(formValues["ws-name-input"] ?? ""))">
-                  <small style="color:var(--muted);font-size:0.75em">A label for the switcher — any text except '/'.</small>
-                </div>
-              </div>
-              <div class="row-actions-main">
-                <button type="submit" class="primary-btn">Create</button>
-                \(btn("ws-cancel", "ws-cancel", "ghost-btn", "Cancel"))
-              </div>
-            </form>
-            """
-            return """
-            <div class="main-view">
-              <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">\(form)</div>
-            </div>
-            """
+            return mainScroll {
+                Form(method: nil, id: "ws-create-form", class: "detail-card ws-form") {
+                    Heading("New workspace", level: .h1, class: "detail-title")
+                    Div(class: "detail-sub") {
+                        Text("A workspace points at any folder on this computer. The folder path is required and follows Unix path rules; the name is an optional label — leave it blank and it is derived from the folder. Sessions keep their own workspace per chat; you pick it in the chat composer.")
+                    }
+                    Div(class: "form-grid") {
+                        Div {
+                            Label("Folder path", for: "ws-path-input")
+                            Input(id: "ws-path-input", name: "ws-path-input", placeholder: "/Users/you/research or ~/research",
+                                  type: .text, value: formValues["ws-path-input"] ?? "",
+                                  attributes: [("data-component-id", "ws-path-input"),
+                                               ("autofocus", "")])
+                            Small("Required. An absolute path; ~ means your home folder.")
+                                .attribute("class", "form-hint")
+                        }
+                        Div {
+                            Label("Name (optional)", for: "ws-name-input")
+                            Input(id: "ws-name-input", name: "ws-name-input", placeholder: "derived from the folder name",
+                                  type: .text, value: formValues["ws-name-input"] ?? "",
+                                  attributes: [("data-component-id", "ws-name-input")])
+                            Small("A label for the switcher — any text except '/'.")
+                                .attribute("class", "form-hint")
+                        }
+                    }
+                    Div(class: "row-actions-main") {
+                        ArcButton("Create", class: "primary-btn", type: .submit)
+                        ArcButton("Cancel", id: "ws-cancel", component: "ws-cancel", class: "ghost-btn")
+                    }
+                }
+                .attribute("data-component-id", "ws-create-form")
+            }
         }
         let ws = settings.activeWorkspace
         let path = workspacePath(for: nil)
-        return """
-        <div class="main-view">
-          <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
-            <div class="detail-card">
-              <h1 class="detail-title">\(WebUIIcon(.grid, size: .large).markup.html) Workspaces</h1>
-              <div class="detail-sub">Workspaces are folders on this computer. Each chat keeps its own workspace, chosen in the chat composer.</div>
-              <div class="akv"><span class="akv-k">Default</span><span class="akv-v">\(esc(ws))</span></div>
-              <div class="akv"><span class="akv-k">Folder</span><span class="akv-v">\(esc(path))</span></div>
-              <div class="akv"><span class="akv-k">Sessions</span><span class="akv-v">\(sessions.count)</span></div>
-              <div class="akv"><span class="akv-k">Note</span><span class="akv-v">All chats share one session list; switching a chat's workspace changes its working folder, not the conversation list.</span></div>
-            </div>
-          </div>
-        </div>
-        """
+        return mainScroll {
+            Div(class: "detail-card") {
+                DetailTitle("Workspaces", icon: .grid)
+                Div(class: "detail-sub") {
+                    Text("Workspaces are folders on this computer. Each chat keeps its own workspace, chosen in the chat composer.")
+                }
+                AkvRow(key: "Default", value: ws)
+                AkvRow(key: "Folder", value: path)
+                AkvRow(key: "Sessions", value: "\(sessions.count)")
+                AkvRow(key: "Note", value: "All chats share one session list; switching a chat's workspace changes its working folder, not the conversation list.")
+            }
+        }
     }
 
     // MARK: Settings main

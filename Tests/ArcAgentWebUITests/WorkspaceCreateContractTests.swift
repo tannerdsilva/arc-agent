@@ -1,5 +1,7 @@
 import Foundation
 import Testing
+@testable import ArcWebUI
+import ArcAgentCore
 
 extension ArcWebUITestRoot {
     /// the workspace create surface, pinned against the sources (the house style
@@ -32,10 +34,14 @@ extension ArcWebUITestRoot {
         }
 
         @Test("the create form keeps the submit payload field names")
-        func formFieldContract() {
-            let views = Self.source("Views.swift")
-            #expect(views.contains("name=\"ws-path-input\""))
-            #expect(views.contains("name=\"ws-name-input\""))
+        func formFieldContract() async {
+            // the `name`s are the wire payload keys the engine's form extractor
+            // builds, so this is asserted on the rendered form, not the source.
+            var fixture = AppState.RenderFixture()
+            fixture.createWorkspace = true
+            let page = await AppState(renderFixture: fixture).workspacesMain().markup.html
+            #expect(page.contains("name=\"ws-path-input\""))
+            #expect(page.contains("name=\"ws-name-input\""))
         }
 
         @Test("the handler validates through WorkspaceRules")

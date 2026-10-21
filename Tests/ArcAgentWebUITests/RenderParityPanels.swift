@@ -47,7 +47,7 @@ struct RenderParityPanels {
 
 	@Test("skills panel, empty library, matches golden")
 	func skillsPanelEmptyGolden() async {
-		let html = await app().skillsPanel()
+		let html = await app().skillsPanel().markup.html
 		Parity.capture(html, as: "skills-panel-empty")
 		Parity.expect(html, matches: "skills-panel-empty")
 	}
@@ -62,7 +62,7 @@ struct RenderParityPanels {
 			]
 			$0.settings.disabledSkills = ["rollback"]
 			$0.selectedSkill = "migrate"
-		}.skillsPanel()
+		}.skillsPanel().markup.html
 		Parity.capture(html, as: "skills-panel-grouped")
 		Parity.expect(html, matches: "skills-panel-grouped")
 	}
@@ -72,7 +72,7 @@ struct RenderParityPanels {
 		let html = await app {
 			$0.skills = [self.skill("deploy", "Ship the build")]
 			$0.skillFilter = "zzz"
-		}.skillsPanel()
+		}.skillsPanel().markup.html
 		Parity.capture(html, as: "skills-panel-no-match")
 		Parity.expect(html, matches: "skills-panel-no-match")
 	}
@@ -85,7 +85,7 @@ struct RenderParityPanels {
 				self.profile("deep", "Deep", "claude-sonnet-4"),
 			]
 			$0.selectedProfile = "deep"
-		}.profilesPanel()
+		}.profilesPanel().markup.html
 		Parity.capture(html, as: "profiles-panel")
 		Parity.expect(html, matches: "profiles-panel")
 	}
@@ -104,7 +104,7 @@ struct RenderParityPanels {
 			]
 			$0.settings.disabledToolsets = ["terminal"]
 			$0.selectedTool = "read_file"
-		}.toolsPanel()
+		}.toolsPanel().markup.html
 		Parity.capture(html, as: "tools-panel")
 		Parity.expect(html, matches: "tools-panel")
 	}
@@ -114,7 +114,7 @@ struct RenderParityPanels {
 		let html = await app {
 			$0.toolsets = [("file", [StubTool(name: "read_file", toolset: "file")])]
 			$0.toolFilter = "zzz"
-		}.toolsPanel()
+		}.toolsPanel().markup.html
 		Parity.capture(html, as: "tools-panel-filtered-empty")
 		Parity.expect(html, matches: "tools-panel-filtered-empty")
 	}
@@ -127,7 +127,7 @@ struct RenderParityPanels {
 				WorkspaceEntry(name: "research", path: "/Users/you/research"),
 			]
 			$0.settings.activeWorkspace = "research"
-		}.workspacesPanel()
+		}.workspacesPanel().markup.html
 		Parity.capture(html, as: "workspaces-panel")
 		Parity.expect(html, matches: "workspaces-panel")
 	}
@@ -227,7 +227,7 @@ struct RenderParityPanels {
 		let html = await app {
 			$0.registryTools = [StubTool(name: "read_file", toolset: "file", emoji: "📄")]
 			$0.selectedTool = "read_file"
-		}.toolsMain()
+		}.toolsMain().markup.html
 		Parity.capture(html, as: "tools-main-detail")
 		Parity.expect(html, matches: "tools-main-detail")
 	}
@@ -236,7 +236,7 @@ struct RenderParityPanels {
 	func toolsMainBlankGolden() async {
 		let html = await app {
 			$0.registryTools = [StubTool(name: "read_file", toolset: "file")]
-		}.toolsMain()
+		}.toolsMain().markup.html
 		Parity.capture(html, as: "tools-main-blank")
 		Parity.expect(html, matches: "tools-main-blank")
 	}
@@ -251,7 +251,7 @@ struct RenderParityPanels {
 				WorkspaceEntry(name: "research", path: "/Users/you/research"),
 			]
 			$0.settings.activeWorkspace = "research"
-		}.workspacesMain()
+		}.workspacesMain().markup.html
 		Parity.capture(html, as: "workspaces-main")
 		Parity.expect(html, matches: "workspaces-main")
 	}
@@ -261,14 +261,14 @@ struct RenderParityPanels {
 		let html = await app {
 			$0.createWorkspace = true
 			$0.formValues = ["ws-path-input": "relative/not/absolute"]
-		}.workspacesMain()
+		}.workspacesMain().markup.html
 		Parity.capture(html, as: "workspaces-main-invalid-path")
 		Parity.expect(html, matches: "workspaces-main-invalid-path")
 	}
 
 	@Test("workspaces main with no sessions matches golden")
 	func workspacesEmptyGolden() async {
-		let html = await app().workspacesMain()
+		let html = await app().workspacesMain().markup.html
 		Parity.capture(html, as: "workspaces-empty")
 		Parity.expect(html, matches: "workspaces-empty")
 	}
