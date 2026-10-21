@@ -515,11 +515,19 @@ extension ArcWebUITestRoot {
         /// the wave-3 tool filter shipped without a test, and its same commit
         /// left the `(needs env)` badge with no `>` — the span parsed empty.
         @Test("the tools panel keeps a working filter and a well-formed env badge")
-        func toolsFilterAndBadge() {
-            let views = Self.views
-            #expect(views.contains("id=\"tool-search-input\""),
+        func toolsFilterAndBadge() async {
+            var fixture = AppState.RenderFixture()
+            fixture.toolsets = [("terminal", [
+                StubTool(name: "run_command", toolset: "terminal", available: false),
+            ])]
+            let page = await AppState(renderFixture: fixture).toolsPanel().markup.html
+            #expect(page.contains("id=\"tool-search-input\""),
                     "the tools list must stay searchable")
-            #expect(views.contains("<span class='lr-sub'>(needs env)</span>"),
+            // the badge must be a real span, not an empty one: a missing `>`
+            // once left `(needs env)` with no element around it.
+            #expect(page.contains("(needs env)"),
+                    "an unavailable tool keeps its badge")
+            #expect(!page.contains("<span class=\"lr-sub\"></span>"),
                     "the env badge must be well-formed or it renders as an empty span")
         }
 
@@ -828,10 +836,17 @@ extension ArcWebUITestRoot {
         }
 
         @Test("workspace deletes confirm, and `main` offers no delete at all")
-        func workspaceGuard() {
+        func workspaceGuard() async {
             #expect(Self.actions.contains("kind: \"workspace\", id: name"),
                     "the workspace ✕ removed the entry immediately (F26/F27)")
-            #expect(Self.views.contains("entry.name == \"main\" ? \"\" : btn(\"ws-del-"),
+            var fixture = AppState.RenderFixture()
+            fixture.settings.workspaces = [
+                WorkspaceEntry(name: "main", path: WorkspaceEntry.defaultPath(for: "main")),
+                WorkspaceEntry(name: "research", path: "/Users/you/research"),
+            ]
+            let page = await AppState(renderFixture: fixture).workspacesPanel().markup.html
+            #expect(page.contains("id=\"ws-del-"), "a normal workspace stays deletable")
+            #expect(!page.contains("id=\"ws-del-\(enc("main"))\""),
                     "`main` could not be deleted, but the row still offered a dialog that always refused")
         }
 
@@ -1590,7 +1605,10 @@ extension ArcWebUITestRoot {
             let views = Self.views
             #expect(views.contains("aria-pressed=\"\\(logFilter == lvl)\""),
                     "log filter chips must expose aria-pressed (round-3 UX-33)")
-            #expect(views.contains("aria-label=\"Enable \\(toolset) tools\""),
+            var tsFixture = AppState.RenderFixture()
+            tsFixture.toolsets = [("file", [StubTool(name: "read_file", toolset: "file")])]
+            let toolsPanelPage = await AppState(renderFixture: tsFixture).toolsPanel().markup.html
+            #expect(toolsPanelPage.contains("aria-label=\"Enable file tools\""),
                     "each toolset switch needs an accessible name (round-3 UX-31)")
             let header = await RenderedMarkup.chatHeader()
             #expect(header.contains("aria-label=\"Regenerate last reply\""),

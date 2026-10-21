@@ -366,11 +366,11 @@ extension AppState {
             case .skills:
                 skillsPanel()
             case .profiles:
-                legacy(profilesPanel())      // TODO(phase 6)
+                profilesPanel()
             case .tools:
-                legacy(toolsPanel())         // TODO(phase 6)
+                toolsPanel()
             case .workspaces:
-                legacy(workspacesPanel())    // TODO(phase 6)
+                workspacesPanel()
             case .kanban:
                 legacy(kanbanPanel())        // TODO(phase 7)
             case .memory:
@@ -903,137 +903,161 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     }
     // MARK: Profiles panel
 
-    func profilesPanel() -> String {
-        let newBtn = btn("profile-new", "profile-new", "plus-btn", WebUIIcon(.plus, size: .medium).markup.html, " title=\"Add profile\"")
-        let head = """
-        <div class="panel-head">
-          <span class="panel-title">Profiles</span>
-          <div class="panel-actions">\(newBtn)</div>
-        </div>
-        """
-        var rows: [String] = []
-        for p in profiles {
-            let encName = enc(p.name)
-            let active = p.name == selectedProfile ? " active" : ""
-            let sub = p.model ?? ""
-            rows.append("""
-            <div class="list-row\(active)" data-component-id="profile-list">
-              <button type="button" id="pr-open-\(encName)" class="sess-open" style="padding:0">
-                <span class="lr-name">\(esc(p.title.isEmpty ? p.name : p.title))</span>
-                <span class="lr-sub">\(esc(sub))</span>
-              </button>
-            </div>
-            """)
+    func profilesPanel() -> some WebUI.View {
+        Group {
+            Div(class: "panel-head") {
+                Span(class: "panel-title") { Text("Profiles") }
+                Div(class: "panel-actions") {
+                    ArcButton(id: "profile-new", component: "profile-new", class: "plus-btn", type: .button) {
+                        WebUIIcon(.plus, size: .medium)
+                    }
+                    .attribute("title", "Add profile")
+                }
+            }
+            Div(class: "panel-body") {
+                if profiles.isEmpty {
+                    Div(class: "empty-hint") { Text("No profiles — press + to create one.") }
+                } else {
+                    for p in profiles {
+                        let encName = enc(p.name)
+                        Div(class: "list-row\(p.name == selectedProfile ? " active" : "")") {
+                            ArcButton(id: "pr-open-\(encName)", class: "sess-open sess-open-flush", type: .button) {
+                                Span(class: "lr-name") { Text(p.title.isEmpty ? p.name : p.title) }
+                                Span(class: "lr-sub") { Text(p.model ?? "") }
+                            }
+                        }
+                        .attribute("data-component-id", "profile-list")
+                    }
+                }
+            }
         }
-        if rows.isEmpty {
-            rows.append("<div class=\"empty-hint\">No profiles — press + to create one.</div>")
-        }
-        return """
-        \(head)
-        <div class="panel-body">\(rows.joined())</div>
-        """
     }
 
     // MARK: Tools panel
 
-    func toolsPanel() -> String {
-        let head = """
-        <div class="panel-head">
-          <span class="panel-title">Tools</span>
-        </div>
-        <div class="filter-bar">
-          <input id="tool-search-input" data-component-id="tool-search-input" type="search" placeholder="Filter tools…" aria-label="Filter tools" value="\(esc(toolFilter))">
-        </div>
-        """
-        var rows: [String] = []
-        // Round-3 UX-28: a filter with no matches used to render every toolset
+    func toolsPanel() -> some WebUI.View {
+        // round-3 UX-28: a filter with no matches used to render every toolset
         // header reading "0 tools" and keep a detail pane for a tool that was
-        // not in the list. Say it once, and hide empty groups.
+        // not in the list. say it once, and hide empty groups.
         let matchCount = toolsets.reduce(0) { acc, entry in
             acc + entry.tools.filter { toolFilter.isEmpty || $0.name.localizedCaseInsensitiveContains(toolFilter) }.count
         }
-        if !toolFilter.isEmpty && matchCount == 0 {
-            return head + """
-            <div class="panel-body"><div class="empty-hint">No tools match “\(esc(toolFilter))”.</div></div>
-            """
-        }
-        // The `mcp` group is ONE bridge tool however many servers are
+        let noMatch = !toolFilter.isEmpty && matchCount == 0
+        // the `mcp` group is ONE bridge tool however many servers are
         // configured, so a bare "1 tool" misleads — the count is meaningless
         // without knowing whether anything is behind it.
         let mcpServers = arcConfig.mcpServers.count
-        for (toolset, tools) in toolsets {
-            let encTS = enc(toolset)
-            let disabled = settings.disabledToolsets.contains(toolset)
-            // UX-15: filter tools by name so the catalog is searchable.
-            let filtered = toolFilter.isEmpty ? tools : tools.filter { $0.name.localizedCaseInsensitiveContains(toolFilter) }
-            let group = "<div class=\"tool-group\">\(esc(toolset))</div>"
-            let summary = toolset == "mcp"
-                ? "\(filtered.count) tool · \(mcpServers) server\(mcpServers == 1 ? "" : "s") configured"
-                : "\(filtered.count) tool\(filtered.count == 1 ? "" : "s")"
-            let toggle = """
-            <div class="list-row" style="padding:6px 10px">
-              <span class="lr-sub" style="flex:1">\(summary)</span>
-              <label class="switch" title="\(disabled ? "Toolset disabled" : "Toolset enabled")">
-                <input type="checkbox" id="ts-\(encTS)" value="ts-\(encTS)" aria-label="Enable \(toolset) tools" data-component-id="tools-toggle" data-event="change" data-no-restore \(disabled ? "" : "checked")>
-                <span class="track"></span><span class="knob"></span>
-              </label>
-            </div>
-            """
-            var toolRows: [String] = []
-            if toolset == "mcp", mcpServers == 0 {
-                toolRows.append("<div class=\"empty-hint\">No MCP servers configured — add one in Settings → MCP servers. Until then this bridge has nothing to call.</div>")
+
+        return Group {
+            Div(class: "panel-head") {
+                Span(class: "panel-title") { Text("Tools") }
             }
-            for t in filtered {
-                let encT = enc(t.name)
-                let active = t.name == selectedTool ? " active" : ""
-                let avail = (t.checkFn?() ?? true)
-                let badge = avail ? "" : " <span class='lr-sub'>(needs env)</span>"
-                toolRows.append("""
-                <div class="list-row\(active)" data-component-id="tool-list"\(active.isEmpty ? "" : " aria-current=\"true\"")>
-                  <button type="button" id="tl-open-\(encT)" class="sess-open" style="padding:0">
-                    <span class="lr-name">\(toolEmojiIcon(t.emoji))\(esc(t.name))\(badge)</span>
-                  </button>
-                </div>
-                """)
+            Div(class: "filter-bar") {
+                Input(id: "tool-search-input", placeholder: "Filter tools…",
+                      type: .search, value: toolFilter,
+                      attributes: [("data-component-id", "tool-search-input"),
+                                   ("aria-label", "Filter tools")])
             }
-            if toolFilter.isEmpty || !filtered.isEmpty {
-                rows.append(group + toggle + toolRows.joined())
+            Div(class: "panel-body") {
+                if noMatch {
+                    Div(class: "empty-hint") { Text("No tools match “\(toolFilter)”.") }
+                } else {
+                    for entry in toolsets {
+                        let toolset = entry.name
+                        let tools = entry.tools
+                        let encTS = enc(toolset)
+                        let disabled = settings.disabledToolsets.contains(toolset)
+                        // UX-15: filter tools by name so the catalog is searchable.
+                        let filtered = toolFilter.isEmpty
+                            ? tools
+                            : tools.filter { $0.name.localizedCaseInsensitiveContains(toolFilter) }
+                        if toolFilter.isEmpty || !filtered.isEmpty {
+                            Div(class: "tool-group") { Text(toolset) }
+                            Div(class: "list-row ts-row") {
+                                Span(class: "lr-sub lr-sub-grow") {
+                                    if toolset == "mcp" {
+                                        Text("\(filtered.count) tool · \(mcpServers) server\(mcpServers == 1 ? "" : "s") configured")
+                                    } else {
+                                        Text("\(filtered.count) tool\(filtered.count == 1 ? "" : "s")")
+                                    }
+                                }
+                                ArcSwitch(id: "ts-\(encTS)", on: !disabled, component: "tools-toggle",
+                                          event: "change", value: "ts-\(encTS)",
+                                          ariaLabel: "Enable \(toolset) tools")
+                                    .attribute("title", disabled ? "Toolset disabled" : "Toolset enabled")
+                            }
+                            if toolset == "mcp" && mcpServers == 0 {
+                                Div(class: "empty-hint") {
+                                    Text("No MCP servers configured — add one in Settings → MCP servers. Until then this bridge has nothing to call.")
+                                }
+                            }
+                            for t in filtered {
+                                let encT = enc(t.name)
+                                let active = t.name == selectedTool
+                                let avail = (t.checkFn?() ?? true)
+                                Div(class: "list-row\(active ? " active" : "")") {
+                                    ArcButton(id: "tl-open-\(encT)", class: "sess-open sess-open-flush", type: .button) {
+                                        Span(class: "lr-name") {
+                                            toolIcon(t.emoji)
+                                            Text(t.name)
+                                            if !avail {
+                                                Span(class: "lr-sub") { Text(" (needs env)") }
+                                            }
+                                        }
+                                    }
+                                }
+                                .attribute("data-component-id", "tool-list")
+                                .attribute("aria-current", active ? "true" : "")
+                            }
+                        }
+                    }
+                }
             }
         }
-        return """
-        \(head)
-        <div class="panel-body">\(rows.joined())</div>
-        """
     }
 
     // MARK: Workspaces panel
 
-    func workspacesPanel() -> String {
-        let newBtn = btn("ws-new", "ws-new", "plus-btn", WebUIIcon(.plus, size: .medium).markup.html, " title=\"New workspace\"")
-        let head = """
-        <div class="panel-head">
-          <span class="panel-title">Workspaces</span>
-          <div class="panel-actions">\(newBtn)</div>
-        </div>
-        """
-        var rows: [String] = []
-        for entry in settings.workspaces {
-            let encWS = enc(entry.name)
-            let active = entry.name == settings.activeWorkspace ? " active" : ""
-            rows.append("""
-            <div class="list-row\(active)" data-component-id="workspace-list">
-              <button type="button" id="ws-open-\(encWS)" class="sess-open" style="padding:0">
-                <span class="lr-name">\(esc(entry.name))</span>
-                <span class="lr-sub" title="\(esc(entry.path))" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">\(esc(entry.path == WorkspaceEntry.defaultPath(for: "main") ? "home folder (default)" : trunc(entry.path, 58)))</span>
-              </button>
-              <div class="row-actions">\(entry.name == "main" ? "" : btn("ws-del-\(encWS)", "", "icon-mini danger", WebUIIcon(.x, size: .small).markup.html, " title=\"Delete\""))</div>
-            </div>
-            """)
+    func workspacesPanel() -> some WebUI.View {
+        Group {
+            Div(class: "panel-head") {
+                Span(class: "panel-title") { Text("Workspaces") }
+                Div(class: "panel-actions") {
+                    ArcButton(id: "ws-new", component: "ws-new", class: "plus-btn", type: .button) {
+                        WebUIIcon(.plus, size: .medium)
+                    }
+                    .attribute("title", "New workspace")
+                }
+            }
+            Div(class: "panel-body") {
+                for entry in settings.workspaces {
+                    let encWS = enc(entry.name)
+                    let isMain = entry.name == "main"
+                    Div(class: "list-row\(entry.name == settings.activeWorkspace ? " active" : "")") {
+                        ArcButton(id: "ws-open-\(encWS)", class: "sess-open sess-open-flush", type: .button) {
+                            Span(class: "lr-name") { Text(entry.name) }
+                            Span(class: "lr-sub lr-sub-path") {
+                                Text(entry.path == WorkspaceEntry.defaultPath(for: "main")
+                                     ? "home folder (default)"
+                                     : trunc(entry.path, 58))
+                            }
+                            .attribute("title", entry.path)
+                        }
+                        Div(class: "row-actions") {
+                            // `main` has no delete control: the default workspace
+                            // cannot be removed, and the absence is the contract.
+                            if !isMain {
+                                ArcButton(id: "ws-del-\(encWS)", class: "icon-mini danger", type: .button) {
+                                    WebUIIcon(.x, size: .small)
+                                }
+                                .attribute("title", "Delete")
+                            }
+                        }
+                    }
+                    .attribute("data-component-id", "workspace-list")
+                }
+            }
         }
-        return """
-        \(head)
-        <div class="panel-body">\(rows.joined())</div>
-        """
     }
 
     // MARK: Settings panel
@@ -5126,29 +5150,46 @@ extension AppState {
 /// Map a harness tool emoji to its colorless line-drawing equivalent.
 /// Unknown or nil emoji render nothing (or a generic file glyph for a
 /// non-nil unknown), so no colored emoji ever reaches the UI.
-func toolEmojiIcon(_ emoji: String?) -> String {
-    guard let e = emoji, !e.isEmpty else { return "" }
+/// the icon a tool's emoji maps to. one table: the view calls it, the legacy
+/// string helper calls it, so a new emoji cannot light up in one surface only.
+func toolIconName(_ emoji: String?) -> IconName? {
+    guard let e = emoji, !e.isEmpty else { return nil }
     switch e {
-    case "📋": return WebUIIcon(.fileText, size: .small).markup.html
-    case "🔍": return WebUIIcon(.search, size: .small).markup.html
-    case "💬": return WebUIIcon(.messageSquare, size: .small).markup.html
-    case "➕": return WebUIIcon(.plus, size: .small).markup.html
-    case "🗑️", "🗑": return WebUIIcon(.trash, size: .small).markup.html
-    case "👥": return WebUIIcon(.user, size: .small).markup.html
-    case "📄": return WebUIIcon(.file, size: .small).markup.html
-    case "🌐": return WebUIIcon(.globe, size: .small).markup.html
-    case "🔄": return WebUIIcon(.refreshCw, size: .small).markup.html
-    case "💻": return WebUIIcon(.terminal, size: .small).markup.html
-    case "🧠": return WebUIIcon(.database, size: .small).markup.html
-    case "✏️", "✏": return WebUIIcon(.edit, size: .small).markup.html
-    case "🎯": return WebUIIcon(.target, size: .small).markup.html
-    case "⏹️", "⏹": return WebUIIcon(.stopCircle, size: .small).markup.html
-    case "📚", "📖": return WebUIIcon(.book, size: .small).markup.html
-    case "✅": return WebUIIcon(.check, size: .small).markup.html
-    case "🚫": return WebUIIcon(.x, size: .small).markup.html
-    default: return WebUIIcon(.file, size: .small).markup.html
+    case "📋": return .fileText
+    case "🔍": return .search
+    case "💬": return .messageSquare
+    case "➕": return .plus
+    case "🗑️", "🗑": return .trash
+    case "👥": return .user
+    case "📄": return .file
+    case "🌐": return .globe
+    case "🔄": return .refreshCw
+    case "💻": return .terminal
+    case "🧠": return .database
+    case "✏️", "✏": return .edit
+    case "🎯": return .target
+    case "⏹️", "⏹": return .stopCircle
+    case "📚", "📖": return .book
+    case "✅": return .check
+    case "🚫": return .x
+    default: return .file
     }
 }
+
+/// the same table as a view, so a typed row does not carry icon markup.
+func toolIcon(_ emoji: String?) -> some WebUI.View {
+    Group {
+        if let name = toolIconName(emoji) {
+            WebUIIcon(name, size: .small)
+        }
+    }
+}
+
+func toolEmojiIcon(_ emoji: String?) -> String {
+    guard let name = toolIconName(emoji) else { return "" }
+    return WebUIIcon(name, size: .small).markup.html
+}
+
 
 enum WebUIVersion {
     static let version = "1.0.0"

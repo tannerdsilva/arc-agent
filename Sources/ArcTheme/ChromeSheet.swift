@@ -949,6 +949,12 @@ public static let css: String = """
     .storage-picker-row { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
     .storage-row-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
     .form-sep { margin-top: 14px; border-top: 1px dashed var(--border); padding-top: 14px; }
+    /* panel rows: the four inline styles the skills/profiles/tools/workspaces
+       panels carried on every row (phase 6). */
+    .sess-open-flush { padding: 0; }
+    .ts-row { padding: 6px 10px; }
+    .lr-sub-grow { flex: 1; }
+    .lr-sub-path { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     /* card spacing + heading rhythm: were inline styles on 9 settings cards. */
     .card-stack { margin-top: 12px; }
     .card-lead { margin-bottom: 12px; }
