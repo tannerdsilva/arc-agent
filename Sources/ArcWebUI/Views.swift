@@ -107,9 +107,9 @@ extension AppState {
                       id: "drawer-toggle",
                       component: "drawer-toggle",
                       class: "drawer-toggle-btn")
-                .attribute("aria-label", "Toggle sidebar")
+                .aria(.label("Toggle sidebar"))
                 .attribute("aria-expanded", "false")
-                .attribute("data-event", "click")
+                .data("event", "click")
             Div(class: "topbar-center") {
                 Span(class: "topbar-bolt") { WebUIIcon(.zap, size: .medium) }
                 Span(class: "topbar-name") { Text(topbarLabel()) }
@@ -132,8 +132,7 @@ extension AppState {
         Div(id: "toasts") {
             toastsHTML()
         }
-        .attribute("data-component-id", "toast-dismiss")
-        .attribute("data-event", "click")
+        .wire("toast-dismiss")
     }
 
     func iconbarHTML() -> some WebUI.View {
@@ -175,7 +174,7 @@ extension AppState {
             SidebarTabIconRenderer.view(tab.icon)
         }
         .attribute("data-tip", tab.title)
-        .attribute("aria-label", tab.title)
+        .aria(.label(tab.title))
 
         // only the active tab announces itself as the current page; the others
         // stay reachable but out of the tab order.
@@ -239,8 +238,7 @@ extension AppState {
                         ArcButton("Cancel", id: "modal-cancel", component: nil, class: "ghost-btn")
                         ArcButton("Delete", id: "modal-confirm", component: nil, class: "danger-btn")
                     }
-                    .attribute("data-component-id", "modal")
-                    .attribute("data-event", "click")
+                    .wire("modal")
                 }
                 .attribute("role", "dialog")
                 .attribute("aria-modal", "true")
@@ -286,7 +284,7 @@ extension AppState {
 
         return Group {
             Div(id: "cat-menu-close", class: "ctx-backdrop") {}
-                .attribute("data-component-id", "cat-menu-close")
+                .data("component-id", "cat-menu-close")
 
             Div(id: "cat-menu", class: "ctx-menu") {
                 if categoryMenuRename {
@@ -294,7 +292,7 @@ extension AppState {
                         Input(field: "cat-rename-input", type: nil, value: catName, attributes: [("autofocus", "")])
                         ArcButton("Save", id: nil, component: nil, class: "primary-btn", type: .submit)
                     }
-                    .attribute("data-prevent-enter", "false")
+                    .data("prevent-enter", "false")
                 } else {
                     ArcButton("\u{270E} Rename", id: "cm-rename-\(cid)", component: nil, class: "ctx-item")
                 }
@@ -307,7 +305,7 @@ extension AppState {
                             let hex = c.hasPrefix("#") ? String(c.dropFirst()) : c
                             ArcButton("", id: "cm-color-\(hex)", component: nil, class: "menu-swatch\(sel)")
                                 .attribute("data-color", c)
-                                .attribute("aria-label", c)
+                                .aria(.label(c))
                                 .attribute("style", "background:\(c)")
                         }
                     }
@@ -317,7 +315,7 @@ extension AppState {
 
                 ArcButton("Delete", id: "cm-del-\(cid)", component: nil, class: "ctx-item ctx-danger")
             }
-            .attribute("data-component-id", "cat-menu")
+            .data("component-id", "cat-menu")
             .attribute("style", "left:\(left)px;top:\(top)px")
         }
     }
@@ -348,7 +346,7 @@ extension AppState {
                 // is permanent and is the one documented Raw in this file;
                 // it is not a `legacy(...)` bridge and not counted in the
                 // bridge budget.
-                Raw(.trusted(plugin))
+                TrustedMarkup(plugin, from: .plugin("sidebar-tab"))
             } else {
                 // chatPanel() still returns String (2.3's target); bridge it.
                 legacy(chatPanel()) // TODO(phase 2.3)
@@ -506,11 +504,11 @@ extension AppState {
                 ArcButton(id: "cat-all", component: nil, class: "cat-chip\(allActive)", tabIndex: -1) {
                     Text("All")
                 }
-                .attribute("aria-pressed", "\(activeCategory == "all")")
+                .aria(.pressed(activeCategory == "all" ? .yes : .no))
                 ArcButton(id: "cat-unassigned", component: nil, class: "cat-chip\(unActive)", tabIndex: -1) {
                     Text("Unassigned")
                 }
-                .attribute("aria-pressed", "\(activeCategory == "unassigned")")
+                .aria(.pressed(activeCategory == "unassigned" ? .yes : .no))
                 for cat in settings.chatCategories {
                     let cid = enc(cat.id)
                     let active = activeCategory == cat.id ? " active" : ""
@@ -535,7 +533,7 @@ extension AppState {
                                 .attribute("style", "background:\(cat.color)")
                             Span { Text(cat.name) }
                         }
-                        .attribute("aria-pressed", "\(activeCategory == cat.id)")
+                        .aria(.pressed(activeCategory == cat.id ? .yes : .no))
                     }
                 }
                 ArcButton(id: "cat-add", component: nil, class: "cat-chip cat-add", tabIndex: -1) {
@@ -543,14 +541,13 @@ extension AppState {
                 }
                 .attribute("title", addingCategory ? "Cancel" : "Add category")
             }
-            .attribute("data-component-id", "cat-pick")
-            .attribute("data-event", "click")
+            .wire("cat-pick")
 
             if addingCategory {
                 Form(action: "", method: nil, id: "cat-add-form", class: "cat-add-form") {
                     Input(field: "cat-name-input",
                           placeholder: "Category name", type: .text)
-                        .attribute("data-component-id", "cat-name-input")
+                        .data("component-id", "cat-name-input")
                         .attribute("autofocus", "")
                     Input(field: "cat-color-input", type: .hidden)
                         .attribute("class", "color-value")
@@ -560,7 +557,7 @@ extension AppState {
                             ArcButton(id: nil, component: nil, class: "cat-swatch\(i == 0 ? " sel" : "")") {}
                                 .attribute("data-color", c)
                                 .attribute("style", "background:\(c)")
-                                .attribute("aria-label", c)
+                                .aria(.label(c))
                         }
                     }
                     Div(class: "cat-add-actions") {
@@ -568,7 +565,7 @@ extension AppState {
                         ArcButton("Cancel", id: "cat-add-cancel", component: nil, class: "ghost-btn")
                     }
                 }
-                .attribute("data-component-id", "cat-add-form")
+                .data("component-id", "cat-add-form")
             }
         }
     }
@@ -690,7 +687,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             .attribute("tabindex", "\(rowTab)")
             .attribute("role", "group")
             .attribute("title", full)
-            .attribute("aria-label", full)
+            .aria(.label(full))
             .attribute("data-full-title", full)
             .attribute("data-sid", s.id)
             // aria-current is presence-only and `.attribute` takes a value, so
@@ -724,7 +721,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 Span(class: "sess-meta") {
                     Text("\(count) msg • ")
                     Span(class: "rel-time") { Text(relTimeLabel(s.updatedAt)) }
-                        .attribute("data-reltime", "\(epochMs)")
+                        .data("reltime", "\(epochMs)")
                     if !archived.isEmpty { Text(" • Archived") }
                     liveStatusPill(s.id)
                 }
@@ -803,10 +800,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             }
                         }
                         .attribute("id", "catpanel-\(encID)")
-                        .attribute("hidden", "")
+                        .flag(.hidden)
                     }
-                    .attribute("data-component-id", "chat-menu")
-                    .attribute("data-event", "click")
+                    .wire("chat-menu")
                     .attribute("id", "menu-\(encID)")
                 }
             }
@@ -814,7 +810,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         .attribute("tabindex", "\(rowTab)")
         .attribute("role", "group")
         .attribute("title", full)
-        .attribute("aria-label", full)
+        .aria(.label(full))
         .attribute("data-full-title", full)
         .attribute("data-sid", s.id)
         return Group {
@@ -874,7 +870,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 skillRowHTML(skill)
                             }
                         }
-                        .attribute("data-component-id", "skill-list")
+                        .data("component-id", "skill-list")
                     }
                     .attribute("data-grp-skill", cat)
                 }
@@ -926,7 +922,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 Span(class: "lr-sub") { Text(p.model ?? "") }
                             }
                         }
-                        .attribute("data-component-id", "profile-list")
+                        .data("component-id", "profile-list")
                     }
                 }
             }
@@ -1006,7 +1002,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                         }
                                     }
                                 }
-                                .attribute("data-component-id", "tool-list")
+                                .data("component-id", "tool-list")
                                 .attribute("aria-current", active ? "true" : "")
                             }
                         }
@@ -1054,7 +1050,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             }
                         }
                     }
-                    .attribute("data-component-id", "workspace-list")
+                    .data("component-id", "workspace-list")
                 }
             }
         }
@@ -1098,7 +1094,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             inner = render(chatMain())
         }
         return Div(id: "main", class: activeTabID == "chat" ? "chat-main" : nil) {
-            Raw(.trusted(inner))
+            TrustedMarkup(inner, from: .plugin("tab-main"))
         }
     }
 
@@ -1161,8 +1157,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 ArcButton(id: "regen-btn", component: nil, class: "icon-mini") {
                     WebUIIcon(.refreshCw, size: .small)
                 }
-                .attribute("data-tip", "Regenerate last reply")
-                .attribute("aria-label", "Regenerate last reply")
+                .data("tip", "Regenerate last reply")
+                .aria(.label("Regenerate last reply"))
                 .attribute("title", "Regenerate last reply")
                 ArcButton(id: "chat-del", component: "chat-del", class: delClass) {
                     if pendingDelete {
@@ -1171,12 +1167,11 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         WebUIIcon(.trash, size: .small)
                     }
                 }
-                .attribute("data-tip", "Delete chat")
-                .attribute("aria-label", "Delete chat")
+                .data("tip", "Delete chat")
+                .aria(.label("Delete chat"))
             }
             .attribute("style", "margin:0")
-            .attribute("data-component-id", "regen")
-            .attribute("data-event", "click")
+            .wire("regen")
         }
         .attribute("id", "chat-header")
     }
@@ -1198,13 +1193,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             .attribute("id", "chat-inner")
         }
         .attribute("id", "chat-scroll")
-        .attribute("data-scroll-key", "chat")
+        .data("scroll-key", "chat")
         .attribute("data-session", activeSessionID ?? "")
         // `data-follow` is presence-only, so the scrolling shape is a branch
         // rather than an empty attribute.
         let followedScroller = Group {
             if follow {
-                scroller.attribute("data-follow", "bottom")
+                scroller.data("follow", "bottom")
             } else {
                 scroller
             }
@@ -1219,8 +1214,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 Text("↓")
             }
             .attribute("title", "Jump to latest")
-            .attribute("aria-label", "Jump to latest")
-            .attribute("hidden", "")
+            .aria(.label("Jump to latest"))
+            .flag(.hidden)
             outlineToggleHTML
             outlinePanelHTML
         }
@@ -1256,9 +1251,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                           class: "outline-toggle-btn") {
                     Text("☰")
                 }
-                .attribute("data-event", "click")
-                .attribute("data-tip", "Conversation outline")
-                .attribute("aria-label", "Toggle conversation outline")
+                .data("event", "click")
+                .data("tip", "Conversation outline")
+                .aria(.label("Toggle conversation outline"))
             }
         }
     }
@@ -1276,16 +1271,16 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                   class: "outline-close-btn") {
                             Text("×")
                         }
-                        .attribute("data-event", "click")
+                        .data("event", "click")
                         .attribute("title", "Close outline")
-                        .attribute("aria-label", "Close outline")
+                        .aria(.label("Close outline"))
                     }
                     Div(class: "outline-entries") {}
                         .attribute("id", "outline-entries")
                 }
                 .attribute("id", "outline-panel")
                 .attribute("role", "navigation")
-                .attribute("aria-label", "Conversation outline")
+                .aria(.label("Conversation outline"))
                 .attribute("hidden", outlineOpen ? "" : "")
             }
         }
@@ -1332,7 +1327,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         WebUIIcon(.edit, size: .small)
                         Span { Text("Start typing") }
                     }
-                    .attribute("data-focus-composer", "")
+                    .data("focus-composer", "")
                 }
             }
         }
@@ -1376,7 +1371,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         // trusted raw at this one seam rather than as an untyped string.
         return Group {
             if !content.isEmpty {
-                Div(class: "msg-body") { Raw(.trusted(mdBox(content))) }
+                Div(class: "msg-body") { TrustedMarkup(mdBox(content), from: .markdown) }
             }
             toolChipsHTML(m.toolCalls)
         }
@@ -1478,7 +1473,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
         return Group {
             if hidden {
-                keyed.attribute("hidden", "")
+                keyed.flag(.hidden)
             } else {
                 keyed
             }
@@ -1542,7 +1537,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }, content: {
                     Div(class: "wl-detail") {
                         if let interim = m.content, !interim.isEmpty {
-                            Div(class: "msg-body interim") { Raw(.trusted(mdBox(interim))) }
+                            Div(class: "msg-body interim") { TrustedMarkup(mdBox(interim), from: .markdown) }
                         }
                         toolChipsHTML(calls, results: pair.1)
                     }
@@ -1639,7 +1634,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     thinkingRowHTML(r, key: mk.isEmpty ? "" : "think-r\(mk)")
                 }
                 if let interim = m.content, !interim.isEmpty {
-                    Div(class: "msg-body interim") { Raw(.trusted(mdBox(interim))) }
+                    Div(class: "msg-body interim") { TrustedMarkup(mdBox(interim), from: .markdown) }
                 }
                 for c in calls {
                     toolCardHTML(c, result: results[c.id])
@@ -1659,7 +1654,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             Div(class: "tc-detail thinking-detail") { Text(r) }
                         }
                         if let interim = m.content, !interim.isEmpty {
-                            Div(class: "msg-body interim") { Raw(.trusted(mdBox(interim))) }
+                            Div(class: "msg-body interim") { TrustedMarkup(mdBox(interim), from: .markdown) }
                         }
                         toolChipsHTML(calls, results: results)
                     }
@@ -1679,7 +1674,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         let card = Details(summary: {
             WebUIIcon(.tool, size: .small)
             Span(class: "tc-name") { Text(c.function.name) }
-            Span(class: "tc-arg") { Raw(.trusted(toolArgSummary(args))) }
+            Span(class: "tc-arg") { TrustedMarkup(toolArgSummary(args), from: .other("tool-args")) }
             Span(class: "tw-spacer") {}
             ArcButton(id: nil, component: nil, class: "tc-copy", tabIndex: -1) {
                 WebUIIcon(.copy, size: .small)
@@ -1702,7 +1697,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             if c.id.isEmpty {
                 card
             } else {
-                card.attribute("data-webui-key", "tc-\(c.id)")
+                card.data("webui-key", "tc-\(c.id)")
             }
         }
     }
@@ -1715,7 +1710,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 // typed line as the display text; the model sees `content`.
                 let content = m.displayText ?? m.content ?? ""
                 let bubble = Div(class: "msg user") {
-                    Div(class: "msg-body user-bubble") { Raw(.trusted(mdBox(content))) }
+                    Div(class: "msg-body user-bubble") { TrustedMarkup(mdBox(content), from: .markdown) }
                 }
                 if rawIdx >= 0 {
                     bubble.attribute("id", "msg-user-\(rawIdx)")
@@ -1881,8 +1876,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Span(class: "mm-spacer") {}
                     Span(class: "mm-right") {
                         Span(class: "msg-elapsed") { Text(fmtElapsed(live.startedAt)) }
-                            .attribute("data-elapsed", "")
-                            .attribute("data-started", "\(Int(live.startedAt.timeIntervalSince1970 * 1000))")
+                            .data("elapsed", "")
+                            .data("started", "\(Int(live.startedAt.timeIntervalSince1970 * 1000))")
                     }
                 }
                 // the status line sits first: everything that grows below it
@@ -1903,8 +1898,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             }
                             if let started = live.toolStartedAt {
                                 Span(class: "msg-elapsed") { Text(fmtElapsed(started)) }
-                                    .attribute("data-elapsed", "")
-                                    .attribute("data-started", "\(Int(started.timeIntervalSince1970 * 1000))")
+                                    .data("elapsed", "")
+                                    .data("started", "\(Int(started.timeIntervalSince1970 * 1000))")
                             }
                         }
                     }
@@ -1947,13 +1942,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 .attribute("id", "live-turn-body")
                 .attribute("style", "white-space:pre-wrap")
                 if mode == "transparent_stream" && !live.toolChips.isEmpty {
-                    Div(class: "tool-pills") { Raw(.trusted(live.toolChips.joined())) }
+                    Div(class: "tool-pills") { TrustedMarkup(live.toolChips.joined(), from: .other("tool-chips")) }
                 }
             }
             .attribute("style", "width:100%")
         }
         .attribute("id", "live-turn")
-        .attribute("data-streaming", "true")
+        .data("streaming", "true")
         .attribute("data-session", live.sessionID)
     }
 
@@ -1987,7 +1982,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     ArcButton(id: "approval-dismiss", component: "approval-dismiss", class: "approval-dismiss") {
                         WebUIIcon(.x, size: .small)
                     }
-                    .attribute("data-event", "click")
+                    .data("event", "click")
                     .attribute("title", "Dismiss")
                 }
                 if !description.isEmpty {
@@ -2001,29 +1996,29 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         WebUIIcon(.check, size: .small)
                         Span(class: "approval-btn-label") { Text("Allow once") }
                     }
-                    .attribute("data-event", "click")
+                    .data("event", "click")
                     ArcButton(id: "approval-session", component: "approval-session", class: "approval-btn session") {
                         WebUIIcon(.lock, size: .small)
                         Span(class: "approval-btn-label") { Text("Allow session") }
                     }
-                    .attribute("data-event", "click")
+                    .data("event", "click")
                     ArcButton(id: "approval-always", component: "approval-always", class: "approval-btn always") {
                         WebUIIcon(.star, size: .small)
                         Span(class: "approval-btn-label") { Text("Always allow") }
                     }
-                    .attribute("data-event", "click")
+                    .data("event", "click")
                     ArcButton(id: "approval-deny", component: "approval-deny", class: "approval-btn deny") {
                         WebUIIcon(.x, size: .small)
                         Span(class: "approval-btn-label") { Text("Deny") }
                     }
-                    .attribute("data-event", "click")
+                    .data("event", "click")
                 }
                 Div(class: "approval-yolo-row") {
                     ArcButton(id: "approval-yolo", component: "approval-yolo", class: "approval-btn yolo") {
                         WebUIIcon(.zap, size: .small)
                         Span(class: "approval-btn-label") { Text("Skip all this session") }
                     }
-                    .attribute("data-event", "click")
+                    .data("event", "click")
                 }
             }
         }
@@ -2041,7 +2036,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Span(class: "clarify-title") { Text("Clarification needed") }
                     Span(class: "clarify-countdown") { Text("\(remaining)s") }
                         .attribute("id", "clarify-countdown")
-                        .attribute("data-expires", "\(expiryMs)")
+                        .data("expires", "\(expiryMs)")
                     ArcButton(id: "clarify-collapse", component: nil, class: "clarify-collapse") {
                         WebUIIcon(.chevronDown, size: .small)
                     }
@@ -2057,8 +2052,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             }
                         }
                     }
-                    .attribute("data-component-id", "clarify-choice")
-                    .attribute("data-event", "click")
+                    .wire("clarify-choice")
                 }
                 Div(class: "clarify-response") {
                     ArcButton(id: "clarify-other", component: nil, class: "clarify-pill pill-other") {
@@ -2068,14 +2062,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Form(action: "", method: nil, id: "clarify-form", class: "clarify-free") {
                         Input(field: "clarify-input",
                               placeholder: "Type your response...", type: .text)
-                            .attribute("data-component-id", "clarify-input")
+                            .data("component-id", "clarify-input")
                             .attribute("autocomplete", "off")
                         ArcButton(id: "clarify-submit", component: nil, class: "clarify-submit", type: .submit) {
                             Text("Send")
                         }
                     }
-                    .attribute("data-component-id", "clarify-form")
-                    .attribute("data-event", "submit")
+                    .wire("clarify-form", on: .submit)
                 }
                 Div(class: "clarify-hint") { Text("Pick a choice, or type your own answer below.") }
             }
@@ -2091,7 +2084,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             ArcButton(id: "yolo-off", component: "yolo-off", class: "yolo-off") {
                 Text("Restore")
             }
-            .attribute("data-event", "click")
+            .data("event", "click")
         }
     }
         // MARK: Composer
@@ -2198,7 +2191,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         }
                     }
                     .attribute("title", "Context window usage")
-                    .attribute("aria-label", "Context window usage")
+                    .aria(.label("Context window usage"))
                     Div(class: "ctx-tooltip") {
                         Div(class: "ctx-tooltip-title") { Text("Context window") }
                         Div(class: "ctx-tooltip-line") { Text("\(pct)% used · \(100 - pct)% left") }
@@ -2293,8 +2286,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
                 .attribute("id", "composer-selection-chips")
-                .attribute("data-component-id", "selection-context-del")
-                .attribute("data-event", "click")
+                .wire("selection-context-del")
             }
         }
     }
@@ -2310,7 +2302,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 .attribute("id", "composer-flyout")
             Div(class: "cmd-dropdown") {}
                 .attribute("id", "cmd-dropdown")
-                .attribute("aria-label", "Slash commands")
+                .aria(.label("Slash commands"))
             queuedSendsHTML()
             selectionChipsHTML()
             Form(action: "", method: nil, id: "composer-form",
@@ -2326,31 +2318,30 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
                 .attribute("id", "attach-chips")
-                .attribute("data-component-id", "att-chips")
-                .attribute("data-event", "click")
+                .wire("att-chips")
                 TextArea(field: "composer-input",
                          placeholder: running ? "Send another message — queued after this reply." : "Message ARC…",
                          value: draft, rows: 1)
-                    .attribute("data-component-id", "composer-input")
+                    .data("component-id", "composer-input")
                     .attribute("data-session", sid)
                     .attribute("data-draft", draft)
-                    .attribute("data-prevent-enter", "send")
+                    .data("prevent-enter", "send")
                     .attribute("style", "min-height:24px")
                 Div(class: "composer-toolbar") {
                     ArcButton(id: "cb-file", component: "cb-file",
                               class: "tool-btn" + (filePopOpen ? " on" : "")) {
                         WebUIIcon(.paperclip, size: .medium)
                     }
-                    .attribute("data-tip", "Attach a file")
-                    .attribute("aria-label", "Attach a file")
+                    .data("tip", "Attach a file")
+                    .aria(.label("Attach a file"))
                     // the star is the same glyph whether or not the chat is
                     // bookmarked — `.on` is what shows state (legacy parity).
                     ArcButton(id: "cb-bookmark", component: "cb-bookmark",
                               class: "tool-btn" + (isBooked ? " on" : "")) {
                         WebUIIcon(.star, size: .small)
                     }
-                    .attribute("data-tip", "Bookmark this chat")
-                    .attribute("aria-label", "Bookmark this chat")
+                    .data("tip", "Bookmark this chat")
+                    .aria(.label("Bookmark this chat"))
                     composerSelectorsHTML()
                     Span(class: "spacer") {}
                     if let s = activeSession() {
@@ -2362,26 +2353,25 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             WebUIIcon(.square, size: .medium)
                         }
                         .attribute("title", "Stop")
-                        .attribute("aria-label", "Stop")
+                        .aria(.label("Stop"))
                     } else {
                         ArcButton(id: "cb-send", component: "cb-send", class: "send-btn", type: .submit) {
                             WebUIIcon(.arrowUp, size: .medium)
                         }
                         .attribute("title", "Send")
-                        .attribute("aria-label", "Send")
+                        .aria(.label("Send"))
                     }
                 }
             }
-            .attribute("data-component-id", "composer-form")
+            .data("component-id", "composer-form")
             Span {}
                 .attribute("id", "dd-dismiss")
-                .attribute("data-component-id", "dd-dismiss")
-                .attribute("data-event", "click")
-                .attribute("hidden", "")
+                .wire("dd-dismiss")
+                .flag(.hidden)
             Div(class: "file-pop" + (filePopOpen ? "" : " hidden")) {
                 Div(class: "fp-row") {
                     Input(id: "file-path-input", placeholder: "/absolute/path/to/file", type: .text)
-                        .attribute("data-component-id", "file-path-input")
+                        .data("component-id", "file-path-input")
                         .attribute("value", formValues["file-path-input"] ?? "")
                     ArcButton(id: "file-attach", component: "file-attach", class: "primary-btn") {
                         Text("Attach")
@@ -2395,11 +2385,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
             }
             .attribute("id", "file-pop")
-            .attribute("data-component-id", "file-recents")
-            .attribute("data-event", "click")
+            .wire("file-recents")
             Div { Text(slashDataJSON()) }
                 .attribute("id", "slash-data")
-                .attribute("hidden", "")
+                .flag(.hidden)
         }
         .attribute("id", "composer-wrap")
     }
@@ -2425,14 +2414,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         ArcButton(id: "qs-del-\(q.id)", component: nil, class: "queued-chip") {
                             Span(class: "queued-chip-text") { Text(trunc(q.text, 90)) }
                             Span(class: "queued-chip-x") { Text("✕") }
-                                .attribute("aria-label", removeTip)
+                                .aria(.label(removeTip))
                         }
                         .attribute("title", removeTip)
                     }
                 }
                 .attribute("id", "queued-sends")
-                .attribute("data-component-id", "queued-sends")
-                .attribute("data-event", "click")
+                .wire("queued-sends")
             }
         }
     }
@@ -2473,7 +2461,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             WebUIIcon(.chevronDown, size: .small)
         }
         .attribute("title", tip)
-        .attribute("aria-label", tip)
+        .aria(.label(tip))
     }
 
     /// one dropdown row. the row carries only its id: the wire dispatches on
@@ -2530,8 +2518,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
             }
-            .attribute("data-component-id", "mainmc")
-            .attribute("data-event", "click")
+            .wire("mainmc")
         }
     }
 
@@ -2551,10 +2538,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             Div(class: "dd-pop dd-pop-ws" + (wsSelectOpen ? "" : " hidden")) {
                 Div(class: "dd-search") {
                     Input(id: "ws-search-input", placeholder: "Search workspaces…", type: .text)
-                        .attribute("data-component-id", "ws-search-input")
-                        .attribute("data-event", "input")
-                        .attribute("data-no-restore", "")
-                        .attribute("aria-label", "Search workspaces")
+                        .wire("ws-search-input", on: .input)
+                        .data("no-restore", "")
+                        .aria(.label("Search workspaces"))
                         .attribute("spellcheck", "false")
                         .attribute("autocomplete", "off")
                         .attribute("value", wsSelectQuery)
@@ -2587,8 +2573,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
             }
-            .attribute("data-component-id", "ws-pick")
-            .attribute("data-event", "click")
+            .wire("ws-pick")
         }
     }
 
@@ -2630,8 +2615,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
             }
-            .attribute("data-component-id", "profile-pick")
-            .attribute("data-event", "click")
+            .wire("profile-pick")
         }
     }
 
@@ -2666,10 +2650,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 Div(class: "dd-note") { Text("Applies to this conversation from your next message.") }
                 Div(class: "dd-search") {
                     Input(id: "model-search-input", placeholder: "Search models…", type: .text)
-                        .attribute("data-component-id", "model-search-input")
-                        .attribute("data-event", "input")
-                        .attribute("data-no-restore", "")
-                        .attribute("aria-label", "Search models")
+                        .wire("model-search-input", on: .input)
+                        .data("no-restore", "")
+                        .aria(.label("Search models"))
                         .attribute("spellcheck", "false")
                         .attribute("autocomplete", "off")
                         .attribute("value", modelSelectQuery)
@@ -2686,8 +2669,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
             }
-            .attribute("data-component-id", "model-pick")
-            .attribute("data-event", "click")
+            .wire("model-pick")
         }
     }
 
@@ -2711,8 +2693,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     for r in rows { r }
                 }
             }
-            .attribute("data-component-id", "think-pick")
-            .attribute("data-event", "click")
+            .wire("think-pick")
         }
     }
 
@@ -2769,7 +2750,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             Paragraph(skill.description).attribute("class", "skill-desc")
                             // markdown crosses here — the one parser seam in this pane
                             Div(class: "detail-body detail-body-lead") {
-                                Raw(.trusted(mdBox(raw)))
+                                TrustedMarkup(mdBox(raw), from: .markdown)
                             }
                         }
                     }
@@ -2832,8 +2813,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Div {
                         Label("Content (Markdown)", for: "sk-edit-content-input")
                         TextArea(field: "sk-edit-content-input", value: contentV, rows: 0)
-                            .attribute("data-component-id", "sk-edit-content-input")
-                            .attribute("data-event", "input")
+                            .wire("sk-edit-content-input", on: .input)
                     }
                 }
                 Div(class: "row-actions-main") {
@@ -2842,7 +2822,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     ArcButton("Cancel", id: "sk-edit-cancel", class: "ghost-btn", type: .button)
                 }
             }
-            .attribute("data-component-id", "sk-edit-form")
+            .data("component-id", "sk-edit-form")
         }
     }
 
@@ -2878,7 +2858,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 } else {
                     Span(class: "inline-err") { Text("") }
                         .attribute("id", id)
-                        .attribute("hidden", "")
+                        .flag(.hidden)
                 }
             }
         }
@@ -2925,8 +2905,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         Label("Content (Markdown)", for: "skill-content-input")
                         TextArea(field: "skill-content-input",
                                  placeholder: "How to use this skill…", rows: 0)
-                            .attribute("data-component-id", "skill-content-input")
-                            .attribute("data-event", "input")
+                            .wire("skill-content-input", on: .input)
                     }
                 }
                 Div(class: "row-actions-main") {
@@ -2934,7 +2913,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     ArcButton("Cancel", id: "skill-cancel", component: "skill-cancel", class: "ghost-btn", type: .button)
                 }
             }
-            .attribute("data-component-id", "skill-create-form")
+            .data("component-id", "skill-create-form")
         }.attribute("class", "main-view")
     }
 
@@ -2981,8 +2960,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                     .attribute("title", "Delete profile")
                                 }
                             }
-                            .attribute("data-component-id", "profile-list")
-                            .attribute("data-event", "click")
+                            .wire("profile-list")
                         }
                         profileCardHTML(p)
                         Heading("Tool sets", level: .h3, class: "detail-h3")
@@ -3031,25 +3009,25 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         if isEdit {
                             Input(field: "profile-name-input",
                                   placeholder: "researcher", type: nil, value: editing?.name ?? "")
-                                .attribute("data-component-id", "profile-name-input")
+                                .data("component-id", "profile-name-input")
                                 .attribute("readonly", "")
                         } else {
                             Input(field: "profile-name-input",
                                   placeholder: "researcher", type: nil, value: "")
-                                .attribute("data-component-id", "profile-name-input")
+                                .data("component-id", "profile-name-input")
                         }
                     }
                     Div {
                         Label("Title", for: "profile-title-input")
                         Input(field: "profile-title-input",
                               placeholder: "Research Analyst", type: nil, value: editing?.title ?? "")
-                            .attribute("data-component-id", "profile-title-input")
+                            .data("component-id", "profile-title-input")
                     }
                     Div {
                         Label("Description", for: "profile-desc-input")
                         Input(field: "profile-desc-input",
                               placeholder: "One-line mission", type: nil, value: editing?.description ?? "")
-                            .attribute("data-component-id", "profile-desc-input")
+                            .data("component-id", "profile-desc-input")
                     }
                 }
                 Heading("Context parameters", level: .h3, class: "detail-h3")
@@ -3075,7 +3053,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         Label("Reasoning effort", for: "profile-ctx-effort")
                         Select(field: "profile-ctx-effort",
                                options: AppState.effortOptions, selected: effortSel)
-                            .attribute("data-component-id", "profile-ctx-effort")
+                            .data("component-id", "profile-ctx-effort")
                     }
                     Div {
                         Label("Temperature", for: "profile-ctx-temp")
@@ -3109,7 +3087,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     ArcButton("Cancel", id: "profile-cancel", component: "profile-cancel", class: "ghost-btn", type: .button)
                 }
             }
-            .attribute("data-component-id", "profile-create-form")
+            .data("component-id", "profile-create-form")
         }
     }
 
@@ -3164,8 +3142,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
         // the engine wires the picker by component id, not by class: dropping
         // this attribute leaves a popover that renders and never responds.
-        .attribute("data-component-id", "pcs")
-        .attribute("data-event", "click")
+        .wire("pcs")
     }
 
     func profileContextSkillsHTML() -> some WebUI.View {
@@ -3191,15 +3168,14 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
             }
-            .attribute("data-component-id", "pcs-rm")
-            .attribute("data-event", "click")
+            .wire("pcs-rm")
             Div(class: "dd pn-picker") {
                 ddTrigger(id: "pcs-toggle", icon: .plus, iconSize: .medium,
                           label: "Add skill", title: "Pin a skill into this profile's context")
                 if profileSkillsPickerOpen {
                     profileSkillsPickerPop(available)
                 } else {
-                    profileSkillsPickerPop(available).attribute("hidden", "")
+                    profileSkillsPickerPop(available).flag(.hidden)
                 }
             }
         }
@@ -3315,7 +3291,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     field
                         .attribute("aria-invalid", "true")
                         .attribute("aria-describedby", describedBy)
-                        .attribute("data-focus-after-patch", "")
+                        .data("focus-after-patch", "")
                 } else {
                     field
                         .attribute("aria-invalid", "true")
@@ -3345,7 +3321,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             Div(id: "main-scroll", class: "main-scroll") {
                 content()
             }
-            .attribute("data-scroll-key", "main-scroll")
+            .data("scroll-key", "main-scroll")
         }
     }
 
@@ -3378,7 +3354,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 Div(class: "row-icon") {
                                     // a plugin renders its own icon markup; this is
                                     // the same trusted-renderer seam as markdown.
-                                    Raw(.trusted(SidebarTabIconRenderer.render(tab.icon, size: .medium)))
+                                    TrustedMarkup(SidebarTabIconRenderer.render(tab.icon, size: .medium), from: .icon)
                                     Span(class: "set-label") {
                                         Text("\(tab.title) ")
                                         Small(tab.id)
@@ -3471,7 +3447,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
                 ArcButton("Rescan plugins", id: "plugin-rescan",
                           component: "plugin-rescan", class: "btn")
-                    .attribute("data-event", "click")
+                    .data("event", "click")
                 }
             }
         }
@@ -3575,7 +3551,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
             }
         }
-        .attribute("data-component-id", "mcp-list")
+        .data("component-id", "mcp-list")
     }
 
     func mcpFormHTML() -> some WebUI.View {
@@ -3614,7 +3590,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     TextArea(field: "mcp-args-input",
                              placeholder: "-y\n@modelcontextprotocol/server-filesystem\n/Users/you/project",
                              value: formValues["mcp-args-input"] ?? "", rows: 4)
-                        .attribute("data-component-id", "mcp-args-input")
+                        .data("component-id", "mcp-args-input")
                     Small("Passed verbatim as argv — quotes are not interpreted, so an argument containing spaces works as typed.")
                         .attribute("style", "color:var(--muted);font-size:0.75em")
                 }
@@ -3623,7 +3599,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     TextArea(field: "mcp-env-input",
                              placeholder: "GITHUB_PERSONAL_ACCESS_TOKEN=ghp_…",
                              value: formValues["mcp-env-input"] ?? "", rows: 3)
-                        .attribute("data-component-id", "mcp-env-input")
+                        .data("component-id", "mcp-env-input")
                     Small("arc strips its own ARC_/OPENAI_/ANTHROPIC_ variables from every MCP server — this is how a server gets its own credentials.")
                         .attribute("style", "color:var(--muted);font-size:0.75em")
                 }
@@ -3633,7 +3609,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 ArcButton("Cancel", id: "mcp-cancel", component: "mcp-cancel", class: "ghost-btn")
             }
         }
-        .attribute("data-component-id", "mcp-form")
+        .data("component-id", "mcp-form")
     }
 
     func schemaHTML(_ schema: JSONSchema) -> some WebUI.View {
@@ -3736,7 +3712,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         ArcButton("Cancel", id: "ws-cancel", component: "ws-cancel", class: "ghost-btn")
                     }
                 }
-                .attribute("data-component-id", "ws-create-form")
+                .data("component-id", "ws-create-form")
             }
         }
         let ws = settings.activeWorkspace
@@ -3806,8 +3782,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         numField("al-max-turns", maxValue, disabled: maxUnlimited)
                     }
                     .attribute("id", "al-max-turns-wrap")
-                    .attribute("data-component-id", "al-max-turns")
-                    .attribute("data-event", "change")
+                    .wire("al-max-turns", on: .change)
                 }
                 SettingRow {
                     Text("Unlimited tool iterations")
@@ -3817,8 +3792,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         ArcSwitch(id: "al-max-turns-unlimited", on: maxUnlimited)
                     }
                     .attribute("id", "al-max-turns-unl-wrap")
-                    .attribute("data-component-id", "al-max-turns-unlimited")
-                    .attribute("data-event", "change")
+                    .wire("al-max-turns-unlimited", on: .change)
                 }
                 SettingRow {
                     Text("Per-tool call cap")
@@ -3828,8 +3802,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         numField("al-tool-cap", loopValue, disabled: loopUnlimited)
                     }
                     .attribute("id", "al-tool-cap-wrap")
-                    .attribute("data-component-id", "al-tool-cap")
-                    .attribute("data-event", "change")
+                    .wire("al-tool-cap", on: .change)
                 }
                 .attribute("style", "margin-top:14px")
                 SettingRow {
@@ -3840,8 +3813,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         ArcSwitch(id: "al-tool-cap-unlimited", on: loopUnlimited)
                     }
                     .attribute("id", "al-tool-cap-unl-wrap")
-                    .attribute("data-component-id", "al-tool-cap-unlimited")
-                    .attribute("data-event", "change")
+                    .wire("al-tool-cap-unlimited", on: .change)
                 }
             }
         }
@@ -3897,8 +3869,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
                 .attribute("id", "ap-skill-locks")
-                .attribute("data-component-id", "ap-skill-locks")
-                .attribute("data-event", "change")
+                .wire("ap-skill-locks", on: .change)
             }
             DetailCard {
                 Heading("Profile (MEMORY / USER / SOUL)", level: .h3)
@@ -3928,8 +3899,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
                 .attribute("id", "ap-profilefile-locks")
-                .attribute("data-component-id", "ap-profilefile-locks")
-                .attribute("data-event", "change")
+                .wire("ap-profilefile-locks", on: .change)
             }
             .attribute("style", "margin-top:12px")
         }
@@ -4034,8 +4004,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                     }
                                 }
                             }
-                            .attribute("data-component-id", "storage-pick")
-                            .attribute("data-event", "click")
+                            .wire("storage-pick")
                         }
                         ArcButton("Save and Connect", id: "storage-connect",
                                   component: "storage-connect", class: "primary-btn",
@@ -4084,14 +4053,12 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                     ArcButton("Edit", id: "storage-edit-\(encID)",
                                               class: "ghost-btn btn-sm")
                                 }
-                                .attribute("data-component-id", "storage-edit")
-                                .attribute("data-event", "click")
+                                .wire("storage-edit")
                                 Div {
                                     ArcButton("Remove", id: "storage-del-\(encID)",
                                               class: "danger-btn btn-sm")
                                 }
-                                .attribute("data-component-id", "storage-del")
-                                .attribute("data-event", "click")
+                                .wire("storage-del")
                             }
                         }
                     }
@@ -4179,7 +4146,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
             }
         }
-        .attribute("data-component-id", "storage-conn-form")
+        .data("component-id", "storage-conn-form")
     }
 
     func settingsMain() -> some WebUI.View {
@@ -4195,7 +4162,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 settingsSidebarPluginsSection()
                 settingsAboutSection()
             }
-            .attribute("data-scroll-key", "main-scroll")
+            .data("scroll-key", "main-scroll")
         }
     }
 
@@ -4252,11 +4219,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             }
                             .attribute("data-theme-choice", t.key)
                             .attribute("title", t.label)
-                            .attribute("aria-pressed", active ? "true" : "false")
+                            .aria(.pressed(active ? .yes : .no))
                         }
                     }
-                    .attribute("data-component-id", "theme-pick")
-                    .attribute("data-event", "click")
+                    .wire("theme-pick")
                 }
                 Div(class: "set-row set-row-stack") {
                     Div(class: "set-label") {
@@ -4273,11 +4239,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 Span(class: "fsz-label") { Text(s.label) }
                             }
                             .attribute("title", s.label)
-                            .attribute("aria-pressed", active ? "true" : "false")
+                            .aria(.pressed(active ? .yes : .no))
                         }
                     }
-                    .attribute("data-component-id", "font-size-pick")
-                    .attribute("data-event", "click")
+                    .wire("font-size-pick")
                 }
                 Div(class: "set-row set-row-stack") {
                     Div(class: "set-label") {
@@ -4305,12 +4270,11 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             }
                             .attribute("data-scheme-choice", entry.id)
                             .attribute("title", entry.label)
-                            .attribute("aria-pressed", active ? "true" : "false")
+                            .aria(.pressed(active ? .yes : .no))
                             .attribute("style", "--sw-accent:\(accent)")
                         }
                     }
-                    .attribute("data-component-id", "scheme-pick")
-                    .attribute("data-event", "click")
+                    .wire("scheme-pick")
                 }
                 SettingRow {
                     Text("Show conversation outline")
@@ -4328,11 +4292,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             let active = settings.activityDisplay == mode
                             ArcButton(label, id: "actdisp-\(mode)",
                                       class: "bubble-opt\(active ? " active" : "")")
-                                .attribute("aria-pressed", active ? "true" : "false")
+                                .aria(.pressed(active ? .yes : .no))
                         }
                     }
-                    .attribute("data-component-id", "activity-display")
-                    .attribute("data-event", "click")
+                    .wire("activity-display")
                 }
                 Div(class: "set-row set-row-stack-lg") {
                     Div(class: "set-label") { Text("Sidebar tabs") }
@@ -4350,13 +4313,12 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 }
                             }
                             .attribute("value", "st-\(enc(key))")
-                            .attribute("aria-pressed", on ? "true" : "false")
-                            .attribute("data-no-restore", "")
+                            .aria(.pressed(on ? .yes : .no))
+                            .data("no-restore", "")
                             .attribute("draggable", "true")
                         }
                     }
-                    .attribute("data-component-id", "side-tab-chips")
-                    .attribute("data-event", "click")
+                    .wire("side-tab-chips")
                     Input(id: "sidebar-tab-order", type: .hidden,
                           value: settings.sidebarTabs.joined(separator: ","),
                           attributes: [("data-component-id", "sidebar-tab-order"),
@@ -4383,8 +4345,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Select(id: "set-think",
                            options: levels.map { SelectOption(value: $0, label: $0.capitalized) },
                            selected: settings.thinkingLevel)
-                        .attribute("data-component-id", "set-think")
-                        .attribute("data-event", "change")
+                        .wire("set-think", on: .change)
                 }
             }
             DetailCard(extraClass: "card-stack") {
@@ -4446,8 +4407,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         }
                     }
                 }
-                .attribute("data-component-id", "modelcfg-list")
-                .attribute("data-event", "click")
+                .wire("modelcfg-list")
                 modelConfigAddForm()
             }
             DetailCard(extraClass: "card-stack") {
@@ -4535,7 +4495,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 ArcButton("Add configuration", class: "primary-btn", type: .submit)
             }
         }
-        .attribute("data-component-id", "modelcfg-add-form")
+        .data("component-id", "modelcfg-add-form")
     }
 
     /// one auxiliary task: either the inline editor (when it is the task being
@@ -4603,8 +4563,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                             }
                                         }
                                     }
-                                    .attribute("data-component-id", "auxmc")
-                                    .attribute("data-event", "click")
+                                    .wire("auxmc")
                                 }
                             }
                             if let ov, has, auxOverrideConfigName(ov) == nil {
@@ -4622,10 +4581,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             ArcButton("Save", class: "primary-btn", type: .submit)
                             ArcButton("Cancel", id: "aux-cancel-\(task.key)", class: "ghost-btn")
                         }
-                        .attribute("data-component-id", "aux-edit")
-                        .attribute("data-event", "click")
+                        .wire("aux-edit")
                     }
-                    .attribute("data-component-id", "aux-form")
+                    .data("component-id", "aux-form")
                 }
             }
         }
@@ -4658,8 +4616,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     ArcButton("Reset", id: "aux-reset-\(task.key)", class: "ghost-btn")
                 }
             }
-            .attribute("data-component-id", "aux-edit")
-            .attribute("data-event", "click")
+            .wire("aux-edit")
         }
             .attribute("title", task.detail)
         }

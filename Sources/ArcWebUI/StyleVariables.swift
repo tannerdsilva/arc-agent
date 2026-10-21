@@ -30,6 +30,9 @@ extension WebUI.View {
 	/// this is the only sanctioned way to write a `style` attribute in this
 	/// codebase: values ride as data, the sheet decides what they mean.
 	public func cssVar(_ variable: ArcVar, _ value: String) -> some WebUI.View {
-		ModifiedView(content: self, modifier: InlineStyle(.custom(variable.rawValue), value))
+		// the mechanism lives in no-webui (`cssVar(CSSVariable, CSSValue)`); this
+		// overload exists only to keep arc's variable NAMES typed, so there is one
+		// implementation of the style-attribute contract, not two.
+		cssVar(CSSVariable(variable.rawValue), .raw(value))
 	}
 }
