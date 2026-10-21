@@ -62,11 +62,16 @@ public struct TesseraRecord: Sendable {
     public let dTag: String?
     /// The event content decoded from UTF-8.
     public let content: String
+    /// The base64 NOSTR pubkey of the event's signer. Nil for locally
+    /// published records before their echo lands. Used to attribute a
+    /// message to a sharee for the host's wake bridge (Phase 2).
+    public let author: String?
 
-    public init(id: NOSTR_id?, dTag: String?, content: String) {
+    public init(id: NOSTR_id?, dTag: String?, content: String, author: String? = nil) {
         self.id = id
         self.dTag = dTag
         self.content = content
+        self.author = author
     }
 }
 
@@ -362,6 +367,8 @@ public actor TesseraConnection {
         let expected = recordIndex.count - unlanded.count
         if storage.count == expected { return } // converged: O(pending) only
 
+        let selfAuthor = nostrPublicKeyString
+
         if storage.count < expected {
             // A record our index still holds is gone from the model (kind-5
             // deletion / clearCache). Rebuild from the model — rare.
@@ -372,7 +379,7 @@ public actor TesseraConnection {
                 let content = Self.stringValue(event.content) ?? ""
                 let seq = dTag.flatMap(Self.sequenceNumber(fromTagKey:)) ?? 0
                 indexRecord(
-                    TesseraRecord(id: id, dTag: dTag, content: content),
+                    TesseraRecord(id: id, dTag: dTag, content: content, author: Self.publicKeyString(event.publicKey)),
                     kind: event.kind.RAW_native(),
                     seq: seq
                 )
@@ -380,7 +387,7 @@ public actor TesseraConnection {
             for pending in pendingRecords {
                 let seq = Self.sequenceNumber(fromTagKey: pending.dTag) ?? 0
                 indexRecord(
-                    TesseraRecord(id: pending.id, dTag: pending.dTag, content: pending.content),
+                    TesseraRecord(id: pending.id, dTag: pending.dTag, content: pending.content, author: selfAuthor),
                     kind: pending.kind,
                     seq: seq
                 )
@@ -398,7 +405,7 @@ public actor TesseraConnection {
             let content = Self.stringValue(event.content) ?? ""
             let seq = dTag.flatMap(Self.sequenceNumber(fromTagKey:)) ?? 0
             indexRecord(
-                TesseraRecord(id: id, dTag: dTag, content: content),
+                TesseraRecord(id: id, dTag: dTag, content: content, author: Self.publicKeyString(event.publicKey)),
                 kind: event.kind.RAW_native(),
                 seq: seq
             )
@@ -736,6 +743,38 @@ public actor TesseraConnection {
         return recordIndex.latestGroups(prefix: prefix)
     }
 
+    /// Kind-3001 user messages in `sessionID` authored by anyone other than
+    /// `owner`, ordered by sequence. A session host polls/traces this to
+    /// wake its turn engine when a granted sharee contributes (Phase 2).
+    public func shareeUserMessages(owner: String, sessionID: String) -> [(seq: Int, text: String, author: String)] {
+        guard let model else { return [] }
+        reconcileIndex(model)
+        return Self.shareeContributions(recordIndex.snapshot(kind: Self.messageKind), owner: owner, sessionID: sessionID)
+    }
+
+    /// Pure sharee-contribution filter (unit-testable without a relay): given
+    /// kind-3001 records, returns the user messages in `sessionID` signed by
+    /// an identity other than `owner`, in ascending sequence order.
+    public static func shareeContributions(
+        _ records: [TesseraRecord], owner: String, sessionID: String
+    ) -> [(seq: Int, text: String, author: String)] {
+        let prefix = "arc/s/\(sessionID)/"
+        var out: [(seq: Int, text: String, author: String)] = []
+        for rec in records {
+            guard let author = rec.author, author != owner,
+                  let dTag = rec.dTag, dTag.hasPrefix(prefix),
+                  let stored = try? JSONDecoder().decode(TesseraStoredMessage.self, from: Data(rec.content.utf8)),
+                  stored.sessionID == sessionID,
+                  stored.message.role == .user,
+                  let text = stored.message.content,
+                  let seq = sequenceNumber(fromTagKey: dTag) else {
+                continue
+            }
+            out.append((seq, text, author))
+        }
+        return out.sorted { $0.seq < $1.seq }
+    }
+
     /// Reads a RAW string-like value as a Swift `String` from its bytes.
     static func stringValue(_ value: any RAW_accessible) -> String? {
         var out = ""
@@ -743,6 +782,18 @@ public actor TesseraConnection {
             out = String(decoding: buffer, as: UTF8.self)
         }
         return out.isEmpty ? nil : out
+    }
+
+    /// Base64-encodes a NOSTR `PublicKey` (the signer of an event). Mirrors
+    /// ``nostrPublicKeyString`` so an event's author can be compared to the
+    /// connection's own identity for sharee attribution.
+    static func publicKeyString(_ key: PublicKey) -> String? {
+        var bytes = Data()
+        key.RAW_access_immutable(UnsafeRawBufferPointer.self) { buffer in
+            bytes = Data(buffer)
+        }
+        let encoded = bytes.base64EncodedString()
+        return encoded.isEmpty ? nil : encoded
     }
 }
 
