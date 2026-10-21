@@ -468,12 +468,15 @@ extension ArcWebUITestRoot {
         // MARK: - wave-3 cleanup guards: ids, draft rows, inline-error clears
 
         @Test("the canvas create CTA keeps a unique id and the sidebar keeps its own")
-        func skillCTAHasDistinctID() {
+        func skillCTAHasDistinctID() async {
             let views = Self.views
-            #expect(views.contains("btn(\"skill-new-main\", \"skill-new\""),
-                    "the canvas CTA must not duplicate the sidebar's DOM id")
-            #expect(views.contains("btn(\"skill-new\", \"skill-new\""),
+            let sidebar = await AppState(renderFixture: AppState.RenderFixture())
+                .skillsPanel().markup.html
+            let canvas = await AppState(renderFixture: AppState.RenderFixture()).skillsMain()
+            #expect(sidebar.contains("id=\"skill-new\""),
                     "the sidebar + keeps its id")
+            #expect(canvas.contains("id=\"skill-new-main\""),
+                    "the canvas CTA must not duplicate the sidebar's DOM id")
         }
 
         @Test("leaving an untouched draft drops its row")
@@ -999,15 +1002,17 @@ extension ArcWebUITestRoot {
         // MARK: - UX-18 filter verb + archive affordance (T13)
 
         @Test("one filter verb across panels and one archived-toggle control")
-        func filterVerbAndArchiveControl() {
+        func filterVerbAndArchiveControl() async {
             let views = Self.views
             // The chat and skills sidebars are the same kind of surface — one
             // verb, not "Filter conversations…" vs "Search skills…".
             #expect(views.contains("placeholder=\"Filter conversations…\""),
                     "the chats filter keeps the Filter verb")
-            #expect(views.contains("placeholder=\"Filter skills…\""),
+            let panel = await AppState(renderFixture: AppState.RenderFixture())
+                .skillsPanel().markup.html
+            #expect(panel.contains("placeholder=\"Filter skills…\""),
                     "the skills filter must use the same verb as chats")
-            #expect(!views.contains("Search skills…"),
+            #expect(!panel.contains("Search skills…"),
                     "the chats/skills split is back (one verb pattern, UX-18)")
             // One archive affordance: the explicit text link stays (now the only
             // control, so it carries the keyboard stop), the header glyph is gone.
@@ -1523,7 +1528,10 @@ extension ArcWebUITestRoot {
         func filterFieldsAreNamed() async {
             let views = Self.views
             #expect(views.contains("aria-label=\"Filter conversations\""), "the conversation filter must be named")
-            #expect(views.contains("aria-label=\"Filter skills\""), "the skills filter must be named")
+            let skillsPanel = await AppState(renderFixture: AppState.RenderFixture())
+                .skillsPanel().markup.html
+            #expect(skillsPanel.contains("aria-label=\"Filter skills\""),
+                    "the skills filter must be named")
             let composer = await RenderedMarkup.composer()
             #expect(composer.contains("aria-label=\"Search workspaces\""), "the workspace search must be named")
             #expect(composer.contains("aria-label=\"Search models\""), "the model search must be named")

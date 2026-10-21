@@ -13,19 +13,22 @@ public struct ArcSwitch: WebUI.View {
 	public let component: String?
 	public let event: String?
 	public let value: String?
+	public let ariaLabel: String?
 
 	public init(
 		id: String,
 		on: Bool,
 		component: String? = nil,
 		event: String? = nil,
-		value: String? = nil
+		value: String? = nil,
+		ariaLabel: String? = nil
 	) {
 		self.id = id
 		self.on = on
 		self.component = component
 		self.event = event
 		self.value = value
+		self.ariaLabel = ariaLabel
 	}
 
 	public func render(into buffer: inout HTMLBuffer) {
@@ -40,6 +43,9 @@ public struct ArcSwitch: WebUI.View {
 			attributes += " value=\"\(htmlEscape(value))\""
 		}
 		attributes += " data-no-restore=\"\""
+		if let ariaLabel, !ariaLabel.isEmpty {
+			attributes += " aria-label=\"\(htmlEscape(ariaLabel))\""
+		}
 		if on { attributes += " checked=\"\"" }
 
 		buffer.beginElement("label", "class=\"switch\"")

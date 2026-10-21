@@ -364,7 +364,7 @@ extension AppState {
             case .chat:
                 legacy(chatPanel()) // TODO(phase 2.3)
             case .skills:
-                legacy(skillsPanel())        // TODO(phase 6)
+                skillsPanel()
             case .profiles:
                 legacy(profilesPanel())      // TODO(phase 6)
             case .tools:
@@ -828,17 +828,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
 
     // MARK: Skills panel
 
-    func skillsPanel() -> String {
-        let newBtn = btn("skill-new", "skill-new", "plus-btn", WebUIIcon(.plus, size: .medium).markup.html, " title=\"Add skill\"")
-        let head = """
-        <div class="panel-head">
-          <span class="panel-title">Skills</span>
-          <div class="panel-actions">\(newBtn)</div>
-        </div>
-        <div class="filter-bar">
-          <input id="skill-search-input" data-component-id="skill-search-input" type="search" placeholder="Filter skills…" aria-label="Filter skills" value="\(esc(skillFilter))">
-        </div>
-        """
+    func skillsPanel() -> some WebUI.View {
         let filtered = skills.filter {
             skillFilter.isEmpty || $0.name.localizedCaseInsensitiveContains(skillFilter)
         }
@@ -847,56 +837,70 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             let cat = (skill.category?.isEmpty == false ? skill.category! : "General")
             groups[cat, default: []].append(skill)
         }
-        var rows = groups.keys
-            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-            .map { cat -> String in
-                let list = groups[cat]!
-                let inner = list.map { skillRowHTML($0) }.joined()
-                return """
-                <div class="skill-group" data-grp-skill="\(esc(cat))">
-                  <button type="button" class="skill-cat-head" id="skcat-\(enc(cat))" title="Toggle section">
-                    <span class="skill-cat-caret">\(WebUIIcon(.chevronDown, size: .small).markup.html)</span>
-                    <span class="skill-cat-title">\(esc(cat))</span>
-                    <span class="skill-cat-count">(\(list.count))</span>
-                  </button>
-                  <div class="skill-cat-rows" data-component-id="skill-list">\(inner)</div>
-                </div>
-                """
-            }
-        if rows.isEmpty {
-            // Zero skills is not the same as "nothing matched a filter".
-            let msg = skills.isEmpty
-                ? "No skills yet."
-                : "No skills match “\(skillFilter)”."
-            rows.append("<div class=\"empty-hint\">\(esc(msg))</div>")
-        }
-        return """
-        \(head)
-        <div class="panel-body">\(rows.joined())</div>
-        """
-    }
+        let cats = groups.keys.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        // Zero skills is not the same as "nothing matched a filter".
+        let emptyMessage: String? = cats.isEmpty
+            ? (skills.isEmpty ? "No skills yet." : "No skills match “\(skillFilter)”.")
+            : nil
 
+        return Group {
+            Div(class: "panel-head") {
+                Span(class: "panel-title") { Text("Skills") }
+                Div(class: "panel-actions") {
+                    ArcButton(id: "skill-new", component: "skill-new", class: "plus-btn", type: .button) {
+                        WebUIIcon(.plus, size: .medium)
+                    }
+                    .attribute("title", "Add skill")
+                }
+            }
+            Div(class: "filter-bar") {
+                Input(id: "skill-search-input", placeholder: "Filter skills…",
+                      type: .search, value: skillFilter,
+                      attributes: [("data-component-id", "skill-search-input"),
+                                   ("aria-label", "Filter skills")])
+            }
+            Div(class: "panel-body") {
+                for cat in cats {
+                    let list = groups[cat] ?? []
+                    Div(class: "skill-group") {
+                        ArcButton(id: "skcat-\(enc(cat))", class: "skill-cat-head", type: .button) {
+                            Span(class: "skill-cat-caret") { WebUIIcon(.chevronDown, size: .small) }
+                            Span(class: "skill-cat-title") { Text(cat) }
+                            Span(class: "skill-cat-count") { Text("(\(list.count))") }
+                        }
+                        .attribute("title", "Toggle section")
+                        Div(class: "skill-cat-rows") {
+                            for skill in list {
+                                skillRowHTML(skill)
+                            }
+                        }
+                        .attribute("data-component-id", "skill-list")
+                    }
+                    .attribute("data-grp-skill", cat)
+                }
+                if let emptyMessage {
+                    Div(class: "empty-hint") { Text(emptyMessage) }
+                }
+            }
+        }
+    }
     /// One skill row for the sidebar: toggle pill on the left, then bold name
     /// and a truncated one-line description (arc-style skill list).
-    func skillRowHTML(_ skill: Skill) -> String {
+    func skillRowHTML(_ skill: Skill) -> some WebUI.View {
         let encName = enc(skill.name)
-        let active = skill.name == selectedSkill ? " active" : ""
+        let active = skill.name == selectedSkill
         let enabled = !skillContextDisabled().contains(skill.name)
-        let dis = enabled ? "" : " disabled"
-        return """
-        <div class="skill-row\(active)\(dis)">
-          <button type="button" id="sk-open-\(encName)" class="sess-open skill-open">
-            <span class="sk-name">\(esc(skill.name))</span>
-            <span class="sk-desc">\(esc(trunc(skill.description, 64)))</span>
-          </button>
-          <label class="switch" title="\(enabled ? "Included in this chat" : "Excluded from this chat")">
-            <input type="checkbox" id="sk-toggle-\(encName)" value="sk-toggle-\(encName)" data-event="change" data-no-restore aria-label="\(enabled ? "Included in this chat" : "Excluded from this chat")" \(enabled ? "checked" : "")>
-            <span class="track"></span><span class="knob"></span>
-          </label>
-        </div>
-        """
+        let name = enabled ? "Included in this chat" : "Excluded from this chat"
+        return Div(class: "skill-row\(active ? " active" : "")\(enabled ? "" : " disabled")") {
+            ArcButton(id: "sk-open-\(encName)", class: "sess-open skill-open", type: .button) {
+                Span(class: "sk-name") { Text(skill.name) }
+                Span(class: "sk-desc") { Text(trunc(skill.description, 64)) }
+            }
+            ArcSwitch(id: "sk-toggle-\(encName)", on: enabled, event: "change",
+                      value: "sk-toggle-\(encName)", ariaLabel: name)
+                .attribute("title", name)
+        }
     }
-
     // MARK: Profiles panel
 
     func profilesPanel() -> String {
