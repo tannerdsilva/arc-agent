@@ -6,19 +6,23 @@ public struct DetailCard: WebUI.View {
 	public let title: String
 	public let sub: String
 	public let body: [any WebUI.View]
+	/// an additional class on the card itself (e.g. a spacing modifier)
+	public let extraClass: String
 
 	public init(
 		title: String = "",
 		sub: String = "",
+		extraClass: String = "",
 		@ViewBuilder body: () -> [any WebUI.View] = { [] }
 	) {
 		self.title = title
 		self.sub = sub
+		self.extraClass = extraClass
 		self.body = body()
 	}
 
 	public func render(into buffer: inout HTMLBuffer) {
-		buffer.beginElement("div", "class=\"detail-card\"")
+		buffer.beginElement("div", extraClass.isEmpty ? "class=\"detail-card\"" : "class=\"detail-card \(htmlEscape(extraClass))\"")
 		buffer.endOpenTag()
 		// a line that does not exist in the source must not exist in the output:
 		// the sheet gives both `.detail-title` and `.detail-sub` their own

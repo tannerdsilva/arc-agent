@@ -946,10 +946,12 @@ extension ArcWebUITestRoot {
         // MARK: - B8/F03/F04 Settings density + the storage control
 
         @Test("the auxiliary list fits its card at any width")
-        func auxListFits() {
+        func auxListFits() async {
             #expect(Self.sheetSource.contains("grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));"),
                     "a fixed `1fr 1fr` grid overflowed the card at 1440 and clipped the right column")
-            #expect(Self.views.contains("<div class=\"aux-list\">\\(auxRows)</div>"))
+            let page = await AppState(renderFixture: AppState.RenderFixture()).settingsMain().markup.html
+            #expect(page.contains("class=\"aux-list\""),
+                    "the auxiliary rows must ride the aux-list container")
         }
 
         @Test("the storage surface names the active medium — no backwards ON switch")
@@ -1046,7 +1048,7 @@ extension ArcWebUITestRoot {
         // MARK: - UX-21 auxiliary model descriptions (T13)
 
         @Test("auxiliary model descriptions clamp to two lines with the full text on hover, not mid-word truncation")
-        func auxDescriptionsClampToTwoLines() {
+        func auxDescriptionsClampToTwoLines() async {
             let sheet = Self.sheetSource
             // The regression (12-set-1950.png): a one-line `white-space: nowrap`
             // + ellipsis cut descriptions mid-word ("Context summarizati…").
@@ -1063,7 +1065,8 @@ extension ArcWebUITestRoot {
             #expect(sheet.contains(".set-row .aux-right { display: flex; gap: 8px; flex-shrink: 0; }"),
                     "Configure/Edit must not be squeezed by the taller label")
             // The full description still rides the row's title for hover.
-            #expect(Self.views.contains("title=\"\\(esc(task.detail))\""),
+            let page = await AppState(renderFixture: AppState.RenderFixture()).settingsMain().markup.html
+            #expect(page.contains("title=\"Image and screenshot analysis\""),
                     "the full description must stay available on hover via the row title")
         }
 
@@ -1394,13 +1397,23 @@ extension ArcWebUITestRoot {
                         }),
                     "the Settings rail button must carry an aria-label (UX-08)")
             // Theme / text-size / scheme cards mark selection with .active —
-            // that state must reach assistive tech as aria-pressed.
-            #expect(views.contains("class=\"theme-pick-btn\\(active)\" title=\"\\(t.label)\" aria-pressed=\"\\(pressed)\""),
-                    "theme cards must reflect selection via aria-pressed (UX-08)")
-            #expect(views.contains("class=\"font-size-pick-btn\\(active)\" title=\"\\(s.label)\" aria-pressed=\"\\(pressed)\""),
-                    "text-size cards must reflect selection via aria-pressed (UX-08)")
-            #expect(views.contains("aria-pressed=\"\\(pressed)\" style=\"--sw-accent:\\(accent)\""),
-                    "scheme tiles must reflect selection via aria-pressed (UX-08)")
+            // asserted on RENDERED bytes: the tiles are typed buttons now, so the
+            // source no longer carries the attribute string a grep looked for.
+            let settingsPage = await AppState(renderFixture: AppState.RenderFixture())
+                .settingsMain().markup.html
+            func tileTags(_ prefix: String) -> [String] {
+                settingsPage.components(separatedBy: "<button")
+                    .dropFirst()
+                    .map { "<button" + $0 }
+                    .filter { $0.prefix(400).contains("id=\"\(prefix)") }
+                    .map { String($0.prefix(while: { $0 != ">" })) + ">" }
+            }
+            for (prefix, what) in [("thm-", "theme"), ("fsz-", "text-size"), ("scheme-", "scheme")] {
+                let tags = tileTags(prefix)
+                #expect(!tags.isEmpty, "no \(what) tiles rendered")
+                #expect(tags.allSatisfy { Self.attribute("aria-pressed", in: $0) != nil },
+                        "\(what) cards must reflect selection via aria-pressed (UX-08)")
+            }
         }
 
         /// The markdown-table enhancer minted sort buttons whose whole accessible

@@ -1095,7 +1095,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         case .insights:
             return insightsMain()
         case .settings:
-            return settingsMain()
+            return render(settingsMain())
         case .logs:
             return logsMain()
         case .tasks:
@@ -3719,7 +3719,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     .attribute("style", "margin:0 0 6px")
                 Div(class: "detail-sub") {
                     Text("Where sessions, memory and profiles are saved. Picking a medium only stages it — press ")
-                    InlineCode("Save and Connect")
+                    Strong("Save and Connect")
                     Text(" to actually switch.")
                 }
                 .attribute("style", "margin-bottom:10px")
@@ -3736,7 +3736,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             Div(class: storagePickOpen ? "dd-pop dd-pop-down" : "dd-pop dd-pop-down hidden") {
                                 Div(class: "dd-note") {
                                     Text("Pick a medium, then press ")
-                                    InlineCode("Save and Connect")
+                                    Strong("Save and Connect")
                                     Text(" to switch.")
                                 }
                                 Div(class: "dd-list") {
@@ -3791,9 +3791,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     if let st = stagedStorage {
                         Div(class: "set-hint") {
                             Text("Selected: ")
-                            Span { Text(mediumLabel(st)) }
+                            Strong(mediumLabel(st))
                             Text(" — not connected yet. Press ")
-                            InlineCode("Save and Connect")
+                            Strong("Save and Connect")
                             Text(".")
                         }
                         .attribute("style", "margin:2px 0 0 0")
@@ -3867,7 +3867,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     /// keys the engine's form extractor builds, so they must not drift.
     private func storageConnForm(connections: [TesseraStorageConnection]) -> some WebUI.View {
         let se = storageEdit
-        return Form(id: "storage-conn-form", class: "form-grid conn-form") {
+        return Form(method: nil, id: "storage-conn-form", class: "form-grid form-sep") {
             Input(id: "storage-edit-id", name: "storage-edit-id", type: .hidden,
                   value: se?.id ?? "",
                   attributes: [("data-component-id", "storage-edit-id")])
@@ -3929,8 +3929,26 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         .attribute("data-component-id", "storage-conn-form")
     }
 
-    func settingsMain() -> String {
-        // Appearance
+    func settingsMain() -> some WebUI.View {
+        Div(class: "main-view") {
+            Div(id: "main-scroll", class: "main-scroll settings-wrap") {
+                settingsAppearanceSection()
+                settingsPreferencesSection()
+                settingsAssistanceSection()
+                agentLimitsSection()
+                storageSettingsHTML()
+                settingsToolPluginsSection()
+                settingsMCPSection()
+                settingsSidebarPluginsSection()
+                settingsAboutSection()
+            }
+            .attribute("data-scroll-key", "main-scroll")
+        }
+    }
+
+    // MARK: - settings · appearance
+
+    private func settingsAppearanceSection() -> some WebUI.View {
         let themeDefs: [(key: String, label: String, icon: IconName, preview: String)] = [
             ("light", "Light", .sun,
              "background:#FFFFFF;border:1px solid rgba(0,0,0,0.14)"),
@@ -3939,53 +3957,11 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             ("system", "System", .monitor,
              "background:linear-gradient(100deg,#FFFFFF 0%,#8B8B93 52%,#15151A 100%);border:1px solid rgba(0,0,0,0.12)"),
         ]
-        let themeCards = themeDefs.map { t in
-            let active = settings.theme == t.key ? " active" : ""
-            // UX-08: the card marks selection visually (.active) — the pressed
-            // state must reach assistive tech too.
-            let pressed = active.isEmpty ? "false" : "true"
-            return "<button type=\"button\" id=\"thm-\(t.key)\" data-theme-choice=\"\(t.key)\" class=\"theme-pick-btn\(active)\" title=\"\(t.label)\" aria-pressed=\"\(pressed)\"><span class=\"thm-preview\" style=\"\(t.preview)\"><span class=\"thm-ic\">\(WebUIIcon(t.icon, size: .medium).markup.html)</span></span><span class=\"thm-label\">\(t.label)</span></button>"
-        }.joined()
-        let sizeCards = ThemeSize.allCases.map { s in
-            let active = settings.textSize == s.rawValue ? " active" : ""
-            let pressed = active.isEmpty ? "false" : "true"
-            return "<button type=\"button\" id=\"fsz-\(s.rawValue)\" class=\"font-size-pick-btn\(active)\" title=\"\(s.label)\" aria-pressed=\"\(pressed)\"><span class=\"fsz-preview\" style=\"font-size:\(s.previewPx)\">Aa</span><span class=\"fsz-label\">\(s.label)</span></button>"
-        }.joined()
-        // the scheme grid renders from the catalog: identity — id, label, swatch — comes from
-        // the providers themselves, so the picker cannot list a scheme the sheet does not
-        // carry, and adding one is a single declaration. `swatch[0]` is the accent (the
-        // tile's border), the rest are the preview dots.
-        let swatches = ArcThemeCatalog.entries.map { entry in
-            let active = settings.colorScheme == entry.id ? " active" : ""
-            // UX-08: the scheme tile is a selection card like theme/size — its
-            // pressed state must reach assistive tech, not just the .active class.
-            let pressed = active.isEmpty ? "false" : "true"
-            let accent = entry.swatch.first ?? ""
-            let dots = entry.swatch.dropFirst().map { d in
-                "<span class=\"scheme-dot\" style=\"background:\(d)\"></span>"
-            }.joined()
-            return """
-            <button type="button" id="scheme-\(enc(entry.id))" data-scheme-choice="\(esc(entry.id))" class="scheme-tile\(active)" title="\(esc(entry.label))" aria-pressed="\(pressed)" style="--sw-accent:\(accent)">
-              <span class="scheme-dots">\(dots)</span>
-              <span class="scheme-name">\(esc(entry.label))</span>
-            </button>
-            """
-        }.joined()
-
-        // Activity display (segmented choice; mirrors arc agent webui).
-        let actOpts = [
+        let actOpts: [(String, String)] = [
             ("compact_worklog", "Compact Worklog"),
             ("transparent_stream", "Transparent Stream"),
             ("hide_all_activity", "Final answer only"),
-        ].map { mode, label in
-            let active = settings.activityDisplay == mode ? " active" : ""
-            let pressed = settings.activityDisplay == mode ? "true" : "false"
-            return "<button type=\"button\" id=\"actdisp-\(mode)\" class=\"bubble-opt\(active)\" aria-pressed=\"\(pressed)\">\(label)</button>"
-        }.joined()
-
-        // Sidebar tabs (arc-style chips; Chat + Settings are always
-        // visible). Registered plugin tabs join the chips, so users can
-        // hide/show and reorder third-party tabs exactly like built-ins.
+        ]
         var tabDefs: [(key: String, label: String)] = [
             ("skills", "Skills"), ("profiles", "Profiles"), ("tools", "Tools"),
             ("workspaces", "Workspace"), ("kanban", "Kanban"), ("memory", "Memory"),
@@ -3999,303 +3975,565 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         // Chips follow the canonical sidebar order; state = hidden set.
         let chipKeys = settings.sidebarTabs.filter { key in tabDefs.contains { $0.key == key } }
             + tabDefs.map(\.key).filter { key in !settings.sidebarTabs.contains(key) }
-        let tabChips = chipKeys.map { key -> String in
-            let label = tabDefs.first { $0.key == key }?.label ?? key
-            let on = !settings.hiddenSidebarTabs.contains(key)
-            // UX-13: real buttons (keyboard-operable) with a visible pressed
-            // state; the off chip is dimmed and labels itself "Hidden".
-            return """
-            <button type="button" id="st-\(enc(key))" value="st-\(enc(key))" class="side-tab-chip\(on ? " on" : " off")" aria-pressed="\(on)" data-no-restore draggable="true">
-              <span>\(label)</span>\(on ? "" : "<em class=\"chip-hint\">Hidden</em>")
-            </button>
-            """
-        }.joined()
 
-        // Model config CRUD
-        let mcRows = settings.modelConfigs.map { c -> String in
-            let badge = c.name == settings.activeConfig ? "<span class=\"mc-badge\">active</span>" : ""
-            let encName = enc(c.name)
-            return """
-            <div class="mc-row">
-              <span class="mc-name">\(esc(c.name)) \(badge)</span>
-              <span class="mc-model">\(esc(c.model))</span>
-              <div class="row-actions-main" style="margin:0">
-                \(btn("mc-del-\(encName)", "", "danger-btn", "Remove", " style=\"padding:4px 10px;font-size:0.8em\""))
-              </div>
-            </div>
-            """
-        }.joined()
-
-        let thinkOpts = ["off", "low", "medium", "high", "max"].map { lv in
-            let sel = settings.thinkingLevel == lv ? " selected" : ""
-            return "<option value=\"\(lv)\"\(sel)>\(lv.capitalized)</option>"
-        }.joined()
-
-
-        // Auxiliary models (reference auxiliary.<task>, edited into ~/.arc/config.json)
-        let auxRows = AuxiliaryTask.allCases.map { task -> String in
-            let ov = arcConfig.auxiliary.override(for: task)
-            let has = ov?.isSet == true
-            if auxEditingTask == task.key {
-                let stagedName = auxStagedConfig[task.key] ?? auxOverrideConfigName(ov) ?? ""
-                let stagedKnown = settings.modelConfigs.contains { $0.name == stagedName }
-                let triggerLabel: String
-                if stagedName.isEmpty || !stagedKnown {
-                    triggerLabel = "Main model (auto)"
-                } else {
-                    triggerLabel = stagedName
+        return Section(id: "appearance", class: "set-section") {
+            Heading("Appearance", level: .h2)
+            DetailCard {
+                Div(class: "set-row set-row-stack") {
+                    Div(class: "set-label") {
+                        Text("Theme")
+                        Small("Light, dark, or follow the system.")
+                    }
+                    Div(class: "thm-grid") {
+                        for t in themeDefs {
+                            let active = settings.theme == t.key
+                            // UX-08: the card marks selection visually (.active) — the
+                            // pressed state must reach assistive tech too.
+                            ArcButton(id: "thm-\(t.key)",
+                                      class: "theme-pick-btn\(active ? " active" : "")") {
+                                Span(class: "thm-preview") {
+                                    Span(class: "thm-ic") { WebUIIcon(t.icon, size: .medium) }
+                                }
+                                .attribute("style", t.preview)
+                                Span(class: "thm-label") { Text(t.label) }
+                            }
+                            .attribute("data-theme-choice", t.key)
+                            .attribute("title", t.label)
+                            .attribute("aria-pressed", active ? "true" : "false")
+                        }
+                    }
+                    .attribute("data-component-id", "theme-pick")
+                    .attribute("data-event", "click")
                 }
-                let pickVis = auxConfigPickerOpen ? "" : " hidden"
-                var pkRows: [String] = []
-                let mainCheck = (stagedName.isEmpty || !stagedKnown) ? "<span class=\"dd-badge sel\">SELECTED</span>" : ""
-                pkRows.append(ddRow(id: "auxmc-main-\(task.key)", body: """
-                <span class="dd-model-main">
-                  <span class="dd-row-title">Main model (auto)\(mainCheck)</span>
-                  <span class="dd-row-sub">Use the chat's main model</span>
-                </span>
-                """))
-                for c in settings.modelConfigs {
-                    let sel = c.name == stagedName
-                    let selBadge = sel ? "<span class=\"dd-badge sel\">SELECTED</span>" : ""
-                    pkRows.append(ddRow(id: "auxmc-\(task.key)-\(enc(c.name))", body: """
-                    <span class="dd-model-main">
-                      <span class="dd-row-title">\(esc(c.name))\(selBadge)</span>
-                      <span class="dd-row-sub">\(esc(c.model))\(c.provider.isEmpty ? "" : " @ " + esc(c.provider))</span>
-                    </span>
-                    """))
+                Div(class: "set-row set-row-stack") {
+                    Div(class: "set-label") {
+                        Text("Text size")
+                        Small("Chat content, session names, workspace files, and memory text.")
+                    }
+                    Div(class: "fsz-grid") {
+                        for s in ThemeSize.allCases {
+                            let active = settings.textSize == s.rawValue
+                            ArcButton(id: "fsz-\(s.rawValue)",
+                                      class: "font-size-pick-btn\(active ? " active" : "")") {
+                                Span(class: "fsz-preview") { Text("Aa") }
+                                    .attribute("style", "font-size:\(s.previewPx)")
+                                Span(class: "fsz-label") { Text(s.label) }
+                            }
+                            .attribute("title", s.label)
+                            .attribute("aria-pressed", active ? "true" : "false")
+                        }
+                    }
+                    .attribute("data-component-id", "font-size-pick")
+                    .attribute("data-event", "click")
                 }
-                let customNote: String
-                if let ov, has, auxOverrideConfigName(ov) == nil {
-                    let raw = ov.model.isEmpty ? (ov.provider.isEmpty ? "custom override" : "provider: \(ov.provider)") : ov.model + (ov.provider.isEmpty ? "" : " @ " + ov.provider)
-                    customNote = "<div class=\"aux-custom-note\">Currently: <code>\(esc(raw))</code> — pick a configuration below (or Main model) and Save to replace it; Cancel keeps it.</div>"
-                } else {
-                    customNote = ""
+                Div(class: "set-row set-row-stack") {
+                    Div(class: "set-label") {
+                        Text("Color scheme")
+                        Small("Full palette for the interface.")
+                    }
+                    // the scheme grid renders from the catalog: identity — id, label,
+                    // swatch — comes from the providers themselves, so the picker cannot
+                    // list a scheme the sheet does not carry, and adding one is a single
+                    // declaration. `swatch[0]` is the accent (the tile's border), the
+                    // rest are the preview dots.
+                    Div(class: "scheme-grid") {
+                        for entry in ArcThemeCatalog.entries {
+                            let active = settings.colorScheme == entry.id
+                            let accent = entry.swatch.first ?? ""
+                            ArcButton(id: "scheme-\(enc(entry.id))",
+                                      class: "scheme-tile\(active ? " active" : "")") {
+                                Span(class: "scheme-dots") {
+                                    for d in entry.swatch.dropFirst() {
+                                        Span(class: "scheme-dot") {}
+                                            .attribute("style", "background:\(d)")
+                                    }
+                                }
+                                Span(class: "scheme-name") { Text(entry.label) }
+                            }
+                            .attribute("data-scheme-choice", entry.id)
+                            .attribute("title", entry.label)
+                            .attribute("aria-pressed", active ? "true" : "false")
+                            .attribute("style", "--sw-accent:\(accent)")
+                        }
+                    }
+                    .attribute("data-component-id", "scheme-pick")
+                    .attribute("data-event", "click")
                 }
-                return """
-                <div class="aux-editing">
-                  <form id="aux-form-\(task.key)" data-component-id="aux-form">
-                    <div class="aux-fields">
-                      <input type="hidden" name="aux-task" value="\(task.key)">
-                      <label class="aux-field">Model configuration
-                        <div class="dd">
-                          <button type="button" id="auxmc-toggle-\(task.key)" data-component-id="auxmc-toggle" class="dd-trigger" title="Auxiliary model configuration">
-                            <span class="dd-trigger-label">\(esc(triggerLabel))</span>\(WebUIIcon(.chevronDown, size: .small).markup.html)
-                          </button>
-                          <div class="dd-pop dd-pop-ws\(pickVis)" data-component-id="auxmc" data-event="click">
-                            <div class="dd-list">\(pkRows.joined())</div>
-                          </div>
-                        </div>
-                      </label>
-                      \(customNote)
-                    </div>
-                    <div class="aux-actions" data-component-id="aux-edit" data-event="click">
-                      <button type="submit" class="primary-btn">Save</button>
-                      \(btn("aux-cancel-\(task.key)", "", "ghost-btn", "Cancel"))
-                    </div>
-                  </form>
-                </div>
-                """
+                SettingRow {
+                    Text("Show conversation outline")
+                    Small("Adds a floating button to the chat view that lists your sent messages; clicking one jumps to it.")
+                } control: {
+                    ArcSwitch(id: "set-showoutline", on: settings.showConversationOutline,
+                              component: "set-showoutline", event: "change")
+                }
+                SettingRow {
+                    Text("Activity display")
+                    Small("How thinking and tool activity appear in chats.")
+                } control: {
+                    Div(class: "bubble-opts") {
+                        for (mode, label) in actOpts {
+                            let active = settings.activityDisplay == mode
+                            ArcButton(label, id: "actdisp-\(mode)",
+                                      class: "bubble-opt\(active ? " active" : "")")
+                                .attribute("aria-pressed", active ? "true" : "false")
+                        }
+                    }
+                    .attribute("data-component-id", "activity-display")
+                    .attribute("data-event", "click")
+                }
+                Div(class: "set-row set-row-stack-lg") {
+                    Div(class: "set-label") { Text("Sidebar tabs") }
+                    Div(class: "side-tab-chips") {
+                        for key in chipKeys {
+                            let label = tabDefs.first { $0.key == key }?.label ?? key
+                            let on = !settings.hiddenSidebarTabs.contains(key)
+                            // UX-13: real buttons (keyboard-operable) with a visible
+                            // pressed state; the off chip is dimmed and labels itself "Hidden".
+                            ArcButton(id: "st-\(enc(key))",
+                                      class: "side-tab-chip\(on ? " on" : " off")") {
+                                Span { Text(label) }
+                                if !on {
+                                    Emphasis("Hidden").attribute("class", "chip-hint")
+                                }
+                            }
+                            .attribute("value", "st-\(enc(key))")
+                            .attribute("aria-pressed", on ? "true" : "false")
+                            .attribute("data-no-restore", "")
+                            .attribute("draggable", "true")
+                        }
+                    }
+                    .attribute("data-component-id", "side-tab-chips")
+                    .attribute("data-event", "click")
+                    Input(id: "sidebar-tab-order", type: .hidden,
+                          value: settings.sidebarTabs.joined(separator: ","),
+                          attributes: [("data-component-id", "sidebar-tab-order"),
+                                       ("data-event", "change")])
+                    Div(class: "set-hint") {
+                        Text("Choose which tabs appear in the sidebar and rail. Drag chips to reorder them. Chat and Settings are always visible.")
+                    }
+                }
             }
-            let summary: String
-            if let ov, has {
-                if let cfgName = auxOverrideConfigName(ov) {
-                    summary = cfgName
-                } else if !ov.model.isEmpty {
-                    summary = ov.model + (ov.provider.isEmpty ? "" : " @ " + ov.provider)
-                } else if !ov.provider.isEmpty {
-                    summary = "provider: " + ov.provider
-                } else if !ov.baseURL.isEmpty {
-                    summary = "custom base URL"
-                } else {
-                    summary = "API key override"
+        }
+    }
+
+    // MARK: - settings · preferences
+
+    private func settingsPreferencesSection() -> some WebUI.View {
+        let levels = ["off", "low", "medium", "high", "max"]
+        return Section(id: "preferences", class: "set-section") {
+            Heading("Preferences", level: .h2)
+            DetailCard(extraClass: "card-lead") {
+                SettingRow {
+                    Text("Default thinking level")
+                    Small("Applied to new chats; per-chat override in the composer.")
+                } control: {
+                    Select(id: "set-think",
+                           options: levels.map { SelectOption(value: $0, label: $0.capitalized) },
+                           selected: settings.thinkingLevel)
+                        .attribute("data-component-id", "set-think")
+                        .attribute("data-event", "change")
                 }
+            }
+            DetailCard(extraClass: "card-stack") {
+                Heading("Chat", level: .h3, class: "card-h3")
+                SettingRow {
+                    Text("Show token usage")
+                    Small {
+                        Text("Displays input/output token count below each assistant reply. Also toggled with ")
+                        InlineCode("/usage")
+                        Text(".")
+                    }
+                } control: {
+                    ArcSwitch(id: "set-showtokens", on: settings.showTokenUsage,
+                              component: "set-showtokens", event: "change")
+                }
+                SettingRow {
+                    Text("Show token speed (TPS)")
+                    Small("Displays tokens per second in assistant message headers while streaming and after a response completes. Off by default.")
+                } control: {
+                    ArcSwitch(id: "set-showtps", on: settings.showTps,
+                              component: "set-showtps", event: "change")
+                }
+                SettingRow {
+                    Text("Pinned conversations limit")
+                    Small("Maximum number of active conversations that can be pinned in the sidebar. Default is 3.")
+                } control: {
+                    Input(id: "set-pinlimit", type: .number,
+                          value: "\(settings.pinnedSessionsLimit)",
+                          attributes: [("data-component-id", "set-pinlimit"),
+                                       ("data-event", "change"),
+                                       ("min", "1"), ("max", "99"), ("step", "1"),
+                                       ("class", "num-input")])
+                }
+            }
+            DetailCard {
+                Heading("Model configurations", level: .h3, class: "card-h3")
+                Div(class: "detail-sub card-sub") {
+                    Text("Add or remove the model configurations available in every chat's config selector.")
+                }
+                Div {
+                    if settings.modelConfigs.isEmpty {
+                        Div(class: "empty-hint") { Text("No model configurations.") }
+                    } else {
+                        for c in settings.modelConfigs {
+                            let encName = enc(c.name)
+                            Div(class: "mc-row") {
+                                Span(class: "mc-name") {
+                                    Text("\(c.name) ")
+                                    if c.name == settings.activeConfig {
+                                        Span(class: "mc-badge") { Text("active") }
+                                    }
+                                }
+                                Span(class: "mc-model") { Text(c.model) }
+                                Div(class: "row-actions-main row-actions-flush") {
+                                    ArcButton("Remove", id: "mc-del-\(encName)",
+                                              class: "danger-btn btn-sm")
+                                }
+                            }
+                        }
+                    }
+                }
+                .attribute("data-component-id", "modelcfg-list")
+                .attribute("data-event", "click")
+                modelConfigAddForm()
+            }
+            DetailCard(extraClass: "card-stack") {
+                Heading("Main model", level: .h3, class: "card-h3")
+                Div(class: "detail-sub card-sub") {
+                    Text("The model used for new chats by default. Picked from the Model configurations above.")
+                }
+                Div(class: "set-row set-row-stack-lg") {
+                    mainModelDropdown()
+                }
+            }
+            DetailCard(extraClass: "card-stack") {
+                Heading("Auxiliary models", level: .h3, class: "card-h3")
+                Div(class: "detail-sub card-sub") {
+                    Text("Auxiliary tasks (vision, compression, approval, titles, …) use a dedicated model from the ")
+                    InlineCode("auxiliary")
+                    Text(" block of ~/.arc/config.json. Empty overrides fall back to the chat's main model.")
+                }
+                Div(class: "aux-list") {
+                    for task in AuxiliaryTask.allCases {
+                        auxiliaryRow(task)
+                    }
+                }
+            }
+        }
+    }
+
+    private func modelConfigAddForm() -> some WebUI.View {
+        Form(method: nil, id: "modelcfg-add-form", class: "form-grid form-sep") {
+            Div(class: "form-grid-3") {
+                Div {
+                    Label("Name", for: "mc-name")
+                    Input(id: "mc-name", name: "mc-name", placeholder: "deepseek-v4-flash",
+                          type: nil,
+                          attributes: [("data-component-id", "mc-name"),
+                                       ("autocomplete", "off"), ("spellcheck", "false")])
+                }
+                Div {
+                    Label("Model", for: "mc-model")
+                    Input(id: "mc-model", name: "mc-model", placeholder: "deepseek-v4-flash",
+                          type: nil,
+                          attributes: [("data-component-id", "mc-model"),
+                                       ("autocomplete", "off"), ("spellcheck", "false")])
+                }
+                Div {
+                    Label("Provider", for: "mc-provider")
+                    Input(id: "mc-provider", name: "mc-provider", placeholder: "custom",
+                          type: nil,
+                          attributes: [("data-component-id", "mc-provider"),
+                                       ("autocomplete", "off"), ("spellcheck", "false")])
+                }
+            }
+            Div {
+                Label("Base URL", for: "mc-baseurl")
+                Input(id: "mc-baseurl", name: "mc-baseurl",
+                      placeholder: "https://api.openai.com/v1", type: nil,
+                      attributes: [("data-component-id", "mc-baseurl"),
+                                   ("autocomplete", "off"), ("spellcheck", "false")])
+            }
+            Div(class: "form-grid-2") {
+                Div {
+                    Label("API key (optional)", for: "mc-apikey")
+                    Input(id: "mc-apikey", name: "mc-apikey", placeholder: "sk-…",
+                          type: .password,
+                          attributes: [("data-component-id", "mc-apikey"),
+                                       ("autocomplete", "new-password"),
+                                       ("spellcheck", "false")])
+                }
+                Div {
+                    Label("Context length (optional)", for: "mc-ctx")
+                    Input(id: "mc-ctx", name: "mc-ctx", placeholder: "128000",
+                          type: .text,
+                          attributes: [("data-component-id", "mc-ctx"),
+                                       ("autocomplete", "off")])
+                }
+                Div {
+                    Label("Max output tokens (optional)", for: "mc-maxtok")
+                    Input(id: "mc-maxtok", name: "mc-maxtok", placeholder: "32768",
+                          type: .text,
+                          attributes: [("data-component-id", "mc-maxtok"),
+                                       ("autocomplete", "off")])
+                }
+            }
+            Div(class: "row-actions-main row-actions-flush") {
+                ArcButton("Add configuration", class: "primary-btn", type: .submit)
+            }
+        }
+        .attribute("data-component-id", "modelcfg-add-form")
+    }
+
+    /// one auxiliary task: either the inline editor (when it is the task being
+    /// edited) or its summary row. the summary text is the five-way fallback the
+    /// overrides allow, and `Main model` when nothing is set.
+    private func auxiliaryRow(_ task: AuxiliaryTask) -> some WebUI.View {
+        let ov = arcConfig.auxiliary.override(for: task)
+        let has = ov?.isSet == true
+
+        if auxEditingTask == task.key {
+            let stagedName = auxStagedConfig[task.key] ?? auxOverrideConfigName(ov) ?? ""
+            let stagedKnown = settings.modelConfigs.contains { $0.name == stagedName }
+            let triggerLabel: String
+            if stagedName.isEmpty || !stagedKnown {
+                triggerLabel = "Main model (auto)"
             } else {
-                summary = "Main model"
+                triggerLabel = stagedName
             }
-            return """
-            <div class="set-row" title="\(esc(task.detail))">
-              <div class="set-label">\(esc(task.displayName))<small>\(esc(task.detail)). Currently: \(esc(summary)).</small></div>
-              <div class="aux-right" data-component-id="aux-edit" data-event="click">
-                \(btn("aux-edit-\(task.key)", "", "ghost-btn", has ? "Edit" : "Configure"))
-                \(has ? btn("aux-reset-\(task.key)", "", "ghost-btn", "Reset") : "")
-              </div>
-            </div>
-            """
-        }.joined()
+            return Group {
+                Div(class: "aux-editing") {
+                    Form(method: nil, id: "aux-form-\(task.key)") {
+                        Div(class: "aux-fields") {
+                            Input(name: "aux-task", type: .hidden, value: task.key)
+                            FieldLabel(class: "aux-field") {
+                                Text("Model configuration")
+                                Div(class: "dd") {
+                                    ArcButton(id: "auxmc-toggle-\(task.key)",
+                                              component: "auxmc-toggle", class: "dd-trigger") {
+                                        Span(class: "dd-trigger-label") { Text(triggerLabel) }
+                                        WebUIIcon(.chevronDown, size: .small)
+                                    }
+                                    .attribute("title", "Auxiliary model configuration")
+                                    Div(class: auxConfigPickerOpen ? "dd-pop dd-pop-ws" : "dd-pop dd-pop-ws hidden") {
+                                        Div(class: "dd-list") {
+                                            ddRow(id: "auxmc-main-\(task.key)") {
+                                                Span(class: "dd-model-main") {
+                                                    Span(class: "dd-row-title") {
+                                                        Text("Main model (auto)")
+                                                        if stagedName.isEmpty || !stagedKnown {
+                                                            Span(class: "dd-badge sel") { Text("SELECTED") }
+                                                        }
+                                                    }
+                                                    Span(class: "dd-row-sub") {
+                                                        Text("Use the chat's main model")
+                                                    }
+                                                }
+                                            }
+                                            for c in settings.modelConfigs {
+                                                ddRow(id: "auxmc-\(task.key)-\(enc(c.name))") {
+                                                    Span(class: "dd-model-main") {
+                                                        Span(class: "dd-row-title") {
+                                                            Text(c.name)
+                                                            if c.name == stagedName {
+                                                                Span(class: "dd-badge sel") { Text("SELECTED") }
+                                                            }
+                                                        }
+                                                        Span(class: "dd-row-sub") {
+                                                            Text(c.model)
+                                                            if !c.provider.isEmpty {
+                                                                Text(" @ " + c.provider)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .attribute("data-component-id", "auxmc")
+                                    .attribute("data-event", "click")
+                                }
+                            }
+                            if let ov, has, auxOverrideConfigName(ov) == nil {
+                                let raw = ov.model.isEmpty
+                                    ? (ov.provider.isEmpty ? "custom override" : "provider: \(ov.provider)")
+                                    : ov.model + (ov.provider.isEmpty ? "" : " @ " + ov.provider)
+                                Div(class: "aux-custom-note") {
+                                    Text("Currently: ")
+                                    InlineCode(raw)
+                                    Text(" — pick a configuration below (or Main model) and Save to replace it; Cancel keeps it.")
+                                }
+                            }
+                        }
+                        Div(class: "aux-actions") {
+                            ArcButton("Save", class: "primary-btn", type: .submit)
+                            ArcButton("Cancel", id: "aux-cancel-\(task.key)", class: "ghost-btn")
+                        }
+                        .attribute("data-component-id", "aux-edit")
+                        .attribute("data-event", "click")
+                    }
+                    .attribute("data-component-id", "aux-form")
+                }
+            }
+        }
 
-        return """
-        <div class="main-view">
-          <div id="main-scroll" class="main-scroll settings-wrap" data-scroll-key="main-scroll">
-            <section class="set-section" id="appearance">
-              <h2>Appearance</h2>
-              <div class="detail-card">
-                <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
-                  <div class="set-label">Theme<small>Light, dark, or follow the system.</small></div>
-                  <div class="thm-grid" data-component-id="theme-pick" data-event="click">\(themeCards)</div>
-                </div>
-                <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
-                  <div class="set-label">Text size<small>Chat content, session names, workspace files, and memory text.</small></div>
-                  <div class="fsz-grid" data-component-id="font-size-pick" data-event="click">\(sizeCards)</div>
-                </div>
-                <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
-                  <div class="set-label">Color scheme<small>Full palette for the interface.</small></div>
-                  <div class="scheme-grid" data-component-id="scheme-pick" data-event="click">\(swatches)</div>
-                </div>
-                  <div class="set-row">
-                    <div class="set-label">Show conversation outline<small>Adds a floating button to the chat view that lists your sent messages; clicking one jumps to it.</small></div>
-                    <label class="switch">
-                      <input type="checkbox" id="set-showoutline" data-component-id="set-showoutline" data-event="change" data-no-restore \(settings.showConversationOutline ? "checked" : "")>
-                      <span class="track"></span><span class="knob"></span>
-                    </label>
-                  </div>
-                  <div class="set-row">
-                    <div class="set-label">Activity display<small>How thinking and tool activity appear in chats.</small></div>
-                    <div class="bubble-opts" data-component-id="activity-display" data-event="click">\(actOpts)</div>
-                  </div>
-                  <div class="set-row" style="flex-direction:column;align-items:stretch;gap:8px">
-                    <div class="set-label">Sidebar tabs</div>
-                    <div class="side-tab-chips" data-component-id="side-tab-chips" data-event="click">\(tabChips)</div>
-                    <input type="hidden" id="sidebar-tab-order" data-component-id="sidebar-tab-order" data-event="change" value="\(esc(settings.sidebarTabs.joined(separator: ",")))">
-                    <div class="set-hint">Choose which tabs appear in the sidebar and rail. Drag chips to reorder them. Chat and Settings are always visible.</div>
-                  </div>
+        let summary: String
+        if let ov, has {
+            if let cfgName = auxOverrideConfigName(ov) {
+                summary = cfgName
+            } else if !ov.model.isEmpty {
+                summary = ov.model + (ov.provider.isEmpty ? "" : " @ " + ov.provider)
+            } else if !ov.provider.isEmpty {
+                summary = "provider: " + ov.provider
+            } else if !ov.baseURL.isEmpty {
+                summary = "custom base URL"
+            } else {
+                summary = "API key override"
+            }
+        } else {
+            summary = "Main model"
+        }
 
-              </div>
-            </section>
+        return Group {
+            SettingRow {
+            Text(task.displayName)
+            Small("\(task.detail). Currently: \(summary).")
+        } control: {
+            Div(class: "aux-right") {
+                ArcButton(has ? "Edit" : "Configure", id: "aux-edit-\(task.key)", class: "ghost-btn")
+                if has {
+                    ArcButton("Reset", id: "aux-reset-\(task.key)", class: "ghost-btn")
+                }
+            }
+            .attribute("data-component-id", "aux-edit")
+            .attribute("data-event", "click")
+        }
+            .attribute("title", task.detail)
+        }
+    }
 
-            <section class="set-section" id="preferences">
-              <h2>Preferences</h2>
-              <div class="detail-card" style="margin-bottom:12px">
-                <div class="set-row">
-                  <div class="set-label">Default thinking level<small>Applied to new chats; per-chat override in the composer.</small></div>
-                  <select id="set-think" data-component-id="set-think" data-event="change">\(thinkOpts)</select>
-                </div>
-              </div>
-              <div class="detail-card" style="margin-top:12px">
-                <h3 style="margin:0 0 6px">Chat</h3>
-                <div class="set-row">
-                  <div class="set-label">Show token usage<small>Displays input/output token count below each assistant reply. Also toggled with <code>/usage</code>.</small></div>
-                  <label class="switch">
-                    <input type="checkbox" id="set-showtokens" data-component-id="set-showtokens" data-event="change" data-no-restore \(settings.showTokenUsage ? "checked" : "")>
-                    <span class="track"></span><span class="knob"></span>
-                  </label>
-                </div>
-                <div class="set-row">
-                  <div class="set-label">Show token speed (TPS)<small>Displays tokens per second in assistant message headers while streaming and after a response completes. Off by default.</small></div>
-                  <label class="switch">
-                    <input type="checkbox" id="set-showtps" data-component-id="set-showtps" data-event="change" data-no-restore \(settings.showTps ? "checked" : "")>
-                    <span class="track"></span><span class="knob"></span>
-                  </label>
-                </div>
-                <div class="set-row">
-                  <div class="set-label">Pinned conversations limit<small>Maximum number of active conversations that can be pinned in the sidebar. Default is 3.</small></div>
-                  <input type="number" id="set-pinlimit" data-component-id="set-pinlimit" data-event="change" min="1" max="99" step="1" value="\(settings.pinnedSessionsLimit)" style="width:96px;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:13px">
-                </div>
-              </div>
-              <div class="detail-card">
-                <h3 style="margin:0 0 6px">Model configurations</h3>
-                <div class="detail-sub" style="margin-bottom:10px">Add or remove the model configurations available in every chat's config selector.</div>
-                <div data-component-id="modelcfg-list" data-event="click">\(mcRows.isEmpty ? "<div class=\"empty-hint\">No model configurations.</div>" : mcRows)</div>
-                <form id="modelcfg-add-form" data-component-id="modelcfg-add-form" class="form-grid" style="margin-top:14px;border-top:1px dashed var(--border);padding-top:14px">
-                  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
-                    <div><label for="mc-name">Name</label><input id="mc-name" name="mc-name" data-component-id="mc-name" autocomplete="off" spellcheck="false" placeholder="deepseek-v4-flash"></div>
-                    <div><label for="mc-model">Model</label><input id="mc-model" name="mc-model" data-component-id="mc-model" autocomplete="off" spellcheck="false" placeholder="deepseek-v4-flash"></div>
-                    <div><label for="mc-provider">Provider</label><input id="mc-provider" name="mc-provider" data-component-id="mc-provider" autocomplete="off" spellcheck="false" placeholder="custom"></div>
-                  </div>
-                  <div><label for="mc-baseurl">Base URL</label><input id="mc-baseurl" name="mc-baseurl" data-component-id="mc-baseurl" autocomplete="off" spellcheck="false" placeholder="https://api.openai.com/v1"></div>
-                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-                    <div><label for="mc-apikey">API key (optional)</label><input id="mc-apikey" name="mc-apikey" data-component-id="mc-apikey" type="password" autocomplete="new-password" spellcheck="false" placeholder="sk-…"></div>
-                    <div><label for="mc-ctx">Context length (optional)</label><input id="mc-ctx" name="mc-ctx" data-component-id="mc-ctx" type="text" autocomplete="off" placeholder="128000"></div>
-                    <div><label for="mc-maxtok">Max output tokens (optional)</label><input id="mc-maxtok" name="mc-maxtok" data-component-id="mc-maxtok" type="text" autocomplete="off" placeholder="32768"></div>
-                  </div>
-                  <div class="row-actions-main" style="margin:0">
-                    <button type="submit" class="primary-btn">Add configuration</button>
-                  </div>
-                </form>
-              </div>
+    // MARK: - settings · remaining sections
 
-              <div class="detail-card" style="margin-top:12px">
-                <h3 style="margin:0 0 6px">Main model</h3>
-                <div class="detail-sub" style="margin-bottom:10px">The model used for new chats by default. Picked from the Model configurations above.</div>
-                <div class="set-row" style="flex-direction:column;align-items:stretch;gap:8px">
-                  \(render(mainModelDropdown()))
-                </div>
-              </div>
+    private func settingsAssistanceSection() -> some WebUI.View {
+        Section(id: "assistance", class: "set-section") {
+            Heading("Assistance & approvals", level: .h2)
+            DetailCard {
+                SettingRow {
+                    Text("Smart approval")
+                    Small {
+                        Text("Flagged commands are assessed by the ")
+                        InlineCode("approval")
+                        Text(" auxiliary model (reference smart mode): low risk auto-approves, high risk is denied, uncertainty still prompts. Off = classic prompt for every flagged command. ")
+                        InlineCode("approvals: off")
+                        Text(" in ~/.arc/config.json always wins.")
+                    }
+                } control: {
+                    ArcSwitch(id: "set-smart-approval", on: settings.smartApproval,
+                              component: "set-smart-approval", event: "change")
+                }
+                SettingRow {
+                    Text("Smart pick-a-path")
+                    Small {
+                        Text("When a pick-a-path question times out (120 s), the ")
+                        InlineCode("clarify")
+                        Text(" auxiliary model chooses the best offered answer instead of the agent's unguided judgement.")
+                    }
+                } control: {
+                    ArcSwitch(id: "set-smart-pickapath", on: settings.smartPickAPath,
+                              component: "set-smart-pickapath", event: "change")
+                }
+            }
+        }
+    }
 
-              <div class="detail-card" style="margin-top:12px">
-                <h3 style="margin:0 0 6px">Auxiliary models</h3>
-                <div class="detail-sub" style="margin-bottom:10px">Auxiliary tasks (vision, compression, approval, titles, …) use a dedicated model from the <code>auxiliary</code> block of ~/.arc/config.json. Empty overrides fall back to the chat's main model.</div>
-                <div class="aux-list">\(auxRows)</div>
-              </div>
-            </section>
+    private func settingsToolPluginsSection() -> some WebUI.View {
+        Section(id: "tool-plugins", class: "set-section") {
+            Heading("Tool plugins", level: .h2)
+            DetailCard {
+                Div(class: "set-row set-row-stack") {
+                    Div(class: "set-label") {
+                        Text("Integrate tools")
+                        Small {
+                            Text("Tools written as Python scripts or Swift executables, discovered from ")
+                            InlineCode("~/.arc/plugins/")
+                            Text(" (arc plugin parity). Enablement is stored in the ")
+                            InlineCode("plugins.enabled")
+                            Text(" allow-list of ")
+                            InlineCode("~/.arc/config.json")
+                            Text(".")
+                        }
+                    }
+                }
+                pluginSettingsHTML()
+            }
+        }
+    }
 
-            <section class="set-section" id="assistance">
-              <h2>Assistance &amp; approvals</h2>
-              <div class="detail-card">
-                <div class="set-row">
-                  <div class="set-label">Smart approval<small>Flagged commands are assessed by the <code>approval</code> auxiliary model (reference smart mode): low risk auto-approves, high risk is denied, uncertainty still prompts. Off = classic prompt for every flagged command. <code>approvals: off</code> in ~/.arc/config.json always wins.</small></div>
-                  <label class="switch">
-                    <input type="checkbox" id="set-smart-approval" data-component-id="set-smart-approval" data-event="change" data-no-restore \(settings.smartApproval ? "checked" : "")>
-                    <span class="track"></span><span class="knob"></span>
-                  </label>
-                </div>
-                <div class="set-row">
-                  <div class="set-label">Smart pick-a-path<small>When a pick-a-path question times out (120 s), the <code>clarify</code> auxiliary model chooses the best offered answer instead of the agent's unguided judgement.</small></div>
-                  <label class="switch">
-                    <input type="checkbox" id="set-smart-pickapath" data-component-id="set-smart-pickapath" data-event="change" data-no-restore \(settings.smartPickAPath ? "checked" : "")>
-                    <span class="track"></span><span class="knob"></span>
-                  </label>
-                </div>
-              </div>
-            </section>
+    private func settingsMCPSection() -> some WebUI.View {
+        Section(id: "mcp-servers", class: "set-section") {
+            Heading("MCP servers", level: .h2)
+            DetailCard {
+                Div(class: "set-row set-row-stack") {
+                    Div(class: "set-label") {
+                        Text("External tool servers")
+                        Small {
+                            Text("Child processes speaking the Model Context Protocol over stdio. The agent reaches every one of their tools through the single ")
+                            InlineCode("mcp_tool")
+                            Text(" bridge; this panel owns the ")
+                            InlineCode("mcp_servers")
+                            Text(" block of ")
+                            InlineCode("~/.arc/config.json")
+                            Text(".")
+                        }
+                    }
+                }
+                mcpSettingsHTML()
+            }
+        }
+    }
 
-            \(render(agentLimitsSection()))
+    private func settingsSidebarPluginsSection() -> some WebUI.View {
+        Section(id: "sidebar-plugins", class: "set-section") {
+            Heading("Sidebar plugins", level: .h2)
+            DetailCard {
+                Div(class: "set-row set-row-stack") {
+                    Div(class: "set-label") {
+                        Text("Third-party sidebar tabs")
+                        Small {
+                            Text("Tab packages added to the arc-agent build (see ")
+                            InlineCode("docs/sidebar-tab-plugins.md")
+                            Text("). Each tab appears in the rail and renders through the ")
+                            InlineCode("SidebarTab")
+                            Text(" protocol. Hide/show any plugin tab; reordering happens in the Sidebar tabs chips above.")
+                        }
+                    }
+                }
+                sidebarPluginsSettingsHTML()
+            }
+        }
+    }
 
-            \(render(storageSettingsHTML()))
-
-            <section class="set-section" id="tool-plugins">
-              <h2>Tool plugins</h2>
-              <div class="detail-card">
-                <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
-                  <div class="set-label">Integrate tools<small>Tools written as Python scripts or Swift executables, discovered from <code>~/.arc/plugins/</code> (arc plugin parity). Enablement is stored in the <code>plugins.enabled</code> allow-list of <code>~/.arc/config.json</code>.</small></div>
-                </div>
-                \(render(pluginSettingsHTML()))
-              </div>
-            </section>
-
-            <section class="set-section" id="mcp-servers">
-              <h2>MCP servers</h2>
-              <div class="detail-card">
-                <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
-                  <div class="set-label">External tool servers<small>Child processes speaking the Model Context Protocol over stdio. The agent reaches every one of their tools through the single <code>mcp_tool</code> bridge; this panel owns the <code>mcp_servers</code> block of <code>~/.arc/config.json</code>.</small></div>
-                </div>
-                \(render(mcpSettingsHTML()))
-              </div>
-            </section>
-
-            <section class="set-section" id="sidebar-plugins">
-              <h2>Sidebar plugins</h2>
-              <div class="detail-card">
-                <div class="set-row" style="flex-direction:column;align-items:stretch;gap:6px">
-                  <div class="set-label">Third-party sidebar tabs<small>Tab packages added to the arc-agent build (see <code>docs/sidebar-tab-plugins.md</code>). Each tab appears in the rail and renders through the <code>SidebarTab</code> protocol. Hide/show any plugin tab; reordering happens in the Sidebar tabs chips above.</small></div>
-                </div>
-                \(render(sidebarPluginsSettingsHTML()))
-              </div>
-            </section>
-
-            <section class="set-section" id="about">
-              <h2>About</h2>
-              <div class="detail-card">
-                <div class="akv"><span class="akv-k">Version</span><span class="akv-v">\(esc(ArcAgentCore.version)) (webui \(esc(WebUIVersion.version)))</span></div>
-                <div class="akv"><span class="akv-k">Workspace</span><span class="akv-v nowrap" title="\(esc(workspacePath(for: activeSessionID)))">\(esc(workspaceName(for: activeSessionID))) — \(esc(workspacePath(for: activeSessionID)))</span></div>
-                <div class="akv"><span class="akv-k">Sessions</span><span class="akv-v">\(sessions.count)</span></div>
-                <div class="akv"><span class="akv-k">Skills</span><span class="akv-v">\(skills.count)</span></div>
-                <div class="akv"><span class="akv-k">Tools</span><span class="akv-v">\(registry.allTools.count)</span></div>
-                <div class="akv"><span class="akv-k">Profiles</span><span class="akv-v">\(profiles.count)</span></div>
-              </div>
-            </section>
-          </div>
-        </div>
-        """
+    private func settingsAboutSection() -> some WebUI.View {
+        Section(id: "about", class: "set-section") {
+            Heading("About", level: .h2)
+            DetailCard {
+                AkvRow(key: "Version",
+                       value: "\(ArcAgentCore.version) (webui \(WebUIVersion.version))")
+                // `.akv-v nowrap` carries a hover title: AkvRow does not expose the
+                // span's own attributes, so this row is built directly.
+                Div(class: "akv") {
+                    Span(class: "akv-k") { Text("Workspace") }
+                    Span(class: "akv-v nowrap") {
+                        Text("\(workspaceName(for: activeSessionID)) — \(workspacePath(for: activeSessionID))")
+                    }
+                    .attribute("title", workspacePath(for: activeSessionID))
+                }
+                AkvRow(key: "Sessions", value: "\(sessions.count)")
+                AkvRow(key: "Skills", value: "\(skills.count)")
+                AkvRow(key: "Tools", value: "\(registry.allTools.count)")
+                AkvRow(key: "Profiles", value: "\(profiles.count)")
+            }
+        }
     }
 }
 

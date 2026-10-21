@@ -948,7 +948,12 @@ public static let css: String = """
     .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .storage-picker-row { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
     .storage-row-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
-    .conn-form { margin-top: 14px; border-top: 1px dashed var(--border); padding-top: 14px; }
+    .form-sep { margin-top: 14px; border-top: 1px dashed var(--border); padding-top: 14px; }
+    /* card spacing + heading rhythm: were inline styles on 9 settings cards. */
+    .card-stack { margin-top: 12px; }
+    .card-lead { margin-bottom: 12px; }
+    .card-h3 { margin: 0 0 6px; }
+    .card-sub { margin-bottom: 10px; }
     .row-actions-flush { margin: 0; }
     .btn-sm { padding: 4px 10px; font-size: 0.8em; }
     /* a numeric settings field. replaces the inline style blob four settings

@@ -65,9 +65,12 @@ extension ArcWebUITestRoot {
         }
 
         @Test("settings exposes the third-party tab section")
-        func settingsHasPluginSection() {
+        func settingsHasPluginSection() async {
             let views = source("Views.swift")
-            #expect(views.contains("id=\"sidebar-plugins\""))
+            let page = await AppState(renderFixture: AppState.RenderFixture())
+                .settingsMain().markup.html
+            #expect(page.contains("id=\"sidebar-plugins\""),
+                    "the section must reach the page, not just the source")
             #expect(views.contains("func sidebarPluginsSettingsHTML"))
             #expect(views.contains("sidebarPluginsSettingsHTML()"))
             // Plugin chips join the built-in sidebar-tab chips.

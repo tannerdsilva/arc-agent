@@ -106,9 +106,11 @@ extension ArcWebUITestRoot {
             let nav = await AppState(renderFixture: AppState.RenderFixture())
                 .settingsPanel().markup.html
             #expect(nav.contains("href=\"#mcp-servers\""), "Settings nav links the section")
-            let main = Self.source("Views.swift")
-            #expect(main.contains("id=\"mcp-servers\""), "Settings renders the section")
-            #expect(main.contains("mcpSettingsHTML()"))
+            let page = await AppState(renderFixture: AppState.RenderFixture())
+                .settingsMain().markup.html
+            #expect(page.contains("id=\"mcp-servers\""), "Settings renders the section")
+            #expect(page.contains("data-component-id=\"mcp-list\"") || page.contains("mcp-add"),
+                    "the MCP panel body renders inside that section")
         }
 
         @Test("boot binds the shared client manager to the configured servers")

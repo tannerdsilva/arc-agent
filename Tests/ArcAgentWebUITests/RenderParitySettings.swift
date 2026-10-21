@@ -26,14 +26,14 @@ struct RenderParitySettings {
 
     @Test("settings main matches golden")
     func settingsMainGolden() async {
-        let html = await app().settingsMain()
+        let html = await app().settingsMain().markup.html
         Parity.capture(html, as: "settings-main")
         Parity.expect(html, matches: "settings-main")
     }
 
     @Test("settings main in a dark scheme matches golden")
     func settingsMainDarkGolden() async {
-        let html = await app { $0.settings.theme = "dark" }.settingsMain()
+        let html = await app { $0.settings.theme = "dark" }.settingsMain().markup.html
         Parity.capture(html, as: "settings-main-dark")
         Parity.expect(html, matches: "settings-main-dark")
     }
@@ -118,7 +118,7 @@ struct RenderParitySettings {
                 "github": MCPServerConfig(command: "gh-mcp", args: ["serve"], env: ["TOKEN": "x"]),
                 "postgres": MCPServerConfig(command: "pg-mcp", args: [], timeout: 120),
             ]
-        }.settingsMain()
+        }.settingsMain().markup.html
         Parity.capture(html, as: "settings-mcp-three")
         Parity.expect(html, matches: "settings-mcp-three")
     }
