@@ -659,7 +659,8 @@ extension AppState {
         sessionID: String,
         headless: Bool = false,
         selectAfter: Bool = true,
-        displayText: String? = nil
+        displayText: String? = nil,
+        persistUserMessage: Bool = true
     ) async {
         // Bind to the session the message was typed into — the active session
         // may change while the Task is queued or while another chat runs.
@@ -719,19 +720,28 @@ extension AppState {
         storeComposerDraft("", sessionID: sessionID)
 
         let userMsg = Message(role: .user, content: userContent, createdAt: Date(), displayText: displayText)
-        session.messages.append(userMsg)
-        if let idx = sessions.firstIndex(where: { $0.id == sessionID }) {
-            sessions[idx] = session
-        }
-        sessionVersion += 1
-        if let store {
-            await persistMessage(userMsg, sessionID: sessionID, store: store, healWith: session.messages)
+
+        // Host wake (Phase 2): when this turn is triggered by a sharee's
+        // contribution that is already persisted to the shared store, do not
+        // append a duplicate user message — the guest wrote it. We only
+        // materialize it into the local transcript and run the engine over the
+        // existing history.
+        if persistUserMessage {
+            session.messages.append(userMsg)
+            if let idx = sessions.firstIndex(where: { $0.id == sessionID }) {
+                sessions[idx] = session
+            }
+            sessionVersion += 1
+            if let store {
+                await persistMessage(userMsg, sessionID: sessionID, store: store, healWith: session.messages)
+            }
         }
 
         // arc-parity: when a title_gen auxiliary model is assigned, name the
         // chat with it (best-effort + fire-and-forget so streaming is never
         // delayed; without an assignment the first-message auto title stays).
-        if settings.sessionTitles[sessionID] == nil,
+        if persistUserMessage,
+           settings.sessionTitles[sessionID] == nil,
            arcConfig.auxiliary.override(for: .titleGeneration)?.isSet == true {
             Task { await self.maybeGenerateTitle(sessionID: sessionID, pusher: pusher) }
         }
