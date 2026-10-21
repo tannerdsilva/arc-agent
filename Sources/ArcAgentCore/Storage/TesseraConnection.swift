@@ -131,10 +131,14 @@ public actor TesseraConnection {
     public static let goalKind: UInt32 = 3_006
     /// Session share-grant events (TesseraShareStore).
     public static let shareKind: UInt32 = 3_007
+    /// Owner→guest streaming delta events. Each carries an incremental text
+    /// chunk of a response in-progress so a guest tunnel can paint the host's
+    /// reply live, plus a `final` marker when the committed 3001 message lands.
+    public static let streamKind: UInt32 = 3_008
     /// The prefix on every `d` tag value.
     public static let dTagPrefix = "arc/"
-    /// One subscription per kind; the model receives all six.
-    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles", "arc-cron", "arc-goals", "arc-shares"]
+    /// One subscription per kind; the model receives all eight.
+    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles", "arc-cron", "arc-goals", "arc-shares", "arc-stream"]
 
     // MARK: - State
 
@@ -172,6 +176,15 @@ public actor TesseraConnection {
     /// event — the events that determine which conversations appear in another
     /// instance's session list. Use it to live-refresh the session list.
     public nonisolated var sessionChanges: AsyncStream<Void> { sessionChangeStream }
+
+    /// Stream of owner→guest streaming deltas (kind 3008) as they arrive. A
+    /// guest tunnel consumes this to paint a host reply live; the host (which
+    /// authored them) does not consume its own.
+    private let (deltaStream, deltaContinuation) = AsyncStream<TesseraStreamDelta>.makeStream()
+    /// Observe streaming deltas (kind 3008) newly arriving on the relay.
+    public nonisolated var streamDeltas: AsyncStream<TesseraStreamDelta> { deltaStream }
+    /// Ids of stream-delta events already surfaced (dedupes on replay/reconnect).
+    private var seenDeltaIDs: Set<NOSTR_id> = []
 
     // MARK: Record index (fix #1 — bounded per-kind queries)
 
@@ -475,7 +488,7 @@ public actor TesseraConnection {
             var eoseDone = false
             for _ in 0..<3 {
             	try await Self.boundedOp(seconds: Self.writeTimeoutSeconds) {
-            		for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind, Self.shareKind]) {
+            		for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind, Self.shareKind, Self.streamKind]) {
             			try await session.subscribe(subscriptionID: sub, filters: [Filter(applications: [config.application], kinds: [kind])])
             		}
             	}
@@ -505,6 +518,11 @@ public actor TesseraConnection {
             nextSeq = globalMaxSequence() + 1
             isStarted = true
 
+            // Begin surfacing owner→guest streaming deltas (kind 3008) to the
+            // guest tunnel as they arrive. Structured-concurrency Task; the
+            // connection is process-wide so it lives for the process.
+            Task { await self.monitorStreamDeltas() }
+
             // Recover a partial/empty history after a reconnect. Reconnecting to
             // a long-running relay can land while it is still recreating its KCP
             // control blocks, which drops the initial EOSE markers (observed as
@@ -524,7 +542,7 @@ public actor TesseraConnection {
                         // Back off so the re-subscribe lands after the relay's KCP
                         // control blocks settle (they are recreated on connect/roam).
                         try? await Task.sleep(nanoseconds: 2_000_000_000)
-                        for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind, Self.shareKind]) {
+                        for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind, Self.shareKind, Self.streamKind]) {
                             try? await recSession.subscribe(subscriptionID: sub, filters: [Filter(applications: [recConfig.application], kinds: [kind])])
                         }
                     }
@@ -773,6 +791,52 @@ public actor TesseraConnection {
             out.append((seq, text, author))
         }
         return out.sorted { $0.seq < $1.seq }
+    }
+
+    // MARK: - Streaming deltas (kind 3008)
+
+    /// Publish an owner→guest streaming delta for a session. The host calls
+    /// this as a response streams (incremental `text` chunk, `final` on the
+    /// last chunk) so the guest tunnel paints the reply live.
+    public func publishStreamDelta(sessionID: String, messageSeq: Int, text: String, final: Bool) async throws {
+        guard let owner = nostrPublicKeyString else { throw TesseraStoreError.notStarted }
+        let seq = try await takeSequence()
+        let delta = TesseraStreamDelta(seq: seq, sessionID: sessionID, messageSeq: messageSeq, text: text, final: final, owner: owner)
+        let json = String(data: try JSONEncoder().encode(delta), encoding: .utf8) ?? ""
+        try await publish(kind: Self.streamKind, dTagValue: "arc/stream/\(sessionID)/\(seq)", content: json)
+    }
+
+    /// Every streaming delta for a session, in ascending sequence order
+    /// (full replay — a guest uses this to catch up, then observes the live
+    /// `streamDeltas` stream for new chunks).
+    public func streamDeltaEvents(sessionID: String) -> [(messageSeq: Int, text: String, final: Bool)] {
+        guard let model else { return [] }
+        reconcileIndex(model)
+        let prefix = "arc/stream/\(sessionID)/"
+        var out: [(messageSeq: Int, text: String, final: Bool)] = []
+        for rec in recordIndex.snapshot(kind: Self.streamKind) {
+            guard let dTag = rec.dTag, dTag.hasPrefix(prefix),
+                  let delta = try? JSONDecoder().decode(TesseraStreamDelta.self, from: Data(rec.content.utf8)),
+                  delta.sessionID == sessionID else { continue }
+            out.append((delta.messageSeq, delta.text, delta.final))
+        }
+        return out.sorted { $0.messageSeq < $1.messageSeq }
+    }
+
+    /// Coalescing background diff of kind-3008 arrivals, yielding each new
+    /// delta onto ``streamDeltas``. Dedupes by event id so a reconnect replay
+    /// never re-emits already-surfaced chunks.
+    private func monitorStreamDeltas() async {
+        while true {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard isStarted else { continue }
+            for rec in recordIndex.snapshot(kind: Self.streamKind) {
+                guard let id = rec.id, !seenDeltaIDs.contains(id),
+                      let delta = try? JSONDecoder().decode(TesseraStreamDelta.self, from: Data(rec.content.utf8)) else { continue }
+                seenDeltaIDs.insert(id)
+                deltaContinuation.yield(delta)
+            }
+        }
     }
 
     /// Reads a RAW string-like value as a Swift `String` from its bytes.

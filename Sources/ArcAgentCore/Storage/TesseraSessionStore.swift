@@ -19,6 +19,36 @@ public struct TesseraStoredMessage: Codable, Sendable, Equatable {
     }
 }
 
+/// A streaming delta published by a session host so a guest tunnel can paint
+/// the owner's reply live (kind 3008, `d` tag `arc/stream/<sessionID>/<seq>`).
+///
+/// Each event is an incremental text chunk; `final` marks the end of a
+/// response, after which the guest swaps the live block for the committed
+/// kind-3001 message.
+public struct TesseraStreamDelta: Codable, Sendable, Equatable {
+    /// The global sequence number of this delta event.
+    public var seq: Int
+    /// The session this delta belongs to.
+    public var sessionID: String
+    /// The seq of the committed kind-3001 message this streams toward.
+    public var messageSeq: Int
+    /// The incremental text chunk appended to the guest's live block.
+    public var text: String
+    /// True when the response is complete (the committed 3001 landed).
+    public var final: Bool
+    /// The host (owner) identity that produced this stream.
+    public var owner: String
+
+    public init(seq: Int, sessionID: String, messageSeq: Int, text: String, final: Bool, owner: String) {
+        self.seq = seq
+        self.sessionID = sessionID
+        self.messageSeq = messageSeq
+        self.text = text
+        self.final = final
+        self.owner = owner
+    }
+}
+
 /// Session metadata persisted as a Tessera event (kind 3003).
 ///
 /// Metadata is append-only (like messages); the newest record for a session,
