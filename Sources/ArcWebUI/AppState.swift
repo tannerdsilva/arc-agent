@@ -1090,6 +1090,25 @@ actor AppState {
         var activeCategory = "all"
         /// Whether the category create form is open.
         var addingCategory = false
+        // phase 6: the skills/profiles/tools/workspaces surfaces read this state
+        // directly, so a fixture that cannot set it captures an empty page.
+        var profiles: [Profile] = []
+        var selectedProfile: String?
+        var selectedSkill: String?
+        var selectedTool: String?
+        var selectedWorkspace: String?
+        var skillFilter = ""
+        var toolFilter = ""
+        // create/edit forms + the profile skills picker are transient view state
+        var createProfile = false
+        var createWorkspace = false
+        var editingProfile: String?
+        var formValues: [String: String] = [:]
+        var profileSkillsDraft: [String] = []
+        var profileSkillsPickerOpen = false
+        /// the detail panes look tools up in the registry, not in `toolsets` —
+        /// an empty registry renders the blank state no matter the fixture.
+        var registryTools: [any AgentTool] = []
     }
 
     init(renderFixture fixture: RenderFixture) {
@@ -1115,7 +1134,23 @@ actor AppState {
         self.queuedSends = fixture.queuedSends
         self.activeCategory = fixture.activeCategory
         self.addingCategory = fixture.addingCategory
+        self.profiles = fixture.profiles
+        self.selectedProfile = fixture.selectedProfile
+        self.selectedSkill = fixture.selectedSkill
+        self.selectedTool = fixture.selectedTool
+        self.selectedWorkspace = fixture.selectedWorkspace
+        self.skillFilter = fixture.skillFilter
+        self.toolFilter = fixture.toolFilter
+        self.createProfile = fixture.createProfile
+        self.createWorkspace = fixture.createWorkspace
+        self.editingProfile = fixture.editingProfile
+        self.formValues = fixture.formValues
+        self.profileSkillsDraft = fixture.profileSkillsDraft
+        self.profileSkillsPickerOpen = fixture.profileSkillsPickerOpen
         self.registry = MutableToolRegistry(builtIn: CompileTimeToolRegistry())
+        for tool in fixture.registryTools {
+            try? self.registry.register(tool)
+        }
         self.sidebarPlugins = []
         self.pluginTabs = [:]
     }

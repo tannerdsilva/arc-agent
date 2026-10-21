@@ -1,0 +1,16 @@
+<div class="main-view">
+  <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll"><form id="skill-create-form" data-component-id="skill-create-form" class="detail-card" style="max-width:720px">
+  <h1 class="detail-title">New skill</h1>
+  <div class="detail-sub">A skill is a SKILL.md file with YAML frontmatter (name, description) found under the skills directory.</div>
+  <div class="form-grid">
+    <div><label for="skill-name-input">Name<span class="req-tag">Required</span></label><input id="skill-name-input" name="skill-name-input" data-component-id="skill-name-input" data-event="input" placeholder="my-skill" class="text-input" ><span id="skill-name-err" class="inline-err" hidden></span></div>
+    <div><label for="skill-cat-input">Category</label><input id="skill-cat-input" name="skill-cat-input" data-component-id="skill-cat-input" data-event="input" placeholder="e.g. devops"></div>
+    <div><label for="skill-desc-input">Description<span class="req-tag">Required</span></label><input id="skill-desc-input" name="skill-desc-input" data-component-id="skill-desc-input" data-event="input" placeholder="Short description" class="text-input" ><span id="skill-desc-err" class="inline-err" hidden></span></div>
+    <div><label for="skill-content-input">Content (Markdown)</label><textarea id="skill-content-input" name="skill-content-input" data-component-id="skill-content-input" data-event="input" placeholder="How to use this skill…"></textarea></div>
+  </div>
+  <div class="row-actions-main">
+    <button type="submit" class="primary-btn">Create skill</button>
+    <button type="button" id="skill-cancel" data-component-id="skill-cancel" class="ghost-btn">Cancel</button>
+  </div>
+</form></div>
+</div>
