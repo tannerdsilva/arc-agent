@@ -23,37 +23,32 @@ struct Arc: AsyncParsableCommand {
         subcommands: [
             Chat.self,
             BatchCmd.self,
-            HooksCmd.self,
             Serve.self,
-            Setup.self,
-            Tools.self,
-            PluginsCmd.self,
+            SessionCmd.self,
+            Plan.self,
+            System.self,
+            ToolsNamespace.self,
+            Config.self,
             Profile.self,
-            SessionsCmd.self,
-            ApprovalsCmd.self,
-            HeartbeatCmd.self,
-            PersonalityCmd.self,
-            GoalCmd.self,
-            SubgoalCmd.self,
-            CheckpointsCmd.self,
-            BlueprintCmd.self,
-            PromptSizeCmd.self,
-            DoctorCmd.self,
-            StatusCmd.self,
-            SecurityCmd.self,
-            LearningCmd.self,
-            MemoryCmd.self,
             SkillsCmd.self,
-            SkillBundleCmd.self,
-            KanbanCmd.self,
-            CronCmd.self,
-            CuratorCmd.self,
-            ConfigCmd.self,
-            McpCmd.self,
-            Version.self,
+            Setup.self,
+            DoctorCmd.self,
+            PromptSizeCmd.self,
         ]
     )
+
+    @Flag(name: .shortAndLong, help: "Print the version.")
+    var version = false
+
+    func run() async throws {
+        if version {
+            print("arc-agent \(ArcAgentCore.version)")
+            print("Phase: vascular hardening")
+            return
+        }
+    }
 }
+
 
 // MARK: - Chat
 
@@ -373,7 +368,8 @@ struct Setup: AsyncParsableCommand {
 
     static let configuration = CommandConfiguration(
         commandName: "setup",
-        abstract: "Configure ARC Agent for first use."
+        abstract: "Configure ARC Agent for first use.",
+        shouldDisplay: false
     )
 
     func run() async throws {
@@ -429,12 +425,12 @@ struct Setup: AsyncParsableCommand {
     }
 }
 
-// MARK: - Tools
+// MARK: - Tools (list subcommand for ToolsNamespace)
 
-struct Tools: AsyncParsableCommand {
+struct ToolsList: AsyncParsableCommand {
 
     static let configuration = CommandConfiguration(
-        commandName: "tools",
+        commandName: "list",
         abstract: "List registered tools and their schemas."
     )
 
@@ -454,20 +450,6 @@ struct Tools: AsyncParsableCommand {
     }
 }
 
-// MARK: - Version
-
-struct Version: AsyncParsableCommand {
-
-    static let configuration = CommandConfiguration(
-        commandName: "version",
-        abstract: "Print the version."
-    )
-
-    func run() async throws {
-        print("arc-agent \(ArcAgentCore.version)")
-        print("Phase: vascular hardening")
-    }
-}
 
 // MARK: - Profile
 
@@ -718,3 +700,64 @@ extension Chat {
         return resume.id
     }
 }
+
+// MARK: - CLI Namespaces (refactored subcommand groups)
+
+// `arc session` — session inspection and memory.
+struct SessionCmd: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "session",
+        abstract: "Inspect and manage persisted sessions.",
+        subcommands: [
+            SessionsList.self, SessionsShow.self, SessionsDelete.self,
+            SessionsExport.self, SessionsPrune.self, SessionsRename.self,
+            MemoryCmd.self,
+        ]
+    )
+}
+
+// `arc plan` — goal, subgoal, checkpoints, blueprint (planning domain).
+struct Plan: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "plan",
+        abstract: "Manage standing goals, subgoals, checkpoints, and blueprints.",
+        subcommands: [
+            GoalCmd.self, SubgoalCmd.self, CheckpointsCmd.self, BlueprintCmd.self,
+        ]
+    )
+}
+
+// `arc system` — daemon-background concerns (kanban, cron, status).
+struct System: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "system",
+        abstract: "Inspect system surfaces: kanban board, cron jobs, daemon status.",
+        subcommands: [
+            KanbanCmd.self, CronCmd.self, HeartbeatCmd.self, StatusCmd.self,
+        ]
+    )
+}
+
+// `arc tools` — extensibility surface (tools, hooks, plugins, mcp).
+struct ToolsNamespace: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "tools",
+        abstract: "Inspect and exercise tools, hooks, plugins, and MCP servers.",
+        subcommands: [
+            HooksCmd.self, PluginsCmd.self, McpCmd.self, ToolsList.self,
+        ]
+    )
+}
+
+// `arc config` — read/write ~/.arc/config.json (personality, learning, security, approvals).
+struct Config: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "config",
+        abstract: "Read and write agent configuration (~/.arc/config.json).",
+        subcommands: [
+            ConfigShow.self, PersonalityCmd.self, LearningCmd.self,
+            SecurityCmd.self, ApprovalsCmd.self,
+        ]
+    )
+}
+

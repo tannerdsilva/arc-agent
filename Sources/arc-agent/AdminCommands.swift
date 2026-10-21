@@ -10,20 +10,6 @@ fileprivate func cliSessionStore() async -> any SessionStore {
     return await SessionStoreResolver.resolve(tessera: config.tessera).sessionStore
 }
 
-// MARK: - Sessions
-
-/// `arc sessions` — inspect the session store (reference `reference sessions`
-/// CLI surface, subset: list / show / delete).
-
-struct SessionsCmd: AsyncParsableCommand {
-
-    static let configuration = CommandConfiguration(
-        commandName: "sessions",
-        abstract: "Inspect persisted sessions.",
-        subcommands: [SessionsList.self, SessionsShow.self, SessionsDelete.self,
-                      SessionsExport.self, SessionsPrune.self, SessionsRename.self]
-    )
-}
 
 struct SessionsList: AsyncParsableCommand {
 
@@ -186,10 +172,11 @@ struct SkillsCmd: AsyncParsableCommand {
 
     static let configuration = CommandConfiguration(
         commandName: "skills",
-        abstract: "Inspect the skills directory.",
+        abstract: "Inspect and manage the skills directory.",
         subcommands: [
             SkillsList.self, SkillsAudit.self, SkillsUsage.self,
-            SkillsProvenance.self, SkillsSync.self,
+            SkillsProvenance.self, SkillsSync.self, SkillBundleCmd.self,
+            CuratorCmd.self,
         ]
     )
 }
@@ -303,18 +290,6 @@ struct CronList: AsyncParsableCommand {
     }
 }
 
-// MARK: - Config
-
-/// `arc config` — inspect configuration.
-
-struct ConfigCmd: AsyncParsableCommand {
-
-    static let configuration = CommandConfiguration(
-        commandName: "config",
-        abstract: "Inspect configuration.",
-        subcommands: [ConfigShow.self]
-    )
-}
 
 struct ConfigShow: AsyncParsableCommand {
 

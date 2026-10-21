@@ -9,7 +9,8 @@ import Foundation
 struct PromptSizeCmd: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "prompt-size",
-        abstract: "Estimate prompt tokens per section (tools, skills, memory, personality)."
+        abstract: "Estimate prompt tokens per section (tools, skills, memory, personality).",
+        shouldDisplay: false
     )
     @Option() var contextLength: Int = 200_000
 
@@ -82,7 +83,8 @@ struct PromptSizeCmd: AsyncParsableCommand {
 struct DoctorCmd: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "doctor",
-        abstract: "Check configuration, credentials, and runtime surfaces."
+        abstract: "Check configuration, credentials, and runtime surfaces.",
+        shouldDisplay: false
     )
     func run() async throws {
         var ok = true
