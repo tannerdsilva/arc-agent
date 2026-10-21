@@ -743,6 +743,23 @@ extension AppState {
         let transcript = await transcriptFragments()
         await pusher(turnChrome + transcript)
 
+        // Host/guest split (Phase 1): the owner is the sole host. If this
+        // process is a granted sharee on a shared session, do not build or
+        // run a second agent — the contribution is already persisted and
+        // rendered; show a "waiting for the owner" status and stop. The
+        // tunnel listener (Phase 4) paints the owner's response as it
+        // streams back over kind 3008.
+        if let identity = await identityPubkey(),
+           SharedSessionACL.turnMode(
+               identity: identity, sessionID: sessionID,
+               sessionOwner: session.owner, grants: shareGrants
+           ) == .guest {
+            activeTurns[sessionID]?.status = "waiting"
+            LogCollector.shared.append(level: .info, text: "[share] session \(String(sessionID.prefix(8))) is a guest view; contribution recorded, waiting for the owner")
+            await pusher(await liveFragments())
+            return
+        }
+
         // Streaming loop with ~90 ms push coalescing. Only push live
         // fragments while the user is viewing the chat that owns the turn —
         // otherwise the active chat's scroll container is needlessly replaced

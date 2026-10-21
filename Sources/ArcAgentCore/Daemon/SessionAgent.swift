@@ -118,6 +118,27 @@ public actor SessionAgent: Service {
                 session: sessionOverrides
             )
 
+            // Host/guest split (Phase 1): the owner is the sole host. When
+            // this process holds a grant (not ownership) on a shared session,
+            // we must not build or run a second agent — this side is a tunnel
+            // that relays only. Resolve the turn mode from the store's owner +
+            // live grants before constructing the engine, so a guest process
+            // skips the model/provider/tool-registry cost entirely. (With no
+            // resolvable identity, or a session owned by this identity, we
+            // fall through to the normal host path.)
+            logger.info("step: resolving turn mode")
+            if let identity = await TesseraConnection.shared.nostrPublicKeyString {
+                let grants = await TesseraShareStore.shared.latestGrants()
+                if let stored = try? await sessionStore.get(id: sessionID),
+                   SharedSessionACL.turnMode(
+                       identity: identity, sessionID: sessionID,
+                       sessionOwner: stored.owner, grants: grants
+                   ) == .guest {
+                    logger.info("step: session \\(sessionID) is shared to this process as a guest; owner is sole host — skipping agent construction")
+                    return
+                }
+            }
+
             logger.info("step: creating ArcAgent")
             let agent = ArcAgent(config: ArcAgent.Configuration(
                 model: resolvedModel,

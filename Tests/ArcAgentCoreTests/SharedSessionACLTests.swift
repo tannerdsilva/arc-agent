@@ -20,6 +20,8 @@ struct SharedSessionACLTests {
     func legacyOwned() {
         #expect(SharedSessionACL.role(identity: viewer, sessionID: "s1", sessionOwner: nil, grants: []) == .contribute)
         #expect(SharedSessionACL.isVisible(identity: viewer, sessionID: "s1", sessionOwner: nil, grants: []))
+        // Phase 1 turn mode: a legacy (ownerless) session is a local host.
+        #expect(SharedSessionACL.turnMode(identity: viewer, sessionID: "s1", sessionOwner: nil, grants: []) == .host)
     }
 
     @Test("a session owned by the acting identity is owned")
@@ -57,6 +59,33 @@ struct SharedSessionACLTests {
     func revoked() {
         let grants = [grant("s1", ownerA, [], seq: 2)]
         #expect(!SharedSessionACL.isVisible(identity: viewer, sessionID: "s1", sessionOwner: ownerA, grants: grants))
+    }
+
+    // MARK: Phase 1 — host/guest turn mode
+
+    @Test("turn mode: a contributing grantee is a guest (owner is sole host)")
+    func turnModeContributor() {
+        let grants = [grant("s1", ownerA, [ShareGrantee(pubkey: viewer, role: .contribute)])]
+        #expect(SharedSessionACL.turnMode(identity: viewer, sessionID: "s1", sessionOwner: ownerA, grants: grants) == .guest)
+    }
+
+    @Test("turn mode: a read-only grantee is still a guest (must not run turns)")
+    func turnModeReadOnly() {
+        let grants = [grant("s1", ownerA, [ShareGrantee(pubkey: viewer, role: .read)])]
+        #expect(SharedSessionACL.turnMode(identity: viewer, sessionID: "s1", sessionOwner: ownerA, grants: grants) == .guest)
+    }
+
+    @Test("turn mode: the owner is a host")
+    func turnModeOwner() {
+        let grants = [grant("s1", ownerA, [ShareGrantee(pubkey: viewer, role: .contribute)])]
+        #expect(SharedSessionACL.turnMode(identity: ownerA, sessionID: "s1", sessionOwner: ownerA, grants: grants) == .host)
+    }
+
+    @Test("turn mode: an unrelated or revoked identity has no mode")
+    func turnModeNone() {
+        let grants = [grant("s1", ownerA, [ShareGrantee(pubkey: viewer, role: .contribute)])]
+        #expect(SharedSessionACL.turnMode(identity: "stranger", sessionID: "s1", sessionOwner: ownerA, grants: grants) == nil)
+        #expect(SharedSessionACL.turnMode(identity: viewer, sessionID: "s1", sessionOwner: ownerA, grants: [grant("s1", ownerA, [], seq: 2)]) == nil)
     }
 
     @Test("the newest grant wins (by seq) across grants for the same session")

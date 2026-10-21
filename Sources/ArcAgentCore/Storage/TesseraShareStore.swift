@@ -37,6 +37,19 @@ public struct TesseraShareGrant: Codable, Sendable, Equatable {
     }
 }
 
+/// The turn mode for an identity on a shared session.
+///
+/// The owner is the sole host: only it runs the session's agent. A granted
+/// sharee relays (view / contribute) but must never build or run an agent for
+/// the session — its side is a tunnel, not a second engine. This is the
+/// "replace, not coexist" split.
+public enum SessionTurnMode: Sendable, Equatable {
+    /// The owner — this process runs the agent for the session.
+    case host
+    /// A granted sharee — this process relays only; it must not compute turns.
+    case guest
+}
+
 /// Pure ACL resolution for shared sessions.
 ///
 /// Side-effect free so it is trivially testable without a live tessera
@@ -63,6 +76,23 @@ public enum SharedSessionACL {
             return nil
         }
         return grant.grantees.first(where: { $0.pubkey == identity })?.role
+    }
+
+    /// The turn mode for `identity` on a session, or nil when not visible.
+    ///
+    /// `.guest` is returned for any non-owner visible identity — including a
+    /// `.read` grantee, because a read-only sharee still must not run the
+    /// session's turns (the owner is the sole host). The owner is always
+    /// `.host`.
+    public static func turnMode(
+        identity: String,
+        sessionID: String,
+        sessionOwner: String?,
+        grants: [TesseraShareGrant]
+    ) -> SessionTurnMode? {
+        guard isVisible(identity: identity, sessionID: sessionID, sessionOwner: sessionOwner, grants: grants)
+        else { return nil }
+        return isOwner(identity, sessionOwner: sessionOwner) ? .host : .guest
     }
 
     /// Whether `identity` is the session's OWNER (runs its turns). A session
