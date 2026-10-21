@@ -472,7 +472,7 @@ extension ArcWebUITestRoot {
             let views = Self.views
             let sidebar = await AppState(renderFixture: AppState.RenderFixture())
                 .skillsPanel().markup.html
-            let canvas = await AppState(renderFixture: AppState.RenderFixture()).skillsMain()
+            let canvas = await AppState(renderFixture: AppState.RenderFixture()).skillsMain().markup.html
             #expect(sidebar.contains("id=\"skill-new\""),
                     "the sidebar + keeps its id")
             #expect(canvas.contains("id=\"skill-new-main\""),
@@ -851,8 +851,19 @@ extension ArcWebUITestRoot {
         }
 
         @Test("skills are deletable from the UI")
-        func skillDeleteExists() {
-            #expect(Self.views.contains("btn(\"sk-delete\", \"skill-delete\""),
+        func skillDeleteExists() async {
+            // asserted on the rendered delete control, not the source text that
+            // used to build it: the trigger is what the user can reach.
+            let canvas = await AppState(renderFixture: {
+                var f = AppState.RenderFixture()
+                f.skills = [Skill(name: "deploy", description: "Ship the build",
+                                  content: "---\nname: deploy\n---\n\n# deploy",
+                                  tags: [], category: nil,
+                                  path: URL(fileURLWithPath: "/tmp/skills/deploy"))]
+                f.selectedSkill = "deploy"
+                return f
+            }()).skillsMain().markup.html
+            #expect(canvas.contains("data-component-id=\"skill-delete\""),
                     "`deleteSkill` shipped with no trigger rendered anywhere (F58)")
             #expect(Self.actions.contains("wire(router, id: \"skill-delete\""))
             #expect(Self.actions.contains("kind: \"skill\", id: name"),

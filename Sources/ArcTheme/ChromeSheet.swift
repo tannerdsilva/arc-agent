@@ -959,6 +959,12 @@ public static let css: String = """
     .detail-h3 { margin: 16px 0 6px; }
     .ws-form { max-width: 560px; }
     .form-hint { color: var(--muted); font-size: 0.75em; }
+    /* skills pane (phase 6.4b) */
+    .skill-form { max-width: 720px; }
+    .skill-desc { color: var(--text); font-size: 0.98em; margin: 0 0 12px; }
+    .detail-body-lead { margin-top: 14px; }
+    .mem-head-title { margin: 0; }
+    .blank-cta { margin-top: 12px; }
     /* card spacing + heading rhythm: were inline styles on 9 settings cards. */
     .card-stack { margin-top: 12px; }
     .card-lead { margin-bottom: 12px; }

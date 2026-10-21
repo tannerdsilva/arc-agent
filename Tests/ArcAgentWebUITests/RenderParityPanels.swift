@@ -136,7 +136,7 @@ struct RenderParityPanels {
 
 	@Test("skills main with nothing selected matches golden")
 	func skillsMainEmptyGolden() async {
-		let html = await app { $0.skills = [self.skill("deploy", "Ship the build")] }.skillsMain()
+		let html = await app { $0.skills = [self.skill("deploy", "Ship the build")] }.skillsMain().markup.html
 		Parity.capture(html, as: "skills-main-empty")
 		Parity.expect(html, matches: "skills-main-empty")
 	}
@@ -146,14 +146,14 @@ struct RenderParityPanels {
 		let html = await app {
 			$0.skills = [self.skill("deploy", "Ship the build"), self.skill("rollback", "Undo it")]
 			$0.selectedSkill = "deploy"
-		}.skillsMain()
+		}.skillsMain().markup.html
 		Parity.capture(html, as: "skills-main-detail")
 		Parity.expect(html, matches: "skills-main-detail")
 	}
 
 	@Test("skill create form matches golden")
 	func skillCreateFormGolden() async {
-		let html = await app().skillCreateForm()
+		let html = await app().skillCreateForm().markup.html
 		Parity.capture(html, as: "skill-create-form")
 		Parity.expect(html, matches: "skill-create-form")
 	}
@@ -161,7 +161,7 @@ struct RenderParityPanels {
 	@Test("skill edit form matches golden")
 	func skillEditFormGolden() async {
 		let s = skill("deploy", "Ship the build")
-		let html = await app().skillEditForm(s)
+		let html = await app().skillEditForm(s).markup.html
 		Parity.capture(html, as: "skill-edit-form")
 		Parity.expect(html, matches: "skill-edit-form")
 	}
@@ -169,7 +169,7 @@ struct RenderParityPanels {
 	@Test("skill metadata box matches golden")
 	func skillMetadataGolden() async {
 		let s = skill("deploy", "Ship the build")
-		let html = await app().skillMetadataHTML(s)
+		let html = await app().skillMetadataHTML(s).markup.html
 		Parity.capture(html, as: "skill-metadata")
 		Parity.expect(html, matches: "skill-metadata")
 	}

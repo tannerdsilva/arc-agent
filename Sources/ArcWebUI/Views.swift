@@ -1109,7 +1109,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         case .chat:
             return render(chatMain())
         case .skills:
-            return skillsMain()
+            return render(skillsMain())
         case .profiles:
             return profilesMain()
         case .tools:
@@ -2745,127 +2745,206 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         return nil
     }
 
-    func skillsMain() -> String {
-        if createSkill {
-            return skillCreateForm()
+    func skillsMain() -> some WebUI.View {
+        Group {
+            if createSkill {
+                skillCreateForm()
+            } else if let name = selectedSkill, let skill = skills.first(where: { $0.name == name }) {
+                if skillEdit {
+                    skillEditForm(skill)
+                } else {
+                    let raw = skillBodyOnly(skill.content).isEmpty ? skill.description : skillBodyOnly(skill.content)
+                    mainScroll {
+                        Div(class: "detail-card") {
+                            Div(class: "mem-head") {
+                                Div {
+                                    DetailTitle(skill.name, class: "mem-head-title")
+                                    Div(class: "detail-sub") {
+                                        Text(skill.category ?? "")
+                                        if !skill.tags.isEmpty {
+                                            Text(" • " + skill.tags.joined(separator: ", "))
+                                        }
+                                    }
+                                }
+                                ArcButton(id: "sk-edit", component: "skill-edit", class: "icon-mini", type: .button) {
+                                    WebUIIcon(.edit, size: .small)
+                                }
+                                .attribute("title", "Edit skill")
+                                ArcButton(id: "sk-delete", component: "skill-delete", class: "icon-mini danger", type: .button) {
+                                    WebUIIcon(.trash, size: .small)
+                                }
+                                .attribute("title", "Delete skill")
+                            }
+                            Paragraph(skill.description).attribute("class", "skill-desc")
+                            // markdown crosses here — the one parser seam in this pane
+                            Div(class: "detail-body detail-body-lead") {
+                                Raw(.trusted(mdBox(raw)))
+                            }
+                        }
+                    }
+                }
+            } else {
+                // UX-16: one empty state, one CTA. A real "Create skill" button
+                // in the canvas (the sidebar + is the other path).
+                Div(class: "main-view") {
+                    Div(class: "blank") {
+                        Div(class: "big") { WebUIIcon(.star, size: .extraLarge) }
+                        Div { Text(skills.isEmpty ? "No skills yet." : "Select a skill to see its description.") }
+                        Div(class: "blank-cta") {
+                            ArcButton(id: "skill-new-main", component: "skill-new", class: "primary-btn", type: .button) {
+                                WebUIIcon(.plus, size: .medium)
+                                Text(" Create skill")
+                            }
+                            .attribute("title", "Create skill")
+                        }
+                    }
+                }
+                .attribute("style", "justify-content:center")
+            }
         }
-        guard let name = selectedSkill,
-              let skill = skills.first(where: { $0.name == name })
-        else {
-            // UX-16: one empty state, one CTA. A real "Create skill" button
-            // in the canvas (the sidebar + is the other path).
-            let createBtn = btn("skill-new-main", "skill-new", "primary-btn", WebUIIcon(.plus, size: .medium).markup.html + " Create skill", " title=\"Create skill\"")
-            return """
-            <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(WebUIIcon(.star, size: .extraLarge).markup.html)</div>
-                <div>\(skills.isEmpty ? "No skills yet." : "Select a skill to see its description.")</div>
-                <div style="margin-top:12px">\(createBtn)</div>
-              </div>
-            </div>
-            """
-        }
-        let body = mdBox(skillBodyOnly(skill.content).isEmpty ? skill.description : skillBodyOnly(skill.content))
-        if skillEdit {
-            return skillEditForm(skill)
-        }
-        return """
-        <div class="main-view">
-          <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
-            <div class="detail-card">
-              <div class="mem-head">
-                <div><h1 class="detail-title" style="margin:0">\(esc(skill.name))</h1>
-                <div class="detail-sub">\(esc(skill.category ?? ""))\(skill.tags.isEmpty ? "" : " • " + skill.tags.map(esc).joined(separator: ", "))</div></div>
-                \(btn("sk-edit", "skill-edit", "icon-mini", WebUIIcon(.edit, size: .small).markup.html, " title=\"Edit skill\""))
-                \(btn("sk-delete", "skill-delete", "icon-mini danger", WebUIIcon(.trash, size: .small).markup.html, " title=\"Delete skill\""))
-              </div>
-              <p style="color:var(--text);font-size:0.98em;margin:0 0 12px">\(esc(skill.description))</p>
-              <div class="detail-body" style="margin-top:14px">\(body)</div>
-            </div>
-          </div>
-        </div>
-        """
     }
 
     /// Inline edit form for the selected skill (mirrors the memory/doc editor).
-    func skillEditForm(_ skill: Skill) -> String {
+    /// inline edit form for the selected skill (mirrors the memory/doc editor).
+    func skillEditForm(_ skill: Skill) -> some WebUI.View {
         let nameV = formValues["sk-edit-name-input"] ?? skill.name
         let catV = formValues["sk-edit-cat-input"] ?? skill.category ?? ""
         let descV = formValues["sk-edit-desc-input"] ?? skill.description
         let contentV = formValues["sk-edit-content-input"] ?? skill.content
-        return """
-        <div class="main-view"><div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
-          <form id="sk-edit-form" data-component-id="sk-edit-form" class="detail-card" style="max-width:720px">
-            <h1 class="detail-title">Edit skill</h1>
-            <div class="detail-sub">Editing \(esc(skill.name)) — saves back to \(esc(skill.path.path))</div>
-            \(skillMetadataHTML(skill))
-            <input type="hidden" name="sk-orig" value="\(esc(skill.name))">
-            <div class="form-grid">
-              <div><label for="sk-edit-name-input">Name</label><input id="sk-edit-name-input" name="sk-edit-name-input" data-component-id="sk-edit-name-input" data-event="input" value="\(esc(nameV))"></div>
-              <div><label for="sk-edit-cat-input">Category</label><input id="sk-edit-cat-input" name="sk-edit-cat-input" data-component-id="sk-edit-cat-input" data-event="input" value="\(esc(catV))" placeholder="e.g. devops"></div>
-              <div><label for="sk-edit-desc-input">Description</label><input id="sk-edit-desc-input" name="sk-edit-desc-input" data-component-id="sk-edit-desc-input" data-event="input" value="\(esc(descV))"></div>
-              <div><label for="sk-edit-content-input">Content (Markdown)</label><textarea id="sk-edit-content-input" name="sk-edit-content-input" data-component-id="sk-edit-content-input" data-event="input">\(esc(contentV))</textarea></div>
-            </div>
-            <div class="row-actions-main">
-              <button type="submit" class="primary-btn">Save changes</button>
-              \(btn("sk-edit-delete", "sk-edit-delete", "ghost-btn danger", "Delete"))
-              \(btn("sk-edit-cancel", "", "ghost-btn", "Cancel"))
-            </div>
-          </form>
-        </div></div>
-        """
+        return mainScroll {
+            Form(method: nil, id: "sk-edit-form", class: "detail-card skill-form") {
+                Heading("Edit skill", level: .h1, class: "detail-title")
+                Div(class: "detail-sub") {
+                    Text("Editing ")
+                    Text(skill.name)
+                    Text(" — saves back to ")
+                    Text(skill.path.path)
+                }
+                skillMetadataHTML(skill)
+                Input(name: "sk-orig", type: .hidden, value: skill.name)
+                Div(class: "form-grid") {
+                    Div {
+                        Label("Name", for: "sk-edit-name-input")
+                        Input(id: "sk-edit-name-input", name: "sk-edit-name-input", type: nil, value: nameV,
+                              attributes: [("data-component-id", "sk-edit-name-input"), ("data-event", "input")])
+                    }
+                    Div {
+                        Label("Category", for: "sk-edit-cat-input")
+                        Input(id: "sk-edit-cat-input", name: "sk-edit-cat-input", placeholder: "e.g. devops", type: nil, value: catV,
+                              attributes: [("data-component-id", "sk-edit-cat-input"), ("data-event", "input")])
+                    }
+                    Div {
+                        Label("Description", for: "sk-edit-desc-input")
+                        Input(id: "sk-edit-desc-input", name: "sk-edit-desc-input", type: nil, value: descV,
+                              attributes: [("data-component-id", "sk-edit-desc-input"), ("data-event", "input")])
+                    }
+                    Div {
+                        Label("Content (Markdown)", for: "sk-edit-content-input")
+                        TextArea(id: "sk-edit-content-input", name: "sk-edit-content-input", value: contentV, rows: 0)
+                            .attribute("data-component-id", "sk-edit-content-input")
+                            .attribute("data-event", "input")
+                    }
+                }
+                Div(class: "row-actions-main") {
+                    ArcButton("Save changes", class: "primary-btn", type: .submit)
+                    ArcButton("Delete", id: "sk-edit-delete", component: "sk-edit-delete", class: "ghost-btn danger", type: .button)
+                    ArcButton("Cancel", id: "sk-edit-cancel", class: "ghost-btn", type: .button)
+                }
+            }
+            .attribute("data-component-id", "sk-edit-form")
+        }
     }
 
     /// reference metadata box: a rounded monospace panel with the raw YAML
     /// frontmatter. Shown only in the skill EDITOR (never in the reader).
-    func skillMetadataHTML(_ skill: Skill) -> String {
+    /// reference metadata box: a rounded monospace panel with the raw YAML
+    /// frontmatter. shown only in the skill EDITOR (never in the reader).
+    func skillMetadataHTML(_ skill: Skill) -> some WebUI.View {
         let lines = skill.content.components(separatedBy: .newlines)
-        guard let r = skillFrontmatterRange(skill.content) else { return "" }
-        let block = lines[r].joined(separator: "\n")
-        return """
-        <div class="skill-meta-box">
-          <div class="skill-meta-head">Metadata</div>
-          <pre class="skill-meta-pre">\(esc(block))</pre>
-        </div>
-        """
+        return Group {
+            if let r = skillFrontmatterRange(skill.content) {
+                Div(class: "skill-meta-box") {
+                    Div(class: "skill-meta-head") { Text("Metadata") }
+                    Preformatted(lines[r].joined(separator: "\n"))
+                        .attribute("class", "skill-meta-pre")
+                }
+            }
+        }
     }
 
-    func skillCreateForm() -> String {
+    func skillCreateForm() -> some WebUI.View {
         let nameErr = self.skillCreateErrors["skill-name-input"]
         let descErr = self.skillCreateErrors["skill-desc-input"]
-        let nameAria = nameErr != nil ? "aria-invalid=\"true\" aria-describedby=\"skill-name-err\"" : ""
-        let descAria = descErr != nil ? "aria-invalid=\"true\" aria-describedby=\"skill-desc-err\"" : ""
-        // Round-3 UX-35: mark the invalid field, and ask the post-patch seam to
+        // round-3 UX-35: mark the invalid field, and ask the post-patch seam to
         // put the caret in the first one that failed.
-        let nameCls = nameErr != nil ? " input-invalid" : ""
-        let descCls = descErr != nil ? " input-invalid" : ""
-        let nameFocus = nameErr != nil ? " data-focus-after-patch" : ""
-        let descFocus = (descErr != nil && nameErr == nil) ? " data-focus-after-patch" : ""
-        let reqTags = "<span class=\"req-tag\">Required</span>"
-        let nameErrHidden = nameErr == nil ? "hidden" : ""
-        let descErrHidden = descErr == nil ? "hidden" : ""
-        let nameErrText = esc(nameErr ?? "")
-        let descErrText = esc(descErr ?? "")
-        let form = """
-        <form id="skill-create-form" data-component-id="skill-create-form" class="detail-card" style="max-width:720px">
-          <h1 class="detail-title">New skill</h1>
-          <div class="detail-sub">A skill is a SKILL.md file with YAML frontmatter (name, description) found under the skills directory.</div>
-          <div class="form-grid">
-            <div><label for="skill-name-input">Name\(reqTags)</label><input id="skill-name-input" name="skill-name-input" data-component-id="skill-name-input" data-event="input" placeholder="my-skill" class="text-input\(nameCls)" \(nameAria)\(nameFocus)><span id="skill-name-err" class="inline-err" \(nameErrHidden)>\(nameErrText)</span></div>
-            <div><label for="skill-cat-input">Category</label><input id="skill-cat-input" name="skill-cat-input" data-component-id="skill-cat-input" data-event="input" placeholder="e.g. devops"></div>
-            <div><label for="skill-desc-input">Description\(reqTags)</label><input id="skill-desc-input" name="skill-desc-input" data-component-id="skill-desc-input" data-event="input" placeholder="Short description" class="text-input\(descCls)" \(descAria)\(descFocus)><span id="skill-desc-err" class="inline-err" \(descErrHidden)>\(descErrText)</span></div>
-            <div><label for="skill-content-input">Content (Markdown)</label><textarea id="skill-content-input" name="skill-content-input" data-component-id="skill-content-input" data-event="input" placeholder="How to use this skill…"></textarea></div>
-          </div>
-          <div class="row-actions-main">
-            <button type="submit" class="primary-btn">Create skill</button>
-            \(btn("skill-cancel", "skill-cancel", "ghost-btn", "Cancel"))
-          </div>
-        </form>
-        """
-        return """
-        <div class="main-view">
-          <div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">\(form)</div>
-        </div>
-        """
+        let nameFocus = nameErr != nil
+        let descFocus = descErr != nil && nameErr == nil
+
+        func errSpan(id: String, message: String?) -> some WebUI.View {
+            Group {
+                if let message {
+                    Span(class: "inline-err") { Text(message) }.attribute("id", id)
+                } else {
+                    Span(class: "inline-err") { Text("") }
+                        .attribute("id", id)
+                        .attribute("hidden", "")
+                }
+            }
+        }
+
+        return mainScroll {
+            Form(method: nil, id: "skill-create-form", class: "detail-card skill-form") {
+                Heading("New skill", level: .h1, class: "detail-title")
+                Div(class: "detail-sub") {
+                    Text("A skill is a SKILL.md file with YAML frontmatter (name, description) found under the skills directory.")
+                }
+                Div(class: "form-grid") {
+                    Div {
+                        FormLabel(for: "skill-name-input") {
+                            Text("Name")
+                            Span(class: "req-tag") { Text("Required") }
+                        }
+                        invalidField(
+                            Input(id: "skill-name-input", name: "skill-name-input", placeholder: "my-skill", type: nil,
+                                  attributes: [("data-component-id", "skill-name-input"),
+                                               ("data-event", "input"),
+                                               ("class", "text-input")]),
+                            message: nameErr, describedBy: "skill-name-err", focus: nameFocus)
+                        errSpan(id: "skill-name-err", message: nameErr)
+                    }
+                    Div {
+                        Label("Category", for: "skill-cat-input")
+                        Input(id: "skill-cat-input", name: "skill-cat-input", placeholder: "e.g. devops", type: nil,
+                              attributes: [("data-component-id", "skill-cat-input"), ("data-event", "input")])
+                    }
+                    Div {
+                        FormLabel(for: "skill-desc-input") {
+                            Text("Description")
+                            Span(class: "req-tag") { Text("Required") }
+                        }
+                        invalidField(
+                            Input(id: "skill-desc-input", name: "skill-desc-input", placeholder: "Short description", type: nil,
+                                  attributes: [("data-component-id", "skill-desc-input"),
+                                               ("data-event", "input"),
+                                               ("class", "text-input")]),
+                            message: descErr, describedBy: "skill-desc-err", focus: descFocus)
+                        errSpan(id: "skill-desc-err", message: descErr)
+                    }
+                    Div {
+                        Label("Content (Markdown)", for: "skill-content-input")
+                        TextArea(id: "skill-content-input", name: "skill-content-input",
+                                 placeholder: "How to use this skill…", rows: 0)
+                            .attribute("data-component-id", "skill-content-input")
+                            .attribute("data-event", "input")
+                    }
+                }
+                Div(class: "row-actions-main") {
+                    ArcButton("Create skill", class: "primary-btn", type: .submit)
+                    ArcButton("Cancel", id: "skill-cancel", component: "skill-cancel", class: "ghost-btn", type: .button)
+                }
+            }
+            .attribute("data-component-id", "skill-create-form")
+        }.attribute("class", "main-view")
     }
 
     // MARK: Profiles main
@@ -3115,6 +3194,30 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
             } else {
                 blankMain("Select a tool to see its definition and parameters.")
+            }
+        }
+    }
+
+    /// a form field that carries its error state. the aria pair and the
+    /// post-patch caret hint are PRESENCE-only: an empty `aria-invalid=""` is
+    /// worse than none, so each case emits a different shape rather than a
+    /// blank value.
+    func invalidField(_ field: some WebUI.View, message: String?,
+                      describedBy: String, focus: Bool) -> some WebUI.View {
+        Group {
+            if message != nil {
+                if focus {
+                    field
+                        .attribute("aria-invalid", "true")
+                        .attribute("aria-describedby", describedBy)
+                        .attribute("data-focus-after-patch", "")
+                } else {
+                    field
+                        .attribute("aria-invalid", "true")
+                        .attribute("aria-describedby", describedBy)
+                }
+            } else {
+                field
             }
         }
     }
