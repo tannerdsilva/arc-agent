@@ -1248,28 +1248,13 @@ final class Controller: Sendable {
     // MARK: Logs
 
     private func wireLogs(_ router: EventRouter) {
-        // Severity filter chips (log-filter-all | info | warn | error).
-        wire(router, id: "log-filter", events: ["click"]) { event in
-            guard let tid = event.string("targetId"), tid.hasPrefix("log-filter-") else { return [] }
-            let lvl = String(tid.dropFirst("log-filter-".count))
-            await self.app.setLogFilter(lvl)
-            return await self.app.logsFragments()
-        }
-        // Clear the in-memory log buffer.
-        wire(router, id: "log-clear", events: ["click"]) { _ in
-            LogCollector.shared.clear()
-            return await self.app.logsFragments()
-        }
+        wireGroup_logs(router)
     }
 
     // MARK: Insights
 
     private func wireInsights(_ router: EventRouter) {
-        wire(router, id: "ins-range", events: ["change"]) { event in
-            let days = Int(event.string("value") ?? "30") ?? 30
-            await self.app.setInsightsRange(days)
-            return await self.app.refreshFragments()
-        }
+        wireGroup_insights(router)
     }
 }
 
@@ -1674,6 +1659,321 @@ extension Controller {
     }
 }
 
+@WireGroup("chatmenu")
+extension Controller {
+    @Wired("chat-menu", events: [.click, .submit])
+    func handleChatMenu(_ event: EventData) async -> [FragmentUpdate] {
+        if event.event == "submit" {
+            guard let sid = event.string("rename-id"), let name = event.string("rename-name") else { return [] }
+            await self.app.renameSession(sid, to: name)
+            return await self.app.refreshFragments()
+        }
+        let tid = event.string("targetId") ?? ""
+        if tid.hasPrefix("sm-rename-") {
+            return []   // client-side inline editor
+        }
+        if tid.hasPrefix("sm-copy-") {
+            // The server hands the resolved URL back inside the #toasts
+            // fragment as a hidden marker that the overlay's post-patch
+            // pass writes to the clipboard. The overlay now owns the
+            // toast: it flashes "Conversation link copied." on success
+            // and "Could not copy the link." on failure — exactly one
+            // toast, owned by the clipboard result (UX-24). The server
+            // must not surface its own success toast, or a failed write
+            // would show the wrong message first.
+            guard let sid = dec(String(tid.dropFirst("sm-copy-".count))) else { return [] }
+            await self.app.markCopyLink(sid)
+            return [fragment("toasts", await self.app.toastsShell())]
+        }
+        if tid.hasPrefix("sm-pin-"), let id = dec(String(tid.dropFirst("sm-pin-".count))) {
+            await self.app.toggleBookmark(id)
+        } else if tid.hasPrefix("sm-arc-"), let id = dec(String(tid.dropFirst("sm-arc-".count))) {
+            await self.app.toggleArchive(id)
+        } else if tid.hasPrefix("sm-dup-"), let id = dec(String(tid.dropFirst("sm-dup-".count))) {
+            await self.app.duplicateSession(id)
+        } else if tid.hasPrefix("sm-del-"), let id = dec(String(tid.dropFirst("sm-del-".count))) {
+            await self.app.requestDeleteSession(id)
+        } else if tid.hasPrefix("sm-uncat-"), let id = dec(String(tid.dropFirst("sm-uncat-".count))) {
+            await self.app.setChatCategory(id, to: nil)
+        } else if tid.hasPrefix("sm-cat-") {
+            let rest = String(tid.dropFirst("sm-cat-".count))
+            let parts = rest.split(separator: ".", maxSplits: 1).map(String.init)
+            guard parts.count == 2,
+                  let catID = dec(parts[0]), let sid = dec(parts[1]) else { return [] }
+            await self.app.setChatCategory(sid, to: catID)
+        } else {
+            return []
+        }
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("modal", events: [.click])
+    func handleModal(_ event: EventData) async -> [FragmentUpdate] {
+        // One dialog, one dispatch: `activeConfirm` exposes whichever
+        // destructive action is armed (profile / chat keep their original
+        // state fields; workspaces arm `pendingConfirm`).
+        let confirmed = event.string("targetId") == "modal-confirm"
+        guard confirmed, let req = await self.app.activeConfirm else {
+            await self.app.cancelDelete()
+            await self.app.cancelProfileDelete()
+            await self.app.cancelConfirm()
+            return await self.app.refreshFragments()
+        }
+        switch req.kind {
+        case "profile":
+            await self.app.cancelProfileDelete()
+            return await self.deleteProfile(req.id)
+        case "chat":
+            await self.app.confirmDeleteSession(req.id)
+        case "workspace":
+            await self.app.cancelConfirm()
+            await self.deleteWorkspace(req.id)
+        case "mcp":
+            await self.app.cancelConfirm()
+            await self.app.removeMCPServer(req.id)
+        case "skill":
+            await self.app.cancelConfirm()
+            await self.deleteSkill(req.id)
+        case "empty-drafts":
+            await self.app.cancelConfirm()
+            await self.app.clearEmptyDrafts()
+        default:
+            await self.app.cancelConfirm()
+        }
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("chat-showarch", events: [.click])
+    func handleChatShowArch(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setShowArchived(!self.app.showArchived)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("chat-clear-empty", events: [.click])
+    func handleChatClearEmpty(_ event: EventData) async -> [FragmentUpdate] {
+        let n = await self.app.emptyDraftCount()
+        guard n > 0 else { return await self.app.refreshFragments() }
+        await self.app.requestConfirm(ConfirmRequest(
+            kind: "empty-drafts", id: "",
+            title: n == 1 ? "Clear the empty chat?" : "Clear \(n) empty chats?",
+            body: n == 1
+                ? "1 conversation with no messages will be deleted. This cannot be undone."
+                : "\(n) conversations with no messages will be deleted. This cannot be undone."))
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("drawer-toggle", events: [.click])
+    func handleDrawerToggle(_ event: EventData) async -> [FragmentUpdate] {
+        return []
+    }
+
+    @Wired("outline-toggle", events: [.click])
+    func handleOutlineToggle(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.toggleOutline()
+        return [fragment("outline-panel", await self.app.outlinePanelHTML)]
+    }
+
+    @Wired("outline-close", events: [.click])
+    func handleOutlineClose(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.closeOutline()
+        return [fragment("outline-panel", await self.app.outlinePanelHTML)]
+    }
+}
+
+@WireGroup("workspaces")
+extension Controller {
+    @Wired("ws-new", events: [.click])
+    func handleWsNew(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.openWorkspaceCreate(forChat: false)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("ws-create-form", events: [.submit])
+    func handleWsCreateForm(_ event: EventData) async -> [FragmentUpdate] {
+        let name = event.string("ws-name-input") ?? ""
+        let path = event.string("ws-path-input") ?? ""
+        return await self.createWorkspace(name: name, path: path)
+    }
+
+    @Wired("ws-name-input", events: [.input])
+    func handleWsNameInput(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("ws-name-input", event.string("value") ?? "")
+        return []
+    }
+
+    @Wired("ws-path-input", events: [.input])
+    func handleWsPathInput(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("ws-path-input", event.string("value") ?? "")
+        return []
+    }
+
+    @Wired("ws-cancel", events: [.click])
+    func handleWsCancel(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.closeWorkspaceCreate()
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("workspace-list", events: [.click])
+    func handleWorkspaceList(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId") else { return [] }
+        return await self.workspaceListAction(tid)
+    }
+}
+
+@WireGroup("mcp")
+extension Controller {
+    @Wired("mcp-add", events: [.click])
+    func handleMcpAdd(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.openMCPAdd()
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("mcp-cancel", events: [.click])
+    func handleMcpCancel(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.closeMCPForm()
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("mcp-name-input", events: [.input])
+    func handleMcpNameInput(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("mcp-name-input", event.string("value") ?? "")
+        return []
+    }
+
+    @Wired("mcp-command-input", events: [.input])
+    func handleMcpCommandInput(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("mcp-command-input", event.string("value") ?? "")
+        return []
+    }
+
+    @Wired("mcp-args-input", events: [.input])
+    func handleMcpArgsInput(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("mcp-args-input", event.string("value") ?? "")
+        return []
+    }
+
+    @Wired("mcp-env-input", events: [.input])
+    func handleMcpEnvInput(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("mcp-env-input", event.string("value") ?? "")
+        return []
+    }
+
+    @Wired("mcp-form", events: [.submit])
+    func handleMcpForm(_ event: EventData) async -> [FragmentUpdate] {
+        return await self.saveMCPServer(
+            name: event.string("mcp-name-input") ?? "",
+            command: event.string("mcp-command-input") ?? "",
+            argsText: event.string("mcp-args-input") ?? "",
+            envText: event.string("mcp-env-input") ?? "")
+    }
+
+    @Wired("mcp-list", events: [.click])
+    func handleMcpList(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId") else { return [] }
+        return await self.mcpListAction(tid)
+    }
+}
+
+@WireGroup("tools")
+extension Controller {
+    @Wired("tool-list", events: [.click])
+    func handleToolList(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId"), tid.hasPrefix("tl-open-") else { return [] }
+        let name = dec(String(tid.dropFirst("tl-open-".count))) ?? ""
+        await self.app.selectTool(name)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("tools-toggle", events: [.change])
+    func handleToolsToggle(_ event: EventData) async -> [FragmentUpdate] {
+        let tid = event.string("targetId") ?? event.string("value") ?? ""
+        guard tid.hasPrefix("ts-") else { return [] }
+        let ts = dec(String(tid.dropFirst("ts-".count))) ?? ""
+        let on = event.checked == true
+        await self.app.setToolset(ts, enabled: on)
+        return await self.app.refreshFragments()
+    }
+}
+
+@WireGroup("plugins")
+extension Controller {
+    @Wired("plugin-toggle", events: [.change])
+    func handlePluginToggle(_ event: EventData) async -> [FragmentUpdate] {
+        let tid = event.string("targetId") ?? event.string("value") ?? ""
+        guard tid.hasPrefix("plgl-") else { return [] }
+        let name = dec(String(tid.dropFirst("plgl-".count))) ?? ""
+        let on = event.checked == true
+        await self.app.setPluginEnabled(name, enabled: on)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("plugin-rescan", events: [.click])
+    func handlePluginRescan(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.refreshPlugins()
+        return await self.app.refreshFragments()
+    }
+}
+
+@WireGroup("logs")
+extension Controller {
+    @Wired("log-filter", events: [.click])
+    func handleLogFilter(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId"), tid.hasPrefix("log-filter-") else { return [] }
+        let lvl = String(tid.dropFirst("log-filter-".count))
+        await self.app.setLogFilter(lvl)
+        return await self.app.logsFragments()
+    }
+
+    @Wired("log-clear", events: [.click])
+    func handleLogClear(_ event: EventData) async -> [FragmentUpdate] {
+        LogCollector.shared.clear()
+        return await self.app.logsFragments()
+    }
+}
+
+@WireGroup("insights")
+extension Controller {
+    @Wired("ins-range", events: [.change])
+    func handleInsRange(_ event: EventData) async -> [FragmentUpdate] {
+        let days = Int(event.string("value") ?? "30") ?? 30
+        await self.app.setInsightsRange(days)
+        return await self.app.refreshFragments()
+    }
+}
+
+@WireGroup("toasts")
+extension Controller {
+    @Wired("toast-dismiss", events: [.click])
+    func handleToastDismiss(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId") else { return [] }
+        if tid.hasPrefix("ta-") {
+            // Toast action button: `ta-<actionId>-<toastId>`. The action id
+            // may itself contain dashes, so split at the LAST dash.
+            let rest = String(tid.dropFirst("ta-".count))
+            guard let lastDash = rest.lastIndex(of: "-"),
+                  Int(rest[rest.index(after: lastDash)...]) != nil else { return [] }
+            let actionID = String(rest[..<lastDash])
+            if actionID == "undo-delete" {
+                let ok = await self.app.undoDeleteChat()
+                if !ok {
+                    _ = await self.app.surfaceToast("Could not restore the conversation.", kind: "error")
+                } else if let toastID = Int(rest[rest.index(after: lastDash)...]) {
+                    // The Undo was consumed — retire its own toast so it
+                    // cannot offer a second, dead undo (refreshFragments
+                    // below re-renders #toasts from the shorter list).
+                    await self.app.dismissToast(id: toastID)
+                }
+                return await self.app.refreshFragments()
+            }
+            return []
+        }
+        guard tid.hasPrefix("t-"),
+              let id = Int(tid.dropFirst("t-".count)) else { return [] }
+        await self.app.dismissToast(id: id)
+        return [fragment("toasts", await self.app.toastsShell())]
+    }
+}
+
 extension Controller {
 
     private func wireSkills(_ router: EventRouter) {
@@ -1869,124 +2169,7 @@ extension Controller {
     /// delete), the centered delete-confirmation modal, and the archived list
     /// toggle.
     private func wireChatMenu(_ router: EventRouter) {
-        wire(router, id: "chat-menu", events: ["click", "submit"]) { event in
-            if event.event == "submit" {
-                guard let sid = event.string("rename-id"), let name = event.string("rename-name") else { return [] }
-                await self.app.renameSession(sid, to: name)
-                return await self.app.refreshFragments()
-            }
-            let tid = event.string("targetId") ?? ""
-            if tid.hasPrefix("sm-rename-") {
-                return []   // client-side inline editor
-            }
-            if tid.hasPrefix("sm-copy-") {
-                // The server hands the resolved URL back inside the #toasts
-                // fragment as a hidden marker that the overlay's post-patch
-                // pass writes to the clipboard. The overlay now owns the
-                // toast: it flashes "Conversation link copied." on success
-                // and "Could not copy the link." on failure — exactly one
-                // toast, owned by the clipboard result (UX-24). The server
-                // must not surface its own success toast, or a failed write
-                // would show the wrong message first.
-                guard let sid = dec(String(tid.dropFirst("sm-copy-".count))) else { return [] }
-                await self.app.markCopyLink(sid)
-                return [fragment("toasts", await self.app.toastsShell())]
-            }
-            if tid.hasPrefix("sm-pin-"), let id = dec(String(tid.dropFirst("sm-pin-".count))) {
-                await self.app.toggleBookmark(id)
-            } else if tid.hasPrefix("sm-arc-"), let id = dec(String(tid.dropFirst("sm-arc-".count))) {
-                await self.app.toggleArchive(id)
-            } else if tid.hasPrefix("sm-dup-"), let id = dec(String(tid.dropFirst("sm-dup-".count))) {
-                await self.app.duplicateSession(id)
-            } else if tid.hasPrefix("sm-del-"), let id = dec(String(tid.dropFirst("sm-del-".count))) {
-                await self.app.requestDeleteSession(id)
-            } else if tid.hasPrefix("sm-uncat-"), let id = dec(String(tid.dropFirst("sm-uncat-".count))) {
-                await self.app.setChatCategory(id, to: nil)
-            } else if tid.hasPrefix("sm-cat-") {
-                let rest = String(tid.dropFirst("sm-cat-".count))
-                let parts = rest.split(separator: ".", maxSplits: 1).map(String.init)
-                guard parts.count == 2,
-                      let catID = dec(parts[0]), let sid = dec(parts[1]) else { return [] }
-                await self.app.setChatCategory(sid, to: catID)
-            } else {
-                return []
-            }
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "modal", events: ["click"]) { event in
-            // One dialog, one dispatch: `activeConfirm` exposes whichever
-            // destructive action is armed (profile / chat keep their original
-            // state fields; workspaces arm `pendingConfirm`).
-            let confirmed = event.string("targetId") == "modal-confirm"
-            guard confirmed, let req = await self.app.activeConfirm else {
-                await self.app.cancelDelete()
-                await self.app.cancelProfileDelete()
-                await self.app.cancelConfirm()
-                return await self.app.refreshFragments()
-            }
-            switch req.kind {
-            case "profile":
-                await self.app.cancelProfileDelete()
-                return await self.deleteProfile(req.id)
-            case "chat":
-                await self.app.confirmDeleteSession(req.id)
-            case "workspace":
-                await self.app.cancelConfirm()
-                await self.deleteWorkspace(req.id)
-            case "mcp":
-                await self.app.cancelConfirm()
-                await self.app.removeMCPServer(req.id)
-            case "skill":
-                await self.app.cancelConfirm()
-                await self.deleteSkill(req.id)
-            case "empty-drafts":
-                await self.app.cancelConfirm()
-                await self.app.clearEmptyDrafts()
-            default:
-                await self.app.cancelConfirm()
-            }
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "chat-showarch", events: ["click"]) { _ in
-            await self.app.setShowArchived(!self.app.showArchived)
-            return await self.app.refreshFragments()
-        }
-        // UX-62: clear the never-messaged drafts that clutter the list. It is a
-        // destructive bulk delete, so it arms the shared confirm modal like
-        // every other delete — the count is re-derived from the store-backed
-        // truth, and only shown when there is something to remove.
-        wire(router, id: "chat-clear-empty", events: ["click"]) { _ in
-            let n = await self.app.emptyDraftCount()
-            guard n > 0 else { return await self.app.refreshFragments() }
-            await self.app.requestConfirm(ConfirmRequest(
-                kind: "empty-drafts", id: "",
-                title: n == 1 ? "Clear the empty chat?" : "Clear \(n) empty chats?",
-                body: n == 1
-                    ? "1 conversation with no messages will be deleted. This cannot be undone."
-                    : "\(n) conversations with no messages will be deleted. This cannot be undone."))
-            return await self.app.refreshFragments()
-        }
-        // The responsive-drawer toggle is wired purely so the engine routes
-        // the click instead of logging "[WebUIEngine] click on unwired control
-        // #drawer-toggle". The drawer's open/close class is client-owned
-        // (overlay.js flips `#app.drawer-open` for the instant feel, scrim,
-        // focus and resize reset), so the handler has no fragment to return.
-        wire(router, id: "drawer-toggle", events: ["click"]) { _ in
-            return []
-        }
-        // Conversation outline: the open state is server-owned, so the control
-        // is a normal wired component (the engine used to log it as an unwired
-        // click) and the panel stays open across a reload. The overlay still
-        // fills the entries from the rendered message anchors and owns the
-        // scroll-to-message jump.
-        wire(router, id: "outline-toggle", events: ["click"]) { _ in
-            await self.app.toggleOutline()
-            return [fragment("outline-panel", await self.app.outlinePanelHTML)]
-        }
-        wire(router, id: "outline-close", events: ["click"]) { _ in
-            await self.app.closeOutline()
-            return [fragment("outline-panel", await self.app.outlinePanelHTML)]
-        }
+        wireGroup_chatmenu(router)
     }
 
     private func newChat() async {
@@ -2507,37 +2690,13 @@ extension Controller {
     // MARK: Tools
 
     private func wireTools(_ router: EventRouter) {
-        wire(router, id: "tool-list", events: ["click"]) { event in
-            guard let tid = event.string("targetId"), tid.hasPrefix("tl-open-") else { return [] }
-            let name = dec(String(tid.dropFirst("tl-open-".count))) ?? ""
-            await self.app.selectTool(name)
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "tools-toggle", events: ["change"]) { event in
-            let tid = event.string("targetId") ?? event.string("value") ?? ""
-            guard tid.hasPrefix("ts-") else { return [] }
-            let ts = dec(String(tid.dropFirst("ts-".count))) ?? ""
-            let on = event.checked == true
-            await self.app.setToolset(ts, enabled: on)
-            return await self.app.refreshFragments()
-        }
+        wireGroup_tools(router)
     }
 
     // MARK: Tool plugins (Settings)
 
     private func wirePlugins(_ router: EventRouter) {
-        wire(router, id: "plugin-toggle", events: ["change"]) { event in
-            let tid = event.string("targetId") ?? event.string("value") ?? ""
-            guard tid.hasPrefix("plgl-") else { return [] }
-            let name = dec(String(tid.dropFirst("plgl-".count))) ?? ""
-            let on = event.checked == true
-            await self.app.setPluginEnabled(name, enabled: on)
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "plugin-rescan", events: ["click"]) { _ in
-            await self.app.refreshPlugins()
-            return await self.app.refreshFragments()
-        }
+        wireGroup_plugins(router)
     }
 
     // MARK: MCP servers (Settings)
@@ -2547,31 +2706,7 @@ extension Controller {
     /// `mcp-list` boundary (the form controls carry their own component ids —
     /// `extractFormData` keys the submit payload by their `name`).
     private func wireMCP(_ router: EventRouter) {
-        wire(router, id: "mcp-add", events: ["click"]) { _ in
-            await self.app.openMCPAdd()
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "mcp-cancel", events: ["click"]) { _ in
-            await self.app.closeMCPForm()
-            return await self.app.refreshFragments()
-        }
-        for field in ["mcp-name-input", "mcp-command-input", "mcp-args-input", "mcp-env-input"] {
-            wire(router, id: field, events: ["input"]) { event in
-                await self.app.storeFormValue(field, event.string("value") ?? "")
-                return []
-            }
-        }
-        wire(router, id: "mcp-form", events: ["submit"]) { event in
-            return await self.saveMCPServer(
-                name: event.string("mcp-name-input") ?? "",
-                command: event.string("mcp-command-input") ?? "",
-                argsText: event.string("mcp-args-input") ?? "",
-                envText: event.string("mcp-env-input") ?? "")
-        }
-        wire(router, id: "mcp-list", events: ["click"]) { event in
-            guard let tid = event.string("targetId") else { return [] }
-            return await self.mcpListAction(tid)
-        }
+        wireGroup_mcp(router)
     }
 
     private func mcpListAction(_ tid: String) async -> [FragmentUpdate] {
@@ -2619,31 +2754,7 @@ extension Controller {
     // MARK: Workspaces
 
     private func wireWorkspaces(_ router: EventRouter) {
-        wire(router, id: "ws-new", events: ["click"]) { _ in
-            await self.app.openWorkspaceCreate(forChat: false)
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "ws-create-form", events: ["submit"]) { event in
-            let name = event.string("ws-name-input") ?? ""
-            let path = event.string("ws-path-input") ?? ""
-            return await self.createWorkspace(name: name, path: path)
-        }
-        wire(router, id: "ws-name-input", events: ["input"]) { event in
-            await self.app.storeFormValue("ws-name-input", event.string("value") ?? "")
-            return []
-        }
-        wire(router, id: "ws-path-input", events: ["input"]) { event in
-            await self.app.storeFormValue("ws-path-input", event.string("value") ?? "")
-            return []
-        }
-        wire(router, id: "ws-cancel", events: ["click"]) { _ in
-            await self.app.closeWorkspaceCreate()
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "workspace-list", events: ["click"]) { event in
-            guard let tid = event.string("targetId") else { return [] }
-            return await self.workspaceListAction(tid)
-        }
+        wireGroup_workspaces(router)
     }
 
     private func workspaceListAction(_ tid: String) async -> [FragmentUpdate] {
@@ -3376,33 +3487,6 @@ extension Controller {
     // MARK: Toasts
 
     private func wireToasts(_ router: EventRouter) {
-        wire(router, id: "toast-dismiss", events: ["click"]) { event in
-            guard let tid = event.string("targetId") else { return [] }
-            if tid.hasPrefix("ta-") {
-                // Toast action button: `ta-<actionId>-<toastId>`. The action id
-                // may itself contain dashes, so split at the LAST dash.
-                let rest = String(tid.dropFirst("ta-".count))
-                guard let lastDash = rest.lastIndex(of: "-"),
-                      Int(rest[rest.index(after: lastDash)...]) != nil else { return [] }
-                let actionID = String(rest[..<lastDash])
-                if actionID == "undo-delete" {
-                    let ok = await self.app.undoDeleteChat()
-                    if !ok {
-                        _ = await self.app.surfaceToast("Could not restore the conversation.", kind: "error")
-                    } else if let toastID = Int(rest[rest.index(after: lastDash)...]) {
-                        // The Undo was consumed — retire its own toast so it
-                        // cannot offer a second, dead undo (refreshFragments
-                        // below re-renders #toasts from the shorter list).
-                        await self.app.dismissToast(id: toastID)
-                    }
-                    return await self.app.refreshFragments()
-                }
-                return []
-            }
-            guard tid.hasPrefix("t-"),
-                  let id = Int(tid.dropFirst("t-".count)) else { return [] }
-            await self.app.dismissToast(id: id)
-            return [fragment("toasts", await self.app.toastsShell())]
-        }
+        wireGroup_toasts(router)
     }
 }
