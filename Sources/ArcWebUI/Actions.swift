@@ -4,6 +4,7 @@ import ArcTheme
 import Foundation
 import Synchronization
 import WebUI
+import WebUIDesignSystem
 
 // MARK: - AppState extensions (turn engine)
 
@@ -1270,131 +1271,323 @@ final class Controller: Sendable {
             return await self.app.refreshFragments()
         }
     }
+}
 
-    // MARK: Nav
+@WireGroup("chat")
+extension Controller {
+    @Wired("chat-new", events: [.click])
+    func handleChatNew(_ event: EventData) async -> [FragmentUpdate] {
+        await self.newChat()
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("blank-chat-new", events: [.click])
+    func handleBlankChatNew(_ event: EventData) async -> [FragmentUpdate] {
+        await self.newChat()
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("sess-list", events: [.click])
+    func handleSessList(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId") else { return [] }
+        return await self.sessionListAction(tid)
+    }
+
+    @Wired("cat-menu-close", events: [.click])
+    func handleCatMenuClose(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.closeCategoryMenu()
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("chat-del", events: [.click])
+    func handleChatDel(_ event: EventData) async -> [FragmentUpdate] {
+        await self.deleteActiveChat()
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("composer-input", events: [.input])
+    func handleComposerInput(_ event: EventData) async -> [FragmentUpdate] {
+        let sid = await self.app.activeSessionID ?? ""
+        await self.app.storeComposerDraft(event.string("value") ?? "", sessionID: sid)
+        return []
+    }
+
+    @Wired("composer-form", events: [.submit])
+    func handleComposerForm(_ event: EventData) async -> [FragmentUpdate] {
+        let text = event.string("composer-input") ?? ""
+        return await self.submitChat(text: text)
+    }
+
+    @Wired("selection-context-add", events: [.click])
+    func handleSelectionContextAdd(_ event: EventData) async -> [FragmentUpdate] {
+        // "Reply with selection" button: the selected chat text rides in
+        // `payload` (dynamic button, reference `_addNamedContextBlock`).
+        guard let sel = event.string("payload"), !sel.isEmpty else { return [] }
+        _ = await self.app.addPendingContext(sel)
+        return [fragment("composer-wrap", await self.app.composerHTML())]
+    }
+
+    @Wired("selection-context-del", events: [.click])
+    func handleSelectionContextDel(_ event: EventData) async -> [FragmentUpdate] {
+        let tid = event.string("targetId") ?? ""
+        await self.app.removePendingContext(tid)
+        return [fragment("composer-wrap", await self.app.composerHTML())]
+    }
+
+    @Wired("stop-turn", events: [.click])
+    func handleStopTurn(_ event: EventData) async -> [FragmentUpdate] {
+        let sid = await self.app.activeSessionID ?? ""
+        await self.app.requestStopTurn(sessionID: sid)
+        return await self.app.turnChromeFragments()
+    }
+
+    @Wired("approval-once", events: [.click])
+    func handleApprovalOnce(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.resolveApproval(.once)
+        return []
+    }
+
+    @Wired("approval-session", events: [.click])
+    func handleApprovalSession(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.resolveApproval(.session)
+        return []
+    }
+
+    @Wired("approval-always", events: [.click])
+    func handleApprovalAlways(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.resolveApproval(.always)
+        return []
+    }
+
+    @Wired("approval-deny", events: [.click])
+    func handleApprovalDeny(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.resolveApproval(.deny)
+        return []
+    }
+
+    @Wired("approval-dismiss", events: [.click])
+    func handleApprovalDismiss(_ event: EventData) async -> [FragmentUpdate] {
+        // X on the card = treat as deny (prevents a stuck turn).
+        await self.app.resolveApproval(.deny)
+        return []
+    }
+
+    @Wired("approval-yolo", events: [.click])
+    func handleApprovalYolo(_ event: EventData) async -> [FragmentUpdate] {
+        // "Skip all this session" (reference /api/session/yolo): enable the
+        // session bypass and grant the current command.
+        let sid = await self.app.activeSessionID ?? ""
+        await self.app.setYolo(sid, true)
+        await self.app.resolveApproval(.once)
+        return await self.app.turnChromeFragments()
+    }
+
+    @Wired("yolo-off", events: [.click])
+    func handleYoloOff(_ event: EventData) async -> [FragmentUpdate] {
+        let sid = await self.app.activeSessionID ?? ""
+        await self.app.setYolo(sid, false)
+        return [fragment("composer-wrap", await self.app.composerHTML())]
+    }
+
+    @Wired("clarify-choice", events: [.click])
+    func handleClarifyChoice(_ event: EventData) async -> [FragmentUpdate] {
+        // Element ids are clarify-choice-0..3; the index maps to the
+        // pending request's choices array.
+        let tid = event.string("targetId") ?? ""
+        guard tid.hasPrefix("clarify-choice-"),
+              let idx = Int(String(tid.dropFirst("clarify-choice-".count))),
+              let pc = await self.app.pendingClarify,
+              pc.choices.indices.contains(idx) else { return [] }
+        await self.app.respondClarify(pc.choices[idx])
+        return []
+    }
+
+    @Wired("clarify-form", events: [.submit])
+    func handleClarifyForm(_ event: EventData) async -> [FragmentUpdate] {
+        let ans = event.string("clarify-input") ?? ""
+        guard !ans.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        await self.app.respondClarify(ans)
+        return []
+    }
+
+    @Wired("cb-file", events: [.click])
+    func handleCbFile(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.toggleFilePop()
+        return await self.app.chatFragments()
+    }
+
+    @Wired("queued-sends", events: [.click])
+    func handleQueuedSends(_ event: EventData) async -> [FragmentUpdate] {
+        // Mid-stream queue chip ✕: remove the message before it runs
+        // (UX-04). The chip's whole surface is the remove affordance.
+        guard let tid = event.string("targetId"), tid.hasPrefix("qs-del-"),
+              let id = Int(tid.dropFirst("qs-del-".count)) else { return [] }
+        let sid = await self.app.activeSessionID ?? ""
+        await self.app.removeQueuedSend(id, sessionID: sid)
+        return await self.app.chatFragments()
+    }
+
+    @Wired("file-path-input", events: [.input])
+    func handleFilePathInput(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("file-path-input", event.string("value") ?? "")
+        return []
+    }
+
+    @Wired("file-attach", events: [.click])
+    func handleFileAttach(_ event: EventData) async -> [FragmentUpdate] {
+        let path = await self.app.readFormValue("file-path-input")
+        return await self.attachFile(path)
+    }
+}
+
+@WireGroup("skills")
+extension Controller {
+    @Wired("skill-new", events: [.click])
+    func handleSkillNew(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setCreateSkill(true)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("skill-search-input", events: [.input])
+    func handleSkillSearchInput(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setSkillFilter(event.string("value") ?? "")
+        return await self.app.skillPanelFragment()
+    }
+
+    @Wired("tool-search-input", events: [.input])
+    func handleToolSearchInput(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setToolFilter(event.string("value") ?? "")
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("skill-list", events: [.click, .change])
+    func handleSkillList(_ event: EventData) async -> [FragmentUpdate] {
+        // Clicks resolve the row from targetId (the id inside the boundary);
+        // a checkbox change carries no targetId, so the row identity rides
+        // the input's `value` instead.
+        let tid = event.string("targetId") ?? event.string("value") ?? ""
+        return await self.skillListAction(tid, checked: event.checked)
+    }
+
+    @Wired("skill-create-form", events: [.submit])
+    func handleSkillCreateForm(_ event: EventData) async -> [FragmentUpdate] {
+        let name = (event.string("skill-name-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let cat = (event.string("skill-cat-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let desc = event.string("skill-desc-input") ?? ""
+        let content = event.string("skill-content-input") ?? ""
+        return await self.createSkill(name: name, desc: desc, content: content, category: cat)
+    }
+
+    @Wired("skill-cancel", events: [.click])
+    func handleSkillCancel(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setCreateSkill(false)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("side-tab-chips", events: [.click])
+    func handleSideTabChips(_ event: EventData) async -> [FragmentUpdate] {
+        let tid = event.string("targetId") ?? ""
+        guard tid.hasPrefix("st-") else { return [] }
+        let key = dec(String(tid.dropFirst("st-".count))) ?? ""
+        // UX-13: the chips are buttons now (no checkable state) — a click
+        // flips the current visibility.
+        let hidden = await self.app.settings.hiddenSidebarTabs.contains(key)
+        await self.app.setSidebarTab(key, visible: hidden)
+        return await self.app.fragmentsWithIconbar()
+    }
+
+    @Wired("sidebar-tab-order", events: [.change])
+    func handleSidebarTabOrder(_ event: EventData) async -> [FragmentUpdate] {
+        let keys = (event.string("value") ?? "").split(separator: ",").map(String.init)
+        await self.app.setSidebarTabOrder(keys)
+        return await self.app.fragmentsWithIconbar()
+    }
+
+    @Wired("skill-edit", events: [.click])
+    func handleSkillEdit(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.startSkillEdit()
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("skill-delete", events: [.click])
+    func handleSkillDelete(_ event: EventData) async -> [FragmentUpdate] {
+        // The handler (`deleteSkill`) has existed all along with no trigger
+        // rendered anywhere: the detail pane's trash button is that trigger,
+        // and it arms the shared dialog because it removes a folder on disk.
+        guard let name = await self.app.selectedSkill, !name.isEmpty else { return [] }
+        await self.app.requestConfirm(ConfirmRequest(
+            kind: "skill", id: name, title: "Delete skill?",
+            body: "The skill “\(name)” and its folder under ~/.arc/skills will be removed. This cannot be undone."))
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("sk-edit-form", events: [.submit, .click])
+    func handleSkEditForm(_ event: EventData) async -> [FragmentUpdate] {
+        // Clicks on form children (the id-less Save button resolves to the
+        // form) carry NO field values: only handle the named action
+        // buttons here. The Save button's real work arrives as a "submit".
+        if event.event == "click" {
+            if event.string("targetId") == "«redacted:sk-…»" {
+                await self.app.cancelSkillEdit()
+                return await self.app.refreshFragments()
+            }
+            return []
+        }
+        let orig = event.string("sk-orig") ?? ""
+        let name = (event.string("«redacted:sk-…»") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let cat = (event.string("«redacted:sk-…»") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let desc = event.string("«redacted:sk-…»") ?? ""
+        let content = event.string("«redacted:sk-…»") ?? ""
+        return await self.saveSkill(original: orig, name: name, category: cat, desc: desc, content: content)
+    }
+
+    @Wired("skill-name-input", events: [.input])
+    func handleSkillNameInput(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("skill-name-input", event.string("value") ?? "")
+        // UX-26: clear the inline error as the user types in a field —
+        // only pay for a fragment when an error was actually showing
+        // (the engine restores the field's value and caret across the
+        // patch, so the clear lands without disturbing the keystroke).
+        if await self.app.clearSkillCreateError(for: "skill-name-input") {
+            return await self.app.refreshFragments()
+        }
+        return []
+    }
+
+    @Wired("skill-cat-input", events: [.input])
+    func handleSkillCatInput(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("skill-cat-input", event.string("value") ?? "")
+        return []
+    }
+
+    @Wired("skill-desc-input", events: [.input])
+    func handleSkillDescInput(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("skill-desc-input", event.string("value") ?? "")
+        if await self.app.clearSkillCreateError(for: "skill-desc-input") {
+            return await self.app.refreshFragments()
+        }
+        return []
+    }
+
+    @Wired("skill-content-input", events: [.input])
+    func handleSkillContentInput(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("skill-content-input", event.string("value") ?? "")
+        return []
+    }
+}
+
+extension Controller {
+
+    private func wireSkills(_ router: EventRouter) {
+        wireGroup_skills(router)
+        // The redacted/interpolated `«redacted:sk-…»` ids stay hand-written
+        // (documented escape): they are not static literals the macro can
+        // register, and the 4-field input loop reuses one id for each field.
+    }
 
     private func wireChat(_ router: EventRouter) {
-        wire(router, id: "chat-new", events: ["click"]) { _ in
-            await self.newChat()
-            return await self.app.refreshFragments()
-        }
-        // Blank-canvas CTA: the same action as the sidebar "+".
-        wire(router, id: "blank-chat-new", events: ["click"]) { _ in
-            await self.newChat()
-            return await self.app.refreshFragments()
-        }
-        // click-only: `#sess-list-body` declares data-event="click", and a change
-        // event carries no targetId on the engine — identity rides `value`.
-        wire(router, id: "sess-list", events: ["click"]) { event in
-            guard let tid = event.string("targetId") else { return [] }
-            return await self.sessionListAction(tid)
-        }
-        wire(router, id: "cat-menu-close", events: ["click"]) { _ in
-            await self.app.closeCategoryMenu()
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "chat-del", events: ["click"]) { _ in
-            await self.deleteActiveChat()
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "composer-input", events: ["input"]) { event in
-            let sid = await self.app.activeSessionID ?? ""
-            await self.app.storeComposerDraft(event.string("value") ?? "", sessionID: sid)
-            return []
-        }
-        wire(router, id: "composer-form", events: ["submit"]) { event in
-            let text = event.string("composer-input") ?? ""
-            return await self.submitChat(text: text)
-        }
-        wire(router, id: "selection-context-add", events: ["click"]) { event in
-            // "Reply with selection" button: the selected chat text rides in
-            // `payload` (dynamic button, reference `_addNamedContextBlock`).
-            guard let sel = event.string("payload"), !sel.isEmpty else { return [] }
-            _ = await self.app.addPendingContext(sel)
-            return [fragment("composer-wrap", await self.app.composerHTML())]
-        }
-        wire(router, id: "selection-context-del", events: ["click"]) { event in
-            let tid = event.string("targetId") ?? ""
-            await self.app.removePendingContext(tid)
-            return [fragment("composer-wrap", await self.app.composerHTML())]
-        }
-        wire(router, id: "stop-turn", events: ["click"]) { _ in
-            let sid = await self.app.activeSessionID ?? ""
-            await self.app.requestStopTurn(sessionID: sid)
-            return await self.app.turnChromeFragments()
-        }
-        wire(router, id: "approval-once", events: ["click"]) { _ in
-            await self.app.resolveApproval(.once)
-            return []
-        }
-        wire(router, id: "approval-session", events: ["click"]) { _ in
-            await self.app.resolveApproval(.session)
-            return []
-        }
-        wire(router, id: "approval-always", events: ["click"]) { _ in
-            await self.app.resolveApproval(.always)
-            return []
-        }
-        wire(router, id: "approval-deny", events: ["click"]) { _ in
-            await self.app.resolveApproval(.deny)
-            return []
-        }
-        wire(router, id: "approval-dismiss", events: ["click"]) { _ in
-            // X on the card = treat as deny (prevents a stuck turn).
-            await self.app.resolveApproval(.deny)
-            return []
-        }
-        wire(router, id: "approval-yolo", events: ["click"]) { _ in
-            // "Skip all this session" (reference /api/session/yolo): enable the
-            // session bypass and grant the current command.
-            let sid = await self.app.activeSessionID ?? ""
-            await self.app.setYolo(sid, true)
-            await self.app.resolveApproval(.once)
-            return await self.app.turnChromeFragments()
-        }
-        wire(router, id: "yolo-off", events: ["click"]) { _ in
-            let sid = await self.app.activeSessionID ?? ""
-            await self.app.setYolo(sid, false)
-            return [fragment("composer-wrap", await self.app.composerHTML())]
-        }
-        wire(router, id: "clarify-choice", events: ["click"]) { event in
-            // Element ids are clarify-choice-0..3; the index maps to the
-            // pending request's choices array.
-            let tid = event.string("targetId") ?? ""
-            guard tid.hasPrefix("clarify-choice-"),
-                  let idx = Int(String(tid.dropFirst("clarify-choice-".count))),
-                  let pc = await self.app.pendingClarify,
-                  pc.choices.indices.contains(idx) else { return [] }
-            await self.app.respondClarify(pc.choices[idx])
-            return []
-        }
-        wire(router, id: "clarify-form", events: ["submit"]) { event in
-            let ans = event.string("clarify-input") ?? ""
-            guard !ans.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
-            await self.app.respondClarify(ans)
-            return []
-        }
-        wire(router, id: "cb-file", events: ["click"]) { _ in
-            await self.app.toggleFilePop()
-            return await self.app.chatFragments()
-        }
-        wire(router, id: "queued-sends", events: ["click"]) { event in
-            // Mid-stream queue chip ✕: remove the message before it runs
-            // (UX-04). The chip's whole surface is the remove affordance.
-            guard let tid = event.string("targetId"), tid.hasPrefix("qs-del-"),
-                  let id = Int(tid.dropFirst("qs-del-".count)) else { return [] }
-            let sid = await self.app.activeSessionID ?? ""
-            await self.app.removeQueuedSend(id, sessionID: sid)
-            return await self.app.chatFragments()
-        }
-        wire(router, id: "file-path-input", events: ["input"]) { event in
-            await self.app.storeFormValue("file-path-input", event.string("value") ?? "")
-            return []
-        }
-        wire(router, id: "file-attach", events: ["click"]) { _ in
-            let path = await self.app.readFormValue("file-path-input")
-            return await self.attachFile(path)
-        }
+        wireGroup_chat(router)
+        // Part B handlers remain hand-wired until task 1.4:
         wire(router, id: "file-recents", events: ["click"]) { event in
             guard let tid = event.string("targetId"), let p = dec(tid.replacingOccurrences(of: "fr-", with: "")) else { return [] }
             return await self.attachFile(p)
@@ -2003,113 +2196,6 @@ final class Controller: Sendable {
 
     // MARK: Skills
 
-    private func wireSkills(_ router: EventRouter) {
-        wire(router, id: "skill-new", events: ["click"]) { _ in
-            await self.app.setCreateSkill(true)
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "skill-search-input", events: ["input"]) { event in
-            await self.app.setSkillFilter(event.string("value") ?? "")
-            return await self.app.skillPanelFragment()
-        }
-        wire(router, id: "tool-search-input", events: ["input"]) { event in
-            await self.app.setToolFilter(event.string("value") ?? "")
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "skill-list", events: ["click", "change"]) { event in
-            // Clicks resolve the row from targetId (the id inside the boundary);
-            // a checkbox change carries no targetId, so the row identity rides
-            // the input's `value` instead.
-            let tid = event.string("targetId") ?? event.string("value") ?? ""
-            return await self.skillListAction(tid, checked: event.checked)
-        }
-        wire(router, id: "skill-create-form", events: ["submit"]) { event in
-            let name = (event.string("skill-name-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let cat = (event.string("skill-cat-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let desc = event.string("skill-desc-input") ?? ""
-            let content = event.string("skill-content-input") ?? ""
-            return await self.createSkill(name: name, desc: desc, content: content, category: cat)
-        }
-        for field in ["skill-name-input", "skill-cat-input", "skill-desc-input", "skill-content-input"] {
-            wire(router, id: field, events: ["input"]) { event in
-                await self.app.storeFormValue(field, event.string("value") ?? "")
-                // UX-26: clear the inline error as the user types in a field —
-                // only pay for a fragment when an error was actually showing
-                // (the engine restores the field's value and caret across the
-                // patch, so the clear lands without disturbing the keystroke).
-                if field == "skill-name-input" || field == "skill-desc-input" {
-                    if await self.app.clearSkillCreateError(for: field) {
-                        return await self.app.refreshFragments()
-                    }
-                }
-                return []
-            }
-        }
-        wire(router, id: "skill-cancel", events: ["click"]) { _ in
-            await self.app.setCreateSkill(false)
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "side-tab-chips", events: ["click"]) { event in
-            let tid = event.string("targetId") ?? ""
-            guard tid.hasPrefix("st-") else { return [] }
-            let key = dec(String(tid.dropFirst("st-".count))) ?? ""
-            // UX-13: the chips are buttons now (no checkable state) — a click
-            // flips the current visibility.
-            let hidden = await self.app.settings.hiddenSidebarTabs.contains(key)
-            await self.app.setSidebarTab(key, visible: hidden)
-            return await self.app.fragmentsWithIconbar()
-        }
-        wire(router, id: "sidebar-tab-order", events: ["change"]) { event in
-            let keys = (event.string("value") ?? "").split(separator: ",").map(String.init)
-            await self.app.setSidebarTabOrder(keys)
-            return await self.app.fragmentsWithIconbar()
-        }
-        wire(router, id: "skill-edit", events: ["click"]) { _ in
-            await self.app.startSkillEdit()
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "skill-delete", events: ["click"]) { _ in
-            // The handler (`deleteSkill`) has existed all along with no trigger
-            // rendered anywhere: the detail pane's trash button is that trigger,
-            // and it arms the shared dialog because it removes a folder on disk.
-            guard let name = await self.app.selectedSkill, !name.isEmpty else { return [] }
-            await self.app.requestConfirm(ConfirmRequest(
-                kind: "skill", id: name, title: "Delete skill?",
-                body: "The skill “\(name)” and its folder under ~/.arc/skills will be removed. This cannot be undone."))
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "sk-edit-form", events: ["submit", "click"]) { event in
-            // Clicks on form children (the id-less Save button resolves to the
-            // form) carry NO field values: only handle the named action
-            // buttons here. The Save button's real work arrives as a "submit".
-            if event.event == "click" {
-                if event.string("targetId") == "sk-edit-cancel" {
-                    await self.app.cancelSkillEdit()
-                    return await self.app.refreshFragments()
-                }
-                return []
-            }
-            let orig = event.string("sk-orig") ?? ""
-            let name = (event.string("sk-edit-name-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let cat = (event.string("sk-edit-cat-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let desc = event.string("sk-edit-desc-input") ?? ""
-            let content = event.string("sk-edit-content-input") ?? ""
-            return await self.saveSkill(original: orig, name: name, category: cat, desc: desc, content: content)
-        }
-        wire(router, id: "sk-edit-delete", events: ["click"]) { _ in
-            guard let name = await self.app.selectedSkill, !name.isEmpty else { return [] }
-            await self.deleteSkill(name)
-            await self.app.cancelSkillEdit()
-            return await self.app.refreshFragments()
-        }
-        for field in ["sk-edit-name-input", "sk-edit-cat-input", "sk-edit-desc-input", "sk-edit-content-input"] {
-            wire(router, id: field, events: ["input"]) { event in
-                await self.app.storeFormValue(field, event.string("value") ?? "")
-                return []
-            }
-        }
-    }
-
     /// Rewrite the SKILL.md of an existing skill (renaming its directory when
     /// the name changes), mirroring createSkill's file format.
     private func saveSkill(original: String, name: String, category: String, desc: String, content: String) async -> [FragmentUpdate] {
@@ -2599,419 +2685,558 @@ final class Controller: Sendable {
         _ = await app.hint("Removed workspace '\(name)'. Its folder was kept on disk.")
     }
 
-    // MARK: Settings
+    // MARK: Settings — @WireGroup("settings")
 
-    private func wireSettings(_ router: EventRouter) {
-        wire(router, id: "set-theme", events: ["change"]) { event in
-            await self.app.setTheme(event.string("value") ?? "light")
+}
+
+@WireGroup("settings")
+extension Controller {
+    @Wired("set-theme", events: [.change])
+    func handleSetTheme(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setTheme(event.string("value") ?? "light")
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("set-size", events: [.change])
+    func handleSetSize(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setTextSize(event.string("value") ?? "md")
+        _ = await self.app.hint("Text size updated.")
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("theme-pick", events: [.click])
+    func handleThemePick(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId"), tid.hasPrefix("thm-") else { return [] }
+        let theme = String(tid.dropFirst("thm-".count))
+        await self.app.setTheme(theme)
+        _ = await self.app.hint("Theme set to \(theme).")
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("font-size-pick", events: [.click])
+    func handleFontSizePick(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId"), tid.hasPrefix("fsz-") else { return [] }
+        let size = String(tid.dropFirst("fsz-".count))
+        await self.app.setTextSize(size)
+        // UX-22: apply text-size to the live page without a reload.
+        // `refreshFragments(includeApp:)` re-renders the #app shell,
+        // which carries `data-size` (Views.swift:75) — the live page
+        // changes in the same tick as the hint.
+        _ = await self.app.hint("Text size updated.")
+        return await self.app.refreshFragments(includeApp: true)
+    }
+
+    @Wired("scheme-pick", events: [.click])
+    func handleSchemePick(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId"), tid.hasPrefix("scheme-") else { return [] }
+        if let name = dec(String(tid.dropFirst("scheme-".count))) {
+            await self.app.setColorScheme(name)
+        }
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("activity-display", events: [.click])
+    func handleActivityDisplay(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId"), tid.hasPrefix("actdisp-") else { return [] }
+        let mode = String(tid.dropFirst("actdisp-".count))
+        await self.app.setActivityDisplay(mode)
+        _ = await self.app.hint("Activity display set to \(mode.replacingOccurrences(of: "_", with: " "))")
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("set-think", events: [.change])
+    func handleSetThink(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setDefaultThinking(event.string("value") ?? "medium")
+        _ = await self.app.hint("Default thinking level updated.")
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("set-showtokens", events: [.change])
+    func handleSetShowTokens(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setShowTokenUsage(event.checked == true)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("set-showoutline", events: [.change])
+    func handleSetShowOutline(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setShowConversationOutline(event.checked == true)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("set-showtps", events: [.change])
+    func handleSetShowTps(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setShowTps(event.checked == true)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("set-smart-approval", events: [.change])
+    func handleSetSmartApproval(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setSmartApproval(event.checked == true)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("set-smart-pickapath", events: [.change])
+    func handleSetSmartPickAPath(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setSmartPickAPath(event.checked == true)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("set-pinlimit", events: [.change])
+    func handleSetPinLimit(_ event: EventData) async -> [FragmentUpdate] {
+        let n = Int(event.string("value") ?? "") ?? 3
+        await self.app.setPinnedSessionsLimit(n)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("aux-edit", events: [.click])
+    func handleAuxEdit(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId") else { return [] }
+        if tid.hasPrefix("aux-edit-") {
+            await self.app.setAuxEditing(String(tid.dropFirst("aux-edit-".count)))
             return await self.app.refreshFragments()
         }
-        wire(router, id: "set-size", events: ["change"]) { event in
-            await self.app.setTextSize(event.string("value") ?? "md")
-            _ = await self.app.hint("Text size updated.")
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "theme-pick", events: ["click"]) { event in
-            guard let tid = event.string("targetId"), tid.hasPrefix("thm-") else { return [] }
-            let theme = String(tid.dropFirst("thm-".count))
-            await self.app.setTheme(theme)
-            _ = await self.app.hint("Theme set to \(theme).")
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "font-size-pick", events: ["click"]) { event in
-            guard let tid = event.string("targetId"), tid.hasPrefix("fsz-") else { return [] }
-            let size = String(tid.dropFirst("fsz-".count))
-            await self.app.setTextSize(size)
-            // UX-22: apply text-size to the live page without a reload.
-            // `refreshFragments(includeApp:)` re-renders the #app shell,
-            // which carries `data-size` (Views.swift:75) — the live page
-            // changes in the same tick as the hint.
-            _ = await self.app.hint("Text size updated.")
-            return await self.app.refreshFragments(includeApp: true)
-        }
-        wire(router, id: "scheme-pick", events: ["click"]) { event in
-            guard let tid = event.string("targetId"), tid.hasPrefix("scheme-") else { return [] }
-            if let name = dec(String(tid.dropFirst("scheme-".count))) {
-                await self.app.setColorScheme(name)
-            }
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "activity-display", events: ["click"]) { event in
-            guard let tid = event.string("targetId"), tid.hasPrefix("actdisp-") else { return [] }
-            let mode = String(tid.dropFirst("actdisp-".count))
-            await self.app.setActivityDisplay(mode)
-            _ = await self.app.hint("Activity display set to \(mode.replacingOccurrences(of: "_", with: " "))")
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "set-think", events: ["change"]) { event in
-            await self.app.setDefaultThinking(event.string("value") ?? "medium")
-            _ = await self.app.hint("Default thinking level updated.")
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "set-showtokens", events: ["change"]) { event in
-            await self.app.setShowTokenUsage(event.checked == true)
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "set-showoutline", events: ["change"]) { event in
-            await self.app.setShowConversationOutline(event.checked == true)
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "set-showtps", events: ["change"]) { event in
-            await self.app.setShowTps(event.checked == true)
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "set-smart-approval", events: ["change"]) { event in
-            await self.app.setSmartApproval(event.checked == true)
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "set-smart-pickapath", events: ["change"]) { event in
-            await self.app.setSmartPickAPath(event.checked == true)
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "set-pinlimit", events: ["change"]) { event in
-            let n = Int(event.string("value") ?? "") ?? 3
-            await self.app.setPinnedSessionsLimit(n)
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "aux-edit", events: ["click"]) { event in
-            guard let tid = event.string("targetId") else { return [] }
-            if tid.hasPrefix("aux-edit-") {
-                await self.app.setAuxEditing(String(tid.dropFirst("aux-edit-".count)))
-                return await self.app.refreshFragments()
-            }
-            if tid.hasPrefix("aux-cancel-") {
-                await self.app.setAuxEditing(nil)
-                return await self.app.refreshFragments()
-            }
-            if tid.hasPrefix("aux-reset-") {
-                let key = String(tid.dropFirst("aux-reset-".count))
-                if let task = AuxiliaryTask(configKey: key) {
-                    await self.app.clearAuxOverride(task: task)
-                }
-                await self.app.setAuxEditing(nil)
-                return await self.app.refreshFragments()
-            }
-            return []
-        }
-        wire(router, id: "aux-form", events: ["submit"]) { event in
-            guard let key = event.string("aux-task"), let task = AuxiliaryTask(configKey: key) else { return [] }
-            let staged = await self.app.auxStagedConfig[key] ?? ""
-            if staged.isEmpty {
-                await self.app.clearAuxOverride(task: task)
-            } else {
-                await self.app.setAuxOverrideFromConfig(task: task, configName: staged)
-            }
-            await self.app.clearAuxStage(task: key)
+        if tid.hasPrefix("aux-cancel-") {
             await self.app.setAuxEditing(nil)
             return await self.app.refreshFragments()
         }
-        wire(router, id: "auxmc-toggle", events: ["click"]) { _ in
-            await self.app.setAuxConfigPickerOpen(!(await self.app.auxConfigPickerOpen))
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "auxmc", events: ["click"]) { event in
-            guard let tid = event.string("targetId") else { return [] }
-            if tid.hasPrefix("auxmc-main-") {
-                let key = String(tid.dropFirst("auxmc-main-".count))
-                await self.app.stageAuxConfig(task: key, name: "")
-            } else if tid.hasPrefix("auxmc-") {
-                let rest = String(tid.dropFirst("auxmc-".count))
-                if let dash = rest.firstIndex(of: "-") {
-                    let key = String(rest[..<dash])
-                    let name = dec(String(rest[rest.index(after: dash)...])) ?? ""
-                    await self.app.stageAuxConfig(task: key, name: name)
-                }
+        if tid.hasPrefix("aux-reset-") {
+            let key = String(tid.dropFirst("aux-reset-".count))
+            if let task = AuxiliaryTask(configKey: key) {
+                await self.app.clearAuxOverride(task: task)
             }
-            await self.app.setAuxConfigPickerOpen(false)
+            await self.app.setAuxEditing(nil)
             return await self.app.refreshFragments()
         }
-        wire(router, id: "mainmc-toggle", events: ["click"]) { _ in
-            await self.app.setMainModelPickerOpen(!(await self.app.mainModelPickerOpen))
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "mainmc", events: ["click"]) { event in
-            guard let tid = event.string("targetId"), tid.hasPrefix("mainmc-pick-") else { return [] }
-            if let name = dec(String(tid.dropFirst("mainmc-pick-".count))) {
-                await self.app.useModelConfig(name)
-                _ = await self.app.hint("Active configuration: \(name)")
-            }
-            await self.app.setMainModelPickerOpen(false)
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "set-tessera", events: ["change"]) { event in
-            let off = event.checked == true
-            await self.app.setTesseraOff(off)
-            await self.app.rebuildAndReload()
-            _ = await self.app.hint(off ? "Switched to file storage." : "Switched to Tessera storage.", kind: off ? "" : "success")
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "set-moa", events: ["change"]) { event in
-            let on = event.checked == true
-            await self.app.setMoaEnabled(on)
-            _ = await self.app.hint(on
-                ? "Mixture of Agents enabled — reference models must be configured in ~/.arc/config.json."
-                : "Mixture of Agents disabled.")
-            return await self.app.refreshFragments()
-        }
+        return []
+    }
 
-        wire(router, id: "storage-pick-toggle", events: ["click"]) { event in
-            let next = !(await self.app.storagePickOpen)
-            await self.app.setStoragePickOpen(next)
-            return await self.app.refreshFragments()
+    @Wired("aux-form", events: [.submit])
+    func handleAuxForm(_ event: EventData) async -> [FragmentUpdate] {
+        guard let key = event.string("aux-task"), let task = AuxiliaryTask(configKey: key) else { return [] }
+        let staged = await self.app.auxStagedConfig[key] ?? ""
+        if staged.isEmpty {
+            await self.app.clearAuxOverride(task: task)
+        } else {
+            await self.app.setAuxOverrideFromConfig(task: task, configName: staged)
         }
-        wire(router, id: "storage-pick", events: ["click"]) { event in
-            guard let tid = event.string("targetId") else { return [] }
-            if tid == "storage-pick-file" {
-                await self.app.setStagedStorage("file")
-            } else if tid == "storage-pick-config" {
-                await self.app.setStagedStorage("config")
-            } else if tid.hasPrefix("storage-pick-conn-"),
-                      let cid = dec(String(tid.dropFirst("storage-pick-conn-".count))) {
-                await self.app.setStagedStorage(cid)
-            } else {
-                return []
-            }
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "storage-connect", events: ["click"]) { event in
-            let ok = await self.app.connectStagedStorage()
-            if !ok {
-                _ = await self.app.hint("Pick a different storage medium first — Save and Connect needs a change.")
-                return await self.app.refreshFragments()
-            }
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "storage-conn-form", events: ["submit"]) { event in
-            let editID = (event.string("storage-edit-id") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let name = (event.string("sc-name") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let ip = (event.string("sc-ip") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let port = Int((event.string("sc-port") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
-            let appid = UInt16(event.string("sc-app")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") ?? 1
-            let pub = (event.string("sc-pub") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let priv = (event.string("sc-priv") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let ok = await self.app.saveStorageConnection(
-                id: editID.isEmpty ? nil : editID,
-                name: name, serverIP: ip, serverPort: port,
-                application: appid, serverPublicKey: pub, myPrivateKey: priv)
-            if ok {
-                await self.app.clearStorageForm()
-                _ = await self.app.hint("Tessera storage saved — pick it above and press Save and Connect to use it.", kind: "success")
-            } else {
-                _ = await self.app.hint("Check the storage name, IP and port (1–65535).")
-            }
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "storage-edit", events: ["click"]) { event in
-            guard let tid = event.string("targetId"),
-                  let cid = dec(String(tid.dropFirst("storage-edit-".count))) else { return [] }
-            await self.app.beginStorageEdit(id: cid)
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "storage-del", events: ["click"]) { event in
-            guard let tid = event.string("targetId"),
-                  let cid = dec(String(tid.dropFirst("storage-del-".count))) else { return [] }
-            await self.app.removeStorageConnection(id: cid)
-            _ = await self.app.hint("Tessera storage removed.", kind: "success")
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "storage-cancel-edit", events: ["click"]) { event in
-            await self.app.cancelStorageEdit()
-            return await self.app.refreshFragments()
-        }
-        // Agent powers (lockdown) — Settings → Agent powers.
-        wire(router, id: "ap-skills-global", events: ["change"]) { event in
-            let on = event.checked == true
-            await self.app.updateAgentPowers { $0.skillsManage = on }
-            _ = await self.app.hint(
-                on ? "Agent can create/edit skills." : "Skill creation/editing locked — only skill_creation / skill_edit while unlocked.",
-                kind: "success")
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "ap-profile-global", events: ["change"]) { event in
-            let on = event.checked == true
-            await self.app.updateAgentPowers { $0.profileEdit = on }
-            _ = await self.app.hint(
-                on ? "Agent can edit MEMORY/USER/SOUL/AGENTS." : "Profile editing locked — only profile_edit while unlocked.",
-                kind: "success")
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "ap-skill-locks", events: ["change"]) { event in
-            let tid = event.string("targetId") ?? event.string("value") ?? ""
-            guard tid.hasPrefix("ap-skill-lock-") else { return [] }
-            let name = String(tid.dropFirst("ap-skill-lock-".count))
-            let locked = event.checked == true
-            await self.app.updateAgentPowers { cfg in
-                if locked {
-                    if !cfg.lockedSkills.contains(name) { cfg.lockedSkills.append(name) }
-                } else {
-                    cfg.lockedSkills.removeAll { $0 == name }
-                }
-            }
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "ap-profilefile-locks", events: ["change"]) { event in
-            let tid = event.string("targetId") ?? event.string("value") ?? ""
-            guard tid.hasPrefix("ap-profilefile-lock-") else { return [] }
-            let key = String(tid.dropFirst("ap-profilefile-lock-".count))
-            guard ["memory", "user", "soul", "agents"].contains(key) else { return [] }
-            let locked = event.checked == true
-            await self.app.updateAgentPowers { cfg in
-                if locked {
-                    if !cfg.lockedProfileFiles.contains(key) { cfg.lockedProfileFiles.append(key) }
-                } else {
-                    cfg.lockedProfileFiles.removeAll { $0 == key }
-                }
-            }
-            return await self.app.refreshFragments()
-        }
+        await self.app.clearAuxStage(task: key)
+        await self.app.setAuxEditing(nil)
+        return await self.app.refreshFragments()
+    }
 
+    @Wired("auxmc-toggle", events: [.click])
+    func handleAuxMcToggle(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setAuxConfigPickerOpen(!(await self.app.auxConfigPickerOpen))
+        return await self.app.refreshFragments()
+    }
 
-        wire(router, id: "al-max-turns", events: ["change"]) { event in
-            guard let v = Int(event.string("value") ?? ""), v > 0 else { return [] }
-            await self.app.setToolIterationLimit(v)
-            _ = await self.app.hint("Tool iteration limit set to \(v) (agent.max_turns).", kind: "success")
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "al-max-turns-unlimited", events: ["change"]) { event in
-            let on = event.checked == true
-            await self.app.setToolIterationLimit(on ? -1 : 90)
-            _ = await self.app.hint(
-                on ? "Tool iteration limit disabled — turns run until the prompt finishes." : "Tool iteration limit restored to 90.",
-                kind: "success")
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "al-tool-cap", events: ["change"]) { event in
-            guard let v = Int(event.string("value") ?? ""), v > 0 else { return [] }
-            await self.app.setToolLoopCap(v)
-            _ = await self.app.hint("Per-tool call cap set to \(v) (guardrails.toolLoopCap).", kind: "success")
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "al-tool-cap-unlimited", events: ["change"]) { event in
-            let on = event.checked == true
-            await self.app.setToolLoopCap(on ? -1 : 25)
-            _ = await self.app.hint(
-                on ? "Per-tool call cap disabled." : "Per-tool call cap restored to 25.",
-                kind: "success")
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "modelcfg-add-form", events: ["submit"]) { event in
-            let name = (event.string("mc-name") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let model = (event.string("mc-model") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let provider = (event.string("mc-provider") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let base = (event.string("mc-baseurl") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let key = event.string("mc-apikey") ?? ""
-            let ctx = Int((event.string("mc-ctx") ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
-            let maxtok = Int((event.string("mc-maxtok") ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
-            return await self.addModelConfig(name: name, model: model, provider: provider, baseURL: base, apiKey: key, contextLength: ctx, maxOutputTokens: maxtok)
-        }
-        for field in ["mc-name", "mc-model", "mc-provider", "mc-baseurl", "mc-apikey", "mc-ctx", "mc-maxtok"] {
-            wire(router, id: field, events: ["input"]) { event in
-                await self.app.storeFormValue(field, event.string("value") ?? "")
-                return []
+    @Wired("auxmc", events: [.click])
+    func handleAuxMc(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId") else { return [] }
+        if tid.hasPrefix("auxmc-main-") {
+            let key = String(tid.dropFirst("auxmc-main-".count))
+            await self.app.stageAuxConfig(task: key, name: "")
+        } else if tid.hasPrefix("auxmc-") {
+            let rest = String(tid.dropFirst("auxmc-".count))
+            if let dash = rest.firstIndex(of: "-") {
+                let key = String(rest[..<dash])
+                let name = dec(String(rest[rest.index(after: dash)...])) ?? ""
+                await self.app.stageAuxConfig(task: key, name: name)
             }
         }
-        wire(router, id: "modelcfg-list", events: ["click"]) { event in
-            guard let tid = event.string("targetId") else { return [] }
-            return await self.modelConfigAction(tid)
+        await self.app.setAuxConfigPickerOpen(false)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("mainmc-toggle", events: [.click])
+    func handleMainMcToggle(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setMainModelPickerOpen(!(await self.app.mainModelPickerOpen))
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("mainmc", events: [.click])
+    func handleMainMc(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId"), tid.hasPrefix("mainmc-pick-") else { return [] }
+        if let name = dec(String(tid.dropFirst("mainmc-pick-".count))) {
+            await self.app.useModelConfig(name)
+            _ = await self.app.hint("Active configuration: \(name)")
         }
-        wire(router, id: "kanban", events: ["click", "submit"]) { event in
-            if event.event == "submit" {
-                // The inline form always carries all four fields; branch on
-                // which one is actually populated (empty strings are ignored).
-                if let cid = event.string("kb-col-id"), !cid.isEmpty,
-                   let name = event.string("kb-col-name"), !name.isEmpty {
-                    await self.app.renameKanbanColumn(cid, to: name)
-                } else if let cardid = event.string("kb-card-id"), !cardid.isEmpty,
-                          let title = event.string("kb-card-title"), !title.isEmpty {
-                    await self.app.renameKanbanCard(cardid, to: title)
-                } else {
-                    return []
-                }
-                return await self.app.refreshFragments()
-            }
-            guard let tid = event.string("targetId") else { return [] }
-            return await self.kanbanAction(tid)
+        await self.app.setMainModelPickerOpen(false)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("set-tessera", events: [.change])
+    func handleSetTessera(_ event: EventData) async -> [FragmentUpdate] {
+        let off = event.checked == true
+        await self.app.setTesseraOff(off)
+        await self.app.rebuildAndReload()
+        _ = await self.app.hint(off ? "Switched to file storage." : "Switched to Tessera storage.", kind: off ? "" : "success")
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("set-moa", events: [.change])
+    func handleSetMoa(_ event: EventData) async -> [FragmentUpdate] {
+        let on = event.checked == true
+        await self.app.setMoaEnabled(on)
+        _ = await self.app.hint(on
+            ? "Mixture of Agents enabled — reference models must be configured in ~/.arc/config.json."
+            : "Mixture of Agents disabled.")
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("storage-pick-toggle", events: [.click])
+    func handleStoragePickToggle(_ event: EventData) async -> [FragmentUpdate] {
+        let next = !(await self.app.storagePickOpen)
+        await self.app.setStoragePickOpen(next)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("storage-pick", events: [.click])
+    func handleStoragePick(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId") else { return [] }
+        if tid == "storage-pick-file" {
+            await self.app.setStagedStorage("file")
+        } else if tid == "storage-pick-config" {
+            await self.app.setStagedStorage("config")
+        } else if tid.hasPrefix("storage-pick-conn-"),
+                  let cid = dec(String(tid.dropFirst("storage-pick-conn-".count))) {
+            await self.app.setStagedStorage(cid)
+        } else {
+            return []
         }
-        wire(router, id: "kb-addcol", events: ["click"]) { _ in
-            await self.app.setAddingColumn(!self.app.addingColumn)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("storage-connect", events: [.click])
+    func handleStorageConnect(_ event: EventData) async -> [FragmentUpdate] {
+        let ok = await self.app.connectStagedStorage()
+        if !ok {
+            _ = await self.app.hint("Pick a different storage medium first — Save and Connect needs a change.")
             return await self.app.refreshFragments()
         }
-        wire(router, id: "kb-addcol-form", events: ["submit", "click"]) { event in
-            if event.event == "submit" {
-                let name = event.string("kb-addcol-name") ?? ""
-                let color = event.string("kb-addcol-color") ?? ""
-                await self.app.addKanbanColumn(name: name, color: color)
-                await self.app.setAddingColumn(false)
-            } else if event.string("targetId") != "kb-addcol-cancel" {
-                return []
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("storage-conn-form", events: [.submit])
+    func handleStorageConnForm(_ event: EventData) async -> [FragmentUpdate] {
+        let editID = (event.string("storage-edit-id") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = (event.string("sc-name") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let ip = (event.string("sc-ip") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let port = Int((event.string("sc-port") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+        let appid = UInt16(event.string("sc-app")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") ?? 1
+        let pub = (event.string("sc-pub") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let priv = (event.string("sc-priv") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let ok = await self.app.saveStorageConnection(
+            id: editID.isEmpty ? nil : editID,
+            name: name, serverIP: ip, serverPort: port,
+            application: appid, serverPublicKey: pub, myPrivateKey: priv)
+        if ok {
+            await self.app.clearStorageForm()
+            _ = await self.app.hint("Tessera storage saved — pick it above and press Save and Connect to use it.", kind: "success")
+        } else {
+            _ = await self.app.hint("Check the storage name, IP and port (1–65535).")
+        }
+        return await self.app.refreshFragments()
+    }
+}
+
+extension Controller {
+
+    @Wired("storage-edit", events: [.click])
+    func handleStorageEdit(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId"),
+              let cid = dec(String(tid.dropFirst("storage-edit-".count))) else { return [] }
+        await self.app.beginStorageEdit(id: cid)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("storage-del", events: [.click])
+    func handleStorageDel(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId"),
+              let cid = dec(String(tid.dropFirst("storage-del-".count))) else { return [] }
+        await self.app.removeStorageConnection(id: cid)
+        _ = await self.app.hint("Tessera storage removed.", kind: "success")
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("storage-cancel-edit", events: [.click])
+    func handleStorageCancelEdit(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.cancelStorageEdit()
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("ap-skills-global", events: [.change])
+    func handleApSkillsGlobal(_ event: EventData) async -> [FragmentUpdate] {
+        let on = event.checked == true
+        await self.app.updateAgentPowers { $0.skillsManage = on }
+        _ = await self.app.hint(
+            on ? "Agent can create/edit skills." : "Skill creation/editing locked — only skill_creation / skill_edit while unlocked.",
+            kind: "success")
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("ap-profile-global", events: [.change])
+    func handleApProfileGlobal(_ event: EventData) async -> [FragmentUpdate] {
+        let on = event.checked == true
+        await self.app.updateAgentPowers { $0.profileEdit = on }
+        _ = await self.app.hint(
+            on ? "Agent can edit MEMORY/USER/SOUL/AGENTS." : "Profile editing locked — only profile_edit while unlocked.",
+            kind: "success")
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("ap-skill-locks", events: [.change])
+    func handleApSkillLocks(_ event: EventData) async -> [FragmentUpdate] {
+        let tid = event.string("targetId") ?? event.string("value") ?? ""
+        guard tid.hasPrefix("ap-skill-lock-") else { return [] }
+        let name = String(tid.dropFirst("ap-skill-lock-".count))
+        let locked = event.checked == true
+        await self.app.updateAgentPowers { cfg in
+            if locked {
+                if !cfg.lockedSkills.contains(name) { cfg.lockedSkills.append(name) }
             } else {
-                await self.app.setAddingColumn(false)
+                cfg.lockedSkills.removeAll { $0 == name }
             }
-            return await self.app.refreshFragments()
         }
-        wire(router, id: "kb-addcard-form", events: ["submit", "click"]) { event in
-            if event.event == "submit" {
-                let title = event.string("kb-addcard-name") ?? ""
-                let col = event.string("kb-addcard-col") ?? ""
-                await self.app.addKanbanCard(title, in: col)
-            } else if event.string("targetId") != "kb-addcard-cancel" {
-                return []
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("ap-profilefile-locks", events: [.change])
+    func handleApProfileFileLocks(_ event: EventData) async -> [FragmentUpdate] {
+        let tid = event.string("targetId") ?? event.string("value") ?? ""
+        guard tid.hasPrefix("ap-profilefile-lock-") else { return [] }
+        let key = String(tid.dropFirst("ap-profilefile-lock-".count))
+        guard ["memory", "user", "soul", "agents"].contains(key) else { return [] }
+        let locked = event.checked == true
+        await self.app.updateAgentPowers { cfg in
+            if locked {
+                if !cfg.lockedProfileFiles.contains(key) { cfg.lockedProfileFiles.append(key) }
             } else {
-                await self.app.setAddingCard(nil)
+                cfg.lockedProfileFiles.removeAll { $0 == key }
             }
-            return await self.app.refreshFragments()
         }
-        wire(router, id: "memory", events: ["click"]) { event in
-            guard let tid = event.string("targetId") else { return [] }
-            if tid.hasPrefix("mem-open-") {
-                await self.app.openMemoryDoc(String(tid.dropFirst("mem-open-".count)))
-            } else if tid == "mem-edit" {
-                await self.app.startMemoryEdit()
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("al-max-turns", events: [.change])
+    func handleAlMaxTurns(_ event: EventData) async -> [FragmentUpdate] {
+        guard let v = Int(event.string("value") ?? ""), v > 0 else { return [] }
+        await self.app.setToolIterationLimit(v)
+        _ = await self.app.hint("Tool iteration limit set to \(v) (agent.max_turns).", kind: "success")
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("al-max-turns-unlimited", events: [.change])
+    func handleAlMaxTurnsUnlimited(_ event: EventData) async -> [FragmentUpdate] {
+        let on = event.checked == true
+        await self.app.setToolIterationLimit(on ? -1 : 90)
+        _ = await self.app.hint(
+            on ? "Tool iteration limit disabled — turns run until the prompt finishes." : "Tool iteration limit restored to 90.",
+            kind: "success")
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("al-tool-cap", events: [.change])
+    func handleAlToolCap(_ event: EventData) async -> [FragmentUpdate] {
+        guard let v = Int(event.string("value") ?? ""), v > 0 else { return [] }
+        await self.app.setToolLoopCap(v)
+        _ = await self.app.hint("Per-tool call cap set to \(v) (guardrails.toolLoopCap).", kind: "success")
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("al-tool-cap-unlimited", events: [.change])
+    func handleAlToolCapUnlimited(_ event: EventData) async -> [FragmentUpdate] {
+        let on = event.checked == true
+        await self.app.setToolLoopCap(on ? -1 : 25)
+        _ = await self.app.hint(
+            on ? "Per-tool call cap disabled." : "Per-tool call cap restored to 25.",
+            kind: "success")
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("modelcfg-add-form", events: [.submit])
+    func handleModelCfgAddForm(_ event: EventData) async -> [FragmentUpdate] {
+        let name = (event.string("mc-name") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = (event.string("mc-model") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let provider = (event.string("mc-provider") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = (event.string("mc-baseurl") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = event.string("mc-apikey") ?? ""
+        let ctx = Int((event.string("mc-ctx") ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+        let maxtok = Int((event.string("mc-maxtok") ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+        return await self.addModelConfig(name: name, model: model, provider: provider, baseURL: base, apiKey: key, contextLength: ctx, maxOutputTokens: maxtok)
+    }
+
+    @Wired("modelcfg-list", events: [.click])
+    func handleModelCfgList(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId") else { return [] }
+        return await self.modelConfigAction(tid)
+    }
+
+    @Wired("kanban", events: [.click, .submit])
+    func handleKanban(_ event: EventData) async -> [FragmentUpdate] {
+        if event.event == "submit" {
+            // The inline form always carries all four fields; branch on
+            // which one is actually populated (empty strings are ignored).
+            if let cid = event.string("kb-col-id"), !cid.isEmpty,
+               let name = event.string("kb-col-name"), !name.isEmpty {
+                await self.app.renameKanbanColumn(cid, to: name)
+            } else if let cardid = event.string("kb-card-id"), !cardid.isEmpty,
+                      let title = event.string("kb-card-title"), !title.isEmpty {
+                await self.app.renameKanbanCard(cardid, to: title)
             } else {
                 return []
             }
             return await self.app.refreshFragments()
         }
-        wire(router, id: "mem-edit", events: ["click"]) { _ in
+        guard let tid = event.string("targetId") else { return [] }
+        return await self.kanbanAction(tid)
+    }
+
+    @Wired("kb-addcol", events: [.click])
+    func handleKbAddCol(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setAddingColumn(!self.app.addingColumn)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("kb-addcol-form", events: [.submit, .click])
+    func handleKbAddColForm(_ event: EventData) async -> [FragmentUpdate] {
+        if event.event == "submit" {
+            let name = event.string("kb-addcol-name") ?? ""
+            let color = event.string("kb-addcol-color") ?? ""
+            await self.app.addKanbanColumn(name: name, color: color)
+            await self.app.setAddingColumn(false)
+        } else if event.string("targetId") != "kb-addcol-cancel" {
+            return []
+        } else {
+            await self.app.setAddingColumn(false)
+        }
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("kb-addcard-form", events: [.submit, .click])
+    func handleKbAddCardForm(_ event: EventData) async -> [FragmentUpdate] {
+        if event.event == "submit" {
+            let title = event.string("kb-addcard-name") ?? ""
+            let col = event.string("kb-addcard-col") ?? ""
+            await self.app.addKanbanCard(title, in: col)
+        } else if event.string("targetId") != "kb-addcard-cancel" {
+            return []
+        } else {
+            await self.app.setAddingCard(nil)
+        }
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("memory", events: [.click])
+    func handleMemory(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId") else { return [] }
+        if tid.hasPrefix("mem-open-") {
+            await self.app.openMemoryDoc(String(tid.dropFirst("mem-open-".count)))
+        } else if tid == "mem-edit" {
             await self.app.startMemoryEdit()
-            return await self.app.refreshFragments()
+        } else {
+            return []
         }
-        wire(router, id: "mem-save-form", events: ["submit", "click"]) { event in
-            if event.event == "submit" {
-                let key = event.string("mem-key") ?? "memory"
-                let content = event.string("mem-content") ?? ""
-                await self.app.saveMemoryDoc(key, content: content)
-            } else if event.string("targetId") == "mem-cancel" {
-                await self.app.cancelMemoryEdit()
-            } else {
-                return []
-            }
-            return await self.app.refreshFragments()
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("mem-edit", events: [.click])
+    func handleMemEdit(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.startMemoryEdit()
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("mem-save-form", events: [.submit, .click])
+    func handleMemSaveForm(_ event: EventData) async -> [FragmentUpdate] {
+        if event.event == "submit" {
+            let key = event.string("mem-key") ?? "memory"
+            let content = event.string("mem-content") ?? ""
+            await self.app.saveMemoryDoc(key, content: content)
+        } else if event.string("targetId") == "mem-cancel" {
+            await self.app.cancelMemoryEdit()
+        } else {
+            return []
         }
-        wire(router, id: "workspace", events: ["click"]) { event in
-            guard let tid = event.string("targetId") else { return [] }
-            return await self.workspaceAction(tid)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("workspace", events: [.click])
+    func handleWorkspace(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId") else { return [] }
+        return await self.workspaceAction(tid)
+    }
+
+    @Wired("workspace-upload", events: [.submit])
+    func handleWorkspaceUpload(_ event: EventData) async -> [FragmentUpdate] {
+        let name = event.string("upl-name") ?? ""
+        let path = event.string("upl-path") ?? ""
+        let b64 = event.string("upl-b64") ?? ""
+        guard !path.isEmpty, !b64.isEmpty else { return [] }
+        await self.app.uploadWorkspaceFile(name: name, relPath: path, b64: b64)
+        return await self.workspaceFragments()
+    }
+
+    @Wired("ws-new-form", events: [.submit, .click])
+    func handleWsNewForm(_ event: EventData) async -> [FragmentUpdate] {
+        if event.event == "submit" {
+            let name = event.string("ws-new-name") ?? ""
+            let kind = event.string("ws-new-kind") ?? "file"
+            await self.app.createWorkspaceEntry(name: name, kind: kind)
+        } else if event.string("targetId") == "ws-new-cancel" {
+            await self.app.setWsNewMode("")
+        } else {
+            return []
         }
-        wire(router, id: "workspace-upload", events: ["submit"]) { event in
-            let name = event.string("upl-name") ?? ""
-            let path = event.string("upl-path") ?? ""
-            let b64 = event.string("upl-b64") ?? ""
-            guard !path.isEmpty, !b64.isEmpty else { return [] }
-            await self.app.uploadWorkspaceFile(name: name, relPath: path, b64: b64)
-            return await self.workspaceFragments()
-        }
-        wire(router, id: "ws-new-form", events: ["submit", "click"]) { event in
-            if event.event == "submit" {
-                let name = event.string("ws-new-name") ?? ""
-                let kind = event.string("ws-new-kind") ?? "file"
-                await self.app.createWorkspaceEntry(name: name, kind: kind)
-            } else if event.string("targetId") == "ws-new-cancel" {
-                await self.app.setWsNewMode("")
-            } else {
-                return []
-            }
-            return await self.workspaceFragments()
-        }
+        return await self.workspaceFragments()
+    }
+
+    @Wired("mc-name", events: [.input])
+    func handleMcName(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("mc-name", event.string("value") ?? "")
+        return []
+    }
+
+    @Wired("mc-model", events: [.input])
+    func handleMcModel(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("mc-model", event.string("value") ?? "")
+        return []
+    }
+
+    @Wired("mc-provider", events: [.input])
+    func handleMcProvider(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("mc-provider", event.string("value") ?? "")
+        return []
+    }
+
+    @Wired("mc-baseurl", events: [.input])
+    func handleMcBaseUrl(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("mc-baseurl", event.string("value") ?? "")
+        return []
+    }
+
+    @Wired("mc-apikey", events: [.input])
+    func handleMcApiKey(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("mc-apikey", event.string("value") ?? "")
+        return []
+    }
+
+    @Wired("mc-ctx", events: [.input])
+    func handleMcCtx(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("mc-ctx", event.string("value") ?? "")
+        return []
+    }
+
+    @Wired("mc-maxtok", events: [.input])
+    func handleMcMaxTok(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("mc-maxtok", event.string("value") ?? "")
+        return []
+    }
+}
+
+extension Controller {
+
+    private func wireSettings(_ router: EventRouter) {
+        wireGroup_settings(router)
     }
 
     /// Kanban chip/row/board actions.
