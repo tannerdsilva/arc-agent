@@ -4,6 +4,7 @@ import Foundation
 import Logging
 import NIO
 import WebUI
+import WebUIDesignSystem
 
 // MARK: - arc-parity panels: Tasks (cron) + Todos, plus regenerate & vision.
 
@@ -554,87 +555,93 @@ extension AppState {
 
 // MARK: - Controller wires (todos, cron, regenerate)
 
+@WireGroup("todos")
 extension Controller {
 
-    func wireTodos(_ router: EventRouter) {
-        wire(router, id: "todos", events: ["click", "submit"]) { event in
-            if event.event == "submit" {
-                let text = event.string("todo-text") ?? ""
-                await self.app.addTodo(text)
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            guard let tid = event.string("targetId") else { return [] }
-            // Clicks on the add-todo text field/form are cursor placement, not
-            // actions — never re-render from them (that would wipe the draft).
-            if tid.hasPrefix("todo-add") { return [] }
-            if tid.hasPrefix("todo-toggle-") {
-                await self.app.toggleTodo(String(tid.dropFirst("todo-toggle-".count)))
-            } else if tid.hasPrefix("todo-del-") {
-                await self.app.removeTodo(String(tid.dropFirst("todo-del-".count)))
-            } else if tid == "todo-run-all" {
-                let ids = await self.app.openTodoIDs()
-                let texts = await self.app.openTodoTexts()
-                guard !texts.isEmpty else {
-                    _ = await self.app.hint("No open todos to run.")
-                    return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-                }
-                // Running the set marks them done.
-                await self.app.markTodosDone(ids)
-                let prompt = texts.joined(separator: "\n")
-                await self.app.switchView(.chat)
-                return await self.submitChat(text: prompt)
-            } else if tid.hasPrefix("todo-run-") {
-                let id = String(tid.dropFirst("todo-run-".count))
-                if let text = await self.app.todoText(for: id) {
-                    // Running a todo marks it done.
-                    await self.app.markTodosDone([id])
-                    // Run the todo as a real chat message: switch to the Chat
-                    // view and submit through the normal composer path.
-                    await self.app.switchView(.chat)
-                    return await self.submitChat(text: text)
-                }
-            } else if tid.hasPrefix("todo-clear-done") {
-                await self.app.clearDoneTodos()
-            }
+    @Wired("todos", events: [.click, .submit])
+    func handleTodos(_ event: EventData) async -> [FragmentUpdate] {
+        if event.event == "submit" {
+            let text = event.string("todo-text") ?? ""
+            await self.app.addTodo(text)
             return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
         }
+        guard let tid = event.string("targetId") else { return [] }
+        // Clicks on the add-todo text field/form are cursor placement, not
+        // actions — never re-render from them (that would wipe the draft).
+        if tid.hasPrefix("todo-add") { return [] }
+        if tid.hasPrefix("todo-toggle-") {
+            await self.app.toggleTodo(String(tid.dropFirst("todo-toggle-".count)))
+        } else if tid.hasPrefix("todo-del-") {
+            await self.app.removeTodo(String(tid.dropFirst("todo-del-".count)))
+        } else if tid == "todo-run-all" {
+            let ids = await self.app.openTodoIDs()
+            let texts = await self.app.openTodoTexts()
+            guard !texts.isEmpty else {
+                _ = await self.app.hint("No open todos to run.")
+                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+            }
+            // Running the set marks them done.
+            await self.app.markTodosDone(ids)
+            let prompt = texts.joined(separator: "\n")
+            await self.app.switchView(.chat)
+            return await self.submitChat(text: prompt)
+        } else if tid.hasPrefix("todo-run-") {
+            let id = String(tid.dropFirst("todo-run-".count))
+            if let text = await self.app.todoText(for: id) {
+                // Running a todo marks it done.
+                await self.app.markTodosDone([id])
+                // Run the todo as a real chat message: switch to the Chat
+                // view and submit through the normal composer path.
+                await self.app.switchView(.chat)
+                return await self.submitChat(text: text)
+            }
+        } else if tid.hasPrefix("todo-clear-done") {
+            await self.app.clearDoneTodos()
+        }
+        return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
     }
+}
 
-    func wireCron(_ router: EventRouter) {
-        wire(router, id: "tasks", events: ["click", "submit"]) { event in
-            if event.event == "submit" {
-                let title = event.string("task-title") ?? ""
-                let everyRaw = event.string("task-every") ?? ""
-                let unit = event.string("task-unit") ?? "m"
-                let prompt = event.string("task-prompt") ?? ""
-                let first = await self.app.taskStartDate(event.string("task-start") ?? "")
-                let n = max(1, Int(everyRaw) ?? 15)
-                await self.app.addJob(name: title, schedule: "every \(n)\(unit)", prompt: prompt, firstRun: first)
-                return await self.app.refreshFragments()
-            }
-            guard let tid = event.string("targetId") else { return [] }
-            if tid == "task-new" {
-                await self.app.selectTaskJob(nil)
-            } else if tid.hasPrefix("task-open-") {
-                await self.app.selectTaskJob(String(tid.dropFirst("task-open-".count)))
-            } else if tid.hasPrefix("task-toggle-") {
-                await self.app.toggleJob(String(tid.dropFirst("task-toggle-".count)))
-            } else if tid.hasPrefix("task-now-") {
-                await self.app.runJobNow(String(tid.dropFirst("task-now-".count)))
-            } else if tid.hasPrefix("task-del-") {
-                await self.app.deleteJob(String(tid.dropFirst("task-del-".count)))
-            }
+@WireGroup("cron")
+extension Controller {
+
+    @Wired("tasks", events: [.click, .submit])
+    func handleCron(_ event: EventData) async -> [FragmentUpdate] {
+        if event.event == "submit" {
+            let title = event.string("task-title") ?? ""
+            let everyRaw = event.string("task-every") ?? ""
+            let unit = event.string("task-unit") ?? "m"
+            let prompt = event.string("task-prompt") ?? ""
+            let first = await self.app.taskStartDate(event.string("task-start") ?? "")
+            let n = max(1, Int(everyRaw) ?? 15)
+            await self.app.addJob(name: title, schedule: "every \(n)\(unit)", prompt: prompt, firstRun: first)
             return await self.app.refreshFragments()
         }
-    }
-
-    func wireRegen(_ router: EventRouter) {
-        wire(router, id: "regen", events: ["click"]) { event in
-            guard let tid = event.string("targetId"),
-                  tid.hasPrefix("regen-"),
-                  let lastUser = await self.app.regenText() else { return [] }
-            return await self.submitChat(text: lastUser)
+        guard let tid = event.string("targetId") else { return [] }
+        if tid == "task-new" {
+            await self.app.selectTaskJob(nil)
+        } else if tid.hasPrefix("task-open-") {
+            await self.app.selectTaskJob(String(tid.dropFirst("task-open-".count)))
+        } else if tid.hasPrefix("task-toggle-") {
+            await self.app.toggleJob(String(tid.dropFirst("task-toggle-".count)))
+        } else if tid.hasPrefix("task-now-") {
+            await self.app.runJobNow(String(tid.dropFirst("task-now-".count)))
+        } else if tid.hasPrefix("task-del-") {
+            await self.app.deleteJob(String(tid.dropFirst("task-del-".count)))
         }
+        return await self.app.refreshFragments()
+    }
+}
+
+@WireGroup("regen")
+extension Controller {
+
+    @Wired("regen", events: [.click])
+    func handleRegen(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId"),
+              tid.hasPrefix("regen-"),
+              let lastUser = await self.app.regenText() else { return [] }
+        return await self.submitChat(text: lastUser)
     }
 }
 

@@ -61,8 +61,8 @@ extension ArcWebUITestRoot {
             #expect(views.contains("mainModelDropdown()"),
                     "a Main model card sits above the aux models")
             #expect(views.contains("func mainModelDropdown()"))
-            #expect(actions.contains("id: \"mainmc-toggle\""))
-            #expect(actions.contains("id: \"mainmc\""))
+            #expect(actions.contains("@Wired(\"mainmc-toggle\""), "mainmc-toggle is @Wired")
+            #expect(actions.contains("@Wired(\"mainmc\""), "mainmc is @Wired")
             #expect(actions.contains("useModelConfig(name)"),
                     "picking a row applies the configuration")
         }
@@ -75,7 +75,7 @@ extension ArcWebUITestRoot {
                     "the aux picker offers 'Main model' as its default row")
             #expect(views.contains("auxmc-toggle-"),
                     "the aux edit form has a styled configuration dropdown")
-            #expect(actions.contains("id: \"auxmc\""))
+            #expect(actions.contains("@Wired(\"auxmc\""), "auxmc is @Wired")
             #expect(actions.contains("setAuxOverrideFromConfig(task: task, configName: staged)"),
                     "Save applies the chosen configuration (copied values)")
             #expect(actions.contains("clearAuxOverride(task: task)"),
@@ -91,7 +91,7 @@ extension ArcWebUITestRoot {
             let queue = Self.source("Queue.swift")
             let overlay = (try? String(contentsOfFile: "Sources/ArcWebUI/Assets/overlay.js", encoding: .utf8)) ?? ""
             #expect(queue.contains("id=\"queue-order\""))
-            #expect(queue.contains("id: \"queue-order\""),
+            #expect(queue.contains("@Wired(\"queue-order\""),
                     "the hidden input owns its wire (change frames carry value only)")
             #expect(queue.contains("reorderQueue(order)"),
                     "the reorder wire persists via reorderQueue")

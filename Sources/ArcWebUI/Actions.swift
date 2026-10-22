@@ -1199,10 +1199,10 @@ final class Controller: Sendable {
         wireToasts(router)
         wireLogs(router)
         wireInsights(router)
-        wireTodos(router)
-        wireQueue(router)
-        wireCron(router)
-        wireRegen(router)
+        wireGroup_todos(router)
+        wireGroup_queue(router)
+        wireGroup_cron(router)
+        wireGroup_regen(router)
         await installSidebarTabPlugins(router)
     }
 

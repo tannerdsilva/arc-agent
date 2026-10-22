@@ -1,6 +1,7 @@
 import ArcAgentCore
 import Foundation
 import WebUI
+import WebUIDesignSystem
 
 // MARK: - Run-queue model
 
@@ -575,108 +576,108 @@ extension AppState {
     }
 }
 
-// MARK: - Controller wire (run queue)
+// MARK: - Controller wires (run queue)
 
+@WireGroup("queue")
 extension Controller {
 
-    func wireQueue(_ router: EventRouter) {
-        // click/submit only: change frames carry `{value, checked}` (no
-        // targetId), so every queue change control owns its own component id
-        // (see wireQueueChangeControls).
-        wire(router, id: "queue", events: ["click", "submit"]) { event in
-            guard let tid = event.string("targetId") else { return [] }
+    @Wired("queue", events: [.click, .submit])
+    func handleQueue(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId") else { return [] }
 
-            if tid == "queue-tab-tasks" || tid == "queue-tab-queue" {
-                await self.app.setTodosTab(tid == "queue-tab-tasks" ? .tasks : .queue)
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid == "queue-stop" {
-                await self.app.requestQueueCancel()
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid == "queue-run-sync" || tid == "queue-run-async" {
-                guard await self.app.queueRunActive == false else { return [] }
-                let pusher = self.push
-                let sequential = tid == "queue-run-sync"
-                let app = self.app
-                Task {
-                    if sequential {
-                        await app.runQueueSequential(pusher: pusher)
-                    } else {
-                        await app.runQueueParallel(pusher: pusher)
-                    }
+        if tid == "queue-tab-tasks" || tid == "queue-tab-queue" {
+            await self.app.setTodosTab(tid == "queue-tab-tasks" ? .tasks : .queue)
+            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+        }
+        if tid == "queue-stop" {
+            await self.app.requestQueueCancel()
+            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+        }
+        if tid == "queue-run-sync" || tid == "queue-run-async" {
+            guard await self.app.queueRunActive == false else { return [] }
+            let pusher = self.push
+            let sequential = tid == "queue-run-sync"
+            let app = self.app
+            Task {
+                if sequential {
+                    await app.runQueueSequential(pusher: pusher)
+                } else {
+                    await app.runQueueParallel(pusher: pusher)
                 }
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid == "queue-picker-toggle" {
-                await self.app.queueSetPickerOpen(!(await self.app.queuePickerOpen))
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid == "queue-picker-close" {
-                await self.app.queueSetPickerOpen(false)
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid == "queue-picker-add" {
-                await self.app.addQueueCandidates()
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid == "queue-link-apply" {
-                let entryID = await self.app.queueLinksOpen ?? ""
-                await self.app.setQueueInputs(entryID, await self.app.queueLinkSel)
-                await self.app.queueClearLinkState()
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid == "queue-link-clear" {
-                let entryID = await self.app.queueLinksOpen ?? ""
-                await self.app.clearQueueInputs(entryID)
-                await self.app.queueClearLinkState()
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid.hasPrefix("queue-inputs-") {
-                let id = String(tid.dropFirst("queue-inputs-".count))
-                let current: String? = await self.app.queueLinksOpen
-                await self.app.queueOpenLinks(current == id ? nil : id)
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid.hasPrefix("queue-del-") {
-                let id = String(tid.dropFirst("queue-del-".count))
-                await self.app.removeQueueEntry(id)
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
             }
             return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
         }
-        wireQueueChangeControls(router)
+        if tid == "queue-picker-toggle" {
+            await self.app.queueSetPickerOpen(!(await self.app.queuePickerOpen))
+            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+        }
+        if tid == "queue-picker-close" {
+            await self.app.queueSetPickerOpen(false)
+            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+        }
+        if tid == "queue-picker-add" {
+            await self.app.addQueueCandidates()
+            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+        }
+        if tid == "queue-link-apply" {
+            let entryID = await self.app.queueLinksOpen ?? ""
+            await self.app.setQueueInputs(entryID, await self.app.queueLinkSel)
+            await self.app.queueClearLinkState()
+            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+        }
+        if tid == "queue-link-clear" {
+            let entryID = await self.app.queueLinksOpen ?? ""
+            await self.app.clearQueueInputs(entryID)
+            await self.app.queueClearLinkState()
+            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+        }
+        if tid.hasPrefix("queue-inputs-") {
+            let id = String(tid.dropFirst("queue-inputs-".count))
+            let current: String? = await self.app.queueLinksOpen
+            await self.app.queueOpenLinks(current == id ? nil : id)
+            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+        }
+        if tid.hasPrefix("queue-del-") {
+            let id = String(tid.dropFirst("queue-del-".count))
+            await self.app.removeQueueEntry(id)
+            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+        }
+        return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
     }
 
-    /// Change controls in the Run queue. Change frames carry `{value, checked}`
-    /// only (no `targetId`), so each control owns its own component id and the
-    /// handler reads identity from `value` (the markup emits each row id there).
-    func wireQueueChangeControls(_ router: EventRouter) {
-        wire(router, id: "queue-order", events: ["change"]) { event in
-            let order = (event.string("value") ?? "").split(separator: ",").map(String.init)
-            guard !order.isEmpty else { return [] }
-            await self.app.reorderQueue(order)
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "queue-loop-toggle", events: ["change"]) { _ in
-            await self.app.setQueueLoopEnabled(!(await self.app.settings.queueLoopEnabled))
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "queue-loop-count", events: ["change"]) { event in
-            await self.app.setQueueLoopCount(event.string("value") ?? "")
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "qpick", events: ["change"]) { event in
-            let todoID = event.string("value") ?? ""
-            guard !todoID.isEmpty else { return [] }
-            await self.app.queueToggleCandidate(todoID)
-            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-        }
-        wire(router, id: "qlink", events: ["change"]) { event in
-            let entryID = event.string("value") ?? ""
-            guard !entryID.isEmpty else { return [] }
-            await self.app.queueToggleLinkSel(entryID)
-            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-        }
+    @Wired("queue-order", events: [.change])
+    func handleQueueOrder(_ event: EventData) async -> [FragmentUpdate] {
+        let order = (event.string("value") ?? "").split(separator: ",").map(String.init)
+        guard !order.isEmpty else { return [] }
+        await self.app.reorderQueue(order)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("queue-loop-toggle", events: [.change])
+    func handleQueueLoopToggle(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setQueueLoopEnabled(!(await self.app.settings.queueLoopEnabled))
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("queue-loop-count", events: [.change])
+    func handleQueueLoopCount(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setQueueLoopCount(event.string("value") ?? "")
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("qpick", events: [.change])
+    func handleQueuePick(_ event: EventData) async -> [FragmentUpdate] {
+        let todoID = event.string("value") ?? ""
+        guard !todoID.isEmpty else { return [] }
+        await self.app.queueToggleCandidate(todoID)
+        return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+    }
+
+    @Wired("qlink", events: [.change])
+    func handleQueueLink(_ event: EventData) async -> [FragmentUpdate] {
+        let entryID = event.string("value") ?? ""
+        guard !entryID.isEmpty else { return [] }
+        await self.app.queueToggleLinkSel(entryID)
+        return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
     }
 }
