@@ -1576,6 +1576,104 @@ extension Controller {
     }
 }
 
+@WireGroup("profiles")
+extension Controller {
+    @Wired("profile-new", events: [.click])
+    func handleProfileNew(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setCreateProfile(true)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("profile-create-form", events: [.submit])
+    func handleProfileCreateForm(_ event: EventData) async -> [FragmentUpdate] {
+        let name = (event.string("profile-name-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = event.string("profile-title-input") ?? ""
+        let desc = event.string("profile-desc-input") ?? ""
+        let ctxLength = AppState.optInt(event.string("profile-ctx-length") ?? "")
+        let maxOutput = AppState.optInt(event.string("profile-ctx-maxtok") ?? "")
+        let rawEffort = event.string("profile-ctx-effort") ?? ""
+        let effort = rawEffort.isEmpty ? nil : rawEffort
+        let temperature = AppState.optDouble(event.string("profile-ctx-temp") ?? "")
+        let topP = AppState.optDouble(event.string("profile-ctx-topp") ?? "")
+        let budget = AppState.optInt(event.string("profile-ctx-budget") ?? "")
+        let skillsDraft = await self.app.profileSkillsDraft
+        return await self.submitProfileForm(
+            name: name, title: title, desc: desc,
+            contextLength: ctxLength, maxOutputTokens: maxOutput,
+            reasoningEffort: effort, temperature: temperature,
+            topP: topP, compressionBudget: budget,
+            contextSkills: skillsDraft.isEmpty ? nil : skillsDraft
+        )
+    }
+
+    @Wired("pcs-toggle", events: [.click])
+    func handlePcsToggle(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setProfileSkillsPickerOpen(!(await self.app.profileSkillsPickerOpen))
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("pcs", events: [.click])
+    func handlePcsPick(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId"), tid.hasPrefix("pcs-pick-") else { return [] }
+        guard let name = dec(String(tid.dropFirst("pcs-pick-".count))) else { return [] }
+        await self.app.profileSkillsDraftAdd(name)
+        await self.app.setProfileSkillsPickerOpen(false)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("pcs-rm", events: [.click])
+    func handlePcsRm(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId"), tid.hasPrefix("pcs-rm-") else { return [] }
+        guard let name = dec(String(tid.dropFirst("pcs-rm-".count))) else { return [] }
+        await self.app.profileSkillsDraftRemove(name)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("profile-name-input", events: [.input])
+    func handleProfileNameInput(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("profile-name-input", event.string("value") ?? "")
+        return []
+    }
+
+    @Wired("profile-title-input", events: [.input])
+    func handleProfileTitleInput(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("profile-title-input", event.string("value") ?? "")
+        return []
+    }
+
+    @Wired("profile-desc-input", events: [.input])
+    func handleProfileDescInput(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.storeFormValue("profile-desc-input", event.string("value") ?? "")
+        return []
+    }
+
+    @Wired("profile-cancel", events: [.click])
+    func handleProfileCancel(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setCreateProfile(false)
+        await self.app.setEditingProfile(nil)
+        return await self.app.refreshFragments()
+    }
+
+    @Wired("profile-list", events: [.click])
+    func handleProfileList(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId") else { return [] }
+        return await self.profileListAction(tid)
+    }
+
+    @Wired("profile-skills", events: [.change])
+    func handleProfileSkills(_ event: EventData) async -> [FragmentUpdate] {
+        let tid = event.string("targetId") ?? event.string("value") ?? ""
+        guard tid.hasPrefix("ps-") else { return [] }
+        let rest = String(tid.dropFirst("ps-".count))
+        let parts = rest.split(separator: "-", maxSplits: 1).map(String.init)
+        guard parts.count == 2, let pname = dec(parts[0]) else { return [] }
+        let skillName = dec(parts[1]) ?? ""
+        let on = event.checked == true
+        await self.app.toggleProfileSkill(profile: pname, skill: skillName, on: on)
+        return await self.app.refreshFragments()
+    }
+}
+
 extension Controller {
 
     private func wireSkills(_ router: EventRouter) {
@@ -2290,73 +2388,7 @@ extension Controller {
     // MARK: Profiles
 
     private func wireProfiles(_ router: EventRouter) {
-        wire(router, id: "profile-new", events: ["click"]) { _ in
-            await self.app.setCreateProfile(true)
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "profile-create-form", events: ["submit"]) { event in
-            let name = (event.string("profile-name-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let title = event.string("profile-title-input") ?? ""
-            let desc = event.string("profile-desc-input") ?? ""
-            let ctxLength = AppState.optInt(event.string("profile-ctx-length") ?? "")
-            let maxOutput = AppState.optInt(event.string("profile-ctx-maxtok") ?? "")
-            let rawEffort = event.string("profile-ctx-effort") ?? ""
-            let effort = rawEffort.isEmpty ? nil : rawEffort
-            let temperature = AppState.optDouble(event.string("profile-ctx-temp") ?? "")
-            let topP = AppState.optDouble(event.string("profile-ctx-topp") ?? "")
-            let budget = AppState.optInt(event.string("profile-ctx-budget") ?? "")
-            let skillsDraft = await self.app.profileSkillsDraft
-            return await self.submitProfileForm(
-                name: name, title: title, desc: desc,
-                contextLength: ctxLength, maxOutputTokens: maxOutput,
-                reasoningEffort: effort, temperature: temperature,
-                topP: topP, compressionBudget: budget,
-                contextSkills: skillsDraft.isEmpty ? nil : skillsDraft
-            )
-        }
-        wire(router, id: "pcs-toggle", events: ["click"]) { _ in
-            await self.app.setProfileSkillsPickerOpen(!(await self.app.profileSkillsPickerOpen))
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "pcs", events: ["click"]) { event in
-            guard let tid = event.string("targetId"), tid.hasPrefix("pcs-pick-") else { return [] }
-            guard let name = dec(String(tid.dropFirst("pcs-pick-".count))) else { return [] }
-            await self.app.profileSkillsDraftAdd(name)
-            await self.app.setProfileSkillsPickerOpen(false)
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "pcs-rm", events: ["click"]) { event in
-            guard let tid = event.string("targetId"), tid.hasPrefix("pcs-rm-") else { return [] }
-            guard let name = dec(String(tid.dropFirst("pcs-rm-".count))) else { return [] }
-            await self.app.profileSkillsDraftRemove(name)
-            return await self.app.refreshFragments()
-        }
-        for field in ["profile-name-input", "profile-title-input", "profile-desc-input"] {
-            wire(router, id: field, events: ["input"]) { event in
-                await self.app.storeFormValue(field, event.string("value") ?? "")
-                return []
-            }
-        }
-        wire(router, id: "profile-cancel", events: ["click"]) { _ in
-            await self.app.setCreateProfile(false)
-            await self.app.setEditingProfile(nil)
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "profile-list", events: ["click"]) { event in
-            guard let tid = event.string("targetId") else { return [] }
-            return await self.profileListAction(tid)
-        }
-        wire(router, id: "profile-skills", events: ["change"]) { event in
-            let tid = event.string("targetId") ?? event.string("value") ?? ""
-            guard tid.hasPrefix("ps-") else { return [] }
-            let rest = String(tid.dropFirst("ps-".count))
-            let parts = rest.split(separator: "-", maxSplits: 1).map(String.init)
-            guard parts.count == 2, let pname = dec(parts[0]) else { return [] }
-            let skillName = dec(parts[1]) ?? ""
-            let on = event.checked == true
-            await self.app.toggleProfileSkill(profile: pname, skill: skillName, on: on)
-            return await self.app.refreshFragments()
-        }
+        wireGroup_profiles(router)
     }
 
     private func profileListAction(_ tid: String) async -> [FragmentUpdate] {
