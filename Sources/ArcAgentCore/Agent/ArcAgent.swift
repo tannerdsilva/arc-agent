@@ -1076,6 +1076,10 @@ public actor ArcAgent: Service {
             guard let title = resp.content?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !title.isEmpty, title.count <= 60 else { return }
             if var session = try? await config.sessionStore.get(id: sessionID) {
+                // The session may have been deleted while the title request
+                // was in flight; updating it would republish a non-deleted
+                // meta over the terminal one and resurrect the chat.
+                guard session.deleted != true else { return }
                 session.title = (session.title?.isEmpty == false ? session.title : title)
                 try? await config.sessionStore.update(session)
             }

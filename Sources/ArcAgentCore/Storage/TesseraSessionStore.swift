@@ -136,11 +136,22 @@ public actor TesseraSessionStore: SessionStore {
 
     private var connection: TesseraConnection { TesseraConnection.shared }
 
+    /// Session ids deleted on this instance, for same-process race hardening:
+    /// a late `update()` (micro-compaction rewrite, async title generation)
+    /// that interleaves with the user's delete must not publish a
+    /// non-deleted meta ABOVE the terminal one — a higher seq overwrites the
+    /// `deleted` flag in the latest-per-group index and resurrects the
+    /// session on the host. Cleared by `create()` (deliberate undo).
+    private var deletedSessionIDs: Set<String> = []
+
     // MARK: - SessionStore
 
     public func create(_ session: Session) async throws {
         let conn = connection
         try await conn.ensureStarted()
+        // A deliberate re-create (UX-06 undo) revives the id: drop the local
+        // deletion marker so subsequent update()s are admitted again.
+        deletedSessionIDs.remove(session.id)
         try await publishMeta(from: session, messageCount: session.messages.count)
         let namespaced = await writerNamespacing(for: session.id, owner: session.owner)
         for message in session.messages {
@@ -248,9 +259,17 @@ public actor TesseraSessionStore: SessionStore {
         ) else {
             throw SessionShareError.notAuthorized
         }
+        // Re-check terminal state immediately before the meta publish: the
+        // wide window between the entry guard and here (storedMessages scan,
+        // per-message publishes) is where a concurrent delete() used to slip
+        // in and get seq-overwritten by this meta — the resurrection bug.
+        if deletedSessionIDs.contains(session.id) {
+            throw SessionShareError.sessionDeleted
+        }
+        if await latestMeta(for: session.id)?.deleted == true {
+            throw SessionShareError.sessionDeleted
+        }
         try await publishMeta(from: session, messageCount: session.messages.count)
-        // The append-only log cannot rewrite history; publish only the
-        // messages whose exact payload is not already stored.
         let existing = await storedMessages(sessionID: session.id)
         let namespaced = await writerNamespacing(for: session.id, owner: storedOwner ?? session.owner)
         for message in session.messages {
@@ -275,6 +294,7 @@ public actor TesseraSessionStore: SessionStore {
     public func delete(id: String) async throws {
         let conn = connection
         try await conn.ensureStarted()
+        deletedSessionIDs.insert(id)
         let identity = await conn.nostrPublicKeyString
         let meta = await latestMeta(for: id)
         let owner = meta?.owner
@@ -293,7 +313,13 @@ public actor TesseraSessionStore: SessionStore {
             try await conn.deleteAll(dTagPrefix: "arc/s/\(id)/", kind: TesseraConnection.messageKind, author: identity)
             try await conn.deleteAll(dTagPrefix: "arc/meta/\(id)/", kind: TesseraConnection.metadataKind, author: identity)
             try await conn.deleteAll(dTagPrefix: "arc/stream/\(id)/", kind: TesseraConnection.streamKind, author: identity)
-            try await conn.deleteAll(dTagPrefix: "arc/share/\(id)/", kind: TesseraConnection.shareKind)
+            // NOTE: the share grant (arc/share/<id>/…) is deliberately NOT
+            // tombstoned here. The grant is what lets the sharee resolve their
+            // role and keep seeing this session — now carrying the terminal
+            // `deleted` meta and the "deleted by host" banner. Sweeping it
+            // made the session vanish from the sharee's sidebar entirely
+            // (role() → nil → isVisible false). Revocation has its own
+            // explicit flow (empty-grant publish) in the share manager.
             // Terminal record LAST so the tombstone sweeps above cannot
             // touch it: this meta is the sharee's "deleted by host" signal.
             if var terminal = meta {
