@@ -48,12 +48,12 @@ extension ArcWebUITestRoot {
         @Test("profile wires cover picker add/remove/save")
         func wires() {
             let actions = Self.source("Actions.swift")
-            #expect(actions.contains("id: \"pcs-toggle\""))
-            #expect(actions.contains("id: \"pcs\""))
-            #expect(actions.contains("id: \"pcs-rm\""))
-            #expect(actions.contains("tid.hasPrefix(\"pcs-pick-\")"))
-            #expect(actions.contains("profileSkillsDraft"))
-            #expect(actions.contains("p.contextSkills = contextSkills"))
+            #expect(actions.contains("@Wired(\"pcs-toggle\""), "pcs-toggle is @Wired")
+            #expect(actions.contains("@Wired(\"pcs\""), "pcs is @Wired")
+            #expect(actions.contains("@Wired(\"pcs-rm\""), "pcs-rm is @Wired")
+            #expect(actions.contains("tid.hasPrefix(\"pcs-pick-\")"), "pcs-pick targetId prefix")
+            #expect(actions.contains("profileSkillsDraft"), "profileSkillsDraft used")
+            #expect(actions.contains("p.contextSkills = contextSkills"), "contextSkills assignment")
         }
 
         // MARK: - Helpers

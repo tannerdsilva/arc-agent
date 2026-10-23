@@ -311,8 +311,8 @@ extension ArcWebUITestRoot {
                     "the dismiss target is an invisible boundary, not a visible control")
             #expect(composer.contains("id=\"dd-dismiss\""),
                     "the `dd-dismiss` handler existed for months with no element carrying the id")
-            #expect(Self.actions.contains("wire(router, id: \"dd-dismiss\""),
-                    "the server half must stay registered")
+            #expect(Self.actions.contains("@Wired(\"dd-dismiss\", events: [.click])"),
+                    "the server half stays registered via @Wired")
             #expect(Self.overlay.contains("function dismissDropdowns()"))
             #expect(Self.overlay.contains("dismissDropdowns();"), "Escape/outside-click must call it")
         }
@@ -492,7 +492,7 @@ extension ArcWebUITestRoot {
         func skillErrorClearIsObservable() {
             #expect(Self.appState.contains("func clearSkillCreateError(for field: String) -> Bool"),
                     "the wire needs the transition to decide whether to re-render")
-            #expect(Self.actions.contains("if await self.app.clearSkillCreateError(for: field)"),
+            #expect(Self.actions.contains("if await self.app.clearSkillCreateError(for: \"skill-name-input\")"),
                     "typing must clear the rendered error, not only the state")
         }
 
@@ -622,8 +622,7 @@ extension ArcWebUITestRoot {
             #expect(!actions.contains("submitSteer"), "the steering path is gone — queue replaced it")
             #expect(actions.contains("if !wasStopped, let next = self.popQueuedSend(sessionID)"),
                     "the turn end must drain one queued message so order matches the chips")
-            #expect(actions.contains("wire(router, id: \"queued-sends\""),
-                    "the queue row must be wired")
+            #expect(actions.contains("@Wired(\"queued-sends\""), "the queue row must be wired")
             #expect(!Self.overlay.contains("steer"), "no steer wording may survive")
         }
 
@@ -865,7 +864,7 @@ extension ArcWebUITestRoot {
             }()).skillsMain().markup.html
             #expect(canvas.contains("data-component-id=\"skill-delete\""),
                     "`deleteSkill` shipped with no trigger rendered anywhere (F58)")
-            #expect(Self.actions.contains("wire(router, id: \"skill-delete\""))
+            #expect(Self.actions.contains("@Wired(\"skill-delete\""), "deleteSkill needs its wire")
             #expect(Self.actions.contains("kind: \"skill\", id: name"),
                     "removing a folder on disk must confirm first")
         }
@@ -956,7 +955,7 @@ extension ArcWebUITestRoot {
                     "client-only wiring made the engine log '[WebUIEngine] click on unwired control'")
             #expect(chat.contains("data-component-id=\"outline-close\""))
             #expect(Self.appState.contains("var outlineOpen = false"))
-            #expect(Self.actions.contains("wire(router, id: \"outline-toggle\""))
+            #expect(Self.actions.contains("@Wired(\"outline-toggle\""), "outline toggle is wired")
             #expect(Self.overlay.contains("function syncOutline()"),
                     "the overlay still owns the entry list, keyed off the server-rendered shell")
             #expect(!Self.overlay.contains("panel.hidden = !panel.hidden"),
@@ -1284,7 +1283,7 @@ extension ArcWebUITestRoot {
             #expect(views.contains("let clearBtn = (!todos && !showArchived && clearableDrafts > 0)"),
                     "the cleanup must be hidden where it does not apply (Todos page, archived view, nothing to clear)")
             let actions = Self.actions
-            #expect(actions.contains("wire(router, id: \"chat-clear-empty\""), "the control must be wired")
+            #expect(actions.contains("@Wired(\"chat-clear-empty\""), "the control must be wired")
             #expect(actions.contains("case \"empty-drafts\":"), "the shared confirm modal must dispatch the bulk delete")
             let app = Self.appStateActions
             #expect(app.contains("func clearEmptyDrafts() async -> Int"), "the bulk delete must exist")
