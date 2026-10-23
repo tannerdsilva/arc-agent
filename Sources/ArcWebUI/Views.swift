@@ -753,7 +753,19 @@ extension AppState {
         let pinBadge = booked ? "<span class=\"pin-badge\" title=\"Pinned\">" + WebUIIcon(.bookmark, size: .small).markup.html + "</span>" : ""
         let pinLabel = booked ? "Unpin conversation" : "Pin conversation"
         let shared = isSessionShared(s.id)
-        let shareBadge = shared ? "<span class=\"share-badge\" title=\"Shared session\">Shared</span>" : ""
+        // Inbound shares (this instance is a sharee) carry the access level
+        // in the tag; the host's own outbound share keeps the plain badge.
+        let shareBadge: String
+        if let role = shareRoles[s.id] {
+            let (label, tip) = role == .read
+                ? ("Shared · Read", "Shared with you by the host — read-only")
+                : ("Shared · Read/Write", "Shared with you by the host — you can send messages")
+            shareBadge = "<span class=\"share-badge in\" title=\"\(tip)\">\(label)</span>"
+        } else if shared {
+            shareBadge = "<span class=\"share-badge\" title=\"Shared session\">Shared</span>"
+        } else {
+            shareBadge = ""
+        }
         let arcLabel = archived.isEmpty ? "Archive conversation" : "Unarchive conversation"
         let catID = categoryID(for: s.id)
         let catColor = categoryColor(for: catID)
@@ -1097,7 +1109,8 @@ extension AppState {
         // The host owns all parts of the chat and the model: a sharee sees
         // the model/config/thinking surfaces greyed out and uneditable.
         if isSharee {
-            meta = "<span style=\"opacity:.45\">\(meta) • host-owned</span>"
+            let access = activeSessionID.flatMap { shareRoles[$0] } == .read ? "read-only" : "read/write"
+            meta = "<span style=\"opacity:.45\">\(meta) • host-owned • \(access)</span>"
         }
         let delLabel = pendingDelete ? "Confirm?" : WebUIIcon(.trash, size: .small).markup.html
         let delClass = pendingDelete ? "sess-confirm" : "icon-mini danger"
@@ -2000,6 +2013,21 @@ extension AppState {
         let running = activeTurns[activeSessionID ?? ""] != nil
         let sid = activeSessionID ?? ""
         let draft = settings.composerDrafts[sid] ?? ""
+        // Shared-session access: a read-only sharee gets no composer at all
+        // (the server-side ACL would reject every send anyway), and a
+        // read/write sharee sends plain messages — the profile/workspace/
+        // model/thinking selectors configure the HOST's agent, so they are
+        // not theirs to change.
+        let shareeRole = activeSessionID.flatMap { shareRoles[$0] }
+        if shareeRole == .read {
+            // Keep the wrapper and the slash-data blob: the client JS looks
+            // these ids up unconditionally on every frame.
+            return """
+            <div class="composer-wrap" id="composer-wrap">
+              <div id="slash-data" hidden>\(esc(slashDataJSON()))</div>
+            </div>
+            """
+        }
 
         let attachmentsHTML: String = {
             var chips = ""
@@ -2015,8 +2043,9 @@ extension AppState {
 
         // arc-parity composer dropdowns (workspace / profile / model /
         // thinking) — custom panels rendered by the server, replacing the
-        // native <select> elements.
-        let selectors = composerSelectorsHTML()
+        // native <select> elements. A read/write sharee sends plain messages
+        // on the host's agent: no selectors.
+        let selectors = shareeRole == nil ? composerSelectorsHTML() : ""
 
         // File popover
         let filePopVisible = filePopOpen ? "" : " hidden"

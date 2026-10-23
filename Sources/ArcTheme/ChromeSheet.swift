@@ -2650,6 +2650,13 @@ public static let css: String = """
       background: color-mix(in srgb, var(--accent) 12%, transparent);
       border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
     }
+    /* Inbound share (this instance is the sharee): neutral tone, access
+       level is spelled out in the label text itself. */
+    .share-badge.in {
+      color: var(--text-muted);
+      background: color-mix(in srgb, var(--text-muted) 10%, transparent);
+      border-color: color-mix(in srgb, var(--text-muted) 30%, transparent);
+    }
     /* Draft conversations: a chat with no sent messages but un-sent text. */
     .draft-badge {
       display: inline-flex; align-items: center;
