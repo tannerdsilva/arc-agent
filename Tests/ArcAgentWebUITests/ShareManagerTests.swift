@@ -105,13 +105,19 @@ struct ShareManagerTests {
         }
     }
 
-    @Test("the share pubkey tracks live typing (input) as well as blur (change)")
+    @Test("the share pubkey tracks live typing (input) — single-event data-event")
     func sharePubkeyTracksTyping() {
         let views = Self.source("Views.swift")
-        #expect(views.contains("data-event=\"change, input\""),
-                "the pubkey field must track live typing, not only blur")
+        // The no-webui engine drops ANY multi-event data-event (it compares the
+        // whole attribute against the fired event), so the field must declare
+        // exactly one event: "input". A comma-list like "change, input" makes
+        // every keystroke silently fall on the floor.
+        #expect(views.contains("data-event=\"input\""),
+                "the pubkey field must track live typing via a single input event")
+        #expect(!views.contains("data-event=\"change, input\""),
+                "multi-event data-event is silently dropped by the engine")
         let actions = Self.source("Actions.swift")
-        #expect(actions.contains("wire(router, id: \"share-pubkey\", events: [\"change\", \"input\"])"),
+        #expect(actions.contains("wire(router, id: \\\"share-pubkey\\\", events: [\\\"change\\\", \\\"input\\\"])"),
                 "the pubkey wire must register the input event")
     }
 

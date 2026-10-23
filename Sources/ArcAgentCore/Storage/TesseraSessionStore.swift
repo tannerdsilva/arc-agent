@@ -169,6 +169,23 @@ public actor TesseraSessionStore: SessionStore {
     public func update(_ session: Session) async throws {
         let conn = connection
         try await conn.ensureStarted()
+        let identity = await conn.nostrPublicKeyString
+        let grants = await TesseraShareStore.shared.latestGrants()
+        let storedOwner = await latestMeta(for: session.id)?.owner
+        // Refuse to resurrect: a session with no local metadata that claims a
+        // foreign owner was deleted by its host — re-publishing meta here is
+        // exactly what brought deleted sessions back from the dead on a
+        // sharee. (The host's own update path always has meta, published by
+        // create() and visible via publish-time indexing of pendings.)
+        if let foreign = session.owner, foreign != identity, storedOwner == nil {
+            throw SessionShareError.notAuthorized
+        }
+        guard SharedSessionACL.canContribute(
+            identity: identity ?? "", sessionID: session.id,
+            sessionOwner: storedOwner ?? session.owner, grants: grants
+        ) else {
+            throw SessionShareError.notAuthorized
+        }
         try await publishMeta(from: session, messageCount: session.messages.count)
         // The append-only log cannot rewrite history; publish only the
         // messages whose exact payload is not already stored.
@@ -182,8 +199,14 @@ public actor TesseraSessionStore: SessionStore {
     public func delete(id: String) async throws {
         let conn = connection
         try await conn.ensureStarted()
+        // Purge every record kind tied to the session, so the delete is
+        // authoritative for both host and sharee: messages, metadata,
+        // streaming deltas, and the share grants (a surviving grant or meta
+        // event re-lists the session in the other instance's web UI).
         try await conn.deleteAll(dTagPrefix: "arc/s/\(id)/", kind: TesseraConnection.messageKind)
         try await conn.deleteAll(dTagPrefix: "arc/meta/\(id)/", kind: TesseraConnection.metadataKind)
+        try await conn.deleteAll(dTagPrefix: "arc/stream/\(id)/", kind: TesseraConnection.streamKind)
+        try await conn.deleteAll(dTagPrefix: "arc/share/\(id)/", kind: TesseraConnection.shareKind)
     }
 
     public func list(limit: Int, offset: Int) async throws -> [Session] {

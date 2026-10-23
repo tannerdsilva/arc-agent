@@ -135,10 +135,27 @@ public actor TesseraConnection {
     /// chunk of a response in-progress so a guest tunnel can paint the host's
     /// reply live, plus a `final` marker when the committed 3001 message lands.
     public static let streamKind: UInt32 = 3_008
+    /// NIP-09 deletion (tombstone) events. Subscribed so a booting client
+    /// receives the tombstones for events deleted while it was away — the
+    /// relay keeps deleted events in its store (removal is query-time), and
+    /// history REQs are served by the deletion-ignoring dumb filter, so
+    /// without this subscription every re-subscribe resurrects deleted
+    /// sessions/messages like zombies.
+    public static let deletionKind: UInt32 = 5
     /// The prefix on every `d` tag value.
     public static let dTagPrefix = "arc/"
-    /// One subscription per kind; the model receives all eight.
-    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles", "arc-cron", "arc-goals", "arc-shares", "arc-stream"]
+    /// One subscription per kind; the model receives all nine.
+    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles", "arc-cron", "arc-goals", "arc-shares", "arc-stream", "arc-tombstones"]
+
+    /// Kinds the client subscribes to, paired with `subscriptionIDs`.
+    static let subscriptionKinds: [(String, UInt32)] = {
+        let data: [(String, UInt32)] = [
+            ("arc-msgs", messageKind), ("arc-mem", memoryKind), ("arc-meta", metadataKind),
+            ("arc-profiles", profileKind), ("arc-cron", cronKind), ("arc-goals", goalKind),
+            ("arc-shares", shareKind), ("arc-stream", streamKind),
+        ]
+        return data + [("arc-tombstones", deletionKind)]
+    }()
 
     // MARK: - State
 
@@ -516,9 +533,9 @@ public actor TesseraConnection {
             var eoseDone = false
             for _ in 0..<3 {
             	try await Self.boundedOp(seconds: Self.writeTimeoutSeconds) {
-            		for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind, Self.shareKind, Self.streamKind]) {
-            			try await session.subscribe(subscriptionID: sub, filters: [Filter(applications: [config.application], kinds: [kind])])
-            		}
+            				for (sub, kind) in Self.subscriptionKinds {
+            					try await session.subscribe(subscriptionID: sub, filters: [Filter(applications: [config.application], kinds: [kind])])
+            				}
             	}
 
             	// Wait for every end-of-history marker, then give the receiver a
@@ -571,7 +588,7 @@ public actor TesseraConnection {
                         // Back off so the re-subscribe lands after the relay's KCP
                         // control blocks settle (they are recreated on connect/roam).
                         try? await Task.sleep(nanoseconds: 2_000_000_000)
-                        for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind, Self.shareKind, Self.streamKind]) {
+                        for (sub, kind) in Self.subscriptionKinds {
                             try? await recSession.subscribe(subscriptionID: sub, filters: [Filter(applications: [recConfig.application], kinds: [kind])])
                         }
                     }
@@ -634,6 +651,11 @@ public actor TesseraConnection {
     /// signed locally, so the server can still apply the deletion.
     public func deleteAll(dTagPrefix prefix: String, kind: UInt32) async throws {
         guard let session, let nostrPrivateKey, var model else { return }
+        // Reconcile first: the id sweep below reads the local model snapshot.
+        // Without this, events that landed on the relay seconds earlier but
+        // were not yet folded into the model (a sharee's turn ending right
+        // before the host deletes) are missed and survive as zombies.
+        reconcileIndex(model)
         var ids = model.modelStorage.compactMap { (id, event) -> NOSTR_id? in
             guard event.kind.RAW_native() == kind,
                   let dTag = findTag(tags: event.tags.array, as: DTag.self),
