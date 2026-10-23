@@ -66,13 +66,23 @@ export ARC_API_KEY=***        # or add it to ~/.arc/.env
 ## Wire up the local relay
 
 One command generates the ARC Agent client and relay WireGuard keypairs,
-registers the agent as a peer, persists the relay private key, and merges the
-`tessera` block into `~/.arc/config.json` (preserving existing model / provider /
+registers the agent as a peer, **registers the agent's identity as a user on
+the relay database**, persists the relay private key, and merges the `tessera`
+block into `~/.arc/config.json` (preserving existing model / provider /
 security settings):
 
 ```bash
 Scripts/User/tessera-setup.sh
 ```
+
+The user registration matters as much as the peer registration: the relay must
+know the agent's user — the ed25519 identity derived from the agent's private
+key (via `tessera create-unbounded-admin`) — or it rejects every event the
+agent writes and `arc doctor` fails its health check. The WireGuard peer entry
+alone authorizes the transport, not the writer. The step runs while the relay
+is stopped (it holds the LMDB write lock), which on a fresh install is the
+natural order; if the relay is already running, the script warns and skips —
+stop the relay, re-run the script, then start the relay again.
 
 ## Start the relay and the agent
 
@@ -89,6 +99,24 @@ arc chat -q "hello world"
 ```
 
 Stop or restart with the matching `*-stop.sh` / `*-restart.sh` scripts.
+
+### Troubleshooting: `arc doctor` fails the storage health check
+
+If the tunnel comes up but the health check fails with the relay rejecting
+writes, the agent's **user is not registered on the relay database** — the
+most common cause is a relay DB that predates the user-registration step in
+`tessera-setup.sh`. Register it directly (relay stopped):
+
+```bash
+set -a; . ~/.arc/.env; set +a
+~/.local/bin/tessera create-unbounded-admin \
+  --database-path ~/.arc/tessera/db \
+  "$ARC_TESSERA_PRIVATE_KEY" ArcAgent
+```
+
+Then start the relay and run `arc doctor` again. A second ARC Agent instance
+(`ARC_HOME=~/.arc-agent2` or similar) has its own private key and needs its
+own registration on the shared relay DB.
 
 ## Comparison with the local-path (sibling checkout) model
 

@@ -125,6 +125,20 @@ export API_PORT=8081 WEBUI_PORT=8891 MCP_SERVER_PORT=8893
 arc serve
 ```
 
+When the second instance shares the first instance's relay, point the setup
+at the relay's live DB and peer config so its identity is registered where
+the relay actually reads it:
+
+```bash
+RELAY_DB=~/.arc/tessera/db TESSERA_CFG_DIR=~/.arc/tessera/cfg tessera-setup.sh
+```
+
+The relay DB must know each instance's **user** (the ed25519 identity derived
+from its `ARC_TESSERA_PRIVATE_KEY`) or the relay rejects that instance's
+writes and `arc doctor` fails its health check — `tessera-setup.sh` performs
+this registration (stop the relay first if it is running; the registration
+needs the LMDB write lock).
+
 Ports are env-overridable (`API_PORT`, `WEBUI_PORT`, `MCP_SERVER_PORT`); the
 WebSocket transport binds on `port + 1`, so leave that port free.
 

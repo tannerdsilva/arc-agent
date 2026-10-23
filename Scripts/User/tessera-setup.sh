@@ -6,9 +6,13 @@
 #      the *relay* (via `tessera generate-keys`).
 #   2. Adds the client's public key to the relay's peer config
 #      (~/.arc/tessera/cfg/peer-config.json) via `tessera config add`.
-#   3. Persists the relay's private key to ~/.arc/tessera/relay.key so
+#   3. Registers the agent's identity (ed25519, derived from its private key)
+#      as a user on the relay database (~/.arc/tessera/db) via
+#      `tessera create-unbounded-admin`. Without this the relay rejects the
+#      agent's writes and `arc doctor` fails its health check.
+#   4. Persists the relay's private key to ~/.arc/tessera/relay.key so
 #      `tessera-relay-start.sh` can pick it up automatically.
-#   4. Merges the `tessera` block into ~/.arc/config.json so `arc` can reach the
+#   5. Merges the `tessera` block into ~/.arc/config.json so `arc` can reach the
 #      local relay. Existing config (model/provider/etc.) is preserved.
 #
 # Run AFTER `arc setup` (which creates ~/.arc/config.json). Re-running this
@@ -16,7 +20,13 @@
 #
 # Override via env: TESSERA_DIR, TESSERA_BIN, ARC_HOME, ARC_CONFIG,
 #                   TESSERA_CFG_DIR, RELAY_PORT, RELAY_IP, RELAY_KEEP_ALIVE,
-#                   ARC_APPLICATION
+#                   ARC_APPLICATION, RELAY_DB, ARC_USER_NAME
+#
+# RELAY_DB — where the agent user is registered. Defaults to
+#            $ARC_HOME/tessera/db (matches tessera-relay-start.sh). When a
+#            second instance shares an existing relay, set it to that relay's
+#            DB (e.g. RELAY_DB=~/.arc/tessera/db) and its TESSERA_CFG_DIR too.
+# ARC_USER_NAME — the user name written to the relay DB (default: ArcAgent).
 set -u
 
 TESSERA_DIR="${TESSERA_DIR:-$HOME/Documents/SwiftProjects/tessera}"
@@ -70,12 +80,39 @@ step "registering the agent peer with the relay"
 mkdir -p "$TESSERA_CFG_DIR"
 "$TESSERA_BIN" config add \
   --configuration-path "$TESSERA_CFG_DIR" \
-  --ip-address "$RELAY_IP" \
-  --port "$RELAY_PORT" \
   --keep-alive "$RELAY_KEEP_ALIVE" \
   --tessera false \
   --overwrite true \
   "$CLIENT_PUB" || die "failed to add the agent peer to the relay config"
+
+# The relay's DB must also know the agent's *user* — the ed25519 identity
+# derived from the agent's private key — or every event write is rejected and
+# `arc doctor` fails its health check. The WireGuard peer registration alone is
+# not enough. The relay must be stopped for this step (it holds the LMDB
+# write lock); on a fresh install it has not been started yet, which is why
+# this runs before the relay-start script.
+step "registering the agent identity as a user on the relay database"
+if pgrep -f '[t]essera run' >/dev/null 2>&1; then
+  log "  warning: the tessera relay is running — stop it first, re-run this"
+  log "  script, then start the relay. Skipping user registration."
+  RELAY_DB="${RELAY_DB:-$ARC_HOME/tessera/db}"
+  RELAY_DB_REGISTERED=false
+else
+  RELAY_DB="${RELAY_DB:-$ARC_HOME/tessera/db}"
+  mkdir -p "$RELAY_DB"
+  # Registers a full-access user named ARC_USER_NAME (default: ArcAgent) whose
+  # ed25519 signing key is derived from the agent's private key. Re-running
+  # with the same key re-scribes the same user event (idempotent).
+  if "$TESSERA_BIN" create-unbounded-admin \
+      --database-path "$RELAY_DB" \
+      "$CLIENT_PRIV" "${ARC_USER_NAME:-ArcAgent}"; then
+    RELAY_DB_REGISTERED=true
+  else
+    log "  warning: user registration failed — the relay DB may be locked or"
+    log "  unreadable. arc's health check will fail until this succeeds."
+    RELAY_DB_REGISTERED=false
+  fi
+fi
 
 step "persisting the relay private key (used by tessera-relay-start.sh)"
 mkdir -p "$ARC_HOME/tessera"
@@ -100,7 +137,7 @@ cfg["tessera"] = {
     "serverPort": int(os.environ["RELAY_PORT"]),
     "serverIP": os.environ["RELAY_IP"],
     "serverPublicKey": os.environ["RELAY_PUB"],
-    "myPrivateKey": "",  // the client private key lives in ~/.arc/.env (ARC_TESSERA_PRIVATE_KEY)
+    "myPrivateKey": "",  # the client private key lives in ~/.arc/.env (ARC_TESSERA_PRIVATE_KEY)
 }
 json.dump(cfg, open(path, "w"), indent=2)
 print(f"wrote tessera block -> {path}")
@@ -120,9 +157,7 @@ for ln in lines:
         out.append(ln)
 if not replaced:
     out.append(key + "=" + val)
-open(env_path, "w").write("
-".join(out) + "
-")
+open(env_path, "w").write("\n".join(out) + "\n")
 os.chmod(env_path, 0o600)
 print(f"wrote {key} -> {env_path}")
 PY
@@ -132,6 +167,9 @@ log ""
 log "⚡ tessera wiring is set up."
 log "  relay (client) public key : $CLIENT_PUB"
 log "  relay  public key         : $RELAY_PUB"
+if [ "${RELAY_DB_REGISTERED:-false}" = true ]; then
+  log "  agent user registered     : ${ARC_USER_NAME:-ArcAgent} on $RELAY_DB"
+fi
 log ""
 log "Next steps:"
 log "  Scripts/User/tessera-relay-start.sh   # start the relay"
@@ -141,4 +179,4 @@ log ""
 log "Note: the relay private key was saved to $ARC_HOME/tessera/relay.key"
 log "      (chmod 600). The agent(private) key is stored in $ARC_HOME/.env"
 log "      as ARC_TESSERA_PRIVATE_KEY (chmod 600). Re-running this script"
-log "      regenerates the keys."
+log "      regenerates the keys and re-registers the agent user."
