@@ -241,9 +241,22 @@ public actor TesseraConnection {
     /// (connect / subscribe / EOSE) keep this under ~30s worst case without
     /// an outer race — an outer race would leak a half-open raw client into
     /// the shared connection and wedge later shutdown() calls.
+    /// A relay NOTICE whose text classifies as an authorization failure
+    /// (unregistered user, missing access levels). Kept so the health check
+    /// can surface the reason — the tunnel itself is fine, but the relay
+    /// rejects this agent's writes until the user is registered on the DB.
+    private var lastAuthRejection: String?
+
     public func healthCheck(within seconds: UInt64 = 20) async -> Bool {
         do {
             try await ensureStarted()
+            // A healthy tunnel with a pending authorization rejection is the
+            // exact "peer registered, user not registered" failure shape: the
+            // connection works, every write comes back as a NOTICE. Make that
+            // unmistakable here — this is the line `arc doctor` shows.
+            if let rejection = lastAuthRejection {
+                Logger(label: "arc-agent.tessera").error("Tessera tunnel is up, but the relay rejected a write: \"\(rejection)\" — register the agent's user on the relay DB (tessera-setup.sh, or tessera create-unbounded-admin --database-path ~/.arc/tessera/db \"$ARC_TESSERA_PRIVATE_KEY\" <name> with the relay stopped), then restart the relay.")
+            }
             // On success, KEEP the established tunnel up rather than disconnecting
             // it. Shutting down here just to let the next store operation reconnect
             // re-triggers the relay's KCP control-block recreation (connect/disconnect
@@ -581,8 +594,22 @@ public actor TesseraConnection {
             session.onEOSE = { [weak tracker] eose in
                 tracker?.mark(String(eose.subscriptionID))
             }
-            session.onNotice = { text in
+            session.onNotice = { [weak self] text in
                 FileHandle.standardError.write(Data("[tessera] notice: \(text)\n".utf8))
+                // Authorization rejections are the silent killer: the tunnel is
+                // healthy, every write bounces with a NOTICE, and nothing else
+                // in the log explains it. Classify and record for the health
+                // check to surface (see `healthCheck`).
+                let lowered = text.lowercased()
+                if lowered.contains("does not exist")
+                    || lowered.contains("no configured access levels")
+                    || lowered.contains("does not have write access")
+                    || lowered.contains("does not have read access") {
+                    Task { [weak self] in
+                        await self?.recordAuthRejection(text)
+                    }
+                    Logger(label: "arc-agent.tessera").error("Tessera relay rejected a request: \"\(text)\" — the agent's user is not registered (or lacks access levels) on the relay DB. Fix with tessera-setup.sh (relay stopped), then restart the relay.")
+                }
             }
             self.model = model
             self.session = session
@@ -716,6 +743,14 @@ public actor TesseraConnection {
             content: content
         ))
         try await Self.boundedPublish(session, event: signed)
+        // A clean write proves the agent's user is authorized — drop any stale
+        // rejection the health check would otherwise keep reporting.
+        lastAuthRejection = nil
+    }
+
+    /// Records a relay authorization rejection for the health check to report.
+    private func recordAuthRejection(_ text: String) {
+        lastAuthRejection = text
     }
 
     /// Publish kind-5 deletion events for every known event whose `d` tag
