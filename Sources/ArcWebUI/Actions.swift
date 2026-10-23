@@ -755,7 +755,15 @@ extension AppState {
 
         // Deleted-session guard: the host's terminal delete makes the
         // session read-only for everyone; the store throws on any write.
-        if activeSessionID.map({ deletedSessionIDs.contains($0) }) == true {
+        // The cached `deletedSessionIDs` set lags the tunnel — a terminal
+        // meta can land while the page idles — so also consult the store
+        // directly (the authoritative source) before spending the turn.
+        var sessionDeleted = activeSessionID.map({ deletedSessionIDs.contains($0) }) == true
+        if !sessionDeleted, let store,
+           let live = try? await store.get(id: sessionID) {
+            sessionDeleted = live.deleted == true
+        }
+        if sessionDeleted {
             activeTurns[sessionID]?.status = "session deleted by host"
             await pusher(await liveFragments())
             return
@@ -1146,7 +1154,14 @@ extension AppState {
             }
         }
         if let current = activeSessionID, !sessions.contains(where: { $0.id == current }) {
-            if let cached = previous.first(where: { $0.id == current }) {
+            // Ghost-tolerance guards against a transient list hiccup, but a
+            // session the store deliberately omits must not resurrect: verify
+            // with a direct fetch first. A missing record, or one carrying a
+            // terminal `deleted` meta (host deleted it — the owner-side list
+            // filter above), is gone; drop it and move on.
+            let verified = try? await store?.get(id: current)
+            if let cached = previous.first(where: { $0.id == current }),
+               let verified, verified.deleted != true {
                 sessions.insert(cached, at: 0)
                 LogCollector.shared.append(level: .warning, text: "[store] session \(String(current.prefix(8))) missing from the store list — kept from cache")
             } else {

@@ -318,8 +318,14 @@ public actor TesseraSessionStore: SessionStore {
         if let identity, !identity.isEmpty {
             dismissed = await leaveNoticeSessionIDs(identity: identity)
         }
+        // A terminal `deleted` meta is visible to sharees (it drives the
+        // "deleted by host" banner) but never to its owner: the host deleted
+        // the session, so it must not reappear in their sidebar — neither on
+        // the next reload nor via the web UI's ghost-tolerance cache.
         let visible = metas.values.filter {
-            !dismissed.contains($0.sessionID) && isVisible($0, identity: identity, grants: grants)
+            !dismissed.contains($0.sessionID)
+                && isVisible($0, identity: identity, grants: grants)
+                && !($0.deleted == true && identity != nil && $0.owner == identity)
         }
         let ordered = visible.sorted { $0.updatedAt > $1.updatedAt }
         let page = ordered.dropFirst(max(0, offset)).prefix(limit)
