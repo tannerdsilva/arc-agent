@@ -67,10 +67,10 @@
     {
       "identity" : "quicklmdb",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/tannerdsilva/QuickLMDB",
+      "location" : "https://github.com/tannerdsilva/QuickLMDB.git",
       "state" : {
-        "revision" : "588b11d6de70e4a610ae8934d0e293c7301ac28b",
-        "version" : "16.0.0"
+        "revision" : "47616e871d500ae7eb798264369188fd71ab7c9a",
+        "version" : "16.0.1"
       }
     },
     {
