@@ -263,6 +263,7 @@ public actor TesseraConnection {
         eoseTracker = nil
         isStarted = false
         nextSeq = 0
+        modelMaxSeq = 0
         pendingRecords.removeAll()
         recordIndex = TesseraRecordIndex()
     }
@@ -294,11 +295,37 @@ public actor TesseraConnection {
 
     // MARK: - Sequence numbers
 
+    /// The highest sequence number observed in the live model (foreign
+    /// arrivals included). Floors the counter in `takeSequence` so two
+    /// processes writing one session never collide on `…/<seq>` d-tags —
+    /// a collision silently replaces the earlier message in every client's
+    /// record index (which dedupes by d-tag), i.e. messages vanish.
+    private var modelMaxSeq = 0
+
     /// Allocate the next global sequence number.
+    ///
+    /// Reconciles first so foreign arrivals (the other instance's events)
+    /// raise the floor before the allocation; the steady-state reconcile is
+    /// O(pending). Without this, two instances' independent counters both
+    /// allocate the same seq after boot and overwrite each other's records.
     public func takeSequence() -> Int {
+        if let model { reconcileIndex(model) }
+        nextSeq = Self.flooredSequence(next: nextSeq, observedMax: modelMaxSeq)
         let seq = nextSeq
         nextSeq += 1
         return seq
+    }
+
+    /// Pure collision-avoidance rule: the next sequence must exceed every
+    /// sequence observed from the shared store, whichever process observed it.
+    static func flooredSequence(next: Int, observedMax: Int) -> Int {
+        max(next, observedMax + 1)
+    }
+
+    /// Record a sequence number seen on an ingested record (foreign or
+    /// rebuilt) so subsequent allocations cannot reuse it.
+    private func observeSequence(_ seq: Int) {
+        if seq > modelMaxSeq { modelMaxSeq = seq }
     }
 
     /// The highest sequence number found in the cached model. Used to seed
@@ -391,6 +418,7 @@ public actor TesseraConnection {
                     .flatMap { Self.stringValue($0.value) }
                 let content = Self.stringValue(event.content) ?? ""
                 let seq = dTag.flatMap(Self.sequenceNumber(fromTagKey:)) ?? 0
+                observeSequence(seq)
                 indexRecord(
                     TesseraRecord(id: id, dTag: dTag, content: content, author: Self.publicKeyString(event.publicKey)),
                     kind: event.kind.RAW_native(),
@@ -516,6 +544,7 @@ public actor TesseraConnection {
             }
 
             nextSeq = globalMaxSequence() + 1
+            modelMaxSeq = nextSeq - 1
             isStarted = true
 
             // Begin surfacing owner→guest streaming deltas (kind 3008) to the
