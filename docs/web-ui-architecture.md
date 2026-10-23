@@ -103,6 +103,49 @@ something an entry has to remember to ask for.
    turns, the live log ring buffer, the workspace tree) go out through
    `WebUIServer.broadcast`.
 
+## Event wiring
+
+Handlers are **generated, not typed**. A controller type declares one
+`@WireGroup(n)` per registration group, and the macro expands it into
+`wireGroup_<n>(_ router:)` on that type; every `@Wired(id, events:)` handler the
+group encloses becomes one `router.register` call in that function. `@Wired` is a
+**peer marker — on its own it expands to nothing.** A `@Wired` handler in an
+`extension Controller` that carries no `@WireGroup` therefore compiles cleanly and
+is silently never registered; that failure shipped once and is fixed on this tree.
+Registration is invisible in rendered bytes — no snapshot, parity digest or
+browser smoke can see it — and `dispatch` returns `.fragments([])` both for "no
+handler" and for "handler declined with a guard", so `EventRouter.handlerCount(in:)`
+is the only honest observation. Never use a dispatch assertion as proof of
+registration.
+
+`Controller.wireAll` composes the generated groups with three hand-written
+registrations that a `@Wired` marker cannot express — the only sanctioned literal
+ids (documented in the `Controller.wire` doc comment):
+
+- `nav-\(id)` in `wireNav` — the ids are not static literals; they come from
+  `app.railTabIDs()` and are interpolated in a loop.
+- `sidebar-plugin-toggle` in `wireSidebarPluginToggles` — one fixed id covers every
+  third-party plugin row, and the handler dispatches on the event's `targetId`
+  (`sbpl-<key>`).
+- `cat-pick` in `wireChat` — it carries `contextmenu`, which is not an `HTMLEvent`
+  case, so the macro cannot express its event set.
+
+The census (measured 2026-10-22 on `htmlstring-eliminate` with a throwaway
+diagnostic, `swift test --filter DiagTests`, since removed: a fresh `EventRouter`
+per group, one `wireGroup_<g>` call, then `handlerCount`):
+
+```
+CHAT 45, SETTINGS 25, SETTINGS_ADMIN 30, SKILLS 15, PROFILES 11, MCP 8,
+CHATMENU 7, WORKSPACES 6, QUEUE 6, TOOLS 2, PLUGINS 2, LOGS 2, INSIGHTS 1,
+TOASTS 1, TODOS 1, CRON 1, REGEN 1                     = 164 in 17 groups
+```
+
+164 distinct ids, no duplicate. `wireAll` therefore registers **178 handlers**:
+164 generated + 12 `nav-\(id)` + the 2 remaining escapes. The numbers are
+measured, not derived — and the golden parity digest over
+`Tests/ArcAgentWebUITests/Fixtures/parity` does not move when registration
+changes, which is exactly why the invariant is counted rather than rendered.
+
 ## Streaming turns
 
 A running turn renders into a dedicated live node, never by re-rendering the
