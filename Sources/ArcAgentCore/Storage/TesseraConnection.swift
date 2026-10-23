@@ -142,17 +142,23 @@ public actor TesseraConnection {
     /// without this subscription every re-subscribe resurrects deleted
     /// sessions/messages like zombies.
     public static let deletionKind: UInt32 = 5
+    /// Sharee leave notices. When a sharee deletes their side of a shared
+    /// session they publish one of these (authored by the sharee, so the
+    /// relay's author-matches-deleter rule is satisfied) to tell the host
+    /// the grantee severed the connection. The host cannot tombstone it —
+    /// it did not author it — so it simply stops being shown once read.
+    public static let leaveKind: UInt32 = 3_010
     /// The prefix on every `d` tag value.
     public static let dTagPrefix = "arc/"
-    /// One subscription per kind; the model receives all nine.
-    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles", "arc-cron", "arc-goals", "arc-shares", "arc-stream", "arc-tombstones"]
+    /// One subscription per kind; the model receives all ten.
+    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles", "arc-cron", "arc-goals", "arc-shares", "arc-stream", "arc-tombstones", "arc-left"]
 
     /// Kinds the client subscribes to, paired with `subscriptionIDs`.
     static let subscriptionKinds: [(String, UInt32)] = {
         let data: [(String, UInt32)] = [
             ("arc-msgs", messageKind), ("arc-mem", memoryKind), ("arc-meta", metadataKind),
             ("arc-profiles", profileKind), ("arc-cron", cronKind), ("arc-goals", goalKind),
-            ("arc-shares", shareKind), ("arc-stream", streamKind),
+            ("arc-shares", shareKind), ("arc-stream", streamKind), ("arc-left", leaveKind),
         ]
         return data + [("arc-tombstones", deletionKind)]
     }()
@@ -281,6 +287,7 @@ public actor TesseraConnection {
         isStarted = false
         nextSeq = 0
         modelMaxSeq = 0
+        writerMsgSeq = 0
         pendingRecords.removeAll()
         recordIndex = TesseraRecordIndex()
     }
@@ -306,6 +313,7 @@ public actor TesseraConnection {
         eoseTracker = nil
         isStarted = false
         nextSeq = 0
+        writerMsgSeq = 0
         pendingRecords.removeAll()
         recordIndex = TesseraRecordIndex()
     }
@@ -337,6 +345,71 @@ public actor TesseraConnection {
     /// sequence observed from the shared store, whichever process observed it.
     static func flooredSequence(next: Int, observedMax: Int) -> Int {
         max(next, observedMax + 1)
+    }
+
+    // MARK: Per-writer message sequences
+    //
+    // Shared sessions previously allocated message d-tags from ONE global
+    // sequence counter. Two instances racing `nextSeq = globalMax() + 1`
+    // from independent model snapshots produced duplicate `arc/s/<sid>/<n>`
+    // d-tags; the record index dedupes by d-tag, so one of the colliding
+    // messages silently vanished everywhere. Writer-namespaced d-tags
+    // (`arc/s/<sid>/<writer>/<n>`) make a collision impossible by
+    // construction: each writer counts its own namespace independently.
+
+    /// URL-safe token identifying this connection's writer namespace:
+    /// base64url of the connection's NOSTR public key. Embedded in every
+    /// per-writer message d-tag.
+    public var writerToken: String? {
+        guard let pk = nostrPublicKey else { return nil }
+        var bytes = Data()
+        pk.RAW_access_immutable(UnsafeRawBufferPointer.self) { bytes = Data($0) }
+        guard !bytes.isEmpty else { return nil }
+        return bytes.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    /// The connection's own per-writer counter. Monotonic across sessions —
+    /// uniqueness is all that is required; transcript ordering uses message
+    /// timestamps (see `TesseraSessionStore.get`).
+    private var writerMsgSeq = 0
+
+    /// Allocate the next sequence in this writer's namespace. Seeded lazily
+    /// from the model so a restart cannot reuse numbers already on the relay.
+    public func takeWriterSequence() -> Int {
+        writerMsgSeq = max(writerMsgSeq, highestWriterSequence())
+        writerMsgSeq += 1
+        return writerMsgSeq
+    }
+
+    /// Highest per-writer sequence observed in the model for this writer's
+    /// token (any session). Returns 0 when there is no identity or no match.
+    private func highestWriterSequence() -> Int {
+        guard let model, let token = writerToken else { return 0 }
+        var maxSeq = 0
+        for (_, event) in model.modelStorage {
+            guard event.kind.RAW_native() == Self.messageKind,
+                  let dTag = findTag(tags: event.tags.array, as: DTag.self),
+                  let key = Self.stringValue(dTag.value),
+                  Self.isWriterNamespaced(key), key.contains("/\(token)/"),
+                  let seq = Self.sequenceNumber(fromTagKey: key) else {
+                continue
+            }
+            maxSeq = max(maxSeq, seq)
+        }
+        return maxSeq
+    }
+
+    /// Whether a `arc/s/...` d-tag key carries the per-writer namespace
+    /// (`arc/s/<sid>/<writer>/<n>`, 3 segments) as opposed to the legacy
+    /// global-sequence format (`arc/s/<sid>/<n>`, 2 segments). Session IDs
+    /// are UUIDs (never contain `/`), so segment count is unambiguous.
+    public static func isWriterNamespaced(_ key: String) -> Bool {
+        guard key.hasPrefix("arc/s/") else { return false }
+        let segments = key.dropFirst("arc/s/".count).split(separator: "/")
+        return segments.count == 3
     }
 
     /// Record a sequence number seen on an ingested record (foreign or
@@ -397,8 +470,8 @@ public actor TesseraConnection {
 
     /// Remove every index entry whose d-tag falls under a prefix (used by
     /// `deleteAll` after the model deletion was applied).
-    private func unindex(dTagPrefix prefix: String, kind: UInt32) {
-        recordIndex.unindex(dTagPrefix: prefix, kind: kind)
+    private func unindex(dTagPrefix prefix: String, kind: UInt32, author: String? = nil) {
+        recordIndex.unindex(dTagPrefix: prefix, kind: kind, author: author)
     }
 
     /// Bring the index up to date with the model before serving a query.
@@ -649,7 +722,15 @@ public actor TesseraConnection {
     /// matches the given prefix, and drop them from the model and pending
     /// queue. Events still awaiting their echo are referenced by the id we
     /// signed locally, so the server can still apply the deletion.
-    public func deleteAll(dTagPrefix prefix: String, kind: UInt32) async throws {
+    ///
+    /// - Parameters:
+    ///   - author: When non-nil, only events signed by this public key are
+    ///     tombstoned. This is how per-side deletion works in shared
+    ///     sessions: the relay rejects kind-5s referencing events the
+    ///     deleter did not author, so a host delete passes its own author
+    ///     key (leaving the sharee's messages intact) and a sharee delete
+    ///     passes theirs.
+    public func deleteAll(dTagPrefix prefix: String, kind: UInt32, author: String? = nil) async throws {
         guard let session, let nostrPrivateKey, var model else { return }
         // Reconcile first: the id sweep below reads the local model snapshot.
         // Without this, events that landed on the relay seconds earlier but
@@ -663,13 +744,21 @@ public actor TesseraConnection {
                   key.hasPrefix(prefix) else {
                 return nil
             }
+            if let author {
+                guard Self.publicKeyString(event.publicKey) == author else { return nil }
+            }
             return id
         }
-        // Events we published whose echo has not landed yet.
-        ids.append(contentsOf: pendingRecords
-            .filter { $0.kind == kind && $0.dTag.hasPrefix(prefix) }
-            .map(\.id))
-        pendingRecords.removeAll { $0.kind == kind && $0.dTag.hasPrefix(prefix) }
+        // Events we published whose echo has not landed yet. Pendings are
+        // always signed by this connection, so under an author filter they
+        // only qualify when the filter names our own key.
+        let selfKey = nostrPublicKey.flatMap(Self.publicKeyString)
+        if author == nil || author == selfKey {
+            ids.append(contentsOf: pendingRecords
+                .filter { $0.kind == kind && $0.dTag.hasPrefix(prefix) }
+                .map(\.id))
+            pendingRecords.removeAll { $0.kind == kind && $0.dTag.hasPrefix(prefix) }
+        }
 
         for id in Set(ids) {
             // A deletion handed to the reliable KCP tunnel is never dropped, so
@@ -680,7 +769,7 @@ public actor TesseraConnection {
             }
             try? model.delete(id: id)
         }
-        unindex(dTagPrefix: prefix, kind: kind)
+        unindex(dTagPrefix: prefix, kind: kind, author: author)
     }
 
     // MARK: - Timeout guards

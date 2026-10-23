@@ -72,11 +72,17 @@ public struct TesseraSessionMeta: Codable, Sendable, Equatable {
     public var config: SessionConfigSnapshot?
     /// The signing identity that owns this session (nil = legacy/current).
     public var owner: String?
+    /// Terminal state: the host deleted this session. Published once by the
+    /// owner in its final meta record; the record itself stays on the relay
+    /// (it cannot be tombstoned by anyone but the host), and each sharee's
+    /// client dismisses it locally once the sharee deletes their side.
+    /// Older records without this field decode as nil (not deleted).
+    public var deleted: Bool?
 
     public init(seq: Int, sessionID: String, createdAt: Date, updatedAt: Date,
                 model: String, provider: String, messageCount: Int, totalTokens: Int,
                 titleHint: String? = nil, config: SessionConfigSnapshot? = nil,
-                owner: String? = nil) {
+                owner: String? = nil, deleted: Bool? = nil) {
         self.seq = seq
         self.sessionID = sessionID
         self.createdAt = createdAt
@@ -88,6 +94,28 @@ public struct TesseraSessionMeta: Codable, Sendable, Equatable {
         self.titleHint = titleHint
         self.config = config
         self.owner = owner
+        self.deleted = deleted
+    }
+}
+
+/// A sharee's "I deleted my side" notice (kind 3010,
+/// `d` tag `arc/left/<sessionID>/<writer>/<n>`).
+///
+/// Authored by the sharee; the host surfaces it as "left the session" and
+/// the sharee's own client uses it as the persistent local-dismissal marker
+/// for the session (no client-side state needed — the record is the state).
+public struct TesseraLeaveNotice: Codable, Sendable, Equatable {
+    /// The shared session the writer severed their side of.
+    public var sessionID: String
+    /// The writer token (base64url of the sharee's NOSTR public key).
+    public var writer: String
+    /// When the sharee deleted their side.
+    public var at: Date
+
+    public init(sessionID: String, writer: String, at: Date) {
+        self.sessionID = sessionID
+        self.writer = writer
+        self.at = at
     }
 }
 
@@ -114,8 +142,9 @@ public actor TesseraSessionStore: SessionStore {
         let conn = connection
         try await conn.ensureStarted()
         try await publishMeta(from: session, messageCount: session.messages.count)
+        let namespaced = await writerNamespacing(for: session.id, owner: session.owner)
         for message in session.messages {
-            try await publishMessage(message, sessionID: session.id)
+            try await publishMessage(message, sessionID: session.id, namespaced: namespaced)
         }
     }
 
@@ -125,30 +154,56 @@ public actor TesseraSessionStore: SessionStore {
         guard let meta = await latestMeta(for: id) else { return nil }
         let identity = await connection.nostrPublicKeyString
         let grants = await TesseraShareStore.shared.latestGrants()
+        // A sharee who deleted their side sees nothing: the leave notice they
+        // published is the persistent local-dismissal marker (it survives
+        // restarts and stays off the view without any client-side state).
+        if let identity, !identity.isEmpty,
+           await leaveNoticeSessionIDs(identity: identity).contains(id) {
+            return nil
+        }
         guard isVisible(meta, identity: identity, grants: grants) else { return nil }
-        var pairs: [(seq: Int, message: Message)] = []
+        var pairs: [(seq: Int, namespaced: Bool, message: Message)] = []
         for record in await conn.snapshot(kind: TesseraConnection.messageKind)
             .filter({ $0.dTag?.hasPrefix("arc/s/\(id)/") ?? false }) {
             guard let stored = try? JSONDecoder().decode(TesseraStoredMessage.self, from: Data(record.content.utf8)),
                   stored.sessionID == id else {
                 continue
             }
-            pairs.append((stored.seq, stored.message))
+            let namespaced = record.dTag.map(TesseraConnection.isWriterNamespaced) ?? false
+            pairs.append((stored.seq, namespaced, stored.message))
         }
-        pairs.sort { $0.seq < $1.seq }
+        // Legacy sessions (all records in the global-sequence format) order
+        // by their sequence numbers exactly as before. Sessions containing
+        // per-writer records order by message timestamp with the per-writer
+        // sequence as tiebreak — per-writer numbers are not comparable
+        // across writers, and timestamps are the order the participants saw.
+        let anyNamespaced = pairs.contains(where: \.namespaced)
+        if anyNamespaced {
+            pairs.sort { left, right in
+                let l = left.message.createdAt ?? .distantPast
+                let r = right.message.createdAt ?? .distantPast
+                if l != r { return l < r }
+                return left.seq < right.seq
+            }
+        } else {
+            pairs.sort { $0.seq < $1.seq }
+        }
         // Self-healing metadata: historical appends could leave messageCount
         // ahead of the real event count (or titleHint unset for legacy
         // records); republish a corrected meta — same updatedAt, so the
-        // sidebar ordering is untouched — once, on the next open.
+        // sidebar ordering is untouched — once, on the next open. Never on a
+        // deleted session: the terminal record is the last word.
         let hinted = meta.titleHint
             ?? pairs.first(where: { $0.message.role == .user })?.message.content.map { String($0.prefix(120)) }
-        if pairs.count != meta.messageCount || hinted != meta.titleHint {
+        if meta.deleted != true,
+           pairs.count != meta.messageCount || hinted != meta.titleHint {
             let corrected = TesseraSessionMeta(
                 seq: await conn.takeSequence(), sessionID: id,
                 createdAt: meta.createdAt, updatedAt: meta.updatedAt,
                 model: meta.model, provider: meta.provider,
                 messageCount: pairs.count, totalTokens: meta.totalTokens,
-                titleHint: hinted, config: meta.config, owner: meta.owner
+                titleHint: hinted, config: meta.config, owner: meta.owner,
+                deleted: meta.deleted
             )
             try await publish(meta: corrected)
         }
@@ -162,7 +217,8 @@ public actor TesseraSessionStore: SessionStore {
             messageCount: pairs.count,
             messages: pairs.map(\.message),
             config: meta.config,
-            owner: meta.owner
+            owner: meta.owner,
+            deleted: meta.deleted == true ? true : nil
         )
     }
 
@@ -171,7 +227,8 @@ public actor TesseraSessionStore: SessionStore {
         try await conn.ensureStarted()
         let identity = await conn.nostrPublicKeyString
         let grants = await TesseraShareStore.shared.latestGrants()
-        let storedOwner = await latestMeta(for: session.id)?.owner
+        let latest = await latestMeta(for: session.id)
+        let storedOwner = latest?.owner
         // Refuse to resurrect: a session with no local metadata that claims a
         // foreign owner was deleted by its host — re-publishing meta here is
         // exactly what brought deleted sessions back from the dead on a
@@ -179,6 +236,11 @@ public actor TesseraSessionStore: SessionStore {
         // create() and visible via publish-time indexing of pendings.)
         if let foreign = session.owner, foreign != identity, storedOwner == nil {
             throw SessionShareError.notAuthorized
+        }
+        // Terminal state: a host delete tombstones its side and publishes the
+        // terminal record; nothing may write to the session afterwards.
+        if latest?.deleted == true {
+            throw SessionShareError.sessionDeleted
         }
         guard SharedSessionACL.canContribute(
             identity: identity ?? "", sessionID: session.id,
@@ -190,23 +252,60 @@ public actor TesseraSessionStore: SessionStore {
         // The append-only log cannot rewrite history; publish only the
         // messages whose exact payload is not already stored.
         let existing = await storedMessages(sessionID: session.id)
+        let namespaced = await writerNamespacing(for: session.id, owner: storedOwner ?? session.owner)
         for message in session.messages {
             if existing.contains(message) { continue }
-            try await publishMessage(message, sessionID: session.id)
+            try await publishMessage(message, sessionID: session.id, namespaced: namespaced)
         }
     }
 
+    /// Delete a session with role-aware semantics:
+    ///
+    /// - **Legacy / unshared**: purge every record kind tied to the session
+    ///   (the pre-existing authoritative delete).
+    /// - **Host of a shared session**: publish the terminal `deleted` meta
+    ///   (the last word — it survives the tombstones), then tombstone only
+    ///   host-authored events. The sharee keeps their own messages and sees
+    ///   the "deleted by host" state; the relay would reject tombstones for
+    ///   events the host did not author anyway.
+    /// - **Sharee**: tombstone their own messages and metas, and publish a
+    ///   leave notice. The host's events cannot be tombstoned (not ours)
+    ///   and stay on the relay; the leave notice hides the session locally
+    ///   and tells the host the grantee severed their side.
     public func delete(id: String) async throws {
         let conn = connection
         try await conn.ensureStarted()
-        // Purge every record kind tied to the session, so the delete is
-        // authoritative for both host and sharee: messages, metadata,
-        // streaming deltas, and the share grants (a surviving grant or meta
-        // event re-lists the session in the other instance's web UI).
-        try await conn.deleteAll(dTagPrefix: "arc/s/\(id)/", kind: TesseraConnection.messageKind)
-        try await conn.deleteAll(dTagPrefix: "arc/meta/\(id)/", kind: TesseraConnection.metadataKind)
-        try await conn.deleteAll(dTagPrefix: "arc/stream/\(id)/", kind: TesseraConnection.streamKind)
-        try await conn.deleteAll(dTagPrefix: "arc/share/\(id)/", kind: TesseraConnection.shareKind)
+        let identity = await conn.nostrPublicKeyString
+        let meta = await latestMeta(for: id)
+        let owner = meta?.owner
+        let isSharee = identity != nil && !identity!.isEmpty && owner != nil && owner != identity
+        let isHost = identity != nil && !identity!.isEmpty && owner != nil && owner == identity
+        guard isSharee || isHost else {
+            // Legacy full purge, unchanged.
+            try await conn.deleteAll(dTagPrefix: "arc/s/\(id)/", kind: TesseraConnection.messageKind)
+            try await conn.deleteAll(dTagPrefix: "arc/meta/\(id)/", kind: TesseraConnection.metadataKind)
+            try await conn.deleteAll(dTagPrefix: "arc/stream/\(id)/", kind: TesseraConnection.streamKind)
+            try await conn.deleteAll(dTagPrefix: "arc/share/\(id)/", kind: TesseraConnection.shareKind)
+            return
+        }
+        guard let identity else { return }
+        if isHost {
+            try await conn.deleteAll(dTagPrefix: "arc/s/\(id)/", kind: TesseraConnection.messageKind, author: identity)
+            try await conn.deleteAll(dTagPrefix: "arc/meta/\(id)/", kind: TesseraConnection.metadataKind, author: identity)
+            try await conn.deleteAll(dTagPrefix: "arc/stream/\(id)/", kind: TesseraConnection.streamKind, author: identity)
+            try await conn.deleteAll(dTagPrefix: "arc/share/\(id)/", kind: TesseraConnection.shareKind)
+            // Terminal record LAST so the tombstone sweeps above cannot
+            // touch it: this meta is the sharee's "deleted by host" signal.
+            if var terminal = meta {
+                terminal.seq = await conn.takeSequence()
+                terminal.deleted = true
+                try await publish(meta: terminal)
+            }
+        } else {
+            try await conn.deleteAll(dTagPrefix: "arc/s/\(id)/", kind: TesseraConnection.messageKind, author: identity)
+            try await conn.deleteAll(dTagPrefix: "arc/meta/\(id)/", kind: TesseraConnection.metadataKind, author: identity)
+            try await publishLeaveNotice(sessionID: id)
+        }
     }
 
     public func list(limit: Int, offset: Int) async throws -> [Session] {
@@ -215,7 +314,13 @@ public actor TesseraSessionStore: SessionStore {
         let metas = await latestMetaGrouped()
         let identity = await connection.nostrPublicKeyString
         let grants = await TesseraShareStore.shared.latestGrants()
-        let visible = metas.values.filter { isVisible($0, identity: identity, grants: grants) }
+        var dismissed: Set<String> = []
+        if let identity, !identity.isEmpty {
+            dismissed = await leaveNoticeSessionIDs(identity: identity)
+        }
+        let visible = metas.values.filter {
+            !dismissed.contains($0.sessionID) && isVisible($0, identity: identity, grants: grants)
+        }
         let ordered = visible.sorted { $0.updatedAt > $1.updatedAt }
         let page = ordered.dropFirst(max(0, offset)).prefix(limit)
         // Metadata-only summaries: message bodies are materialized lazily via
@@ -228,7 +333,10 @@ public actor TesseraSessionStore: SessionStore {
                 model: meta.model,
                 provider: meta.provider,
                 title: meta.titleHint,
-                messageCount: meta.messageCount
+                messageCount: meta.messageCount,
+                config: meta.config,
+                owner: meta.owner,
+                deleted: meta.deleted == true ? true : nil
             )
         }
     }
@@ -238,27 +346,31 @@ public actor TesseraSessionStore: SessionStore {
         try await conn.ensureStarted()
         let identity = await conn.nostrPublicKeyString
         let grants = await TesseraShareStore.shared.latestGrants()
-        let owner = await latestMeta(for: sessionID)?.owner
+        let meta = await latestMeta(for: sessionID)
+        let owner = meta?.owner
+        // Terminal state: the host deleted this session; nothing more may be
+        // written, not even the sharee's own messages.
+        if meta?.deleted == true {
+            throw SessionShareError.sessionDeleted
+        }
         guard SharedSessionACL.canContribute(
             identity: identity ?? "", sessionID: sessionID, sessionOwner: owner, grants: grants
         ) else {
             throw SessionShareError.notAuthorized
         }
-        try await publishMessage(message, sessionID: sessionID)
-        if let meta = await latestMeta(for: sessionID) {
-            var hint = meta.titleHint
+        let namespaced = await writerNamespacing(for: sessionID, owner: owner)
+        try await publishMessage(message, sessionID: sessionID, namespaced: namespaced)
+        if var latest = meta {
+            var hint = latest.titleHint
             if hint == nil, message.role == .user,
                let c = message.content, !c.isEmpty {
                 hint = String(c.prefix(120))
             }
-            let updated = TesseraSessionMeta(
-                seq: await conn.takeSequence(), sessionID: meta.sessionID,
-                createdAt: meta.createdAt, updatedAt: Date(),
-                model: meta.model, provider: meta.provider,
-                messageCount: meta.messageCount + 1, totalTokens: meta.totalTokens,
-                titleHint: hint, config: meta.config, owner: meta.owner
-            )
-            try await publish(meta: updated)
+            latest.seq = await conn.takeSequence()
+            latest.updatedAt = Date()
+            latest.messageCount += 1
+            latest.titleHint = hint
+            try await publish(meta: latest)
         }
     }
 
@@ -274,6 +386,78 @@ public actor TesseraSessionStore: SessionStore {
     }
 
     // MARK: - Private
+
+    /// Whether messages for this session must use per-writer d-tag
+    /// namespaces: true exactly when more than one identity writes it —
+    /// a foreign owner (we are the sharee) or our own ownership with a
+    /// live grant for this session (we are the host). Single-writer
+    /// sessions keep the legacy global-sequence d-tag format.
+    private func writerNamespacing(for sessionID: String, owner: String?) async -> Bool {
+        guard let identity = await connection.nostrPublicKeyString, !identity.isEmpty else {
+            return false
+        }
+        if let owner, owner != identity { return true } // sharee side
+        guard let owner, owner == identity else { return false } // legacy/nil
+        let grants = await TesseraShareStore.shared.latestGrants()
+        return grants.contains { $0.sessionID == sessionID && !$0.grantees.isEmpty }
+    }
+
+    /// Publish one chat message. `namespaced` selects the d-tag format:
+    /// `arc/s/<sid>/<writer>/<n>` (per-writer counter, collision-free for
+    /// shared sessions) or the legacy `arc/s/<sid>/<seq>` (global counter).
+    private func publishMessage(_ message: Message, sessionID: String, namespaced: Bool) async throws {
+        let conn = connection
+        if namespaced, let token = await conn.writerToken {
+            let n = await conn.takeWriterSequence()
+            let stored = TesseraStoredMessage(seq: n, sessionID: sessionID, message: message)
+            let content = String(decoding: try JSONEncoder().encode(stored), as: UTF8.self)
+            try await conn.publish(
+                kind: TesseraConnection.messageKind,
+                dTagValue: "arc/s/\(sessionID)/\(token)/\(n)",
+                content: content
+            )
+        } else {
+            let stored = TesseraStoredMessage(seq: await conn.takeSequence(), sessionID: sessionID, message: message)
+            let content = String(decoding: try JSONEncoder().encode(stored), as: UTF8.self)
+            try await conn.publish(
+                kind: TesseraConnection.messageKind,
+                dTagValue: "arc/s/\(sessionID)/\(stored.seq)",
+                content: content
+            )
+        }
+    }
+
+    /// Publish a sharee leave notice (kind 3010) for a shared session.
+    /// Authored by the sharee so the relay's author-matches-deleter rule
+    /// accepts it; the host reads it as "grantee severed their side".
+    private func publishLeaveNotice(sessionID: String) async throws {
+        let conn = connection
+        guard let token = await conn.writerToken else { return }
+        let notice = TesseraLeaveNotice(
+            sessionID: sessionID, writer: token, at: Date()
+        )
+        let content = String(decoding: try JSONEncoder().encode(notice), as: UTF8.self)
+        let n = await conn.takeWriterSequence()
+        try await conn.publish(
+            kind: TesseraConnection.leaveKind,
+            dTagValue: "arc/left/\(sessionID)/\(token)/\(n)",
+            content: content
+        )
+    }
+
+    /// Session IDs the current identity has published a leave notice for.
+    private func leaveNoticeSessionIDs(identity: String) async -> Set<String> {
+        let conn = connection
+        var ids: Set<String> = []
+        for record in await conn.snapshot(kind: TesseraConnection.leaveKind) {
+            guard record.author == identity,
+                  let notice = try? JSONDecoder().decode(TesseraLeaveNotice.self, from: Data(record.content.utf8)) else {
+                continue
+            }
+            ids.insert(notice.sessionID)
+        }
+        return ids
+    }
 
     private func publishMeta(from session: Session, messageCount: Int) async throws {
         let defaultOwner = await connection.nostrPublicKeyString
@@ -319,6 +503,23 @@ public actor TesseraSessionStore: SessionStore {
             dTagValue: "arc/s/\(sessionID)/\(stored.seq)",
             content: content
         )
+    }
+
+    /// All leave notices visible to this identity (kind 3010).
+    ///
+    /// The host filters to notices from OTHER writers to surface "X left
+    /// the session"; a sharee filters to their own for local dismissal
+    /// (already applied inside `get`/`list`).
+    public func leaveNotices() async -> [TesseraLeaveNotice] {
+        let conn = connection
+        try? await conn.ensureStarted()
+        var notices: [TesseraLeaveNotice] = []
+        for record in await conn.snapshot(kind: TesseraConnection.leaveKind) {
+            if let notice = try? JSONDecoder().decode(TesseraLeaveNotice.self, from: Data(record.content.utf8)) {
+                notices.append(notice)
+            }
+        }
+        return notices
     }
 
     /// The newest metadata record for one session, or nil.

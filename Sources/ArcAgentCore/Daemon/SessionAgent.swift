@@ -129,11 +129,22 @@ public actor SessionAgent: Service {
             logger.info("step: resolving turn mode")
             if let identity = await TesseraConnection.shared.nostrPublicKeyString {
                 let grants = await TesseraShareStore.shared.latestGrants()
-                if let stored = try? await sessionStore.get(id: sessionID),
-                   SharedSessionACL.turnMode(
-                       identity: identity, sessionID: sessionID,
-                       sessionOwner: stored.owner, grants: grants
-                   ) == .guest {
+                // Grant-based pre-check: a grant naming this process as a
+                // grantee means the owner is elsewhere, even if the session
+                // meta (owner field) has not been ingested yet.
+                let grantedElsewhere = grants.contains { grant in
+                    grant.sessionID == sessionID
+                        && grant.owner != identity
+                        && grant.grantees.contains(where: { $0.pubkey == identity })
+                }
+                var isGuest = grantedElsewhere
+                if !isGuest, let stored = try? await sessionStore.get(id: sessionID) {
+                    isGuest = SharedSessionACL.turnMode(
+                        identity: identity, sessionID: sessionID,
+                        sessionOwner: stored.owner, grants: grants
+                    ) == .guest
+                }
+                if isGuest {
                     logger.info("step: session \\(sessionID) is shared to this process as a guest; owner is sole host — skipping agent construction")
                     return
                 }

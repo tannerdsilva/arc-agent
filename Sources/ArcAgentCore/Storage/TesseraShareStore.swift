@@ -203,4 +203,7 @@ public enum SessionShareError: Error, Equatable, Sendable {
     case notAuthorized
     /// The acting identity may not modify the session (not the owner).
     case notOwner
+    /// The session is in terminal "deleted by host" state; no further
+    /// writes (messages, metas, turns) are accepted for it.
+    case sessionDeleted
 }

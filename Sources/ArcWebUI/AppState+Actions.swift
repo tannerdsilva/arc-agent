@@ -837,6 +837,38 @@ extension AppState {
     /// Reload the cached latest share grants (kind 3007).
     func refreshShareGrants() async {
         shareGrants = await TesseraShareStore.shared.latestGrants()
+        await refreshShareViewState()
+    }
+
+    /// Recompute the per-session share view state the views read
+    /// synchronously: our role on foreign-owned sessions, host-deleted
+    /// flags, and grantee leave notices. Called whenever grants or the
+    /// session list change.
+    func refreshShareViewState() async {
+        let identity = await identityPubkey()
+        cachedIdentity = identity
+        var roles: [String: ShareRole] = [:]
+        var deleted: Set<String> = []
+        for session in sessions {
+            if session.deleted == true { deleted.insert(session.id) }
+            guard let identity, !identity.isEmpty,
+                  let owner = session.owner, owner != identity else { continue }
+            if let role = SharedSessionACL.role(
+                identity: identity, sessionID: session.id,
+                sessionOwner: owner, grants: shareGrants
+            ) {
+                roles[session.id] = role
+            }
+        }
+        shareRoles = roles
+        deletedSessionIDs = deleted
+        // Leave notices from other writers, grouped by session (host view).
+        var left: [String: [String]] = [:]
+        let notices = await (store as? TesseraSessionStore)?.leaveNotices() ?? []
+        for notice in notices where notice.writer != identity {
+            left[notice.sessionID, default: []].append(notice.writer)
+        }
+        if left != leftSharees { leftSharees = left }
     }
 
     /// The grant currently governing a session (nil if none).

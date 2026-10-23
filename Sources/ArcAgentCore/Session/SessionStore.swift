@@ -98,12 +98,16 @@ public struct Session: Sendable, Codable {
     public var owner: String?
     /// Per-session context recipe overrides. Nil = inherit from profile/global.
     public var contextOverrides: ContextRecipe?
+    /// Terminal state marker from the host (shared sessions only): the host
+    /// deleted this session. Sharees render a pinned "deleted by host" state;
+    /// hosts never see it (their own delete removes the session locally).
+    public var deleted: Bool?
 
     private enum CodingKeys: String, CodingKey {
         case id, createdAt, updatedAt, model, provider, title, messages
         case source, userID, parentSessionID, workspaceKey, endedAt
         case inputTokens, outputTokens, systemPrompt, config, owner
-        case contextOverrides
+        case contextOverrides, deleted
     }
 
     public init(
@@ -125,7 +129,8 @@ public struct Session: Sendable, Codable {
         systemPrompt: String? = nil,
         config: SessionConfigSnapshot? = nil,
         owner: String? = nil,
-        contextOverrides: ContextRecipe? = nil
+        contextOverrides: ContextRecipe? = nil,
+        deleted: Bool? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -146,6 +151,7 @@ public struct Session: Sendable, Codable {
         self.config = config
         self.owner = owner
         self.contextOverrides = contextOverrides
+        self.deleted = deleted
     }
 
     public init(from decoder: Decoder) throws {
@@ -168,7 +174,31 @@ public struct Session: Sendable, Codable {
         config = try c.decodeIfPresent(SessionConfigSnapshot.self, forKey: .config)
         owner = try c.decodeIfPresent(String.self, forKey: .owner)
         contextOverrides = try c.decodeIfPresent(ContextRecipe.self, forKey: .contextOverrides)
+        deleted = try c.decodeIfPresent(Bool.self, forKey: .deleted)
         messageCount = 0  // re-derived by the store (never persisted)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(createdAt, forKey: .createdAt)
+        try c.encode(updatedAt, forKey: .updatedAt)
+        try c.encode(model, forKey: .model)
+        try c.encode(provider, forKey: .provider)
+        try c.encodeIfPresent(title, forKey: .title)
+        try c.encode(messages, forKey: .messages)
+        try c.encodeIfPresent(source, forKey: .source)
+        try c.encodeIfPresent(userID, forKey: .userID)
+        try c.encodeIfPresent(parentSessionID, forKey: .parentSessionID)
+        try c.encodeIfPresent(workspaceKey, forKey: .workspaceKey)
+        try c.encodeIfPresent(endedAt, forKey: .endedAt)
+        try c.encodeIfPresent(inputTokens, forKey: .inputTokens)
+        try c.encodeIfPresent(outputTokens, forKey: .outputTokens)
+        try c.encodeIfPresent(systemPrompt, forKey: .systemPrompt)
+        try c.encodeIfPresent(config, forKey: .config)
+        try c.encodeIfPresent(owner, forKey: .owner)
+        try c.encodeIfPresent(contextOverrides, forKey: .contextOverrides)
+        try c.encodeIfPresent(deleted, forKey: .deleted)
     }
 }
 

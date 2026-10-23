@@ -117,7 +117,7 @@ struct ShareManagerTests {
         #expect(!views.contains("data-event=\"change, input\""),
                 "multi-event data-event is silently dropped by the engine")
         let actions = Self.source("Actions.swift")
-        #expect(actions.contains("wire(router, id: \\\"share-pubkey\\\", events: [\\\"change\\\", \\\"input\\\"])"),
+        #expect(actions.contains(#"wire(router, id: "share-pubkey", events: ["change", "input"])"#),
                 "the pubkey wire must register the input event")
     }
 

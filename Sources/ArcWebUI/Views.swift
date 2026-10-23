@@ -1091,12 +1091,21 @@ extension AppState {
         let model = settings.modelConfig(named: configName)?.model ?? configName
         // UX-59: a fresh chat rendered "· 0 messages" — noise before there is
         // anything to count. Show the count only once the chat has messages.
-        let meta = count > 0 ? "\(esc(model)) • \(count) \(count == 1 ? "message" : "messages")" : esc(model)
+        var meta = count > 0 ? "\(esc(model)) • \(count) \(count == 1 ? "message" : "messages")" : esc(model)
+        let isDeleted = activeSessionID.map { deletedSessionIDs.contains($0) } ?? false
+        let isSharee = activeSessionID.map { shareRoles[$0] != nil } ?? false
+        // The host owns all parts of the chat and the model: a sharee sees
+        // the model/config/thinking surfaces greyed out and uneditable.
+        if isSharee {
+            meta = "<span style=\"opacity:.45\">\(meta) • host-owned</span>"
+        }
         let delLabel = pendingDelete ? "Confirm?" : WebUIIcon(.trash, size: .small).markup.html
         let delClass = pendingDelete ? "sess-confirm" : "icon-mini danger"
-        let regenBtn = """
+        let regenBtn = isSharee || isDeleted ? "" : """
         <button type="button" id="regen-btn" class="icon-mini" data-tip="Regenerate last reply">\(WebUIIcon(.refreshCw, size: .small).markup.html)</button>
         """
+        // A deleted shared session pins one action: delete the sharee side.
+        let delTitle = isDeleted ? " data-tip=\"Delete shared session\"" : " data-tip=\"Delete chat\""
         return """
         <header class="chat-header" id="chat-header">
           <div>
@@ -1105,7 +1114,7 @@ extension AppState {
           </div>
           <div class="row-actions-main" style="margin:0" data-component-id="regen" data-event="click">
             \(regenBtn)
-            \(btn("chat-del", "chat-del", delClass, delLabel, " data-tip=\"Delete chat\""))
+            \(btn("chat-del", "chat-del", delClass, delLabel, delTitle))
           </div>
         </header>
         """
@@ -1127,6 +1136,7 @@ extension AppState {
         let session = activeSession()
 
         let header = chatHeaderHTML()
+        let banner = sharedStateBannerHTML()
         let follow = forceScrollBottom ? " data-follow=\"bottom\"" : ""
         forceScrollBottom = false
         let scrollBtn = "<button type=\"button\" id=\"scroll-to-bottom\" class=\"scroll-to-bottom-btn\" data-component-id=\"scroll-to-bottom\" title=\"Jump to latest\" aria-label=\"Jump to latest\" hidden>&#8595;</button>"
@@ -1146,7 +1156,33 @@ extension AppState {
         </div>
         """
         let composer = composerHTML()
-        return header + scroll + composer
+        return header + banner + scroll + composer
+    }
+
+    /// Pinned state banner between the header and the transcript:
+    /// the sharee's terminal "deleted by host" warning (with the one
+    /// allowed action), or the host's "X left the session" notice.
+    /// Subtle strip, theme-matched: 1px top divider, danger-soft wash.
+    func sharedStateBannerHTML() -> String {
+        guard let sid = activeSessionID else { return "" }
+        if deletedSessionIDs.contains(sid) {
+            let confirm = pendingDelete ? "Confirm delete?" : "Delete session"
+            let cls = pendingDelete ? "sess-confirm" : "ghost-btn danger"
+            return """
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-top:1px solid var(--divider);border-bottom:1px solid var(--divider);background:var(--danger-soft)">
+              <span style="color:var(--danger);font-size:12.5px">This shared session was deleted by the host. Your side is kept until you remove it.</span>
+              <span style="flex:1"></span>
+              \(btn("chat-del", "chat-del", cls, confirm, ""))
+            </div>
+            """
+        }
+        if let left = leftSharees[sid], !left.isEmpty {
+            let names = left.map { String($0.prefix(8)) }.joined(separator: ", ")
+            return """
+            <div style="padding:7px 16px;border-top:1px solid var(--divider);font-size:12px;opacity:.7">\(esc(names)) left this session</div>
+            """
+        }
+        return ""
     }
 
     /// Floating "Conversation outline" button (reference #2124 parity); hidden

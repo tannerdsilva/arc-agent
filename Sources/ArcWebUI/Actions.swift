@@ -753,21 +753,48 @@ extension AppState {
         let transcript = await transcriptFragments()
         await pusher(turnChrome + transcript)
 
+        // Deleted-session guard: the host's terminal delete makes the
+        // session read-only for everyone; the store throws on any write.
+        if activeSessionID.map({ deletedSessionIDs.contains($0) }) == true {
+            activeTurns[sessionID]?.status = "session deleted by host"
+            await pusher(await liveFragments())
+            return
+        }
         // Host/guest split (Phase 1): the owner is the sole host. If this
         // process is a granted sharee on a shared session, do not build or
         // run a second agent — the contribution is already persisted and
-        // rendered; show a "waiting for the owner" status and stop. The
-        // tunnel listener (Phase 4) paints the owner's response as it
-        // streams back over kind 3008.
-        if let identity = await identityPubkey(),
-           SharedSessionACL.turnMode(
-               identity: identity, sessionID: sessionID,
-               sessionOwner: session.owner, grants: shareGrants
-           ) == .guest {
-            activeTurns[sessionID]?.status = "waiting"
-            LogCollector.shared.append(level: .info, text: "[share] session \(String(sessionID.prefix(8))) is a guest view; contribution recorded, waiting for the owner")
-            await pusher(await liveFragments())
-            return
+        // rendered. The gate consults the STORE (the transcript's owner is
+        // the source of truth), not the UI's session copy: a stale summary
+        // missing the owner field once let a sharee run a full engine and
+        // publish assistant messages into the host's transcript.
+        if let identity = await identityPubkey() {
+            var storedOwner = session.owner
+            if let store, let stored = try? await store.get(id: sessionID) {
+                storedOwner = stored.owner
+            }
+            // Grant-based pre-check: even when the session copy / store
+            // lookup has no owner yet (meta not ingested), a grant naming
+            // this process as a grantee means the owner is elsewhere —
+            // never compute turns on this side.
+            let grantedElsewhere = shareGrants.contains { grant in
+                grant.sessionID == sessionID
+                    && grant.owner != identity
+                    && grant.grantees.contains(where: { $0.pubkey == identity })
+            }
+            if grantedElsewhere || SharedSessionACL.turnMode(
+                identity: identity, sessionID: sessionID,
+                sessionOwner: storedOwner, grants: shareGrants
+            ) == .guest {
+                // Disconnected-style response: the message is stored on the
+                // sharee's side; the host's engine will answer when it is
+                // reachable (it sees the persisted message as a normal turn).
+                // No retry, no second engine — per the host-owns-all-turns
+                // design the sharee's side has no model to run.
+                activeTurns[sessionID]?.status = "owner offline — message stored; the response will arrive when the host reconnects"
+                LogCollector.shared.append(level: .info, text: "[share] session \(String(sessionID.prefix(8))) is a guest view; contribution stored, turn deferred to owner")
+                await pusher(await liveFragments())
+                return
+            }
         }
 
         // Streaming loop with ~90 ms push coalescing. Only push live
@@ -1132,6 +1159,7 @@ extension AppState {
         if let keep = activeSessionID {
             await ensureSessionMessages(keep)
         }
+        await refreshShareViewState()
     }
 }
 

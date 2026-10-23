@@ -55,15 +55,26 @@ internal struct TesseraRecordIndex {
     /// matches record d-tags (`arc/s/<id>/<seq>`) but not group keys
     /// (`arc/s/<id>`), so the group under a trailing-slash prefix is removed
     /// too.
-    mutating func unindex(dTagPrefix prefix: String, kind: UInt32) {
+    ///
+    /// - Parameter author: when non-nil, only records signed by this author
+    ///   are removed (per-side deletion in shared sessions keeps the other
+    ///   side's records indexed).
+    mutating func unindex(dTagPrefix prefix: String, kind: UInt32, author: String? = nil) {
         let trimmed = prefix.hasSuffix("/") ? String(prefix.dropLast()) : prefix
+        let matches: (TesseraRecord) -> Bool = { record in
+            guard record.dTag?.hasPrefix(prefix) == true else { return false }
+            if let author { return record.author == author }
+            return true
+        }
         let removed: [NOSTR_id] = (records[kind] ?? [:])
-            .filter { $0.value.dTag?.hasPrefix(prefix) == true }
+            .filter { matches($0.value) }
             .map(\.key)
         records[kind] = (records[kind] ?? [:])
-            .filter { $0.value.dTag?.hasPrefix(prefix) != true }
-        groups = groups.filter {
-            !($0.key.hasPrefix(prefix) || $0.key == trimmed)
+            .filter { !matches($0.value) }
+        if author == nil {
+            groups = groups.filter {
+                !($0.key.hasPrefix(prefix) || $0.key == trimmed)
+            }
         }
         for id in removed {
             if !records.values.contains(where: { $0[id] != nil }) {

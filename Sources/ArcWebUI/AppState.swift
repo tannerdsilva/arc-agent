@@ -844,6 +844,17 @@ actor AppState {
     var shareDraftRole: ShareRole = .contribute
     /// Staged grantees pending Save (replaces the live grant on commit).
     var shareStaged: [ShareGrantee] = []
+    /// Cached per-session share view state, refreshed with the grants and
+    /// the session list: role for foreign-owned sessions (nil = not shared
+    /// to us), the host's terminal delete flag, and grantee leave notices
+    /// (host view). Views read this synchronously; recomputation is async.
+    var shareRoles: [String: ShareRole] = [:]
+    var deletedSessionIDs: Set<String> = []
+    /// Leave notices (kind 3010) grouped by session — the host's "X left
+    /// the session" indicator source. Only notices from OTHER identities.
+    var leftSharees: [String: [String]] = [:]
+    /// Cached identity pubkey (refreshed alongside the share view state).
+    var cachedIdentity: String?
 
     /// New-session creation panel. The per-session context controls live here
     /// (the old "Context" tab was folded into it).

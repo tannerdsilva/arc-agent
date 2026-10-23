@@ -21,8 +21,8 @@ extension ArcCoreTestRoot {
             }
         }
 
-        private func record(_ byte: UInt8, dTag: String?, content: String = "c") -> TesseraRecord {
-            TesseraRecord(id: eventID(byte), dTag: dTag, content: content)
+        private func record(_ byte: UInt8, dTag: String?, content: String = "c", author: String? = nil) -> TesseraRecord {
+            TesseraRecord(id: eventID(byte), dTag: dTag, content: content, author: author)
         }
 
         // MARK: groupKey
@@ -99,6 +99,41 @@ extension ArcCoreTestRoot {
                         kind: TesseraConnection.metadataKind, seq: 1)
             #expect(index.count == 0)
             #expect(index.latest(groupKey: "arc/meta/s1") == nil)
+        }
+
+        // MARK: per-writer namespaces (shared sessions)
+
+        @Test("writer-namespaced d-tags group per writer, not per session")
+        func writerNamespaceGrouping() {
+            // arc/s/<sid>/<writerToken>/<n>: the trailing numeric segment is
+            // the writer's private sequence, so each writer owns a group.
+            #expect(TesseraConnection.groupKey(fromDTag: "arc/s/s1/AbCdEf_-12/3") == "arc/s/s1/AbCdEf_-12")
+            #expect(TesseraConnection.groupKey(fromDTag: "arc/s/s1/AbCdEf_-12/44") == "arc/s/s1/AbCdEf_-12")
+            // Legacy and writer formats never collide in one group.
+            #expect(TesseraConnection.groupKey(fromDTag: "arc/s/s1/7") == "arc/s/s1")
+        }
+
+        @Test("unindex with an author filter keeps other writers' records")
+        func unindexAuthorScoped() {
+            var index = TesseraRecordIndex()
+            let host = record(1, dTag: "arc/s/s1/HostTok/1", content: "host msg", author: "host-pubkey")
+            let sharee = record(2, dTag: "arc/s/s1/ShareeTok/1", content: "sharee msg", author: "sharee-pubkey")
+            index.index(host, kind: TesseraConnection.messageKind, seq: 1)
+            index.index(sharee, kind: TesseraConnection.messageKind, seq: 2)
+            // The host deletes its side only: the sharee's records stay.
+            index.unindex(dTagPrefix: "arc/s/s1/", kind: TesseraConnection.messageKind, author: "host-pubkey")
+            let remaining = index.snapshot(kind: TesseraConnection.messageKind)
+            #expect(remaining.count == 1)
+            #expect(remaining.first?.dTag == "arc/s/s1/ShareeTok/1")
+        }
+
+        @Test("unindex without an author removes the whole prefix (legacy deleteAll)")
+        func unindexUnscoped() {
+            var index = TesseraRecordIndex()
+            index.index(record(1, dTag: "arc/s/s1/HostTok/1"), kind: TesseraConnection.messageKind, seq: 1)
+            index.index(record(2, dTag: "arc/s/s1/ShareeTok/1"), kind: TesseraConnection.messageKind, seq: 2)
+            index.unindex(dTagPrefix: "arc/s/s1/", kind: TesseraConnection.messageKind)
+            #expect(index.count == 0)
         }
     }
 }
