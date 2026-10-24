@@ -377,7 +377,7 @@ extension AppState {
             case .settings:
                 settingsPanel()
             case .logs:
-                legacy(logsPanel())          // TODO(phase 7)
+                logsPanel()
             case .tasks:
                 legacy(tasksPanel())         // TODO(phase 7) — NewFeatures.swift
             case .todos:
@@ -1148,7 +1148,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         case .settings:
             return render(settingsMain())
         case .logs:
-            return logsMain()
+            return render(logsMain())
         case .tasks:
             return tasksMain()
         case .todos:
@@ -5131,34 +5131,48 @@ extension AppState {
 
     // MARK: Logs
 
-    func logsPanel() -> String {
+    func logsPanel() -> some WebUI.View {
         let lines = LogCollector.shared.snapshot()
         let info = lines.filter { $0.level == .info }.count
         let warn = lines.filter { $0.level == .warning }.count
         let err = lines.filter { $0.level == .error || $0.level == .critical }.count
-        let head = """
-        <div class="panel-head">
-          <span class="panel-title">Logs</span>
-          \(btn("log-clear", "log-clear", "icon-mini", WebUIIcon(.trash, size: .small).markup.html, " title=\"Clear logs\""))
-        </div>
-        """
-        let chips = ["all", "info", "warn", "error"].map { lvl -> String in
-            let label = lvl == "all" ? "All" : (lvl == "info" ? "Info" : (lvl == "warn" ? "Warn" : "Error"))
-            let active = logFilter == lvl ? " active" : ""
-            return "<button type=\"button\" id=\"log-filter-\(lvl)\" class=\"chip-btn\(active)\" aria-pressed=\"\(logFilter == lvl)\">\(label)</button>"
-        }.joined()
-        return """
-        \(head)
-        <div class="panel-body">
-          <div class="log-stats">
-            <span class="log-stat" title="Info lines"><span class="dot dot-info"></span>\(info) info</span>
-            <span class="log-stat" title="Warning lines"><span class="dot dot-warn"></span>\(warn) warn</span>
-            <span class="log-stat" title="Error lines"><span class="dot dot-err"></span>\(err) error</span>
-          </div>
-          <div class="log-chips" data-component-id="log-filter" data-event="click">\(chips)</div>
-          <div class="log-panel-note">In-app log stream. Captured lines from this process appear here instead of the terminal.</div>
-        </div>
-        """
+        return Group {
+            Div(class: "panel-head") {
+                Span(class: "panel-title") { Text("Logs") }
+                ArcButton(id: "log-clear", component: "log-clear", class: "icon-mini") {
+                    WebUIIcon(.trash, size: .small)
+                }
+                .attribute("title", "Clear logs")
+            }
+            Div(class: "panel-body") {
+                Div(class: "log-stats") {
+                    Span(class: "log-stat") {
+                        Span(class: "dot dot-info") {}
+                        Text("\(info) info")
+                    }
+                    .attribute("title", "Info lines")
+                    Span(class: "log-stat") {
+                        Span(class: "dot dot-warn") {}
+                        Text("\(warn) warn")
+                    }
+                    .attribute("title", "Warning lines")
+                    Span(class: "log-stat") {
+                        Span(class: "dot dot-err") {}
+                        Text("\(err) error")
+                    }
+                    .attribute("title", "Error lines")
+                }
+                Div(class: "log-chips") {
+                    for (lvl, label) in [("all", "All"), ("info", "Info"), ("warn", "Warn"), ("error", "Error")] {
+                        let active = logFilter == lvl
+                        ArcButton(label, id: "log-filter-\(lvl)", component: nil, class: "chip-btn\(active ? " active" : "")")
+                            .aria(.pressed(active ? .yes : .no))
+                    }
+                }
+                .wire("log-filter")
+                Div(class: "log-panel-note") { Text("In-app log stream. Captured lines from this process appear here instead of the terminal.") }
+            }
+        }
     }
 
     /// Severity filter for the log box: "all" | "info" | "warn" | "error".
@@ -5180,41 +5194,56 @@ extension AppState {
         }
     }
 
-    func logLineHTML(_ line: LogLine) -> String {
-        let t = logTime(line.time)
-        let level = line.level.rawValue
-        return "<div class=\"log-line \(logLevelClass(line.level))\"><span class=\"log-time\">\(t)</span><span class=\"log-lvl\">\(level)</span><span class=\"log-msg\">\(esc(line.text))</span></div>"
+    func logLineHTML(_ line: LogLine) -> some WebUI.View {
+        Div(class: "log-line \(logLevelClass(line.level))") {
+            Span(class: "log-time") { Text(logTime(line.time)) }
+            Span(class: "log-lvl") { Text(line.level.rawValue) }
+            Span(class: "log-msg") { Text(line.text) }
+        }
     }
 
     /// The filtered, newest-last log body, capped for a responsive live box.
-    func logLinesHTML(max: Int = 500) -> String {
+    func logLinesHTML(max: Int = 500) -> some WebUI.View {
         let all = LogCollector.shared.snapshot().filter { logMatches($0) }
         let shown = all.suffix(max)
-        let rows = shown.map { logLineHTML($0) }.joined()
-        return rows.isEmpty
-            ? "<div class=\"empty-hint\">No log lines yet.</div>"
-            : rows
+        return Group {
+            if shown.isEmpty {
+                Div(class: "empty-hint") { Text("No log lines yet.") }
+            } else {
+                for line in shown {
+                    logLineHTML(line)
+                }
+            }
+        }
     }
 
-    func logsMain() -> String {
+    /// The `#log-lines` box — the live fragment target. This is the only place
+    /// the element is emitted: fragment payloads replace the element they name
+    /// (outerHTML semantics), so `logsMain` and both push sites render it here
+    /// rather than each spelling the wrapper string.
+    func logLinesBox() -> some WebUI.View {
+        Div(id: "log-lines", class: "logs-lines") {
+            logLinesHTML()
+        }
+    }
+
+    func logsMain() -> some WebUI.View {
         let total = LogCollector.shared.count
-        return """
-        <div class="logs-view">
-          <div class="logs-box">
-            <div class="logs-head">
-              <span class="logs-title">Live log stream</span>
-              <span class="logs-meta">\(total) lines in buffer</span>
-            </div>
-            <div id="log-lines" class="logs-lines">\(logLinesHTML())</div>
-          </div>
-        </div>
-        """
+        return Div(class: "logs-view") {
+            Div(class: "logs-box") {
+                Div(class: "logs-head") {
+                    Span(class: "logs-title") { Text("Live log stream") }
+                    Span(class: "logs-meta") { Text("\(total) lines in buffer") }
+                }
+                logLinesBox()
+            }
+        }
     }
 
     /// Live fragment: only the log box, so the view updates in place while the
     /// server streams new lines.
     func liveLogFragments() async -> [FragmentUpdate] {
-        [FragmentUpdate(id: "log-lines", html: "<div id=\"log-lines\" class=\"logs-lines\">\(logLinesHTML())</div>")]
+        [fragment("log-lines", logLinesBox())]
     }
 
         // MARK: Workspace panel (right side)

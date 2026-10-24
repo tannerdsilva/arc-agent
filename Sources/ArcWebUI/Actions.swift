@@ -53,7 +53,7 @@ extension AppState {
         [
             fragment("topbar", topbarHTML()),
             fragment("panel", await panelHTML()),
-            FragmentUpdate(id: "log-lines", html: "<div id=\"log-lines\" class=\"logs-lines\">\(logLinesHTML())</div>"),
+            fragment("log-lines", logLinesBox()),
         ]
     }
 

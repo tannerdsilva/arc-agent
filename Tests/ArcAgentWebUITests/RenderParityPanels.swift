@@ -390,4 +390,85 @@ struct RenderParityPanels {
 		Parity.capture(html, as: "memory-main-empty")
 		Parity.expect(html, matches: "memory-main-empty")
 	}
+
+	// MARK: - phase 7: logs
+
+	@Test("logs panel, one line per level, matches golden")
+	func logsPanelGolden() async {
+		LogCollector.shared.clear()
+		LogCollector.shared.append(level: .info, text: "server started")
+		LogCollector.shared.append(level: .warning, text: "slow query")
+		LogCollector.shared.append(level: .error, text: "connection failed")
+		LogCollector.shared.append(level: .critical, text: "out of memory")
+		let html = await app().logsPanel().markup.html
+		Parity.capture(html, as: "logs-panel")
+		Parity.expect(html, matches: "logs-panel")
+	}
+
+	@Test("log line, info level, matches golden")
+	func logLineInfoGolden() async {
+		let line = LogLine(seq: 1, time: Date(timeIntervalSince1970: 1_700_000_000), level: .info, text: "server started")
+		let html = await app().logLineHTML(line).markup.html
+		Parity.capture(html, as: "log-line-info")
+		Parity.expect(html, matches: "log-line-info")
+	}
+
+	@Test("log line, warning level, matches golden")
+	func logLineWarnGolden() async {
+		let line = LogLine(seq: 2, time: Date(timeIntervalSince1970: 1_700_000_001), level: .warning, text: "slow query")
+		let html = await app().logLineHTML(line).markup.html
+		Parity.capture(html, as: "log-line-warn")
+		Parity.expect(html, matches: "log-line-warn")
+	}
+
+	@Test("log line, error level, matches golden")
+	func logLineErrorGolden() async {
+		let line = LogLine(seq: 3, time: Date(timeIntervalSince1970: 1_700_000_002), level: .error, text: "connection failed")
+		let html = await app().logLineHTML(line).markup.html
+		Parity.capture(html, as: "log-line-error")
+		Parity.expect(html, matches: "log-line-error")
+	}
+
+	@Test("log line, critical level, matches golden")
+	func logLineCriticalGolden() async {
+		let line = LogLine(seq: 4, time: Date(timeIntervalSince1970: 1_700_000_003), level: .critical, text: "out of memory")
+		let html = await app().logLineHTML(line).markup.html
+		Parity.capture(html, as: "log-line-critical")
+		Parity.expect(html, matches: "log-line-critical")
+	}
+
+	@Test("log lines empty, matches golden")
+	func logLinesEmptyGolden() async {
+		LogCollector.shared.clear()
+		let html = await app().logLinesHTML().markup.html
+		Parity.capture(html, as: "log-lines-empty")
+		Parity.expect(html, matches: "log-lines-empty")
+	}
+
+	/// wall-clock log stamps are not reproducible across runs, so the golden
+	/// carries a placeholder instead of the render's `hh:mm:ss`.
+	private func scrubLogTimes(_ html: String) -> String {
+		html.replacing(/\d{2}:\d{2}:\d{2}/, with: "TIME")
+	}
+
+	/// the live push target: the payload must be the `#log-lines` element
+	/// itself, because a fragment replaces the element it names.
+	@Test("log lines box keeps the fragment element shape, matches golden")
+	func logLinesBoxGolden() async {
+		LogCollector.shared.clear()
+		LogCollector.shared.append(level: .info, text: "server started")
+		let html = scrubLogTimes(await app().logLinesBox().markup.html)
+		Parity.capture(html, as: "log-lines-box")
+		Parity.expect(html, matches: "log-lines-box")
+	}
+
+	@Test("logs main, with lines, matches golden")
+	func logsMainGolden() async {
+		LogCollector.shared.clear()
+		LogCollector.shared.append(level: .info, text: "server started")
+		LogCollector.shared.append(level: .warning, text: "slow query")
+		let html = scrubLogTimes(await app().logsMain().markup.html)
+		Parity.capture(html, as: "logs-main")
+		Parity.expect(html, matches: "logs-main")
+	}
 }

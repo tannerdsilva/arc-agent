@@ -1708,11 +1708,18 @@ extension ArcWebUITestRoot {
             #expect(active.count == 1, "exactly one rail button must be aria-current=page (found \(active.count))")
             #expect(railButtons.count > 0, "the rail rendered no buttons at all")
 
-            // the other pins in this group still live in source (skills panel,
-            // header buttons are not yet converted this phase).
-            let views = Self.views
-            #expect(views.contains("aria-pressed=\"\\(logFilter == lvl)\""),
-                    "log filter chips must expose aria-pressed (round-3 UX-33)")
+            // the log filter chips are a typed view now: read `aria-pressed`
+            // off the rendered bytes instead of a source spelling.
+            let logsPanelPage = await AppState(renderFixture: AppState.RenderFixture()).logsPanel().markup.html
+            let logChips = logsPanelPage.components(separatedBy: "<button")
+                .filter { $0.contains("id=\"log-filter-") }
+                .map { String($0.prefix(while: { $0 != ">" })) }
+            #expect(logChips.count == 4, "the panel must render four filter chips (found \(logChips.count))")
+            #expect(logChips.filter { $0.contains("aria-pressed=\"true\"") }.count == 1,
+                    "exactly the selected chip is pressed (round-3 UX-33)")
+            let pressedChip = logChips.first { $0.contains("aria-pressed=\"true\"") } ?? ""
+            #expect(pressedChip.contains("id=\"log-filter-all\"") && pressedChip.contains("chip-btn active"),
+                    "the default filter is 'all' and it is the chip that is pressed (round-3 UX-33)")
             var tsFixture = AppState.RenderFixture()
             tsFixture.toolsets = [("file", [StubTool(name: "read_file", toolset: "file")])]
             let toolsPanelPage = await AppState(renderFixture: tsFixture).toolsPanel().markup.html
