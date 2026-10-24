@@ -1112,6 +1112,9 @@ actor AppState {
         /// the detail panes look tools up in the registry, not in `toolsets` —
         /// an empty registry renders the blank state no matter the fixture.
         var registryTools: [any AgentTool] = []
+        /// the memory provider the per-turn agent factory hands to the
+        /// configuration; nil (the default) leaves the field unset.
+        var memory: (any MemoryProvider)? = nil
         // phase 7: kanban board state
         var kanbanColumns: [KBColumn] = []
         var kanbanCards: [KBCard] = []
@@ -1162,6 +1165,7 @@ actor AppState {
         self.pendingClarify = fixture.pendingClarify
         self.pluginManifests = fixture.pluginManifests
         self.skills = fixture.skills
+        self.memory = fixture.memory
         self.pluginStartupOutcome = fixture.pluginStartupOutcome
         self.pendingCopyURL = fixture.pendingCopyURL
         self.chatFilter = fixture.chatFilter
@@ -1710,6 +1714,123 @@ actor AppState {
             mainAPIKey: preset?.apiKey ?? ""
         )
         return router.makeClient(task: task, httpClient: hc)
+    }
+
+    // MARK: Per-turn agent factory (CONVERGE A5)
+
+    /// Mint a configured `ArcAgent` for one UI turn, plus its `Configuration`.
+    ///
+    /// Every field resolves from the source the UI's turn loop already reads:
+    /// the effective preset (with the bound profile's context overrides
+    /// applied), the shared `registry`, the allowed skills, the `memory`
+    /// provider, the approval mode, auxiliary routing, MoA, tool search,
+    /// agent powers, background review, verify-on-stop, the per-session
+    /// workspace, and the effective tool-iteration budget.
+    ///
+    /// The bound profile's SOUL (if any) is injected as a system message via
+    /// `injectSystemMessage`, matching the `SessionAgent` precedent, so the
+    /// core's tiered prompt builder stays the only prompt builder.
+    ///
+    /// - Parameters:
+    ///   - preset: The model configuration preset for this turn.
+    ///   - profileContext: The bound profile's context overrides, if any.
+    ///   - thinking: The session's thinking level ("off" means no effort).
+    ///   - headless: Whether this turn runs without a human in the loop.
+    ///     Retained for the presenter wiring that follows (A6); it does not
+    ///     alter the configuration.
+    ///   - sessionID: The session this turn belongs to.
+    /// - Returns: The agent and the `Configuration` it was built from.
+    func makeTurnAgent(
+        preset: ModelConfigPreset,
+        profileContext: ProfileContextConfig?,
+        thinking: String,
+        headless: Bool,
+        sessionID: String
+    ) async -> (agent: ArcAgent, config: ArcAgent.Configuration) {
+        // apply the profile's context overrides to the preset (contextLength,
+        // maxOutputTokens, temperature, topP).
+        let effectivePreset = profileContext.map { preset.applying($0) } ?? preset
+
+        // resolve the session's workspace root (created on first use) — it is
+        // both the tool root and the project-context directory.
+        let root = workspacePath(for: sessionID)
+
+        // allowed skills: the shared list minus the bound profile's disabled
+        // override, falling back to the global disabled list.
+        let pname = profileName(for: sessionID)
+        let disabled = pname.flatMap { settings.profileSkills[$0] } ?? settings.disabledSkills
+        let allowedSkills = skills.filter { !disabled.contains($0.name) }
+
+        // approval mode from config.
+        let approvalMode = ApprovalMode(rawValue: arcConfig.security.approvalMode) ?? .manual
+
+        // background review settings from config.
+        let backgroundReview = BackgroundReview.Settings(
+            afterToolCalls: arcConfig.agent.backgroundReviewAfter,
+            window: arcConfig.agent.backgroundReviewWindow
+        )
+
+        // reasoning effort: the profile override wins, then the thinking level
+        // ("off" means no effort).
+        let reasoningEffort = profileContext?.reasoningEffort ?? (thinking == "off" ? nil : thinking)
+
+        // max iterations mirrors the turn loop's clamp: at least one pass.
+        let maxIterations = max(1, Self.effectiveMaxTurns())
+
+        // an unparseable preset url must not trap the server; fail closed to
+        // the reserved .invalid tld so the request errors out visibly instead
+        // of redirecting the key to a different provider.
+        let baseURL = URL(string: effectivePreset.baseURL)
+            ?? URL(string: "https://invalid.invalid")!
+
+        // build the configuration from those sources.
+        let config = ArcAgent.Configuration(
+            model: effectivePreset.model,
+            provider: effectivePreset.provider,
+            baseURL: baseURL,
+            apiKey: effectivePreset.apiKey,
+            registry: registry,
+            memoryProvider: memory,
+            skills: allowedSkills,
+            maxIterations: maxIterations,
+            toolLoopCap: arcConfig.effectiveToolLoopCap(),
+            maxTurnDuration: 120,
+            persistSessions: false,
+            approvalMode: approvalMode,
+            query: nil,
+            maxContextTokens: compressionBudget(for: sessionID),
+            auxiliary: arcConfig.auxiliary,
+            sessionID: sessionID,
+            contextLength: effectivePreset.contextLength,
+            injectProjectContext: true,
+            contextDirectory: URL(fileURLWithPath: root),
+            workspaceRoot: root,
+            platformHint: "webui",
+            moa: arcConfig.moa,
+            toolSearch: arcConfig.toolSearch,
+            backgroundReview: backgroundReview,
+            verifyOnStop: arcConfig.agent.verifyOnStop,
+            autoCompression: false,
+            reasoningEffort: reasoningEffort,
+            temperature: effectivePreset.temperature,
+            topP: effectivePreset.topP,
+            maxOutputTokens: effectivePreset.maxOutputTokens,
+            agentPowers: arcConfig.agentPowers,
+            disabledToolsets: Set(settings.disabledToolsets)
+        )
+
+        let agent = ArcAgent(config: config)
+
+        // inject the profile's SOUL as a system message, matching the
+        // SessionAgent precedent. look up the full profile (not just its
+        // context) to get soulMD.
+        if let pname,
+           let profile = profiles.first(where: { $0.name == pname }),
+           let soul = profile.soulMD, !soul.isEmpty {
+            await agent.injectSystemMessage(soul)
+        }
+
+        return (agent, config)
     }
 
     // MARK: Approval gating (reference smart command approval)

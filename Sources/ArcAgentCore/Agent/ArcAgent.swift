@@ -596,8 +596,14 @@ public actor ArcAgent: Service {
     }
 
     /// Inject a system message at the beginning of the conversation.
-    /// Used by the session host to inject profile-specific SOUL.md content.
-    func injectSystemMessage(_ content: String) async {
+    ///
+    /// Used by hosts to inject profile-specific `SOUL.md` content before the
+    /// first turn — the daemon's ``SessionAgent`` and the web UI's per-turn
+    /// agent factory both resolve the bound profile's SOUL and hand it here,
+    /// so the core's tiered prompt builder stays the only prompt builder.
+    /// Prepends a `[Profile: <model>]` block and replaces any earlier
+    /// injected profile block.
+    public func injectSystemMessage(_ content: String) async {
         // Remove any existing system messages with the same prefix
         messageHistory.removeAll { msg in
             msg.role == .system && (msg.content?.hasPrefix("[Profile:") ?? false)
