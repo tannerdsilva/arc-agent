@@ -348,8 +348,7 @@ extension AppState {
                 // bridge budget.
                 TrustedMarkup(plugin, from: .plugin("sidebar-tab"))
             } else {
-                // chatPanel() still returns String (2.3's target); bridge it.
-                legacy(chatPanel()) // TODO(phase 2.3)
+                chatPanel()
             }
         }.attribute("id", "panel")
     }
@@ -360,7 +359,7 @@ extension AppState {
         Group {
             switch kind {
             case .chat:
-                legacy(chatPanel()) // TODO(phase 2.3)
+                chatPanel()
             case .skills:
                 skillsPanel()
             case .profiles:
@@ -382,21 +381,23 @@ extension AppState {
             case .tasks:
                 legacy(tasksPanel())         // TODO(phase 7) — NewFeatures.swift
             case .todos:
-                legacy(chatPanel(todos: true)) // TODO(phase 2.3)
+                chatPanel(todos: true)
             }
         }
     }
 
     // MARK: Chat panel
 
-    func chatPanel(todos: Bool = false) -> String {
-        let newBtn = btn("chat-new", "chat-new", "plus-btn", WebUIIcon(.plus, size: .medium).markup.html, " title=\"New chat\"")
+    /// the chat list panel: header + new-chat action, filter bar, category
+    /// cloud, the archived toggle, the empty-draft cleanup link and the
+    /// bucketed session rows. typed as of phase 2.3 — every branch is a
+    /// `Div`/`Group`, and the rows come from the already-typed `groupHTML`.
+    func chatPanel(todos: Bool = false) -> some WebUI.View {
         // UX-18: one archive affordance. The text link below the filter bar
         // owns "Show/Hide archived conversations" (explicit label, chevron
         // state, and it is back in the tab order — it is the only control
         // now). The header's bare archive glyph is gone: two controls doing
         // the same thing read as noise.
-        let actions = todos ? "" : newBtn
         // UX-62: empty drafts pile up from a stray `+` — three identical
         // "New chat · 0 msg" rows is exactly the clutter this clears — and
         // there was no way to remove them. Offer the cleanup only where it
@@ -409,31 +410,6 @@ extension AppState {
             !$0.id.hasPrefix("Cron-") && !isArchived($0.id) && $0.messageCount == 0
         }.count
         let clearableDrafts = max(0, emptyDrafts - (activeEmpty ? 1 : 0))
-        let clearBtn = (!todos && !showArchived && clearableDrafts > 0)
-            ? btn(
-                "chat-clear-empty", "chat-clear-empty", "arch-link",
-                "<span class=\"arch-ico\">\(WebUIIcon(.trash, size: .small).markup.html)</span><span> Clear \(clearableDrafts) empty chat\(clearableDrafts == 1 ? "" : "s")</span>",
-                " data-tip=\"Delete conversations with no messages\"")
-            : ""
-        let head = """
-        <div class="panel-head">
-          <span class="panel-title">\(todos ? "Todos" : "Chats")</span>
-          <div class="panel-actions">\(actions)</div>
-        </div>
-        <div class="filter-bar">
-          <span class="filter-ico">\(WebUIIcon(.search, size: .small).markup.html)</span>
-          <input id="chat-search-input" data-component-id="chat-search-input" type="search" placeholder="Filter conversations…" aria-label="Filter conversations" value="\(esc(chatFilter))">
-        </div>
-        \(render(categoryCloudHTML()))
-        \(todos ? "" : """
-        <button type="button" id="chat-showarch-link" data-component-id="chat-showarch" class="arch-link" title="Toggle archived">
-          <span class="arch-ico">\(WebUIIcon(showArchived ? .chevronDown : .chevronRight, size: .small).markup.html)</span><span>\(showArchived ? " Hide archived conversations" : " Show archived conversations")</span>
-        </button>
-        \(showArchived ? "<div class=\"arch-mode-note\">Showing archived conversations only.</div>" : "")
-        """)
-        \(clearBtn)
-        """
-        var rows: [String] = []
         let bookmarks = settings.bookmarkedSessions
         // On the Todos page archived chats are never shown (no toggle exists).
         var visible = todos
@@ -446,50 +422,101 @@ extension AppState {
             visible = visible.filter { sessionTitle($0).localizedCaseInsensitiveContains(chatFilter) }
         }
         let ordered = visible.sorted { $0.updatedAt > $1.updatedAt }
-                // Round-3 UX-27: a pin is a promise that the chat floats to the top.
-                // Sorting bookmarked-first and THEN bucketing by date threw that order
-                // away (the pinned row stayed in its day bucket with just a badge), so
-                // pinned chats now get their own group above the date buckets.
-                let pinned = ordered.filter { bookmarks.contains($0.id) }
-                let unpinned = ordered.filter { !bookmarks.contains($0.id) }
-                if !pinned.isEmpty {
-                    rows.append(render(groupHTML(key: "pinned", title: "Pinned", sessions: pinned, todos: todos)))
+        // Round-3 UX-27: a pin is a promise that the chat floats to the top.
+        // Sorting bookmarked-first and THEN bucketing by date threw that order
+        // away (the pinned row stayed in its day bucket with just a badge), so
+        // pinned chats now get their own group above the date buckets.
+        let pinned = ordered.filter { bookmarks.contains($0.id) }
+        let unpinned = ordered.filter { !bookmarks.contains($0.id) }
+        // arc parity: chats are bucketed into Today / Yesterday / Earlier this
+        // week / Older (youngest first within each bucket); each bucket is
+        // collapsible. Yesterday splits out of the 1-6 day band so a chat from
+        // last night is not mislabelled "a week old" every morning.
+        let buckets: [(String, String)] = [("today", "Today"), ("yesterday", "Yesterday"), ("week", "Earlier this week"), ("older", "Older")]
+        var grouped: [String: [Session]] = [:]
+        for s in unpinned { grouped[bucketKey(s.updatedAt), default: []].append(s) }
+        let bucketRows: [(key: String, title: String, sessions: [Session])] = buckets.compactMap { key, title in
+            guard let list = grouped[key], !list.isEmpty else { return nil }
+            return (key, title, list)
+        }
+        // Tell the truth about WHY the list is empty: an unmatched filter
+        // must not claim the workspace has no chats at all.
+        let emptyMsg: String
+        if !chatFilter.isEmpty {
+            emptyMsg = "No chats match “\(chatFilter)”."
+        } else if todos {
+            emptyMsg = "No chats yet."
+        } else if showArchived {
+            emptyMsg = "No archived chats."
+        } else if activeCategory != "all" && activeCategory != "unassigned" {
+            emptyMsg = "No chats in this category yet."
+        } else {
+            emptyMsg = "No chats yet — press + to start one."
+        }
+        return Group {
+            Div(class: "panel-head") {
+                Span(class: "panel-title") { Text(todos ? "Todos" : "Chats") }
+                Div(class: "panel-actions") {
+                    if !todos {
+                        ArcButton(id: "chat-new", component: "chat-new", class: "plus-btn") {
+                            WebUIIcon(.plus, size: .medium)
+                        }
+                        .attribute("title", "New chat")
+                    }
                 }
-                // arc parity: chats are bucketed into Today / Yesterday / Earlier this
-                // week / Older (youngest first within each bucket); each bucket is
-                // collapsible. Yesterday splits out of the 1-6 day band so a chat from
-                // last night is not mislabelled "a week old" every morning.
-                let buckets: [(String, String)] = [("today", "Today"), ("yesterday", "Yesterday"), ("week", "Earlier this week"), ("older", "Older")]
-                var grouped: [String: [Session]] = [:]
-                for s in unpinned { grouped[bucketKey(s.updatedAt), default: []].append(s) }
-        for (key, title) in buckets {
-            if let list = grouped[key], !list.isEmpty {
-                rows.append(render(groupHTML(key: key, title: title, sessions: list, todos: todos)))
             }
-        }
-        if rows.isEmpty {
-            // Tell the truth about WHY the list is empty: an unmatched filter
-            // must not claim the workspace has no chats at all.
-            let msg: String
-            if !chatFilter.isEmpty {
-                msg = "No chats match “\(chatFilter)”."
-            } else if todos {
-                msg = "No chats yet."
-            } else if showArchived {
-                msg = "No archived chats."
-            } else if activeCategory != "all" && activeCategory != "unassigned" {
-                msg = "No chats in this category yet."
-            } else {
-                msg = "No chats yet — press + to start one."
+            Div(class: "filter-bar") {
+                Span(class: "filter-ico") { WebUIIcon(.search, size: .small) }
+                // the filter value rides the attribute list because
+                // `Input(value:)` omits an empty value while the pre-conversion
+                // markup always spelled `value=""`.
+                Input(
+                    id: "chat-search-input",
+                    placeholder: "Filter conversations…",
+                    type: .search,
+                    attributes: [
+                        ("value", chatFilter),
+                        ("data-component-id", "chat-search-input"),
+                    ]
+                )
+                .aria(.label("Filter conversations"))
             }
-            rows.append("<div class=\"empty-hint\">\(esc(msg))</div>")
+            categoryCloudHTML()
+            if !todos {
+                ArcButton(id: "chat-showarch-link", component: "chat-showarch", class: "arch-link") {
+                    Span(class: "arch-ico") {
+                        WebUIIcon(showArchived ? .chevronDown : .chevronRight, size: .small)
+                    }
+                    Span { Text(showArchived ? " Hide archived conversations" : " Show archived conversations") }
+                }
+                .attribute("title", "Toggle archived")
+                if showArchived {
+                    Div(class: "arch-mode-note") { Text("Showing archived conversations only.") }
+                }
+            }
+            if !todos && !showArchived && clearableDrafts > 0 {
+                ArcButton(id: "chat-clear-empty", component: "chat-clear-empty", class: "arch-link") {
+                    Span(class: "arch-ico") { WebUIIcon(.trash, size: .small) }
+                    Span { Text(" Clear \(clearableDrafts) empty chat\(clearableDrafts == 1 ? "" : "s")") }
+                }
+                .data("tip", "Delete conversations with no messages")
+            }
+            Div(class: "panel-body") {
+                if !pinned.isEmpty {
+                    groupHTML(key: "pinned", title: "Pinned", sessions: pinned, todos: todos)
+                }
+                for bucket in bucketRows {
+                    groupHTML(key: bucket.key, title: bucket.title, sessions: bucket.sessions, todos: todos)
+                }
+                if pinned.isEmpty && bucketRows.isEmpty {
+                    Div(class: "empty-hint") { Text(emptyMsg) }
+                }
+            }
+            .attribute("id", "sess-list-body")
+            .data("scroll-key", "sessions")
+            .data("component-id", "sess-list")
+            .data("event", "click")
         }
-        return """
-        \(head)
-        <div class="panel-body" id="sess-list-body" data-scroll-key="sessions" data-component-id="sess-list" data-event="click">
-          \(rows.joined())
-        </div>
-        """
     }
 
     /// The category chips row: All / Unassigned / one chip per category, plus

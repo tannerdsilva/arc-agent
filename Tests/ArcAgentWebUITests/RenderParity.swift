@@ -810,7 +810,7 @@ struct RenderParityTests {
     @Test("chat panel empty matches golden")
     func chatPanelEmptyMatchesGolden() async {
         let app = AppState(renderFixture: .init())
-        let html = await app.chatPanel()
+        let html = await app.chatPanel().markup.html
         Parity.capture(html, as: "chat-panel-empty")
         Parity.expect(html, matches: "chat-panel-empty")
     }
@@ -834,7 +834,7 @@ struct RenderParityTests {
         ]
         fixture.settings.archivedSessions = ["sess-b"]
         let app = AppState(renderFixture: fixture)
-        let html = await app.chatPanel()
+        let html = await app.chatPanel().markup.html
         Parity.capture(html, as: "chat-panel-three")
         Parity.expect(html, matches: "chat-panel-three")
     }
@@ -850,7 +850,7 @@ struct RenderParityTests {
                     updatedAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600), title: "Beta"),
         ]
         let app = AppState(renderFixture: fixture)
-        let html = await app.chatPanel()
+        let html = await app.chatPanel().markup.html
         Parity.capture(html, as: "chat-panel-filtered-empty")
         Parity.expect(html, matches: "chat-panel-filtered-empty")
     }
@@ -868,7 +868,7 @@ struct RenderParityTests {
         ]
         fixture.settings.archivedSessions = ["sess-b"]
         let app = AppState(renderFixture: fixture)
-        let html = await app.chatPanel()
+        let html = await app.chatPanel().markup.html
         Parity.capture(html, as: "chat-panel-archived")
         Parity.expect(html, matches: "chat-panel-archived")
     }
@@ -883,7 +883,7 @@ struct RenderParityTests {
                     updatedAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600), title: "Session B"),
         ]
         let app = AppState(renderFixture: fixture)
-        let html = await app.chatPanel(todos: true)
+        let html = await app.chatPanel(todos: true).markup.html
         Parity.capture(html, as: "chat-panel-todos")
         Parity.expect(html, matches: "chat-panel-todos")
     }
@@ -903,7 +903,7 @@ struct RenderParityTests {
                     messageCount: 0, messages: []),
         ]
         let app = AppState(renderFixture: fixture)
-        let html = await app.chatPanel()
+        let html = await app.chatPanel().markup.html
         Parity.capture(html, as: "chat-panel-clearable")
         Parity.expect(html, matches: "chat-panel-clearable")
     }

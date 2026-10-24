@@ -120,11 +120,31 @@ extension ArcWebUITestRoot {
         // MARK: - A4/F48 + A5/F12 empty-state copy
 
         @Test("an unmatched chat filter does not claim the workspace is empty")
-        func chatFilterEmptyCopy() {
-            let views = Self.views
-            #expect(views.contains("No chats match “\\(chatFilter)”."),
+        func chatFilterEmptyCopy() async {
+            // rendered bytes: the copy comes out of the typed chatPanel now, so
+            // the pin holds on what the client receives rather than on a source
+            // spelling the builder may reorder.
+            var filtered = AppState.RenderFixture()
+            filtered.chatFilter = "zzz"
+            filtered.sessions = [
+                Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                        updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Alpha"),
+            ]
+            let filteredPanel = await AppState(renderFixture: filtered).chatPanel().markup.html
+            #expect(filteredPanel.contains("No chats match “zzz”."),
                     "the filter-empty state must name the filter (F48)")
-            #expect(views.contains("No chats in this category yet."),
+            #expect(!filteredPanel.contains("No chats yet"),
+                    "an unmatched filter must not claim the workspace is empty")
+            // the category-empty state needs its own copy too
+            var emptyCategory = AppState.RenderFixture()
+            emptyCategory.activeCategory = "c1"
+            emptyCategory.settings.chatCategories = [ChatCategory(id: "c1", name: "Work", color: "#E5484D")]
+            emptyCategory.sessions = [
+                Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                        updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Alpha"),
+            ]
+            let categoryPanel = await AppState(renderFixture: emptyCategory).chatPanel().markup.html
+            #expect(categoryPanel.contains("No chats in this category yet."),
                     "the category-empty state needs its own copy too")
         }
 
@@ -665,6 +685,10 @@ extension ArcWebUITestRoot {
                     "the per-row open button must be out of the tab order")
             #expect(panel.range(of: #"<button [^>]*class="menu-dots"[^>]*tabindex="-1"[^>]*>"#, options: .regularExpression) != nil,
                     "the per-row ⋮ must be out of the tab order (reachable via Menu/Shift+F10)")
+            // the panel head is typed too now: the filter field renders inside the
+            // chat list, so the keyboard path owns its tab stop as well.
+            #expect(panel.contains("id=\"chat-search-input\""),
+                    "the chat list must render its filter field")
             let turnBlock = await RenderedMarkup.turnBlock()
             let twCopy = turnBlock.range(of: #"<button [^>]*class="tw-copy"[^>]*>"#, options: .regularExpression).map { String(turnBlock[$0]) }
             #expect(twCopy != nil && twCopy!.contains("tabindex=\"-1\""),
@@ -749,12 +773,34 @@ extension ArcWebUITestRoot {
         // MARK: - UX-09 "1 message" pluralization
 
         @Test("message counts pluralize the noun")
-        func messageCountsPluralize() {
-            let views = Self.views
-            #expect(views.contains("count == 1 ? \"message\" : \"messages\""),
-                    "the sidebar meta must say \"1 message\", not \"1 messages\" (UX-09)")
-            #expect(!views.contains("count) messages\""),
-                    "the unconditional \"messages\" spelling is back")
+        func messageCountsPluralize() async {
+            // rendered bytes: both the sidebar row and the chat header name the
+            // count, and both are typed views now.
+            func fixture(sessionID: String, title: String, messages: [Message]) -> AppState.RenderFixture {
+                var f = AppState.RenderFixture()
+                f.activeSessionID = sessionID
+                f.sessions = [
+                    Session(id: sessionID, createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                            updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: title,
+                            messageCount: messages.count, messages: messages),
+                ]
+                return f
+            }
+            let one = fixture(sessionID: "sess-a", title: "One",
+                              messages: [Message(role: .user, content: "hi")])
+            let two = fixture(sessionID: "sess-b", title: "Two",
+                              messages: [Message(role: .user, content: "hi"),
+                                          Message(role: .assistant, content: "hello")])
+            let onePanel = await AppState(renderFixture: one).chatPanel().markup.html
+            let twoPanel = await AppState(renderFixture: two).chatPanel().markup.html
+            #expect(onePanel.contains("1 msg •"), "a one-message row reads \"1 msg\"")
+            #expect(!onePanel.contains("1 msgs"), "a one-message row must not read \"1 msgs\"")
+            #expect(twoPanel.contains("2 msg •"), "a two-message row reads \"2 msg\"")
+            let oneHeader = await AppState(renderFixture: one).chatHeaderHTML().markup.html
+            let twoHeader = await AppState(renderFixture: two).chatHeaderHTML().markup.html
+            #expect(oneHeader.contains("1 message") && !oneHeader.contains("1 messages"),
+                    "the header must say \"1 message\", not \"1 messages\" (UX-09)")
+            #expect(twoHeader.contains("2 messages"), "the header pluralizes at two")
         }
         // MARK: - UX-12/T09 one tooltip system, one label
 
@@ -1030,8 +1076,11 @@ extension ArcWebUITestRoot {
         func filterVerbAndArchiveControl() async {
             let views = Self.views
             // The chat and skills sidebars are the same kind of surface — one
-            // verb, not "Filter conversations…" vs "Search skills…".
-            #expect(views.contains("placeholder=\"Filter conversations…\""),
+            // verb, not "Filter conversations…" vs "Search skills…". The chat
+            // half reads rendered bytes: `chatPanel` is a typed view now.
+            let chats = await AppState(renderFixture: AppState.RenderFixture())
+                .chatPanel().markup.html
+            #expect(chats.contains("placeholder=\"Filter conversations…\""),
                     "the chats filter keeps the Filter verb")
             let panel = await AppState(renderFixture: AppState.RenderFixture())
                 .skillsPanel().markup.html
@@ -1043,8 +1092,12 @@ extension ArcWebUITestRoot {
             // control, so it carries the keyboard stop), the header glyph is gone.
             #expect(!views.contains("btn(\"chat-showarch\""),
                     "the redundant header archive glyph is gone (UX-18)")
-            #expect(views.contains("id=\"chat-showarch-link\" data-component-id=\"chat-showarch\" class=\"arch-link\" title=\"Toggle archived\">"),
-                    "the text link is the single archive control and sits in the tab order (no tabindex=-1)")
+            let archTag = chats.range(of: #"<button [^>]*id="chat-showarch-link"[^>]*>"#,
+                                      options: .regularExpression).map { String(chats[$0]) }
+            #expect(archTag?.contains("data-component-id=\"chat-showarch\"") == true,
+                    "the text link is the single archive control")
+            #expect(archTag?.contains("tabindex") == false,
+                    "the archive text link sits in the tab order (no tabindex=-1)")
         }
 
         // MARK: - UX-20 model dropdown rows (T13)
@@ -1275,13 +1328,36 @@ extension ArcWebUITestRoot {
         /// summary's `messages` is empty BY DESIGN, so a structural read alone
         /// would delete real conversations.
         @Test("the empty-draft cleanup is guarded, honest about emptiness, and spares the open chat")
-        func emptyDraftCleanup() {
-            let views = Self.views
-            #expect(views.contains("\"chat-clear-empty\""), "the Chats panel must offer the cleanup")
-            #expect(views.contains("Clear \\(clearableDrafts) empty chat"),
+        func emptyDraftCleanup() async {
+            // the guard is a condition, but its whole evidence is rendered: the
+            // link appears only on the Chats list, only when there is something
+            // to clear, and it never counts the chat you are in.
+            func panel(drafts: Int, active: String?, todos: Bool = false, archived: Bool = false) async -> String {
+                var fixture = AppState.RenderFixture()
+                fixture.sessions = (0..<drafts).map { i in
+                    Session(id: "sess-\(i)", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                            updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                            title: "Draft \(i)", messageCount: 0, messages: [])
+                }
+                if let active {
+                    fixture.activeSessionID = active
+                }
+                fixture.showArchived = archived
+                return await AppState(renderFixture: fixture).chatPanel(todos: todos).markup.html
+            }
+            let clearable = await panel(drafts: 3, active: nil)
+            #expect(clearable.contains("chat-clear-empty"), "the Chats panel must offer the cleanup")
+            #expect(clearable.contains("Clear 3 empty chats"),
                     "the affordance must state how many drafts it will remove")
-            #expect(views.contains("let clearBtn = (!todos && !showArchived && clearableDrafts > 0)"),
-                    "the cleanup must be hidden where it does not apply (Todos page, archived view, nothing to clear)")
+            let withOpen = await panel(drafts: 3, active: "sess-2")
+            #expect(withOpen.contains("Clear 2 empty chats"),
+                    "the open chat is never counted — clearing must not close the composer")
+            #expect(!(await panel(drafts: 0, active: nil)).contains("chat-clear-empty"),
+                    "nothing to clear means no cleanup link")
+            #expect(!(await panel(drafts: 3, active: nil, todos: true)).contains("chat-clear-empty"),
+                    "the cleanup must be hidden where it does not apply (Todos page)")
+            #expect(!(await panel(drafts: 3, active: nil, archived: true)).contains("chat-clear-empty"),
+                    "the cleanup must be hidden where it does not apply (archived view)")
             let actions = Self.actions
             #expect(actions.contains("@Wired(\"chat-clear-empty\""), "the control must be wired")
             #expect(actions.contains("case \"empty-drafts\":"), "the shared confirm modal must dispatch the bulk delete")
@@ -1551,8 +1627,10 @@ extension ArcWebUITestRoot {
 
         @Test("the filter fields carry accessible names")
         func filterFieldsAreNamed() async {
-            let views = Self.views
-            #expect(views.contains("aria-label=\"Filter conversations\""), "the conversation filter must be named")
+            let chatsPanel = await AppState(renderFixture: AppState.RenderFixture())
+                .chatPanel().markup.html
+            #expect(chatsPanel.contains("aria-label=\"Filter conversations\""),
+                    "the conversation filter must be named")
             let skillsPanel = await AppState(renderFixture: AppState.RenderFixture())
                 .skillsPanel().markup.html
             #expect(skillsPanel.contains("aria-label=\"Filter skills\""),
