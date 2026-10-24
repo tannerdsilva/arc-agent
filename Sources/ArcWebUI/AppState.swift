@@ -1134,6 +1134,9 @@ actor AppState {
         var previewPath: String? = nil
         var previewContent: String? = nil
         var previewNote: String? = nil
+        // phase 7.5: insights analytics state for the daily graph and skill stats
+        var insights: InsightsData = InsightsData()
+        var insightsRangeDays: Int = 30
     }
 
     init(renderFixture fixture: RenderFixture) {
@@ -1187,6 +1190,9 @@ actor AppState {
         self.previewPath = fixture.previewPath
         self.previewContent = fixture.previewContent
         self.previewNote = fixture.previewNote
+        self.insights = fixture.insights
+        self.insightsRangeDays = fixture.insightsRangeDays
+        self.settings.insightsRangeDays = fixture.insightsRangeDays
         self.settings.kanbanColumns = fixture.kanbanColumns
         self.settings.kanbanCards = fixture.kanbanCards
         self.registry = MutableToolRegistry(builtIn: CompileTimeToolRegistry())

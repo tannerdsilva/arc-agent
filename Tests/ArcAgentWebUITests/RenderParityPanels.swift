@@ -476,6 +476,87 @@ struct RenderParityPanels {
 		Parity.expect(html, matches: "logs-main")
 	}
 
+	// MARK: - phase 7.5: insights
+
+	/// the graph draws a window that ends today, so its day labels and tooltips
+	/// carry the render's wall clock and a golden captured as-is would go stale
+	/// overnight. every seeded day's label is replaced by its index into the
+	/// window instead, which is what the golden actually pins: the bars, the zero
+	/// day's gap, the tick column and the sparse x labels. longest label first, so
+	/// `10/1` cannot eat the front of `10/19`.
+	private func scrubDays(_ html: String, rangeDays: Int) -> String {
+		let cal = Calendar.current
+		let today = cal.startOfDay(for: Date())
+		var pairs: [(label: String, token: String)] = []
+		for offset in 0..<rangeDays {
+			guard let day = cal.date(byAdding: .day, value: -offset, to: today) else { continue }
+			pairs.append((AppState.dayLabel(day), "DAY\(rangeDays - 1 - offset)"))
+		}
+		var out = html
+		for pair in pairs.sorted(by: { $0.label.count > $1.label.count }) {
+			out = out.replacingOccurrences(of: pair.label, with: pair.token)
+		}
+		return out
+	}
+
+	/// a daily-token window ending today, with the given day offsets left at zero.
+	/// seeded relative to the clock so the bar heights — not the dates — are what
+	/// the golden holds.
+	private static func dailyTokens(over days: Int, zeroAt: Set<Int> = [],
+	                                scale: Int = 500) -> [String: Int] {
+		let cal = Calendar.current
+		let today = cal.startOfDay(for: Date())
+		var out: [String: Int] = [:]
+		for offset in 0..<days {
+			guard let day = cal.date(byAdding: .day, value: -offset, to: today) else { continue }
+			out[AppState.dayString(day)] = zeroAt.contains(offset) ? 0 : (offset + 1) * scale
+		}
+		return out
+	}
+
+	@Test("insights panel, range selector, matches golden")
+	func insightsPanelGolden() async {
+		let html = await app {
+			$0.insightsRangeDays = 30
+		}.insightsPanel()
+		Parity.capture(html, as: "insights-panel")
+		Parity.expect(html, matches: "insights-panel")
+	}
+
+	@Test("insights main, skill stats and daily graph, matches golden")
+	func insightsMainGolden() async {
+		let html = await app {
+			$0.skills = [
+				self.skill("deploy", "Ship the current build", category: "ops"),
+				self.skill("rollback", "Undo the last deploy", category: "ops"),
+			]
+			var deploy = SkillStat()
+			deploy.uses = 5
+			deploy.views = 3
+			deploy.patches = 1
+			var rollback = SkillStat()
+			rollback.uses = 2
+			rollback.views = 1
+			$0.insights.skillStats = ["deploy": deploy, "rollback": rollback]
+			$0.insights.dailyTokens = Self.dailyTokens(over: 3, zeroAt: [0])
+			$0.insightsRangeDays = 3
+		}.insightsMain()
+		let scrubbed = scrubDays(html, rangeDays: 3)
+		Parity.capture(scrubbed, as: "insights-main")
+		Parity.expect(scrubbed, matches: "insights-main")
+	}
+
+	@Test("insights graph, seven days with one zero day, matches golden")
+	func insightsGraphGolden() async {
+		let html = await app {
+			$0.insights.dailyTokens = Self.dailyTokens(over: 7, zeroAt: [3])
+			$0.insightsRangeDays = 7
+		}.dailyTokensGraph()
+		let scrubbed = scrubDays(html, rangeDays: 7)
+		Parity.capture(scrubbed, as: "insights-graph")
+		Parity.expect(scrubbed, matches: "insights-graph")
+	}
+
 	// MARK: - phase 7: workspace dock / panel / body / tree
 
 	/// the panel's folder is a fixed path that does not exist: the tree scan then
