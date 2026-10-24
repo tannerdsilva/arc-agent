@@ -290,4 +290,104 @@ struct RenderParityPanels {
 		Parity.capture(html, as: "workspaces-empty")
 		Parity.expect(html, matches: "workspaces-empty")
 	}
+
+	// MARK: - phase 7: kanban
+
+	@Test("kanban panel, two columns, matches golden")
+	func kanbanPanelGolden() async {
+		let html = await app {
+			$0.kanbanColumns = [
+				KBColumn(id: "col-1", name: "Backlog", color: "#5BB98C"),
+				KBColumn(id: "col-2", name: "Done", color: "#2F9EB7"),
+			]
+			$0.kanbanCards = [
+				KBCard(id: "card-1", columnID: "col-1", title: "Write the parser"),
+				KBCard(id: "card-2", columnID: "col-1", title: "Ship the build"),
+			]
+		}.kanbanPanel()
+		Parity.capture(html, as: "kanban-panel")
+		Parity.expect(html, matches: "kanban-panel")
+	}
+
+	@Test("kanban panel, add column form open, matches golden")
+	func kanbanPanelAddColGolden() async {
+		let html = await app {
+			$0.addingColumn = true
+		}.kanbanPanel()
+		Parity.capture(html, as: "kanban-panel-addcol")
+		Parity.expect(html, matches: "kanban-panel-addcol")
+	}
+
+	@Test("kanban main, three columns four cards, matches golden")
+	func kanbanMainGolden() async {
+		let html = await app {
+			$0.kanbanColumns = [
+				KBColumn(id: "col-1", name: "Backlog", color: "#5BB98C"),
+				KBColumn(id: "col-2", name: "In progress", color: "#2F9EB7"),
+				KBColumn(id: "col-3", name: "Done", color: "#E1914B"),
+			]
+			$0.kanbanCards = [
+				KBCard(id: "card-1", columnID: "col-1", title: "Write the parser"),
+				KBCard(id: "card-2", columnID: "col-1", title: "Ship the build"),
+				KBCard(id: "card-3", columnID: "col-2", title: "Review the diff"),
+				KBCard(id: "card-4", columnID: "col-3", title: "Close the sprint"),
+			]
+		}.kanbanMain()
+		Parity.capture(html, as: "kanban-main")
+		Parity.expect(html, matches: "kanban-main")
+	}
+
+	@Test("kanban card armed, matches golden")
+	func kanbanCardArmedGolden() async {
+		let col = KBColumn(id: "col-1", name: "Backlog", color: "#5BB98C")
+		let html = await app {
+			$0.kanbanColumns = [col]
+			$0.kanbanCards = [KBCard(id: "card-1", columnID: "col-1", title: "Write the parser")]
+			$0.confirmCard = "card-1"
+		}.kanbanColumnHTML(col)
+		Parity.capture(html, as: "kanban-card-armed")
+		Parity.expect(html, matches: "kanban-card-armed")
+	}
+
+	@Test("kanban card unarmed, matches golden")
+	func kanbanCardUnarmedColumnGolden() async {
+		let col = KBColumn(id: "col-1", name: "Backlog", color: "#5BB98C")
+		let html = await app {
+			$0.kanbanColumns = [col]
+			$0.kanbanCards = [KBCard(id: "card-1", columnID: "col-1", title: "Write the parser")]
+		}.kanbanColumnHTML(col)
+		Parity.capture(html, as: "kanban-card-unarmed")
+		Parity.expect(html, matches: "kanban-card-unarmed")
+	}
+
+	// MARK: - phase 7: memory
+
+	@Test("memory panel, four docs, matches golden")
+	func memoryPanelGolden() async {
+		let html = await app {
+			$0.memoryDoc = "memory"
+		}.memoryPanel()
+		Parity.capture(html, as: "memory-panel")
+		Parity.expect(html, matches: "memory-panel")
+	}
+
+	@Test("memory main, document loaded, matches golden")
+	func memoryMainGolden() async {
+		let html = await app {
+			$0.memoryDoc = "memory"
+			$0.memoryContent = "# My Notes\n\nThis is a note."
+		}.memoryMain()
+		Parity.capture(html, as: "memory-main")
+		Parity.expect(html, matches: "memory-main")
+	}
+
+	@Test("memory main, empty document, matches golden")
+	func memoryMainEmptyGolden() async {
+		let html = await app {
+			$0.memoryDoc = "memory"
+			$0.memoryContent = ""
+		}.memoryMain()
+		Parity.capture(html, as: "memory-main-empty")
+		Parity.expect(html, matches: "memory-main-empty")
+	}
 }
