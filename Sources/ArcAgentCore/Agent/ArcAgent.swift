@@ -115,6 +115,12 @@ public actor ArcAgent: Service {
         /// fresh session with a new UUID.
         public var sessionID: String?
 
+        /// Initial conversation history seeded once at the start of the first
+        /// turn. Applied in the `streamTurn` prelude before `appendUserMessage`,
+        /// then cleared so it is never re-applied on a retry or a second
+        /// `streamTurn`.
+        public var initialHistory: [Message]? = nil
+
         /// Reasoning effort sent to the provider (reference `reasoning_effort`).
         public var reasoningEffort: String?
 
@@ -176,6 +182,7 @@ public actor ArcAgent: Service {
             injectProjectContext: Bool = true,
             contextDirectory: URL? = nil,
             platformHint: String = "cli",
+            initialHistory: [Message]? = nil,
             moa: MoAConfig = MoAConfig(),
             toolSearch: ToolSearchConfig = ToolSearchConfig(),
             skillInlineCommands: Bool = true,
@@ -215,6 +222,7 @@ public actor ArcAgent: Service {
             self.microCompact = microCompact
             self.agentPowers = agentPowers
             self.sessionID = sessionID
+            self.initialHistory = initialHistory
             self.reasoningEffort = reasoningEffort
             self.temperature = temperature
             self.topP = topP
@@ -362,6 +370,9 @@ public actor ArcAgent: Service {
     private var pendingSteers: [String] = []
     /// Cooperative interrupt flag, honored at iteration boundaries.
     private var turnInterrupted = false
+    /// One-shot initial history: applied in the `streamTurn` prelude before
+    /// `appendUserMessage`, then cleared so it is never re-applied.
+    private var pendingInitialHistory: [Message]?
 
     // MARK: - Init
 
@@ -377,6 +388,7 @@ public actor ArcAgent: Service {
         self.config = config
         self.messageHistory = []
         self.sessionID = config.sessionID ?? UUID().uuidString
+        self.pendingInitialHistory = config.initialHistory
         // The smart-approval classifier is wired from `wireSmartApproval()`
         // (once the agent's own state is fully initialized).
         self.approvalManager = ApprovalManager(mode: config.approvalMode)
@@ -995,6 +1007,16 @@ public actor ArcAgent: Service {
         await CheckpointGuard.shared.beginTurn()
     }
 
+    /// Apply the one-shot ``Configuration/initialHistory`` seed, if any.
+    ///
+    /// Runs in the `streamTurn` prelude before the user message is appended and
+    /// clears the pending seed, so a retry or a second turn never re-applies it.
+    private func applyInitialHistoryIfNeeded() {
+        guard let initial = pendingInitialHistory else { return }
+        pendingInitialHistory = nil
+        messageHistory.append(contentsOf: initial)
+    }
+
     private func appendUserMessage(_ message: Message) {
         messageHistory.append(message)
     }
@@ -1002,13 +1024,13 @@ public actor ArcAgent: Service {
     /// Inject a mid-turn steering instruction. Drained before the next LLM
     /// request so the model sees it on this iteration (reference `/steer`
     /// parity). Rendered as a distinct `[steer: …]` user turn.
-    func steer(_ message: String) {
+    public func steer(_ message: String) {
         pendingSteers.append(message)
     }
 
     /// Request cooperative interruption of the current turn. Honored at the
     /// next iteration boundary — in-flight API calls finish first.
-    func interruptTurn() {
+    public func interruptTurn() {
         turnInterrupted = true
     }
 
@@ -1839,6 +1861,7 @@ public actor ArcAgent: Service {
                         try await prime()
                         await restoreSessionIfNeeded()
                         await resetTurnState()
+                        await self.applyInitialHistoryIfNeeded()
                         await self.appendUserMessage(Message(role: .user, content: self.effectiveUserText(message)))
                         try await runStreamingTurnLoop(emit: { event in continuation.yield(event) })
                     }

@@ -2,6 +2,7 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 import AsyncHTTPClient
+import Synchronization
 
 // =========================================================================
 // MARK: - Scripted streaming client
@@ -12,7 +13,12 @@ import AsyncHTTPClient
 /// emits `final`. Deltas arrive reasoning → content chunks → tool calls →
 /// usage → finish reason, mirroring the OpenAI-compatible wire order (the
 /// turn loop stops reading at `finishReason`).
-struct EventScriptClient: LLMClient {
+///
+/// Every `stream(...)` call's messages are recorded in call order so tests can
+/// assert on what the mock provider received. `onRoundStart` runs inside the
+/// emitting task *before* the first delta of a call, which lets a test act
+/// mid-turn (steer, interrupt) with a happens-before edge on the next delta.
+final class EventScriptClient: LLMClient {
 
     struct Round {
         var chunks: [String] = []
@@ -23,6 +29,24 @@ struct EventScriptClient: LLMClient {
 
     let first: Round
     let final: Round
+
+    private let onRoundStart: (@Sendable (Int) async -> Void)?
+    private let recorded = Mutex<[[Message]]>([])
+
+    init(
+        first: Round,
+        final: Round,
+        onRoundStart: (@Sendable (Int) async -> Void)? = nil
+    ) {
+        self.first = first
+        self.final = final
+        self.onRoundStart = onRoundStart
+    }
+
+    /// Messages received by each `stream(...)` call, in call order.
+    var allRecordedMessages: [[Message]] {
+        recorded.withLock { Array($0) }
+    }
 
     func complete(messages: [Message], tools: [[String: Any]]?) async throws -> LLMResponse {
         throw LLMError.apiError(statusCode: 500, message: "scripted client is streaming-only")
@@ -37,9 +61,15 @@ struct EventScriptClient: LLMClient {
         tools: [[String: Any]]?,
         reasoningEffort: String?
     ) -> AsyncThrowingStream<LLMDelta, Error> {
+        let callIndex = recorded.withLock { store -> Int in
+            store.append(messages)
+            return store.count - 1
+        }
         let round = messages.contains(where: { $0.role == .tool }) ? final : first
+        let hook = onRoundStart
         return AsyncThrowingStream { continuation in
             Task {
+                await hook?(callIndex)
                 if let reasoning = round.reasoning, !reasoning.isEmpty {
                     continuation.yield(LLMDelta(content: nil, reasoning: reasoning))
                 }
@@ -81,7 +111,8 @@ extension ArcCoreTestRoot {
             registry: CompileTimeToolRegistry,
             httpClient: HTTPClient,
             client: any LLMClient,
-            approvalMode: ApprovalMode = .manual
+            approvalMode: ApprovalMode = .manual,
+            initialHistory: [Message]? = nil
         ) async -> ArcAgent {
             let config = ArcAgent.Configuration(
                 model: "test-model",
@@ -95,7 +126,8 @@ extension ArcCoreTestRoot {
                 persistSessions: false,
                 approvalMode: approvalMode,
                 query: nil,
-                maxContextTokens: 64_000
+                maxContextTokens: 64_000,
+                initialHistory: initialHistory
             )
             let agent = ArcAgent(config: config)
             await agent.setupClient(httpClient: httpClient)
@@ -484,6 +516,132 @@ extension ArcCoreTestRoot {
             let critical = await manager.needsApproval(command: "rm -rf /", sessionKey: "s2")
             #expect(critical == true)
         }
+
+        // MARK: convergence A1 — history seed and public turn control
+
+        @Test("configuration initial history reaches the first request once, ahead of the new user message")
+        func initialHistorySeedsTheFirstRequestOnce() async throws {
+            let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+            defer { _ = httpClient.shutdown() }
+
+            let seeded = [
+                Message(role: .user, content: "earlier question"),
+                Message(role: .assistant, content: "earlier answer"),
+            ]
+            let client = EventScriptClient(
+                first: .init(chunks: ["ok"]),
+                final: .init(chunks: ["ok"])
+            )
+            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let agent = await makeAgent(
+                registry: registry,
+                httpClient: httpClient,
+                client: client,
+                initialHistory: seeded
+            )
+
+            _ = try await collect(agent)
+            _ = try await collect(agent)
+
+            let calls = client.allRecordedMessages
+            #expect(calls.count == 2)
+
+            // first request: system, the two seeded messages in order, then the turn's user message.
+            let firstTurn = calls[0].map { $0.content ?? "" }
+            #expect(calls[0].first?.role == .system)
+            #expect(firstTurn.count == 4)
+            #expect(firstTurn[1] == "earlier question")
+            #expect(firstTurn[2] == "earlier answer")
+            #expect(firstTurn[3] == "go")
+
+            // one-shot: the second turn carries the seeds exactly once, not twice.
+            let secondTurn = calls[1].map { $0.content ?? "" }
+            #expect(secondTurn.filter { $0 == "earlier question" }.count == 1)
+            #expect(secondTurn.filter { $0 == "earlier answer" }.count == 1)
+            #expect(secondTurn.filter { $0 == "go" }.count == 2)
+        }
+
+        @Test("a mid-turn steer lands after the tool result and rides the next request")
+        func steerLandsAtTheToolBoundary() async throws {
+            let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+            defer { _ = httpClient.shutdown() }
+
+            let box = TurnAgentBox()
+            let toolCall = ToolCallDelta(
+                index: 0,
+                id: "call_steer",
+                name: "terminal",
+                arguments: #"{"command":"echo arc-steer"}"#
+            )
+            let client = EventScriptClient(
+                first: .init(toolCalls: [toolCall]),
+                final: .init(chunks: ["done"]),
+                onRoundStart: { index in
+                    // mid-turn: the steer arrives while the first response streams.
+                    if index == 0 { await box.steer("focus on the failing test") }
+                }
+            )
+            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
+            await box.hold(agent)
+
+            let events = try await collect(agent)
+
+            let calls = client.allRecordedMessages
+            #expect(calls.count == 2)
+            let second = calls[1]
+            let toolIndex = second.firstIndex { $0.role == .tool }
+            let steerIndex = second.firstIndex { ($0.content ?? "").contains("[steer:") }
+            #expect(toolIndex != nil)
+            #expect(steerIndex != nil)
+            if let toolIndex, let steerIndex {
+                #expect(steerIndex > toolIndex)
+                #expect(second[steerIndex].content == "[steer: focus on the failing test]")
+                #expect(steerIndex == second.count - 1)
+            }
+            #expect(completedText(events) == "done")
+        }
+
+        @Test("interruptTurn yields the interrupt text then completed, and the same agent runs a clean second turn")
+        func interruptTurnEndsTheTurnAndTheAgentRecovers() async throws {
+            let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+            defer { _ = httpClient.shutdown() }
+
+            let box = TurnAgentBox()
+            let toolCall = ToolCallDelta(
+                index: 0,
+                id: "call_interrupt",
+                name: "terminal",
+                arguments: #"{"command":"echo arc-interrupt"}"#
+            )
+            let client = EventScriptClient(
+                first: .init(toolCalls: [toolCall]),
+                final: .init(chunks: ["clean"]),
+                onRoundStart: { index in
+                    // mid-turn: the stop arrives while the first response streams.
+                    if index == 0 { await box.interrupt() }
+                }
+            )
+            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
+            await box.hold(agent)
+
+            let interrupted = try await collect(agent)
+
+            #expect(textDeltas(interrupted) == ["Interrupted by user."])
+            #expect(completedText(interrupted) == "Interrupted by user.")
+            let completions = interrupted.filter { if case .completed = $0 { return true } else { return false } }
+            #expect(completions.count == 1)
+            // the interrupt is honoured at the iteration boundary — the second
+            // request is never issued.
+            #expect(client.allRecordedMessages.count == 1)
+
+            // the same instance recovers: a clean next turn with no interrupt state left over.
+            let second = try await collect(agent)
+            #expect(textDeltas(second) == ["clean"])
+            #expect(completedText(second) == "clean")
+            #expect(client.allRecordedMessages.count == 2)
+        }
     }
 }
 
@@ -514,5 +672,24 @@ actor SinkRecorder {
 
     func record(_ command: String) {
         commands.append(command)
+    }
+}
+
+/// Holds the agent under test so a scripted client can steer or interrupt it
+/// from inside a `stream(...)` call — the agent does not exist yet when the
+/// client is built.
+actor TurnAgentBox {
+    private var agent: ArcAgent?
+
+    func hold(_ agent: ArcAgent) {
+        self.agent = agent
+    }
+
+    func steer(_ message: String) async {
+        await agent?.steer(message)
+    }
+
+    func interrupt() async {
+        await agent?.interruptTurn()
     }
 }
