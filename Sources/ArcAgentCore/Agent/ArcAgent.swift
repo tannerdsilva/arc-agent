@@ -84,6 +84,11 @@ public actor ArcAgent: Service {
         /// default; enabled via `compression.micro_compact`.
         public var microCompact: MicroCompactConfig = MicroCompactConfig()
 
+        /// Whether the agent may run the automatic compression pass at the
+        /// top of each turn loop iteration. Default ON; set false to disable
+        /// auto-compression entirely (a manual `/compress` still works).
+        public var autoCompression: Bool = true
+
         /// Agent-powers lockdown gate (skills + profile files). All locks
         /// default to OFF; the running agent installs this into
         /// ``AgentPowers`` at init so tools refuse locked surfaces.
@@ -150,6 +155,12 @@ public actor ArcAgent: Service {
         /// working directory (the default for the CLI).
         public var contextDirectory: URL?
 
+        /// The workspace root bound to `WorkspacePath.$root` at every tool
+        /// dispatch. `nil` = fall back to the process working directory.
+        /// Two agents in one process with different roots see different
+        /// resolutions for the same relative path.
+        public var workspaceRoot: String?
+
         /// Platform label for the prompt's session line (arc parity).
         public var platformHint: String
 
@@ -181,6 +192,7 @@ public actor ArcAgent: Service {
             fallbackAPIKeys: [String] = [],
             injectProjectContext: Bool = true,
             contextDirectory: URL? = nil,
+            workspaceRoot: String? = nil,
             platformHint: String = "cli",
             initialHistory: [Message]? = nil,
             moa: MoAConfig = MoAConfig(),
@@ -188,6 +200,7 @@ public actor ArcAgent: Service {
             skillInlineCommands: Bool = true,
             backgroundReview: BackgroundReview.Settings = BackgroundReview.Settings(),
             verifyOnStop: Bool = false,
+            autoCompression: Bool = true,
             reasoningEffort: String? = nil,
             temperature: Double? = nil,
             topP: Double? = nil,
@@ -231,12 +244,14 @@ public actor ArcAgent: Service {
             self.fallbackAPIKeys = fallbackAPIKeys
             self.injectProjectContext = injectProjectContext
             self.contextDirectory = contextDirectory
+            self.workspaceRoot = workspaceRoot
             self.platformHint = platformHint
             self.moa = moa
             self.toolSearch = toolSearch
             self.skillInlineCommands = skillInlineCommands
             self.backgroundReview = backgroundReview
             self.verifyOnStop = verifyOnStop
+            self.autoCompression = autoCompression
             self.mcpServers = mcpServers
             self.disabledToolsets = disabledToolsets
             self.delegation = delegation
@@ -1316,6 +1331,7 @@ public actor ArcAgent: Service {
     }
 
     private func autoCompressIfNeeded(focus: String? = nil, force: Bool = false) async {
+        guard config.autoCompression || force else { return }
         let limit = effectiveContextLimit()
         let estimated = await estimateRequestTokens()
         guard Self.shouldAutoCompress(
@@ -1940,7 +1956,7 @@ public actor ArcAgent: Service {
             if turnInterrupted {
                 turnInterrupted = false
                 emit(.textDelta("Interrupted by user."))
-                emit(.completed(finalText: "Interrupted by user."))
+                emit(.completed(finalText: "Interrupted by user.", terminalReason: nil))
                 await persistConversationIfNeeded()
                 return
             }
@@ -2076,7 +2092,7 @@ public actor ArcAgent: Service {
                 if error is StreamTotalTimeoutError {
                     let text = "The model request exceeded the maximum turn duration. Please try again or shorten the context."
                     emit(.textDelta(text))
-                    emit(.completed(finalText: text))
+                    emit(.completed(finalText: text, terminalReason: nil))
                     await persistConversationIfNeeded()
                     return
                 }
@@ -2089,7 +2105,7 @@ public actor ArcAgent: Service {
                     if await staleTracker.shouldGiveUp {
                         let text = "The model stream stalled repeatedly. Please try again."
                         emit(.textDelta(text))
-                        emit(.completed(finalText: text))
+                        emit(.completed(finalText: text, terminalReason: nil))
                         await persistConversationIfNeeded()
                         return
                     }
@@ -2159,7 +2175,7 @@ public actor ArcAgent: Service {
                 messageHistory.append(Message(role: .assistant, content: content, apiContent: content))
                 turnRecoveryState.markProviderSuccess()
                 if let streamUsage { await recordUsage(streamUsage) }
-                emit(.completed(finalText: content))
+                emit(.completed(finalText: content, terminalReason: nil))
                 await persistConversationIfNeeded()
                 return
 
@@ -2206,7 +2222,7 @@ public actor ArcAgent: Service {
                 turnRecoveryState.emptyStormStreak += 1
                 if turnRecoveryState.emptyStormStreak >= TurnRecoveryState.emptyStormThreshold {
                     emit(.textDelta(RecoveryNudges.emptyStormExhaustedMessage))
-                    emit(.completed(finalText: RecoveryNudges.emptyStormExhaustedMessage))
+                    emit(.completed(finalText: RecoveryNudges.emptyStormExhaustedMessage, terminalReason: nil))
                     await persistConversationIfNeeded()
                     return
                 }
@@ -2217,7 +2233,7 @@ public actor ArcAgent: Service {
 
         let limitText = "The conversation reached the maximum iteration limit. Please start a new session."
         emit(.textDelta(limitText))
-        emit(.completed(finalText: limitText))
+        emit(.completed(finalText: limitText, terminalReason: "max_iterations"))
         await persistConversationIfNeeded()
     }
 
@@ -3026,7 +3042,7 @@ public actor ArcAgent: Service {
                 }
                 return try await self.dispatchAmbientTool(name: name, args: NonSendableBox(args))
             }
-            return try await WorkspacePath.$root.withValue(FileManager.default.currentDirectoryPath) {
+            return try await WorkspacePath.$root.withValue(config.workspaceRoot ?? FileManager.default.currentDirectoryPath) {
                 try await entry.handler(argsBox.value)
             }
         } catch {

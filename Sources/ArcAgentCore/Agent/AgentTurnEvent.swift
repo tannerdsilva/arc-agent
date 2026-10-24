@@ -42,8 +42,10 @@ public enum AgentTurnEvent: Sendable {
 
     /// The turn finished with a visible answer. `finalText` is the full
     /// assistant-visible text — the concatenation of the turn's
-    /// ``textDelta(_:)`` payloads. Terminal.
-    case completed(finalText: String)
+    /// ``textDelta(_:)`` payloads. `terminalReason` is nil for a normal
+    /// completion, or `"max_iterations"` when the iteration budget was
+    /// exhausted. Terminal.
+    case completed(finalText: String, terminalReason: String?)
 
     /// The turn stopped on an error or an interruption notice. `message` is
     /// the complete visible text (already prefixed, e.g. `Error: …`).

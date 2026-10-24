@@ -150,9 +150,9 @@ extension ArcCoreTestRoot {
             }
         }
 
-        private func completedText(_ events: [AgentTurnEvent]) -> String? {
-            for case .completed(let text) in events.reversed() {
-                return text
+        private func completedText(_ events: [AgentTurnEvent]) -> (text: String, reason: String?)? {
+            for case .completed(let text, let reason) in events.reversed() {
+                return (text, reason)
             }
             return nil
         }
@@ -200,7 +200,7 @@ extension ArcCoreTestRoot {
             let events = try await collect(agent)
 
             #expect(textDeltas(events) == ["Hel", "lo, ", "world"])
-            #expect(completedText(events) == "Hello, world")
+            #expect(completedText(events)?.text == "Hello, world")
             let completions = events.filter { if case .completed = $0 { return true } else { return false } }
             #expect(completions.count == 1)
 
@@ -291,7 +291,7 @@ extension ArcCoreTestRoot {
                 return nil
             }
             #expect(usages == [usage])
-            #expect(completedText(events) == "answer")
+            #expect(completedText(events)?.text == "answer")
 
             // projection parity: reasoning is display-only.
             let agent2 = await makeAgent(registry: registry, httpClient: httpClient, client: client)
@@ -445,7 +445,7 @@ extension ArcCoreTestRoot {
 
             let result = toolFinished(events).first?.2 ?? ""
             #expect(result == "2")
-            #expect(completedText(events) == "picked 2")
+            #expect(completedText(events)?.text == "picked 2")
 
             // leave the ambient presenter box clean for the next serialized test.
             await ClarifyTool.presenters.set(nil)
@@ -599,7 +599,7 @@ extension ArcCoreTestRoot {
                 #expect(second[steerIndex].content == "[steer: focus on the failing test]")
                 #expect(steerIndex == second.count - 1)
             }
-            #expect(completedText(events) == "done")
+            #expect(completedText(events)?.text == "done")
         }
 
         @Test("interruptTurn yields the interrupt text then completed, and the same agent runs a clean second turn")
@@ -629,7 +629,7 @@ extension ArcCoreTestRoot {
             let interrupted = try await collect(agent)
 
             #expect(textDeltas(interrupted) == ["Interrupted by user."])
-            #expect(completedText(interrupted) == "Interrupted by user.")
+            #expect(completedText(interrupted)?.text == "Interrupted by user.")
             let completions = interrupted.filter { if case .completed = $0 { return true } else { return false } }
             #expect(completions.count == 1)
             // the interrupt is honoured at the iteration boundary — the second
@@ -639,7 +639,7 @@ extension ArcCoreTestRoot {
             // the same instance recovers: a clean next turn with no interrupt state left over.
             let second = try await collect(agent)
             #expect(textDeltas(second) == ["clean"])
-            #expect(completedText(second) == "clean")
+            #expect(completedText(second)?.text == "clean")
             #expect(client.allRecordedMessages.count == 2)
         }
     }
