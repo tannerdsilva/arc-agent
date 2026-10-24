@@ -471,4 +471,113 @@ struct RenderParityPanels {
 		Parity.capture(html, as: "logs-main")
 		Parity.expect(html, matches: "logs-main")
 	}
+
+	// MARK: - phase 7: workspace dock / panel / body / tree
+
+	/// the panel's folder is a fixed path that does not exist: the tree scan then
+	/// renders the empty hint, so the goldens carry no machine-specific path and
+	/// no developer's home directory is walked.
+	private static let wsFixturePath = "/arc/parity/workspace"
+
+	private func workspaceApp(open: Bool = true,
+	                          wsNewMode: String = "",
+	                          previewPath: String? = nil,
+	                          previewContent: String? = nil,
+	                          previewNote: String? = nil) -> AppState {
+		app {
+			$0.settings.workspaces = [WorkspaceEntry(name: "parity", path: Self.wsFixturePath)]
+			$0.settings.activeWorkspace = "parity"
+			$0.workspaceOpen = open
+			$0.wsNewMode = wsNewMode
+			$0.previewPath = previewPath
+			$0.previewContent = previewContent
+			$0.previewNote = previewNote
+		}
+	}
+
+	/// a temp workspace with a known layout. the tree rows carry only relative
+	/// names and base64 ids, so a random root path never reaches the bytes.
+	private func makeTreeWorkspace(_ files: [String]) throws -> URL {
+		let dir = FileManager.default.temporaryDirectory
+			.appendingPathComponent("arc-parity-ws-\(UUID().uuidString)", isDirectory: true)
+		let fm = FileManager.default
+		try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+		for f in files {
+			let url = dir.appendingPathComponent(f)
+			try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+			try Data("x".utf8).write(to: url)
+		}
+		return dir
+	}
+
+	@Test("workspace dock, panel collapsed, matches golden")
+	func wsDockCollapsedGolden() async {
+		let html = await workspaceApp(open: false).workspaceDockHTML()
+		Parity.capture(html, as: "ws-dock-collapsed")
+		Parity.expect(html, matches: "ws-dock-collapsed")
+	}
+
+	@Test("workspace dock, panel open, matches golden")
+	func wsDockOpenGolden() async {
+		let html = await workspaceApp(open: true).workspaceDockHTML()
+		Parity.capture(html, as: "ws-dock-open")
+		Parity.expect(html, matches: "ws-dock-open")
+	}
+
+	@Test("workspace panel, open with the new-file form, matches golden")
+	func wsPanelGolden() async {
+		let html = await workspaceApp(open: true, wsNewMode: "file").workspacePanelHTML()
+		Parity.capture(html, as: "ws-panel")
+		Parity.expect(html, matches: "ws-panel")
+	}
+
+	@Test("workspace panel, no workspace open, matches golden")
+	func wsPanelNoWorkspaceGolden() async {
+		let html = await workspaceApp(open: false).workspacePanelHTML()
+		Parity.capture(html, as: "ws-panel-no-workspace")
+		Parity.expect(html, matches: "ws-panel-no-workspace")
+	}
+
+	@Test("workspace body, markdown preview open, matches golden")
+	func wsBodyPreviewGolden() async {
+		let html = await workspaceApp(open: true, previewPath: "notes.md",
+		                              previewContent: "# Notes\n\nA line of prose.\n").workspaceBodyHTML()
+		Parity.capture(html, as: "ws-body-preview")
+		Parity.expect(html, matches: "ws-body-preview")
+	}
+
+	@Test("workspace body, unreadable preview keeps its reason, matches golden")
+	func wsBodyNoPreviewGolden() async {
+		let html = await workspaceApp(open: true, previewPath: "app.log",
+		                              previewNote: "Binary file — no preview.").workspaceBodyHTML()
+		Parity.capture(html, as: "ws-body-no-preview")
+		Parity.expect(html, matches: "ws-body-no-preview")
+	}
+
+	@Test("workspace tree, folders first with one expanded, matches golden")
+	func wsTreeGolden() async throws {
+		let ws = try makeTreeWorkspace(["z.txt", "b.txt", "a-folder/nested.txt", "m-folder/x.txt", ".secret"])
+		defer { try? FileManager.default.removeItem(at: ws) }
+		let html = AppState.renderWorkspaceTree(root: ws, showHidden: false, expanded: ["a-folder"])
+		Parity.capture(html, as: "ws-tree")
+		Parity.expect(html, matches: "ws-tree")
+	}
+
+	@Test("workspace tree, empty workspace, matches golden")
+	func wsTreeEmptyGolden() async throws {
+		let ws = try makeTreeWorkspace([])
+		defer { try? FileManager.default.removeItem(at: ws) }
+		let html = AppState.renderWorkspaceTree(root: ws, showHidden: false, expanded: [])
+		Parity.capture(html, as: "ws-tree-empty")
+		Parity.expect(html, matches: "ws-tree-empty")
+	}
+
+	@Test("workspace tree, hidden files shown, matches golden")
+	func wsTreeHiddenGolden() async throws {
+		let ws = try makeTreeWorkspace([".secret", "visible.txt"])
+		defer { try? FileManager.default.removeItem(at: ws) }
+		let html = AppState.renderWorkspaceTree(root: ws, showHidden: true, expanded: [])
+		Parity.capture(html, as: "ws-tree-hidden")
+		Parity.expect(html, matches: "ws-tree-hidden")
+	}
 }

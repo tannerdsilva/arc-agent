@@ -1121,6 +1121,16 @@ actor AppState {
         var memoryDoc: String? = nil
         var memoryEdit = false
         var memoryContent = ""
+        // phase 7: right-hand workspace panel state. the dock, the panel and the
+        // preview are all state-driven, so a fixture that cannot set this state
+        // can only ever capture the closed panel.
+        var workspaceOpen = false
+        var wsNewMode = ""              // "" | "file" | "folder" (inline create)
+        var showHiddenFiles = false
+        var expandedPaths: Set<String> = []
+        var previewPath: String? = nil
+        var previewContent: String? = nil
+        var previewNote: String? = nil
     }
 
     init(renderFixture fixture: RenderFixture) {
@@ -1167,6 +1177,13 @@ actor AppState {
         self.memoryDoc = fixture.memoryDoc
         self.memoryEdit = fixture.memoryEdit
         self.memoryContent = fixture.memoryContent
+        self.workspaceOpen = fixture.workspaceOpen
+        self.wsNewMode = fixture.wsNewMode
+        self.showHiddenFiles = fixture.showHiddenFiles
+        self.expandedPaths = fixture.expandedPaths
+        self.previewPath = fixture.previewPath
+        self.previewContent = fixture.previewContent
+        self.previewNote = fixture.previewNote
         self.settings.kanbanColumns = fixture.kanbanColumns
         self.settings.kanbanCards = fixture.kanbanCards
         self.registry = MutableToolRegistry(builtIn: CompileTimeToolRegistry())
