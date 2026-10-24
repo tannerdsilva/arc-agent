@@ -330,8 +330,8 @@ extension AppState {
     /// The Todos view: tab switcher (Tasks | Run queue) + active tab body.
     func todosPanelHTML() -> String {
         migrateLegacyTodosIfNeeded()
-        let tabs = todosTabsHTML()
-        let body = todosTab == .tasks ? todosTasksHTML() : queuePanelHTML()
+        let tabs = render(todosTabsHTML())
+        let body = todosTab == .tasks ? todosTasksHTML() : render(queuePanelHTML())
         return "<div id=\"main\" class=\"todo-panel\">" + tabs + body + "</div>"
     }
 

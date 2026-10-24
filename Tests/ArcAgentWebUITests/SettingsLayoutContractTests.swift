@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import ArcWebUI
 
 extension ArcWebUITestRoot {
     /// Wiring contracts for the four Settings/Profile layout changes (2026-10):
@@ -87,10 +88,15 @@ extension ArcWebUITestRoot {
         // MARK: Run queue reorder
 
         @Test("queue reorder flows through the hidden order input")
-        func queueReorderContract() {
+        func queueReorderContract() async {
             let queue = Self.source("Queue.swift")
             let overlay = (try? String(contentsOfFile: "Sources/ArcWebUI/Assets/overlay.js", encoding: .utf8)) ?? ""
-            #expect(queue.contains("id=\"queue-order\""))
+            // the panel is a typed view now, so the hidden field is pinned in its
+            // RENDERED bytes rather than in a source string.
+            let panel = await AppState(renderFixture: .init()).queuePanelHTML().markup.html
+            #expect(panel.contains("id=\"queue-order\""))
+            #expect(panel.contains("data-component-id=\"queue-order\" data-event=\"change\""),
+                    "the hidden input still owns its wire (change frames carry value only)")
             #expect(queue.contains("@Wired(\"queue-order\""),
                     "the hidden input owns its wire (change frames carry value only)")
             #expect(queue.contains("reorderQueue(order)"),

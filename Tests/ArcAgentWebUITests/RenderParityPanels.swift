@@ -670,7 +670,7 @@ struct RenderParityPanels {
 
 	@Test("queue tabs, tasks selected, matches golden")
 	func todosTabsHTMLGolden() async {
-		let html = await app { $0.todosTab = .tasks }.todosTabsHTML()
+		let html = await app { $0.todosTab = .tasks }.todosTabsHTML().markup.html
 		Parity.capture(html, as: "todos-tabs")
 		Parity.expect(html, matches: "todos-tabs")
 	}
@@ -681,7 +681,7 @@ struct RenderParityPanels {
 		let html = await app {
 			$0.settings.queuePlan = [e]
 			$0.settings.todos = ["chat-1": [TodoItem(id: "todo-1", text: "Write the parser", done: false)]]
-		}.queueRowHTML(e, index: 0, plan: [e])
+		}.queueRowHTML(e, index: 0, plan: [e]).markup.html
 		Parity.capture(html, as: "queue-row")
 		Parity.expect(html, matches: "queue-row")
 	}
@@ -699,7 +699,7 @@ struct RenderParityPanels {
 			]]
 			$0.queueLinksOpen = "entry-2"
 			$0.queueLinkSel = ["entry-1"]
-		}.queueLinkPopupHTML(second, plan: plan)
+		}.queueLinkPopupHTML(second, plan: plan).markup.html
 		Parity.capture(html, as: "queue-link-popup")
 		Parity.expect(html, matches: "queue-link-popup")
 	}
@@ -715,14 +715,14 @@ struct RenderParityPanels {
 			]
 			$0.settings.todos = ["chat-1": [TodoItem(id: "todo-1", text: "Write the parser", done: false)]]
 			$0.queuePickerOpen = true
-		}.queuePickerHTML()
+		}.queuePickerHTML().markup.html
 		Parity.capture(html, as: "queue-picker")
 		Parity.expect(html, matches: "queue-picker")
 	}
 
 	@Test("queue panel, empty plan, matches golden")
 	func queuePanelHTMLGolden() async {
-		let html = await app().queuePanelHTML()
+		let html = await app().queuePanelHTML().markup.html
 		Parity.capture(html, as: "queue-panel")
 		Parity.expect(html, matches: "queue-panel")
 	}
