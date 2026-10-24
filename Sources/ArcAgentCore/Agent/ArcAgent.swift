@@ -308,6 +308,12 @@ public actor ArcAgent: Service {
     /// Session-scoped todo list (reference `todo_tool.py`). One per agent
     /// instance — re-injected after context compression.
     private let todoStore = TodoStore()
+    /// Clarify presenter for this agent's turns (bound to ``ClarifyTool/presenter``
+    /// TaskLocal during the turn via ``withSkillContext``).
+    private var clarifyPresenter: ClarifyTool.Presenter? = nil
+    /// Code-execution host for this agent's turns (bound to
+    /// ``ExecuteCodeTool/host`` TaskLocal during the turn via ``withSkillContext``).
+    private var codeHost: (@Sendable (String, [String: Any]) async throws -> String)? = nil
     /// Streaming reasoning-tag scrubber (reference `think_scrubber.py`
     /// `StreamingThinkScrubber`). Re-entrant per stream — reset at the top
     /// of every new streamed turn so a hung block from an interrupted prior
@@ -436,6 +442,27 @@ public actor ArcAgent: Service {
     /// route its request to the right surface.
     public func setApprovalPresenter(_ presenter: ApprovalPresenter?) async {
         await approvalManager.setPresenter(presenter)
+    }
+
+    /// Register the human-clarify presenter for this agent's turns.
+    ///
+    /// The presenter is consulted by ``ClarifyTool`` during this agent's
+    /// turn via the ``ClarifyTool/presenter`` TaskLocal (bound inside
+    /// ``withSkillContext``). Two concurrent agents with different
+    /// presenters cannot cross-talk; the process-wide ``ClarifyTool/presenters``
+    /// box remains the single-agent fallback.
+    public func setClarifyPresenter(_ presenter: ClarifyTool.Presenter?) async {
+        self.clarifyPresenter = presenter
+    }
+
+    /// Register the host tool-executor closure for this agent's turns.
+    ///
+    /// The host is consulted by ``ExecuteCodeTool`` during this agent's
+    /// turn via the ``ExecuteCodeTool/host`` TaskLocal (bound inside
+    /// ``withSkillContext``). The process-wide ``ExecuteCodeTool/dispatcher``
+    /// remains the single-agent fallback.
+    public func setCodeHost(_ host: (@Sendable (String, [String: Any]) async throws -> String)?) async {
+        self.codeHost = host
     }
 
     /// Smart-approval risk classification via the `approval` auxiliary model.
@@ -1184,7 +1211,14 @@ public actor ArcAgent: Service {
     ) async rethrows -> T {
         try await SkillContext.$sessionID.withValue(config.sessionID ?? "") {
             try await SkillContext.$allowInlineCommands.withValue(config.skillInlineCommands) {
-                try await body()
+                // Bind the per-turn presenters so any tool dispatched inside
+                // this turn (including parallel tool batches) sees its own
+                // agent's presenter, not a sibling's.
+                try await ClarifyTool.$presenter.withValue(clarifyPresenter) {
+                    try await ExecuteCodeTool.$host.withValue(codeHost) {
+                        try await body()
+                    }
+                }
             }
         }
     }

@@ -642,7 +642,213 @@ extension ArcCoreTestRoot {
             #expect(completedText(second)?.text == "clean")
             #expect(client.allRecordedMessages.count == 2)
         }
+
+    // MARK: convergence A3 — per-turn clarify presenter and dispatcher
+
+    @Test("two concurrent agents with different clarify presenters do not cross-talk")
+    func concurrentClarifyPresentersDoNotCrossTalk() async throws {
+        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+        defer { _ = httpClient.shutdown() }
+
+        // No process-wide presenter is installed, so the TaskLocal is the
+        // only rung in play.
+        await ClarifyTool.presenters.set(nil)
+
+        let askA = ToolCallDelta(
+            index: 0,
+            id: "call_ask_a",
+            name: "clarify",
+            arguments: #"{"question":"Agent A's question","choices":["a1","a2"]}"#
+        )
+        let askB = ToolCallDelta(
+            index: 0,
+            id: "call_ask_b",
+            name: "clarify",
+            arguments: #"{"question":"Agent B's question","choices":["b1","b2"]}"#
+        )
+
+        let clientA = EventScriptClient(
+            first: .init(toolCalls: [askA]),
+            final: .init(chunks: ["A answered"])
+        )
+        let clientB = EventScriptClient(
+            first: .init(toolCalls: [askB]),
+            final: .init(chunks: ["B answered"])
+        )
+
+        let registry = try ArcAgentCore.buildDefaultRegistry()
+        let agentA = await makeAgent(registry: registry, httpClient: httpClient, client: clientA)
+        let agentB = await makeAgent(registry: registry, httpClient: httpClient, client: clientB)
+
+        // Each agent installs its own presenter into its TaskLocal scope.
+        await agentA.setClarifyPresenter { question, _ in
+            #expect(question == "Agent A's question")
+            return "a1"
+        }
+        await agentB.setClarifyPresenter { question, _ in
+            #expect(question == "Agent B's question")
+            return "b1"
+        }
+
+        // Run both turns concurrently; neither should observe the other's
+        // question or answer because the TaskLocal is per-turn.
+        async let eventsA = collect(agentA, message: "ask")
+        async let eventsB = collect(agentB, message: "ask")
+        let (evA, evB) = try await (eventsA, eventsB)
+
+        let resultA = toolFinished(evA).first?.2 ?? ""
+        let resultB = toolFinished(evB).first?.2 ?? ""
+        #expect(resultA == "a1", "agent A should see its own answer")
+        #expect(resultB == "b1", "agent B should see its own answer")
+        #expect(completedText(evA)?.text == "A answered")
+        #expect(completedText(evB)?.text == "B answered")
+
+        // Leave the process-wide box clean for the next serialized test.
+        await ClarifyTool.presenters.set(nil)
     }
+
+    @Test("clarify resolution order: task local wins over process-wide box")
+    func clarifyResolutionOrderTaskLocalWins() async throws {
+        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+        defer { _ = httpClient.shutdown() }
+
+        // Install the fallback-box presenter (rung 2).
+        let boxRecorder = ClarifyRecorder()
+        await ClarifyTool.presenters.set { question, choices in
+            await boxRecorder.record(question: question, choices: choices)
+            return "from-box"
+        }
+        defer { Task { await ClarifyTool.presenters.set(nil) } }
+
+        let ask = ToolCallDelta(
+            index: 0,
+            id: "call_ask",
+            name: "clarify",
+            arguments: #"{"question":"Which number?","choices":["1","2"]}"#
+        )
+        let client = EventScriptClient(
+            first: .init(toolCalls: [ask]),
+            final: .init(chunks: ["done"])
+        )
+        let registry = try ArcAgentCore.buildDefaultRegistry()
+        let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
+
+        // Agent installs a TaskLocal presenter (rung 1) that shadows the box.
+        await agent.setClarifyPresenter { question, choices in
+            #expect(question == "Which number?")
+            #expect(choices == ["1", "2"])
+            return "from-tasklocal"
+        }
+
+        let events = try await collect(agent, message: "ask me")
+        let result = toolFinished(events).first?.2 ?? ""
+        #expect(result == "from-tasklocal", "task local presenter must win over the box")
+
+        let boxAsked = await boxRecorder.asked
+        #expect(boxAsked.isEmpty, "the box presenter must not fire when a task local is present")
+    }
+
+    @Test("clarify resolution order: process-wide box is the fallback when no task local")
+    func clarifyResolutionOrderBoxFallsBack() async throws {
+        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+        defer { _ = httpClient.shutdown() }
+
+        await ClarifyTool.presenters.set(nil)
+        defer { await ClarifyTool.presenters.set(nil) }
+
+        let boxRecorder = ClarifyRecorder()
+        await ClarifyTool.presenters.set { question, choices in
+            await boxRecorder.record(question: question, choices: choices)
+            return "from-box"
+        }
+
+        let ask = ToolCallDelta(
+            index: 0,
+            id: "call_ask",
+            name: "clarify",
+            arguments: #"{"question":"Which number?","choices":["1","2"]}"#
+        )
+        let client = EventScriptClient(
+            first: .init(toolCalls: [ask]),
+            final: .init(chunks: ["done"])
+        )
+        let registry = try ArcAgentCore.buildDefaultRegistry()
+        let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
+        // No task-local presenter set — the box is the fallback rung.
+
+        let events = try await collect(agent, message: "ask me")
+        let result = toolFinished(events).first?.2 ?? ""
+        #expect(result == "from-box", "the box presenter must answer when no task local is set")
+        let boxAsked = await boxRecorder.asked
+        #expect(boxAsked.count == 1)
+        #expect(boxAsked.first?.0 == "Which number?")
+    }
+
+    @Test("clarify resolution order: neither rung reports the historic unavailable error")
+    func clarifyResolutionOrderNeitherRungErrors() async throws {
+        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+        defer { _ = httpClient.shutdown() }
+
+        await ClarifyTool.presenters.set(nil)
+
+        let ask = ToolCallDelta(
+            index: 0,
+            id: "call_ask",
+            name: "clarify",
+            arguments: #"{"question":"Which number?"}"#
+        )
+        let client = EventScriptClient(
+            first: .init(toolCalls: [ask]),
+            final: .init(chunks: ["done"])
+        )
+        let registry = try ArcAgentCore.buildDefaultRegistry()
+        let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
+
+        let events = try await collect(agent, message: "ask me")
+        let result = toolFinished(events).first?.2 ?? ""
+        #expect(result.contains("not available in this execution context"),
+                "no presenter on either rung must report the historic error")
+    }
+
+    @Test("two concurrent execute_code hosts do not cross-talk")
+    func concurrentExecuteCodeHostsDoNotCrossTalk() async throws {
+        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+        defer { _ = httpClient.shutdown() }
+
+        let captureA = CaptureBox()
+        let captureB = CaptureBox()
+
+        let codeA = "from arc_tools import read_file\nprint(read_file('/tmp/a.txt'))"
+        let codeB = "from arc_tools import read_file\nprint(read_file('/tmp/b.txt'))"
+
+        let hostA: (@Sendable (String, [String: Any]) async throws -> String) = { name, args in
+            await captureA.set("\(name)|\(args["path"] ?? "")")
+            return "CONTENT-A"
+        }
+        let hostB: (@Sendable (String, [String: Any]) async throws -> String) = { name, args in
+            await captureB.set("\(name)|\(args["path"] ?? "")")
+            return "CONTENT-B"
+        }
+
+        // Run both turns concurrently. Each execute_code call must route to
+        // its own agent's host via the per-turn TaskLocal (bound directly on
+        // the tool, not through the process-wide dispatcher).
+        async let resultA = try await ExecuteCodeTool.$host.withValue(hostA) {
+            try await ExecuteCodeTool.entry.handler(["code": codeA])
+        }
+        async let resultB = try await ExecuteCodeTool.$host.withValue(hostB) {
+            try await ExecuteCodeTool.entry.handler(["code": codeB])
+        }
+        let (resA, resB) = try await (resultA, resultB)
+
+        let gotA = await captureA.get()
+        let gotB = await captureB.get()
+        #expect(gotA == "read_file|/tmp/a.txt", "agent A's host must be used by its execute_code")
+        #expect(gotB == "read_file|/tmp/b.txt", "agent B's host must be used by its execute_code")
+        #expect(resA.contains("CONTENT-A"), "agent A must see its own result")
+        #expect(resB.contains("CONTENT-B"), "agent B must see its own result")
+    }
+}
 }
 
 // =========================================================================

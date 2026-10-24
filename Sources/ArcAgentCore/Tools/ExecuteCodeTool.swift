@@ -89,7 +89,7 @@ public enum ExecuteCodeTool {
         }
         func run(_ body: @Sendable () async throws -> String) async throws -> String {
             guard remaining > 0 else {
-                throw ToolError.execution("Tool-call budget exceeded (max \(ExecuteCodeTool.maxToolCalls) per script)")
+                throw ToolError.execution("Tool-call budget exceeded (max \\(ExecuteCodeTool.maxToolCalls) per script)")
             }
             remaining -= 1
             return try await body()
@@ -98,6 +98,12 @@ public enum ExecuteCodeTool {
             ExecuteCodeTool.maxToolCalls - remaining
         }
     }
+
+    /// Task-local host bound by the agent for the whole turn.
+    /// Checked first in `execute()` before falling back to the process-wide
+    /// dispatcher. Two concurrent agents with different hosts cannot
+    /// cross-talk because each turn binds its own TaskLocal value.
+    @TaskLocal public static var host: (@Sendable (String, [String: Any]) async throws -> String)? = nil
 
     public static let dispatcher = Dispatcher()
 
@@ -117,9 +123,16 @@ public enum ExecuteCodeTool {
             try stub.write(to: stubURL, atomically: true, encoding: .utf8)
             try code.write(to: scriptURL, atomically: true, encoding: .utf8)
 
-            // 1) Snapshot the ambient host, then start the RPC server
-            //    (loopback TCP, ephemeral port) bound to that snapshot.
-            guard let host = await Self.dispatcher.currentHost() else {
+            // 1) Snapshot the ambient host. TaskLocal takes precedence
+            //    (per-turn, bound by ArcAgent) before the process-wide
+            //    dispatcher (single-agent fallback).
+            let ambient: (@Sendable (String, [String: Any]) async throws -> String)?
+            if let taskLocal = Self.host {
+                ambient = taskLocal
+            } else {
+                ambient = await Self.dispatcher.currentHost()
+            }
+            guard let host = ambient else {
                 throw ToolError.execution(
                     "execute_code dispatcher not configured (host did not register a tool executor)")
             }
