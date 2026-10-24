@@ -20,7 +20,11 @@ struct StubTool: AgentTool {
 
 /// phase 6 goldens: captured from the LEGACY builders before conversion, so
 /// every later typed rewrite is held to byte parity with what shipped.
-@Suite("render parity — panels and mains")
+///
+/// `.serialized`: the log goldens read the process-wide `LogCollector`, so two
+/// of these tests clearing and appending it at once is a flake, not a signal
+/// (measured: 1 failure in 3 runs before the trait).
+@Suite("render parity — panels and mains", .serialized)
 struct RenderParityPanels {
 
 	private func app(_ configure: (inout AppState.RenderFixture) -> Void = { _ in }) -> AppState {
@@ -512,28 +516,28 @@ struct RenderParityPanels {
 
 	@Test("workspace dock, panel collapsed, matches golden")
 	func wsDockCollapsedGolden() async {
-		let html = await workspaceApp(open: false).workspaceDockHTML()
+		let html = await workspaceApp(open: false).workspaceDockHTML().markup.html
 		Parity.capture(html, as: "ws-dock-collapsed")
 		Parity.expect(html, matches: "ws-dock-collapsed")
 	}
 
 	@Test("workspace dock, panel open, matches golden")
 	func wsDockOpenGolden() async {
-		let html = await workspaceApp(open: true).workspaceDockHTML()
+		let html = await workspaceApp(open: true).workspaceDockHTML().markup.html
 		Parity.capture(html, as: "ws-dock-open")
 		Parity.expect(html, matches: "ws-dock-open")
 	}
 
 	@Test("workspace panel, open with the new-file form, matches golden")
 	func wsPanelGolden() async {
-		let html = await workspaceApp(open: true, wsNewMode: "file").workspacePanelHTML()
+		let html = await workspaceApp(open: true, wsNewMode: "file").workspacePanelHTML().markup.html
 		Parity.capture(html, as: "ws-panel")
 		Parity.expect(html, matches: "ws-panel")
 	}
 
 	@Test("workspace panel, no workspace open, matches golden")
 	func wsPanelNoWorkspaceGolden() async {
-		let html = await workspaceApp(open: false).workspacePanelHTML()
+		let html = await workspaceApp(open: false).workspacePanelHTML().markup.html
 		Parity.capture(html, as: "ws-panel-no-workspace")
 		Parity.expect(html, matches: "ws-panel-no-workspace")
 	}
@@ -541,7 +545,7 @@ struct RenderParityPanels {
 	@Test("workspace body, markdown preview open, matches golden")
 	func wsBodyPreviewGolden() async {
 		let html = await workspaceApp(open: true, previewPath: "notes.md",
-		                              previewContent: "# Notes\n\nA line of prose.\n").workspaceBodyHTML()
+		                              previewContent: "# Notes\n\nA line of prose.\n").workspaceBodyHTML().markup.html
 		Parity.capture(html, as: "ws-body-preview")
 		Parity.expect(html, matches: "ws-body-preview")
 	}
@@ -549,7 +553,7 @@ struct RenderParityPanels {
 	@Test("workspace body, unreadable preview keeps its reason, matches golden")
 	func wsBodyNoPreviewGolden() async {
 		let html = await workspaceApp(open: true, previewPath: "app.log",
-		                              previewNote: "Binary file — no preview.").workspaceBodyHTML()
+		                              previewNote: "Binary file — no preview.").workspaceBodyHTML().markup.html
 		Parity.capture(html, as: "ws-body-no-preview")
 		Parity.expect(html, matches: "ws-body-no-preview")
 	}
@@ -558,7 +562,7 @@ struct RenderParityPanels {
 	func wsTreeGolden() async throws {
 		let ws = try makeTreeWorkspace(["z.txt", "b.txt", "a-folder/nested.txt", "m-folder/x.txt", ".secret"])
 		defer { try? FileManager.default.removeItem(at: ws) }
-		let html = AppState.renderWorkspaceTree(root: ws, showHidden: false, expanded: ["a-folder"])
+		let html = AppState.renderWorkspaceTree(root: ws, showHidden: false, expanded: ["a-folder"]).markup.html
 		Parity.capture(html, as: "ws-tree")
 		Parity.expect(html, matches: "ws-tree")
 	}
@@ -567,7 +571,7 @@ struct RenderParityPanels {
 	func wsTreeEmptyGolden() async throws {
 		let ws = try makeTreeWorkspace([])
 		defer { try? FileManager.default.removeItem(at: ws) }
-		let html = AppState.renderWorkspaceTree(root: ws, showHidden: false, expanded: [])
+		let html = AppState.renderWorkspaceTree(root: ws, showHidden: false, expanded: []).markup.html
 		Parity.capture(html, as: "ws-tree-empty")
 		Parity.expect(html, matches: "ws-tree-empty")
 	}
@@ -576,7 +580,7 @@ struct RenderParityPanels {
 	func wsTreeHiddenGolden() async throws {
 		let ws = try makeTreeWorkspace([".secret", "visible.txt"])
 		defer { try? FileManager.default.removeItem(at: ws) }
-		let html = AppState.renderWorkspaceTree(root: ws, showHidden: true, expanded: [])
+		let html = AppState.renderWorkspaceTree(root: ws, showHidden: true, expanded: []).markup.html
 		Parity.capture(html, as: "ws-tree-hidden")
 		Parity.expect(html, matches: "ws-tree-hidden")
 	}

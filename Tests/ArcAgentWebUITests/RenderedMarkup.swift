@@ -34,7 +34,7 @@ enum RenderedMarkup {
         case "iconbar":      return await app.iconbarHTML().markup.html
         case "panel":        return await app.panelHTML().markup.html
         case "main":         return await app.mainContentHTML().markup.html
-        case "dock":         return await app.workspaceDockHTML()
+        case "dock":         return await app.workspaceDockHTML().markup.html
         case "toasts":       return await app.toastsHTML().markup.html
         case "modal-root":   return await app.modalRootHTML().markup.html
         default:             return ""
@@ -207,10 +207,10 @@ extension RenderedMarkup {
             results.append(contentsOf: controlTags(in: await app.renderPanel(for: kind).markup.html, region: "panel.\(kind.rawValue)"))
             results.append(contentsOf: controlTags(in: await app.renderMain(for: kind), region: "main.\(kind.rawValue)"))
         }
-        results.append(contentsOf: controlTags(in: await app.workspaceDockHTML(), region: "workspace.dock"))
-        results.append(contentsOf: controlTags(in: await app.workspacePanelHTML(), region: "workspace.panel"))
-        results.append(contentsOf: controlTags(in: await app.workspaceBodyHTML(), region: "workspace.body"))
-        results.append(contentsOf: controlTags(in: await app.workspaceTreeHTML(), region: "workspace.tree"))
+        results.append(contentsOf: controlTags(in: await app.workspaceDockHTML().markup.html, region: "workspace.dock"))
+        results.append(contentsOf: controlTags(in: await app.workspacePanelHTML().markup.html, region: "workspace.panel"))
+        results.append(contentsOf: controlTags(in: await app.workspaceBodyHTML().markup.html, region: "workspace.body"))
+        results.append(contentsOf: controlTags(in: await app.workspaceTreeHTML().markup.html, region: "workspace.tree"))
         results.append(contentsOf: controlTags(in: await app.modalHTML().markup.html, region: "modal"))
         results.append(contentsOf: controlTags(in: await app.categoryMenuHTML().markup.html, region: "category-menu"))
         return results
@@ -252,10 +252,10 @@ extension RenderedMarkup {
             html += await app.renderMain(for: kind)
         }
 
-        html += await app.workspaceDockHTML()
-        html += await app.workspacePanelHTML()
-        html += await app.workspaceBodyHTML()
-        html += await app.workspaceTreeHTML()
+        html += await app.workspaceDockHTML().markup.html
+        html += await app.workspacePanelHTML().markup.html
+        html += await app.workspaceBodyHTML().markup.html
+        html += await app.workspaceTreeHTML().markup.html
         html += await app.modalHTML().markup.html
         html += await app.categoryMenuHTML().markup.html
 

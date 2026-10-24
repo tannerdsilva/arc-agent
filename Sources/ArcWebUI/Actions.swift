@@ -28,8 +28,8 @@ extension AppState {
         ]
         // The right-hand workspace panel follows the active chat's workspace,
         // so re-render it on session switches and workspace changes too.
-        u.append(FragmentUpdate(id: "ws-dock", html: workspaceDockHTML()))
-        u.append(FragmentUpdate(id: "ws-panel", html: workspacePanelHTML()))
+        u.append(fragment("ws-dock", workspaceDockHTML()))
+        u.append(fragment("ws-panel", workspacePanelHTML()))
         // push the SHELL: the engine's replaceElement removes a target when the
         // fragment is empty, so an inner-only push of "no toasts" would delete
         // #toasts for the rest of the session and swallow every later toast.
@@ -3526,12 +3526,10 @@ extension Controller {
     }
 
     private func workspaceFragments() async -> [FragmentUpdate] {
-        let dock = await app.workspaceDockHTML()
-        let panel = await app.workspacePanelHTML()
         let toasts = await app.toastsShell()
         return [
-            FragmentUpdate(id: "ws-dock", html: dock),
-            FragmentUpdate(id: "ws-panel", html: panel),
+            fragment("ws-dock", await app.workspaceDockHTML()),
+            fragment("ws-panel", await app.workspacePanelHTML()),
             FragmentUpdate(id: "toasts", html: toasts.markup.html),
         ]
     }

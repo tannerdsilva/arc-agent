@@ -357,14 +357,41 @@ extension ArcWebUITestRoot {
 
         // MARK: - UX-03 workspace dock keeps its routing anchor
 
+        /// the workspace pins render the dock/panel/body: the state goes in, the
+        /// bytes come out. the panel folder is a fixed path that does not exist,
+        /// so no pin walks a developer's home directory.
+        private static func workspace(_ configure: (inout AppState.RenderFixture) -> Void) -> AppState {
+            var fixture = AppState.RenderFixture()
+            fixture.settings.workspaces = [WorkspaceEntry(name: "pin", path: "/arc/ux-workspace")]
+            fixture.settings.activeWorkspace = "pin"
+            configure(&fixture)
+            return AppState(renderFixture: fixture)
+        }
+
+        /// occurrences of a needle in a haystack (a browser has no `count(of:)`).
+        static func count(of needle: String, in haystack: String) -> Int {
+            haystack.components(separatedBy: needle).count - 1
+        }
+
         @Test("the workspace dock keeps its routing anchor and a collapse tab in both states")
-        func workspaceDockAnchorIsStable() {
-            #expect(!Self.views.contains("guard !workspaceOpen else { return \"<div id=\"ws-dock\"></div>\" }"),
-                    "the open-state patch replaced the anchored `#ws-dock` root with an anchor-less div, so the engine dropped routing for the region")
-            #expect(Self.views.contains("<div id=\"ws-dock\" data-component-id=\"workspace\" data-event=\"click\">"),
-                    "the dock wrapper must carry the component anchor in every render")
-            #expect(Self.views.contains("let title = open ? \"Collapse workspace\" : \"Open workspace\""),
+        func workspaceDockAnchorIsStable() async {
+            let closed = await Self.workspace { $0.workspaceOpen = false }.workspaceDockHTML().markup.html
+            let open = await Self.workspace { $0.workspaceOpen = true }.workspaceDockHTML().markup.html
+            for (state, html) in [("closed", closed), ("open", open)] {
+                // the open-state patch once replaced the anchored `#ws-dock` root
+                // with an anchor-less div, so the engine dropped routing for the
+                // region and closes dead-ended.
+                #expect(html.contains("id=\"ws-dock\""),
+                        "the dock wrapper must be rendered in the \(state) state")
+                #expect(html.contains("data-component-id=\"workspace\""),
+                        "the dock wrapper must carry the component anchor in the \(state) state")
+                #expect(html.contains("id=\"w-dock\""),
+                        "the collapse tab must exist in the \(state) state, not an empty div")
+            }
+            #expect(closed.contains("title=\"Open workspace\""), "the closed dock is the open handle")
+            #expect(open.contains("title=\"Collapse workspace\""),
                     "the open-state dock must be a discoverable collapse tab, not an empty div")
+            #expect(!closed.contains(" hidden"), "the closed dock's tab must be visible")
             let overlay = Self.overlay
             #expect(overlay.contains("var wsPanel = document.getElementById('ws-panel');"),
                     "the overlay must own Escape-to-close for the workspace panel like it does for the outline")
@@ -376,16 +403,21 @@ extension ArcWebUITestRoot {
         }
 
         @Test("an open workspace panel shows exactly one close control — the collapse tab is hidden")
-        func workspaceDockHidesWhenOpen() {
-            let views = Self.views
+        func workspaceDockHidesWhenOpen() async {
             // UX-30: the open-state dock tab floated at the panel's mid-right edge
             // over the file rows — two competing close affordances. While open the
             // collapse tab must be hidden so the header ✕ is the single close
             // control (the anchored wrapper stays, so routing never drops).
-            #expect(views.contains("let attrHidden = open ? \" hidden\" : \"\""),
-                    "the open state must mark the collapse tab hidden")
-            #expect(views.contains("id=\"w-dock\" class=\"\\(cls)\"\\(attrHidden)"),
-                    "the hidden marker must ride the dock button itself")
+            let app = Self.workspace { $0.workspaceOpen = true }
+            let dock = await app.workspaceDockHTML().markup.html
+            let panel = await app.workspacePanelHTML().markup.html
+            let tabTag = dock.components(separatedBy: "<button").dropFirst().first
+                .map { String($0.prefix(while: { $0 != ">" })) } ?? ""
+            #expect(tabTag.contains("id=\"w-dock\""), "the collapsed-tab pin must be reading the tab")
+            #expect(tabTag.contains("hidden"),
+                    "the open state must mark the collapse tab hidden — two close controls is the bug")
+            #expect(Self.count(of: "id=\"w-close\"", in: panel) == 1,
+                    "the open panel must render exactly one header ✕")
             #expect(Self.sheetSource.contains(".ws-dock-btn[hidden] { display: none; }"),
                     ".ws-dock-btn declares display:flex — without an explicit [hidden] rule the UA rule loses and the dead chevron stays visible")
         }
@@ -558,15 +590,23 @@ extension ArcWebUITestRoot {
         /// every control in its head must have an owner: the copy control is
         /// client-side, the open-in-editor control was markup-only and is gone.
         @Test("workspace previews keep their no-preview reason and the copy control is wired")
-        func workspacePreviewContracts() {
-            let views = Self.views
-            let overlay = Self.overlay
-            #expect(views.contains("esc(previewNote ?? \"No preview.\")"),
+        func workspacePreviewContracts() async {
+            let body = await Self.workspace {
+                $0.workspaceOpen = true
+                $0.previewPath = "app.log"
+                $0.previewNote = "Binary file — no preview."
+            }.workspaceBodyHTML().markup.html
+            #expect(body.contains("Binary file — no preview."),
                     "an unreadable preview must name the reason, not render an empty box")
+            #expect(!body.contains("<pre"),
+                    "an unreadable preview must not fall through to an empty <pre>")
+            #expect(body.contains("id=\"ws-preview-copy\""),
+                    "the preview must still render its copy control")
+            #expect(!body.contains("ws-preview-open"),
+                    "the unwired open-in-editor control must not ship")
+            let overlay = Self.overlay
             #expect(overlay.contains("#ws-preview-copy"),
                     "the preview copy control must have a client owner")
-            #expect(!views.contains("ws-preview-open"),
-                    "the unwired open-in-editor control must not ship")
         }
 
 

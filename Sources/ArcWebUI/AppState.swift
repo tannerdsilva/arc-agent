@@ -853,8 +853,11 @@ actor AppState {
     /// (path, showHidden, expanded set). Repeated shell re-renders of an
     /// OPEN panel reuse this instead of rescanning the directory. Cleared
     /// when the panel is (re)opened or on a file/folder mutation.
+    ///
+    /// The cache holds the built VIEW, not its bytes: a tree is a `Group` of
+    /// rows, so the fixed point a render cache needs is the existential.
     var workspaceTreeCacheKey: String? = nil
-    var workspaceTreeCacheHTML: String? = nil
+    var workspaceTreeCacheView: (any WebUI.View)? = nil
 
     /// The workspace-relative path of a file open in the panel's preview pane,
     /// its read content, and an optional notice (binary / oversized / unreadable).

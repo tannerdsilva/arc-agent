@@ -80,8 +80,8 @@ extension AppState {
                 iconbarHTML()
                 panel                    // panelHTML() is now a View (phase 2.2); bridge retired
                 main
-                legacy(workspaceDockHTML())  // TODO(phase 7)
-                legacy(workspacePanelHTML()) // TODO(phase 7)
+                workspaceDockHTML()          // phase 7.4: typed, bridge retired
+                workspacePanelHTML()         // phase 7.4: typed, bridge retired
                 Div(id: "drawer-scrim", class: "drawer-scrim") {}
                     .aria(.hidden(.yes))
             }.attribute("id", "app-body")
@@ -5256,10 +5256,8 @@ extension AppState {
     /// for the region (`[WebUIEngine] Patch for #ws-dock dropped routing
     /// anchor data-component-id=workspace`), which is exactly how closes
     /// used to dead-end.
-    func workspaceDockHTML() -> String {
+    func workspaceDockHTML() -> some WebUI.View {
         let open = workspaceOpen
-        let icon = open ? WebUIIcon(.chevronRight, size: .medium).markup.html
-                        : WebUIIcon(.chevronLeft, size: .medium).markup.html
         let title = open ? "Collapse workspace" : "Open workspace"
         // UX-30: while the panel is open, exactly ONE close control is visible
         // — the header ✕. The dock's collapse tab used to float at the panel's
@@ -5267,148 +5265,202 @@ extension AppState {
         // When open the tab is hidden, but the anchored wrapper keeps its
         // `data-component-id` — the engine's routing anchor is stable in both
         // states (UX-03); when closed the dock returns as the open handle.
-        let cls = open ? "ws-dock-btn ws-dock-open" : "ws-dock-btn"
-        let attrHidden = open ? " hidden" : ""
-        return """
-        <div id="ws-dock" data-component-id="workspace" data-event="click">
-          <button type="button" id="w-dock" class="\(cls)"\(attrHidden) title="\(title)">\(icon)</button>
-        </div>
-        """
+        return Div(id: "ws-dock") {
+            ArcButton(id: "w-dock", component: nil,
+                      class: open ? "ws-dock-btn ws-dock-open" : "ws-dock-btn",
+                      type: .button, hidden: open) {
+                if open {
+                    WebUIIcon(.chevronRight, size: .medium)
+                } else {
+                    WebUIIcon(.chevronLeft, size: .medium)
+                }
+            }
+            .attribute("title", title)
+        }
+        .wire(ComponentID("workspace"))
     }
 
     /// The right-hand workspace panel (same width as the left panel).
-    func workspacePanelHTML() -> String {
-        let hidden = workspaceOpen ? "" : " hidden"
+    func workspacePanelHTML() -> some WebUI.View {
         // ws-enter plays the slide-in animation only on the open transition
         // (set right after toggling open); the flag is consumed/reset here so
         // background re-renders of an already-open panel don't re-animate.
         let anim = wsEnterAnim ? " ws-enter" : ""
         wsEnterAnim = false
-        let wsMenu = """
-        <div class="ws-menu-wrap" data-component-id="workspace" data-event="click">
-          <button type="button" id="w-menu" class="icon-mini" title="Workspace options">⋮</button>
-          <div class="chat-menu ws-menu" id="ws-menu">
-            <button type="button" id="w-hidden" class="\(showHiddenFiles ? "menu-sel" : "")">\(showHiddenFiles ? "<span class=\"chk\">" + WebUIIcon(.checkSquare, size: .small).markup.html + "</span>" : "<span class=\"chk\">" + WebUIIcon(.square, size: .small).markup.html + "</span>") Show hidden files</button>
-          </div>
-        </div>
-        """
-        var create: String = ""
-        if wsNewMode != "" {
-            let placeholder = wsNewMode == "file" ? "file name (e.g. notes.txt)" : "folder name"
-            let note = wsNewMode == "file" ? "New file" : "New folder"
-            create = """
-            <form id="ws-new-form" data-component-id="ws-new-form" class="cat-add-form">
-              <div class="detail-sub" style="margin-bottom:6px">\(note)</div>
-              <input id="ws-new-name" name="ws-new-name" data-component-id="ws-new-name" type="text" placeholder="\(placeholder)" autofocus>
-              <input type="hidden" name="ws-new-kind" value="\(wsNewMode)">
-              <div class="cat-add-actions" style="margin-top:8px">
-                <button type="submit" class="primary-btn">Create</button>
-                \(btn("ws-new-cancel", "", "ghost-btn", "Cancel"))
-              </div>
-            </form>
-            """
+        // `hidden` is a CLASS on this element, not the attribute: the sheet
+        // hides the panel with `.ws-panel.hidden`, which an attribute could not
+        // win against (`.ws-panel` sets `display: flex`).
+        let cls = "ws-panel" + (workspaceOpen ? "" : " hidden") + anim
+        return Div(id: "ws-panel", class: cls) {
+            Div(class: "panel-head ws-head") {
+                Span(class: "panel-title") { Text("Workspace") }
+                Div(class: "ws-tools") {
+                    ArcButton(id: "w-new", component: nil, class: "icon-mini") {
+                        WebUIIcon(.plus, size: .small)
+                    }
+                    .attribute("title", "New file")
+                    ArcButton(id: "w-newfolder", component: nil, class: "icon-mini") {
+                        WebUIIcon(.folder, size: .small)
+                    }
+                    .attribute("title", "New folder")
+                    ArcButton(id: "w-upload", component: nil, class: "icon-mini") {
+                        WebUIIcon(.upload, size: .small)
+                    }
+                    .attribute("title", "Upload files or drop them here")
+                    Div(class: "ws-menu-wrap") {
+                        ArcButton(id: "w-menu", component: nil, class: "icon-mini") {
+                            Text("\u{22EE}")   // ⋮ — Text escapes, so emit the char
+                        }
+                        .attribute("title", "Workspace options")
+                        Div(id: "ws-menu", class: "chat-menu ws-menu") {
+                            ArcButton(id: "w-hidden", component: nil,
+                                      class: showHiddenFiles ? "menu-sel" : "") {
+                                Span(class: "chk") {
+                                    if showHiddenFiles {
+                                        WebUIIcon(.checkSquare, size: .small)
+                                    } else {
+                                        WebUIIcon(.square, size: .small)
+                                    }
+                                }
+                                Text("Show hidden files")
+                            }
+                        }
+                    }
+                    .wire(ComponentID("workspace"))
+                    // the header ✕ is the panel's single close control while open
+                    ArcButton(id: "w-close", component: nil, class: "icon-mini") {
+                        WebUIIcon(.x, size: .small)
+                    }
+                    .attribute("title", "Close workspace")
+                }
+                .wire(ComponentID("workspace"))
+            }
+            if wsNewMode != "" {
+                Form(action: "", method: nil, id: "ws-new-form", class: "cat-add-form") {
+                    Div(class: "detail-sub") {
+                        Text(wsNewMode == "file" ? "New file" : "New folder")
+                    }
+                    .attribute("style", "margin-bottom:6px")
+                    Input(field: "ws-new-name",
+                          placeholder: wsNewMode == "file" ? "file name (e.g. notes.txt)" : "folder name",
+                          attributes: [
+                            ("data-component-id", "ws-new-name"),
+                            ("autofocus", ""),
+                          ])
+                    Input(name: "ws-new-kind", type: .hidden, value: wsNewMode)
+                    Div(class: "cat-add-actions") {
+                        ArcButton("Create", class: "primary-btn", type: .submit)
+                        ArcButton("Cancel", id: "ws-new-cancel", component: nil, class: "ghost-btn")
+                    }
+                    .attribute("style", "margin-top:8px")
+                }
+                .data("component-id", "ws-new-form")
+            }
+            Div(id: "ws-tree", class: "ws-body") {
+                workspaceBodyHTML()
+            }
+            .data("root", panelWorkspacePath())
+            .wire(ComponentID("workspace"))
         }
-        return """
-        <div id="ws-panel" class="ws-panel\(hidden)\(anim)">
-          <div class="panel-head ws-head">
-            <span class="panel-title">Workspace</span>
-            <div class="ws-tools" data-component-id="workspace" data-event="click">
-              \(btn("w-new", "", "icon-mini", WebUIIcon(.plus, size: .small).markup.html, " title=\"New file\""))
-              \(btn("w-newfolder", "", "icon-mini", WebUIIcon(.folder, size: .small).markup.html, " title=\"New folder\""))
-              \(btn("w-upload", "", "icon-mini", WebUIIcon(.upload, size: .small).markup.html, " title=\"Upload files or drop them here\""))
-              \(wsMenu)
-              \(btn("w-close", "", "icon-mini", WebUIIcon(.x, size: .small).markup.html, " title=\"Close workspace\""))
-            </div>
-          </div>
-          \(create)
-          <div class="ws-body" id="ws-tree" data-component-id="workspace" data-event="click" data-root="\(esc(panelWorkspacePath()))">
-            \(workspaceBodyHTML())
-          </div>
-        </div>
-        """
     }
 
     /// The workspace panel body: a file preview pane when a file is open,
     /// otherwise the breadcrumb + file tree (Hermes parity: the right panel
     /// shows both the tree and a preview of the selected file).
-    func workspaceBodyHTML() -> String {
+    func workspaceBodyHTML() -> some WebUI.View {
         // Never scan the directory for a hidden panel: `workspacePanelHTML`
         // is rendered on every shell build, and the tree walk is synchronous
         // disk I/O — doing it when the panel isn't visible caused the lag
         // spikes. The scan happens on first render after the panel opens.
-        guard workspaceOpen else { return "" }
-        if let path = previewPath {
-            let name = URL(fileURLWithPath: path).lastPathComponent
-            let isMarkdown = path.lowercased().hasSuffix(".md")
-            // UX-12: wrap text previews (pre-wrap) and render markdown for
-            // .md files — the dock is for glancing, raw markdown syntax is
-            // not readable. Code keeps `white-space: pre` (via the monospace
-            // pre-wrap body, which still wraps).
-            let body: String
-            if let content = previewContent {
-                if isMarkdown {
-                    body = "<div class=\"ws-preview-body\">\(renderMarkdown(content))</div>"
+        Group {
+            if workspaceOpen {
+                if let path = previewPath {
+                    let name = URL(fileURLWithPath: path).lastPathComponent
+                    let isMarkdown = path.lowercased().hasSuffix(".md")
+                    Div(class: "ws-preview") {
+                        Div(class: "ws-preview-head") {
+                            ArcButton(id: "w-preview-back", component: nil, class: "icon-mini") {
+                                WebUIIcon(.chevronLeft, size: .small)
+                            }
+                            .attribute("title", "Back to files")
+                            Span(class: "ws-preview-name") { Text(name) }
+                                .attribute("title", path + (isMarkdown ? " (markdown)" : ""))
+                            ArcButton(id: "ws-preview-copy", component: nil, class: "icon-mini") {
+                                WebUIIcon(.copy, size: .small)
+                            }
+                            .attribute("title", "Copy content")
+                        }
+                        Div(class: "ws-preview-scroll") {
+                            // UX-12: wrap text previews (pre-wrap) and render markdown
+                            // for .md files — the dock is for glancing, raw markdown
+                            // syntax is not readable. Code keeps `white-space: pre`
+                            // (via the monospace pre-wrap body, which still wraps).
+                            if let content = previewContent {
+                                if isMarkdown {
+                                    Div(class: "ws-preview-body") {
+                                        TrustedMarkup(renderMarkdown(content), from: .markdown)
+                                    }
+                                } else {
+                                    Element(.pre, class: "ws-preview-body") { Text(content) }
+                                }
+                            } else {
+                                // UX-12: an unreadable preview keeps its reason on screen —
+                                // `previewNote` names the cause (binary, too large, not utf-8,
+                                // read failure); an empty <pre> told the reader nothing.
+                                Div(class: "empty-hint") { Text(previewNote ?? "No preview.") }
+                            }
+                        }
+                    }
                 } else {
-                    body = "<pre class=\"ws-preview-body\">\(esc(content))</pre>"
+                    Div(class: "ws-path") { Text(panelWorkspacePath()) }
+                        .attribute("title", panelWorkspacePath())
+                    workspaceTreeHTML()
                 }
-            } else {
-                // UX-12: an unreadable preview keeps its reason on screen —
-                // `previewNote` names the cause (binary, too large, not utf-8,
-                // read failure); an empty <pre> told the reader nothing.
-                body = "<div class=\"empty-hint\">\(esc(previewNote ?? "No preview."))</div>"
             }
-            return """
-            <div class="ws-preview">
-              <div class="ws-preview-head">
-                <button type="button" id="w-preview-back" class="icon-mini" title="Back to files">\(WebUIIcon(.chevronLeft, size: .small).markup.html)</button>
-                <span class="ws-preview-name" title="\(esc(path))\(isMarkdown ? " (markdown)" : "")">\(esc(name))</span>
-                <button type="button" id="ws-preview-copy" class="icon-mini" title="Copy content">\(WebUIIcon(.copy, size: .small).markup.html)</button>
-              </div>
-              <div class="ws-preview-scroll">\(body)</div>
-            </div>
-            """
         }
-        return """
-        <div class="ws-path" title="\(esc(panelWorkspacePath()))">\(esc(panelWorkspacePath()))</div>
-        \(workspaceTreeHTML())
-        """
     }
 
-    func workspaceTreeHTML() -> String {
+    func workspaceTreeHTML() -> some WebUI.View {
         // Render-path cache: repeated shell re-renders of an OPEN panel reuse
         // the last listing instead of rescanning the directory. Keyed by
         // (path, showHidden, expanded set), so switching the workspace,
         // toggling hidden files, or expanding/collapsing a folder all change
         // the key and force a rescan; content mutations clear the cache.
+        //
+        // the cache holds the built VIEW, not its bytes: a tree is a `Group` of
+        // rows, so the fixed point a cache needs is the existential — no second
+        // string seam, and no re-render of the rows it already built.
         let path = panelWorkspacePath()
         let key = wsTreeCacheKey(path: path)
-        if let k = workspaceTreeCacheKey, k == key, let html = workspaceTreeCacheHTML {
-            return html
+        if workspaceTreeCacheKey != key {
+            workspaceTreeCacheView = Self.renderWorkspaceTree(
+                root: URL(fileURLWithPath: path),
+                showHidden: showHiddenFiles,
+                expanded: expandedPaths
+            )
+            workspaceTreeCacheKey = key
         }
-        let html = Self.renderWorkspaceTree(
-            root: URL(fileURLWithPath: path),
-            showHidden: showHiddenFiles,
-            expanded: expandedPaths
-        )
-        workspaceTreeCacheKey = key
-        workspaceTreeCacheHTML = html
-        return html
+        return Group {
+            if let cached = workspaceTreeCacheView { cached }
+        }
     }
 
     /// Fresh (non-cached) listing, used by the live workspace scanner so it
     /// detects real filesystem changes rather than serving the render cache.
+    /// Stays `-> String`: the scanner diffs bytes against the last pushed
+    /// listing, so it wants the wire text, not a view.
     func freshWorkspaceTreeHTML() -> String {
-        Self.renderWorkspaceTree(
+        render(Self.renderWorkspaceTree(
             root: URL(fileURLWithPath: panelWorkspacePath()),
             showHidden: showHiddenFiles,
             expanded: expandedPaths
-        )
+        ))
     }
 
     /// Clear the render-path tree cache (called on open + on mutations).
     func clearWorkspaceTreeCache() {
         workspaceTreeCacheKey = nil
-        workspaceTreeCacheHTML = nil
+        workspaceTreeCacheView = nil
     }
 
     private func wsTreeCacheKey(path: String) -> String {
@@ -5419,8 +5471,13 @@ extension AppState {
     /// `.isDirectory` once per entry and sorts by the cached bool — the old
     /// code re-stat'ed every entry on every sort comparison (O(n·log n) stats),
     /// the dominant cost of an otherwise small listing.
-    static func renderWorkspaceTree(root: URL, showHidden: Bool, expanded: Set<String>) -> String {
-        var lines: [String] = []
+    ///
+    /// the walk recurses over the ENTRY LIST, not over a view type: a folder
+    /// appends its own row and then its children to the same array, so the
+    /// result is one flat `[any View]` and the recursion needs neither
+    /// `AnyView` nor a recursive view struct to express.
+    static func renderWorkspaceTree(root: URL, showHidden: Bool, expanded: Set<String>) -> some WebUI.View {
+        var rows: [any WebUI.View] = []
         var count = 0
         func rel(_ prefix: String, _ name: String) -> String { prefix.isEmpty ? name : prefix + "/" + name }
         func walk(_ dir: URL, prefix: String, depth: Int) {
@@ -5445,17 +5502,37 @@ extension AppState {
                 let encPath = enc(rp)
                 if isDir {
                     let isExp = expanded.contains(rp)
-                    let caret = isExp ? WebUIIcon(.chevronDown, size: .small).markup.html : WebUIIcon(.chevronRight, size: .small).markup.html
-                    lines.append("<button type=\"button\" id=\"w-toggle-\(encPath)\" class=\"ws-row\" style=\"padding-left:\(pad)px\" title=\"\(esc(rp))\"><span class=\"ws-caret\">\(caret)</span><span class=\"ws-ic\">\(WebUIIcon(.folder, size: .small).markup.html)</span><span class=\"ws-name\">\(esc(name))</span></button>")
+                    rows.append(
+                        ArcButton(id: "w-toggle-\(encPath)", component: nil, class: "ws-row") {
+                            Span(class: "ws-caret") {
+                                if isExp {
+                                    WebUIIcon(.chevronDown, size: .small)
+                                } else {
+                                    WebUIIcon(.chevronRight, size: .small)
+                                }
+                            }
+                            Span(class: "ws-ic") { WebUIIcon(.folder, size: .small) }
+                            Span(class: "ws-name") { Text(name) }
+                        }
+                        .attribute("style", "padding-left:\(pad)px")
+                        .attribute("title", rp)
+                    )
                     if isExp { walk(entry, prefix: rp, depth: depth + 1) }
                 } else {
-                    lines.append("<button type=\"button\" id=\"w-file-\(encPath)\" class=\"ws-row\" style=\"padding-left:\(pad + 4)px\" title=\"\(esc(rp))\"><span class=\"ws-ic\">\(WebUIIcon(.file, size: .small).markup.html)</span><span class=\"ws-name\">\(esc(name))</span></button>")
+                    rows.append(
+                        ArcButton(id: "w-file-\(encPath)", component: nil, class: "ws-row") {
+                            Span(class: "ws-ic") { WebUIIcon(.file, size: .small) }
+                            Span(class: "ws-name") { Text(name) }
+                        }
+                        .attribute("style", "padding-left:\(pad + 4)px")
+                        .attribute("title", rp)
+                    )
                 }
             }
         }
         walk(root, prefix: "", depth: 0)
-        if lines.isEmpty { lines.append("<div class=\"empty-hint\">This workspace is empty.</div>") }
-        return lines.joined()
+        if rows.isEmpty { rows.append(Div(class: "empty-hint") { Text("This workspace is empty.") }) }
+        return Group { rows }
     }
 
     func wsFileIcon(_ name: String) -> String {
