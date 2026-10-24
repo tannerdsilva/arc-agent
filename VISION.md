@@ -22,7 +22,7 @@ A precompiled, Swift-native AI agent harness — architecturally inspired by the
 
 7. **Protocols first, macros last.** Every abstraction starts as a protocol. Concrete types conform to protocols; protocols never depend on concrete types. Only after the protocol proves unwieldy in practice do we introduce a macro to compress the syntax. This ordering is not optional — macros that paper over a bad protocol design hide the problem, not fix it.
 
-8. **Native web UI is a 1.0 requirement.** The project ships with a web-based user interface before version 1.0. How that UI is built is an open question — the author dislikes web technology and will not write JavaScript, CSS, or HTML by hand. The web UI must be generated, compiled from Swift, or delegated to a separate toolchain. This is a non-negotiable requirement; the approach is undecided and deferred.
+8. **Native web UI is a 1.0 requirement.** The project ships with a web-based user interface before version 1.0. The author dislikes web technology and will not write JavaScript, CSS, or HTML by hand — so the UI is *generated*: every page is a typed `View` tree built in Swift on the no-webui framework, its stylesheet is a build product of `Sources/ArcTheme/`, and its client runtime is the framework's embedded engine. No `.swift` file in `Sources/ArcWebUI/` carries an HTML tag inside a string literal, and a test enforces that. This is a non-negotiable requirement, and it is resolved.
 
 ## The Law of the Land
 
