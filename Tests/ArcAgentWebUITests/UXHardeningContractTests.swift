@@ -871,11 +871,31 @@ extension ArcWebUITestRoot {
         // MARK: - A15/F27/F58/F60 the guarded deletes
 
         @Test("kanban cards arm a two-step delete like the column header")
-        func kanbanCardGuard() {
+        func kanbanCardGuard() async {
             #expect(Self.actions.contains("await app.confirmCard == id"),
                     "a card ✕ used to delete on one click with no guard and no undo")
-            #expect(Self.views.contains("let delCls = armed ? \"sess-confirm\" : \"icon-mini danger\""),
+            // asserted on the rendered card, not the source text that used to
+            // build it: the affordance the user reaches is the contract.
+            let card = KBCard(id: "card-1", columnID: "col-1", title: "Write the parser")
+            func render(confirming: String?) async -> String {
+                var fixture = AppState.RenderFixture()
+                fixture.kanbanColumns = [KBColumn(id: "col-1", name: "Backlog", color: "#5BB98C")]
+                fixture.kanbanCards = [card]
+                fixture.confirmCard = confirming
+                return await AppState(renderFixture: fixture).kanbanCardHTML(card).markup.html
+            }
+            let armed = await render(confirming: "card-1")
+            #expect(armed.contains("id=\"kb-del-\(enc("card-1"))\""),
+                    "the card's delete control must stay reachable")
+            #expect(armed.contains(">Confirm?</button>"),
+                    "the first click must arm the delete, not perform it")
+            #expect(!armed.contains("icon-mini danger"),
                     "the armed label must not carry `icon-mini`: a fixed 24x24 box clipped \"Confirm?\"")
+            let idle = await render(confirming: nil)
+            #expect(idle.contains("class=\"icon-mini danger\""),
+                    "an unarmed card keeps its ✕")
+            #expect(!idle.contains("Confirm?"),
+                    "an unarmed card must not ask to confirm")
             #expect(Self.sheetSource.contains("white-space: nowrap;"),
                     ".sess-confirm must never wrap or inherit an icon's width")
         }

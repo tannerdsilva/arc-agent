@@ -304,7 +304,7 @@ struct RenderParityPanels {
 				KBCard(id: "card-1", columnID: "col-1", title: "Write the parser"),
 				KBCard(id: "card-2", columnID: "col-1", title: "Ship the build"),
 			]
-		}.kanbanPanel()
+		}.kanbanPanel().markup.html
 		Parity.capture(html, as: "kanban-panel")
 		Parity.expect(html, matches: "kanban-panel")
 	}
@@ -313,7 +313,7 @@ struct RenderParityPanels {
 	func kanbanPanelAddColGolden() async {
 		let html = await app {
 			$0.addingColumn = true
-		}.kanbanPanel()
+		}.kanbanPanel().markup.html
 		Parity.capture(html, as: "kanban-panel-addcol")
 		Parity.expect(html, matches: "kanban-panel-addcol")
 	}
@@ -332,7 +332,7 @@ struct RenderParityPanels {
 				KBCard(id: "card-3", columnID: "col-2", title: "Review the diff"),
 				KBCard(id: "card-4", columnID: "col-3", title: "Close the sprint"),
 			]
-		}.kanbanMain()
+		}.kanbanMain().markup.html
 		Parity.capture(html, as: "kanban-main")
 		Parity.expect(html, matches: "kanban-main")
 	}
@@ -344,7 +344,7 @@ struct RenderParityPanels {
 			$0.kanbanColumns = [col]
 			$0.kanbanCards = [KBCard(id: "card-1", columnID: "col-1", title: "Write the parser")]
 			$0.confirmCard = "card-1"
-		}.kanbanColumnHTML(col)
+		}.kanbanColumnHTML(col).markup.html
 		Parity.capture(html, as: "kanban-card-armed")
 		Parity.expect(html, matches: "kanban-card-armed")
 	}
@@ -355,7 +355,7 @@ struct RenderParityPanels {
 		let html = await app {
 			$0.kanbanColumns = [col]
 			$0.kanbanCards = [KBCard(id: "card-1", columnID: "col-1", title: "Write the parser")]
-		}.kanbanColumnHTML(col)
+		}.kanbanColumnHTML(col).markup.html
 		Parity.capture(html, as: "kanban-card-unarmed")
 		Parity.expect(html, matches: "kanban-card-unarmed")
 	}
@@ -366,7 +366,7 @@ struct RenderParityPanels {
 	func memoryPanelGolden() async {
 		let html = await app {
 			$0.memoryDoc = "memory"
-		}.memoryPanel()
+		}.memoryPanel().markup.html
 		Parity.capture(html, as: "memory-panel")
 		Parity.expect(html, matches: "memory-panel")
 	}
@@ -376,7 +376,7 @@ struct RenderParityPanels {
 		let html = await app {
 			$0.memoryDoc = "memory"
 			$0.memoryContent = "# My Notes\n\nThis is a note."
-		}.memoryMain()
+		}.memoryMain().markup.html
 		Parity.capture(html, as: "memory-main")
 		Parity.expect(html, matches: "memory-main")
 	}
@@ -386,7 +386,7 @@ struct RenderParityPanels {
 		let html = await app {
 			$0.memoryDoc = "memory"
 			$0.memoryContent = ""
-		}.memoryMain()
+		}.memoryMain().markup.html
 		Parity.capture(html, as: "memory-main-empty")
 		Parity.expect(html, matches: "memory-main-empty")
 	}

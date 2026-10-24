@@ -369,9 +369,9 @@ extension AppState {
             case .workspaces:
                 workspacesPanel()
             case .kanban:
-                legacy(kanbanPanel())        // TODO(phase 7)
+                kanbanPanel()
             case .memory:
-                legacy(memoryPanel())        // TODO(phase 7)
+                memoryPanel()
             case .insights:
                 legacy(insightsPanel())      // TODO(phase 7) — Insights.swift
             case .settings:
@@ -1140,9 +1140,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         case .workspaces:
             return render(workspacesMain())
         case .kanban:
-            return kanbanMain()
+            return render(kanbanMain())
         case .memory:
-            return memoryMain()
+            return render(memoryMain())
         case .insights:
             return insightsMain()
         case .settings:
@@ -4777,231 +4777,347 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
 extension AppState {
     // MARK: Kanban
 
-    func kanbanPanel() -> String {
-        let newBtn = btn("kb-addcol", "kb-addcol", "plus-btn", addingColumn ? WebUIIcon(.x, size: .small).markup.html : WebUIIcon(.plus, size: .small).markup.html, " title=\"" + (addingColumn ? "Cancel" : "Add column") + "\"")
-        let head = """
-        <div class="panel-head">
-          <span class="panel-title">Kanban</span>
-          <div class="panel-actions">\(newBtn)</div>
-        </div>
-        """
-        var rows: [String] = []
-        for col in settings.kanbanColumns {
-            let cid = enc(col.id)
-            let count = settings.kanbanCards.filter { $0.columnID == col.id }.count
-            let confirm = confirmColumn == col.id ? " Confirm?" : WebUIIcon(.x, size: .small).markup.html
-            let delCls = confirmColumn == col.id ? "sess-confirm" : "icon-mini danger"
-            rows.append("""
-            <div class="list-row">
-              <div class="kb-pcol" style="flex:1">
-                <span class="cat-dot" style="background:\(col.color)"></span>
-                <span class="lr-name">\(esc(col.name))</span>
-                <span class="lr-sub">\(count) card\(count == 1 ? "" : "s")</span>
-              </div>
-              <div class="row-actions">\(btn("kb-pdel-\(cid)", "", delCls, confirm, " title=\"Delete column\""))</div>
-            </div>
-            """)
+    func kanbanPanel() -> some WebUI.View {
+        Group {
+            Div(class: "panel-head") {
+                Span(class: "panel-title") { Text("Kanban") }
+                Div(class: "panel-actions") {
+                    ArcButton(id: "kb-addcol", component: "kb-addcol", class: "plus-btn") {
+                        if addingColumn {
+                            WebUIIcon(.x, size: .small)
+                        } else {
+                            WebUIIcon(.plus, size: .small)
+                        }
+                    }
+                    .attribute("title", addingColumn ? "Cancel" : "Add column")
+                }
+            }
+            Div(class: "panel-body") {
+                if addingColumn {
+                    Form(action: "", method: nil, id: "kb-addcol-form", class: "cat-add-form") {
+                        Input(field: "kb-addcol-name",
+                              placeholder: "Column name", type: .text,
+                              attributes: [
+                                ("data-component-id", "kb-addcol-name"),
+                                ("autofocus", ""),
+                              ])
+                        Input(name: "kb-addcol-color", type: .hidden,
+                              attributes: [
+                                ("id", "kb-addcol-color"),
+                                ("class", "color-value"),
+                                ("value", AppState.palette[0]),
+                              ])
+                        Div(class: "cat-swatches") {
+                            for (j, c) in AppState.palette.enumerated() {
+                                ArcButton(id: nil, component: nil, class: "cat-swatch\(j == 0 ? " sel" : "")") {}
+                                    .data("color", c)
+                                    .attribute("style", "background:\(c)")
+                            }
+                        }
+                        Div(class: "cat-add-actions") {
+                            ArcButton("Add", class: "primary-btn", type: .submit)
+                            ArcButton("Cancel", id: "kb-addcol-cancel", component: nil, class: "ghost-btn")
+                        }
+                    }
+                    .data("component-id", "kb-addcol-form")
+                }
+                for col in settings.kanbanColumns {
+                    let cid = enc(col.id)
+                    let count = settings.kanbanCards.filter { $0.columnID == col.id }.count
+                    Div(class: "list-row") {
+                        Div(class: "kb-pcol") {
+                            Span(class: "cat-dot") {}
+                                .attribute("style", "background:\(col.color)")
+                            Span(class: "lr-name") { Text(col.name) }
+                            Span(class: "lr-sub") { Text("\(count) card\(count == 1 ? "" : "s")") }
+                        }
+                        .attribute("style", "flex:1")
+                        Div(class: "row-actions") {
+                            // a column delete arms first (matching the board's
+                            // column header), so one stray click never drops a
+                            // column and its cards.
+                            ArcButton(id: "kb-pdel-\(cid)", component: nil,
+                                      class: confirmColumn == col.id ? "sess-confirm" : "icon-mini danger") {
+                                if confirmColumn == col.id {
+                                    Text(" Confirm?")
+                                } else {
+                                    WebUIIcon(.x, size: .small)
+                                }
+                            }
+                            .attribute("title", "Delete column")
+                        }
+                    }
+                }
+                if settings.kanbanColumns.isEmpty {
+                    Div(class: "empty-hint") { Text("No columns — press + to add one.") }
+                }
+            }
+            .data("component-id", "kanban")
+            .data("event", "click")
         }
-        if rows.isEmpty {
-            rows.append("<div class=\"empty-hint\">No columns — press + to add one.</div>")
-        }
-        let addForm: String
-        if addingColumn {
-            let swatches = AppState.palette.enumerated().map { j, c in
-                let sel = j == 0 ? " sel" : ""
-                return "<button type=\"button\" class=\"cat-swatch\(sel)\" data-color=\"\(c)\" style=\"background:\(c)\"></button>"
-            }.joined()
-            addForm = """
-            <form id="kb-addcol-form" data-component-id="kb-addcol-form" class="cat-add-form">
-              <input id="kb-addcol-name" name="kb-addcol-name" data-component-id="kb-addcol-name" type="text" placeholder="Column name" autofocus>
-              <input type="hidden" name="kb-addcol-color" id="kb-addcol-color" class="color-value" value="\(AppState.palette[0])">
-              <div class="cat-swatches">\(swatches)</div>
-              <div class="cat-add-actions">
-                <button type="submit" class="primary-btn">Add</button>
-                \(btn("kb-addcol-cancel", "", "ghost-btn", "Cancel"))
-              </div>
-            </form>
-            """
-        } else {
-            addForm = ""
-        }
-        return """
-        \(head)
-        <div class="panel-body" data-component-id="kanban" data-event="click">
-          \(addForm)
-          \(rows.joined())
-        </div>
-        """
     }
 
     /// Board: one scrollable row of columns with their cards (arc-style).
-    func kanbanMain() -> String {
-        guard !settings.kanbanColumns.isEmpty else {
-            return """
-            <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(WebUIIcon(.columns, size: .extraLarge).markup.html)</div><div>No columns yet — add one in the panel.</div></div>
-            </div>
-            """
+    func kanbanMain() -> some WebUI.View {
+        Group {
+            if settings.kanbanColumns.isEmpty {
+                Div(class: "main-view") {
+                    Div(class: "blank") {
+                        Div(class: "big") { WebUIIcon(.columns, size: .extraLarge) }
+                        Div { Text("No columns yet — add one in the panel.") }
+                    }
+                }
+                .attribute("style", "justify-content:center")
+            } else {
+                Div(class: "kanban-main main-view") {
+                    Div(class: "kanban-board") {
+                        for col in settings.kanbanColumns {
+                            kanbanColumnHTML(col)
+                        }
+                    }
+                    .data("component-id", "kanban")
+                    .data("event", "click")
+                }
+                .attribute("style", "padding:0")
+            }
         }
-        let cols = settings.kanbanColumns.map { kanbanColumnHTML($0) }.joined()
-        return """
-        <div class="kanban-main main-view" style="padding:0">
-          <div class="kanban-board" data-component-id="kanban" data-event="click">\(cols)</div>
-        </div>
-        """
     }
 
-    func kanbanColumnHTML(_ col: KBColumn) -> String {
+    func kanbanColumnHTML(_ col: KBColumn) -> some WebUI.View {
         let cid = enc(col.id)
         let cards = settings.kanbanCards.filter { $0.columnID == col.id }
-        var cardHTML = cards.map { kanbanCardHTML($0) }.joined()
-        if cardHTML.isEmpty { cardHTML = "<div class=\"kb-empty\">No cards</div>" }
-        let add: String
-        if addingCardColumnID == col.id {
-            let addErr = kanbanAddError
-            add = """
-            <form id="kb-addcard-form" data-component-id="kb-addcard-form" class="kb-addcard-form">
-              <input id="kb-addcard-name" name="kb-addcard-name" data-component-id="kb-addcard-name" type="text" placeholder="Card title" class="text-input\(addErr != nil ? " input-invalid" : "")" aria-invalid="\(addErr != nil ? "true" : "false")"\(addErr != nil ? " aria-describedby=\"kb-addcard-err\"" : "") data-focus-after-patch>
-              \(addErr.map { "<span id=\"kb-addcard-err\" class=\"inline-err\">\(esc($0))</span>" } ?? "")
-              <input type="hidden" name="kb-addcard-col" value="\(col.id)">
-              <div class="cat-add-actions" style="justify-content:flex-end">
-                <button type="submit" class="primary-btn">Add</button>
-                \(btn("kb-addcard-cancel", "", "ghost-btn", "Cancel"))
-              </div>
-            </form>
-            """
-        } else {
-            add = btn("kb-addcard-\(cid)", "", "kb-addcard", "+ Add card")
+        let armed = confirmColumn == col.id
+        let addErr = kanbanAddError
+        // the error node exists even while empty: the client fills
+        // `#kb-addcard-err` after a rejected submit.
+        let describedBy: [(String, String)] = addErr == nil ? [] : [("aria-describedby", "kb-addcard-err")]
+        return Div(class: "kb-col") {
+            Div(class: "kb-col-head") {
+                Span(class: "kb-col-name") { Text(col.name) }
+                Span(class: "kb-col-count") { Text("\(cards.count)") }
+                Div(class: "kb-col-actions") {
+                    ArcButton(id: "kb-rencol-\(cid)", component: nil, class: "icon-mini") {
+                        WebUIIcon(.edit, size: .small)
+                    }
+                    .attribute("title", "Rename column")
+                    .data("colid", col.id)
+                    ArcButton(id: "kb-bdel-\(cid)", component: nil,
+                              class: armed ? "sess-confirm" : "icon-mini danger") {
+                        if armed {
+                            Text("Confirm?")
+                        } else {
+                            WebUIIcon(.x, size: .small)
+                        }
+                    }
+                    .attribute("title", "Delete column")
+                }
+            }
+            .attribute("style", "--colc:\(col.color)")
+            Div(class: "kb-cards") {
+                if cards.isEmpty {
+                    Div(class: "kb-empty") { Text("No cards") }
+                } else {
+                    for card in cards {
+                        kanbanCardHTML(card)
+                    }
+                }
+            }
+            if addingCardColumnID == col.id {
+                Form(action: "", method: nil, id: "kb-addcard-form", class: "kb-addcard-form") {
+                    Input(field: "kb-addcard-name",
+                          placeholder: "Card title", type: .text,
+                          attributes: [
+                            ("data-component-id", "kb-addcard-name"),
+                            ("class", addErr == nil ? "text-input" : "text-input input-invalid"),
+                            ("aria-invalid", addErr == nil ? "false" : "true"),
+                            ("data-focus-after-patch", ""),
+                          ] + describedBy)
+                    Span { Text(addErr ?? "") }
+                        .attribute("id", "kb-addcard-err")
+                        .attribute("class", "inline-err")
+                    Input(name: "kb-addcard-col", type: .hidden,
+                          attributes: [("value", col.id)])
+                    Div(class: "cat-add-actions") {
+                        ArcButton("Add", class: "primary-btn", type: .submit)
+                        ArcButton("Cancel", id: "kb-addcard-cancel", component: nil, class: "ghost-btn")
+                    }
+                    .attribute("style", "justify-content:flex-end")
+                }
+                .data("component-id", "kb-addcard-form")
+            } else {
+                ArcButton(id: "kb-addcard-\(cid)", component: nil, class: "kb-addcard") {
+                    Text("+ Add card")
+                }
+            }
         }
-        return """
-        <div class="kb-col">
-          <div class="kb-col-head" style="--colc:\(col.color)">
-            <span class="kb-col-name">\(esc(col.name))</span>
-            <span class="kb-col-count">\(cards.count)</span>
-            <div class="kb-col-actions">
-              \(btn("kb-rencol-\(cid)", "", "icon-mini", WebUIIcon(.edit, size: .small).markup.html, " title=\"Rename column\" data-colid=\"\(col.id)\""))
-              \(btn("kb-bdel-\(cid)", "", confirmColumn == col.id ? "sess-confirm" : "icon-mini danger", confirmColumn == col.id ? "Confirm?" : WebUIIcon(.x, size: .small).markup.html, " title=\"Delete column\""))
-            </div>
-          </div>
-          <div class="kb-cards">\(cardHTML)</div>
-          \(add)
-        </div>
-        """
     }
 
-    func kanbanCardHTML(_ card: KBCard) -> String {
+    func kanbanCardHTML(_ card: KBCard) -> some WebUI.View {
         let encc = enc(card.id)
         let idx = settings.kanbanColumns.firstIndex { $0.id == card.columnID } ?? 0
-        let left = idx > 0 ? btn("kb-movel-\(encc)", "", "icon-mini", WebUIIcon(.chevronLeft, size: .small).markup.html, " title=\"Move left\"") : ""
-        let right = idx < settings.kanbanColumns.count - 1 ? btn("kb-mover-\(encc)", "", "icon-mini", WebUIIcon(.chevronRight, size: .small).markup.html, " title=\"Move right\"") : ""
         // Two-step delete, matching the column header: the first click arms the
         // card and the button becomes "Confirm?" (a single click used to bin it).
         let armed = confirmCard == card.id
-        let delCls = armed ? "sess-confirm" : "icon-mini danger"
-        let delLabel = armed ? "Confirm?" : WebUIIcon(.x, size: .small).markup.html
-        return """
-        <div class="kb-card">
-          <div class="kb-card-title" data-cardid="\(card.id)">\(esc(trunc(card.title, 70)))</div>
-          <div class="kb-card-actions">
-            \(btn("kb-edit-\(encc)", "", "icon-mini", WebUIIcon(.edit, size: .small).markup.html, " title=\"Edit title\" data-cardid=\"\(card.id)\""))
-            \(left)\(right)
-            \(btn("kb-del-\(encc)", "", delCls, delLabel, " title=\"Delete card\""))
-          </div>
-        </div>
-        """
+        return Div(class: "kb-card") {
+            Div(class: "kb-card-title") { Text(trunc(card.title, 70)) }
+                .data("cardid", card.id)
+            Div(class: "kb-card-actions") {
+                ArcButton(id: "kb-edit-\(encc)", component: nil, class: "icon-mini") {
+                    WebUIIcon(.edit, size: .small)
+                }
+                .attribute("title", "Edit title")
+                .data("cardid", card.id)
+                if idx > 0 {
+                    ArcButton(id: "kb-movel-\(encc)", component: nil, class: "icon-mini") {
+                        WebUIIcon(.chevronLeft, size: .small)
+                    }
+                    .attribute("title", "Move left")
+                }
+                if idx < settings.kanbanColumns.count - 1 {
+                    ArcButton(id: "kb-mover-\(encc)", component: nil, class: "icon-mini") {
+                        WebUIIcon(.chevronRight, size: .small)
+                    }
+                    .attribute("title", "Move right")
+                }
+                ArcButton(id: "kb-del-\(encc)", component: nil,
+                          class: armed ? "sess-confirm" : "icon-mini danger") {
+                    if armed {
+                        Text("Confirm?")
+                    } else {
+                        WebUIIcon(.x, size: .small)
+                    }
+                }
+                .attribute("title", "Delete card")
+            }
+        }
     }
 
     // MARK: Memory
 
-    func memoryPanel() -> String {
-        let head = """
-        <div class="panel-head">
-          <span class="panel-title">Personal Memory</span>
-        </div>
-        """
-        let items: [(key: String, title: String, sub: String, glyph: String)] = [
-            ("memory", "My Notes", "MEMORY.md", WebUIIcon(.fileText, size: .large).markup.html),
-            ("user", "User Profile", "USER.md", WebUIIcon(.user, size: .large).markup.html),
-            ("soul", "Agent Soul", "SOUL.md", WebUIIcon(.star, size: .large).markup.html),
-            ("context", "Project Context", "AGENTS.md", WebUIIcon(.folder, size: .large).markup.html),
+    func memoryPanel() -> some WebUI.View {
+        let items: [(key: String, title: String, sub: String, icon: IconName)] = [
+            ("memory", "My Notes", "MEMORY.md", .fileText),
+            ("user", "User Profile", "USER.md", .user),
+            ("soul", "Agent Soul", "SOUL.md", .star),
+            ("context", "Project Context", "AGENTS.md", .folder),
         ]
-        let boxes = items.map { it in
-            let active = memoryDoc == it.key ? " active" : ""
-            return """
-            <button type="button" id="mem-open-\(it.key)" class="mem-box\(active)">
-              <span class="mem-glyph">\(it.glyph)</span>
-              <span class="mem-txt"><span class="mem-title">\(it.title)</span><span class="mem-sub">\(it.sub)</span></span>
-              <span class="mem-arrow">›</span>
-            </button>
-            """
-        }.joined()
-        return head + "<div class=\"panel-body\" data-component-id=\"memory\" data-event=\"click\">\(boxes)</div>"
+        return Group {
+            Div(class: "panel-head") {
+                Span(class: "panel-title") { Text("Personal Memory") }
+            }
+            Div(class: "panel-body") {
+                for it in items {
+                    ArcButton(id: "mem-open-\(it.key)", component: nil,
+                              class: "mem-box\(memoryDoc == it.key ? " active" : "")") {
+                        Span(class: "mem-glyph") { WebUIIcon(it.icon, size: .large) }
+                        Span(class: "mem-txt") {
+                            Span(class: "mem-title") { Text(it.title) }
+                            Span(class: "mem-sub") { Text(it.sub) }
+                        }
+                        Span(class: "mem-arrow") { Text("›") }
+                    }
+                }
+            }
+            .data("component-id", "memory")
+            .data("event", "click")
+        }
     }
 
-    func memoryMain() -> String {
-        guard let doc = memoryDoc else {
-            return """
-            <div class="main-view" style="justify-content:center">
-              <div class="blank"><div class="big">\(WebUIIcon(.database, size: .extraLarge).markup.html)</div><div>Select a document from the panel.</div></div>
-            </div>
-            """
-        }
-        if doc == "context" {
-            let rootPath = workspaceContextURL()?.path ?? panelWorkspacePath()
-            let title = "Project Context"
-            let sub = rootPath
-            var body: String
-            if let url = workspaceContextURL(), let s = try? String(contentsOf: url, encoding: .utf8) {
-                body = mdBox(s)
+    func memoryMain() -> some WebUI.View {
+        Group {
+            if let doc = memoryDoc {
+                let meta = memoryMeta(doc)
+                if doc == "context" {
+                    let rootPath = workspaceContextURL()?.path ?? panelWorkspacePath()
+                    mainScroll {
+                        Div(class: "detail-card") {
+                            Div(class: "mem-head") {
+                                Div {
+                                    Heading("Project Context", level: .h1, class: "detail-title")
+                                        .attribute("style", "margin:0")
+                                    Div(class: "detail-sub") { Text(rootPath) }
+                                }
+                            }
+                            Div(class: "detail-body") {
+                                if let url = workspaceContextURL(),
+                                   let s = try? String(contentsOf: url, encoding: .utf8) {
+                                    TrustedMarkup(mdBox(s), from: .markdown)
+                                } else {
+                                    Div(class: "empty-hint") {
+                                        Div {
+                                            Text("No AGENTS.md file was found in this workspace (")
+                                            InlineCode(panelWorkspacePath())
+                                            Text(").")
+                                        }
+                                        Div { Text("Project context is read automatically when an AGENTS.md is present.") }
+                                    }
+                                    .attribute("style", "font-size:1em;padding:18px 6px")
+                                }
+                            }
+                            .attribute("style", "margin-top:14px")
+                        }
+                    }
+                } else if memoryEdit {
+                    mainScroll {
+                        Form(action: "", method: nil, id: "mem-save-form", class: "detail-card") {
+                            Heading("Edit \(meta.file)", level: .h1, class: "detail-title")
+                                .attribute("style", "margin:0")
+                            Div(class: "detail-sub") { Text(meta.note) }
+                            Input(name: "mem-key", type: .hidden, attributes: [("value", doc)])
+                            // the raw markdown, escaped by `TextArea` — the editor
+                            // edits what the file holds, not its rendered form.
+                            TextArea(field: "mem-content", value: memoryContent, rows: 3)
+                                .attribute("class", "mem-textarea")
+                                .data("component-id", "mem-content")
+                                .attribute("spellcheck", "false")
+                            Div(class: "row-actions-main") {
+                                ArcButton("Save changes", class: "primary-btn", type: .submit)
+                                ArcButton("Cancel", id: "mem-cancel", component: nil, class: "ghost-btn")
+                            }
+                        }
+                        .data("component-id", "mem-save-form")
+                    }
+                } else {
+                    let contentHTML = mdBox(memoryContent)
+                    let empty = memoryContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    mainScroll {
+                        Div(class: "detail-card") {
+                            Div(class: "mem-head") {
+                                Div {
+                                    Heading(meta.title, level: .h1, class: "detail-title")
+                                        .attribute("style", "margin:0")
+                                    Div(class: "detail-sub") { Text("\(meta.file) — \(meta.note)") }
+                                }
+                                ArcButton(id: "mem-edit", component: "mem-edit", class: "icon-mini") {
+                                    WebUIIcon(.edit, size: .small)
+                                }
+                                .attribute("title", "Edit \(meta.file)")
+                            }
+                            Div(class: "detail-body") {
+                                if empty {
+                                    Div(class: "empty-hint") {
+                                        Text("\(meta.file) is empty. Press ")
+                                        WebUIIcon(.edit, size: .small)
+                                        Text(" to start writing.")
+                                    }
+                                } else {
+                                    TrustedMarkup(contentHTML, from: .markdown)
+                                }
+                            }
+                            .attribute("style", "margin-top:14px")
+                        }
+                    }
+                }
             } else {
-                body = """
-                <div class="empty-hint" style="font-size:1em;padding:18px 6px">
-                  No AGENTS.md file was found in this workspace (<code>\(esc(panelWorkspacePath()))</code>).<br><br>
-                  Project context is read automatically when an AGENTS.md is present.
-                </div>
-                """
+                Div(class: "main-view") {
+                    Div(class: "blank") {
+                        Div(class: "big") { WebUIIcon(.database, size: .extraLarge) }
+                        Div { Text("Select a document from the panel.") }
+                    }
+                }
+                .attribute("style", "justify-content:center")
             }
-            return """
-            <div class="main-view"><div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
-              <div class="detail-card">
-                <div class="mem-head"><div><h1 class="detail-title" style="margin:0">\(title)</h1><div class="detail-sub">\(esc(sub))</div></div></div>
-                <div class="detail-body" style="margin-top:14px">\(body)</div>
-              </div>
-            </div></div>
-            """
         }
-        let meta = memoryMeta(doc)
-        let title = meta.title, sub = meta.file
-        if memoryEdit {
-            return """
-            <div class="main-view"><div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
-              <form id="mem-save-form" data-component-id="mem-save-form" class="detail-card">
-                <h1 class="detail-title" style="margin:0">Edit \(esc(sub))</h1>
-                <div class="detail-sub">\(esc(meta.note))</div>
-                <input type="hidden" name="mem-key" value="\(doc)">
-                <textarea id="mem-content" name="mem-content" data-component-id="mem-content" class="mem-textarea" spellcheck="false">\(esc(memoryContent))</textarea>
-                <div class="row-actions-main">
-                  <button type="submit" class="primary-btn">Save changes</button>
-                  \(btn("mem-cancel", "", "ghost-btn", "Cancel"))
-                </div>
-              </form>
-            </div></div>
-            """
-        }
-        let contentHTML = memoryContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "<div class=\"empty-hint\">\(esc(sub)) is empty. Press " + WebUIIcon(.edit, size: .small).markup.html + " to start writing.</div>"
-            : mdBox(memoryContent)
-        return """
-        <div class="main-view"><div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
-          <div class="detail-card">
-            <div class="mem-head">
-              <div><h1 class="detail-title" style="margin:0">\(title)</h1><div class="detail-sub">\(esc(sub)) — \(esc(meta.note))</div></div>
-              \(btn("mem-edit", "mem-edit", "icon-mini", WebUIIcon(.edit, size: .small).markup.html, " title=\"Edit \(esc(sub))\""))
-            </div>
-            <div class="detail-body" style="margin-top:14px">\(contentHTML)</div>
-          </div>
-        </div></div>
-        """
     }
 
     func memoryMeta(_ key: String) -> (title: String, file: String, note: String) {
