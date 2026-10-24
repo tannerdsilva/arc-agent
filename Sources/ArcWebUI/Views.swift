@@ -373,7 +373,7 @@ extension AppState {
             case .memory:
                 memoryPanel()
             case .insights:
-                legacy(insightsPanel())      // TODO(phase 7) — Insights.swift
+                insightsPanel()
             case .settings:
                 settingsPanel()
             case .logs:
@@ -1144,7 +1144,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         case .memory:
             return render(memoryMain())
         case .insights:
-            return insightsMain()
+            return render(insightsMain())
         case .settings:
             return render(settingsMain())
         case .logs:

@@ -36,7 +36,6 @@ extension ArcWebUITestRoot {
 
         private static var sheetSource: String { source("Sources/ArcTheme/ChromeSheet.swift") }
         private static var views: String { clientText(source("Sources/ArcWebUI/Views.swift")) }
-        private static var insights: String { clientText(source("Sources/ArcWebUI/Insights.swift")) }
         private static var actions: String { clientText(source("Sources/ArcWebUI/Actions.swift")) }
         /// the rendered shell, for pins whose markup no longer lives in source.
         /// rendered through `RenderedMarkup.page()` so the pin checks bytes,\n        /// not the string that used to emit them.
@@ -162,17 +161,40 @@ extension ArcWebUITestRoot {
 
         // MARK: - A11/F34 the chart that lied
 
+        /// a rendered daily graph for a window that ends today, so the bars —
+        /// not the dates — are what the assertion reads.
+        private static func insightsGraph(days: Int, zeroAt: Set<Int>, range: Int) async -> String {
+            let cal = Calendar.current
+            let today = cal.startOfDay(for: Date())
+            var tokens: [String: Int] = [:]
+            for offset in 0..<days {
+                guard let day = cal.date(byAdding: .day, value: -offset, to: today) else { continue }
+                tokens[AppState.dayString(day)] = zeroAt.contains(offset) ? 0 : (offset + 1) * 500
+            }
+            var fixture = AppState.RenderFixture()
+            fixture.insights.dailyTokens = tokens
+            fixture.insightsRangeDays = range
+            return await AppState(renderFixture: fixture).dailyTokensGraph().markup.html
+        }
+
+        private static func count(_ needle: String, in text: String) -> Int {
+            text.components(separatedBy: needle).count - 1
+        }
+
         @Test("a zero day draws a gap, never a small red bar")
-        func insightsZeroDayIsAGap() {
-            let insights = Self.insights
-            #expect(insights.contains("let pct = v == 0 ? 0 : max(5"),
+        func insightsZeroDayIsAGap() async {
+            let graph = await Self.insightsGraph(days: 7, zeroAt: [3], range: 7)
+            #expect(Self.count("ins-bar-empty", in: graph) == 1,
+                    "the zero day needs exactly one empty-day bar")
+            #expect(graph.contains("ins-bar ins-bar-empty"),
+                    "an empty day carries its own class, not the accent bar's")
+            #expect(!graph.contains("height:3%"),
                     "a 3%-height stub made an empty month look like a month of activity")
-            #expect(insights.contains("ins-bar ins-bar-empty"), "empty days need their own class")
+            #expect(Self.count("ins-ylabel", in: graph) == 4,
+                    "the chart needs a scale label; values only in a title tooltip are unreadable")
             let css = Self.sheetSource
             #expect(css.contains(".ins-bar-empty { background: var(--border-strong); height: 2px !important; }"),
                     "the empty-day tick must not inherit the accent fill or an inline height")
-            #expect(insights.contains("peak \\(Self.fmtCount(maxVal))"),
-                    "the chart needs a scale label; values only in a title tooltip are unreadable")
         }
 
         // MARK: - A13/F36 the log legend
@@ -549,15 +571,19 @@ extension ArcWebUITestRoot {
         }
 
         @Test("the insights chart's y-axis is a vertical column aligned to the bars")
-        func insightsYAxisIsVertical() {
-            let insights = Self.insights
-            let sheet = Self.sheetSource
-            #expect(insights.contains("ins-chart-row"),
+        func insightsYAxisIsVertical() async {
+            let graph = await Self.insightsGraph(days: 7, zeroAt: [3], range: 7)
+            #expect(graph.contains("ins-chart-row"),
                     "the chart must sit beside its axis, not under a strip")
-            #expect(insights.contains("ins-ytick-row"),
+            #expect(Self.count("ins-ytick-row", in: graph) == 5,
                     "ticks are absolutely positioned rows in a vertical column")
-            #expect(!insights.contains("<div class=\"ins-yaxis\"><span class=\"ins-ytick\">"),
+            #expect(graph.contains("ins-yaxis"),
+                    "the axis is its own column beside the bars")
+            #expect(graph.contains("aria-hidden=\"true\""),
+                    "the axis is decoration — its numbers are repeated by the peak label")
+            #expect(!graph.contains("ins-yaxis\"><span class=\"ins-ytick\">"),
                     "the horizontal strip layout must not return")
+            let sheet = Self.sheetSource
             #expect(sheet.contains(".ins-yaxis { position: relative; flex: 0 0 52px; height: 220px;"),
                     "the axis column must match the chart height")
         }
@@ -1791,9 +1817,15 @@ extension ArcWebUITestRoot {
         }
 
         @Test("the peak callout is the only 100% label on the tokens chart")
-        func insightsTopTickUnlabelled() {
-            #expect(Self.insights.contains("frac >= 1.0 ? \"\""),
+        func insightsTopTickUnlabelled() async {
+            let graph = await Self.insightsGraph(days: 7, zeroAt: [], range: 7)
+            // four labelled ticks (0/25/50/75%) out of five rows: the top row is
+            // the 100% rule alone, because the peak callout already prints it.
+            #expect(Self.count("ins-ytick-row", in: graph) == 5,
+                    "the axis keeps its five rows")
+            #expect(Self.count("ins-ylabel", in: graph) == 4,
                     "the top y-axis tick must not duplicate the peak label (round-3 UX-43)")
+            #expect(graph.contains("peak "), "the peak callout carries the number once")
         }
 
         @Test("form fragments can ask the post-patch seam for the caret")

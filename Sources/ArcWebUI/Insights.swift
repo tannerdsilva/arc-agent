@@ -140,47 +140,50 @@ extension AppState {
 
     // MARK: Insights view (panel)
 
-    func insightsPanel() -> String {
+    /// the insights sidebar: the range selector that drives the daily graph.
+    func insightsPanel() -> some WebUI.View {
         let days = [7, 30, 90, 365]
-        let opts = days.map { d -> String in
-            let sel = d == insightsRangeDays ? " selected" : ""
-            return "<option value=\"\(d)\"\(sel)>Last \(d) days</option>"
-        }.joined()
-        return """
-        <div class="panel-head">
-          <span class="panel-title">Insights</span>
-        </div>
-        <div class="detail-sub" style="padding:4px 2px 10px">Usage analytics</div>
-        <div class="ins-range-wrap">
-          <label class="ins-range-label" for="ins-range">Daily token range</label>
-          <select id="ins-range" data-component-id="ins-range" data-event="change" data-no-restore>\(opts)</select>
-        </div>
-        """
+        return Group {
+            Div(class: "panel-head") {
+                Span(class: "panel-title") { Text("Insights") }
+            }
+            Div(class: "detail-sub") { Text("Usage analytics") }
+                .attribute("style", "padding:4px 2px 10px")
+            Div(class: "ins-range-wrap") {
+                Label("Daily token range", for: "ins-range", class: "ins-range-label")
+                Select(
+                    id: "ins-range",
+                    options: days.map { SelectOption(value: "\($0)", label: "Last \($0) days") },
+                    selected: "\(insightsRangeDays)"
+                )
+                .wire("ins-range", on: .change)
+                .data("no-restore", "")
+            }
+        }
     }
 
     // MARK: Insights view (main)
 
-    private func statBubble(label: String, value: String, icon: String) -> String {
-        """
-        <div class="ins-bubble">
-          <div class="ins-bubble-icon">\(icon)</div>
-          <div class="ins-bubble-value">\(esc(value))</div>
-          <div class="ins-bubble-label">\(esc(label))</div>
-        </div>
-        """
+    /// one headline number with its icon. `icon` is the catalogue case, not a
+    /// pre-rendered glyph: the helper emits the svg itself, so no call site
+    /// hands it markup.
+    private func statBubble(label: String, value: String, icon: IconName) -> some WebUI.View {
+        Div(class: "ins-bubble") {
+            Div(class: "ins-bubble-icon") { WebUIIcon(icon, size: .large) }
+            Div(class: "ins-bubble-value") { Text(value) }
+            Div(class: "ins-bubble-label") { Text(label) }
+        }
     }
 
-    private func statBox(label: String, value: String, icon: String) -> String {
-        """
-        <div class="ins-stat-box">
-          <div class="ins-stat-icon">\(icon)</div>
-          <div class="ins-stat-value">\(esc(value))</div>
-          <div class="ins-stat-label">\(esc(label))</div>
-        </div>
-        """
+    private func statBox(label: String, value: String, icon: IconName) -> some WebUI.View {
+        Div(class: "ins-stat-box") {
+            Div(class: "ins-stat-icon") { WebUIIcon(icon, size: .large) }
+            Div(class: "ins-stat-value") { Text(value) }
+            Div(class: "ins-stat-label") { Text(label) }
+        }
     }
 
-    func insightsMain() -> String {
+    func insightsMain() -> some WebUI.View {
         let totalUses = insights.skillStats.values.reduce(0) { $0 + $1.uses }
         // "Skills Used" counts skills that were actually invoked (uses > 0),
         // not merely touched (views/patches). "touched" is a broader metric
@@ -188,13 +191,6 @@ extension AppState {
         let used = insights.skillStats.values.filter { $0.uses > 0 }.count
         let skillNames = Array(Set(skills.map(\.name)).union(insights.skillStats.keys)).sorted()
 
-        // Section 1 — skill usage
-        let bubbles = """
-        <div class="ins-bubbles">
-          \(statBubble(label: "Total Invocations", value: Self.fmtCount(totalUses), icon: WebUIIcon(.star, size: .large).markup.html))
-          \(statBubble(label: "Skills Used", value: "\(used)/\(skillNames.count)", icon: WebUIIcon(.book, size: .large).markup.html))
-        </div>
-        """
         // Top 10 skills by times used (keeps the panel uncluttered).
         let ranked = skillNames.sorted { a, b in
             let sa = insights.skillStats[a] ?? SkillStat()
@@ -205,61 +201,70 @@ extension AppState {
             return a < b
         }
         let topSkills = Array(ranked.prefix(10))
-        let tableRows = topSkills.map { name -> String in
+        var rows: [any View] = topSkills.map { name -> any View in
             let s = insights.skillStats[name] ?? SkillStat()
             let pct = totalUses > 0
                 ? String(format: "%.1f%%", Double(s.uses) / Double(totalUses) * 100)
                 : "0.0%"
-            return """
-            <tr>
-              <td class="ins-t-name">\(esc(name))</td>
-              <td>\(s.uses)</td><td>\(s.views)</td><td>\(s.patches)</td>
-              <td>\(pct)</td>
-            </tr>
-            """
-        }.joined() + (ranked.count > 10 ? "<tr class=\"ins-more-row\"><td colspan=\"5\">… and \(ranked.count - 10) more skills</td></tr>" : "")
-        let table = """
-        <div class="ins-table-wrap">
-          <table class="ins-table">
-            <thead><tr><th>Skill</th><th>Uses</th><th>Views</th><th>Patches</th><th>Usage %</th></tr></thead>
-            <tbody>\(tableRows)</tbody>
-          </table>
-        </div>
-        """
+            return El("tr", [], [
+                El("td", [("class", "ins-t-name")], [Text(name)]),
+                El("td", [], [Text("\(s.uses)")]),
+                El("td", [], [Text("\(s.views)")]),
+                El("td", [], [Text("\(s.patches)")]),
+                El("td", [], [Text(pct)]),
+            ])
+        }
+        if ranked.count > 10 {
+            rows.append(El("tr", [("class", "ins-more-row")], [
+                El("td", [("colspan", "5")], [Text("… and \(ranked.count - 10) more skills")]),
+            ]))
+        }
+        let heads: [any View] = ["Skill", "Uses", "Views", "Patches", "Usage %"]
+            .map { El("th", [], [Text($0)]) }
+        let table = El("div", [("class", "ins-table-wrap")], [
+            El("table", [("class", "ins-table")], [
+                El("thead", [], [El("tr", [], heads)]),
+                El("tbody", [], rows),
+            ]),
+        ])
 
         // Section 2 — agent activity (all-time totals)
         let totalMessages = sessions.reduce(0) { $0 + ($1.messages.isEmpty ? $1.messageCount : $1.messages.count) }
         let rangeTokens = insights.dailyTokens
             .filter { $0.key >= Self.dayString(graphStart()) && $0.key <= Self.dayString(Date()) }
             .values.reduce(0, +)
-        let stats = """
-        <div class="ins-stats">
-          \(statBox(label: "Chat Sessions", value: Self.fmtCount(sessions.count), icon: WebUIIcon(.messageSquare, size: .large).markup.html))
-          \(statBox(label: "Total Messages", value: Self.fmtCount(totalMessages), icon: WebUIIcon(.fileText, size: .large).markup.html))
-          \(statBox(label: "Tokens Burned", value: Self.fmtCount(rangeTokens), icon: WebUIIcon(.chartBar, size: .large).markup.html))
-        </div>
-        """
 
-        // Section 3 — daily tokens graph
-        let graph = dailyTokensGraph()
-
-        return """
-        <div class="main-scroll insights-main" style="padding:18px 22px">
-          <div class="detail-card" style="margin-bottom:16px">
-            <h3 style="margin:0 0 12px">Skill Usage <span class="ins-range-hint">(top \(min(10, ranked.count)) by uses)</span></h3>
-            \(bubbles)
-            \(table)
-          </div>
-          <div class="detail-card" style="margin-bottom:16px">
-            <h3 style="margin:0 0 12px">Agent Activity</h3>
-            \(stats)
-          </div>
-          <div class="detail-card">
-            <h3 style="margin:0 0 12px">Daily Tokens <span class="ins-range-hint">(last \(insightsRangeDays) days)</span></h3>
-            \(graph)
-          </div>
-        </div>
-        """
+        return Div(class: "main-scroll insights-main") {
+            Div(class: "detail-card") {
+                El("h3", [("style", "margin:0 0 12px")], [
+                    Text("Skill Usage "),
+                    Span(class: "ins-range-hint") { Text("(top \(min(10, ranked.count)) by uses)") },
+                ])
+                Div(class: "ins-bubbles") {
+                    statBubble(label: "Total Invocations", value: Self.fmtCount(totalUses), icon: .star)
+                    statBubble(label: "Skills Used", value: "\(used)/\(skillNames.count)", icon: .book)
+                }
+                table
+            }
+            .attribute("style", "margin-bottom:16px")
+            Div(class: "detail-card") {
+                El("h3", [("style", "margin:0 0 12px")], [Text("Agent Activity")])
+                Div(class: "ins-stats") {
+                    statBox(label: "Chat Sessions", value: Self.fmtCount(sessions.count), icon: .messageSquare)
+                    statBox(label: "Total Messages", value: Self.fmtCount(totalMessages), icon: .fileText)
+                    statBox(label: "Tokens Burned", value: Self.fmtCount(rangeTokens), icon: .chartBar)
+                }
+            }
+            .attribute("style", "margin-bottom:16px")
+            Div(class: "detail-card") {
+                El("h3", [("style", "margin:0 0 12px")], [
+                    Text("Daily Tokens "),
+                    Span(class: "ins-range-hint") { Text("(last \(insightsRangeDays) days)") },
+                ])
+                dailyTokensGraph()
+            }
+        }
+        .attribute("style", "padding:18px 22px")
     }
 
     /// Start-of-range date for the daily graph (inclusive).
@@ -269,7 +274,7 @@ extension AppState {
         return cal.date(byAdding: .day, value: -(insightsRangeDays - 1), to: today) ?? today
     }
 
-    func dailyTokensGraph() -> String {
+    func dailyTokensGraph() -> some WebUI.View {
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
         var days: [Date] = []
@@ -281,43 +286,84 @@ extension AppState {
         let vals = days.map { insights.dailyTokens[Self.dayString($0)] ?? 0 }
         let maxVal = max(vals.max() ?? 0, 1)
 
-        let bars = zip(days, vals).map { (day, v) -> String in
+        let bars: [any View] = zip(days, vals).map { day, v -> any View in
             // A zero day is a GAP, not a small bar: the old `3` stub made an
             // empty month look like a month of activity. Empty days now draw a
             // 2px baseline tick in a neutral tone (see `.ins-bar-empty`).
             let pct = v == 0 ? 0 : max(5, Int(Double(v) / Double(maxVal) * 100.0))
             let tip = "\(Self.dayLabel(day)) — \(Self.fmtCount(v)) tokens"
             let cls = v == 0 ? "ins-bar ins-bar-empty" : "ins-bar"
-            return "<div class=\"\(cls)\" style=\"height:\(pct)%\" title=\"\(esc(tip))\"></div>"
-        }.joined()
+            return Div(class: cls) {}
+                .attribute("style", "height:\(pct)%")
+                .attribute("title", tip)
+        }
 
         // x-axis: label every day for short ranges, sparse for long ones.
         let step = insightsRangeDays > 90 ? 15 : (insightsRangeDays >= 30 ? 5 : 1)
-        let labels = days.enumerated().map { (idx, day) -> String in
-            let text = idx % step == 0 ? Self.dayLabel(day) : ""
-            return "<div class=\"ins-xlabel\" data-sparse=\"\(idx % step == 0 ? "0" : "1")\">\(text)</div>"
-        }.joined()
+        let labels: [any View] = days.enumerated().map { idx, day -> any View in
+            let dense = idx % step == 0
+            return Div(class: "ins-xlabel") { Text(dense ? Self.dayLabel(day) : "") }
+                .data("sparse", dense ? "0" : "1")
+        }
 
         // y-axis: ticks at 0/25/50/75/100% of the peak. The rows are absolutely
         // positioned in a 220px column that matches .ins-chart, so each label
         // sits at the height of the bar it quantifies. The 100% label is
         // skipped — the "peak" callout above already prints that number, and
         // two copies of it overlapped (round-3 UX-43).
-        let yTicks = [0.0, 0.25, 0.5, 0.75, 1.0].map { frac -> String in
+        let yTicks: [any View] = [0.0, 0.25, 0.5, 0.75, 1.0].map { frac -> any View in
             let v = Int(Double(maxVal) * frac)
-            let label = frac >= 1.0 ? "" : "<span class=\"ins-ylabel\">\(Self.fmtCount(v))</span>"
-            return "<div class=\"ins-ytick-row\" style=\"bottom:\(frac * 100)%\">\(label)<span class=\"ins-ytick\"></span></div>"
-        }.joined()
+            let label = frac >= 1.0 ? "" : Self.fmtCount(v)
+            return Div(class: "ins-ytick-row") {
+                if !label.isEmpty {
+                    Span(class: "ins-ylabel") { Text(label) }
+                }
+                Span(class: "ins-ytick") {}
+            }
+            .attribute("style", "bottom:\(frac * 100)%")
+        }
 
-        return """
-        <div class="ins-chart-wrap">
-          <div class="ins-scale">peak \(Self.fmtCount(maxVal))</div>
-          <div class="ins-chart-row">
-            <div class="ins-yaxis" aria-hidden="true">\(yTicks)</div>
-            <div class="ins-chart">\(bars)</div>
-          </div>
-          <div class="ins-xaxis">\(labels)</div>
-        </div>
-        """
+        return Div(class: "ins-chart-wrap") {
+            Div(class: "ins-scale") { Text("peak \(Self.fmtCount(maxVal))") }
+            Div(class: "ins-chart-row") {
+                Div(class: "ins-yaxis") { yTicks }
+                    .aria(.hidden(.yes))
+                Div(class: "ins-chart") { bars }
+            }
+            Div(class: "ins-xaxis") { labels }
+        }
+    }
+}
+
+/// a bare element: tag, attribute pairs, children.
+///
+/// `no-webui`'s primitives spell `<div>`, `<span>`, `<table>` and the form
+/// controls, but the insights table needs a `<td class="ins-t-name">` (the class
+/// sets the weight in the sheet), a colspan cell for the "and N more" tail, and
+/// an `<h3>` whose hint is its own span. this is the smallest view that spells
+/// those three: the tag is a literal from this file, every attribute value is
+/// escaped, and children render through their own `View` conformance.
+private struct El: WebUI.View {
+    let tag: String
+    let attributes: [(String, String)]
+    let children: [any View]
+
+    init(_ tag: String, _ attributes: [(String, String)] = [], _ children: [any View] = []) {
+        self.tag = tag
+        self.attributes = attributes
+        self.children = children
+    }
+
+    func render(into buffer: inout HTMLBuffer) {
+        var attrs = ""
+        for (key, value) in attributes {
+            attrs += " \(key)=\"\(esc(value))\""
+        }
+        buffer.beginElement(tag, attrs)
+        buffer.endOpenTag()
+        for child in children {
+            child.render(into: &buffer)
+        }
+        buffer.endElement()
     }
 }

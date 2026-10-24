@@ -518,7 +518,7 @@ struct RenderParityPanels {
 	func insightsPanelGolden() async {
 		let html = await app {
 			$0.insightsRangeDays = 30
-		}.insightsPanel()
+		}.insightsPanel().markup.html
 		Parity.capture(html, as: "insights-panel")
 		Parity.expect(html, matches: "insights-panel")
 	}
@@ -540,7 +540,7 @@ struct RenderParityPanels {
 			$0.insights.skillStats = ["deploy": deploy, "rollback": rollback]
 			$0.insights.dailyTokens = Self.dailyTokens(over: 3, zeroAt: [0])
 			$0.insightsRangeDays = 3
-		}.insightsMain()
+		}.insightsMain().markup.html
 		let scrubbed = scrubDays(html, rangeDays: 3)
 		Parity.capture(scrubbed, as: "insights-main")
 		Parity.expect(scrubbed, matches: "insights-main")
@@ -551,7 +551,7 @@ struct RenderParityPanels {
 		let html = await app {
 			$0.insights.dailyTokens = Self.dailyTokens(over: 7, zeroAt: [3])
 			$0.insightsRangeDays = 7
-		}.dailyTokensGraph()
+		}.dailyTokensGraph().markup.html
 		let scrubbed = scrubDays(html, rangeDays: 7)
 		Parity.capture(scrubbed, as: "insights-graph")
 		Parity.expect(scrubbed, matches: "insights-graph")
