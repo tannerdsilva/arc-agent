@@ -1137,6 +1137,11 @@ actor AppState {
         // phase 7.5: insights analytics state for the daily graph and skill stats
         var insights: InsightsData = InsightsData()
         var insightsRangeDays: Int = 30
+        // phase 7.6a: queue state
+        var todosTab: TodosTab = .tasks
+        var queuePickerOpen = false
+        var queueLinksOpen: String? = nil
+        var queueLinkSel: Set<String> = []
     }
 
     init(renderFixture fixture: RenderFixture) {
@@ -1192,6 +1197,10 @@ actor AppState {
         self.previewNote = fixture.previewNote
         self.insights = fixture.insights
         self.insightsRangeDays = fixture.insightsRangeDays
+        self.todosTab = fixture.todosTab
+        self.queuePickerOpen = fixture.queuePickerOpen
+        self.queueLinksOpen = fixture.queueLinksOpen
+        self.queueLinkSel = fixture.queueLinkSel
         self.settings.insightsRangeDays = fixture.insightsRangeDays
         self.settings.kanbanColumns = fixture.kanbanColumns
         self.settings.kanbanCards = fixture.kanbanCards

@@ -665,4 +665,65 @@ struct RenderParityPanels {
 		Parity.capture(html, as: "ws-tree-hidden")
 		Parity.expect(html, matches: "ws-tree-hidden")
 	}
+
+// MARK: - phase 7.6a: queue
+
+	@Test("queue tabs, tasks selected, matches golden")
+	func todosTabsHTMLGolden() async {
+		let html = await app { $0.todosTab = .tasks }.todosTabsHTML()
+		Parity.capture(html, as: "todos-tabs")
+		Parity.expect(html, matches: "todos-tabs")
+	}
+
+	@Test("queue row, pending entry, matches golden")
+	func queueRowHTMLGolden() async {
+		let e = QueueEntry(id: "entry-1", chatID: "chat-1", todoID: "todo-1")
+		let html = await app {
+			$0.settings.queuePlan = [e]
+			$0.settings.todos = ["chat-1": [TodoItem(id: "todo-1", text: "Write the parser", done: false)]]
+		}.queueRowHTML(e, index: 0, plan: [e])
+		Parity.capture(html, as: "queue-row")
+		Parity.expect(html, matches: "queue-row")
+	}
+
+	@Test("queue link popup, one earlier task checked, matches golden")
+	func queueLinkPopupHTMLGolden() async {
+		let first = QueueEntry(id: "entry-1", chatID: "chat-1", todoID: "todo-1")
+		let second = QueueEntry(id: "entry-2", chatID: "chat-1", todoID: "todo-2")
+		let plan = [first, second]
+		let html = await app {
+			$0.settings.queuePlan = plan
+			$0.settings.todos = ["chat-1": [
+				TodoItem(id: "todo-1", text: "Write the parser", done: false),
+				TodoItem(id: "todo-2", text: "Run the full test suite", done: false),
+			]]
+			$0.queueLinksOpen = "entry-2"
+			$0.queueLinkSel = ["entry-1"]
+		}.queueLinkPopupHTML(second, plan: plan)
+		Parity.capture(html, as: "queue-link-popup")
+		Parity.expect(html, matches: "queue-link-popup")
+	}
+
+	@Test("queue picker, one chat with an open todo, matches golden")
+	func queuePickerHTMLGolden() async {
+		let html = await app {
+			$0.sessions = [
+				Session(id: "chat-1",
+				        createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+				        updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+				        title: "Chat One", messages: []),
+			]
+			$0.settings.todos = ["chat-1": [TodoItem(id: "todo-1", text: "Write the parser", done: false)]]
+			$0.queuePickerOpen = true
+		}.queuePickerHTML()
+		Parity.capture(html, as: "queue-picker")
+		Parity.expect(html, matches: "queue-picker")
+	}
+
+	@Test("queue panel, empty plan, matches golden")
+	func queuePanelHTMLGolden() async {
+		let html = await app().queuePanelHTML()
+		Parity.capture(html, as: "queue-panel")
+		Parity.expect(html, matches: "queue-panel")
+	}
 }
