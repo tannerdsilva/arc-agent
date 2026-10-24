@@ -1086,8 +1086,11 @@ extension AppState {
         // found: #chat-inner" for every committed turn that ends off-chat.
         guard activeTabID == "chat" else { return [] }
         let session = activeSession()
-        let scroll = render(messagesHTML(session?.messages ?? []))
-        return [FragmentUpdate(id: "chat-inner", html: "<div class=\"chat-inner\" id=\"chat-inner\">\(scroll)</div>")]
+        let inner = Div(class: "chat-inner") {
+            messagesHTML(session?.messages ?? [])
+        }
+        .attribute("id", "chat-inner")
+        return [fragment("chat-inner", inner)]
     }
 
     /// The chrome that changes at turn boundaries: the session row spinner, the chat

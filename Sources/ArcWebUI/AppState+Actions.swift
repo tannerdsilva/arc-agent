@@ -1790,16 +1790,16 @@ extension AppState {
     /// Fragment for the live-updated tree, mirroring the original render so
     /// the whole ws-tree element (with its data-root) is replaced wholesale.
     func liveWorkspaceFragments() async -> [FragmentUpdate] {
-        let path = esc(panelWorkspacePath())
-        return [
-            FragmentUpdate(
-                id: "ws-tree",
-                html: "<div class=\"ws-body\" id=\"ws-tree\" data-component-id=\"workspace\" data-event=\"click\" data-root=\"\(path)\">\n" +
-                      "  <div class=\"ws-path\" title=\"\(path)\">\(path)</div>\n" +
-                      "  \(cachedWSTreeHTML)\n" +
-                      "</div>"
-            ),
-        ]
+        let path = panelWorkspacePath()
+        let body = Div {
+            Div(class: "ws-path") { Text(path) }
+                .attribute("title", path)
+            // the listing is the bytes the scan just rendered: walking the
+            // directory again here would be a second synchronous scan of the
+            // same tree, which is the cost the cache exists to avoid.
+            TrustedMarkup(cachedWSTreeHTML, from: .other("workspace-tree"))
+        }
+        return [fragment("ws-tree", wsTreeShell(body))]
     }
 
     /// Apply a model configuration as an auxiliary task's override: copies

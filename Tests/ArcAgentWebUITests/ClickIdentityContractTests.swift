@@ -200,11 +200,11 @@ extension ArcWebUITestRoot {
             // `findComponent` matches on attribute *presence*, so `data-component-id=""` is a
             // boundary that routes nowhere: it shadows the container and the engine drops the
             // click (`if (!componentId) return`). measured live: the kanban form's Cancel
-            // button did nothing. the helper omits the attribute for an empty component.
-            let silent = btn("x", "", "ghost-btn", "Cancel")
+            // button did nothing. `ArcButton` omits the attribute for an empty component.
+            let silent = ArcButton("Cancel", id: "x", component: "", class: "ghost-btn").markup.html
             #expect(!silent.contains("data-component-id"), "an empty component must omit the attribute: \(silent)")
             #expect(silent.contains("id=\"x\""), "the id must survive: \(silent)")
-            let routed = btn("x", "row-actions", "ghost-btn", "Cancel")
+            let routed = ArcButton("Cancel", id: "x", component: "row-actions", class: "ghost-btn").markup.html
             #expect(routed.contains("data-component-id=\"row-actions\""), "the boundary must ride a non-empty component: \(routed)")
 
             // scan rendered bytes for empty boundaries — a scan that finds none is broken:

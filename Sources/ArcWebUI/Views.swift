@@ -7,9 +7,15 @@ import WebUI
 
 // MARK: - Views (actor methods on AppState)
 
-/// All HTML builders live on `AppState` so they can read actor state directly.
-/// Fragment builders render the target ELEMENT (outerHTML semantics), so each
-/// one re-emits its root `<div id="…">`.
+/// Every builder lives on `AppState` so it can read actor state directly, and
+/// every one of them **renders a typed `View`** — no builder returns html text.
+/// A fragment builder renders the target ELEMENT (outerHTML semantics), so its
+/// root carries the fragment id the push pipeline patches by.
+///
+/// the two trusted-markup seams are deliberate and enumerated by
+/// `NoMarkupStringsTests`: the third-party panel ABI (`SidebarTab.panelHTML()`)
+/// and sanitized markdown content. arc's own chrome is typed, and that test
+/// fails if a `<div>` literal comes back.
 extension AppState {
 
     // MARK: - Code fencing
@@ -62,11 +68,10 @@ extension AppState {
     /// The complete application shell (topbar + iconbar + panel + main). Toasts
     /// are rendered separately so each region is a single-rooted fragment.
     ///
-    /// Returns the typed page body. arc's chrome is hand-built html, so this is
-    /// the one place arc mints trust for it (`.trusted(_:)`) — and from here the
-    /// compiler carries that type to `HTMLDocument(body:)`, so no unlabelled
-    /// string can become a page. a fragment patch that needs the bytes reads
-    /// `.html`.
+    /// Returns the typed page body. Every region of the chrome is a typed `View`
+    /// tree, so nothing here mints trust: from here the compiler carries that
+    /// type to `HTMLDocument(body:)`, and no unlabelled string can become a
+    /// page. a fragment patch that needs the bytes reads `.html`.
     func appShell() async -> some WebUI.View {
         let panel = await panelHTML()
         // the builder closure is synchronous, so anything async is resolved
@@ -343,9 +348,8 @@ extension AppState {
             if let plugin {
                 // plugin seam: the third-party ABI is a plain html fragment
                 // (`SidebarTab.panelHTML()`), sanitized by the kit. this Raw
-                // is permanent and is the one documented Raw in this file;
-                // it is not a `legacy(...)` bridge and not counted in the
-                // bridge budget.
+                // is permanent — the seam crosses a module boundary whose
+                // conformers are third-party, so no arc-side type can carry it.
                 TrustedMarkup(plugin, from: .plugin("sidebar-tab"))
             } else {
                 chatPanel()
@@ -659,8 +663,6 @@ extension AppState {
     }
 
     /// One collapsible bucket: caret + title + count + the session rows.
-    /// `sessionRow` still returns `String` (2.3b) — bridged through the
-    /// sanctioned `legacy(...)` with a `// TODO(phase 2.3b)`.
     func groupHTML(key: String, title: String, sessions: [Session], todos: Bool = false) -> some WebUI.View {
         Div(class: "sess-group") {
             ArcButton(
@@ -3118,15 +3120,6 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
     }
 
-    func profileKV(_ p: Profile) -> String {
-        var rows = ""
-        rows += "<div class=\"akv\"><span class=\"akv-k\">Name</span><span class=\"akv-v\">\(esc(p.name))</span></div>"
-        rows += "<div class=\"akv\"><span class=\"akv-k\">Model</span><span class=\"akv-v\">\(esc(p.model ?? "inherit"))</span></div>"
-        rows += "<div class=\"akv\"><span class=\"akv-k\">Provider</span><span class=\"akv-v\">\(esc(p.provider ?? "inherit"))</span></div>"
-        if let b = p.baseURL { rows += "<div class=\"akv\"><span class=\"akv-k\">Base URL</span><span class=\"akv-v\">\(esc(b))</span></div>" }
-        return rows
-    }
-
     /// Per-profile context parameters summary (kv rows; "inherit" when unset)
     /// plus the pinned context skills, if any.
     func profileContextHTML(_ p: Profile) -> some WebUI.View {
@@ -5356,12 +5349,18 @@ extension AppState {
                 }
                 .data("component-id", "ws-new-form")
             }
-            Div(id: "ws-tree", class: "ws-body") {
-                workspaceBodyHTML()
-            }
+            wsTreeShell(workspaceBodyHTML())
+        }
+    }
+
+    /// the `#ws-tree` element: the routing anchor every live patch keys on, with
+    /// whatever body it currently shows. the static render passes the panel body
+    /// (a preview, or the cached tree); the live scan passes the listing it just
+    /// measured. one wrapper, so the anchor and the wire cannot drift apart.
+    func wsTreeShell(_ body: some WebUI.View) -> some WebUI.View {
+        Div(id: "ws-tree", class: "ws-body") { body }
             .data("root", panelWorkspacePath())
             .wire(ComponentID("workspace"))
-        }
     }
 
     /// The workspace panel body: a file preview pane when a file is open,

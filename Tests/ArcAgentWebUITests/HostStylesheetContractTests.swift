@@ -40,8 +40,13 @@ extension ArcWebUITestRoot {
                 frameworkRange.lowerBound < arcRange.lowerBound,
                 "arc's sheet must be linked after the framework's"
             )
-            // the overlay script still rides the head slot
-            #expect(html.contains("<script src=\"/ui/init.js?v=def456\"></script>"))
+            // the overlay script still rides the head slot — and it is a `HeadContent`
+            // script, so the document mints its nonce instead of arc spelling markup.
+            #expect(
+                html.contains("<script src=\"/ui/init.js?v=def456\" nonce=\""),
+                "the overlay script must be a typed head script carrying the render nonce"
+            )
+            #expect(html.contains("></script>"), "the overlay script must close")
         }
 
         @Test("a class no sheet defines fails the guardrail on this page")
