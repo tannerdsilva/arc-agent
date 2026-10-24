@@ -1,0 +1,28 @@
+<div class="detail-card">
+  <h3 style="margin:0 0 10px">New scheduled task</h3>
+  <form id="task-add-form" data-component-id="tasks" class="task-add">
+    <label class="task-field">Title
+      <input type="text" id="task-title" name="task-title" placeholder="e.g. Morning digest" autocomplete="off">
+    </label>
+    <div class="task-add-row">
+      <label class="task-field">Start <span class="task-opt">optional — empty starts now</span>
+        <input type="datetime-local" id="task-start" name="task-start">
+      </label>
+      <label class="task-field">Every
+        <span class="task-every">
+          <input type="number" id="task-every" name="task-every" min="1" step="1" value="15">
+          <select id="task-unit" name="task-unit">
+            <option value="m">minutes</option>
+            <option value="h">hours</option>
+            <option value="d">days</option>
+          </select>
+        </span>
+      </label>
+    </div>
+    <label class="task-field">Prompt
+      <textarea id="task-prompt" name="task-prompt" rows="4" placeholder="What should the agent run?"></textarea>
+    </label>
+    <button type="submit" class="primary-btn">Schedule task</button>
+    <p class="task-preview">Runs on the interval you pick, starting immediately unless a Start time is set. Each run gets its own chat, kept out of the main list.</p>
+  </form>
+</div>

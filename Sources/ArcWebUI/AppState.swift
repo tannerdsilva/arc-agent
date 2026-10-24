@@ -1142,6 +1142,9 @@ actor AppState {
         var queuePickerOpen = false
         var queueLinksOpen: String? = nil
         var queueLinkSel: Set<String> = []
+        // phase 7.6b: the scheduled-tasks page reads its selection from here, so
+        // a fixture that cannot set it can only ever capture the empty main.
+        var tasksSelectedID: String? = nil
     }
 
     init(renderFixture fixture: RenderFixture) {
@@ -1201,6 +1204,7 @@ actor AppState {
         self.queuePickerOpen = fixture.queuePickerOpen
         self.queueLinksOpen = fixture.queueLinksOpen
         self.queueLinkSel = fixture.queueLinkSel
+        self.tasksSelectedID = fixture.tasksSelectedID
         self.settings.insightsRangeDays = fixture.insightsRangeDays
         self.settings.kanbanColumns = fixture.kanbanColumns
         self.settings.kanbanCards = fixture.kanbanCards

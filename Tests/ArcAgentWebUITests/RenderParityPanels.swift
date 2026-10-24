@@ -726,4 +726,99 @@ struct RenderParityPanels {
 		Parity.capture(html, as: "queue-panel")
 		Parity.expect(html, matches: "queue-panel")
 	}
+
+// MARK: - phase 7.6b: tasks / todos
+
+	/// a scheduled job with no run timestamps on purpose: `fmtRel` formats in the
+	/// machine's time zone, so a golden carrying a date is a golden that fails in
+	/// another zone — and the date text is `fmtRel`, not this card's shape.
+	private func job(_ id: String, _ name: String, _ schedule: String,
+	                 active: Bool = true, runs: Int = 0) -> CronJob {
+		var j = CronJob(id: id, name: name, schedule: schedule,
+		                prompt: "Summarise the inbox and send the digest.",
+		                isActive: active)
+		j.runCount = runs
+		j.lastOutput = runs > 0 ? "Sent 3 summaries." : nil
+		return j
+	}
+
+	private func session(_ id: String, _ title: String) -> Session {
+		Session(id: id,
+		        createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+		        updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+		        title: title, messages: [])
+	}
+
+	private func todosApp() -> AppState {
+		app {
+			$0.activeSessionID = "chat-1"
+			$0.sessions = [self.session("chat-1", "Chat One")]
+			$0.settings.todos = ["chat-1": [
+				TodoItem(id: "todo-1", text: "Write the parser", done: false),
+				TodoItem(id: "todo-2", text: "Run the full test suite", done: true),
+			]]
+			$0.todosTab = .tasks
+		}
+	}
+
+	private func tasksApp(selected: String? = "job-1") -> AppState {
+		app {
+			$0.settings.scheduledJobs = [
+				self.job("job-1", "Morning digest", "every 15m", runs: 3),
+				self.job("job-2", "Nightly sweep", "0 3 * * *", active: false),
+			]
+			$0.tasksSelectedID = selected
+			$0.sessions = [self.session("Cron-job-1", "Morning digest")]
+		}
+	}
+
+	@Test("todos panel, tasks tab, one open and one done todo, matches golden")
+	func todosPanelGolden() async {
+		let html = await todosApp().todosPanelHTML()
+		Parity.capture(html, as: "todos-panel")
+		Parity.expect(html, matches: "todos-panel")
+	}
+
+	@Test("todos tasks tab body, one open and one done todo, matches golden")
+	func todosTasksHTMLGolden() async {
+		let html = await todosApp().todosTasksHTML()
+		Parity.capture(html, as: "todos-tasks")
+		Parity.expect(html, matches: "todos-tasks")
+	}
+
+	@Test("tasks panel, one active and one stopped job, matches golden")
+	func tasksPanelGolden() async {
+		let html = await tasksApp().tasksPanel()
+		Parity.capture(html, as: "tasks-panel")
+		Parity.expect(html, matches: "tasks-panel")
+	}
+
+	@Test("tasks main, one job selected, matches golden")
+	func tasksMainGolden() async {
+		let html = await tasksApp().tasksMain()
+		Parity.capture(html, as: "tasks-main")
+		Parity.expect(html, matches: "tasks-main")
+	}
+
+	@Test("tasks main, nothing selected, matches golden")
+	func tasksMainEmptyGolden() async {
+		let html = await tasksApp(selected: nil).tasksMain()
+		Parity.capture(html, as: "tasks-empty")
+		Parity.expect(html, matches: "tasks-empty")
+	}
+
+	@Test("task row, selected job, matches golden")
+	func taskRowHTMLGolden() async {
+		let job = self.job("job-1", "Morning digest", "every 15m", runs: 3)
+		let html = await tasksApp(selected: "job-1").taskRowHTML(job)
+		Parity.capture(html, as: "task-row")
+		Parity.expect(html, matches: "task-row")
+	}
+
+	@Test("task form, matches golden")
+	func taskFormHTMLGolden() async {
+		let html = await tasksApp().taskFormHTML()
+		Parity.capture(html, as: "task-form")
+		Parity.expect(html, matches: "task-form")
+	}
 }

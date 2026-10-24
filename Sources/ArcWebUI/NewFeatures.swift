@@ -427,7 +427,9 @@ extension AppState {
         return head + "<div class=\"panel-body\">\(body)</div>"
     }
 
-    private func taskRowHTML(_ j: CronJob) -> String {
+    /// one scheduled task as a chat-list row. internal (not private) so the
+    /// parity harness can pin it in isolation.
+    func taskRowHTML(_ j: CronJob) -> String {
         let active = j.id == tasksSelectedID ? " active" : ""
         let dot = j.isActive ? " on" : ""
         let next = j.nextRunAt.map { fmtRel($0) } ?? "—"
@@ -492,7 +494,7 @@ extension AppState {
         """
     }
 
-    private func taskMainEmpty() -> String {
+    func taskMainEmpty() -> String {
         return """
         <div class="main-view"><div class="main-scroll" data-scroll-key="tasks-main">
           <h2 class="todo-title">Scheduled tasks</h2>
@@ -502,7 +504,7 @@ extension AppState {
         """
     }
 
-    private func taskFormHTML() -> String {
+    func taskFormHTML() -> String {
         return """
         <div class="detail-card">
           <h3 style="margin:0 0 10px">New scheduled task</h3>
