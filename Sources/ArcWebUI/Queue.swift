@@ -252,7 +252,7 @@ extension AppState {
 
     func notifyQueueView(_ pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void) async {
         guard activeTabID == "todos" else { return }
-        await pusher([FragmentUpdate(id: "main", html: self.todosPanelHTML())])
+        await pusher([fragment("main", self.todosPanelHTML())])
     }
 
     /// Run one queue task in its own chat (waiting for the chat to be free).
@@ -684,11 +684,11 @@ extension Controller {
 
         if tid == "queue-tab-tasks" || tid == "queue-tab-queue" {
             await self.app.setTodosTab(tid == "queue-tab-tasks" ? .tasks : .queue)
-            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+            return [fragment("main", await self.app.todosPanelHTML())]
         }
         if tid == "queue-stop" {
             await self.app.requestQueueCancel()
-            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+            return [fragment("main", await self.app.todosPanelHTML())]
         }
         if tid == "queue-run-sync" || tid == "queue-run-async" {
             guard await self.app.queueRunActive == false else { return [] }
@@ -702,44 +702,44 @@ extension Controller {
                     await app.runQueueParallel(pusher: pusher)
                 }
             }
-            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+            return [fragment("main", await self.app.todosPanelHTML())]
         }
         if tid == "queue-picker-toggle" {
             await self.app.queueSetPickerOpen(!(await self.app.queuePickerOpen))
-            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+            return [fragment("main", await self.app.todosPanelHTML())]
         }
         if tid == "queue-picker-close" {
             await self.app.queueSetPickerOpen(false)
-            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+            return [fragment("main", await self.app.todosPanelHTML())]
         }
         if tid == "queue-picker-add" {
             await self.app.addQueueCandidates()
-            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+            return [fragment("main", await self.app.todosPanelHTML())]
         }
         if tid == "queue-link-apply" {
             let entryID = await self.app.queueLinksOpen ?? ""
             await self.app.setQueueInputs(entryID, await self.app.queueLinkSel)
             await self.app.queueClearLinkState()
-            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+            return [fragment("main", await self.app.todosPanelHTML())]
         }
         if tid == "queue-link-clear" {
             let entryID = await self.app.queueLinksOpen ?? ""
             await self.app.clearQueueInputs(entryID)
             await self.app.queueClearLinkState()
-            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+            return [fragment("main", await self.app.todosPanelHTML())]
         }
         if tid.hasPrefix("queue-inputs-") {
             let id = String(tid.dropFirst("queue-inputs-".count))
             let current: String? = await self.app.queueLinksOpen
             await self.app.queueOpenLinks(current == id ? nil : id)
-            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+            return [fragment("main", await self.app.todosPanelHTML())]
         }
         if tid.hasPrefix("queue-del-") {
             let id = String(tid.dropFirst("queue-del-".count))
             await self.app.removeQueueEntry(id)
-            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+            return [fragment("main", await self.app.todosPanelHTML())]
         }
-        return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+        return [fragment("main", await self.app.todosPanelHTML())]
     }
 
     @Wired("queue-order", events: [.change])
@@ -767,7 +767,7 @@ extension Controller {
         let todoID = event.string("value") ?? ""
         guard !todoID.isEmpty else { return [] }
         await self.app.queueToggleCandidate(todoID)
-        return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+        return [fragment("main", await self.app.todosPanelHTML())]
     }
 
     @Wired("qlink", events: [.change])
@@ -775,6 +775,6 @@ extension Controller {
         let entryID = event.string("value") ?? ""
         guard !entryID.isEmpty else { return [] }
         await self.app.queueToggleLinkSel(entryID)
-        return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+        return [fragment("main", await self.app.todosPanelHTML())]
     }
 }

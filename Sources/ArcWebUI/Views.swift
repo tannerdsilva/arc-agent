@@ -379,7 +379,7 @@ extension AppState {
             case .logs:
                 logsPanel()
             case .tasks:
-                legacy(tasksPanel())         // TODO(phase 7) — NewFeatures.swift
+                tasksPanel()
             case .todos:
                 chatPanel(todos: true)
             }
@@ -1150,9 +1150,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         case .logs:
             return render(logsMain())
         case .tasks:
-            return tasksMain()
+            return render(tasksMain())
         case .todos:
-            return todosPanelHTML()
+            return render(todosPanelHTML())
         }
     }
 

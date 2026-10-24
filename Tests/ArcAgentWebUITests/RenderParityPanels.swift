@@ -774,35 +774,35 @@ struct RenderParityPanels {
 
 	@Test("todos panel, tasks tab, one open and one done todo, matches golden")
 	func todosPanelGolden() async {
-		let html = await todosApp().todosPanelHTML()
+		let html = await todosApp().todosPanelHTML().markup.html
 		Parity.capture(html, as: "todos-panel")
 		Parity.expect(html, matches: "todos-panel")
 	}
 
 	@Test("todos tasks tab body, one open and one done todo, matches golden")
 	func todosTasksHTMLGolden() async {
-		let html = await todosApp().todosTasksHTML()
+		let html = await todosApp().todosTasksHTML().markup.html
 		Parity.capture(html, as: "todos-tasks")
 		Parity.expect(html, matches: "todos-tasks")
 	}
 
 	@Test("tasks panel, one active and one stopped job, matches golden")
 	func tasksPanelGolden() async {
-		let html = await tasksApp().tasksPanel()
+		let html = await tasksApp().tasksPanel().markup.html
 		Parity.capture(html, as: "tasks-panel")
 		Parity.expect(html, matches: "tasks-panel")
 	}
 
 	@Test("tasks main, one job selected, matches golden")
 	func tasksMainGolden() async {
-		let html = await tasksApp().tasksMain()
+		let html = await tasksApp().tasksMain().markup.html
 		Parity.capture(html, as: "tasks-main")
 		Parity.expect(html, matches: "tasks-main")
 	}
 
 	@Test("tasks main, nothing selected, matches golden")
 	func tasksMainEmptyGolden() async {
-		let html = await tasksApp(selected: nil).tasksMain()
+		let html = await tasksApp(selected: nil).tasksMain().markup.html
 		Parity.capture(html, as: "tasks-empty")
 		Parity.expect(html, matches: "tasks-empty")
 	}
@@ -810,14 +810,14 @@ struct RenderParityPanels {
 	@Test("task row, selected job, matches golden")
 	func taskRowHTMLGolden() async {
 		let job = self.job("job-1", "Morning digest", "every 15m", runs: 3)
-		let html = await tasksApp(selected: "job-1").taskRowHTML(job)
+		let html = await tasksApp(selected: "job-1").taskRowHTML(job).markup.html
 		Parity.capture(html, as: "task-row")
 		Parity.expect(html, matches: "task-row")
 	}
 
 	@Test("task form, matches golden")
 	func taskFormHTMLGolden() async {
-		let html = await tasksApp().taskFormHTML()
+		let html = await tasksApp().taskFormHTML().markup.html
 		Parity.capture(html, as: "task-form")
 		Parity.expect(html, matches: "task-form")
 	}
