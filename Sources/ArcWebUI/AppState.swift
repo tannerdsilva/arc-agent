@@ -1109,6 +1109,18 @@ actor AppState {
         /// the detail panes look tools up in the registry, not in `toolsets` —
         /// an empty registry renders the blank state no matter the fixture.
         var registryTools: [any AgentTool] = []
+        // phase 7: kanban board state
+        var kanbanColumns: [KBColumn] = []
+        var kanbanCards: [KBCard] = []
+        var addingColumn = false
+        var addingCardColumnID: String? = nil
+        var kanbanAddError: String? = nil
+        var confirmColumn: String? = nil
+        var confirmCard: String? = nil
+        // phase 7: memory state
+        var memoryDoc: String? = nil
+        var memoryEdit = false
+        var memoryContent = ""
     }
 
     init(renderFixture fixture: RenderFixture) {
@@ -1147,6 +1159,16 @@ actor AppState {
         self.formValues = fixture.formValues
         self.profileSkillsDraft = fixture.profileSkillsDraft
         self.profileSkillsPickerOpen = fixture.profileSkillsPickerOpen
+        self.addingColumn = fixture.addingColumn
+        self.addingCardColumnID = fixture.addingCardColumnID
+        self.kanbanAddError = fixture.kanbanAddError
+        self.confirmColumn = fixture.confirmColumn
+        self.confirmCard = fixture.confirmCard
+        self.memoryDoc = fixture.memoryDoc
+        self.memoryEdit = fixture.memoryEdit
+        self.memoryContent = fixture.memoryContent
+        self.settings.kanbanColumns = fixture.kanbanColumns
+        self.settings.kanbanCards = fixture.kanbanCards
         self.registry = MutableToolRegistry(builtIn: CompileTimeToolRegistry())
         for tool in fixture.registryTools {
             try? self.registry.register(tool)
