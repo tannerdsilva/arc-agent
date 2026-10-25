@@ -3361,7 +3361,7 @@ public actor ArcAgent: Service {
             - OS: \(osDescription)
             - Home directory: \(NSHomeDirectory())
             - Desktop: \(NSHomeDirectory())/Desktop
-            - Working directory for tools (relative paths resolve here): \(FileManager.default.currentDirectoryPath)
+            - Working directory for tools (relative paths resolve here): \(config.workspaceRoot ?? FileManager.default.currentDirectoryPath)
             - Use ~/... paths (or absolute paths) for user-visible locations; the `terminal` tool's shell expands `~`, and `write_file` accepts paths relative to the working directory.
             """
 

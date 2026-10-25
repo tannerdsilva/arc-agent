@@ -116,10 +116,12 @@ extension AppState {
     // store; the CRUD below writes through to the store, and execution comes
     // back through `runScheduledJob` via the daemon's cron runner.
 
-    /// Run one scheduled job fully headless: the agent turn is executed with
-    /// the scheduled prompt in a per-job session, tools allowed, with smart
-    /// classification deciding dangerous commands (no interactive prompt —
-    /// critical commands are blocked and logged, never run).
+    /// Run one scheduled job fully headless: the job's turn runs on the same
+    /// per-turn `ArcAgent` an interactive chat mints (CONVERGE A8) — one engine,
+    /// one prompt builder, one tool dispatch — with the scheduler's approval
+    /// policy (nobody can answer a card, critical commands are blocked and
+    /// logged, never run), the job's own iteration cap, and the UI as the
+    /// transcript's only writer.
     /// Runs the job's turn and returns the final assistant text — the daemon's
     /// cron runner consumes it (the UI's Run-now ignores it).
     @discardableResult
@@ -140,57 +142,144 @@ extension AppState {
         }
         session.updatedAt = now
 
+        // the same pre-flight a chat turn keeps: a configuration that cannot
+        // build a client at all fails before the prompt is stored.
         guard let preset = settings.modelConfig(named: configName(for: sid)),
-              let client = makeClient(for: preset) else {
+              turnClientOverride != nil || makeClient(for: preset) != nil else {
             // the caller (Run-now or the daemon scheduler) records lastOutput
             return "Error: no model configuration"
         }
 
         let userMsg = Message(role: .user, content: job.prompt, createdAt: now)
         session.messages.append(userMsg)
-        await persistMessage(userMsg, sessionID: sid, store: store)
+        await persistMessage(userMsg, sessionID: sid, store: store, healWith: session.messages)
 
-        let system = Message(role: .system, content: await buildSystemPrompt(config: preset, sessionID: sid))
-        // Progressive disclosure parity (same as the interactive turn path):
-        // deferrable toolsets are replaced by the tool_search/tool_describe/
-        // tool_call bridges + manifest.
-        let tools = ProgressiveToolDisclosure.buildPromptSchemas(
-            registry: registry,
-            disabled: Set(settings.disabledToolsets),
-            config: arcConfig.toolSearch,
-            contextLength: preset.contextLength ?? arcConfig.model.contextLength
+        // the job's turn on the same engine as a chat turn: same tiered prompt
+        // builder, same progressive tool disclosure, same guardrails. the 25-round
+        // cap is the retired loop's, so a job that used to stop stops here too.
+        let minted = await makeTurnAgent(
+            preset: preset,
+            profileContext: profileContext(for: sid),
+            thinking: thinkingLevel(for: sid),
+            headless: true,
+            sessionID: sid,
+            // the agent appends the job's prompt itself; the seed is everything
+            // the job session already carried.
+            initialHistory: Array(session.messages.dropLast()),
+            maxIterations: Self.scheduledJobIterations,
+            pusher: { _ in }
         )
-        var history = session.messages
-        var finalText = ""
-        var iterations = 0
-        while iterations < 25 {
-            iterations += 1
-            var msgs = [system]
-            msgs.append(contentsOf: history)
-            guard let response = try? await client.complete(messages: msgs, tools: tools, reasoningEffort: nil) else {
-                finalText = "Error: LLM request failed"
-                break
-            }
-            if let t = response.content, !t.isEmpty {
-                finalText = t
-            }
-            if let calls = response.toolCalls, !calls.isEmpty {
-                for call in calls {
-                    let result = await runTool(call, sessionID: sid, pusher: { _ in }, headless: true)
-                    let toolMsg = Message(role: .tool, content: result, name: call.function.name, createdAt: Date())
-                    history.append(toolMsg)
-                    await persistMessage(toolMsg, sessionID: sid, store: store)
-                }
-                let asst = Message(role: .assistant, content: "Ran \(calls.count) tool call(s).", createdAt: Date())
-                history.append(asst)
-                await persistMessage(asst, sessionID: sid, store: store)
-                continue
-            }
-            break
+        let agent = minted.agent
+
+        var round = TurnTranscript()
+        var heldToolRound: ScheduledToolRound?
+        var streamed = ""
+        var completedText: String?
+        var failure: String?
+
+        /// take the held tool round as the messages it stores: its assistant
+        /// message (content, reasoning, tool calls) then one tool message per
+        /// result — the transcript shape a chat turn writes, tool-call ids
+        /// included, so the job session replays as a valid tool conversation.
+        func takeToolRoundMessages() -> [Message] {
+            guard let held = heldToolRound else { return [] }
+            heldToolRound = nil
+            var messages = [Message(
+                role: .assistant,
+                content: held.content.isEmpty ? nil : held.content,
+                toolCalls: held.calls,
+                createdAt: Date(),
+                reasoning: held.reasoning.isEmpty ? nil : held.reasoning
+            )]
+            messages.append(contentsOf: held.results.map { result in
+                Message(
+                    role: .tool,
+                    content: result.result,
+                    name: result.name,
+                    toolCallID: result.id,
+                    createdAt: Date()
+                )
+            })
+            return messages
         }
-        let asstMsg = Message(role: .assistant, content: finalText, createdAt: Date())
-        history.append(asstMsg)
-        await persistMessage(asstMsg, sessionID: sid, store: store)
+
+        func persist(_ message: Message) async {
+            await persistMessage(message, sessionID: sid, store: store)
+        }
+
+        do {
+            try await agent.prime()
+            for try await event in agent.streamTurn(message: job.prompt) {
+                // a round closes when the next round's stream begins: a text or
+                // reasoning delta, the provider's usage report, or a terminal
+                // event. the held tool round is written in one piece then.
+                switch event {
+                case .textDelta, .reasoningDelta, .usage, .completed, .failed:
+                    for message in takeToolRoundMessages() {
+                        await persist(message)
+                    }
+                case .toolCallStarted, .toolCallFinished:
+                    break
+                }
+
+                switch event {
+                case .textDelta(let text):
+                    round.apply(event)
+                    streamed += text
+                case .reasoningDelta, .usage:
+                    round.apply(event)
+                case .toolCallStarted(let id, let name, let arguments):
+                    if heldToolRound == nil {
+                        heldToolRound = ScheduledToolRound(content: round.content, reasoning: round.reasoning)
+                        round = TurnTranscript()
+                    }
+                    heldToolRound?.calls.append(ToolCall(
+                        id: id,
+                        type: "function",
+                        function: ToolCallFunction(name: name, arguments: arguments)
+                    ))
+                case .toolCallFinished(let id, let name, let result):
+                    heldToolRound?.results.append((id: id, name: name, result: result))
+                case .completed(let text, _):
+                    round.apply(event)
+                    completedText = text
+                case .failed(let message):
+                    failure = message
+                }
+            }
+        } catch {
+            // a throwing stream is a transport failure — the same shape as
+            // `.failed`. a tool round that finished before it is still real
+            // work, so it lands in the transcript.
+            for message in takeToolRoundMessages() {
+                await persist(message)
+            }
+            failure = "\(error)"
+        }
+        await agent.shutdownHTTPClient()
+
+        // the reply: the core's terminal text once a turn completed, else the
+        // streamed text, else the failure — the value `lastOutput` records.
+        let finalText: String
+        if let completedText, !completedText.isEmpty {
+            finalText = completedText
+        } else if let failure {
+            finalText = failure
+        } else if !round.content.isEmpty {
+            finalText = round.content
+        } else {
+            finalText = streamed
+        }
+        let asstMsg = Message(
+            role: .assistant,
+            content: finalText,
+            createdAt: Date(),
+            reasoning: round.reasoning.isEmpty ? nil : round.reasoning,
+            usage: round.usage,
+            terminalReason: round.terminalReason
+        )
+        await persist(asstMsg)
+
         // Job bookkeeping is the caller's: the daemon's scheduler records
         // lastRunAt/runCount/lastOutput/nextRunAt, and Run-now does the same
         // through `updateJob`.
@@ -203,6 +292,11 @@ extension AppState {
         }
         return finalText
     }
+
+    /// The retired job loop's own ceiling: 25 LLM rounds per run. The core's
+    /// `maxIterations` counts the same unit (one loop iteration per model call),
+    /// so the cap means what it meant before the runner moved onto the engine.
+    static let scheduledJobIterations = 25
 
     func jobSessionID(_ job: CronJob) -> String { "Cron-\(job.id)" }
 
@@ -283,6 +377,16 @@ extension AppState {
             }
         }
     }
+}
+
+/// The tool round a scheduled job holds until the next round begins, so one
+/// assistant message plus its tool results land as one unit. The same buffer
+/// shape `runTurn` keeps; the job path has no live turn to report into.
+private struct ScheduledToolRound {
+    var content: String
+    var reasoning: String
+    var calls: [ToolCall] = []
+    var results: [(id: String, name: String, result: String)] = []
 }
 
 /// Compute the next fire date for a cron expression (supports "30m",

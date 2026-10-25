@@ -18,11 +18,17 @@ extension ArcWebUITestRoot {
             #expect(src.contains("pinned to this profile"))
         }
 
-        @Test("prompt builder injects the pinned section")
+        @Test("the per-turn agent factory injects the pinned section")
         func promptInjection() {
-            let actions = Self.source("Actions.swift")
-            #expect(actions.contains("SkillsPrompt.pinnedSection"))
-            #expect(actions.contains("p.contextSkills, !pinned.isEmpty"))
+            // CONVERGE A8: the UI builder is gone. The pinned section is now
+            // prompt content the factory hands to the core as one injected
+            // system message (the SOUL precedent), so the core's tiered builder
+            // stays the only builder. The behavioural proof lives in
+            // `PromptParityTests.profileBlocksAreInjected`.
+            let state = Self.source("AppState.swift")
+            #expect(state.contains("SkillsPrompt.pinnedSection"))
+            #expect(state.contains("profile.contextSkills, !pinned.isEmpty"))
+            #expect(state.contains("agent.injectSystemMessage"))
             let promptSrc = Self.source("SkillsPrompt.swift") // resolves under ArcAgentCore/Skills/
             #expect(promptSrc.contains("pinnedSection"))
             #expect(promptSrc.contains("Pinned Profile Skills"))

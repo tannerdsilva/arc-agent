@@ -71,6 +71,16 @@ retired in the daemon consolidation.
 
 **55 registered tools** across ~13 toolsets: `core`, `file`, `terminal`, `web`, `delegation`, `kanban`, `profile`, `media`, `webhooks`, `skills`, `mcp`, `project`, `tools`, `messaging` (arc-parity: `project_*`, unified `skill_manage` + `skills_list`, `tool_search`, `send_message`).
 
+### One turn engine
+
+Every surface runs its turns through `ArcAgent`. The web UI mints a per-turn agent
+(`makeTurnAgent`), consumes its `AgentTurnEvent` stream from `streamTurn`, and owns only what a host
+should own: the durable transcript, the live view, the pushers and the turn boundaries. Scheduled
+jobs are the same agent with `headless: true` — one prompt builder (the core's three cache tiers),
+one tool dispatcher, one approval policy, one usage ledger. `Sources/ArcWebUI` has no system-prompt
+builder, no turn loop and no retry machinery of its own; profile SOUL and pinned skills are handed
+to the core as config, not re-implemented as a second builder.
+
 ## Quick Start
 
 ```bash

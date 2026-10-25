@@ -105,6 +105,54 @@ extension ArcCoreTestRoot {
             #expect(resolvedA != resolvedB)
         }
 
+        // MARK: prompt working directory
+
+        /// The prompt's environment section is where a model reads the root its
+        /// relative paths resolve against. A bound `workspaceRoot` must win over
+        /// the process cwd, or a host with per-session workspaces (the web UI)
+        /// tells the model the wrong directory while tools resolve somewhere else.
+        @Test("the prompt names the bound workspace root as the working directory")
+        func promptNamesWorkspaceRoot() async throws {
+            let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+            defer { _ = httpClient.shutdown() }
+            let root = "/tmp/a8-workspace-root-probe"
+
+            let client = EventScriptClient(first: .init(chunks: ["done"]), final: .init())
+            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let agent = await makeAgent(
+                registry: registry, httpClient: httpClient, client: client, workspaceRoot: root)
+            _ = try await collect(agent, message: "go")
+
+            let system = try #require(client.allRecordedMessages.first?.first)
+            #expect(system.role == .system)
+            #expect(
+                system.content?.contains(
+                    "Working directory for tools (relative paths resolve here): \(root)") == true,
+                "the prompt must name the root tools resolve against"
+            )
+        }
+
+        /// No bound root keeps today's behaviour: the process cwd (the CLI and
+        /// daemon shape, which launch in the directory they serve).
+        @Test("without a bound root the prompt keeps the process working directory")
+        func promptFallsBackToProcessCwd() async throws {
+            let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+            defer { _ = httpClient.shutdown() }
+
+            let client = EventScriptClient(first: .init(chunks: ["done"]), final: .init())
+            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let agent = await makeAgent(
+                registry: registry, httpClient: httpClient, client: client, workspaceRoot: nil)
+            _ = try await collect(agent, message: "go")
+
+            let system = try #require(client.allRecordedMessages.first?.first)
+            #expect(
+                system.content?.contains(
+                    "Working directory for tools (relative paths resolve here): \(FileManager.default.currentDirectoryPath)") == true,
+                "an unbound root falls back to the process cwd"
+            )
+        }
+
         // MARK: terminal reason
 
         @Test("normal completion emits completed with terminalReason nil")

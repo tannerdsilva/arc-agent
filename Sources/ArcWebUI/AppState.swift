@@ -1741,9 +1741,10 @@ actor AppState {
     /// agent powers, background review, verify-on-stop, the per-session
     /// workspace, and the effective tool-iteration budget.
     ///
-    /// The bound profile's SOUL (if any) is injected as a system message via
-    /// `injectSystemMessage`, matching the `SessionAgent` precedent, so the
-    /// core's tiered prompt builder stays the only prompt builder.
+    /// The bound profile's SOUL (if any) and its pinned context skills are
+    /// injected as one system message via `injectSystemMessage`, matching the
+    /// `SessionAgent` precedent — they are prompt *content*, handed to the core
+    /// as config, so the core's tiered builder stays the only prompt builder.
     ///
     /// - Parameters:
     ///   - preset: The model configuration preset for this turn.
@@ -1753,6 +1754,10 @@ actor AppState {
     ///     Retained for the presenter wiring that follows (A6); it does not
     ///     alter the configuration.
     ///   - sessionID: The session this turn belongs to.
+    ///   - initialHistory: The model-facing history the host already built.
+    ///   - maxIterations: The turn's tool-iteration budget; nil keeps the
+    ///     session policy (`effectiveMaxTurns`). A scheduled job passes its own
+    ///     cap so retiring the job loop does not change how long a job runs.
     /// - Returns: The agent and the `Configuration` it was built from.
     func makeTurnAgent(
         preset: ModelConfigPreset,
@@ -1760,7 +1765,8 @@ actor AppState {
         thinking: String,
         headless: Bool,
         sessionID: String,
-        initialHistory: [Message]? = nil
+        initialHistory: [Message]? = nil,
+        maxIterations iterationBudget: Int? = nil
     ) async -> (agent: ArcAgent, config: ArcAgent.Configuration) {
         // apply the profile's context overrides to the preset (contextLength,
         // maxOutputTokens, temperature, topP).
@@ -1790,7 +1796,7 @@ actor AppState {
         let reasoningEffort = profileContext?.reasoningEffort ?? (thinking == "off" ? nil : thinking)
 
         // max iterations mirrors the turn loop's clamp: at least one pass.
-        let maxIterations = max(1, Self.effectiveMaxTurns())
+        let maxIterations = max(1, iterationBudget ?? Self.effectiveMaxTurns())
 
         // an unparseable preset url must not trap the server; fail closed to
         // the reserved .invalid tld so the request errors out visibly instead
@@ -1843,13 +1849,25 @@ actor AppState {
 
         let agent = ArcAgent(config: config)
 
-        // inject the profile's SOUL as a system message, matching the
-        // SessionAgent precedent. look up the full profile (not just its
-        // context) to get soulMD.
+        // inject the profile's SOUL and its pinned context skills as one
+        // system message, matching the SessionAgent precedent. pinned skills
+        // are full SKILL.md bodies the profile always carries — retiring the
+        // UI builder must not drop them from the model's context (A8 parity).
+        var profileBlocks: [String] = []
         if let pname,
-           let profile = profiles.first(where: { $0.name == pname }),
-           let soul = profile.soulMD, !soul.isEmpty {
-            await agent.injectSystemMessage(soul)
+           let profile = profiles.first(where: { $0.name == pname }) {
+            if let soul = profile.soulMD, !soul.isEmpty {
+                profileBlocks.append(soul)
+            }
+            if let pinned = profile.contextSkills, !pinned.isEmpty {
+                let pinnedSkills = skills.filter { pinned.contains($0.name) }
+                if !pinnedSkills.isEmpty {
+                    profileBlocks.append(SkillsPrompt.pinnedSection(skills: pinnedSkills))
+                }
+            }
+        }
+        if !profileBlocks.isEmpty {
+            await agent.injectSystemMessage(profileBlocks.joined(separator: "\n\n"))
         }
 
         return (agent, config)

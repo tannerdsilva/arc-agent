@@ -57,58 +57,20 @@ extension AppState {
         ]
     }
 
-    /// Build the system prompt for a chat, mirroring ArcAgent's construction:
-    /// identity, optional profile SOUL, skills index, persistent memory.
-    func buildSystemPrompt(config preset: ModelConfigPreset, sessionID: String?) async -> String {
-        var parts = [
-            "You are ARC, a Swift-native AI agent harness.",
-            "You assist the user directly and precisely. When a task calls for a tool, use it confidently — tools are safe, isolated, and expected.",
-        ]
-        // Profile SOUL + pinned context skills. The bound profile is resolved
-        // once; both blocks share it.
-        let boundName = profileName(for: sessionID)
-        let boundProfile = boundName.flatMap { n in profiles.first { $0.name == n } }
-        if let p = boundProfile,
-           let soul = p.soulMD, !soul.isEmpty {
-            parts.append("[Profile: \(p.name)]\n\(soul)")
-        }
-        // Pinned profile skills: full SKILL.md content, always in context.
-        if let p = boundProfile,
-           let pinned = p.contextSkills, !pinned.isEmpty {
-            let pinnedSkills = skills.filter { pinned.contains($0.name) }
-            if !pinnedSkills.isEmpty {
-                parts.append(SkillsPrompt.pinnedSection(skills: pinnedSkills))
-            }
-        }
-        parts.append("Active configuration: model \(preset.model) via \(preset.provider.isEmpty ? "custom" : preset.provider).")
-        parts.append("Working directory: \(workspacePath(for: sessionID))")
-        // Skills — arc-parity mandatory section (framing + index), per-profile
-        // override when the chat is bound to a profile, otherwise the global
-        // list (inherited by profiles without overrides).
-        let pname = profileName(for: sessionID)
-        let disabledSkills = pname.flatMap { settings.profileSkills[$0] } ?? settings.disabledSkills
-        let allowed: [Skill] = skills.filter { !disabledSkills.contains($0.name) }
-        // The section's framing instructs the model to load skills with
-        // `skill_view`; render it only when this app's registry exposes the
-        // loader.
-        if !allowed.isEmpty, registry.lookup(name: "skill_view") != nil {
-            parts.append(SkillsPrompt.section(index: buildSkillsIndex(allowed)))
-        }
-        // Memory
-        if let mem = memory {
-            if let m = try? await mem.readMemory(), !m.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                parts.append("Persistent notes (internal memory):\n\(m)")
-            }
-            if let u = try? await mem.readUser(), !u.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                parts.append("About the user:\n\(u)")
-            }
-        }
-        return parts.joined(separator: "\n\n")
-    }
-
     /// Execute one tool call and return its result string. Terminal commands
     /// are gated by ApprovalManager (reference smart approval): dangerous ones
     /// pause on a permission card until the user approves or denies.
+    ///
+    /// This is the **ambient** path only: `execute_code` children dispatch back
+    /// into this session through `ambientToolHost`, which is bound as the turn
+    /// agent's code host. Every agent-dispatched tool call goes through
+    /// `ArcAgent` instead, which binds `WorkspacePath.$root` itself.
+    ///
+    /// The `withValue` wrappers below therefore **stay**: the ambient host is
+    /// invoked from `ToolRPCServer`'s NIO channel handler
+    /// (`makeFutureWithTask` on the event loop), so the dispatch task's
+    /// `WorkspacePath.$root` TaskLocal does not reach it. Removing them would
+    /// resolve the child's relative paths against the process cwd.
     func runTool(_ call: ToolCall, sessionID: String, pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void, headless: Bool = false) async -> String {
         // Ambient dispatcher for execute_code: child Python processes dispatch
         // tools back into THIS webui session (same registry, guardrails, and
@@ -324,6 +286,8 @@ extension AppState {
     ///     is bound at all.
     ///   - pusher: The turn's fragment pusher. The permission and clarify cards
     ///     are pushed through it, exactly as the UI's own gating does.
+    ///   - maxIterations: The turn's tool-iteration budget (nil = session
+    ///     policy). A scheduled job keeps its own cap through here.
     func makeTurnAgent(
         preset: ModelConfigPreset,
         profileContext: ProfileContextConfig?,
@@ -331,6 +295,7 @@ extension AppState {
         headless: Bool,
         sessionID: String,
         initialHistory: [Message]? = nil,
+        maxIterations: Int? = nil,
         pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void
     ) async -> (agent: ArcAgent, config: ArcAgent.Configuration) {
         let minted = await makeTurnAgent(
@@ -339,7 +304,8 @@ extension AppState {
             thinking: thinking,
             headless: headless,
             sessionID: sessionID,
-            initialHistory: initialHistory
+            initialHistory: initialHistory,
+            maxIterations: maxIterations
         )
         await installTurnPresenters(
             on: minted.agent,
