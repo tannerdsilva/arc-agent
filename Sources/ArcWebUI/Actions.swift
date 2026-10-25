@@ -330,6 +330,7 @@ extension AppState {
         thinking: String,
         headless: Bool,
         sessionID: String,
+        initialHistory: [Message]? = nil,
         pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void
     ) async -> (agent: ArcAgent, config: ArcAgent.Configuration) {
         let minted = await makeTurnAgent(
@@ -337,7 +338,8 @@ extension AppState {
             profileContext: profileContext,
             thinking: thinking,
             headless: headless,
-            sessionID: sessionID
+            sessionID: sessionID,
+            initialHistory: initialHistory
         )
         await installTurnPresenters(
             on: minted.agent,
@@ -861,7 +863,7 @@ extension AppState {
         // effort below) follow the profile instead of the chat's config.
         let pctx = profileContext(for: sessionID)
         let effectivePreset = pctx.map { preset.applying($0) } ?? preset
-        guard let client = makeClient(for: effectivePreset) else {
+        guard let client: any LLMClient = turnClientOverride ?? makeClient(for: effectivePreset) else {
             _ = toast("No usable model configuration '\(configName)'. Add one in Settings → Preferences.", kind: "error")
             _ = await refreshFragments()
             return

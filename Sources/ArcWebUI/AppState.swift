@@ -1025,6 +1025,10 @@ actor AppState {
 
     var httpClient: HTTPClient?
     var store: (any SessionStore)?
+    /// Scripted-client seam: when set, a turn's provider client is this value
+    /// instead of the live HTTP one, so a whole turn can be driven with no
+    /// socket. nil in production; A7's golden transcript suite sets it.
+    var turnClientOverride: (any LLMClient)?
     /// The storage backend this process actually constructed: "tessera" or
     /// "file". Honest label vs `settings.tesseraOff` because the boot-time
     /// fallback can differ from the persisted setting within a process.
@@ -1750,7 +1754,8 @@ actor AppState {
         profileContext: ProfileContextConfig?,
         thinking: String,
         headless: Bool,
-        sessionID: String
+        sessionID: String,
+        initialHistory: [Message]? = nil
     ) async -> (agent: ArcAgent, config: ArcAgent.Configuration) {
         // apply the profile's context overrides to the preset (contextLength,
         // maxOutputTokens, temperature, topP).
@@ -1795,6 +1800,9 @@ actor AppState {
             baseURL: baseURL,
             apiKey: effectivePreset.apiKey,
             registry: registry,
+            // a scratch store: the UI is the transcript's only writer (§3.3), so
+            // the agent must never restore from — or persist into — a durable one.
+            sessionStore: VolatileSessionStore(),
             memoryProvider: memory,
             skills: allowedSkills,
             maxIterations: maxIterations,
@@ -1811,6 +1819,7 @@ actor AppState {
             contextDirectory: URL(fileURLWithPath: root),
             workspaceRoot: root,
             platformHint: "webui",
+            initialHistory: initialHistory,
             moa: arcConfig.moa,
             toolSearch: arcConfig.toolSearch,
             backgroundReview: backgroundReview,
@@ -1821,7 +1830,10 @@ actor AppState {
             topP: effectivePreset.topP,
             maxOutputTokens: effectivePreset.maxOutputTokens,
             agentPowers: arcConfig.agentPowers,
-            disabledToolsets: Set(settings.disabledToolsets)
+            disabledToolsets: Set(settings.disabledToolsets),
+            // the scripted-client seam (nil in production) — see
+            // `turnClientOverride`.
+            llmClient: turnClientOverride
         )
 
         let agent = ArcAgent(config: config)

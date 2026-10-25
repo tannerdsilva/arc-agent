@@ -12,7 +12,7 @@ struct StubTool: AgentTool {
 	var emoji: String = "🔧"
 	var available: Bool = true
 	var schema: JSONSchema { .object(properties: [:]) }
-	var handler: ToolHandler { { _ in "ok" } }
+	var handler: ToolHandler = { _ in "ok" }
 	var checkFn: ToolRequirementCheck? {
 		available ? nil : { @Sendable in false }
 	}
