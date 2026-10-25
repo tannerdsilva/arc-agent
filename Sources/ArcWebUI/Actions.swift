@@ -401,11 +401,16 @@ extension AppState {
     ) -> ApprovalPresenter {
         if headless {
             return { request in
+                // classify the command, not the arguments wrapper: the
+                // detector's critical patterns include an anchored form
+                // (`^rm\s+-rf\s+/\s*$`) that cannot match inside json, and a
+                // headless turn has no second line of defence.
+                let command = Self.approvalCommand(for: request)
                 let decision = HeadlessApprovalPolicy.decision(
-                    dangerLevel: await detectDangerLevel(request.command)
+                    dangerLevel: await detectDangerLevel(command)
                 )
                 if case .deny = decision {
-                    LogCollector.shared.append(level: .warning, text: "[cron] blocked critical command: \(trunc(request.command, 120))")
+                    LogCollector.shared.append(level: .warning, text: "[cron] blocked critical command: \(trunc(command, 120))")
                 }
                 return decision
             }
@@ -413,13 +418,28 @@ extension AppState {
         return { [weak self] request in
             guard let self else { return .deny }
             let granted = await self.requestUserApproval(
-                command: request.command,
+                command: Self.approvalCommand(for: request),
                 description: request.description,
                 sessionID: sessionID,
                 pusher: pusher
             )
             return granted ? .approve : .deny
         }
+    }
+
+    /// The command text a card shows for an approval request.
+    ///
+    /// `ApprovalRequest.command` is the tool call's raw arguments JSON (the core
+    /// gates the whole call), so a `terminal` request arrives wrapped. The card
+    /// is a command card, so unwrap it; anything unrecognised is shown verbatim,
+    /// never hidden.
+    static func approvalCommand(for request: ApprovalRequest) -> String {
+        guard let data = request.command.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let command = object["command"] as? String,
+              !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return request.command }
+        return command
     }
 
     /// The clarify presenter for this turn: the existing clarify card, keyed to

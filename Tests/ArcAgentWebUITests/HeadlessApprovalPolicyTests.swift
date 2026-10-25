@@ -51,9 +51,11 @@ extension ArcWebUITestRoot {
         /// critical, approve otherwise.
         @Test("decision mirrors the policy")
         func decisionMirrorsPolicy() {
-            #expect(HeadlessApprovalPolicy.decision(dangerLevel: .critical) == .deny)
-            #expect(HeadlessApprovalPolicy.decision(dangerLevel: .dangerous) == .approve)
-            #expect(HeadlessApprovalPolicy.decision(dangerLevel: .safe) == .approve)
+            // `ApprovalDecision` is not `Equatable` (this card does not widen
+            // the core's surface), so the decisions are matched, not compared.
+            #expect(isDeny(HeadlessApprovalPolicy.decision(dangerLevel: .critical)))
+            #expect(isApprove(HeadlessApprovalPolicy.decision(dangerLevel: .dangerous)))
+            #expect(isApprove(HeadlessApprovalPolicy.decision(dangerLevel: .safe)))
         }
 
         // the shared refusal text (duplicated here as the pin, not the source
@@ -61,4 +63,14 @@ extension ArcWebUITestRoot {
         private static let blocked =
             "Error: command blocked by approval policy (classified critical; scheduled jobs cannot run destructive commands)."
     }
+}
+
+private func isApprove(_ decision: ApprovalDecision) -> Bool {
+    if case .approve = decision { return true }
+    return false
+}
+
+private func isDeny(_ decision: ApprovalDecision) -> Bool {
+    if case .deny = decision { return true }
+    return false
 }
