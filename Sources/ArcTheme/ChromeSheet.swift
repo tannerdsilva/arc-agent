@@ -455,7 +455,6 @@ public static let css: String = """
     .sess-caret { display: inline-flex; align-items: center; opacity: 0.7; transition: transform 0.15s ease; }
     .sess-caret svg { width: 10px; height: 10px; }
     .sess-group-head .sess-group-title { flex: 0 0 auto; }
-    .sess-group-count { margin-left: auto; opacity: 0.55; font-weight: 500; }
     /* Collapsed buckets hide their rows; the caret rotates from down to right. */
     .sess-group.collapsed .sess-caret { transform: rotate(-90deg); }
     .sess-group.collapsed .sess-group-rows { display: none; }
@@ -670,10 +669,6 @@ public static let css: String = """
       padding: 5px 12px; font-size: 0.82em; border-radius: var(--radius-sm);
     }
     .menu-left { display: flex; align-items: center; padding-right: 2px; }
-    .menu-label {
-      font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.05em;
-      color: var(--muted); padding: 7px 12px 3px;
-    }
     .chat-menu button.menu-sel { color: var(--accent-strong); }
     /* "Move to Category" panel (swaps the chat-menu item list) */
     .catmenu-head { width: 100%; display: flex; align-items: center; justify-content: space-between; }
@@ -908,11 +903,6 @@ public static let css: String = """
       border-color: color-mix(in srgb, var(--danger) 84%, white);
     }
     .danger-btn:hover { background: var(--danger-soft); }
-    .accent-btn {
-      background: transparent; color: var(--accent-strong);
-      border: 1px solid var(--accent-border); border-radius: var(--radius-sm);
-      padding: 8px 16px; font-size: 0.92em; cursor: pointer;
-    }
     .row-actions-main { display: flex; gap: 8px; margin-top: 12px; }
     /* Approaching an action cluster brings its icon buttons to full strength
        (the cluster is an interactive signature for hover coverage). */
@@ -1021,7 +1011,6 @@ public static let css: String = """
       background: var(--surface-2); color: var(--muted);
     }
     .side-tab-chip.drag-src { opacity: 0.55; }
-    .side-tab-chip.drag-over { border-color: var(--accent-border); }
 
     /* ─── Scheduled tasks (cron) page ─────────────────────────────── */
     .task-list { display: flex; flex-direction: column; gap: 6px; }
@@ -1092,13 +1081,6 @@ public static let css: String = """
     }
     /* Segmented control (Storage backend): two named states, no implied ON. */
     .seg { display: inline-flex; gap: 2px; padding: 2px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 9px; flex-shrink: 0; }
-    .seg-btn {
-      border: none; background: transparent; color: var(--muted);
-      font: inherit; font-size: 0.86em; font-weight: 600;
-      padding: 5px 12px; border-radius: 7px; cursor: pointer;
-    }
-    .seg-btn:hover { color: var(--text); }
-    .seg-btn.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18); }
     .aux-editing { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin: 6px 0; background: var(--surface-2); }
     .aux-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 10px; }
     .aux-field { display: flex; flex-direction: column; gap: 3px; font-size: 0.84em; color: var(--muted); }
@@ -1167,7 +1149,6 @@ public static let css: String = """
     .ins-scale { font-size: 0.84em; color: var(--muted); margin: 0 0 2px; }
     .ins-xaxis { display: flex; margin-top: 7px; }
     .ins-xlabel { flex: 1; text-align: center; font-size: 0.84em; color: var(--muted); overflow: hidden; }
-    .accent-swatches { display: flex; gap: 6px; }
     .swatch {
       width: 26px; height: 26px; border-radius: 50%;
       border: 2px solid var(--border); cursor: pointer;
@@ -1463,27 +1444,6 @@ public static let css: String = """
     }
     .outline-jump-flash { animation: outline-flash 1.2s ease-out forwards; }
 
-    /* Steer indicator: transient banner below messages (arc parity).
-       Badge + italic steer body, accent-tinted. */
-    .steer-indicator {
-      display: flex; align-items: baseline; gap: 8px;
-      padding: 10px 0; opacity: 0.65;
-      font-style: italic; color: var(--accent-strong);
-    }
-    .steer-indicator .steer-body {
-      white-space: pre-wrap; word-break: break-word;
-    }
-    .steer-badge {
-      display: inline-block;
-      font-size: 11.5px; font-weight: 600;
-      letter-spacing: 0.04em; text-transform: uppercase;
-      color: var(--accent-strong);
-      background: var(--accent-soft);
-      border: 1px solid var(--accent-border);
-      border-radius: 4px; padding: 1px 6px;
-      vertical-align: middle; line-height: 1.6;
-      font-style: normal; flex-shrink: 0;
-    }
     /* Token usage renders in `.msg-meta` (see `.msg-usage-inline`). */
 
     /* Message body markdown scaling (reference msg-body rules) */
@@ -1704,7 +1664,6 @@ public static let css: String = """
       cursor: pointer; padding: 6px 10px; color: var(--muted);
       font-size: 0.86em; user-select: none;
     }
-    details.thinking .think-body { padding: 4px 12px 10px; color: var(--muted); white-space: pre-wrap; }
 
     /* ── Message hover footer: produced-at time + copy (arc parity) ── */
     .msg-foot { display: flex; align-items: center; gap: 8px; margin-top: 5px; opacity: 0; transition: opacity 0.15s; }
@@ -1714,18 +1673,6 @@ public static let css: String = """
     .msg-action-btn { background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 5px; border-radius: 5px; display: inline-flex; align-items: center; transition: color 0.12s, background 0.12s; }
     .msg-action-btn:hover { color: var(--text); background: var(--surface-2); }
     .msg-action-btn svg { width: 12px; height: 12px; }
-    .tool-chip {
-      display: inline-flex; align-items: center; gap: 6px;
-      margin: 3px 6px 3px 0;
-      padding: 4px 10px;
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      font-size: 0.86em;
-      color: var(--muted);
-      font-family: ui-monospace, Menlo, monospace;
-    }
-    .tool-chip .tc-name { color: var(--accent-strong); font-weight: 600; }
     .tool-pills { display: flex; flex-direction: column; align-items: stretch; gap: 2px; margin: 6px 0 4px; }
     /* Each tool call expands independently; cards stack vertically. */
     /* arc parity: tool call rows are bubble-like pills. */
@@ -1787,52 +1734,6 @@ public static let css: String = """
     @keyframes blink { 50% { opacity: 0; } }
 
     .live-status { font-size: 0.84em; color: var(--muted); margin: -8px 0 12px; display: flex; gap: 8px; align-items: center; }
-    /* Live tool activity rows (streaming bubble): visible while the agent is
-       processing; flat rows with a subtle 1px divider between them. */
-    .live-tool-stack { margin: 8px 0 4px; display: flex; flex-direction: column; }
-    .live-tool {
-      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-      padding: 6px 10px;
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      font-size: 0.8em;
-    }
-    .live-tool + .live-tool { margin-top: 4px; }
-    .live-tool .lt-name { color: var(--accent-strong); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
-    .live-tool .lt-name svg { width: 12px; height: 12px; }
-    .live-tool .lt-args { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 48ch; }
-    .live-tool .lt-state { margin-left: auto; color: var(--muted); }
-    .live-tool .lt-state.done { color: var(--success); }
-    .live-tool .lt-preview { flex-basis: 100%; color: var(--muted); font-size: 0.92em; border-top: 1px solid var(--border); padding-top: 4px; margin-top: 2px; white-space: pre-wrap; }
-
-    /* ─── Permission card (reference approval) ─────────────────────── */
-    .perm-card {
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      background: var(--surface);
-      padding: 10px 12px;
-      margin: 2px 0 10px;
-      max-width: 720px;
-    }
-    .perm-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-    .perm-ico { color: var(--warning, #E68A00); font-size: 13px; }
-    .perm-title { font-weight: 600; font-size: 12.5px; color: var(--text); }
-    .perm-cmd { margin: 4px 0 10px; }
-    .perm-cmd code {
-      display: block; padding: 6px 8px; border-radius: 6px;
-      background: var(--bg); border: 1px solid var(--border);
-      font-family: var(--font-mono); font-size: 12px; color: var(--text);
-      word-break: break-all;
-    }
-    .perm-actions { display: flex; gap: 8px; justify-content: flex-end; }
-    .perm-btn {
-      border: 1px solid var(--border); border-radius: 999px;
-      padding: 5px 14px; font-size: 12px; font-weight: 600;
-      background: var(--surface); color: var(--text); cursor: pointer;
-    }
-    .perm-btn.allow { background: var(--accent); border-color: var(--accent); color: #fff; }
-    .perm-btn.deny { background: transparent; color: var(--danger); border-color: var(--danger); }
 
     /* ── Composer flyout: arc-parity approval card ── */
     .composer-flyout { width: 100%; }
@@ -2702,8 +2603,6 @@ public static let css: String = """
       cursor: pointer; white-space: nowrap;
     }
 
-    /* ── Chat menu: "Set category" hover flyout submenu (arc parity) ── */
-    .menu-item.has-sub { position: relative; display: flex; }
     /* The submenu is positioned and shown by runtime.js (fixed coordinates so
        it escapes .panel-body's overflow:auto clip) — CSS hover is deliberately
        not used: the JS version also works for keyboard focus. */
@@ -2718,21 +2617,6 @@ public static let css: String = """
       display: inline-flex; align-items: center; color: var(--muted);
       margin-left: auto; padding-left: 14px;
     }
-    .menu-sub {
-      position: absolute; left: 100%; top: -6px;
-      min-width: 190px; z-index: 70;
-      display: none;
-      flex-direction: column;
-      background: var(--surface);
-      border: 1px solid var(--border-strong);
-      border-radius: 12px;
-      box-shadow: var(--shadow);
-      padding: 5px;
-      max-height: 320px; overflow-y: auto;
-    }
-    .menu-item.has-sub:focus-within .menu-sub { display: flex; }
-    .menu-sub button { width: 100%; box-sizing: border-box; }
-    .menu-sub button.menu-sel { background: var(--accent-soft); color: var(--accent-strong); }
 
     /* ── Settings → Color scheme: 3-dot palette tile grid (reference Skin) ── */
     .scheme-grid {
@@ -2877,19 +2761,6 @@ public static let css: String = """
     }
     .todo-add input:focus { outline: none; border-color: var(--accent); }
     .todo-add button { border-radius: 999px; }
-    .cron-panel { padding: 18px; max-width: 720px; margin: 0 auto; }
-    .cron-dot { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 13px; }
-    .cron-add { display: flex; gap: 8px; margin-top: 14px; }
-    .cron-add input {
-      flex: 1; background: var(--bg); color: var(--text);
-      border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; min-width: 0;
-    }
-    .cron-row { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--border-subtle); }
-    .cron-dot.on { color: var(--success); }
-    .cron-info { flex: 1; min-width: 0; }
-    .cron-name { font-size: 13px; font-weight: 600; }
-    .cron-sched { font-weight: 400; opacity: .7; font-size: 12px; margin-left: 6px; }
-    .cron-meta { font-size: 12px; opacity: .65; margin-top: 2px; }
     .icon-mini { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 14px; padding: 2px 4px; display: inline-flex; align-items: center; justify-content: center; }
     .icon-mini:hover { color: var(--text); }
     .icon-mini.danger:hover { color: var(--danger); }
@@ -3123,17 +2994,7 @@ public static let css: String = """
       letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 999px;
       border: 1px solid var(--border-strong); color: var(--muted); background: var(--hover-bg); vertical-align: 1px; }
     .cmd-item-badge-skill { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-strong); }
-
-    /* ── Reply with selection (reference messages.js parity) ── */
-    .selected-text-reply-btn { position: fixed; z-index: 1200; display: inline-flex; align-items: center;
-      gap: 6px; padding: 8px 14px; border: 2px solid var(--accent-strong); border-radius: 999px;
-      background: var(--surface); color: var(--text);
-      box-shadow: 0 8px 24px rgba(0,0,0,.30), 0 0 0 1px var(--border);
-      font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer; opacity: 0;
-      pointer-events: none; transform: translateY(4px);
-      transition: opacity .12s ease, transform .12s ease; user-select: none; }
     .selected-text-reply-btn.visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
-    .selected-text-reply-btn:hover { background: var(--surface-2); border-color: var(--accent); }
 
     /* ── Context chips (reference _renderSelectionChips parity) ── */
     .selection-chips-wrap { display: flex; flex-direction: column; gap: 8px; max-width: 100%;
