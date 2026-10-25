@@ -896,6 +896,11 @@ actor AppState {
     /// Active turns keyed by sessionID — different chats may run concurrently.
     /// Stop is scoped to the turn's own session.
     var activeTurns: [String: LiveTurn] = [:]
+    /// The agent each live turn runs on, keyed by sessionID (CONVERGE A7). The
+    /// stop button reaches the turn's own agent through this handle; the entry
+    /// is removed when the turn ends, so a stopped chat can never interrupt a
+    /// later turn.
+    var turnAgents: [String: ArcAgent] = [:]
     /// arc-style approval gate for the webui tool loop: the terminal tool
     /// is checked against ApprovalManager, and dangerous commands pause the
     /// turn on a permission card until the user approves or denies.
@@ -1820,7 +1825,7 @@ actor AppState {
             workspaceRoot: root,
             platformHint: "webui",
             initialHistory: initialHistory,
-            moa: arcConfig.moa,
+            moa: Self.turnMoAConfig(arcConfig.moa, enabledBySwitch: settings.moaEnabled),
             toolSearch: arcConfig.toolSearch,
             backgroundReview: backgroundReview,
             verifyOnStop: arcConfig.agent.verifyOnStop,
@@ -1851,6 +1856,20 @@ actor AppState {
     }
 
     // MARK: Approval gating (reference smart command approval)
+
+    /// The MoA block a UI turn hands to the core.
+    ///
+    /// The UI's switch is ``AppSettings/moaEnabled`` (Settings → Preferences) and
+    /// the core reads `config.moa.enabled`; the legacy loop ran the advisory only
+    /// when the switch was on, whatever `~/.arc/config.json` said. Carrying the
+    /// switch's value keeps that behaviour now that the core runs the advisory
+    /// (CONVERGE A7). No reference models means nothing to fan out, so the block
+    /// stays off.
+    static func turnMoAConfig(_ config: MoAConfig, enabledBySwitch: Bool) -> MoAConfig {
+        var moa = config
+        moa.enabled = enabledBySwitch && !moa.referenceModels.isEmpty
+        return moa
+    }
 
     /// Smart-approval risk classification via the `approval` auxiliary model.
     /// Mirror of the harness `ArcAgent.classifyApprovalRisk`; returns nil when

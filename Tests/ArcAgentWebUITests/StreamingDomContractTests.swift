@@ -29,6 +29,14 @@ extension ArcWebUITestRoot {
             return clientText(text)
         }
 
+        /// the pure turn-event mapper: where the live turn's fields are written
+        /// now that the turn runs on `ArcAgent.streamTurn` (CONVERGE A7).
+        private static func turnEvents() -> String {
+            let path = "\(sourcesRoot)/TurnEvents.swift"
+            let text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+            return clientText(text)
+        }
+
         /// text as the client sees it: `\"` unescaped (the plain and escaped spellings of an
         /// attribute are one shape).
         static func clientText(_ text: String) -> String {
@@ -62,8 +70,13 @@ extension ArcWebUITestRoot {
         @Test("tool progress is a name plus a client-ticked clock")
         func toolProgressIsNamedAndTimed() async {
             let actions = Self.actions()
-            #expect(actions.contains("toolName = call.function.name"),
-                    "the tool loop must stamp the running tool's name for the status line")
+            #expect(actions.contains("TurnLiveState.apply(event, to: live)"),
+                    "the turn loop must drive the live turn from the agent's event stream")
+            let mapper = Self.turnEvents()
+            #expect(mapper.contains("next.toolName = name"),
+                    "the mapper must stamp the running tool's name for the status line")
+            #expect(mapper.contains("next.toolStartedAt = now"),
+                    "the mapper must stamp when the tool started, for the client-ticked clock")
             let live = await RenderedMarkup.liveTurn()
             #expect(live.contains("read_file"), "the tool status line must render the tool name")
             #expect(live.contains("data-elapsed") && live.contains("data-started="),

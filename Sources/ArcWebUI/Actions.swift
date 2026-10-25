@@ -579,58 +579,13 @@ extension AppState {
         return (Self.compressedHistory(msgs, summary: summary), true)
     }
 
-    /// Run a full agent turn (streaming) for the active chat and push updates
-    /// to the originating client throughout.
     // MARK: - Core-service integrations (arc parity)
-
-    private static let rateLimits = RateLimitTracker()
-    private static let usageLedger = UsageLedger()
 
     /// Per-turn tool guardrails, rebuilt from `~/.arc/config.json` at the
     /// start of every turn so `guardrails.toolLoopCap` edits apply without a
     /// restart (reference reads config per request too).
     private static func freshGuardrails() -> ToolGuardrails {
         ToolGuardrails(limits: .init(loopCap: Self.rawArcConfig().effectiveToolLoopCap()))
-    }
-
-    /// Bounded empty-response nudge (mirrors the core's recovery budget).
-    static let emptyResponseNudge =
-        "The previous turn ended without any response content. Using the tool results above, provide your answer now."
-
-    /// Record a finished round in the durable usage ledger (~/.arc-agent/usage.json),
-    /// the same file the CLI and daemon write (reference usage_pricing parity).
-    static func recordUsage(_ usage: Usage, preset: ModelConfigPreset) async {
-        await usageLedger.record(
-            route: BillingRoute(provider: preset.provider, model: preset.model, baseURL: preset.baseURL),
-            usage: CanonicalUsage(
-                inputTokens: usage.promptTokens,
-                outputTokens: usage.completionTokens,
-                cacheReadTokens: usage.cachedPromptTokens ?? 0,
-                cacheWriteTokens: 0,
-                reasoningTokens: 0,
-                requestCount: 1
-            )
-        )
-        await usageLedger.save()
-    }
-
-    /// Mixture-of-Agents advisory pass (reference moa_loop parity): run the
-    /// reference fan-out and prepend the joined advisory to the context.
-    private func appendMoAAdvisory(to messages: inout [Message], preset: ModelConfigPreset, userText: String) async {
-        var cfg = arcConfig.moa
-        cfg.enabled = true
-        let service = MoAService(config: cfg, aggregatorModelName: preset.model) { [weak self] _, _ in
-            guard let self else { return nil }
-            return await self.makeClient(for: preset)
-        }
-        let userPrompt = userText
-        let wire = messages.map { ["role": $0.role.rawValue, "content": $0.content ?? ""] }
-        let result = await service.aggregate(userPrompt: userPrompt, apiMessages: wire)
-        guard !result.advisoryBlock.isEmpty else { return }
-        messages.insert(
-            Message(role: .system, content: "Advisory context from reference models (Mixture of Agents):\n\(result.advisoryBlock)"),
-            at: 1
-        )
     }
 
     // MARK: - Tool-iteration budget (reference `max_turns` parity)
@@ -737,84 +692,47 @@ extension AppState {
         }
     }
 
-    /// Seconds elapsed since the live turn started, for the "Processed Xm Ys"
-    /// label on the turn's activity dropdown. nil when no turn is running.
-    func turnDurationSeconds(_ sessionID: String) -> Double? {
-        guard let t = activeTurns[sessionID] else { return nil }
-        return max(0, Date().timeIntervalSince(t.startedAt))
-    }
-
-    private func handleIterationLimit(
-        history: inout [Message],
-        sessionID: String,
-        preset: ModelConfigPreset,
-        store: (any SessionStore)?,
-        effort: String?,
-        throttle: @escaping () async -> Void,
-        flush: @escaping () async -> Void
-    ) async {
-        let nudge = Message(
-            role: .user,
-            content: "You've reached the maximum number of tool-calling iterations allowed. "
-                + "Please provide a final response summarizing what you've found and accomplished so far, "
-                + "without calling any more tools.",
-            createdAt: Date()
-        )
-        history.append(nudge)
-        if let store { await persistMessage(nudge, sessionID: sessionID, store: store) }
-        await flush()
-
-        // One final no-tool call: the model cannot emit tool calls, so the
-        // result is either a summary or empty → graceful fallback (reference
-        // `final_response` fallback text).
-        var summary = ""
-        var reasoning = ""
-        var usage: Usage?
-        guard let client = makeClient(for: preset) else {
-            // No client for the configured model: fall back to graceful text.
-            let f = Message(role: .assistant, content: "I reached the iteration limit and couldn't generate a summary.", createdAt: Date(), terminalReason: "max_iterations", turnDuration: turnDurationSeconds(sessionID))
-            history.append(f)
-            if let store { await persistMessage(f, sessionID: sessionID, store: store) }
-            await flush()
-            return
-        }
-        var msgs = [Message(role: .system, content: await buildSystemPrompt(config: preset, sessionID: sessionID))]
-        msgs.append(contentsOf: history)
-        let started = Date()
-        do {
-            let stream = client.stream(messages: msgs, tools: [], reasoningEffort: effort)
-            for try await delta in stream {
-                if activeTurns[sessionID]?.stopped == true { break }
-                if let c = delta.content { summary += c; activeTurns[sessionID]?.assistantText = summary }
-                if let r = delta.reasoning { reasoning += r; activeTurns[sessionID]?.thinking = reasoning }
-                if let u = delta.usage { usage = u }
-                await throttle()
-            }
-        } catch {
-            // Provider fault during the final call: no retry (reference returns
-            // the graceful fallback in this case); keep any partial text.
-        }
-        let elapsed = max(0.2, Date().timeIntervalSince(started))
-        let tps: Double? = usage.flatMap { u in u.completionTokens > 0 ? Double(u.completionTokens) / elapsed : nil }
-        let finalText = summary.isEmpty
-            ? "I reached the iteration limit and couldn't generate a summary."
-            : summary
-        let final = Message(
+    /// The store's assistant message for a finished round (CONVERGE A7).
+    ///
+    /// `content`, `reasoning`, `usage` and `terminalReason` come from the round's
+    /// ``TurnTranscript`` (the §3.3 mapping); `createdAt`, `tps` and
+    /// `turnDuration` are the UI-side clock fields the core never sees. `tps` is
+    /// the round's output tokens over its wall clock, the value the legacy loop
+    /// computed for the same reply.
+    static func storedAssistantMessage(
+        transcript: TurnTranscript,
+        createdAt: Date,
+        tps: Double?,
+        turnDuration: Double?
+    ) -> Message {
+        let mapped = transcript.assistantMessage()
+        return Message(
             role: .assistant,
-            content: finalText,
-            createdAt: Date(),
-            reasoning: reasoning.isEmpty ? nil : reasoning,
-            usage: usage,
+            content: mapped.content,
+            createdAt: createdAt,
+            reasoning: mapped.reasoning,
+            usage: mapped.usage,
             tps: tps,
-            terminalReason: "max_iterations",
-            turnDuration: turnDurationSeconds(sessionID)
+            terminalReason: mapped.terminalReason,
+            turnDuration: turnDuration
         )
-        history.append(final)
-        if let store { await persistMessage(final, sessionID: sessionID, store: store) }
-        if let u = usage { await Self.recordUsage(u, preset: preset) }
-        await flush()
     }
 
+    /// The core's notice when it honours an interrupt at an iteration boundary.
+    /// The UI writes its own interruption message, so this text never becomes
+    /// the stored reply's content.
+    static let coreInterruptNotice = "Interrupted by user."
+
+    /// Run a full agent turn for the active chat and push updates to the
+    /// originating client throughout.
+    ///
+    /// The turn runs on a per-turn ``ArcAgent`` (CONVERGE A5/A6) and consumes its
+    /// ``AgentTurnEvent`` stream on this same structured path: the UI keeps the
+    /// live turn, the durable transcript, the fragments and the turn boundaries,
+    /// while the core owns retry/backoff, recovery nudges, tool dispatch,
+    /// approval/clarify presentation and usage accounting. Stored messages are
+    /// rebuilt from the events (§3.3), so a turn persists what the legacy loop
+    /// wrote — the golden transcript suite is the proof.
     func runTurn(
         userText raw: String,
         pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void,
@@ -863,7 +781,12 @@ extension AppState {
         // effort below) follow the profile instead of the chat's config.
         let pctx = profileContext(for: sessionID)
         let effectivePreset = pctx.map { preset.applying($0) } ?? preset
-        guard let client: any LLMClient = turnClientOverride ?? makeClient(for: effectivePreset) else {
+        // The turn's agent builds its own provider client from the turn's
+        // configuration. This pre-flight gate keeps the legacy behaviour for a
+        // configuration that cannot build one at all (no http client), so the
+        // user gets the toast instead of a turn that fails after the message is
+        // stored.
+        guard turnClientOverride != nil || makeClient(for: effectivePreset) != nil else {
             _ = toast("No usable model configuration '\(configName)'. Add one in Settings → Preferences.", kind: "error")
             _ = await refreshFragments()
             return
@@ -978,200 +901,215 @@ extension AppState {
             history = compressed
             _ = hint("Conversation history compressed (est. \(estimateTokens(history)) tokens now).")
         }
-        var assistantText = ""
-        var reasoningAccum = ""
-        let tools = registry.buildToolSchemas(enabled: [], disabled: Set(settings.disabledToolsets))
-        var finalError: String?
-        var recovery = TurnRecoveryState()
+        // the agent appends this turn's user message itself, so the seed is the
+        // model-facing history the UI built minus the message stored above.
+        let seed = Array(history.dropLast())
+
+        // the ambient `execute_code` path still consults the shared guardrails;
+        // the turn's own budget lives on the agent's configuration.
         guardrails = Self.freshGuardrails()
         await guardrails.resetTurn()
-        let maxTurns = max(1, Self.effectiveMaxTurns())
+
+        // A6's overload: the minted agent carries this turn's approval, clarify
+        // and execute_code bindings — `headless` decides the approval policy, so
+        // a queue run never waits on a card and an interactive run never
+        // approves silently.
+        let minted = await makeTurnAgent(
+            preset: preset,
+            profileContext: pctx,
+            thinking: thinkingLevel(for: sessionID),
+            headless: headless,
+            sessionID: sessionID,
+            initialHistory: seed,
+            pusher: pusher
+        )
+        let agent = minted.agent
+        // the stop button reaches the turn's own agent through this handle.
+        turnAgents[sessionID] = agent
+
+        // One round's stored output: content, reasoning, usage and
+        // terminalReason through A4's mapper, plus the UI-side clock and the
+        // tool calls the mapper does not model. A tool round is held until the
+        // next round begins, so its assistant message is written in one piece —
+        // the shape the legacy loop stored.
+        var round = TurnTranscript()
+        var roundStart = Date()
+        var roundTokensRecorded = false
+        var pendingToolRound: PendingToolRound?
+        var toolArguments: [String: String] = [:]
+        var streamedText = ""
         var turnCompleted = false
+        var finalError: String?
 
-        turnLoop: for _ in 0..<maxTurns {
-            if activeTurns[sessionID]?.stopped == true { break }
-            let sys = await buildSystemPrompt(config: preset, sessionID: sessionID)
-            var messages = [Message(role: .system, content: sys)]
-            messages.append(contentsOf: history)
-
-            // Mixture-of-Agents advisory (reference moa_loop parity): when enabled
-            // in Settings and reference models are configured in
-            // ~/.arc/config.json, fan out reference calls first and prepend the
-            // joined advisory to the model-facing context.
-            if settings.moaEnabled, !arcConfig.moa.referenceModels.isEmpty {
-                await appendMoAAdvisory(to: &messages, preset: preset, userText: turn.userText)
+        /// The store's reply for a turn that finished normally.
+        func storedFinalMessage() -> Message {
+            let elapsed = max(0.2, Date().timeIntervalSince(roundStart))
+            let tps = round.usage.flatMap { usage in
+                usage.completionTokens > 0 ? Double(usage.completionTokens) / elapsed : nil
             }
+            return Self.storedAssistantMessage(
+                transcript: round,
+                createdAt: Date(),
+                tps: tps,
+                turnDuration: max(0, Date().timeIntervalSince(turn.startedAt))
+            )
+        }
 
-            var contentAccum = ""
-            reasoningAccum = ""
-            var toolAccum: [Int: (id: String?, name: String?, args: String)] = [:]
-            var streamError: String?
-            var roundUsage: Usage?
-            var roundContentChars = 0
-            let roundStart = Date()
+        /// Write this event into the live turn. The mapper is a pure function of
+        /// the prior value, so re-reading the turn here keeps a stop click's flag.
+        func applyLive(_ event: AgentTurnEvent) {
+            guard let live = activeTurns[sessionID] else { return }
+            activeTurns[sessionID] = TurnLiveState.apply(event, to: live)
+        }
 
-            let thinkLevel = thinkingLevel(for: sessionID)
-            let effort = pctx?.reasoningEffort ?? (thinkLevel == "off" ? nil : thinkLevel)
-            var stream = client.stream(messages: messages, tools: tools, reasoningEffort: effort)
-                var roundTokensRecorded = false
-                var streamAttempts = 0
-                while true {
-                    streamAttempts += 1
-                    do {
-                    for try await delta in stream {
-                    if activeTurns[sessionID]?.stopped == true { break }
-                    if !roundTokensRecorded, let u = delta.usage {
-                        roundTokensRecorded = true
-                        recordTokensBurned(u.totalTokens > 0 ? u.totalTokens : u.promptTokens + u.completionTokens)
-                    }
-                    if let u = delta.usage { roundUsage = u }
-                    if let c = delta.content {
-                        contentAccum += c
-                        assistantText += c
-                        roundContentChars += c.count
-                    }
-                    if let r = delta.reasoning {
-                        reasoningAccum += r
-                        activeTurns[sessionID]?.thinking = reasoningAccum
-                    }
-                    if let tcs = delta.toolCalls {
-                        for tc in tcs {
-                            var entry = toolAccum[tc.index] ?? (nil, nil, "")
-                            if let id = tc.id { entry.id = id }
-                            if let name = tc.name { entry.name = name }
-                            entry.args += tc.arguments ?? ""
-                            toolAccum[tc.index] = entry
+        /// Take the held tool round as the messages it stores: its assistant
+        /// message (content, reasoning, tool calls) then one tool message per
+        /// result, in the order the legacy loop wrote them.
+        func takeToolRoundMessages() -> [Message] {
+            guard let pending = pendingToolRound else { return [] }
+            pendingToolRound = nil
+            var messages = [Message(
+                role: .assistant,
+                content: pending.content.isEmpty ? nil : pending.content,
+                toolCalls: pending.calls,
+                createdAt: Date(),
+                reasoning: pending.reasoning.isEmpty ? nil : pending.reasoning
+            )]
+            messages.append(contentsOf: pending.results.map { result in
+                Message(
+                    role: .tool,
+                    content: result.result,
+                    name: result.name,
+                    toolCallID: result.id,
+                    createdAt: Date()
+                )
+            })
+            return messages
+        }
+
+        do {
+            try await agent.prime()
+            for try await event in agent.streamTurn(message: userContent) {
+                // A round closes when the next round's stream begins: a text or
+                // reasoning delta, the provider's usage report, or a terminal
+                // event. The held tool round is written in one piece then.
+                switch event {
+                case .textDelta, .reasoningDelta, .usage, .completed, .failed:
+                    let stored = takeToolRoundMessages()
+                    if !stored.isEmpty {
+                        for message in stored {
+                            history.append(message)
+                            if let store {
+                                await persistMessage(message, sessionID: sessionID, store: store, healWith: history)
+                            }
+                        }
+                        // commit boundary: the round's messages are stored, so
+                        // the transcript block can show them.
+                        if activeSessionID == sessionID {
+                            await pusher(await transcriptFragments())
                         }
                     }
-                    activeTurns[sessionID]?.assistantText = assistantText
-                    activeTurns[sessionID]?.status = contentAccum.isEmpty && !toolAccum.isEmpty ? "tool" : "running"
-                    // arc parity: live tokens-per-second estimate while streaming.
-                    let roundElapsed = max(0.2, Date().timeIntervalSince(roundStart))
-                    activeTurns[sessionID]?.tps = roundContentChars > 0 ? (Double(roundContentChars) / 4.0) / roundElapsed : nil
-                    await throttle()
-                }
+                case .toolCallStarted, .toolCallFinished:
                     break
-                } catch {
-                    // Provider fault recovery (arc parity): retry transient
-                    // failures (429/5xx/timeouts/empty) with rate-limit-aware
-                    // backoff — but only before any output was emitted, so the
-                    // user never sees duplicate text.
-                    let canRetry = activeTurns[sessionID]?.stopped != true
-                        && contentAccum.isEmpty && toolAccum.isEmpty && reasoningAccum.isEmpty
-                        && streamAttempts < 3 && classifyError(error) == .retryable
-                    guard canRetry else {
-                        streamError = "\(error)"
-                        break
+                }
+
+                switch event {
+                case .textDelta(let text):
+                    round.apply(event)
+                    // the core's own interrupt notice is not part of the reply —
+                    // the UI writes its own interruption message below.
+                    if !(activeTurns[sessionID]?.stopped == true && text == Self.coreInterruptNotice) {
+                        streamedText += text
                     }
-                    if case LLMError.rateLimited(let retryAfter) = error {
-                        await Self.rateLimits.recordThrottle(route: "\(preset.provider)/\(preset.model)", retryAfter: retryAfter)
+                    applyLive(event)
+                    await throttle()
+                case .reasoningDelta:
+                    round.apply(event)
+                    applyLive(event)
+                    await throttle()
+                case .usage(let usage):
+                    round.apply(event)
+                    if !roundTokensRecorded {
+                        roundTokensRecorded = true
+                        recordTokensBurned(usage.totalTokens > 0
+                            ? usage.totalTokens
+                            : usage.promptTokens + usage.completionTokens)
                     }
-                    let backoff = await Self.rateLimits.backoffSeconds(route: "\(preset.provider)/\(preset.model)")
-                    try? await Task.sleep(nanoseconds: UInt64(max(backoff, 0.75) * 1_000_000_000))
-                    stream = client.stream(messages: messages, tools: tools, reasoningEffort: effort)
+                    applyLive(event)
+                    await flush()
+                case .toolCallStarted(let id, let name, let arguments):
+                    if pendingToolRound == nil {
+                        pendingToolRound = PendingToolRound(content: round.content, reasoning: round.reasoning)
+                        round = TurnTranscript()
+                        roundStart = Date()
+                        roundTokensRecorded = false
+                    }
+                    pendingToolRound?.calls.append(ToolCall(
+                        id: id,
+                        type: "function",
+                        function: ToolCallFunction(name: name, arguments: arguments)
+                    ))
+                    toolArguments[id] = arguments
+                    applyLive(event)
+                    await flush()
+                case .toolCallFinished(let id, let name, let result):
+                    pendingToolRound?.results.append((id: id, name: name, result: result))
+                    // skill telemetry moves to the result consumer (§3.5).
+                    if let raw = toolArguments.removeValue(forKey: id),
+                       let data = raw.data(using: .utf8),
+                       let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        recordSkillToolUse(toolName: name, args: args)
+                    }
+                    applyLive(event)
+                    await flush()
+                case .completed(let finalText, _):
+                    round.apply(event)
+                    if finalText != round.content {
+                        LogCollector.shared.append(level: .warning, text: "[turn] completed text diverged from the streamed text (\(round.content.count) streamed, \(finalText.count) reported)")
+                    }
+                    // a stop that lands before the terminal event is what the
+                    // user asked for: the turn is stored as interrupted with the
+                    // UI's own wording, not as a completed reply (the core's
+                    // "Interrupted by user." is its notice, not the reply).
+                    turnCompleted = activeTurns[sessionID]?.stopped != true
+                case .failed(let message):
+                    finalError = message
+                    applyLive(event)
                 }
-                if streamError != nil { break }
-                }
-
-            let calls: [ToolCall] = toolAccum.sorted { $0.key < $1.key }.compactMap { _, e in
-                guard let name = e.name, let id = e.id else { return nil }
-                return ToolCall(id: id, type: "function", function: ToolCallFunction(name: name, arguments: e.args))
             }
-
-            if let streamError {
-                finalError = streamError
-                break
-            }
-            if activeTurns[sessionID]?.stopped == true { break }
-
-            // Empty-round storm guard (reference bounded empty responses): a full
-            // round that yields nothing is retried with a nudge, at most
-            // `TurnRecoveryState.emptyStormThreshold` times.
-            if streamError == nil, activeTurns[sessionID]?.stopped != true,
-               contentAccum.isEmpty, reasoningAccum.isEmpty, toolAccum.isEmpty {
-                recovery.emptyStormStreak += 1
-                if recovery.emptyStormStreak < TurnRecoveryState.emptyStormThreshold {
-                    history.append(Message(role: .user, content: Self.emptyResponseNudge))
-                    _ = hint("Empty response from provider; nudging retry (\(recovery.emptyStormStreak)/\(TurnRecoveryState.emptyStormThreshold)).")
-                    continue
-                }
-            }
-
-            if calls.isEmpty {
-                // Final assistant turn.
-                // arc parity: final TPS = real output tokens / wall-clock
-                // duration (matches the round's usage report when available).
-                let finalElapsed = max(0.2, Date().timeIntervalSince(roundStart))
-                let finalTps: Double? = roundUsage.flatMap { u in
-                    u.completionTokens > 0 ? Double(u.completionTokens) / finalElapsed : nil
-                }
-                let asstMsg = Message(
-                    role: .assistant,
-                    content: contentAccum,
-                    createdAt: Date(),
-                    reasoning: reasoningAccum.isEmpty ? nil : reasoningAccum,
-                    usage: roundUsage,
-                    tps: finalTps,
-                    turnDuration: max(0, Date().timeIntervalSince(turn.startedAt))
-                )
-                history.append(asstMsg)
+        } catch {
+            // a throwing stream is a transport failure: the same shape as `.failed`.
+            // a tool round that finished before the failure is still real work,
+            // so it lands in the transcript.
+            for message in takeToolRoundMessages() {
+                history.append(message)
                 if let store {
-                    await persistMessage(asstMsg, sessionID: sessionID, store: store, healWith: history)
-                }
-                if let u = roundUsage {
-                    await Self.recordUsage(u, preset: preset)
-                }
-                turnCompleted = true
-                break turnLoop
-            }
-
-            // Tool round.
-            let asstMsg = Message(role: .assistant, content: contentAccum.isEmpty ? nil : contentAccum, toolCalls: calls, createdAt: Date(), reasoning: reasoningAccum.isEmpty ? nil : reasoningAccum)
-            history.append(asstMsg)
-            if let store {
-                await persistMessage(asstMsg, sessionID: sessionID, store: store, healWith: history)
-            }
-            activeTurns[sessionID]?.toolChips = calls.map { "⚙ \($0.function.name)" }
-            activeTurns[sessionID]?.status = "tool"
-            if activeSessionID == sessionID {
-                await pusher(await transcriptFragments())
-            }
-            await flush()
-
-            for call in calls {
-                if activeTurns[sessionID]?.stopped == true { break }
-                // Tool-progress boundary: name + start stamp drive the live
-                // status line ("Running web_search… 0:07") while the call runs.
-                activeTurns[sessionID]?.toolName = call.function.name
-                activeTurns[sessionID]?.toolStartedAt = Date()
-                await flush()
-                let result = await runTool(call, sessionID: sessionID, pusher: pusher, headless: headless)
-                activeTurns[sessionID]?.toolName = nil
-                activeTurns[sessionID]?.toolStartedAt = nil
-                let toolMsg = Message(role: .tool, content: result, name: call.function.name, toolCallID: call.id, createdAt: Date())
-                history.append(toolMsg)
-                if let store {
-                    await persistMessage(toolMsg, sessionID: sessionID, store: store, healWith: history)
-                }
-                // Commit boundary: the tool result must appear in the transcript.
-                if activeSessionID == sessionID {
-                    await pusher(await transcriptFragments())
+                    await persistMessage(message, sessionID: sessionID, store: store, healWith: history)
                 }
             }
-            activeTurns[sessionID]?.toolChips = []
-            activeTurns[sessionID]?.status = "running"
+            finalError = "\(error)"
         }
+        await agent.shutdownHTTPClient()
+        turnAgents[sessionID] = nil
 
         // Finalize: drop the live bubble, resync from the store, rebuild.
         let wasStopped = activeTurns[sessionID]?.stopped == true
 
-        // Interrupted turns (user stop or provider disconnect) still leave a
-        // real assistant reply + status card in the transcript, so the turn's
-        // dropdown ("Processed Xm Ys"), any partial output, and the
-        // interruption reason survive reloads exactly like a normal turn.
-        if !turnCompleted, wasStopped || finalError != nil {
+        if turnCompleted {
+            // the normal path: the round's mapper state is the stored reply and
+            // `completed.terminalReason` is what the status card reads.
+            let final = storedFinalMessage()
+            history.append(final)
+            if let store {
+                await persistMessage(final, sessionID: sessionID, store: store, healWith: history)
+            }
+        } else {
+            // Interrupted turns (user stop or provider disconnect) still leave a
+            // real assistant reply + status card in the transcript, so the
+            // turn's dropdown ("Processed Xm Ys"), any partial output, and the
+            // interruption reason survive reloads exactly like a normal turn.
             let reason = wasStopped ? "user_stopped" : "disconnected"
-            let partial = assistantText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let partial = streamedText.trimmingCharacters(in: .whitespacesAndNewlines)
             let notice = wasStopped
                 ? "Turn interrupted — stopped by the user."
                 : "Turn interrupted — the connection to the model was lost."
@@ -1187,29 +1125,13 @@ extension AppState {
             if let store {
                 await persistMessage(interrupt, sessionID: sessionID, store: store, healWith: history)
             }
-            turnCompleted = true
-        }
-
-        // arc parity: when the budget is exhausted cleanly (no error, no
-        // user stop, no final answer yet), append the iteration-limit nudge,
-        // take one final no-tool call for the summary, and mark it so the UI
-        // can render the "Tool iteration limit reached" status card
-        // (reference `handle_max_iterations` + webui fallback injection).
-        if !turnCompleted, finalError == nil, !wasStopped {
-            await handleIterationLimit(
-                history: &history,
-                sessionID: sessionID,
-                preset: effectivePreset,
-                store: store,
-                effort: pctx?.reasoningEffort ?? (thinkingLevel(for: sessionID) == "off" ? nil : thinkingLevel(for: sessionID)),
-                throttle: throttle,
-                flush: flush
-            )
         }
 
         activeTurns[sessionID] = nil
         if let finalError {
-            _ = toast("Turn failed: \(trunc(finalError, 140))", kind: "error")
+            // the core's failure text is already prefixed; the toast is not.
+            let reason = finalError.hasPrefix("Error: ") ? String(finalError.dropFirst(7)) : finalError
+            _ = toast("Turn failed: \(trunc(reason, 140))", kind: "error")
         }
         await reloadSessions(selecting: selectAfter ? sessionID : nil)
         // Turn-end boundary: transcript (final message in, live block out), the
@@ -1241,11 +1163,15 @@ extension AppState {
         }
     }
 
-    /// Called by the red stop button: the in-flight turn ends as soon as the
-    /// streaming / tool loops next poll the flag. Scoped to the owning session
-    /// so stopping one chat never affects another's running turn.
-    func requestStopTurn(sessionID: String) {
+    /// Called by the red stop button: the live turn is flagged at once (the UI's
+    /// own guard) and the turn's agent is asked to interrupt. The core honours
+    /// the interrupt at its next iteration boundary — an in-flight call finishes
+    /// first, exactly the semantics ``ArcAgent/interruptTurn()`` documents.
+    /// Scoped to the owning session so stopping one chat never affects another's.
+    func requestStopTurn(sessionID: String) async {
         activeTurns[sessionID]?.stopped = true
+        // the turn's own agent, minted for this session by `runTurn` (A7).
+        await turnAgents[sessionID]?.interruptTurn()
         // Resolve any pending approval so a waiting turn can finish promptly.
         if let pa = pendingApproval, pa.sessionID == sessionID {
             pendingApproval = nil
@@ -1358,6 +1284,21 @@ extension AppState {
 }
 
 // MARK: - Headless approval policy (CONVERGE A6)
+
+/// One round's tool calls and their results, held until the round's boundary so
+/// the assistant message that requested them is written in one piece — the shape
+/// the legacy loop stored (CONVERGE A7).
+///
+/// The event stream reports a call's start and its result separately and gives
+/// no explicit round boundary, so the turn loop closes a round when the next
+/// round's stream begins (a text delta, a reasoning delta, or the provider's
+/// usage report) and writes this value then.
+private struct PendingToolRound {
+    var content: String
+    var reasoning: String
+    var calls: [ToolCall] = []
+    var results: [(id: String, name: String, result: String)] = []
+}
 
 /// The scheduler's approval policy for a turn with no human in the loop, as a
 /// pure decision function: no agent, no socket and no turn are needed to test
