@@ -4,6 +4,7 @@ import ArcTheme
 import Foundation
 import Logging
 import WebUI
+import WebUIDesignSystem
 
 // MARK: - Views (actor methods on AppState)
 
@@ -2824,23 +2825,19 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 skillMetadataHTML(skill)
                 Input(name: "sk-orig", type: .hidden, value: skill.name)
                 Div(class: "form-grid") {
-                    Div {
-                        Label("Name", for: "sk-edit-name-input")
+                    WebUIField(label: "Name", controlID: "sk-edit-name-input") {
                         Input(field: "sk-edit-name-input", type: nil, value: nameV,
                               attributes: [("data-component-id", "sk-edit-name-input"), ("data-event", "input")])
                     }
-                    Div {
-                        Label("Category", for: "sk-edit-cat-input")
+                    WebUIField(label: "Category", controlID: "sk-edit-cat-input") {
                         Input(field: "sk-edit-cat-input", placeholder: "e.g. devops", type: nil, value: catV,
                               attributes: [("data-component-id", "sk-edit-cat-input"), ("data-event", "input")])
                     }
-                    Div {
-                        Label("Description", for: "sk-edit-desc-input")
+                    WebUIField(label: "Description", controlID: "sk-edit-desc-input") {
                         Input(field: "sk-edit-desc-input", type: nil, value: descV,
                               attributes: [("data-component-id", "sk-edit-desc-input"), ("data-event", "input")])
                     }
-                    Div {
-                        Label("Content (Markdown)", for: "sk-edit-content-input")
+                    WebUIField(label: "Content (Markdown)", controlID: "sk-edit-content-input") {
                         TextArea(field: "sk-edit-content-input", value: contentV, rows: 0)
                             .wire("sk-edit-content-input", on: .input)
                     }
@@ -2912,8 +2909,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             message: nameErr, describedBy: "skill-name-err", focus: nameFocus)
                         errSpan(id: "skill-name-err", message: nameErr)
                     }
-                    Div {
-                        Label("Category", for: "skill-cat-input")
+                    WebUIField(label: "Category", controlID: "skill-cat-input") {
                         Input(field: "skill-cat-input", placeholder: "e.g. devops", type: nil,
                               attributes: [("data-component-id", "skill-cat-input"), ("data-event", "input")])
                     }
@@ -2930,8 +2926,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             message: descErr, describedBy: "skill-desc-err", focus: descFocus)
                         errSpan(id: "skill-desc-err", message: descErr)
                     }
-                    Div {
-                        Label("Content (Markdown)", for: "skill-content-input")
+                    WebUIField(label: "Content (Markdown)", controlID: "skill-content-input") {
                         TextArea(field: "skill-content-input",
                                  placeholder: "How to use this skill…", rows: 0)
                             .wire("skill-content-input", on: .input)
@@ -3033,8 +3028,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                          : "A named, isolated agent configuration.")
                 }
                 Div(class: "form-grid") {
-                    Div {
-                        Label("Name", for: "profile-name-input")
+                    WebUIField(label: "Name", controlID: "profile-name-input") {
                         if isEdit {
                             Input(field: "profile-name-input",
                                   placeholder: "researcher", type: nil, value: editing?.name ?? "")
@@ -3046,14 +3040,12 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 .data("component-id", "profile-name-input")
                         }
                     }
-                    Div {
-                        Label("Title", for: "profile-title-input")
+                    WebUIField(label: "Title", controlID: "profile-title-input") {
                         Input(field: "profile-title-input",
                               placeholder: "Research Analyst", type: nil, value: editing?.title ?? "")
                             .data("component-id", "profile-title-input")
                     }
-                    Div {
-                        Label("Description", for: "profile-desc-input")
+                    WebUIField(label: "Description", controlID: "profile-desc-input") {
                         Input(field: "profile-desc-input",
                               placeholder: "One-line mission", type: nil, value: editing?.description ?? "")
                             .data("component-id", "profile-desc-input")
@@ -3064,15 +3056,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Text("Model context overrides for chats bound to this profile. Leave blank to inherit the chat's model config.")
                 }
                 Div(class: "form-grid") {
-                    Div {
-                        Label("Context window (tokens)", for: "profile-ctx-length")
+                    WebUIField(label: "Context window (tokens)", controlID: "profile-ctx-length") {
                         Input(field: "profile-ctx-length",
                               placeholder: "e.g. 128000", type: .number,
                               value: ectx?.contextLength.map(String.init) ?? "",
                               attributes: [("min", "1024"), ("step", "1024")])
                     }
-                    Div {
-                        Label("Max output (tokens)", for: "profile-ctx-maxtok")
+                    WebUIField(label: "Max output (tokens)", controlID: "profile-ctx-maxtok") {
                         Input(field: "profile-ctx-maxtok",
                               placeholder: "e.g. 8192", type: .number,
                               value: ectx?.maxOutputTokens.map(String.init) ?? "",
@@ -3084,22 +3074,19 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                options: AppState.effortOptions, selected: effortSel)
                             .data("component-id", "profile-ctx-effort")
                     }
-                    Div {
-                        Label("Temperature", for: "profile-ctx-temp")
+                    WebUIField(label: "Temperature", controlID: "profile-ctx-temp") {
                         Input(field: "profile-ctx-temp",
                               placeholder: "e.g. 0.7", type: .number,
                               value: ectx?.temperature.map { String($0) } ?? "",
                               attributes: [("min", "0"), ("max", "2"), ("step", "0.1")])
                     }
-                    Div {
-                        Label("Top P", for: "profile-ctx-topp")
+                    WebUIField(label: "Top P", controlID: "profile-ctx-topp") {
                         Input(field: "profile-ctx-topp",
                               placeholder: "e.g. 0.9", type: .number,
                               value: ectx?.topP.map { String($0) } ?? "",
                               attributes: [("min", "0"), ("max", "1"), ("step", "0.05")])
                     }
-                    Div {
-                        Label("Compress at (tokens)", for: "profile-ctx-budget")
+                    WebUIField(label: "Compress at (tokens)", controlID: "profile-ctx-budget") {
                         Input(field: "profile-ctx-budget",
                               placeholder: "e.g. 32000", type: .number,
                               value: ectx?.compressionBudget.map(String.init) ?? "",
@@ -3586,8 +3573,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 Text(" — never through a shell — with arc's own credentials stripped from its environment. Save, then press Test on the row to start it and list the tools it exposes.")
             }
             Div(class: "form-grid") {
-                Div {
-                    Label("Name", for: "mcp-name-input")
+                WebUIField(label: "Name", controlID: "mcp-name-input") {
                     Input(field: "mcp-name-input",
                           placeholder: "filesystem", type: .text,
                           value: formValues["mcp-name-input"] ?? "",
@@ -3596,8 +3582,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Small("How the agent selects this server. Lowercase letters, digits, '-' and '_'.")
                         .attribute("style", "color:var(--muted);font-size:0.75em")
                 }
-                Div {
-                    Label("Command", for: "mcp-command-input")
+                WebUIField(label: "Command", controlID: "mcp-command-input") {
                     Input(field: "mcp-command-input",
                           placeholder: "npx", type: .text,
                           value: formValues["mcp-command-input"] ?? "",
@@ -3605,8 +3590,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Small("One executable, resolved through PATH. Everything else belongs in Arguments.")
                         .attribute("style", "color:var(--muted);font-size:0.75em")
                 }
-                Div {
-                    Label("Arguments (one per line)", for: "mcp-args-input")
+                WebUIField(label: "Arguments (one per line)", controlID: "mcp-args-input") {
                     TextArea(field: "mcp-args-input",
                              placeholder: "-y\n@modelcontextprotocol/server-filesystem\n/Users/you/project",
                              value: formValues["mcp-args-input"] ?? "", rows: 4)
@@ -3614,8 +3598,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Small("Passed verbatim as argv — quotes are not interpreted, so an argument containing spaces works as typed.")
                         .attribute("style", "color:var(--muted);font-size:0.75em")
                 }
-                Div {
-                    Label("Environment (KEY=VALUE, one per line)", for: "mcp-env-input")
+                WebUIField(label: "Environment (KEY=VALUE, one per line)", controlID: "mcp-env-input") {
                     TextArea(field: "mcp-env-input",
                              placeholder: "GITHUB_PERSONAL_ACCESS_TOKEN=ghp_…",
                              value: formValues["mcp-env-input"] ?? "", rows: 3)
@@ -3709,8 +3692,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         Text("A workspace points at any folder on this computer. The folder path is required and follows Unix path rules; the name is an optional label — leave it blank and it is derived from the folder. Sessions keep their own workspace per chat; you pick it in the chat composer.")
                     }
                     Div(class: "form-grid") {
-                        Div {
-                            Label("Folder path", for: "ws-path-input")
+                        WebUIField(label: "Folder path", controlID: "ws-path-input") {
                             Input(field: "ws-path-input", placeholder: "/Users/you/research or ~/research",
                                   type: .text, value: formValues["ws-path-input"] ?? "",
                                   attributes: [("data-component-id", "ws-path-input"),
@@ -3718,8 +3700,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             Small("Required. An absolute path; ~ means your home folder.")
                                 .attribute("class", "form-hint")
                         }
-                        Div {
-                            Label("Name (optional)", for: "ws-name-input")
+                        WebUIField(label: "Name (optional)", controlID: "ws-name-input") {
                             Input(field: "ws-name-input", placeholder: "derived from the folder name",
                                   type: .text, value: formValues["ws-name-input"] ?? "",
                                   attributes: [("data-component-id", "ws-name-input")])
@@ -4112,20 +4093,17 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                   value: se?.id ?? "",
                   attributes: [("data-component-id", "storage-edit-id")])
             Div(class: "form-grid-3") {
-                Div {
-                    Label("Name", for: "sc-name")
+                WebUIField(label: "Name", controlID: "sc-name") {
                     Input(field: "sc-name", placeholder: "Home relay",
                           type: nil, value: se?.name ?? "",
                           attributes: [("data-component-id", "sc-name"), ("autocomplete", "off")])
                 }
-                Div {
-                    Label("Server IP / host", for: "sc-ip")
+                WebUIField(label: "Server IP / host", controlID: "sc-ip") {
                     Input(field: "sc-ip", placeholder: "10.0.0.1",
                           type: nil, value: se?.serverIP ?? "",
                           attributes: [("data-component-id", "sc-ip"), ("autocomplete", "off")])
                 }
-                Div {
-                    Label("Port", for: "sc-port")
+                WebUIField(label: "Port", controlID: "sc-port") {
                     Input(field: "sc-port", placeholder: "51820",
                           type: .number, value: se.map { String($0.serverPort) } ?? "",
                           attributes: [("data-component-id", "sc-port"),
@@ -4133,22 +4111,19 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                        ("min", "1"), ("max", "65535")])
                 }
             }
-            Div {
-                Label("Application id", for: "sc-app")
+            WebUIField(label: "Application id", controlID: "sc-app") {
                 Input(field: "sc-app", placeholder: "1",
                       type: .number, value: se.map { String($0.application) } ?? "",
                       attributes: [("data-component-id", "sc-app"),
                                    ("min", "0"), ("max", "65535")])
             }
             Div(class: "form-grid-2") {
-                Div {
-                    Label("Server public key", for: "sc-pub")
+                WebUIField(label: "Server public key", controlID: "sc-pub") {
                     Input(field: "sc-pub", placeholder: "base64 (32 bytes)",
                           type: nil, value: se?.serverPublicKey ?? "",
                           attributes: [("data-component-id", "sc-pub"), ("autocomplete", "off")])
                 }
-                Div {
-                    Label("Client private key", for: "sc-priv")
+                WebUIField(label: "Client private key", controlID: "sc-priv") {
                     // a private key is never a password-manager login: this input
                     // opts out of autofill (pinned).
                     Input(field: "sc-priv", placeholder: "base64 (32 bytes)",
@@ -4458,53 +4433,46 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     private func modelConfigAddForm() -> some WebUI.View {
         Form(method: nil, id: "modelcfg-add-form", class: "form-grid form-sep") {
             Div(class: "form-grid-3") {
-                Div {
-                    Label("Name", for: "mc-name")
+                WebUIField(label: "Name", controlID: "mc-name") {
                     Input(field: "mc-name", placeholder: "deepseek-v4-flash",
                           type: nil,
                           attributes: [("data-component-id", "mc-name"),
                                        ("autocomplete", "off"), ("spellcheck", "false")])
                 }
-                Div {
-                    Label("Model", for: "mc-model")
+                WebUIField(label: "Model", controlID: "mc-model") {
                     Input(field: "mc-model", placeholder: "deepseek-v4-flash",
                           type: nil,
                           attributes: [("data-component-id", "mc-model"),
                                        ("autocomplete", "off"), ("spellcheck", "false")])
                 }
-                Div {
-                    Label("Provider", for: "mc-provider")
+                WebUIField(label: "Provider", controlID: "mc-provider") {
                     Input(field: "mc-provider", placeholder: "custom",
                           type: nil,
                           attributes: [("data-component-id", "mc-provider"),
                                        ("autocomplete", "off"), ("spellcheck", "false")])
                 }
             }
-            Div {
-                Label("Base URL", for: "mc-baseurl")
+            WebUIField(label: "Base URL", controlID: "mc-baseurl") {
                 Input(field: "mc-baseurl",
                       placeholder: "https://api.openai.com/v1", type: nil,
                       attributes: [("data-component-id", "mc-baseurl"),
                                    ("autocomplete", "off"), ("spellcheck", "false")])
             }
             Div(class: "form-grid-2") {
-                Div {
-                    Label("API key (optional)", for: "mc-apikey")
+                WebUIField(label: "API key (optional)", controlID: "mc-apikey") {
                     Input(field: "mc-apikey", placeholder: "sk-…",
                           type: .password,
                           attributes: [("data-component-id", "mc-apikey"),
                                        ("autocomplete", "new-password"),
                                        ("spellcheck", "false")])
                 }
-                Div {
-                    Label("Context length (optional)", for: "mc-ctx")
+                WebUIField(label: "Context length (optional)", controlID: "mc-ctx") {
                     Input(field: "mc-ctx", placeholder: "128000",
                           type: .text,
                           attributes: [("data-component-id", "mc-ctx"),
                                        ("autocomplete", "off")])
                 }
-                Div {
-                    Label("Max output tokens (optional)", for: "mc-maxtok")
+                WebUIField(label: "Max output tokens (optional)", controlID: "mc-maxtok") {
                     Input(field: "mc-maxtok", placeholder: "32768",
                           type: .text,
                           attributes: [("data-component-id", "mc-maxtok"),
