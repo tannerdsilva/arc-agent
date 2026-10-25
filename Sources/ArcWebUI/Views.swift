@@ -2539,16 +2539,26 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             })
         }
         return Div(class: "dd") {
-            ddTrigger(id: "mainmc-toggle", icon: .zap, label: label, title: "Main model")
-            Div(class: "dd-pop dd-pop-ws" + (mainModelPickerOpen ? "" : " hidden")) {
-                Div(class: "dd-list") {
-                    for r in rows { r }
-                    if rows.isEmpty {
-                        Div(class: "dd-empty") { Text("No model configurations yet — add one above.") }
+            WebUIDropdown(isOpen: mainModelPickerOpen) {
+                ddTrigger(id: "mainmc-toggle", icon: .zap, label: label, title: "Main model")
+            } panel: {
+                // only `isOpen` goes to the component: the trigger above is the
+                // boundary and `id:`/`onSelect:` here are register-only, so
+                // passing them would register a second handler for the same id.
+                //
+                // the panel is the component's and carries no routing
+                // attributes of its own, so the popover wire rides one plain
+                // wrapper inside it and the rows keep dispatching on `targetId`.
+                Div {
+                    Div(class: "dd-list") {
+                        for r in rows { r }
+                        if rows.isEmpty {
+                            Div(class: "dd-empty") { Text("No model configurations yet — add one above.") }
+                        }
                     }
                 }
+                .wire("mainmc")
             }
-            .wire("mainmc")
         }
     }
 
@@ -3133,23 +3143,21 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     /// The profile edit form's "Context skills" section: pinned-skill rows
     /// with remove buttons, an "Add skill" dropdown over the discovered
     /// skills, and a hidden CSV field the submit wire reads.
-    func profileSkillsPickerPop(_ available: [Skill]) -> some WebUI.View {
-        Div(class: "dd-pop dd-pop-ws") {
-            Div(class: "dd-list") {
-                for s in available {
-                    ddRow(id: "pcs-pick-\(enc(s.name))") {
-                        Span(class: "dd-row-title") { Text(s.name) }
-                        Span(class: "dd-row-sub") { Text(s.description) }
-                    }
-                }
-                if available.isEmpty {
-                    Div(class: "dd-empty") { Text("All discovered skills are already pinned.") }
+    ///
+    /// the rows only — the popover frame and the click boundary belong to the
+    /// `WebUIDropdown` that hosts them (see `profileContextSkillsHTML`).
+    func profileSkillsPickerList(_ available: [Skill]) -> some WebUI.View {
+        Div(class: "dd-list") {
+            for s in available {
+                ddRow(id: "pcs-pick-\(enc(s.name))") {
+                    Span(class: "dd-row-title") { Text(s.name) }
+                    Span(class: "dd-row-sub") { Text(s.description) }
                 }
             }
+            if available.isEmpty {
+                Div(class: "dd-empty") { Text("All discovered skills are already pinned.") }
+            }
         }
-        // the engine wires the picker by component id, not by class: dropping
-        // this attribute leaves a popover that renders and never responds.
-        .wire("pcs")
     }
 
     func profileContextSkillsHTML() -> some WebUI.View {
@@ -3177,12 +3185,17 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             }
             .wire("pcs-rm")
             Div(class: "dd pn-picker") {
-                ddTrigger(id: "pcs-toggle", icon: .plus, iconSize: .medium,
-                          label: "Add skill", title: "Pin a skill into this profile's context")
-                if profileSkillsPickerOpen {
-                    profileSkillsPickerPop(available)
-                } else {
-                    profileSkillsPickerPop(available).flag(.hidden)
+                WebUIDropdown(isOpen: profileSkillsPickerOpen) {
+                    ddTrigger(id: "pcs-toggle", icon: .plus, iconSize: .medium,
+                              label: "Add skill", title: "Pin a skill into this profile's context")
+                } panel: {
+                    // only `isOpen` goes to the component (the trigger is the
+                    // boundary); the panel emits no routing attributes, so the
+                    // picker's wire rides one plain wrapper inside it — the
+                    // engine wires by component id, and dropping that attribute
+                    // leaves a popover that renders and never responds.
+                    Div { profileSkillsPickerList(available) }
+                        .wire("pcs")
                 }
             }
         }
@@ -3954,58 +3967,68 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                     Div(class: "storage-picker-row") {
                         Div(class: "dd dd-settings") {
-                            ddTrigger(id: "storage-pick-toggle", icon: .database,
-                                      label: mediumLabel(effectiveMedium),
-                                      title: "Storage medium in use")
-                            Div(class: storagePickOpen ? "dd-pop dd-pop-down" : "dd-pop dd-pop-down hidden") {
-                                Div(class: "dd-note") {
-                                    Text("Pick a medium, then press ")
-                                    Strong("Save and Connect")
-                                    Text(" to switch.")
-                                }
-                                Div(class: "dd-list") {
-                                    ddRow(id: "storage-pick-file") {
-                                        Span(class: "dd-row-title") {
-                                            Text("Local file storage ")
-                                            Span(class: "dd-badges") {
-                                                for b in badges(active: effectiveFile,
-                                                                staged: stagedStorage == "file") { b }
-                                            }
-                                        }
-                                        Span(class: "dd-row-sub") {
-                                            Text("~/.arc/sessions + memories — always available, needs no relay")
-                                        }
+                            WebUIDropdown(isOpen: storagePickOpen) {
+                                ddTrigger(id: "storage-pick-toggle", icon: .database,
+                                          label: mediumLabel(effectiveMedium),
+                                          title: "Storage medium in use")
+                            } panel: {
+                                // only `isOpen` goes to the component: this trigger is
+                                // the boundary, and `id:`/`onSelect:` here are register-
+                                // only, which would be a second handler for the same id.
+                                //
+                                // the panel carries no routing attributes of its own, so
+                                // the popover wire rides one plain wrapper inside it and the
+                                // rows keep dispatching on `targetId`.
+                                Div {
+                                    Div(class: "dd-note") {
+                                        Text("Pick a medium, then press ")
+                                        Strong("Save and Connect")
+                                        Text(" to switch.")
                                     }
-                                    ddRow(id: "storage-pick-config") {
-                                        Span(class: "dd-row-title") {
-                                            Text("Default (config.json) ")
-                                            Span(class: "dd-badges") {
-                                                for b in badges(active: !effectiveFile && effectiveMedium == "config",
-                                                                staged: stagedStorage == "config") { b }
-                                            }
-                                        }
-                                        Span(class: "dd-row-sub") {
-                                            Text("Tessera from the tessera block of ~/.arc/config.json")
-                                        }
-                                    }
-                                    for conn in connections {
-                                        ddRow(id: "storage-pick-conn-\(enc(conn.id))") {
+                                    Div(class: "dd-list") {
+                                        ddRow(id: "storage-pick-file") {
                                             Span(class: "dd-row-title") {
-                                                Text("\(conn.name) ")
+                                                Text("Local file storage ")
                                                 Span(class: "dd-badges") {
-                                                    for b in badges(active: !effectiveFile && effectiveMedium == conn.id,
-                                                                    staged: stagedStorage == conn.id) { b }
+                                                    for b in badges(active: effectiveFile,
+                                                                    staged: stagedStorage == "file") { b }
                                                 }
                                             }
                                             Span(class: "dd-row-sub") {
-                                                Text("\(conn.endpointLabel) — app \(conn.application)")
-                                                for n in incomplete(conn) { n }
+                                                Text("~/.arc/sessions + memories — always available, needs no relay")
+                                            }
+                                        }
+                                        ddRow(id: "storage-pick-config") {
+                                            Span(class: "dd-row-title") {
+                                                Text("Default (config.json) ")
+                                                Span(class: "dd-badges") {
+                                                    for b in badges(active: !effectiveFile && effectiveMedium == "config",
+                                                                    staged: stagedStorage == "config") { b }
+                                                }
+                                            }
+                                            Span(class: "dd-row-sub") {
+                                                Text("Tessera from the tessera block of ~/.arc/config.json")
+                                            }
+                                        }
+                                        for conn in connections {
+                                            ddRow(id: "storage-pick-conn-\(enc(conn.id))") {
+                                                Span(class: "dd-row-title") {
+                                                    Text("\(conn.name) ")
+                                                    Span(class: "dd-badges") {
+                                                        for b in badges(active: !effectiveFile && effectiveMedium == conn.id,
+                                                                        staged: stagedStorage == conn.id) { b }
+                                                    }
+                                                }
+                                                Span(class: "dd-row-sub") {
+                                                    Text("\(conn.endpointLabel) — app \(conn.application)")
+                                                    for n in incomplete(conn) { n }
+                                                }
                                             }
                                         }
                                     }
                                 }
+                                .wire("storage-pick")
                             }
-                            .wire("storage-pick")
                         }
                         ArcButton("Save and Connect", id: "storage-connect",
                                   component: "storage-connect", class: "primary-btn",
@@ -4510,48 +4533,58 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             FieldLabel(class: "aux-field") {
                                 Text("Model configuration")
                                 Div(class: "dd") {
-                                    ArcButton(id: "auxmc-toggle-\(task.key)",
-                                              component: "auxmc-toggle", class: "dd-trigger") {
-                                        Span(class: "dd-trigger-label") { Text(triggerLabel) }
-                                        WebUIIcon(.chevronDown, size: .small)
-                                    }
-                                    .attribute("title", "Auxiliary model configuration")
-                                    Div(class: auxConfigPickerOpen ? "dd-pop dd-pop-ws" : "dd-pop dd-pop-ws hidden") {
-                                        Div(class: "dd-list") {
-                                            ddRow(id: "auxmc-main-\(task.key)") {
-                                                Span(class: "dd-model-main") {
-                                                    Span(class: "dd-row-title") {
-                                                        Text("Main model (auto)")
-                                                        if stagedName.isEmpty || !stagedKnown {
-                                                            Span(class: "dd-badge sel") { Text("SELECTED") }
-                                                        }
-                                                    }
-                                                    Span(class: "dd-row-sub") {
-                                                        Text("Use the chat's main model")
-                                                    }
-                                                }
-                                            }
-                                            for c in settings.modelConfigs {
-                                                ddRow(id: "auxmc-\(task.key)-\(enc(c.name))") {
+                                    WebUIDropdown(isOpen: auxConfigPickerOpen) {
+                                        ArcButton(id: "auxmc-toggle-\(task.key)",
+                                                  component: "auxmc-toggle", class: "dd-trigger") {
+                                            Span(class: "dd-trigger-label") { Text(triggerLabel) }
+                                            WebUIIcon(.chevronDown, size: .small)
+                                        }
+                                        .attribute("title", "Auxiliary model configuration")
+                                    } panel: {
+                                        // only `isOpen` goes to the component: this trigger
+                                        // is the boundary, and `id:`/`onSelect:` here are
+                                        // register-only (a second handler for the same id).
+                                        //
+                                        // the panel carries no routing attributes of its own,
+                                        // so the picker's wire rides one plain wrapper inside it
+                                        // and the rows keep dispatching on `targetId`.
+                                        Div {
+                                            Div(class: "dd-list") {
+                                                ddRow(id: "auxmc-main-\(task.key)") {
                                                     Span(class: "dd-model-main") {
                                                         Span(class: "dd-row-title") {
-                                                            Text(c.name)
-                                                            if c.name == stagedName {
+                                                            Text("Main model (auto)")
+                                                            if stagedName.isEmpty || !stagedKnown {
                                                                 Span(class: "dd-badge sel") { Text("SELECTED") }
                                                             }
                                                         }
                                                         Span(class: "dd-row-sub") {
-                                                            Text(c.model)
-                                                            if !c.provider.isEmpty {
-                                                                Text(" @ " + c.provider)
+                                                            Text("Use the chat's main model")
+                                                        }
+                                                    }
+                                                }
+                                                for c in settings.modelConfigs {
+                                                    ddRow(id: "auxmc-\(task.key)-\(enc(c.name))") {
+                                                        Span(class: "dd-model-main") {
+                                                            Span(class: "dd-row-title") {
+                                                                Text(c.name)
+                                                                if c.name == stagedName {
+                                                                    Span(class: "dd-badge sel") { Text("SELECTED") }
+                                                                }
+                                                            }
+                                                            Span(class: "dd-row-sub") {
+                                                                Text(c.model)
+                                                                if !c.provider.isEmpty {
+                                                                    Text(" @ " + c.provider)
+                                                                }
                                                             }
                                                         }
                                                     }
                                                 }
                                             }
                                         }
+                                        .wire("auxmc")
                                     }
-                                    .wire("auxmc")
                                 }
                             }
                             if let ov, has, auxOverrideConfigName(ov) == nil {
