@@ -1115,6 +1115,10 @@ actor AppState {
         /// the memory provider the per-turn agent factory hands to the
         /// configuration; nil (the default) leaves the field unset.
         var memory: (any MemoryProvider)? = nil
+        /// the approval gate `runTool` consults. nil (the default) leaves the
+        /// gate unarmed — the production init builds a real manager, which a
+        /// render fixture must never do (it reads `~/.arc/config.json`).
+        var approvalManager: ApprovalManager? = nil
         // phase 7: kanban board state
         var kanbanColumns: [KBColumn] = []
         var kanbanCards: [KBCard] = []
@@ -1166,6 +1170,7 @@ actor AppState {
         self.pluginManifests = fixture.pluginManifests
         self.skills = fixture.skills
         self.memory = fixture.memory
+        self.approvalManager = fixture.approvalManager
         self.pluginStartupOutcome = fixture.pluginStartupOutcome
         self.pendingCopyURL = fixture.pendingCopyURL
         self.chatFilter = fixture.chatFilter

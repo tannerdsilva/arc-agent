@@ -113,19 +113,10 @@ extension AppState {
         // Ambient dispatcher for execute_code: child Python processes dispatch
         // tools back into THIS webui session (same registry, guardrails, and
         // approval flows), bound to the session this tool call belongs to.
-        await ExecuteCodeTool.dispatcher.setHost { [weak self] name, args in
-            guard let self else {
-                throw ToolError.execution("webui host deallocated")
-            }
-            let data = try JSONSerialization.data(withJSONObject: args)
-            let ambient = ToolCall(
-                id: "ambient-\(name)", type: "function",
-                function: .init(
-                    name: name,
-                    arguments: String(data: data, encoding: .utf8) ?? "{}"))
-            return await self.runTool(
-                ambient, sessionID: sessionID, pusher: { _ in }, headless: true)
-        }
+        // The process-wide box stays the single-agent fallback rung; a minted
+        // turn agent gets its own host through `setCodeHost` (A6).
+        await ExecuteCodeTool.dispatcher.setHost(
+            ambientToolHost(sessionID: sessionID, headless: true, pusher: { _ in }))
         guard let tool = registry.lookup(name: call.function.name) else {
             return "Error: tool '\(call.function.name)' is not registered."
         }
@@ -151,30 +142,37 @@ extension AppState {
            !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            let manager = approvalManager,
            await manager.needsApproval(command: command, sessionKey: sessionID, yolo: isYolo(sessionID)) {
-            let decision: ApprovalResult
             if headless {
-                // Scheduled jobs run autonomously: the smart classifier alone
-                // decides. Critical commands are blocked below (denied); the
-                // rest are allowed — every run is logged to the job session.
-                decision = await manager.requestApproval(
+                // Scheduled jobs run autonomously: nobody can answer a card, so
+                // the pure policy decides. A critical command is refused on the
+                // detector's verdict alone — the manager is not consulted, so no
+                // presenter can ever approve one. Everything else proceeds and
+                // the run is logged to the job session.
+                let level = await detectDangerLevel(command)
+                if case .block(let message) = HeadlessApprovalPolicy.verdict(dangerLevel: level) {
+                    LogCollector.shared.append(level: .warning, text: "[cron] blocked critical command: \(trunc(command, 120))")
+                    return message
+                }
+                let approval = await manager.requestApproval(
                     command: command,
                     description: "Scheduled: `\(trunc(command, 100))`",
                     sessionKey: sessionID
                 )
-                if case .denied = decision {
+                if case .block(let message) = HeadlessApprovalPolicy.verdict(
+                    dangerLevel: level, approval: approval
+                ) {
                     LogCollector.shared.append(level: .warning, text: "[cron] blocked critical command: \(trunc(command, 120))")
-                    return "Error: command blocked by approval policy (classified critical; scheduled jobs cannot run destructive commands)."
+                    return message
                 }
                 return (try? await WorkspacePath.$root.withValue(workspacePath(for: sessionID)) {
                     try await tool.handler(argsBox.value)
                 }) ?? "Error: tool execution failed"
             }
-            decision = await manager.requestApproval(
+            switch await manager.requestApproval(
                 command: command,
                 description: "Run `\(trunc(command, 100))`",
                 sessionKey: sessionID
-            )
-            switch decision {
+            ) {
             case .denied:
                 return "Error: command blocked by approval policy (classified dangerous)."
             case .requiresReview:
@@ -239,6 +237,35 @@ extension AppState {
             return "Error: clarify requires a question."
         }
         let choices = Array(((args?["choices"] as? [String]) ?? []).prefix(4))
+        // the turn exists (checked above), so the card path answers.
+        return await requestUserClarification(
+            question: question,
+            choices: choices,
+            sessionID: sessionID,
+            pusher: pusher
+        ) ?? Self.clarifyTimeoutText
+    }
+
+    /// The clarify card itself, without the tool-call parsing — the shape a
+    /// per-turn ``ClarifyTool`` presenter needs (CONVERGE A6).
+    ///
+    /// `nil` means there is no live turn to clarify in; ``ClarifyTool`` reads
+    /// that as "use your best judgement and proceed", which is the honest
+    /// answer when no human can be reached.
+    func requestUserClarification(
+        question rawQuestion: String,
+        choices rawChoices: [String],
+        sessionID: String,
+        pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void
+    ) async -> String? {
+        guard activeTurns[sessionID] != nil else {
+            return nil
+        }
+        let question = rawQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty else {
+            return "Error: clarify requires a question."
+        }
+        let choices = Array(rawChoices.prefix(4))
         let timeout = Self.clarifyTimeoutSeconds()
 
         let stream = AsyncStream<String>.makeStream()
@@ -282,6 +309,160 @@ extension AppState {
             return v
         }
         return 120
+    }
+
+    // MARK: - Turn presenter wiring (CONVERGE A6)
+
+    /// Mint this turn's agent and wire the presenters it runs with: A5's
+    /// factory plus the three bindings below. This is the entry point the turn
+    /// loop uses once it runs on `streamTurn` — `makeTurnAgent` alone stays the
+    /// configuration seam, so it can be pinned without a socket or a pusher.
+    ///
+    /// - Parameters:
+    ///   - headless: Whether this turn runs without a human in the loop. It
+    ///     decides the approval policy (card vs scheduler) and whether clarify
+    ///     is bound at all.
+    ///   - pusher: The turn's fragment pusher. The permission and clarify cards
+    ///     are pushed through it, exactly as the UI's own gating does.
+    func makeTurnAgent(
+        preset: ModelConfigPreset,
+        profileContext: ProfileContextConfig?,
+        thinking: String,
+        headless: Bool,
+        sessionID: String,
+        pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void
+    ) async -> (agent: ArcAgent, config: ArcAgent.Configuration) {
+        let minted = await makeTurnAgent(
+            preset: preset,
+            profileContext: profileContext,
+            thinking: thinking,
+            headless: headless,
+            sessionID: sessionID
+        )
+        await installTurnPresenters(
+            on: minted.agent,
+            sessionID: sessionID,
+            headless: headless,
+            pusher: pusher
+        )
+        return minted
+    }
+
+    /// Install the three per-turn bindings on a minted agent.
+    ///
+    /// `ArcAgent` binds `ClarifyTool.$presenter` and `ExecuteCodeTool.$host`
+    /// around the turn from these stored values (A3), and consults the approval
+    /// presenter from its own `ApprovalManager`. Handing them over here — rather
+    /// than binding the TaskLocals at the call site — keeps the binding scoped to
+    /// the turn the agent runs, so two concurrent turns cannot cross-talk.
+    func installTurnPresenters(
+        on agent: ArcAgent,
+        sessionID: String,
+        headless: Bool,
+        pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void
+    ) async {
+        let presenters = turnPresenters(sessionID: sessionID, headless: headless, pusher: pusher)
+        await agent.setApprovalPresenter(presenters.approval)
+        await agent.setClarifyPresenter(presenters.clarify)
+        await agent.setCodeHost(presenters.codeHost)
+    }
+
+    /// The presenters a turn agent runs with, as values — so a test can drive
+    /// them without an agent, a socket or an LLM.
+    func turnPresenters(
+        sessionID: String,
+        headless: Bool,
+        pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void
+    ) -> TurnPresenters {
+        TurnPresenters(
+            approval: turnApprovalPresenter(sessionID: sessionID, headless: headless, pusher: pusher),
+            // headless: nobody can answer a clarify card, so the tool keeps its
+            // historic "not available in this execution context" answer instead
+            // of a binding that could pretend a human replied.
+            clarify: headless ? nil : turnClarifyPresenter(sessionID: sessionID, pusher: pusher),
+            codeHost: ambientToolHost(sessionID: sessionID, headless: headless, pusher: pusher)
+        )
+    }
+
+    /// The approval presenter for this turn.
+    ///
+    /// Interactive: the existing permission card (`requestUserApproval`) — the
+    /// turn pauses, the user clicks, the click becomes the decision. A turn with
+    /// no live entry denies: nothing can answer the card, so the command must
+    /// not run.
+    ///
+    /// Headless: `HeadlessApprovalPolicy` decides, and no card is ever posted —
+    /// a scheduled job has nobody to ask, and a card it cannot answer is a hang,
+    /// not a safeguard.
+    func turnApprovalPresenter(
+        sessionID: String,
+        headless: Bool,
+        pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void
+    ) -> ApprovalPresenter {
+        if headless {
+            return { request in
+                let decision = HeadlessApprovalPolicy.decision(
+                    dangerLevel: await detectDangerLevel(request.command)
+                )
+                if case .deny = decision {
+                    LogCollector.shared.append(level: .warning, text: "[cron] blocked critical command: \(trunc(request.command, 120))")
+                }
+                return decision
+            }
+        }
+        return { [weak self] request in
+            guard let self else { return .deny }
+            let granted = await self.requestUserApproval(
+                command: request.command,
+                description: request.description,
+                sessionID: sessionID,
+                pusher: pusher
+            )
+            return granted ? .approve : .deny
+        }
+    }
+
+    /// The clarify presenter for this turn: the existing clarify card, keyed to
+    /// this turn's session.
+    func turnClarifyPresenter(
+        sessionID: String,
+        pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void
+    ) -> ClarifyTool.Presenter {
+        { [weak self] question, choices in
+            guard let self else { return nil }
+            return await self.requestUserClarification(
+                question: question,
+                choices: choices,
+                sessionID: sessionID,
+                pusher: pusher
+            )
+        }
+    }
+
+    /// The executor an `execute_code` child dispatches through: this session's
+    /// registry, guardrails and approval path.
+    ///
+    /// The process-wide `ExecuteCodeTool.dispatcher` box is the single-agent
+    /// fallback rung; a turn agent gets this one instead, so a child process
+    /// cannot dispatch into a sibling turn's session, guardrails or approvals.
+    func ambientToolHost(
+        sessionID: String,
+        headless: Bool,
+        pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void
+    ) -> @Sendable (String, [String: Any]) async throws -> String {
+        { [weak self] name, args in
+            guard let self else {
+                throw ToolError.execution("webui host deallocated")
+            }
+            let data = try JSONSerialization.data(withJSONObject: args)
+            let ambient = ToolCall(
+                id: "ambient-\(name)", type: "function",
+                function: .init(
+                    name: name,
+                    arguments: String(data: data, encoding: .utf8) ?? "{}"))
+            return await self.runTool(
+                ambient, sessionID: sessionID, pusher: pusher, headless: headless)
+        }
     }
 
     // MARK: Context compression (arc parity)
@@ -1152,6 +1333,76 @@ extension AppState {
             await ensureSessionMessages(keep)
         }
     }
+}
+
+// MARK: - Headless approval policy (CONVERGE A6)
+
+/// The scheduler's approval policy for a turn with no human in the loop, as a
+/// pure decision function: no agent, no socket and no turn are needed to test
+/// it, and `runTool`'s live headless branch and a headless agent's presenter
+/// both decide through it.
+enum HeadlessApprovalPolicy {
+
+    /// What a headless turn does with one gated command.
+    enum Verdict: Equatable, Sendable {
+        /// The command proceeds to execution (the caller logs the run).
+        case proceed
+        /// The command is refused; `message` is the tool result the model and
+        /// the job transcript see.
+        case block(String)
+    }
+
+    /// The scheduler's refusal text. Load-bearing: a user reads this instead of
+    /// a silent run, and it is byte-for-byte the string the inline headless
+    /// branch returned before this policy was extracted. Do not reword it.
+    static let blockedCommandMessage =
+        "Error: command blocked by approval policy (classified critical; scheduled jobs cannot run destructive commands)."
+
+    /// Decide one command.
+    ///
+    /// - Parameters:
+    ///   - dangerLevel: The classification from the built-in detector
+    ///     (`detectDangerLevel`) — the same detector `ApprovalManager` gates
+    ///     with, not a second classifier.
+    ///   - approval: The manager's result, when it has been consulted. `nil`
+    ///     lets a caller refuse a critical command before asking anyone.
+    /// - Returns: `.block` for a critical command whatever `approval` says (an
+    ///   approval can never resurrect a destructive command), and for a manager
+    ///   denial (smart mode's hardline verdict); `.proceed` otherwise.
+    static func verdict(dangerLevel: DangerLevel, approval: ApprovalResult? = nil) -> Verdict {
+        if dangerLevel >= .critical {
+            return .block(blockedCommandMessage)
+        }
+        if case .denied = approval {
+            return .block(blockedCommandMessage)
+        }
+        return .proceed
+    }
+
+    /// The same policy as the decision an ``ApprovalPresenter`` returns.
+    static func decision(dangerLevel: DangerLevel) -> ApprovalDecision {
+        dangerLevel >= .critical ? .deny : .approve
+    }
+}
+
+/// The approval and clarify presenters, plus the `execute_code` host, a minted
+/// turn agent runs with.
+///
+/// A value type: the bindings are captured for one turn and never mutated, and
+/// a test can drive each one directly instead of standing up a turn.
+struct TurnPresenters: Sendable {
+
+    /// The agent's approval gate: the permission card on an interactive turn,
+    /// the scheduler policy when there is nobody to ask.
+    let approval: ApprovalPresenter
+
+    /// The agent's clarify tool. `nil` when headless — no one can answer a
+    /// card, so the tool keeps its historic "not available" answer.
+    let clarify: ClarifyTool.Presenter?
+
+    /// The turn's `execute_code` host: child processes dispatch tools back into
+    /// this session's registry, guardrails and approvals.
+    let codeHost: @Sendable (String, [String: Any]) async throws -> String
 }
 
 // MARK: - Controller (event wiring)
