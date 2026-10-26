@@ -36,4 +36,23 @@ public struct TesseraConfig: Codable, Sendable, Equatable {
         self.myPrivateKey = myPrivateKey
         self.application = application
     }
+
+    /// True when `myPrivateKey` holds a non-empty key.
+    public var hasPrivateKey: Bool { !myPrivateKey.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    private static func masked(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespaces).isEmpty ? "(unset)" : "<redacted>"
+    }
+}
+
+/// The private key never appears in stringified output — not in `arc doctor`,
+/// not in logs, not in crash dumps. Public keys are printed in full.
+extension TesseraConfig: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String {
+        "TesseraConfig(serverIP: \"\(serverIP)\", serverPort: \(serverPort), "
+            + "serverPublicKey: \"\(serverPublicKey)\", "
+            + "myPrivateKey: \(Self.masked(myPrivateKey)), application: \(application))"
+    }
+
+    public var debugDescription: String { description }
 }

@@ -120,6 +120,21 @@ struct DoctorCmd: AsyncParsableCommand {
         }
         if let tessera = config.tessera {
             print("ℹ️  tessera storage configured: \(tessera)")
+            // The tunnel probe: bounded handshake against the relay. This is
+            // the check that proves the wire, not just the config — an
+            // unregistered user or a dead relay surfaces here, not at first
+            // write time.
+            let clock = ContinuousClock()
+            let reachable = await TesseraAvailability.shared.isTesseraActive()
+            let elapsed = clock.now.duration(to: .now)
+            let ms = elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000
+            if reachable {
+                report("✅", String(format: "tessera tunnel reachable (%@:%d, handshake %.0f ms)", tessera.serverIP, tessera.serverPort, Double(ms)))
+            } else {
+                report("⚠️", "tessera tunnel NOT reachable (\(tessera.serverIP):\(tessera.serverPort)) — storage falls back to files; see arc-serve.log for the handshake error")
+            }
+        } else {
+            print("ℹ️  tessera storage not configured (file storage in use)")
         }
 
         // Tool plugins (deployment surface): discovery never blocks boot —
