@@ -1304,13 +1304,25 @@ final class Controller: Sendable {
     // MARK: Nav
 
     private func wireChat(_ router: EventRouter) {
+        // "+" behavior depends on the settings toggle: on → the create-session
+        // context panel (default-inherited recipe, user can override before
+        // minting); off → mint the chat immediately. The pristine-reuse rule
+        // in `newChat()` applies to both paths.
         wire(router, id: "chat-new", events: ["click"]) { _ in
-            await self.app.openNewSessionPanel()
+            if await self.app.settings.contextPanelOnNewChat {
+                await self.app.openNewSessionPanel()
+            } else {
+                await self.newChat()
+            }
             return await self.app.refreshFragments()
         }
         // Blank-canvas CTA: the same action as the sidebar "+".
         wire(router, id: "blank-chat-new", events: ["click"]) { _ in
-            await self.app.openNewSessionPanel()
+            if await self.app.settings.contextPanelOnNewChat {
+                await self.app.openNewSessionPanel()
+            } else {
+                await self.newChat()
+            }
             return await self.app.refreshFragments()
         }
         // click-only: `#sess-list-body` declares data-event="click", and a change
@@ -2810,6 +2822,10 @@ final class Controller: Sendable {
         }
         wire(router, id: "set-smart-pickapath", events: ["change"]) { event in
             await self.app.setSmartPickAPath(event.checked == true)
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "set-context-on-new-chat", events: ["change"]) { event in
+            await self.app.setContextPanelOnNewChat(event.checked == true)
             return await self.app.refreshFragments()
         }
         wire(router, id: "set-pinlimit", events: ["change"]) { event in

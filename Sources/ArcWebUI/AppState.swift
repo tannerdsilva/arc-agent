@@ -282,6 +282,11 @@ struct AppSettings: Codable, Equatable {
     /// model choosing the best offered answer, instead of the unguided
     /// "use your best judgement" notice to the main model.
     var smartPickAPath: Bool = true
+    /// When on, the sidebar "+" / blank-canvas "New chat" opens the
+    /// create-session panel (per-session context segments + custom context)
+    /// instead of minting a chat directly. Off by default: "+" just creates
+    /// the chat with the resolved global+profile defaults.
+    var contextPanelOnNewChat: Bool = false
 
     var recentFiles: [String] = []
 
@@ -407,6 +412,7 @@ struct AppSettings: Codable, Equatable {
         case sidebarTabs, hiddenSidebarTabs, yoloSessions
         case contextDefaults
         case smartApproval, smartPickAPath
+        case contextPanelOnNewChat
     }
 
     /// Tolerant decode: any missing (or mistyped) key falls back to the field's
@@ -475,6 +481,7 @@ struct AppSettings: Codable, Equatable {
         yoloSessions = try c.decodeIfPresent([String].self, forKey: .yoloSessions) ?? []
         smartApproval = try c.decodeIfPresent(Bool.self, forKey: .smartApproval) ?? true
         smartPickAPath = try c.decodeIfPresent(Bool.self, forKey: .smartPickAPath) ?? true
+        contextPanelOnNewChat = try c.decodeIfPresent(Bool.self, forKey: .contextPanelOnNewChat) ?? false
         // Rebuild the canonical order from the stored list (relative order
         // preserved; keys missing because they are NEW defaults are
         // re-inserted at their default slot and start VISIBLE). The old

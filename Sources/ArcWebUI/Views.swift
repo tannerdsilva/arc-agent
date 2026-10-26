@@ -3561,6 +3561,13 @@ extension AppState {
                 <div class="set-row" style="flex-direction:column;align-items:stretch;gap:8px">
                   \(mainModelDropdown())
                 </div>
+                <div class="set-row" style="margin-top:10px">
+                  <div class="set-label">Context page on new chat<small>When on, the sidebar “+” (and the blank-canvas “New chat” button) opens the create-session panel — per-chat context segments and custom context — before the chat is minted. When off, “+” creates the chat immediately with the resolved global + profile defaults.</small></div>
+                  <label class="switch">
+                    <input type="checkbox" id="set-context-on-new-chat" data-component-id="set-context-on-new-chat" data-event="change" data-no-restore \(settings.contextPanelOnNewChat ? "checked" : "")>
+                    <span class="track"></span><span class="knob"></span>
+                  </label>
+                </div>
               </div>
 
               <div class="detail-card" style="margin-top:12px">

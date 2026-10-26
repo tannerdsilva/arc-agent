@@ -579,6 +579,15 @@ extension AppState {
         saveSettings()
     }
 
+    /// "Show the context page when creating a chat" toggle. On: the sidebar
+    /// "+" / blank-canvas CTA opens the create-session panel; off: a chat is
+    /// minted directly with the resolved defaults.
+    func setContextPanelOnNewChat(_ on: Bool) {
+        guard settings.contextPanelOnNewChat != on else { return }
+        settings.contextPanelOnNewChat = on
+        saveSettings()
+    }
+
     func setShowTps(_ on: Bool) {
         guard settings.showTps != on else { return }
         settings.showTps = on
