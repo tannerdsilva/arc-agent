@@ -93,5 +93,52 @@ extension ArcCoreTestRoot {
             #expect(json?["response"] as? String == "echo:s1:hello",
                 "expected the onChat response to flow through /v1/chat, got: \(String(data: Data(buffer: chatBody), encoding: .utf8) ?? "?")")
         }
+
+        /// A full per-session turn queue must answer `429 Too Many Requests`
+        /// (never a bare 500, and never an indefinite hang).
+        @Test("queue-full turns answer 429")
+        func queueFullAnswers429() async throws {
+            let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+            defer { _ = httpClient.shutdown() }
+
+            var serverTask: Task<Void, Never>?
+            defer { serverTask?.cancel() }
+
+            var readyBase: String?
+            for _ in 0..<3 {
+                let port = Int.random(in: 20_100...29_900)
+                let base = "http://127.0.0.1:\(port)"
+                let server = HTTPServerService(
+                    config: .init(host: "127.0.0.1", port: port),
+                    onChat: { _, _ in throw SessionTurnGateError.queueFull(sessionID: "s1") }
+                )
+                serverTask = Task { try? await server.run() }
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                var ready = false
+                for _ in 0..<5 {
+                    do {
+                        let response = try await httpClient.execute(
+                            HTTPClientRequest(url: base + "/health"),
+                            timeout: .seconds(2)
+                        )
+                        if response.status.code == 200 { ready = true; break }
+                    } catch {}
+                }
+                if ready { readyBase = base; break }
+                serverTask?.cancel()
+                serverTask = nil
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+            let base = try #require(readyBase, "HTTP server did not become ready on any tried port")
+
+            var chatRequest = HTTPClientRequest(url: base + "/v1/chat")
+            chatRequest.method = .POST
+            chatRequest.headers.add(name: "Content-Type", value: "application/json")
+            chatRequest.body = .bytes(ByteBuffer(string: #"{"session_id":"s1","message":"hello"}"#))
+
+            let chat = try await httpClient.execute(chatRequest, timeout: .seconds(5))
+            #expect(chat.status.code == 429,
+                "expected 429 for a queue-full session, got \(chat.status.code)")
+        }
     }
 }

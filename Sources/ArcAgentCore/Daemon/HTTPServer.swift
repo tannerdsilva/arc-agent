@@ -59,7 +59,17 @@ public final class HTTPServerService: Service {
             RouteGroup("/v1") {
                 Post("/chat") { [onChat] request, context in
                     let body = try await request.decode(as: ChatRequest.self, context: context)
-                    let response = try await onChat(body.sessionID, body.message)
+                    let response: String
+                    do {
+                        response = try await onChat(body.sessionID, body.message)
+                    } catch let error as SessionTurnGateError where error.isQueueFull {
+                        // Too many queued turns for this session: back off
+                        // now rather than hanging the client indefinitely.
+                        throw HTTPError(
+                            .tooManyRequests,
+                            message: "session busy: too many queued turns for this session"
+                        )
+                    }
                     return ChatResponse(response: response)
                 }
             }

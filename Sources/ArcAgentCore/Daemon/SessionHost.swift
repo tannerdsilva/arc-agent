@@ -101,29 +101,37 @@ public struct SessionHost: Service {
         // Build the HTTP server for the REST API surface, when it is enabled.
         // REST only: the web UI is `WebUIHost`, a sibling service in the
         // daemon (same process, its own port).
+        //
+        // The turn gate serializes `/v1/chat` per session: a session's
+        // `responses` stream is a unicast AsyncStream, so concurrent waiters
+        // would steal each other's replies (and drop later turns' replies
+        // entirely). One waiter at a time makes the stream's semantics safe.
+        let turnGate = SessionTurnGate()
         if let api {
             self.httpServer = HTTPServerService(
                 config: .init(host: api.host, port: api.port),
-                onChat: { [reg, routes = profileRouting.sortedRoutes, multiplex = profileRouting.multiplexProfiles] sessionID, message in
+                onChat: { [reg, turnGate, routes = profileRouting.sortedRoutes, multiplex = profileRouting.multiplexProfiles] sessionID, message in
                     let chat = ChatTarget(platform: "api", chatID: sessionID)
                     let profile = ProfileRouteResolver.profile(
                         for: chat, routes: routes, multiplexProfiles: multiplex
                     ) ?? "default"
-                    let handle = await reg.getOrCreate(sessionID: sessionID, profile: profile)
-                    let incoming = IncomingMessage(
-                        id: UUID().uuidString,
-                        chat: ChatTarget(platform: "api", chatID: sessionID),
-                        text: message,
-                        senderID: "api"
-                    )
-                    handle.inputContinuation.yield(incoming)
-                    // Await the agent's response from the response stream
-                    var responseText = ""
-                    for await response in handle.responses {
-                        responseText = response
-                        break  // Take the first response
+                    return try await turnGate.withTurn(sessionID: sessionID) {
+                        let handle = await reg.getOrCreate(sessionID: sessionID, profile: profile)
+                        let incoming = IncomingMessage(
+                            id: UUID().uuidString,
+                            chat: ChatTarget(platform: "api", chatID: sessionID),
+                            text: message,
+                            senderID: "api"
+                        )
+                        handle.inputContinuation.yield(incoming)
+                        // Await the agent's response from the response stream
+                        var responseText = ""
+                        for await response in handle.responses {
+                            responseText = response
+                            break  // Take the first response
+                        }
+                        return responseText.isEmpty ? "Message received" : responseText
                     }
-                    return responseText.isEmpty ? "Message received" : responseText
                 }
             )
         } else {
