@@ -557,7 +557,7 @@ extension AppState {
                             ArcButton(id: "cat-del-\(cid)", component: nil, class: "chip-x") {
                                 WebUIIcon(.x, size: .small)
                             }
-                            .attribute("title", "Delete category")
+                            .title("Delete category")
                         }
                     } else {
                         ArcButton(id: "cat-\(cid)", component: nil, class: "cat-chip\(active)") {
@@ -1013,7 +1013,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 ArcSwitch(id: "ts-\(encTS)", on: !disabled, component: "tools-toggle",
                                           event: "change", value: "ts-\(encTS)",
                                           ariaLabel: "Enable \(toolset) tools")
-                                    .attribute("title", disabled ? "Toolset disabled" : "Toolset enabled")
+                                    .title(disabled ? "Toolset disabled" : "Toolset enabled")
                             }
                             if toolset == "mcp" && mcpServers == 0 {
                                 Div(class: "empty-hint") {
@@ -2449,7 +2449,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             Span(class: "queued-chip-x") { Text("✕") }
                                 .aria(.label(removeTip))
                         }
-                        .attribute("title", removeTip)
+                        .title(removeTip)
                     }
                 }
                 .id("queued-sends")
@@ -3177,7 +3177,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         ArcButton(id: "pcs-rm-\(enc(name))", class: "icon-mini danger", type: .button) {
                             WebUIIcon(.x, size: .small)
                         }
-                        .attribute("title", "Remove skill")
+                        .title("Remove skill")
                     }
                 }
                 if draft.isEmpty {
@@ -4265,7 +4265,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                     .attribute("style", "font-size:\(s.previewPx)")
                                 Span(class: "fsz-label") { Text(s.label) }
                             }
-                            .attribute("title", s.label)
+                            .title(s.label)
                             .aria(.pressed(active ? .yes : .no))
                         }
                     }
@@ -4862,7 +4862,7 @@ extension AppState {
                                     WebUIIcon(.x, size: .small)
                                 }
                             }
-                            .attribute("title", "Delete column")
+                            .title("Delete column")
                         }
                     }
                 }

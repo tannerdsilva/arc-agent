@@ -21,7 +21,7 @@ of `daemon.json` (on by default).
 
 ## dependency pin
 
-`.package(path: "../no-webui")` — accepted revision `6de3e2b` (2026-10-27).
+`.package(path: "../no-webui")` — accepted revision `48f62cc` (2026-10-27).
 path dependencies are not recorded in `Package.resolved`, so this line is the pin.
 run `make check-pin` after pulling no-webui; it exits non-zero and lists the
 commits when the sibling has moved.
