@@ -343,6 +343,17 @@ extension AppState {
 /// an `<h3>` whose hint is its own span. this is the smallest view that spells
 /// those three: the tag is a literal from this file, every attribute value is
 /// escaped, and children render through their own `View` conformance.
+/// the one raw-tag site in arc's web UI.
+///
+/// everything else goes through the typed DSL or arc's own components (see
+/// `docs/web-ui-architecture.md`). the charts need `<rect>`/`<line>`/`<polyline>`
+/// with attribute bags that no typed spelling covers, so this stays a raw tag
+/// plus `[(String, String)]`, and its children stay `[any View]` because all 16
+/// call sites hand it heterogeneous arrays — retyping them to `@ElementBuilder`
+/// is a sweep, not a signature change.
+///
+/// do not grow new call sites here: if a view can be expressed with `Div`,
+/// `Span`, `Element(.tag)` or a component, it belongs there.
 private struct El: WebUI.View {
     let tag: String
     let attributes: [(String, String)]
