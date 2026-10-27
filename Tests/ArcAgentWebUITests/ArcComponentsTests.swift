@@ -247,4 +247,69 @@ struct ArcComponentsTests {
         let html = NamedListRow("Appearance").markup.html
         #expect(!html.contains("lr-sub"))
     }
+
+    // MARK: W3 — typed builder byte contract
+
+    @Test("field label wraps its child, byte for byte")
+    func fieldLabelBytes() {
+        let html = FieldLabel(class: "aux-field") { Text("hi") }.markup.html
+        #expect(html == #"<label class="aux-field">hi</label>"#)
+    }
+
+    @Test("form label names its control, byte for byte")
+    func formLabelBytes() {
+        let html = FormLabel(for: "skill-name-input") { Text("Name") }.markup.html
+        #expect(html == #"<label for="skill-name-input">Name</label>"#)
+    }
+
+    @Test("akv row string convenience, byte for byte")
+    func akvRowStringBytes() {
+        let html = AkvRow(key: "Name", value: "arc").markup.html
+        #expect(html == #"<div class="akv"><span class="akv-k">Name</span><span class="akv-v">arc</span></div>"#)
+    }
+
+    @Test("akv row view builders, byte for byte")
+    func akvRowViewBytes() {
+        let html = AkvRow(key: { [Text("Model")] }, value: { [Text("gpt-4o")] }).markup.html
+        #expect(html == #"<div class="akv"><span class="akv-k">Model</span><span class="akv-v">gpt-4o</span></div>"#)
+    }
+
+    @Test("detail card body, byte for byte")
+    func detailCardBytes() {
+        let html = DetailCard(title: "Skill", sub: "devops") { Paragraph("body") }.markup.html
+        #expect(html == #"<div class="detail-card"><h1 class="detail-title">Skill</h1><div class="detail-sub">devops</div><p>body</p></div>"#)
+    }
+
+    @Test("bare detail card body, byte for byte")
+    func detailCardBareBytes() {
+        let html = DetailCard { Paragraph("body") }.markup.html
+        #expect(html == #"<div class="detail-card"><p>body</p></div>"#)
+    }
+
+    @Test("a detail card with no body at all renders an empty card")
+    func detailCardNoBodyBytes() {
+        // the `EmptyView` default is the only place that type is used, so it
+        // gets its own pin rather than riding on a body-carrying call site.
+        let html = DetailCard().markup.html
+        #expect(html == #"<div class="detail-card"></div>"#)
+    }
+
+    @Test("main scroll wraps its content, byte for byte")
+    func mainScrollBytes() async {
+        let state = AppState(renderFixture: AppState.RenderFixture())
+        let html = await state.mainScroll { Text("hi") }.markup.html
+        #expect(html == #"<div class="main-view"><div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">hi</div></div>"#)
+    }
+
+    @Test("a dropdown row forwards id, class and children, byte for byte")
+    func dropdownRowHelperBytes() async {
+        var f = AppState.RenderFixture()
+        f.settings.modelConfigs = [ModelConfigPreset(name: "fast", model: "gpt-5-mini",
+                                                     provider: "openai", baseURL: "",
+                                                     maxOutputTokens: 4096)]
+        f.settings.activeConfig = "fast"
+        let html = await AppState(renderFixture: f).mainModelDropdown().markup.html
+        let row = #"<button id="mainmc-pick-ZmFzdA" class="dd-row" type="button"><span class="dd-model-main"><span class="dd-row-title">fast<span class="dd-badge sel">SELECTED</span></span><span class="dd-row-sub">gpt-5-mini @ openai</span></span></button>"#
+        #expect(html.contains(row), "the row's own bytes are the helper's contract")
+    }
 }

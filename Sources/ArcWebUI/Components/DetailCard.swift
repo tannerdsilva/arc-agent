@@ -2,10 +2,10 @@ import WebUI
 
 /// A detail card: `.detail-card` with a `.detail-title` heading and a
 /// `.detail-sub` sub-line, plus body children.
-public struct DetailCard: WebUI.View {
+public struct DetailCard<Body: WebUI.View>: WebUI.View {
 	public let title: String
 	public let sub: String
-	public let body: [any WebUI.View]
+	public let body: Body
 	/// an additional class on the card itself (e.g. a spacing modifier)
 	public let extraClass: String
 
@@ -13,7 +13,7 @@ public struct DetailCard: WebUI.View {
 		title: String = "",
 		sub: String = "",
 		extraClass: String = "",
-		@ViewBuilder body: () -> [any WebUI.View] = { [] }
+		@ElementBuilder body: () -> Body = { EmptyView() }
 	) {
 		self.title = title
 		self.sub = sub
@@ -39,7 +39,7 @@ public struct DetailCard: WebUI.View {
 			Text(sub).render(into: &buffer)
 			buffer.endElement()
 		}
-		for view in body { view.render(into: &buffer) }
+		body.render(into: &buffer)
 		buffer.endElement()
 	}
 }

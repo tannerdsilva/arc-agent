@@ -2500,8 +2500,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     /// one dropdown row. the row carries only its id: the wire dispatches on
     /// `targetId`, and the engine reports the nearest id *inside* the boundary —
     /// so the boundary lives on the popover (`dd-pop`), never on the row.
-    private func ddRow(id: String, extraClass: String = "",
-                       @ViewBuilder body: () -> [any WebUI.View]) -> some WebUI.View {
+    private func ddRow<Content: WebUI.View>(id: String, extraClass: String = "",
+                       @ElementBuilder body: () -> Content) -> some WebUI.View {
         let cls = extraClass.isEmpty ? "dd-row" : "dd-row \(extraClass)"
         return ArcButton(id: id, component: nil, class: cls) { body() }
     }
@@ -3339,7 +3339,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     }
 
     /// the scroll container every detail main wraps its card in.
-    func mainScroll(@ViewBuilder _ content: () -> [any WebUI.View]) -> some WebUI.View {
+    func mainScroll<Content: WebUI.View>(@ElementBuilder _ content: () -> Content) -> some WebUI.View {
         Div(class: "main-view") {
             Div(id: "main-scroll", class: "main-scroll") {
                 content()
@@ -3701,7 +3701,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
 
     func workspacesMain() -> some WebUI.View {
         if createWorkspace {
-            return mainScroll {
+            // the two branches render different `mainScroll` content types, and
+            // this function has one opaque return type — so the one-value
+            // erasure is what lets both returns agree.
+            return ErasedViews([mainScroll {
                 Form(method: nil, id: "ws-create-form", class: "detail-card ws-form") {
                     Heading("New workspace", level: .h1, class: "detail-title")
                     Div(class: "detail-sub") {
@@ -3730,11 +3733,11 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
                 .data("component-id", "ws-create-form")
-            }
+            }])
         }
         let ws = settings.activeWorkspace
         let path = workspacePath(for: nil)
-        return mainScroll {
+        return ErasedViews([mainScroll {
             Div(class: "detail-card") {
                 DetailTitle("Workspaces", icon: .grid)
                 Div(class: "detail-sub") {
@@ -3745,7 +3748,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 AkvRow(key: "Sessions", value: "\(sessions.count)")
                 AkvRow(key: "Note", value: "All chats share one session list; switching a chat's workspace changes its working folder, not the conversation list.")
             }
-        }
+        }])
     }
 
     // MARK: Settings main
@@ -4061,7 +4064,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 } else {
                     for conn in connections {
                         let encID = enc(conn.id)
-                        Div(class: "mc-row") {
+                        // the row's type holds opaque `some View` modifiers
+                        // (`.wire`), which `buildArray` rejects — one erased
+                        // value is the documented shape for this loop.
+                        ErasedViews([Div(class: "mc-row") {
                             Span(class: "mc-name") {
                                 Text("\(conn.name) ")
                                 if !effectiveFile && effectiveMedium == conn.id {
@@ -4087,7 +4093,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 }
                                 .wire("storage-del")
                             }
-                        }
+                        }])
                     }
                 }
                 storageConnForm(connections: connections)
