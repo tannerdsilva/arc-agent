@@ -123,7 +123,7 @@ extension ArcCoreTestRoot {
             )
             let agent = ArcAgent(config: config)
             let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-            defer { httpClient.shutdown() }
+            defer { _ = httpClient.shutdown() }
             await agent.setupClient(httpClient: httpClient)
             await agent.setClient(ScriptedLLMClient(filePath: target.path))
 
