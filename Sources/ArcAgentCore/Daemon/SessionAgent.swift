@@ -165,6 +165,9 @@ public actor SessionAgent: Service {
                 maxTurnDuration: 120,
                 persistSessions: agentConfig.tessera != nil ? agentConfig.persistSessions : false,
                 approvalMode: .manual,
+                // Session agents are long-lived, but seed the persisted
+                // "Always allow" list so allowlist entries span restarts.
+                alwaysAllowedCommands: loadConfig().security.alwaysAllowedCommands,
                 query: nil,
                 maxContextTokens: 64_000,
                 sessionID: sessionID,

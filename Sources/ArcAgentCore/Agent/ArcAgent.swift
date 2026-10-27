@@ -53,6 +53,17 @@ public actor ArcAgent: Service {
         public var persistSessions: Bool
         /// The approval mode for dangerous commands.
         public var approvalMode: ApprovalMode
+
+        /// Injected, long-lived approval manager. When set it **replaces** the
+        /// agent's own manager — used by surfaces that rebuild the agent per
+        /// turn (web UI) so "Allow session"/"Allow always" outlive a single
+        /// turn. When nil a fresh manager is built from `approvalMode` and
+        /// `alwaysAllowedCommands`.
+        public var approvalManager: ApprovalManager?
+
+        /// Commands pre-exempted from approval (persisted allowlist), used
+        /// only when `approvalManager` is nil.
+        public var alwaysAllowedCommands: [String]
         /// Single query mode. If set, the agent processes one query and exits.
         public var query: String?
         /// Approximate max context tokens before auto-compression.
@@ -172,6 +183,8 @@ public actor ArcAgent: Service {
             maxTurnDuration: Int = 120,
             persistSessions: Bool = true,
             approvalMode: ApprovalMode = .manual,
+            approvalManager: ApprovalManager? = nil,
+            alwaysAllowedCommands: [String] = [],
             query: String? = nil,
             maxContextTokens: Int = 64_000,
             auxiliary: AuxiliaryModelSet = AuxiliaryModelSet(),
@@ -218,6 +231,8 @@ public actor ArcAgent: Service {
             self.maxTurnDuration = maxTurnDuration
             self.persistSessions = persistSessions
             self.approvalMode = approvalMode
+            self.approvalManager = approvalManager
+            self.alwaysAllowedCommands = alwaysAllowedCommands
             self.query = query
             self.maxContextTokens = maxContextTokens
             self.auxiliary = auxiliary
@@ -343,7 +358,8 @@ public actor ArcAgent: Service {
     }
     /// Structured logger for diagnostic output.
     private let logger = Logger(label: "com.arc-agent.agent")
-    private let approvalManager: ApprovalManager
+    /// Internal (not private) so tests can verify injected-manager adoption.
+    let approvalManager: ApprovalManager
     private let delegationManager: DelegationManager
     /// Cached system prompt, rebuilt only when memory or skills change.
     private var cachedSystemPrompt: String?
@@ -397,8 +413,14 @@ public actor ArcAgent: Service {
         self.messageHistory = []
         self.sessionID = config.sessionID ?? UUID().uuidString
         // The smart-approval classifier is wired from `wireSmartApproval()`
-        // (once the agent's own state is fully initialized).
-        self.approvalManager = ApprovalManager(mode: config.approvalMode)
+        // (once the agent's own state is fully initialized). An injected
+        // manager (web UI turn loop) replaces the agent-local one entirely —
+        // it carries the persisted allowlist and session pre-approvals across
+        // turn-scoped agent rebuilds.
+        self.approvalManager = config.approvalManager
+            ?? ApprovalManager(
+                mode: config.approvalMode,
+                alwaysAllowedCommands: config.alwaysAllowedCommands)
         self.toolGuardrails = ToolGuardrails(limits: .init(loopCap: config.toolLoopCap))
         self.delegationManager = DelegationManager(
             maxChildren: config.delegation.maxConcurrentChildren,

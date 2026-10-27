@@ -635,6 +635,10 @@ extension AppState {
             maxTurnDuration: 120,
             persistSessions: false,
             approvalMode: .manual,
+            // Share the app-level manager: it outlives this turn-scoped agent
+            // and carries the persisted always-allow list plus per-session
+            // pre-approvals ("Allow session") across turns.
+            approvalManager: approvalManager,
             maxContextTokens: preset.contextLength ?? 64_000,
             sessionID: sessionID,
             contextLength: preset.contextLength,
