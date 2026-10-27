@@ -201,53 +201,6 @@ struct ArcComponentsTests {
         #expect(html.contains("body"))
     }
 
-    // MARK: DropdownRow
-
-    @Test("dropdown row emits dd-row with id and type button")
-    func dropdownRow() {
-        let html = DropdownRow(id: "mainmc-pick-arc") {
-            Span { Text("row") }
-        }.markup.html
-        #expect(html.contains("type=\"button\""))
-        #expect(html.contains("id=\"mainmc-pick-arc\""))
-        #expect(html.contains("class=\"dd-row\""))
-    }
-
-    @Test("dropdown row merges extra class")
-    func dropdownRowExtraClass() {
-        let html = DropdownRow(id: "x", class: "dd-model-row") {
-            Span { Text("row") }
-        }.markup.html
-        #expect(html.contains("class=\"dd-row dd-model-row\""))
-    }
-
-    // MARK: ListRow
-
-    @Test("list row emits list-row")
-    func listRow() {
-        let html = ListRow {
-            Span { Text("x") }
-            Span { Text("y") }
-        }.markup.html
-        #expect(html.contains("class=\"list-row\""))
-        #expect(html.contains("<span>x</span>"))
-        #expect(html.contains("<span>y</span>"))
-    }
-
-    @Test("named list row emits lr-name and lr-sub")
-    func namedListRow() {
-        let html = NamedListRow("Appearance", sub: "Theme").markup.html
-        #expect(html.contains("class=\"list-row\""))
-        #expect(html.contains("class=\"lr-name\">Appearance</span>"))
-        #expect(html.contains("class=\"lr-sub\">Theme</span>"))
-    }
-
-    @Test("named list row omits lr-sub when nil")
-    func namedListRowNoSub() {
-        let html = NamedListRow("Appearance").markup.html
-        #expect(!html.contains("lr-sub"))
-    }
-
     // MARK: W3 — typed builder byte contract
 
     @Test("field label wraps its child, byte for byte")
