@@ -63,7 +63,7 @@ public actor SidecarConnection {
         self.session = session
         let pid = try await session.start()
         startReaders(session)
-        logger.info("sidecar plugin started: \(binary) (pid \(pid))")
+        logger.info("sidecar plugin started: \(binary) (pid \(pid.map { String($0) } ?? "unknown"))")
     }
 
     /// Attach the three readers: plugin output, plugin stderr, and the exit
@@ -246,6 +246,11 @@ public struct SidecarPluginTab: SidebarTab {
                 let params: SidecarValue = .obj([
                     "tab": .string(self.id),
                     "component": .string(cid),
+                    // `.string`, deliberately: this is the plugin's own
+                    // JSON-lines wire protocol, not arc's UI vocabulary. the
+                    // event name is data crossing a process boundary, so it
+                    // travels as the string a third-party plugin expects —
+                    // do not "type" this into `HTMLEvent`.
                     "event": .string(kitEvent.event),
                     "values": .object(values),
                 ])

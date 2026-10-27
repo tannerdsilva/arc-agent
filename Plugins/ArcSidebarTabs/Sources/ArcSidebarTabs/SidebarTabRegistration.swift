@@ -13,6 +13,13 @@ public protocol SidebarTabRegistrar: Sendable {
     ///     built-in components or other plugins).
     ///   - events: the event types to route (`click`, `change`,
     ///     `submit`, `input`, …).
+    ///
+    ///     strings, not `HTMLEvent`, because this kit is dependency-free by
+    ///     design: it ships into plugins that must not link `WebUICore`. the
+    ///     host translates the typed frame exactly once at each seam
+    ///     (`SidebarTabBridge`, the generic wire helper) with
+    ///     `event.event.rawValue`, and a plugin-supplied `.custom(_)` event
+    ///     arrives through the same string door.
     ///   - handler: the closure run on each matching event.
     func register(
         id: String,
