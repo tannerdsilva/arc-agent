@@ -1168,7 +1168,7 @@ extension AppState {
         if let live = activeTurns[activeSessionID ?? ""] {
             u.append(FragmentUpdate(id: "live-turn", html: render(liveMessageHTML(live)), transition: false))
         }
-        u.append(fragment("composer-flyout", Div { composerFlyoutHTML() }.attribute("id", "composer-flyout")))
+        u.append(fragment("composer-flyout", Div { composerFlyoutHTML() }.id("composer-flyout")))
         return u
     }
 
@@ -1184,7 +1184,7 @@ extension AppState {
         let inner = Div(class: "chat-inner") {
             messagesHTML(session?.messages ?? [])
         }
-        .attribute("id", "chat-inner")
+        .id("chat-inner")
         return [fragment("chat-inner", inner)]
     }
 

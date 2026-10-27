@@ -1793,7 +1793,7 @@ extension AppState {
         let path = panelWorkspacePath()
         let body = Div {
             Div(class: "ws-path") { Text(path) }
-                .attribute("title", path)
+                .title(path)
             // the listing is the bytes the scan just rendered: walking the
             // directory again here would be a second synchronous scan of the
             // same tree, which is the cost the cache exists to avoid.

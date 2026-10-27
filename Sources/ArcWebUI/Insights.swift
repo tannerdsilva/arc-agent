@@ -295,7 +295,7 @@ extension AppState {
             let cls = v == 0 ? "ins-bar ins-bar-empty" : "ins-bar"
             return Div(class: cls) {}
                 .attribute("style", "height:\(pct)%")
-                .attribute("title", tip)
+                .title(tip)
         }
 
         // x-axis: label every day for short ranges, sparse for long ones.

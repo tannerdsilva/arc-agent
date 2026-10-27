@@ -461,18 +461,18 @@ extension AppState {
                     ArcButton(id: "todo-toggle-\(t.id)", component: nil, class: "todo-check") {
                         WebUIIcon(.check, size: .small)
                     }
-                    .attribute("title", t.done ? "Mark not done" : "Mark done")
+                    .title(t.done ? "Mark not done" : "Mark done")
                     .aria(.label("Toggle"))
                     Span(class: "todo-text") { Text(t.text) }
                     ArcButton(id: "todo-run-\(t.id)", component: nil, class: "todo-run") {
                         WebUIIcon(.play, size: .small)
                     }
-                    .attribute("title", "Run in chat")
+                    .title("Run in chat")
                     .aria(.label("Run in chat"))
                     ArcButton(id: "todo-del-\(t.id)", component: nil, class: "todo-x") {
                         WebUIIcon(.x, size: .small)
                     }
-                    .attribute("title", "Remove")
+                    .title("Remove")
                     .aria(.label("Remove"))
                 }
                 .data("tid", t.id)
@@ -498,13 +498,13 @@ extension AppState {
                     if done > 0 {
                         ArcButton("Clear done (\(done))", id: "todo-clear-done",
                                   component: nil, class: "ghost-btn")
-                            .attribute("title", "Remove completed todos")
+                            .title("Remove completed todos")
                     }
                     ArcButton(id: "todo-run-all", component: nil, class: "todo-runall") {
                         Span(class: "todo-runall-ico") { WebUIIcon(.fastForward, size: .small) }
                         Text("Run all")
                     }
-                    .attribute("title", "Run all open todos in chat")
+                    .title("Run all open todos in chat")
                     .aria(.label("Run all open todos in chat"))
                     Span(class: "todo-pill") { Text("\(pending) open") }
                 }
@@ -548,7 +548,7 @@ extension AppState {
                     ArcButton(id: "task-new", component: nil, class: "plus-btn") {
                         WebUIIcon(.plus, size: .medium)
                     }
-                    .attribute("title", "New scheduled task")
+                    .title("New scheduled task")
                 }
             }
             .wire("tasks")
@@ -622,7 +622,7 @@ extension AppState {
                     ArcButton(id: "task-del-\(job.id)", component: nil, class: "icon-mini danger") {
                         WebUIIcon(.x, size: .small)
                     }
-                    .attribute("title", "Delete task and its chat")
+                    .title("Delete task and its chat")
                 }
                 .attribute("style", "margin:0")
                 .wire("tasks")
@@ -639,9 +639,9 @@ extension AppState {
         let thread = Div(class: "task-thread") {
             Div(class: "chat-scroll") {
                 Div(class: "chat-inner") { messagesHTML(msgs) }
-                    .attribute("id", "task-chat-inner")
+                    .id("task-chat-inner")
             }
-            .attribute("id", "task-chat-scroll")
+            .id("task-chat-scroll")
             .data("scroll-key", "tasks-thread")
         }
         return Group {

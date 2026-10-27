@@ -405,7 +405,7 @@ extension AppState {
         return Group {
             Div(class: "queue-row\(missing)\(statusCls)") {
                 Span(class: "queue-grip") { WebUIIcon(.moreVertical, size: .small) }
-                    .attribute("title", "Drag to reorder")
+                    .title("Drag to reorder")
                 Span(class: "queue-idx") { Text("\(index + 1)") }
                 Div(class: "queue-main") {
                     Div(class: "queue-text") { Text(todo?.text ?? "⚠︎ todo no longer exists") }
@@ -419,12 +419,12 @@ extension AppState {
                 ArcButton(id: "queue-inputs-\(e.id)", component: nil, class: "icon-mini queue-link-btn") {
                     WebUIIcon(.link, size: .small)
                 }
-                .attribute("title", "Feed earlier task output into this task")
+                .title("Feed earlier task output into this task")
                 Span(class: "queue-status\(statusCls)") { Text(statusText) }
                 ArcButton(id: "queue-del-\(e.id)", component: nil, class: "icon-mini danger") {
                     WebUIIcon(.x, size: .small)
                 }
-                .attribute("title", "Remove from queue")
+                .title("Remove from queue")
             }
             .attribute("draggable", "true")
             .data("qid", e.id)
@@ -445,7 +445,7 @@ extension AppState {
                 Span(class: "queue-feed-accent") {}
                 Span(class: "queue-feed-label") { Text("Task \(i + 1): \(label)") }
             }
-            .attribute("title", todo?.text ?? "")
+            .title(todo?.text ?? "")
         }
         return Group {
             if e.inputs.isEmpty {
@@ -477,7 +477,7 @@ extension AppState {
                         .flag(.checked, when: checked)
                     Span(class: "queue-link-num") { Text("Task \(i + 1)") }
                     Span(class: "queue-link-title") { Text(trunc(full.isEmpty ? "…" : full, 80)) }
-                        .attribute("title", full)
+                        .title(full)
                     if later {
                         Span(class: "queue-link-loop") { Text("loops back") }
                     }
@@ -577,7 +577,7 @@ extension AppState {
                         if running {
                             queueRunningStatus()
                             ArcButton("Stop", id: "queue-stop", component: nil, class: "queue-stop-btn")
-                                .attribute("title", "Stop the queue run; prompts already running in chats keep going")
+                                .title("Stop the queue run; prompts already running in chats keep going")
                         } else {
                             queueRunControls()
                             queueLoopRow(loopOn: loopOn)
@@ -620,12 +620,12 @@ extension AppState {
                 Span(class: "queue-run-ico") { WebUIIcon(.play, size: .small) }
                 Text("Run sequential")
             }
-            .attribute("title", "Run tasks in the shown order; linked tasks receive earlier output as context")
+            .title("Run tasks in the shown order; linked tasks receive earlier output as context")
             ArcButton(id: "queue-run-async", component: nil, class: "queue-run-btn") {
                 Span(class: "queue-run-ico") { WebUIIcon(.fastForward, size: .small) }
                 Text("Run parallel")
             }
-            .attribute("title", "Run each chat at the same time; same-chat tasks are combined")
+            .title("Run each chat at the same time; same-chat tasks are combined")
             ArcButton(id: "queue-picker-toggle", component: nil, class: "queue-add-btn") {
                 WebUIIcon(.plus, size: .small)
                 Text(" Add tasks")
@@ -646,7 +646,7 @@ extension AppState {
                 }
                 Span(class: "queue-loop-label") { Text("Loop sequential") }
             }
-            .attribute("title", "Repeat the sequential run; linked later tasks feed back on the next pass")
+            .title("Repeat the sequential run; linked later tasks feed back on the next pass")
             if loopOn {
                 FieldLabel(class: "queue-loop-count") {
                     Span(class: "queue-loop-count-label") { Text("Loops") }
@@ -658,7 +658,7 @@ extension AppState {
                     )
                     .wire("queue-loop-count", on: .change)
                 }
-                .attribute("title", "How many times to run the queue (1 = no loop)")
+                .title("How many times to run the queue (1 = no loop)")
             }
         }
     }
