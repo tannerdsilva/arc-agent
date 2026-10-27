@@ -1797,7 +1797,6 @@ public static let css: String = """
     }
     .approval-btn.yolo:hover { background: rgba(245, 158, 11, 0.22); border-color: rgba(245, 158, 11, 0.55); color: #fbbf24; }
     .approval-btn svg, .approval-ico svg, .clarify-ico svg, .clarify-collapse svg, .approval-collapse svg, .approval-dismiss svg,
-    .clarify-badge-svg { display: block; }
 
     /* ── Composer flyout: arc-parity clarification card ── */
     .clarify-inner {
@@ -2377,7 +2376,6 @@ public static let css: String = """
     .dd-pop.hidden { display: none; }
     /* Settings pickers (Main model / Auxiliary models) open downward — the
        settings list is tall, so an upward popover would clip. */
-    .dd-pop-down { bottom: auto; top: calc(100% + 8px); }
     .dd-settings .dd-trigger {
       border: 1px solid var(--border); background: var(--surface-2);
       color: var(--text); border-radius: 8px; max-width: 300px;
@@ -2410,7 +2408,6 @@ public static let css: String = """
     .dd-row-title { font-size: 0.86em; font-weight: 600; color: var(--text); display: inline-flex; align-items: center; gap: 5px; }
     .dd-row-sub { font-size: 0.84em; color: var(--muted); }
     .dd-empty { padding: 10px; font-size: 0.86em; color: var(--muted); }
-    .dd-section { font-size: 0.76em; letter-spacing: 0.06em; color: var(--muted); padding: 6px 10px 2px; text-transform: uppercase; }
     .dd-note { font-size: 0.84em; color: var(--muted); padding: 2px 6px 8px; }
     .dd-foot { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 4px; display: flex; flex-direction: column; }
     .dd-foot-row {
@@ -2994,7 +2991,6 @@ public static let css: String = """
       letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 999px;
       border: 1px solid var(--border-strong); color: var(--muted); background: var(--hover-bg); vertical-align: 1px; }
     .cmd-item-badge-skill { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-strong); }
-    .selected-text-reply-btn.visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
 
     /* ── Context chips (reference _renderSelectionChips parity) ── */
     .selection-chips-wrap { display: flex; flex-direction: column; gap: 8px; max-width: 100%;

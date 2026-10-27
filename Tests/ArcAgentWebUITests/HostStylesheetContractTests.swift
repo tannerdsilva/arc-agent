@@ -76,7 +76,12 @@ extension ArcWebUITestRoot {
             "ins-more-row", "insights-main", "info", "msg-copy-btn", "outline-toggle-btn", "panel-note",
             "pill-other", "queue-card", "queue-loop-count-label", "result__a",
             "result__snippet", "skill-cat-title", "task-ctrl-main", "thinking-detail",
-            "todo-list", "token", "ws-head", "ws-menu", "yolo-text",
+            "todo-list", "token",
+            // rode in on the dead `.selected-text-reply-btn.visible` rule: `approval-card` and
+            // `clarify-card` emit it, no sheet defines it, and no js toggles it. it was only ever
+            // "defined" as a token inside that compound selector (removed in W4b).
+            "visible",
+            "ws-head", "ws-menu", "yolo-text",
         ]
 
         /// every complete (non-interpolated) class token written into a `class="…"` attribute
