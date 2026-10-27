@@ -4,17 +4,17 @@
 
 ARC Agent is a **precompiled, Swift-native AI agent harness** — architecturally inspired by [the reference agent](https://hermes-agent.nousresearch.com), but built from the ground up for Swift's concurrency model, type system, and distribution story. Single binary, zero interpreter overhead, no npm dependency chain, instant startup.
 
-**Status:** Vascular hardening. The core architecture is built across 223 source files with 1,099 tests — 881 core, 203 web UI, 15 daemon, all green — and a clean build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. **One daemon hosts everything** — `arc serve` composes the REST API, the platform adapters, the cron scheduler and the web UI in a single `ServiceGroup`; the UI's CSS and JS are compiled in as Swift (the theme sheet rendered, minified, stamped and gzipped from `Sources/ArcTheme/`, the client overlay embedded from `Assets/overlay.js`) and served by no-webui's `WebUIServer` from content-stamped, immutable-cached urls.
+**Status:** Vascular hardening. The core architecture is built across 236 source files with 1,445 tests — 901 core, 529 web UI, 15 daemon, all green — and a clean, warning-free build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. **One daemon hosts everything** — `arc serve` composes the REST API, the platform adapters, the cron scheduler and the web UI in a single `ServiceGroup`; the UI's CSS and JS are compiled in as Swift (the theme sheet rendered, minified, stamped and gzipped from `Sources/ArcTheme/`, the client overlay embedded from `Assets/overlay.js`) and served by no-webui's `WebUIServer` from content-stamped, immutable-cached urls.
 
 ## Install
 
 Install the latest release (precompiled binaries; no compiler or dependency chain needed):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tannerdsilva/arc-agent/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tannerdsilva/arc-agent/master/Scripts/User/install.sh | bash
 ```
 
-The installer fetches a prebuilt release tarball from GitHub Releases and falls back to a source build (clone + `swift build -c release`) when no asset exists for the platform yet. It installs `arc` and `arc-agent-webui` into `~/.local/bin` and leaves configuration to first-run setup:
+The installer fetches a prebuilt release tarball from GitHub Releases and falls back to a source build (clone + `swift build -c release`) when no asset exists for the platform yet. It installs **one** binary, `arc`, into `~/.local/bin` and leaves configuration to first-run setup. (The standalone `arc-agent-webui` binary was retired in the daemon consolidation; nothing installs it any more.)
 
 ```bash
 arc setup                       # provider, model, approval mode → ~/.arc/config.json
