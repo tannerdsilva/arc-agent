@@ -61,7 +61,7 @@ test:
 # recorded in Package.resolved, so the accepted revision lives in
 # docs/web-ui-architecture.md and this target is how the pin is checked.
 check-pin:
-	@want=a9f4821; have=$$(git -C ../no-webui rev-parse --short HEAD); \
+	@want=6de3e2b; have=$$(git -C ../no-webui rev-parse --short HEAD); \
 	if [ "$$want" = "$$have" ]; then echo "  no-webui $$have (accepted)"; \
 	else echo "  ⚠ no-webui moved: $$want → $$have"; \
 	     git -C ../no-webui log --oneline $$want..$$have | head -30; \
