@@ -63,11 +63,9 @@ let package = Package(
             url: "https://github.com/apple/swift-crypto.git",
             from: "3.0.0"
         ),
-		// TODO(pin) no-webui 2.3.0 once the inline primitives are tagged: the
-		// typed head (`HeadContent`) and `TrustedMarkup` are in the local tree at
-		// 6b7cff2 and in the `2.3.0-macros` prerelease tag, but no plain `2.3.0`
-		// release tag exists — a `"2.3.0"..<"3.0.0"` url pin cannot resolve a
-		// prerelease, so the path pin stays until the human tags and pushes.
+		// co-developed sibling: arc builds against whatever ../no-webui has checked
+		// out. the accepted revision is recorded in docs/web-ui-architecture.md;
+		// `make check-pin` reports drift.
 		.package(path: "../no-webui"),
 		.package(path: "Plugins/ArcSidebarTabs"),
 	],

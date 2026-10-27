@@ -19,6 +19,13 @@ adapters — one `ServiceGroup` per process — so the UI shares the daemon's
 storage pair, log sink and shutdown. The surface is gated by the `webui` block
 of `daemon.json` (on by default).
 
+## dependency pin
+
+`.package(path: "../no-webui")` — accepted revision `a9f4821` (2026-10-26).
+path dependencies are not recorded in `Package.resolved`, so this line is the pin.
+run `make check-pin` after pulling no-webui; it exits non-zero and lists the
+commits when the sibling has moved.
+
 ## Layout
 
 ```

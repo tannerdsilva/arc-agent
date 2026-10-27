@@ -25,7 +25,7 @@ VERSION    := $(shell git describe --tags --always 2>/dev/null || echo "dev")
 DIST_DIR   := dist
 DIST_NAME  := arc-agent-$(VERSION)-macos-arm64
 
-.PHONY: all build release install update dev test clean dist uninstall
+.PHONY: all build release install update dev test clean dist uninstall check-pin
 
 # ── Default: debug build ──────────────────────────────────
 all: build
@@ -55,6 +55,17 @@ dev: build
 # ── Test ──────────────────────────────────────────────────
 test:
 	$(SWIFT) test 2>&1
+
+# ── Dependency pin ────────────────────────────────────────
+# arc builds against ../no-webui's working tree. path dependencies are not
+# recorded in Package.resolved, so the accepted revision lives in
+# docs/web-ui-architecture.md and this target is how the pin is checked.
+check-pin:
+	@want=a9f4821; have=$$(git -C ../no-webui rev-parse --short HEAD); \
+	if [ "$$want" = "$$have" ]; then echo "  no-webui $$have (accepted)"; \
+	else echo "  ⚠ no-webui moved: $$want → $$have"; \
+	     git -C ../no-webui log --oneline $$want..$$have | head -30; \
+	     exit 1; fi
 
 # ── Clean ─────────────────────────────────────────────────
 clean:
