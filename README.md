@@ -69,7 +69,7 @@ storage pair, and one log sink; surfaces are gated by `~/.arc/daemon.json`
 retired in the daemon consolidation.
 ```
 
-**55 registered tools** across ~13 toolsets: `core`, `file`, `terminal`, `web`, `delegation`, `kanban`, `profile`, `media`, `webhooks`, `skills`, `mcp`, `project`, `tools`, `messaging` (arc-parity: `project_*`, unified `skill_manage` + `skills_list`, `tool_search`, `send_message`).
+**54 registered tools** across 16 toolsets — measured from `arc tools list`, and identical to the 54 unique `ToolEntry` names in source: `core`, `file`, `terminal`, `web`, `delegation`, `kanban`, `profile`, `skills`, `mcp`, `project`, `tools`, `messaging`, `browser`, `todo`, `computer_use`, `code_execution` (arc-parity: `project_*`, unified `skill_manage` + `skills_list`, `tool_search`, `send_message`).
 
 ### One turn engine
 
