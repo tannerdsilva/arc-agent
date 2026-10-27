@@ -238,6 +238,31 @@ smoke.
   `WebUIRuntime`, `WebUIIcon`), `WebUIDesignSystem` (`DesignToken`, `WebUITheme`,
   `@Theme`, `TokenAlias`, `ThemeCatalog`), `WebUIServer`.
 
+## why arc keeps its own components
+
+the design system ships its own component set; arc keeps **10 hand-written
+components** in `Sources/ArcWebUI/Components/` anyway. every one of them emits
+arc's chrome classes, not framework classes: `akv`, `detail-card`,
+`ctx-ring-svg`, `set-row`. the nearest framework component emits different
+markup — `<dl class="list--desc">` for `WebUIDescriptionList`, `.card` for
+`WebUICard`, a `progressbar` role for `WebUICircularProgress` — so replacing one
+would change rendered bytes and orphan the 520 selectors of chrome sheet that
+style them.
+
+two of them additionally carry guarantees the framework cannot express:
+`ArcButton` keeps `routing:` (the component id is not the element id, which is
+how the wire dispatches on `targetId`) and `ArcSwitch` carries a `value:`
+payload the change wires read. `WebUIButton` has no `routing:` and
+`WebUIToggle` has no `value:`.
+
+what was actually dead, measured rather than assumed: `DropdownRow`, `ListRow`
+and `NamedListRow` had zero call sites outside their own file, and four
+selectors had zero references. those were deleted. `SettingRow` was on that list
+too and was **wrong** — it has 18 live call sites — which is why the deletion
+order was "grep both, then delete". do not re-run this analysis and
+"discover" a migration onto the framework components: it would silently drop
+`data-component-id` routing on four sites.
+
 ## Known gaps
 
 - **Resolved (2026-09): the client runtime fork is gone.** `RuntimeAsset.swift`
