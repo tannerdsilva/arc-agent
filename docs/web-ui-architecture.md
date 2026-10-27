@@ -26,6 +26,22 @@ path dependencies are not recorded in `Package.resolved`, so this line is the pi
 run `make check-pin` after pulling no-webui; it exits non-zero and lists the
 commits when the sibling has moved.
 
+## the co-development rule
+
+arc and no-webui are developed in parallel on the same disk. arc builds against
+`../no-webui`'s working tree, so a no-webui commit can break arc without anyone
+touching arc. before any arc commit: `make check-pin`. after any no-webui commit
+that touches `WebUICore`, `WebUIDesignSystemCore` or `WebUIServer`: run
+`swift build --build-tests` in arc and fix the consumer in the same session.
+
+the failure mode this exists for is not a merge conflict — it is silence. when
+no-webui's `@ElementBuilder` moved from erased arrays to a typed view tree, arc
+reported **one** compile error, because each file masks the next: the bridge's
+`HTMLEvent` frame hid `NewFeatures.swift`, which hid 41 sites in `Views.swift`,
+which hid a second seam in `Actions.swift`. a build that stops at the first
+error tells you nothing about the size of the drift. fix one error, rebuild,
+and expect the count to rise before it falls.
+
 ## Layout
 
 ```
