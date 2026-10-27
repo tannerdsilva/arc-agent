@@ -671,6 +671,10 @@ extension AppState {
         guard activeTurns[sessionID] == nil,
               let idx = sessions.firstIndex(where: { $0.id == sessionID })
         else { return }
+        // First turn of a chat: pin its workspace to the current default so
+        // it stops following the workspace tabs (pre-pinning chats created
+        // before this behavior existed).
+        pinSessionWorkspace(sessionID)
         // Lazy design: materialize this session's messages (they may have
         // been evicted from the cache when another chat was opened). The
         // array is only mutated in place, so `idx` stays valid.
@@ -1816,10 +1820,11 @@ final class Controller: Sendable {
         } catch {
             // Never select a session the store refused: that is the phantom-
             // session path (blank canvas now, lost turns later).
-            LogCollector.shared.append(level: .error, text: "[store] failed to create session \(String(session.id.prefix(8))): \(error)")
+            LogCollector.shared.append(level: .error, text: "[store] failed to create session \\(String(session.id.prefix(8))): \\(error)")
             _ = await app.toast("Could not create the chat — storage error (see Logs).", kind: "error")
             return
         }
+        await app.pinSessionWorkspace(session.id)
         await app.reloadSessions(selecting: session.id)
         await app.setActiveSession(session.id)
         _ = await app.hint("New chat created.")
@@ -2749,7 +2754,7 @@ final class Controller: Sendable {
         if name == active { return [] }
         await app.setWorkspace(active: name)
         await app.rebuildAndReload()
-        _ = await app.hint("Default workspace is now '\(name)'. Chats without their own workspace use it.")
+        _ = await app.hint("New chats will start in '\\(name)'. Existing chats keep their own workspace.")
         return await self.app.refreshFragments()
     }
 

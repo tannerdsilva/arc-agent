@@ -240,6 +240,19 @@ struct WorkspaceEntry: Codable, Equatable {
 
 /// Persisted UI + app settings (stored at ~/.arc-agent-webui/settings.json).
 struct AppSettings: Codable, Equatable {
+    /// Pin a chat's workspace at creation/first use so it stops following the
+    /// global default. The chat keeps this workspace until the user selects a
+    /// different one in the chat itself (`setChatWorkspace`). Idempotent: an
+    /// existing (non-empty) selection always wins. Returns the pinned name.
+    @discardableResult
+    mutating func pinWorkspace(for sessionID: String) -> String {
+        if let existing = sessionWorkspaces[sessionID], !existing.isEmpty {
+            return existing
+        }
+        sessionWorkspaces[sessionID] = activeWorkspace
+        return activeWorkspace
+    }
+
     var theme: String = "light"
     var textSize: String = "md"
     var accent: String = "#B8860B"

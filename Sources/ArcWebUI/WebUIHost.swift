@@ -239,6 +239,7 @@ public struct WebUIHost: Service {
             if let store = await app.storeRef() {
                 let s = Session()
                 try? await store.create(s)
+                await app.pinSessionWorkspace(s.id)
                 await app.reloadSessions(selecting: s.id)
             }
         }

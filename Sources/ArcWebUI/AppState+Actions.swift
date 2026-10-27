@@ -270,10 +270,11 @@ extension AppState {
         do {
             try await store.create(session)
         } catch {
-            LogCollector.shared.append(level: .error, text: "[store] failed to create session \(String(session.id.prefix(8))): \(error)")
+            LogCollector.shared.append(level: .error, text: "[store] failed to create session \\(String(session.id.prefix(8))): \\(error)")
             _ = toast("Could not create the chat — storage error (see Logs).", kind: "error")
             return await refreshFragments()
         }
+        pinSessionWorkspace(session.id)
         showNewSessionPanel = false
         await reloadSessions(selecting: session.id)
         await setActiveSession(session.id)
@@ -790,6 +791,7 @@ extension AppState {
                 await ensureRuntime()
                 let fresh = Session()
                 try? await store.create(fresh)
+                pinSessionWorkspace(fresh.id)
                 await reloadSessions(selecting: fresh.id)
                 await setActiveSession(fresh.id, preserveUndo: true)
             }
@@ -1665,6 +1667,16 @@ extension AppState {
             selectedWorkspace = name
         }
         saveSettings()
+    }
+
+    /// Pin the given chat's workspace to the current global default (no-op
+    /// if the chat already has a selection). Called at session creation and
+    /// on a chat's first turn, so chats stop following the workspace tabs —
+    /// only an explicit in-chat selection moves an existing chat afterwards.
+    func pinSessionWorkspace(_ id: String) {
+        let alreadyPinned = settings.sessionWorkspaces[id].map { !$0.isEmpty } ?? false
+        settings.pinWorkspace(for: id)
+        if !alreadyPinned { saveSettings() }
     }
 
     func removeWorkspace(_ name: String) {
