@@ -47,6 +47,12 @@ public enum AgentTurnEvent: Sendable {
     /// budget was exhausted); nil on a clean completion. Terminal.
     case completed(finalText: String, terminalReason: String? = nil)
 
+    /// A compression pass is running (context summarization/pruning). Emitted
+    /// once per pass, before the summary call. Non-terminal — text and tool
+    /// events continue after it. Display-only (like Hermes' "Compressing
+    /// context…" message); ``streamConversation`` does not project it.
+    case compressing
+
     /// The turn stopped on an error or an interruption notice. `message` is
     /// the complete visible text (already prefixed, e.g. `Error: …`).
     /// Terminal.

@@ -642,6 +642,7 @@ extension AppState {
             maxContextTokens: preset.contextLength ?? 64_000,
             sessionID: sessionID,
             contextLength: preset.contextLength,
+            compressionBudget: explicitCompressionBudget(for: sessionID),
             platformHint: "webui",
             moa: arcConfig.moa,
             reasoningEffort: effort,
@@ -963,6 +964,9 @@ extension AppState {
                     activeTurns[sessionID]?.tps = u.completionTokens > 0
                         ? Double(u.completionTokens) / elapsed : nil
                     recordTokensBurned(u.totalTokens > 0 ? u.totalTokens : u.promptTokens + u.completionTokens)
+                case .compressing:
+                    activeTurns[sessionID]?.status = "compressing"
+                    await throttle()
                 case .completed(let finalText, let terminalReason):
                     assistantText = finalText
                     let elapsed = max(0.2, Date().timeIntervalSince(turnStart))

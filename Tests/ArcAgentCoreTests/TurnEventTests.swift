@@ -217,6 +217,7 @@ extension ArcCoreTestRoot {
                 case .toolCallStarted: return "started"
                 case .toolCallFinished: return "finished"
                 case .usage: return "usage"
+                case .compressing: return "compressing"
                 case .completed: return "completed"
                 case .failed: return "failed"
                 }

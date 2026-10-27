@@ -659,6 +659,7 @@ extension AppState {
         switch live.status {
         case "tool": return live.toolName.map { "Running \(trunc($0, 18))…" } ?? "Running a tool…"
         case "approval": return "Awaiting approval…"
+        case "compressing": return "Compressing context…"
         case "error": return "Turn failed"
         case "done": return ""
         default: return "Responding…"
@@ -1701,6 +1702,9 @@ extension AppState {
             status = "<div class=\"live-status\" style=\"color:var(--danger)\"><span>" + WebUIIcon(.alertTriangle, size: .small).markup.html + " " + esc(live.error ?? "Turn failed") + "</span></div>"
         case "approval":
             status = "<div class=\"live-status\"><span>" + WebUIIcon(.alertTriangle, size: .small).markup.html + " Waiting for your approval…</span></div>"
+        case "compressing":
+            status = mode == "hide_all_activity" ? ""
+                : "<div class=\"live-status\"><span>" + WebUIIcon(.tool, size: .small).markup.html + " Compressing context…</span></div>"
         case "done":
             status = ""
         default:
@@ -1882,7 +1886,9 @@ extension AppState {
             ?? 1_048_576
         let last = s.messages.reversed().compactMap { $0.usage }.first
         let used = last?.promptTokens ?? estimateTokenCount(s.messages)
-        let budget = compressionBudget(for: s.id)
+        // The marker shows the engine's REAL threshold: an explicit profile
+        // budget when set, else the arc-parity default of half the window.
+        let budget = explicitCompressionBudget(for: s.id) ?? limit / 2
         var read = 0
         var total = 0
         var haveCache = false

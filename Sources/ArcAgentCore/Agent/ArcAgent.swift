@@ -150,6 +150,12 @@ public actor ArcAgent: Service {
         /// `nil` falls back to ``maxContextTokens``.
         public var contextLength: Int?
 
+        /// Explicit auto-compression threshold in tokens (per-profile
+        /// `context.compression_budget` / `ARC_COMPRESSION_BUDGET`). When set,
+        /// this is THE compression limit — single source of truth shared with
+        /// the UI's context meter. `nil` = arc-parity default (context/2).
+        public var compressionBudget: Int?
+
         /// Additional API keys for the same endpoint, tried in order when a
         /// key returns 401 (CredentialPool rotation).
         public var fallbackAPIKeys: [String]
@@ -196,6 +202,7 @@ public actor ArcAgent: Service {
             microCompact: MicroCompactConfig = MicroCompactConfig(),
             sessionID: String? = nil,
             contextLength: Int? = nil,
+            compressionBudget: Int? = nil,
             fallbackAPIKeys: [String] = [],
             injectProjectContext: Bool = true,
             contextDirectory: URL? = nil,
@@ -250,6 +257,7 @@ public actor ArcAgent: Service {
             self.topP = topP
             self.maxOutputTokens = maxOutputTokens
             self.contextLength = contextLength
+            self.compressionBudget = compressionBudget
             self.fallbackAPIKeys = fallbackAPIKeys
             self.injectProjectContext = injectProjectContext
             self.contextDirectory = contextDirectory
@@ -1303,9 +1311,13 @@ public actor ArcAgent: Service {
         return total
     }
 
-    /// Effective compression threshold: 50% of the model context length when
-    /// known (arc parity), otherwise the configured ``maxContextTokens``.
+    /// Effective compression threshold. Order: explicit ``Configuration/compressionBudget``
+    /// (per-profile budget — the same value the UI meter shows), else 50% of
+    /// the model context length when known (arc parity), else ``maxContextTokens``.
     nonisolated func effectiveContextLimit() -> Int {
+        if let budget = config.compressionBudget, budget > 0 {
+            return budget
+        }
         if let ctx = config.contextLength, ctx > 0 {
             return ctx / 2
         }
@@ -1353,7 +1365,11 @@ public actor ArcAgent: Service {
         return estimated > limit || (lastRealPromptTokens ?? 0) > limit
     }
 
-    private func autoCompressIfNeeded(focus: String? = nil, force: Bool = false) async {
+    func autoCompressIfNeeded(
+        emit: (@Sendable (AgentTurnEvent) -> Void)? = nil,
+        focus: String? = nil,
+        force: Bool = false
+    ) async {
         let limit = effectiveContextLimit()
         let estimated = await estimateRequestTokens()
         guard Self.shouldAutoCompress(
@@ -1363,6 +1379,10 @@ public actor ArcAgent: Service {
             throttled: compressionThrottled,
             force: force
         ) else { return }
+
+        // Visible while it runs (Hermes parity: "Compressing context…").
+        emit?(.compressing)
+        logger.info("compression: running (estimated ~\(estimated) tokens, limit \(limit))")
 
         // Pluggable context engines (reference context_engine): the
         // prune-tool-results variant trims tool output only; everything else
@@ -1928,7 +1948,7 @@ public actor ArcAgent: Service {
                             continuation.yield(text)
                         case .toolCallFinished(_, let name, let result):
                             continuation.yield("[Tool: \(name)] \(result)\n")
-                        case .reasoningDelta, .toolCallStarted, .usage, .completed:
+                        case .compressing, .reasoningDelta, .toolCallStarted, .usage, .completed:
                             break
                         }
                     }
@@ -1942,7 +1962,7 @@ public actor ArcAgent: Service {
 
     /// The core streaming turn loop.
     private func runStreamingTurnLoop(
-        emit: @Sendable (AgentTurnEvent) -> Void
+        emit: @escaping @Sendable (AgentTurnEvent) -> Void
     ) async throws {
         await toolGuardrails.resetTurn()
         guard let hc = self.httpClient else {
@@ -1989,7 +2009,7 @@ public actor ArcAgent: Service {
                 "tool_names": .array(lastToolNames),
             ])
             drainSteers()
-            await autoCompressIfNeeded()
+            await autoCompressIfNeeded(emit: emit)
             var streamFinishReason: String? = nil
 
             let systemPrompt = try await buildSystemPrompt()
@@ -2040,7 +2060,8 @@ public actor ArcAgent: Service {
                     messages: messages.map { $0.snapshotAPI() },
                     tools: toolSchemas,
                     timeout: config.maxTurnDuration,
-                    reasoningEffort: currentReasoningEffort
+                    reasoningEffort: currentReasoningEffort,
+                    emit: emit
                 )
 
                 for try await delta in stream {
@@ -2425,7 +2446,8 @@ public actor ArcAgent: Service {
         messages: [Message],
         tools: [[String: Any]]?,
         timeout: Int = 120,
-        reasoningEffort: String? = nil
+        reasoningEffort: String? = nil,
+        emit: (@Sendable (AgentTurnEvent) -> Void)? = nil
     ) async throws -> any AsyncSequence<LLMDelta, Error> {
         let cbState = await circuitBreaker.currentState()
         if case .open(let resetAt) = cbState {
@@ -2518,7 +2540,7 @@ public actor ArcAgent: Service {
                         continue
                     }
                 case .contextOverflow:
-                    await autoCompressIfNeeded()
+                    await autoCompressIfNeeded(emit: emit)
                     if retryHandler.shouldRetry(attempt) {
                         try await retryHandler.wait(for: attempt)
                         continue

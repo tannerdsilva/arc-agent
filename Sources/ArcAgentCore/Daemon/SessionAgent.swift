@@ -172,6 +172,7 @@ public actor SessionAgent: Service {
                 maxContextTokens: 64_000,
                 sessionID: sessionID,
                 contextLength: resolvedContext?.contextLength,
+                compressionBudget: resolvedContext?.compressionBudget,
                 platformHint: "daemon",
                 moa: agentConfig.moa,
                 skillInlineCommands: agentConfig.skillInlineCommands,
@@ -270,6 +271,8 @@ public actor SessionAgent: Service {
                             logger.debug("session: reasoning delta \(delta.count) chars (session \(sessionID))")
                         case .usage(let usage):
                             logger.debug("session: usage prompt=\(usage.promptTokens) completion=\(usage.completionTokens) (session \(sessionID))")
+                        case .compressing:
+                            logger.info("session: compressing context (session \(sessionID))")
                         case .completed:
                             break
                         }

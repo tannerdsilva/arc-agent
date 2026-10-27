@@ -1541,9 +1541,20 @@ extension AppState {
 
     /// Effective auto-compress threshold for a chat: the bound profile's
     /// compression budget, else the ARC_COMPRESSION_BUDGET env, else 32k.
+    /// (Display/legacy default; the ENGINE's threshold is the explicit
+    /// budget when set — see ``explicitCompressionBudget``.)
     func compressionBudget(for sessionID: String?) -> Int {
         if let b = profileContext(for: sessionID)?.compressionBudget, b > 0 { return b }
         return Int(ProcessInfo.processInfo.environment["ARC_COMPRESSION_BUDGET"] ?? "") ?? 32_000
+    }
+
+    /// The compression threshold actually handed to the engine: an explicit
+    /// profile budget or ARC_COMPRESSION_BUDGET env, else nil (engine falls
+    /// back to its arc-parity default of context/2). Single source of truth
+    /// shared by ``makeTurnAgent`` and the context meter.
+    func explicitCompressionBudget(for sessionID: String?) -> Int? {
+        if let b = profileContext(for: sessionID)?.compressionBudget, b > 0 { return b }
+        return Int(ProcessInfo.processInfo.environment["ARC_COMPRESSION_BUDGET"] ?? "")
     }
 
     /// Parse an optional Int from a form value (empty string → nil).
