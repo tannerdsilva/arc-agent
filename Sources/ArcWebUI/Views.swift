@@ -148,7 +148,7 @@ extension AppState {
         Aside {
             Div(class: "iconbar-top") {
                 for id in railTabIDs() where id != "settings" {
-                    if let tab = sidebarTab(id) { railButton(tab, active: id == activeTabID) }
+                    if let tab = sidebarTab(id) { ErasedViews([railButton(tab, active: id == activeTabID)]) }
                 }
             }
             Div(class: "iconbar-bottom") {
@@ -233,22 +233,23 @@ extension AppState {
     /// destructive action gets the same dialog, the same Cancel/Delete pair, a
     /// real dialog role, and (via the overlay) the same focus + Escape handling.
     func modalHTML() -> some WebUI.View {
-        guard let req = activeConfirm else { return Group {} }
-        return Group {
-            Div(id: "modal-overlay", class: "modal-overlay") {
-                Div(class: "modal-card") {
-                    Heading(req.title, level: .h3)
-                        .attribute("id", "modal-title")
-                    Paragraph(req.body)
-                    Div(class: "modal-actions") {
-                        ArcButton("Cancel", id: "modal-cancel", component: nil, class: "ghost-btn")
-                        ArcButton("Delete", id: "modal-confirm", component: nil, class: "danger-btn")
+        Group {
+            if let req = activeConfirm {
+                Div(id: "modal-overlay", class: "modal-overlay") {
+                    Div(class: "modal-card") {
+                        Heading(req.title, level: .h3)
+                            .attribute("id", "modal-title")
+                        Paragraph(req.body)
+                        Div(class: "modal-actions") {
+                            ArcButton("Cancel", id: "modal-cancel", component: nil, class: "ghost-btn")
+                            ArcButton("Delete", id: "modal-confirm", component: nil, class: "danger-btn")
+                        }
+                        .wire("modal")
                     }
-                    .wire("modal")
+                    .attribute("role", "dialog")
+                    .aria(.modal(.yes))
+                    .aria(.labelledby("modal-title"))
                 }
-                .attribute("role", "dialog")
-                .aria(.modal(.yes))
-                .aria(.labelledby("modal-title"))
             }
         }
     }
@@ -278,51 +279,50 @@ extension AppState {
     /// and a red delete action. Rendered over a transparent click-to-close
     /// backdrop at the mouse's viewport position.
     func categoryMenuHTML() -> some WebUI.View {
-        guard let menu = categoryMenu,
-              let cat = settings.chatCategories.first(where: { $0.id == menu.categoryID }) else {
-            return Group {}
-        }
-        let left = max(8, min(menu.x, 1080))
-        let top = max(8, min(menu.y, 760))
-        let cid = enc(cat.id)
-        let catColor = cat.color
-        let catName = cat.name
+        Group {
+            if let menu = categoryMenu,
+               let cat = settings.chatCategories.first(where: { $0.id == menu.categoryID }) {
+                let left = max(8, min(menu.x, 1080))
+                let top = max(8, min(menu.y, 760))
+                let cid = enc(cat.id)
+                let catColor = cat.color
+                let catName = cat.name
 
-        return Group {
-            Div(id: "cat-menu-close", class: "ctx-backdrop") {}
-                .data("component-id", "cat-menu-close")
+                Div(id: "cat-menu-close", class: "ctx-backdrop") {}
+                    .data("component-id", "cat-menu-close")
 
-            Div(id: "cat-menu", class: "ctx-menu") {
-                if categoryMenuRename {
-                    Form(method: nil, id: "cm-rename-form-\(cid)", class: "ctx-rename") {
-                        Input(field: "cat-rename-input", type: nil, value: catName, attributes: [("autofocus", "")])
-                        ArcButton("Save", id: nil, component: nil, class: "primary-btn", type: .submit)
+                Div(id: "cat-menu", class: "ctx-menu") {
+                    if categoryMenuRename {
+                        Form(method: nil, id: "cm-rename-form-\(cid)", class: "ctx-rename") {
+                            Input(field: "cat-rename-input", type: nil, value: catName, attributes: [("autofocus", "")])
+                            ArcButton("Save", id: nil, component: nil, class: "primary-btn", type: .submit)
+                        }
+                        .data("prevent-enter", "false")
+                    } else {
+                        ArcButton("\u{270E} Rename", id: "cm-rename-\(cid)", component: nil, class: "ctx-item")
                     }
-                    .data("prevent-enter", "false")
-                } else {
-                    ArcButton("\u{270E} Rename", id: "cm-rename-\(cid)", component: nil, class: "ctx-item")
-                }
 
-                Div(class: "ctx-swatches") {
-                    Div(class: "ctx-label") { Text("Color") }
-                    Div(class: "ctx-swatch-row") {
-                        ForEach(AppState.palette) { c in
-                            let sel = c == catColor ? " sel" : ""
-                            let hex = c.hasPrefix("#") ? String(c.dropFirst()) : c
-                            ArcButton("", id: "cm-color-\(hex)", component: nil, class: "menu-swatch\(sel)")
-                                .data("color", c)
-                                .aria(.label(c))
-                                .attribute("style", "background:\(c)")
+                    Div(class: "ctx-swatches") {
+                        Div(class: "ctx-label") { Text("Color") }
+                        Div(class: "ctx-swatch-row") {
+                            ForEach(AppState.palette) { c in
+                                let sel = c == catColor ? " sel" : ""
+                                let hex = c.hasPrefix("#") ? String(c.dropFirst()) : c
+                                ArcButton("", id: "cm-color-\(hex)", component: nil, class: "menu-swatch\(sel)")
+                                    .data("color", c)
+                                    .aria(.label(c))
+                                    .attribute("style", "background:\(c)")
+                            }
                         }
                     }
+
+                    Div(class: "ctx-divider") {}
+
+                    ArcButton("Delete", id: "cm-del-\(cid)", component: nil, class: "ctx-item ctx-danger")
                 }
-
-                Div(class: "ctx-divider") {}
-
-                ArcButton("Delete", id: "cm-del-\(cid)", component: nil, class: "ctx-item ctx-danger")
+                .data("component-id", "cat-menu")
+                .attribute("style", "left:\(left)px;top:\(top)px")
             }
-            .data("component-id", "cat-menu")
-            .attribute("style", "left:\(left)px;top:\(top)px")
         }
     }
     /// Everything rendered in #modal-root (delete confirmation + category menu).
@@ -511,7 +511,7 @@ extension AppState {
                     groupHTML(key: "pinned", title: "Pinned", sessions: pinned, todos: todos)
                 }
                 for bucket in bucketRows {
-                    groupHTML(key: bucket.key, title: bucket.title, sessions: bucket.sessions, todos: todos)
+                    ErasedViews([groupHTML(key: bucket.key, title: bucket.title, sessions: bucket.sessions, todos: todos)])
                 }
                 if pinned.isEmpty && bucketRows.isEmpty {
                     Div(class: "empty-hint") { Text(emptyMsg) }
@@ -586,10 +586,10 @@ extension AppState {
                         .attribute("value", AppState.palette[0])
                     Div(class: "cat-swatches") {
                         for (i, c) in AppState.palette.enumerated() {
-                            ArcButton(id: nil, component: nil, class: "cat-swatch\(i == 0 ? " sel" : "")") {}
+                            ErasedViews([ArcButton(id: nil, component: nil, class: "cat-swatch\(i == 0 ? " sel" : "")") {}
                                 .data("color", c)
                                 .attribute("style", "background:\(c)")
-                                .aria(.label(c))
+                                .aria(.label(c))])
                         }
                     }
                     Div(class: "cat-add-actions") {
@@ -681,7 +681,7 @@ extension AppState {
             // contract is that a conversion changes NO bytes.
             Div(class: "sess-group-rows") {
                 for s in sessions {
-                    sessionRow(s, todos: todos)
+                    ErasedViews([sessionRow(s, todos: todos)])
                 }
             }
         }
@@ -706,6 +706,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         // Menu/Shift+F10 opens the ⋮ menu).
         let rowTab = isActiveRow ? 0 : -1
         let rowClass = "sess-row\(active)\(archived)"
+    return Group {
         if todos {
             // Minimal variant for the Todos page: chat title only — no meta,
             // no ⋮ menu, no category dot, no pin badge.
@@ -722,7 +723,128 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             .data("sid", s.id)
             // aria-current is presence-only and `.attribute` takes a value, so
             // the active shape is a second branch rather than `aria-current=""`.
-            return Group {
+            Group {
+                if isActiveRow {
+                    row.aria(.current(.yes))
+                } else {
+                    row
+                }
+            }
+        } else {
+            let booked = isBookmarked(s.id)
+            // Summaries carry the metadata count; loaded sessions use the live array.
+            let count = s.messages.isEmpty ? s.messageCount : s.messages.count
+            let epochMs = Int(s.updatedAt.timeIntervalSince1970 * 1000)
+            let pinLabel = booked ? "Unpin conversation" : "Pin conversation"
+            let arcLabel = archived.isEmpty ? "Archive conversation" : "Unarchive conversation"
+            let catID = categoryID(for: s.id)
+            let catColor = categoryColor(for: catID)
+            let catName = categoryName(for: catID)
+            let row = Div(class: rowClass) {
+                ArcButton(id: "s-open-\(encID)", component: nil, class: "sess-open", tabIndex: -1) {
+                    Span(class: "sess-title") {
+                        if booked {
+                            Span(class: "pin-badge") { WebUIIcon(.bookmark, size: .small) }
+                                .attribute("title", "Pinned")
+                        }
+                        Text(title)
+                    }
+                    Span(class: "sess-meta") {
+                        Text("\(count) msg • ")
+                        Span(class: "rel-time") { Text(relTimeLabel(s.updatedAt)) }
+                            .data("reltime", "\(epochMs)")
+                        if !archived.isEmpty { Text(" • Archived") }
+                        liveStatusPill(s.id)
+                    }
+                }
+                Div(class: "row-actions") {
+                    Div(class: "menu-wrap") {
+                        Div(class: "menu-left") {
+                            if !catColor.isEmpty {
+                                Span(class: "cat-dot cat-rowdot") {}
+                                    .attribute("style", "background:\(catColor)")
+                                    .attribute("title", catName)
+                            }
+                        }
+                        ArcButton(id: "s-menu-\(encID)", component: nil, class: "menu-dots", tabIndex: -1) {
+                            if activeTurns[s.id] != nil {
+                                Span(class: "row-spin") {}
+                                Span(class: "row-dots") { Text("⋮") }
+                            } else {
+                                Text("⋮")
+                            }
+                        }
+                        .attribute("title", "Chat actions")
+                        Div(class: "chat-menu") {
+                            Div(class: "chat-menu-items") {
+                                ArcButton("Copy conversation link", id: "sm-copy-\(encID)", class: "")
+                                    .data("sid", s.id)
+                                ArcButton("Rename conversation", id: "sm-rename-\(encID)", class: "")
+                                    .data("sid", s.id)
+                                ArcButton(pinLabel, id: "sm-pin-\(encID)", class: "")
+                                    .data("sid", s.id)
+                                ArcButton(arcLabel, id: "sm-arc-\(encID)", class: "")
+                                    .data("sid", s.id)
+                                // Category picker inside the "⋮" menu: a hover flyout
+                                // submenu to the right of "Set category" (arc parity),
+                                // keeping category option button ids so the existing
+                                // chat-menu wire handles them unchanged.
+                                ArcButton(id: "sm-catmenu-\(encID)", component: nil, class: "menu-item-head catmenu-head") {
+                                    Span { Text("Move to Category") }
+                                    Span(class: "menu-arrow") { WebUIIcon(.chevronRight, size: .small) }
+                                }
+                                ArcButton("Duplicate conversation", id: "sm-dup-\(encID)", class: "")
+                                    .data("sid", s.id)
+                                ArcButton("Delete conversation", id: "sm-del-\(encID)", class: "danger")
+                                    .data("sid", s.id)
+                            }
+                            // "Move to Category" swaps this menu's items for a
+                            // category panel (client-side panel swap; the category
+                            // buttons keep their wire ids).
+                            // The panel must be a SIBLING of .chat-menu-items: when JS
+                            // hides the items container, a nested panel would be
+                            // hidden with it.
+                            Div(class: "chat-menu-panel") {
+                                Div(class: "cat-panel-head") {
+                                    ArcButton(id: "sm-catback-\(encID)", component: nil, class: "cat-panel-back") {
+                                        WebUIIcon(.chevronLeft, size: .small)
+                                    }
+                                    .attribute("title", "Back")
+                                    Span(class: "cat-panel-title") { Text("Move to Category") }
+                                }
+                                Div(class: "cat-panel-list") {
+                                    ArcButton(id: "sm-uncat-\(encID)", component: nil, class: catID == nil ? "menu-sel" : "") {
+                                        Text("No Project")
+                                        if catID == nil { WebUIIcon(.check, size: .small) }
+                                    }
+                                    for c in settings.chatCategories {
+                                        ErasedViews([ArcButton(id: "sm-cat-\(enc(c.id)).\(encID)", component: nil, class: c.id == catID ? "menu-sel" : "") {
+                                            Span(class: "cat-dot") {}
+                                                .attribute("style", "background:\(c.color)")
+                                            Span {
+                                                Text(c.name)
+                                                if c.id == catID { WebUIIcon(.check, size: .small) }
+                                            }
+                                        }
+                                        .data("sid", s.id)])
+                                    }
+                                }
+                            }
+                            .attribute("id", "catpanel-\(encID)")
+                            .flag(.hidden)
+                        }
+                        .wire("chat-menu")
+                        .attribute("id", "menu-\(encID)")
+                    }
+                }
+            }
+            .attribute("tabindex", "\(rowTab)")
+            .attribute("role", "group")
+            .attribute("title", full)
+            .aria(.label(full))
+            .data("full-title", full)
+            .data("sid", s.id)
+            Group {
                 if isActiveRow {
                     row.aria(.current(.yes))
                 } else {
@@ -730,126 +852,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
             }
         }
-        let booked = isBookmarked(s.id)
-        // Summaries carry the metadata count; loaded sessions use the live array.
-        let count = s.messages.isEmpty ? s.messageCount : s.messages.count
-        let epochMs = Int(s.updatedAt.timeIntervalSince1970 * 1000)
-        let pinLabel = booked ? "Unpin conversation" : "Pin conversation"
-        let arcLabel = archived.isEmpty ? "Archive conversation" : "Unarchive conversation"
-        let catID = categoryID(for: s.id)
-        let catColor = categoryColor(for: catID)
-        let catName = categoryName(for: catID)
-        let row = Div(class: rowClass) {
-            ArcButton(id: "s-open-\(encID)", component: nil, class: "sess-open", tabIndex: -1) {
-                Span(class: "sess-title") {
-                    if booked {
-                        Span(class: "pin-badge") { WebUIIcon(.bookmark, size: .small) }
-                            .attribute("title", "Pinned")
-                    }
-                    Text(title)
-                }
-                Span(class: "sess-meta") {
-                    Text("\(count) msg • ")
-                    Span(class: "rel-time") { Text(relTimeLabel(s.updatedAt)) }
-                        .data("reltime", "\(epochMs)")
-                    if !archived.isEmpty { Text(" • Archived") }
-                    liveStatusPill(s.id)
-                }
-            }
-            Div(class: "row-actions") {
-                Div(class: "menu-wrap") {
-                    Div(class: "menu-left") {
-                        if !catColor.isEmpty {
-                            Span(class: "cat-dot cat-rowdot") {}
-                                .attribute("style", "background:\(catColor)")
-                                .attribute("title", catName)
-                        }
-                    }
-                    ArcButton(id: "s-menu-\(encID)", component: nil, class: "menu-dots", tabIndex: -1) {
-                        if activeTurns[s.id] != nil {
-                            Span(class: "row-spin") {}
-                            Span(class: "row-dots") { Text("⋮") }
-                        } else {
-                            Text("⋮")
-                        }
-                    }
-                    .attribute("title", "Chat actions")
-                    Div(class: "chat-menu") {
-                        Div(class: "chat-menu-items") {
-                            ArcButton("Copy conversation link", id: "sm-copy-\(encID)", class: "")
-                                .data("sid", s.id)
-                            ArcButton("Rename conversation", id: "sm-rename-\(encID)", class: "")
-                                .data("sid", s.id)
-                            ArcButton(pinLabel, id: "sm-pin-\(encID)", class: "")
-                                .data("sid", s.id)
-                            ArcButton(arcLabel, id: "sm-arc-\(encID)", class: "")
-                                .data("sid", s.id)
-                            // Category picker inside the "⋮" menu: a hover flyout
-                            // submenu to the right of "Set category" (arc parity),
-                            // keeping category option button ids so the existing
-                            // chat-menu wire handles them unchanged.
-                            ArcButton(id: "sm-catmenu-\(encID)", component: nil, class: "menu-item-head catmenu-head") {
-                                Span { Text("Move to Category") }
-                                Span(class: "menu-arrow") { WebUIIcon(.chevronRight, size: .small) }
-                            }
-                            ArcButton("Duplicate conversation", id: "sm-dup-\(encID)", class: "")
-                                .data("sid", s.id)
-                            ArcButton("Delete conversation", id: "sm-del-\(encID)", class: "danger")
-                                .data("sid", s.id)
-                        }
-                        // "Move to Category" swaps this menu's items for a
-                        // category panel (client-side panel swap; the category
-                        // buttons keep their wire ids).
-                        // The panel must be a SIBLING of .chat-menu-items: when JS
-                        // hides the items container, a nested panel would be
-                        // hidden with it.
-                        Div(class: "chat-menu-panel") {
-                            Div(class: "cat-panel-head") {
-                                ArcButton(id: "sm-catback-\(encID)", component: nil, class: "cat-panel-back") {
-                                    WebUIIcon(.chevronLeft, size: .small)
-                                }
-                                .attribute("title", "Back")
-                                Span(class: "cat-panel-title") { Text("Move to Category") }
-                            }
-                            Div(class: "cat-panel-list") {
-                                ArcButton(id: "sm-uncat-\(encID)", component: nil, class: catID == nil ? "menu-sel" : "") {
-                                    Text("No Project")
-                                    if catID == nil { WebUIIcon(.check, size: .small) }
-                                }
-                                for c in settings.chatCategories {
-                                    ArcButton(id: "sm-cat-\(enc(c.id)).\(encID)", component: nil, class: c.id == catID ? "menu-sel" : "") {
-                                        Span(class: "cat-dot") {}
-                                            .attribute("style", "background:\(c.color)")
-                                        Span {
-                                            Text(c.name)
-                                            if c.id == catID { WebUIIcon(.check, size: .small) }
-                                        }
-                                    }
-                                    .data("sid", s.id)
-                                }
-                            }
-                        }
-                        .attribute("id", "catpanel-\(encID)")
-                        .flag(.hidden)
-                    }
-                    .wire("chat-menu")
-                    .attribute("id", "menu-\(encID)")
-                }
-            }
-        }
-        .attribute("tabindex", "\(rowTab)")
-        .attribute("role", "group")
-        .attribute("title", full)
-        .aria(.label(full))
-        .data("full-title", full)
-        .data("sid", s.id)
-        return Group {
-            if isActiveRow {
-                row.aria(.current(.yes))
-            } else {
-                row
-            }
-        }
+    }
     }
 
     // MARK: Skills panel
@@ -888,7 +891,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             Div(class: "panel-body") {
                 for cat in cats {
                     let list = groups[cat] ?? []
-                    Div(class: "skill-group") {
+                    ErasedViews([Div(class: "skill-group") {
                         ArcButton(id: "skcat-\(enc(cat))", class: "skill-cat-head", type: .button) {
                             Span(class: "skill-cat-caret") { WebUIIcon(.chevronDown, size: .small) }
                             Span(class: "skill-cat-title") { Text(cat) }
@@ -897,12 +900,12 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         .attribute("title", "Toggle section")
                         Div(class: "skill-cat-rows") {
                             for skill in list {
-                                skillRowHTML(skill)
+                                ErasedViews([skillRowHTML(skill)])
                             }
                         }
                         .data("component-id", "skill-list")
                     }
-                    .data("grp-skill", cat)
+                    .data("grp-skill", cat)])
                 }
                 if let emptyMessage {
                     Div(class: "empty-hint") { Text(emptyMessage) }
@@ -946,13 +949,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 } else {
                     for p in profiles {
                         let encName = enc(p.name)
-                        Div(class: "list-row\(p.name == selectedProfile ? " active" : "")") {
+                        ErasedViews([Div(class: "list-row\(p.name == selectedProfile ? " active" : "")") {
                             ArcButton(id: "pr-open-\(encName)", class: "sess-open sess-open-flush", type: .button) {
                                 Span(class: "lr-name") { Text(p.title.isEmpty ? p.name : p.title) }
                                 Span(class: "lr-sub") { Text(p.model ?? "") }
                             }
                         }
-                        .data("component-id", "profile-list")
+                        .data("component-id", "profile-list")])
                     }
                 }
             }
@@ -1021,7 +1024,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 let encT = enc(t.name)
                                 let active = t.name == selectedTool
                                 let avail = (t.checkFn?() ?? true)
-                                Div(class: "list-row\(active ? " active" : "")") {
+                                ErasedViews([Div(class: "list-row\(active ? " active" : "")") {
                                     ArcButton(id: "tl-open-\(encT)", class: "sess-open sess-open-flush", type: .button) {
                                         Span(class: "lr-name") {
                                             toolIcon(t.emoji)
@@ -1033,7 +1036,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                     }
                                 }
                                 .data("component-id", "tool-list")
-                                .aria([.current(.yes)], when: active)
+                                .aria([.current(.yes)], when: active)])
                             }
                         }
                     }
@@ -1059,7 +1062,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 for entry in settings.workspaces {
                     let encWS = enc(entry.name)
                     let isMain = entry.name == "main"
-                    Div(class: "list-row\(entry.name == settings.activeWorkspace ? " active" : "")") {
+                    ErasedViews([Div(class: "list-row\(entry.name == settings.activeWorkspace ? " active" : "")") {
                         ArcButton(id: "ws-open-\(encWS)", class: "sess-open sess-open-flush", type: .button) {
                             Span(class: "lr-name") { Text(entry.name) }
                             Span(class: "lr-sub lr-sub-path") {
@@ -1080,7 +1083,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             }
                         }
                     }
-                    .data("component-id", "workspace-list")
+                    .data("component-id", "workspace-list")])
                 }
             }
         }
@@ -1347,7 +1350,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             blocks.append(liveMessageHTML(live))
         }
         return Group {
-            for b in blocks { b }
+            blocks
             if blocks.isEmpty {
                 Div(class: "blank") {
                     Div(class: "blank-ico") { WebUIIcon(.messageSquare, size: .extraLarge) }
@@ -1607,7 +1610,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 Span(class: "tw-caret") { WebUIIcon(.chevronRight, size: .small) }
             }, content: {
                 Div(class: "wl-detail tw-body") {
-                    for r in rows { r }
+                    rows
                 }
             })
             .attribute("class", "turn-worklog")
@@ -1667,7 +1670,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Div(class: "msg-body interim") { TrustedMarkup(mdBox(interim), from: .markdown) }
                 }
                 for c in calls {
-                    toolCardHTML(c, result: results[c.id])
+                    ErasedViews([toolCardHTML(c, result: results[c.id])])
                 }
             default:
                 // compact_worklog: one quiet, collapsible summary per turn.
@@ -1871,7 +1874,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         Group {
             if let calls, !calls.isEmpty {
                 Div(class: "tool-pills") {
-                    for c in calls { toolCardHTML(c, result: results[c.id]) }
+                    for c in calls { ErasedViews([toolCardHTML(c, result: results[c.id])]) }
                 }
             }
         }
@@ -2296,7 +2299,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 Div(class: "selection-chips-wrap") {
                     for block in pendingContexts {
                         let preview = AppState.contextPreview(block.text)
-                        Article {
+                        ErasedViews([Article {
                             Div(class: "selection-context-accent") {}
                                 .aria(.hidden(.yes))
                             Div(class: "selection-context-body") {
@@ -2312,7 +2315,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             }
                         }
                         .attribute("class", "selection-context-card")
-                        .data("selection-id", block.id)
+                        .data("selection-id", block.id)])
                     }
                 }
                 .attribute("id", "composer-selection-chips")
@@ -2551,7 +2554,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 // wrapper inside it and the rows keep dispatching on `targetId`.
                 Div {
                     Div(class: "dd-list") {
-                        for r in rows { r }
+                        rows
                         if rows.isEmpty {
                             Div(class: "dd-empty") { Text("No model configurations yet — add one above.") }
                         }
@@ -2591,7 +2594,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
                 Div(class: "dd-list") {
-                    for r in rows { r }
+                    rows
                     if rows.isEmpty {
                         Div(class: "dd-empty") { Text("No workspaces match “\(wsSelectQuery)”") }
                     }
@@ -2644,7 +2647,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             trigger
             Div(class: "dd-pop" + (profileSelectOpen ? "" : " hidden")) {
                 Div(class: "dd-list dd-list-profile") {
-                    for r in rows { r }
+                    rows
                 }
                 Div(class: "dd-foot") {
                     ArcButton(id: "pp-manage", component: "pp-manage", class: "dd-foot-row") {
@@ -2703,7 +2706,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
                 Div(class: "dd-list") {
-                    for r in rows { r }
+                    rows
                     if rows.isEmpty {
                         Div(class: "dd-empty") { Text("No models match “\(modelSelectQuery)”") }
                     }
@@ -2730,7 +2733,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             trigger
             Div(class: "dd-pop" + (thinkSelectOpen ? "" : " hidden")) {
                 Div(class: "dd-list") {
-                    for r in rows { r }
+                    rows
                 }
             }
             .wire("think-pick")
@@ -3149,10 +3152,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     func profileSkillsPickerList(_ available: [Skill]) -> some WebUI.View {
         Div(class: "dd-list") {
             for s in available {
-                ddRow(id: "pcs-pick-\(enc(s.name))") {
+                ErasedViews([ddRow(id: "pcs-pick-\(enc(s.name))") {
                     Span(class: "dd-row-title") { Text(s.name) }
                     Span(class: "dd-row-sub") { Text(s.description) }
-                }
+                }])
             }
             if available.isEmpty {
                 Div(class: "dd-empty") { Text("All discovered skills are already pinned.") }
@@ -3509,7 +3512,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 } else {
                     for name in names {
-                        mcpRowHTML(name)
+                        ErasedViews([mcpRowHTML(name)])
                     }
                     Div(class: "set-row") {
                         Div(class: "set-label") {
@@ -3990,8 +3993,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                             Span(class: "dd-row-title") {
                                                 Text("Local file storage ")
                                                 Span(class: "dd-badges") {
-                                                    for b in badges(active: effectiveFile,
-                                                                    staged: stagedStorage == "file") { b }
+                                                    badges(active: effectiveFile,
+                                                           staged: stagedStorage == "file")
                                                 }
                                             }
                                             Span(class: "dd-row-sub") {
@@ -4002,8 +4005,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                             Span(class: "dd-row-title") {
                                                 Text("Default (config.json) ")
                                                 Span(class: "dd-badges") {
-                                                    for b in badges(active: !effectiveFile && effectiveMedium == "config",
-                                                                    staged: stagedStorage == "config") { b }
+                                                    badges(active: !effectiveFile && effectiveMedium == "config",
+                                                           staged: stagedStorage == "config")
                                                 }
                                             }
                                             Span(class: "dd-row-sub") {
@@ -4011,19 +4014,19 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                             }
                                         }
                                         for conn in connections {
-                                            ddRow(id: "storage-pick-conn-\(enc(conn.id))") {
+                                            ErasedViews([ddRow(id: "storage-pick-conn-\(enc(conn.id))") {
                                                 Span(class: "dd-row-title") {
                                                     Text("\(conn.name) ")
                                                     Span(class: "dd-badges") {
-                                                        for b in badges(active: !effectiveFile && effectiveMedium == conn.id,
-                                                                        staged: stagedStorage == conn.id) { b }
+                                                        badges(active: !effectiveFile && effectiveMedium == conn.id,
+                                                               staged: stagedStorage == conn.id)
                                                     }
                                                 }
                                                 Span(class: "dd-row-sub") {
                                                     Text("\(conn.endpointLabel) — app \(conn.application)")
-                                                    for n in incomplete(conn) { n }
+                                                    incomplete(conn)
                                                 }
-                                            }
+                                            }])
                                         }
                                     }
                                 }
@@ -4070,7 +4073,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             }
                             Span(class: "mc-model") {
                                 Text("\(conn.endpointLabel) · app \(conn.application)")
-                                for n in incomplete(conn) { n }
+                                incomplete(conn)
                             }
                             Div(class: "storage-row-actions") {
                                 Div {
@@ -4227,7 +4230,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             let active = settings.theme == t.key
                             // UX-08: the card marks selection visually (.active) — the
                             // pressed state must reach assistive tech too.
-                            ArcButton(id: "thm-\(t.key)",
+                            ErasedViews([ArcButton(id: "thm-\(t.key)",
                                       class: "theme-pick-btn\(active ? " active" : "")") {
                                 Span(class: "thm-preview") {
                                     Span(class: "thm-ic") { WebUIIcon(t.icon, size: .medium) }
@@ -4237,7 +4240,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             }
                             .data("theme-choice", t.key)
                             .attribute("title", t.label)
-                            .aria(.pressed(active ? .yes : .no))
+                            .aria(.pressed(active ? .yes : .no))])
                         }
                     }
                     .wire("theme-pick")
@@ -4276,7 +4279,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         for entry in ArcThemeCatalog.entries {
                             let active = settings.colorScheme == entry.id
                             let accent = entry.swatch.first ?? ""
-                            ArcButton(id: "scheme-\(enc(entry.id))",
+                            ErasedViews([ArcButton(id: "scheme-\(enc(entry.id))",
                                       class: "scheme-tile\(active ? " active" : "")") {
                                 Span(class: "scheme-dots") {
                                     for d in entry.swatch.dropFirst() {
@@ -4289,7 +4292,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             .data("scheme-choice", entry.id)
                             .attribute("title", entry.label)
                             .aria(.pressed(active ? .yes : .no))
-                            .attribute("style", "--sw-accent:\(accent)")
+                            .attribute("style", "--sw-accent:\(accent)")])
                         }
                     }
                     .wire("scheme-pick")
@@ -4323,7 +4326,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             let on = !settings.hiddenSidebarTabs.contains(key)
                             // UX-13: real buttons (keyboard-operable) with a visible
                             // pressed state; the off chip is dimmed and labels itself "Hidden".
-                            ArcButton(id: "st-\(enc(key))",
+                            ErasedViews([ArcButton(id: "st-\(enc(key))",
                                       class: "side-tab-chip\(on ? " on" : " off")") {
                                 Span { Text(label) }
                                 if !on {
@@ -4333,7 +4336,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             .attribute("value", "st-\(enc(key))")
                             .aria(.pressed(on ? .yes : .no))
                             .data("no-restore", "")
-                            .attribute("draggable", "true")
+                            .attribute("draggable", "true")])
                         }
                     }
                     .wire("side-tab-chips")
@@ -4446,7 +4449,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
                 Div(class: "aux-list") {
                     for task in AuxiliaryTask.allCases {
-                        auxiliaryRow(task)
+                        ErasedViews([auxiliaryRow(task)])
                     }
                 }
             }
@@ -4513,101 +4516,116 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     /// edited) or its summary row. the summary text is the five-way fallback the
     /// overrides allow, and `Main model` when nothing is set.
     private func auxiliaryRow(_ task: AuxiliaryTask) -> some WebUI.View {
+        Group {
+            if auxEditingTask == task.key {
+                auxiliaryEditingHTML(task)
+            } else {
+                auxiliarySummaryHTML(task)
+            }
+        }
+    }
+
+    /// the inline editor for one auxiliary task. a plain function body, so
+    /// the staging fallbacks stay ordinary `if`s outside the builder.
+    private func auxiliaryEditingHTML(_ task: AuxiliaryTask) -> some WebUI.View {
         let ov = arcConfig.auxiliary.override(for: task)
         let has = ov?.isSet == true
-
-        if auxEditingTask == task.key {
-            let stagedName = auxStagedConfig[task.key] ?? auxOverrideConfigName(ov) ?? ""
-            let stagedKnown = settings.modelConfigs.contains { $0.name == stagedName }
-            let triggerLabel: String
-            if stagedName.isEmpty || !stagedKnown {
-                triggerLabel = "Main model (auto)"
-            } else {
-                triggerLabel = stagedName
-            }
-            return Group {
-                Div(class: "aux-editing") {
-                    Form(method: nil, id: "aux-form-\(task.key)") {
-                        Div(class: "aux-fields") {
-                            Input(name: "aux-task", type: .hidden, value: task.key)
-                            FieldLabel(class: "aux-field") {
-                                Text("Model configuration")
-                                Div(class: "dd") {
-                                    WebUIDropdown(isOpen: auxConfigPickerOpen) {
-                                        ArcButton(id: "auxmc-toggle-\(task.key)",
-                                                  component: "auxmc-toggle", class: "dd-trigger") {
-                                            Span(class: "dd-trigger-label") { Text(triggerLabel) }
-                                            WebUIIcon(.chevronDown, size: .small)
-                                        }
-                                        .attribute("title", "Auxiliary model configuration")
-                                    } panel: {
-                                        // only `isOpen` goes to the component: this trigger
-                                        // is the boundary, and `id:`/`onSelect:` here are
-                                        // register-only (a second handler for the same id).
-                                        //
-                                        // the panel carries no routing attributes of its own,
-                                        // so the picker's wire rides one plain wrapper inside it
-                                        // and the rows keep dispatching on `targetId`.
-                                        Div {
-                                            Div(class: "dd-list") {
-                                                ddRow(id: "auxmc-main-\(task.key)") {
+        let stagedName = auxStagedConfig[task.key] ?? auxOverrideConfigName(ov) ?? ""
+        let stagedKnown = settings.modelConfigs.contains { $0.name == stagedName }
+        let triggerLabel: String
+        if stagedName.isEmpty || !stagedKnown {
+            triggerLabel = "Main model (auto)"
+        } else {
+            triggerLabel = stagedName
+        }
+        return Group {
+            Div(class: "aux-editing") {
+                Form(method: nil, id: "aux-form-\(task.key)") {
+                    Div(class: "aux-fields") {
+                        Input(name: "aux-task", type: .hidden, value: task.key)
+                        FieldLabel(class: "aux-field") {
+                            Text("Model configuration")
+                            Div(class: "dd") {
+                                WebUIDropdown(isOpen: auxConfigPickerOpen) {
+                                    ArcButton(id: "auxmc-toggle-\(task.key)",
+                                              component: "auxmc-toggle", class: "dd-trigger") {
+                                        Span(class: "dd-trigger-label") { Text(triggerLabel) }
+                                        WebUIIcon(.chevronDown, size: .small)
+                                    }
+                                    .attribute("title", "Auxiliary model configuration")
+                                } panel: {
+                                    // only `isOpen` goes to the component: this trigger
+                                    // is the boundary, and `id:`/`onSelect:` here are
+                                    // register-only (a second handler for the same id).
+                                    //
+                                    // the panel carries no routing attributes of its own,
+                                    // so the picker's wire rides one plain wrapper inside it
+                                    // and the rows keep dispatching on `targetId`.
+                                    Div {
+                                        Div(class: "dd-list") {
+                                            ddRow(id: "auxmc-main-\(task.key)") {
+                                                Span(class: "dd-model-main") {
+                                                    Span(class: "dd-row-title") {
+                                                        Text("Main model (auto)")
+                                                        if stagedName.isEmpty || !stagedKnown {
+                                                            Span(class: "dd-badge sel") { Text("SELECTED") }
+                                                        }
+                                                    }
+                                                    Span(class: "dd-row-sub") {
+                                                        Text("Use the chat's main model")
+                                                    }
+                                                }
+                                            }
+                                            for c in settings.modelConfigs {
+                                                ErasedViews([ddRow(id: "auxmc-\(task.key)-\(enc(c.name))") {
                                                     Span(class: "dd-model-main") {
                                                         Span(class: "dd-row-title") {
-                                                            Text("Main model (auto)")
-                                                            if stagedName.isEmpty || !stagedKnown {
+                                                            Text(c.name)
+                                                            if c.name == stagedName {
                                                                 Span(class: "dd-badge sel") { Text("SELECTED") }
                                                             }
                                                         }
                                                         Span(class: "dd-row-sub") {
-                                                            Text("Use the chat's main model")
-                                                        }
-                                                    }
-                                                }
-                                                for c in settings.modelConfigs {
-                                                    ddRow(id: "auxmc-\(task.key)-\(enc(c.name))") {
-                                                        Span(class: "dd-model-main") {
-                                                            Span(class: "dd-row-title") {
-                                                                Text(c.name)
-                                                                if c.name == stagedName {
-                                                                    Span(class: "dd-badge sel") { Text("SELECTED") }
-                                                                }
-                                                            }
-                                                            Span(class: "dd-row-sub") {
-                                                                Text(c.model)
-                                                                if !c.provider.isEmpty {
-                                                                    Text(" @ " + c.provider)
-                                                                }
+                                                            Text(c.model)
+                                                            if !c.provider.isEmpty {
+                                                                Text(" @ " + c.provider)
                                                             }
                                                         }
                                                     }
-                                                }
+                                                }])
                                             }
                                         }
-                                        .wire("auxmc")
                                     }
-                                }
-                            }
-                            if let ov, has, auxOverrideConfigName(ov) == nil {
-                                let raw = ov.model.isEmpty
-                                    ? (ov.provider.isEmpty ? "custom override" : "provider: \(ov.provider)")
-                                    : ov.model + (ov.provider.isEmpty ? "" : " @ " + ov.provider)
-                                Div(class: "aux-custom-note") {
-                                    Text("Currently: ")
-                                    InlineCode(raw)
-                                    Text(" — pick a configuration below (or Main model) and Save to replace it; Cancel keeps it.")
+                                    .wire("auxmc")
                                 }
                             }
                         }
-                        Div(class: "aux-actions") {
-                            ArcButton("Save", class: "primary-btn", type: .submit)
-                            ArcButton("Cancel", id: "aux-cancel-\(task.key)", class: "ghost-btn")
+                        if let ov, has, auxOverrideConfigName(ov) == nil {
+                            let raw = ov.model.isEmpty
+                                ? (ov.provider.isEmpty ? "custom override" : "provider: \(ov.provider)")
+                                : ov.model + (ov.provider.isEmpty ? "" : " @ " + ov.provider)
+                            Div(class: "aux-custom-note") {
+                                Text("Currently: ")
+                                InlineCode(raw)
+                                Text(" — pick a configuration below (or Main model) and Save to replace it; Cancel keeps it.")
+                            }
                         }
-                        .wire("aux-edit")
                     }
-                    .data("component-id", "aux-form")
+                    Div(class: "aux-actions") {
+                        ArcButton("Save", class: "primary-btn", type: .submit)
+                        ArcButton("Cancel", id: "aux-cancel-\(task.key)", class: "ghost-btn")
+                    }
+                    .wire("aux-edit")
                 }
+                .data("component-id", "aux-form")
             }
         }
+    }
+
+    /// one auxiliary task's summary row.
+    private func auxiliarySummaryHTML(_ task: AuxiliaryTask) -> some WebUI.View {
+        let ov = arcConfig.auxiliary.override(for: task)
+        let has = ov?.isSet == true
 
         let summary: String
         if let ov, has {
@@ -4803,9 +4821,9 @@ extension AppState {
                               ])
                         Div(class: "cat-swatches") {
                             for (j, c) in AppState.palette.enumerated() {
-                                ArcButton(id: nil, component: nil, class: "cat-swatch\(j == 0 ? " sel" : "")") {}
+                                ErasedViews([ArcButton(id: nil, component: nil, class: "cat-swatch\(j == 0 ? " sel" : "")") {}
                                     .data("color", c)
-                                    .attribute("style", "background:\(c)")
+                                    .attribute("style", "background:\(c)")])
                             }
                         }
                         Div(class: "cat-add-actions") {
@@ -4866,7 +4884,7 @@ extension AppState {
                 Div(class: "kanban-main main-view") {
                     Div(class: "kanban-board") {
                         for col in settings.kanbanColumns {
-                            kanbanColumnHTML(col)
+                            ErasedViews([kanbanColumnHTML(col)])
                         }
                     }
                     .data("component-id", "kanban")
@@ -4912,7 +4930,7 @@ extension AppState {
                     Div(class: "kb-empty") { Text("No cards") }
                 } else {
                     for card in cards {
-                        kanbanCardHTML(card)
+                        ErasedViews([kanbanCardHTML(card)])
                     }
                 }
             }
@@ -5205,7 +5223,7 @@ extension AppState {
                 Div(class: "empty-hint") { Text("No log lines yet.") }
             } else {
                 for line in shown {
-                    logLineHTML(line)
+                    ErasedViews([logLineHTML(line)])
                 }
             }
         }
@@ -5441,7 +5459,7 @@ extension AppState {
             workspaceTreeCacheKey = key
         }
         return Group {
-            if let cached = workspaceTreeCacheView { cached }
+            if let cached = workspaceTreeCacheView { ErasedViews([cached]) }
         }
     }
 

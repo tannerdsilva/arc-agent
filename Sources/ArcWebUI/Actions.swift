@@ -1385,7 +1385,9 @@ final class Controller: Sendable {
         _ handler: @escaping @Sendable (EventData) async -> [FragmentUpdate]
     ) {
         router.register({ event in
-            guard events.contains(event.event) else { return [] }
+            // same seam as `AppSidebarTabRegistrar`: the kit's filter speaks
+            // strings, the frame is typed.
+            guard events.contains(event.event.rawValue) else { return [] }
             return await handler(event)
         }, for: ComponentID(id))
     }

@@ -51,10 +51,13 @@ struct AppSidebarTabRegistrar: SidebarTabRegistrar {
         handler: @escaping @Sendable (SidebarTabEvent) async -> [SidebarFragment]
     ) {
         router.register({ event in
-            guard events.contains(event.event) else { return [] }
+            // the kit is dependency-free and speaks strings; the typed frame
+            // stops at this seam. this is the only conversion site.
+            let rawEvent = event.event.rawValue
+            guard events.contains(rawEvent) else { return [] }
             let kitEvent = SidebarTabEvent(
                 componentID: event.component.value,
-                event: event.event,
+                event: rawEvent,
                 values: Self.flatten(event.data)
             )
             let fragments = await handler(kitEvent)

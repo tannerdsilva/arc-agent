@@ -584,10 +584,19 @@ extension AppState {
     /// Scheduled Tasks page — main pane: selected task's controls + its chat,
     /// or the create form when nothing is selected.
     func tasksMain() -> some WebUI.View {
-        guard let sel = tasksSelectedID,
-              let job = settings.scheduledJobs.first(where: { $0.id == sel }) else {
-            return Group { taskMainEmpty() }
+        Group {
+            if let sel = tasksSelectedID,
+               let job = settings.scheduledJobs.first(where: { $0.id == sel }) {
+                tasksMainBody(job)
+            } else {
+                taskMainEmpty()
+            }
         }
+    }
+
+    /// the selected task's controls + chat. one concrete return type so the
+    /// builder sees a single view, never an opaque branch.
+    private func tasksMainBody(_ job: CronJob) -> some WebUI.View {
         let sid = jobSessionID(job)
         let msgs = sessions.first(where: { $0.id == sid })?.messages ?? []
         let status = job.isActive ? "Active" : "Stopped"
