@@ -94,8 +94,8 @@ extension ArcCoreTestRoot {
 
         @Test("turn send records the sidecar on the wire messages")
         func sendRecordsSidecar() async throws {
-            let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
-            defer { try? httpClient.shutdown() }
+            let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+            defer { httpClient.shutdown() }
             let box = ClientScripts(responses: [
                 LLMResponse(content: "ok", finishReason: "stop"),
             ])

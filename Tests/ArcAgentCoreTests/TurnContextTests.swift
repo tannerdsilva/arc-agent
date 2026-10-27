@@ -93,10 +93,10 @@ extension ArcCoreTestRoot {
             var resolvedA: String?
             var resolvedB: String?
 
-            await WorkspacePath.$root.withValue(rootA) {
+            WorkspacePath.$root.withValue(rootA) {
                 resolvedA = WorkspacePath.resolve("rel.txt")
             }
-            await WorkspacePath.$root.withValue(rootB) {
+            WorkspacePath.$root.withValue(rootB) {
                 resolvedB = WorkspacePath.resolve("rel.txt")
             }
 

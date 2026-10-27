@@ -40,7 +40,7 @@ extension ArcWebUITestRoot {
         /// the rendered shell, for pins whose markup no longer lives in source.
         /// rendered through `RenderedMarkup.page()` so the pin checks bytes,\n        /// not the string that used to emit them.
         private static var page: String {
-            get async throws { try await RenderedMarkup.page() }
+            get async throws { await RenderedMarkup.page() }
         }
 
         /// every rendered rail button's open tag, for pins that must hold on each
@@ -543,7 +543,6 @@ extension ArcWebUITestRoot {
 
         @Test("the canvas create CTA keeps a unique id and the sidebar keeps its own")
         func skillCTAHasDistinctID() async {
-            let views = Self.views
             let sidebar = await AppState(renderFixture: AppState.RenderFixture())
                 .skillsPanel().markup.html
             let canvas = await AppState(renderFixture: AppState.RenderFixture()).skillsMain().markup.html
@@ -1055,7 +1054,6 @@ extension ArcWebUITestRoot {
                     "labels go icon-only only below 700px; at 1024 they stay visible (UX-05)")
             // Every glyph-only composer button carries an accessible name to
             // back the icon-only state (the data-tip pill is hover-only).
-            let views = Self.views
             let composer = await RenderedMarkup.composer()
             let attach = composer.range(of: #"<button [^>]*id="cb-file"[^>]*>"#, options: .regularExpression).map { String(composer[$0]) }
             #expect(attach?.contains("data-tip=\"Attach a file\"") == true
@@ -1568,7 +1566,6 @@ extension ArcWebUITestRoot {
         /// names; selection cards need aria-pressed mirroring the selection.
         @Test("icon-only shell buttons carry accessible names and selection cards carry aria-pressed")
         func shellButtonsAreNamedAndSelectionIsPressed() async {
-            let views = Self.views
             // Every rail icon (nav-<id>) keeps its data-tip pill AND gains an
             // aria-label for AT/touch (the pill is hover-only). Settings too.
             // Read from rendered bytes: the rail is typed now, and this proves the

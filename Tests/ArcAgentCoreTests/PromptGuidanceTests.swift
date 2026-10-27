@@ -53,8 +53,8 @@ extension ArcCoreTestRoot {
         }
 
         private func runOnce(_ config: ArcAgent.Configuration) async throws -> String {
-            let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
-            defer { try? httpClient.shutdown() }
+            let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+            defer { httpClient.shutdown() }
             let box = ClientScripts(responses: [
                 LLMResponse(content: "ok", finishReason: "stop"),
             ])

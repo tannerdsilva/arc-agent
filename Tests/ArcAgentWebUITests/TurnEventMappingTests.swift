@@ -184,8 +184,8 @@ extension ArcWebUITestRoot {
 
         @Test("toolCallStarted adds a chip and sets tool name / started at")
         func toolCallStartedAddsChip() {
-            let prior = LiveTurn(sessionID: "s1", userText: "hi", attachments: [])
             let started = Date(timeIntervalSince1970: 1_700_000_000)
+            let prior = LiveTurn(sessionID: "s1", userText: "hi", attachments: [])
             let next = TurnLiveState.apply(
                 .toolCallStarted(id: "call_1", name: "terminal", arguments: "{}"),
                 to: prior, now: started
@@ -277,7 +277,6 @@ extension ArcWebUITestRoot {
 
         @Test("events are applied as a function of prior state — no in-place mutation")
         func eventsArePureFunctionsOfPriorState() {
-            let started = Date(timeIntervalSince1970: 1_700_000_000)
             let prior = LiveTurn(sessionID: "s1", userText: "hi", attachments: [])
             let afterText = TurnLiveState.apply(.textDelta("Hello"), to: prior)
 
