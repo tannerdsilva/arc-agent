@@ -741,7 +741,7 @@ extension Controller {
         if event.event == "submit" {
             let text = event.string("todo-text") ?? ""
             await self.app.addTodo(text)
-            return [fragment("main", await self.app.todosPanelHTML())]
+            return await self.changed()
         }
         guard let tid = event.string("targetId") else { return [] }
         // Clicks on the add-todo text field/form are cursor placement, not
@@ -756,7 +756,7 @@ extension Controller {
             let texts = await self.app.openTodoTexts()
             guard !texts.isEmpty else {
                 _ = await self.app.hint("No open todos to run.")
-                return [fragment("main", await self.app.todosPanelHTML())]
+                return await self.changed()
             }
             // Running the set marks them done.
             await self.app.markTodosDone(ids)
@@ -776,7 +776,7 @@ extension Controller {
         } else if tid.hasPrefix("todo-clear-done") {
             await self.app.clearDoneTodos()
         }
-        return [fragment("main", await self.app.todosPanelHTML())]
+        return await self.changed()
     }
 }
 
@@ -793,7 +793,7 @@ extension Controller {
             let first = await self.app.taskStartDate(event.string("task-start") ?? "")
             let n = max(1, Int(everyRaw) ?? 15)
             await self.app.addJob(name: title, schedule: "every \(n)\(unit)", prompt: prompt, firstRun: first)
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         guard let tid = event.string("targetId") else { return [] }
         if tid == "task-new" {
@@ -807,7 +807,7 @@ extension Controller {
         } else if tid.hasPrefix("task-del-") {
             await self.app.deleteJob(String(tid.dropFirst("task-del-".count)))
         }
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 }
 
