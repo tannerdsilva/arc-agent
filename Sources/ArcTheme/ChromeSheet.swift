@@ -15,6 +15,7 @@ public static let css: String = """
       --radius-md: 11px;
       --radius-sm: 8px;
       --warning: #E68A00;
+      --warning-strong: #E68A00;
     }
     /* Text size (user setting -> #app data-size; md = default) */
     #app[data-size="sm"] { --font-size: 13px; }
@@ -38,7 +39,7 @@ public static let css: String = """
       --border: #EAE2D3;
       --border-strong: #D5CEBE;
       --text: #2A2723;
-      --muted: #8A8271;
+      --muted: #7A7263;
       --accent: #B8860B;
       --accent-strong: #9A6F09;
       --accent-soft: rgba(184, 134, 11, 0.10);
@@ -46,6 +47,7 @@ public static let css: String = """
       --link: #0288A8;
       --danger: #B34141;
       --danger-soft: rgba(179, 65, 65, 0.10);
+      --warning-strong: #8A5B00;
       --success: #4E7C3A;
       --shadow: 0 2px 12px rgba(60, 50, 30, 0.08);
       --user-bubble: rgba(184, 134, 11, 0.10);
@@ -96,7 +98,7 @@ public static let css: String = """
       --border: #EAE2D3;
       --border-strong: #D5CEBE;
       --text: #2A2723;
-      --muted: #8A8271;
+      --muted: #7A7263;
       --accent: #B8860B;
       --accent-strong: #9A6F09;
       --accent-soft: rgba(184, 134, 11, 0.10);
@@ -104,6 +106,7 @@ public static let css: String = """
       --link: #0288A8;
       --danger: #B34141;
       --danger-soft: rgba(179, 65, 65, 0.10);
+      --warning-strong: #8A5B00;
       --success: #4E7C3A;
       --shadow: 0 2px 12px rgba(60, 50, 30, 0.08);
       --user-bubble: rgba(184, 134, 11, 0.10);
@@ -415,10 +418,10 @@ public static let css: String = """
       word-break: break-word;
     }
     .log-line .log-time { flex: 0 0 auto; color: var(--muted); font-variant-numeric: tabular-nums; }
-    .log-line .log-lvl { flex: 0 0 auto; min-width: 44px; white-space: nowrap; text-transform: uppercase; font-size: 0.86em; opacity: 0.85; }
+    .log-line .log-lvl { flex: 0 0 auto; min-width: 44px; white-space: nowrap; text-transform: uppercase; font-size: 0.86em; }
     .log-line .log-msg { color: var(--text); min-width: 0; }
     .log-line.lvl-info .log-lvl { color: var(--muted); }
-    .log-line.lvl-warn .log-lvl { color: var(--warning); }
+    .log-line.lvl-warn .log-lvl { color: var(--warning-strong); }
     .log-line.lvl-err .log-lvl { color: var(--danger); }
     .log-line.lvl-debug .log-lvl { color: var(--muted); font-style: italic; }
 
@@ -1894,7 +1897,7 @@ public static let css: String = """
     }
     .todo-tab:hover { color: var(--text); border-color: var(--border-strong); }
     .todo-tab-active {
-      color: var(--accent);
+      color: var(--text);
       border-color: var(--accent);
       background: var(--accent-soft);
     }
@@ -2462,7 +2465,7 @@ public static let css: String = """
     .badge-active { color: #7fb3e8; border-color: rgba(127, 179, 232, 0.55); }
     .badge-inactive { color: var(--muted); border-color: var(--border); }
     .badge-default { color: var(--muted); border-color: var(--border); }
-    .badge-green { color: #6fce8f; border-color: rgba(111, 206, 143, 0.5); background: rgba(111, 206, 143, 0.08); text-transform: none; }
+    .badge-green { color: var(--success); border-color: color-mix(in srgb, var(--success) 50%, transparent); background: color-mix(in srgb, var(--success) 8%, transparent); text-transform: none; }
     .badge-red { color: var(--danger); border-color: var(--danger); }
     .pl-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
     .pl-code {
@@ -2697,9 +2700,9 @@ public static let css: String = """
         position: absolute; top: 6px; right: 6px; z-index: 2;
         font-size: 11.5px; padding: 3px 9px; border-radius: 6px;
         border: 1px solid var(--border); background: var(--surface);
-        color: var(--muted); cursor: pointer; opacity: .85;
+        color: var(--muted); cursor: pointer;
     }
-    .copy-code:hover { opacity: 1; }
+    .copy-code:hover { color: var(--text); }
     #main.todo-panel { flex: 1; height: 100%; overflow-y: auto; display: flex; flex-direction: column; padding: 22px clamp(20px, 7vw, 88px) 12px; box-sizing: border-box; }
     .todo-card {
       background: var(--surface); border: 1px solid var(--border);
@@ -2749,7 +2752,7 @@ public static let css: String = """
     .todo-runall-ico { display: flex; }
     .todo-empty { padding: 42px 16px; text-align: center; color: var(--muted); font-size: 13px; }
     .todo-empty-ico { opacity: .4; margin-bottom: 8px; display: flex; justify-content: center; }
-    .todo-empty small { display: block; margin-top: 4px; opacity: .7; }
+    .todo-empty small { display: block; margin-top: 4px; }
     .todo-foot { padding: 12px 16px; border-top: 1px solid var(--border); background: var(--surface-2); }
     .todo-add { display: flex; gap: 8px; }
     .todo-add input {
