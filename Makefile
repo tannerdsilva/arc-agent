@@ -57,15 +57,15 @@ test:
 	$(SWIFT) test 2>&1
 
 # ── Dependency pin ────────────────────────────────────────
-# arc builds against ../no-webui's working tree. path dependencies are not
-# recorded in Package.resolved, so the accepted revision lives in
-# docs/web-ui-architecture.md and this target is how the pin is checked.
+# arc pins ../no-webui's sibling by revision in Package.swift, and a revision
+# pin IS recorded in Package.resolved. The pin is the authority; a sibling
+# checkout that is ahead of it is advisory only.
 check-pin:
-	@want=48f62cc; have=$$(git -C ../no-webui rev-parse --short HEAD); \
-	if [ "$$want" = "$$have" ]; then echo "  no-webui $$have (accepted)"; \
-	else echo "  ⚠ no-webui moved: $$want → $$have"; \
-	     git -C ../no-webui log --oneline $$want..$$have | head -30; \
-	     exit 1; fi
+	@want=$$(grep -A2 'tannerdsilva/no-webui' Package.swift | grep -o '[0-9a-f]\{40\}'); \
+	have=$$(grep -A4 '"identity" : "no-webui"' Package.resolved | grep -o '[0-9a-f]\{40\}' | head -1); \
+	if [ "$$want" = "$$have" ]; then echo "  no-webui pinned at $$have"; \
+	else echo "  ✗ Package.swift ($$want) != Package.resolved ($$have) — run: swift package resolve"; exit 1; fi
+	@if [ -d ../no-webui ]; then echo "  ℹ sibling at $$(git -C ../no-webui rev-parse --short HEAD) (advisory; the pin is authoritative)"; fi
 
 # ── Clean ─────────────────────────────────────────────────
 clean:
