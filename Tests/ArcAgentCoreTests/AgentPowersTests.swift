@@ -44,6 +44,15 @@ extension ArcCoreTestRoot {
             MemoryTool.provider = nil
         }
 
+        /// The grant the installed gate hands out.
+        ///
+        /// The authority-bearing tools take their grant as a parameter now, so
+        /// a test builds one from the gate it just installed instead of letting
+        /// the tool body read the global itself.
+        private func installedGrant(_ profile: String = "default") -> ToolGrant {
+            AgentPowers.grant(profile: ProfileName(profile)!)
+        }
+
         // MARK: skill_manage (unified arc-parity tool)
 
         private func fullSkill(_ name: String, desc: String, body: String) -> String {
@@ -271,13 +280,13 @@ extension ArcCoreTestRoot {
         func profileMemory() async throws {
             try await install()
             defer { restore() }
-            let missing = try await ProfileEditTool.entry.handler(["file": "memory", "action": "read"])
+            let missing = try await ProfileEditTool.entry(grant: installedGrant()).handler(["file": "memory", "action": "read"])
             #expect(missing.contains("No MEMORY content yet"))
-            let write = try await ProfileEditTool.entry.handler([
+            let write = try await ProfileEditTool.entry(grant: installedGrant()).handler([
                 "file": "memory", "action": "write", "content": "## Notes\n\nremember this"
             ])
             #expect(write.contains("Updated MEMORY"))
-            let read = try await ProfileEditTool.entry.handler(["file": "memory", "action": "read"])
+            let read = try await ProfileEditTool.entry(grant: installedGrant()).handler(["file": "memory", "action": "read"])
             #expect(read.contains("## Notes"))
             #expect(read.contains("remember this"))
         }
@@ -287,23 +296,23 @@ extension ArcCoreTestRoot {
             try await install(skills: AgentPowersConfig(
                 profileEdit: true, lockedProfileFiles: ["memory", "agents"]))
             defer { restore() }
-            let mem = try await ProfileEditTool.entry.handler([
+            let mem = try await ProfileEditTool.entry(grant: installedGrant()).handler([
                 "file": "memory", "action": "write", "content": "x"
             ])
             #expect(mem.contains("Refused"))
             #expect(mem.contains("MEMORY is locked"))
-            let agents = try await ProfileEditTool.entry.handler([
+            let agents = try await ProfileEditTool.entry(grant: installedGrant()).handler([
                 "file": "agents", "action": "write", "content": "x"
             ])
             #expect(agents.contains("Refused"))
             // Reads are never blocked.
-            let agentsRead = try await ProfileEditTool.entry.handler([
+            let agentsRead = try await ProfileEditTool.entry(grant: installedGrant()).handler([
                 "file": "agents", "action": "read"
             ])
             #expect(!agentsRead.contains("Refused") || agentsRead.contains("No AGENTS.md"))
 
             try await install(skills: AgentPowersConfig(profileEdit: false))
-            let user = try await ProfileEditTool.entry.handler([
+            let user = try await ProfileEditTool.entry(grant: installedGrant()).handler([
                 "file": "user", "action": "write", "content": "x"
             ])
             #expect(user.contains("Refused"))
@@ -314,7 +323,7 @@ extension ArcCoreTestRoot {
         func profileAgentsRead() async throws {
             try await install()
             defer { restore() }
-            let result = try await ProfileEditTool.entry.handler(["file": "agents", "action": "read"])
+            let result = try await ProfileEditTool.entry(grant: installedGrant()).handler(["file": "agents", "action": "read"])
             // Any response (content or "No AGENTS.md") is fine; must not be a refusal.
             #expect(!result.contains("Refused"))
         }
@@ -379,14 +388,18 @@ extension ArcCoreTestRoot {
                 skillsManage: false, profileEdit: false))
             _ = skillsURL
             let write = TerminalTool.lockdownRefusal(
-                command: "echo x > \(AgentPowers.skillsDirectory.path)/demo/SKILL.md")
+                command: "echo x > \(AgentPowers.skillsDirectory.path)/demo/SKILL.md",
+                grant: installedGrant())
             #expect(write?.contains("Refused") == true)
-            let agents = TerminalTool.lockdownRefusal(command: "sed -i 's/a/b/' /tmp/AGENTS.md")
+            let agents = TerminalTool.lockdownRefusal(
+                command: "sed -i 's/a/b/' /tmp/AGENTS.md", grant: installedGrant())
             #expect(agents?.contains("Refused") == true)
             let read = TerminalTool.lockdownRefusal(
-                command: "cat \(AgentPowers.skillsDirectory.path)/demo/SKILL.md")
+                command: "cat \(AgentPowers.skillsDirectory.path)/demo/SKILL.md",
+                grant: installedGrant())
             #expect(read == nil)
-            let normal = TerminalTool.lockdownRefusal(command: "ls -la /tmp")
+            let normal = TerminalTool.lockdownRefusal(
+                command: "ls -la /tmp", grant: installedGrant())
             #expect(normal == nil)
         }
 

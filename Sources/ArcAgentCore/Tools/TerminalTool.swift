@@ -19,52 +19,73 @@ import SwiftSlash
 /// The command's stdout + stderr, exit code, and any error message.
 public enum TerminalTool {
 
-    /// The ``ToolEntry`` for this tool.
-    public static let entry = ToolEntry(
-        name: "terminal",
-        toolset: "terminal",
-        description: "Execute a shell command and return its output. "
-            + "Use for builds, installs, git, scripts, and any command-line tool. "
-            + "For long runs (test suites, builds, servers) set background=true to get a "
-            + "session_id back, work on other things, then collect with process(action=...) "
-            + "(poll/log/wait/kill) — do not burn the turn on a foreground timeout. "
-            + "nohup/setsid/trailing '&' are refused outright (arc does not create processes it "
-            + "cannot stop) — use background=true so the agent tracks the process.",
-        schema: .object(
-            description: "Execute a shell command",
-            properties: [
-                "command": .string(description: "The shell command to execute"),
-                "timeout": .integer(description: "Max seconds to wait", default: 180),
-                "workdir": .string(description: "Working directory (absolute path)"),
-                "background": .boolean(description: "Run in background, returns a session_id", default: false),
-            ],
-            required: ["command"]
-        ),
-        handler: { args in
-            if let refusal = Self.lockdownRefusal(command: (args["command"] as? String) ?? "") {
-                return "Error: " + refusal
-            }
-            let command: String = try Self.required(args, key: "command")
-            let workdir: String? = args["workdir"] as? String
-            // Reference checkpoints-and-rollback: snapshot before destructive
-            // terminal commands (rm, mv, sed -i, redirects, git reset/...).
-            if CheckpointGuard.isDestructive(command) {
-                _ = await CheckpointGuard.shared.ensure(
-                    directory: workdir ?? WorkspacePath.root ?? FileManager.default.currentDirectoryPath,
-                    label: "before terminal: " + String(command.prefix(60))
-                )
-            }
-            let timeout: Int = (args["timeout"] as? Int) ?? 180
-            let background: Bool = (args["background"] as? Bool) ?? false
-            return try await Self.runCommand(command: command, timeout: timeout, workdir: workdir, background: background)
-        },
-        emoji: "💻"
-    )
+    /// The tool, with the authority `grant` carries captured inside it.
+    ///
+    /// The skills branch of ``lockdownRefusal(command:grant:)`` still reads
+    /// ``AgentPowers`` — skills are outside this slice's scope; only the
+    /// profile-document branch moved onto the grant.
+    public static func entry(grant: ToolGrant) -> ToolEntry {
+        ToolEntry(
+            name: "terminal",
+            toolset: "terminal",
+            description: "Execute a shell command and return its output. "
+                + "Use for builds, installs, git, scripts, and any command-line tool. "
+                + "For long runs (test suites, builds, servers) set background=true to get a "
+                + "session_id back, work on other things, then collect with process(action=...) "
+                + "(poll/log/wait/kill) — do not burn the turn on a foreground timeout. "
+                + "nohup/setsid/trailing '&' are refused outright (arc does not create processes it "
+                + "cannot stop) — use background=true so the agent tracks the process.",
+            schema: .object(
+                description: "Execute a shell command",
+                properties: [
+                    "command": .string(description: "The shell command to execute"),
+                    "timeout": .integer(description: "Max seconds to wait", default: 180),
+                    "workdir": .string(description: "Working directory (absolute path)"),
+                    "background": .boolean(description: "Run in background, returns a session_id", default: false),
+                ],
+                required: ["command"]
+            ),
+            handler: { args in
+                if let refusal = Self.lockdownRefusal(
+                    command: (args["command"] as? String) ?? "", grant: grant
+                ) {
+                    return "Error: " + refusal
+                }
+                let command: String = try Self.required(args, key: "command")
+                let workdir: String? = args["workdir"] as? String
+                // Reference checkpoints-and-rollback: snapshot before destructive
+                // terminal commands (rm, mv, sed -i, redirects, git reset/...).
+                if CheckpointGuard.isDestructive(command) {
+                    _ = await CheckpointGuard.shared.ensure(
+                        directory: workdir ?? WorkspacePath.root ?? FileManager.default.currentDirectoryPath,
+                        label: "before terminal: " + String(command.prefix(60))
+                    )
+                }
+                let timeout: Int = (args["timeout"] as? Int) ?? 180
+                let background: Bool = (args["background"] as? Bool) ?? false
+                return try await Self.runCommand(command: command, timeout: timeout, workdir: workdir, background: background)
+            },
+            emoji: "💻"
+        )
+    }
+
+    /// The tool under today's process-global gate.
+    ///
+    /// Computed, deliberately: a `static let` would capture the grant once at
+    /// first access, so every later reconfiguration of ``AgentPowers`` (the web
+    /// UI toggles, the tests) would keep exercising the stale capture. Slice 4
+    /// of the GROUNDZERO plan replaces this with per-agent construction.
+    public static var entry: ToolEntry {
+        entry(grant: AgentPowers.grant(profile: .default))
+    }
 
     /// Best-effort lockdown guard: refuse clearly-mutating commands that
     /// target locked surfaces (skills directory tree or locked profile
     /// files). Read-only references (cat/grep/ls) pass through.
-    static func lockdownRefusal(command: String) -> String? {
+    ///
+    /// The profile-document branch consults `grant`; the skills branch still
+    /// reads ``AgentPowers`` because `skill_manage` is outside this slice.
+    static func lockdownRefusal(command: String, grant: ToolGrant) -> String? {
         let lower = command.lowercased()
         // Write-ish markers only — never block reads.
         let looksWritable = lower.contains(">") || lower.contains("tee ") || lower.contains("sed -i")
@@ -85,12 +106,10 @@ public enum TerminalTool {
                 }
             }
         }
-        let files: [(String, String)] = [
-            ("MEMORY.md", "memory"), ("USER.md", "user"),
-            ("SOUL.md", "soul"), ("AGENTS.md", "agents"),
-        ]
-        for (filename, key) in files where command.contains(filename) {
-            if let refusal = AgentPowers.profileWriteRefusal(file: key) {
+        // The four documents, in the gate's historical order (memory, user,
+        // soul, agents) so a command naming several reports the first.
+        for file in ProfileFile.allCases where command.contains(file.fileName) {
+            if let refusal = grant.refusal(for: file) {
                 return refusal
             }
         }

@@ -69,6 +69,36 @@ public enum AgentPowers {
         return nil
     }
 
+    // MARK: Profile documents
+
+    /// Capture the current gate as an immutable ``ToolGrant``.
+    ///
+    /// This is the bridge from the process-global switch to the value every
+    /// authority-bearing tool takes: `profile_edit`, `patch`, `terminal` and
+    /// `execute_code` each construct their entry from a grant, and their
+    /// computed `entry` properties call this once per access. It must never be
+    /// captured in a `static let` — the gate is reconfigured at runtime (the
+    /// web UI's toggles, the tests), and a cached grant would go stale and
+    /// keep exercising authority the operator has since revoked.
+    ///
+    /// Slice 4 of the GROUNDZERO plan replaces the computed defaults with
+    /// per-agent construction and deletes them; this stays the single reader
+    /// of ``config`` until then.
+    public static func grant(profile: ProfileName) -> ToolGrant {
+        let config = self.config
+        let editable: Set<ProfileFile>
+        if config.profileEdit {
+            editable = Set(ProfileFile.allCases.filter { !config.lockedProfileFiles.contains($0.rawValue) })
+        } else {
+            editable = []
+        }
+        return ToolGrant(
+            profile: profile,
+            editableDocuments: editable,
+            mayManageSkills: config.skillsManage
+        )
+    }
+
     // MARK: Defense-in-depth path guard (write_file / terminal)
 
     /// Returns a refusal reason when `path` targets a locked surface, else nil.

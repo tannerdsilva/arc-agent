@@ -31,34 +31,73 @@ public enum ExecuteCodeTool {
     /// Test hook: overrides the script timeout.
     nonisolated(unsafe) static var timeoutOverride: Double?
 
-    public static let entry = ToolEntry(
-        name: "execute_code",
-        toolset: "code_execution",
-        description: "Run a Python script that calls arc tools programmatically. "
-            + "Use when you need 3+ tool calls with logic between them: "
-            + "filtering/reducing large outputs before they enter context, "
-            + "conditional branching, or loops (N pages/files, retry on failure). "
-            + "Use normal tool calls for single calls, results you must reason "
-            + "over in full, or anything needing user interaction. "
-            + "Available via `from arc_tools import ...`: read_file, write_file, "
-            + "patch, search_files, terminal, web_search, web_extract. "
-            + "Limits: 5-minute timeout, 50KB stdout cap, max 50 tool calls per script. "
-            + "terminal() is foreground-only (no background or pty). "
-            + "Scripts run in the session's working directory with the active python. "
-            + "Print your final result to stdout; stdlib (json, re, csv, datetime, ...) "
-            + "is available for processing. Built-in helpers (no import): "
-            + "json_parse(text) — tolerant json.loads for terminal() output; "
-            + "shell_quote(s) — shlex.quote for dynamic shell args; "
-            + "retry(fn, max_attempts=3, delay=2) — exponential backoff for transient failures.",
-        schema: .object(properties: [
-            "code": .string(description: "Python code to execute. Import tools with `from arc_tools import ...` and print your final result to stdout."),
-        ], required: ["code"]),
-        handler: { args in
-            let code: String = try Self.required(args, key: "code")
-            return try await Self.execute(code: code)
-        },
-        emoji: "🐍"
-    )
+    /// The tool, with the authority `grant` carries captured inside it.
+    ///
+    /// The gate over the script text is deliberately best-effort: a Python
+    /// script can name a document any way it likes (`os.sep.join`, a variable,
+    /// base64). It stops the plain case — a literal `MEMORY.md` in the script —
+    /// and nothing more; the airtight guarantee for documents is
+    /// ``ProfileDocuments`` plus the `profile_edit`/`memory` tools.
+    public static func entry(grant: ToolGrant) -> ToolEntry {
+        ToolEntry(
+            name: "execute_code",
+            toolset: "code_execution",
+            description: "Run a Python script that calls arc tools programmatically. "
+                + "Use when you need 3+ tool calls with logic between them: "
+                + "filtering/reducing large outputs before they enter context, "
+                + "conditional branching, or loops (N pages/files, retry on failure). "
+                + "Use normal tool calls for single calls, results you must reason "
+                + "over in full, or anything needing user interaction. "
+                + "Available via `from arc_tools import ...`: read_file, write_file, "
+                + "patch, search_files, terminal, web_search, web_extract. "
+                + "Limits: 5-minute timeout, 50KB stdout cap, max 50 tool calls per script. "
+                + "terminal() is foreground-only (no background or pty). "
+                + "Scripts run in the session's working directory with the active python. "
+                + "Print your final result to stdout; stdlib (json, re, csv, datetime, ...) "
+                + "is available for processing. Built-in helpers (no import): "
+                + "json_parse(text) — tolerant json.loads for terminal() output; "
+                + "shell_quote(s) — shlex.quote for dynamic shell args; "
+                + "retry(fn, max_attempts=3, delay=2) — exponential backoff for transient failures.",
+            schema: .object(properties: [
+                "code": .string(description: "Python code to execute. Import tools with `from arc_tools import ...` and print your final result to stdout."),
+            ], required: ["code"]),
+            handler: { args in
+                let code: String = try Self.required(args, key: "code")
+                if let refusal = Self.scriptRefusal(code: code, grant: grant) {
+                    return "Error: " + refusal
+                }
+                return try await Self.execute(code: code)
+            },
+            emoji: "🐍"
+        )
+    }
+
+    /// The tool under today's process-global gate.
+    ///
+    /// Computed, deliberately: a `static let` would capture the grant once at
+    /// first access, so every later reconfiguration of ``AgentPowers`` (the web
+    /// UI toggles, the tests) would keep exercising the stale capture. Slice 4
+    /// of the GROUNDZERO plan replaces this with per-agent construction.
+    public static var entry: ToolEntry {
+        entry(grant: AgentPowers.grant(profile: .default))
+    }
+
+    /// Best-effort document gate over the script text itself.
+    ///
+    /// Arbitrary Python cannot be bounded by a string scan — this catches a
+    /// script that names `MEMORY.md`/`USER.md`/`SOUL.md`/`AGENTS.md` literally
+    /// while the grant excludes that document, and stops there. A determined
+    /// script still writes whatever the process can write; the residual risk
+    /// is stated in the plan (§11), not hidden here.
+    static func scriptRefusal(code: String, grant: ToolGrant) -> String? {
+        for file in ProfileFile.allCases where code.contains(file.fileName) {
+            if let refusal = grant.refusal(for: file) {
+                return refusal
+            }
+        }
+        return nil
+    }
+
 
     // MARK: - Dispatcher (injected by the agent host)
 
