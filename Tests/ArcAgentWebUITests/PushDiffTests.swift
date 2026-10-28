@@ -27,9 +27,10 @@ private func page(
     panel: String = "p",
     text: String = "",
     thinking: String = "",
-    busy: String = "0"
+    busy: String = "0",
+    toasts: String = ""
 ) -> String {
-    #"<div id="app" class="app" data-size="m"><div id="live-turn" class="live-turn" data-busy="\#(busy)"><span id="live-turn-text">\#(text)</span><b id="live-turn-thinking">\#(thinking)</b></div><div id="panel" class="panel">\#(panel)</div></div>"#
+    #"<div id="app" class="app" data-size="m"><div id="live-turn" class="live-turn" data-busy="\#(busy)"><span id="live-turn-text">\#(text)</span><b id="live-turn-thinking">\#(thinking)</b></div><div id="panel" class="panel">\#(panel)</div><div id="toasts" data-component-id="toast-dismiss">\#(toasts)</div></div>"#
 }
 
 /// `#panel`'s element bytes — what a derived frame for that region must carry.
@@ -184,6 +185,99 @@ extension ArcWebUITestRoot {
             let batches = await rig.wire.batches
             #expect(batches.map { $0.map(\.id) } == [["panel"]], "a real change in the meantime does ship")
             #expect(batches.first?.first?.html == panelElement("fresh"))
+        }
+
+        @Test("a toasts change never ships markup that deletes the container")
+        func toastsChangeCarriesTheContainer() async {
+            // the engine's `replaceElement` removes a node whose replacement is
+            // empty, so an inner-only toasts frame deletes `#toasts` for the rest of
+            // the session and every later toast is swallowed. This is the
+            // behavioural replacement for the source grep that used to police the
+            // push spellings (it went vacuous the moment producers stopped writing
+            // toasts html at all).
+            let toast = #"<div class="toast info"><span class="toast-dot"></span><span>Saved</span><button id="t-1" class="toast-x"></button></div>"#
+            let empty = page()
+            let withToast = page(toasts: toast)
+
+            // 1. a toast APPEARS: the region ships, and its html is the container.
+            let appear = makeRig(seed: empty, render: withToast)
+            await appear.edge.push([])
+            let appearFrames = await appear.wire.flat
+            #expect(appearFrames.map(\.id) == ["toasts"],
+                    "a toast appearing must ship its region: \(appearFrames.map(\.id))")
+            #expect(appearFrames.first?.html.contains("id=\"toasts\"") == true,
+                    "an inner-only frame deletes the node for the session")
+            #expect(appearFrames.first?.html.contains("Saved") == true,
+                    "the frame must carry the new toast inside the container")
+
+            // 2. the LAST toast goes away. `#t-1` is a tracked region and it
+            //    vanishes, which the differ cannot express (see
+            //    `removalEscalatesToTheRoot`), so this answers the whole page —
+            //    measured on the real shell too. The invariant that matters is the
+            //    one the engine enforces: whatever ships must carry the container,
+            //    or `#toasts` dies with the first dismiss. This is the path that
+            //    produced ten live `Element not found: #toasts` warnings in one
+            //    session.
+            let dismiss = makeRig(seed: withToast, render: empty)
+            await dismiss.edge.push([])
+            let dismissFrames = await dismiss.wire.flat
+            #expect(!dismissFrames.isEmpty, "a dismissed toast must reach the page")
+            #expect(dismissFrames.allSatisfy { $0.html.contains("id=\"toasts\"") },
+                    "every frame must carry the container: an empty replacement removes #toasts")
+            #expect(dismissFrames.allSatisfy { !$0.html.contains("<button id=\"t-1\"") },
+                    "the dismissed toast must not be repeated back to the client")
+        }
+
+        @Test("a settings click reaches the wire only through the door")
+        func handlerClickBecomesAFrame() async {
+            // The plumbing the sweep depends on, end to end: a real @Wired handler,
+            // dispatched by a real router, pushing through a real PushEdge, with the
+            // frame derived from the real shell. A handler's returned batch is
+            // written to the originating socket by no-webui and never diffed — if
+            // its signal never reaches the door, the page goes stale and no other
+            // test in this suite would see it.
+            let app = AppState(renderFixture: .init())
+            let wire = Wire()
+            let edge = PushEdge(
+                differ: PageDiffer(policy: PushEdge.livePolicy),
+                render: { await app.appShell().markup.html },
+                broadcast: { await wire.record($0) }
+            )
+            edge.seed(await app.appShell().markup.html)
+            let router = EventRouter()
+            let controller = Controller(app: app, push: { await edge.push($0) })
+            await controller.wireAll(router)
+
+            let outcome = await router.dispatch(EventData(
+                component: ComponentID("font-size-pick"),
+                event: "click",
+                data: ["targetId": .string("fsz-lg")]))
+
+            let frames = await wire.flat
+            #expect(outcome.fragments.isEmpty,
+                    "the server has nothing to write: the batch crossed the door, not the socket")
+            #expect(!frames.isEmpty, "the click must reach the wire, or the page is stale")
+            #expect(frames.map(\.id) == ["app"],
+                    "data-size lives on #app, so the root is the only frame that can carry it")
+            #expect(frames.first?.html.contains("data-size=\"lg\"") == true,
+                    "the frame must be the render's bytes, after the click")
+        }
+
+        @Test("a removal the differ cannot express escalates to the whole page")
+        func removalEscalatesToTheRoot() async {
+            // measured, and named so the cost is visible: a vanished region has no
+            // wire shape (a baseline keeps hashes, never offsets), so a deletion is
+            // answered with `#app`. A toast dismiss and a modal close both answer
+            // ["app"] on the real shell; their INSERTIONS answer a region. An
+            // upstream escalation for removals would turn these into region frames —
+            // this pin is the shape to beat, not a shape to keep.
+            let rig = makeRig(
+                seed: page(toasts: #"<button id="t-1" class="toast-x"></button>"#),
+                render: page())
+            await rig.edge.push([])
+            let frames = await rig.wire.flat
+            #expect(frames.map(\.id) == ["app"])
+            #expect(frames.first?.html == page())
         }
 
         @Test("a mixed batch ships the structure, then the deltas")

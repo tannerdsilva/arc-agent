@@ -115,10 +115,24 @@ extension ArcWebUITestRoot {
 
         @Test("the settings path re-renders the shell, and the shell carries what it needs")
         func targetedRefreshesOnly() async {
-            // The settings path no longer assembles the `#app` shell by hand: the
-            // font-size handler nudges, and the door's render is the whole shell.
-            // The pin is on the two halves that made UX-22 work — the nudge, and
-            // the attributes the live page needs the shell to carry.
+            // No producer assembles the `#app` shell by hand any more: the door's
+            // render is the whole shell. Scan every UI source file (the offender
+            // once hid outside Actions) for a producer that names the root.
+            let dir = "Sources/ArcWebUI"
+            let files = (try? FileManager.default.contentsOfDirectory(atPath: dir))?
+                .filter { $0.hasSuffix(".swift") } ?? []
+            var offenders: [String] = []
+            for f in files {
+                let src = (try? String(contentsOfFile: "\(dir)/\(f)", encoding: .utf8)) ?? ""
+                if src.contains("fragment(\"app\"") || src.contains("FragmentUpdate(id: \"app\"") {
+                    offenders.append(f)
+                }
+            }
+            #expect(offenders.isEmpty,
+                    "whole-app swaps remain in: \(offenders.joined(separator: ", "))")
+            // The settings path still re-renders the shell without a reload: the
+            // font-size handler nudges, and the door's render is the whole shell —
+            // so the pin is on the two halves that made UX-22 work.
             let actions = Self.source("Actions.swift")
             guard let start = actions.range(of: "func handleFontSizePick("),
                   let end = actions.range(of: "func ", range: start.upperBound..<actions.endIndex) else {
