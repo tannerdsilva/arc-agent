@@ -425,5 +425,66 @@ extension ArcCoreTestRoot {
             #expect(AgentPowers.canManageSkills() == false)
             #expect(AgentPowers.skillIsLocked("secret"))
         }
+
+        // MARK: GROUNDZERO slice 0 — pinned defects (RED)
+
+        /// Defect: `patch` never consults the authority gate, so a locked
+        /// profile document can be rewritten through it. Pinned RED; the fix
+        /// lands with the grant slice.
+        @Test("patch refuses a locked profile document")
+        func patchRefusesLockedProfileDocument() async throws {
+            let (_, memories) = try await install(skills: AgentPowersConfig(profileEdit: false))
+            defer { restore() }
+            let doc = memories.appendingPathComponent("MEMORY.md")
+            try "alpha".write(to: doc, atomically: true, encoding: .utf8)
+            let out = try await PatchTool.entry.handler([
+                "path": doc.path, "old_string": "alpha", "new_string": "beta",
+            ])
+            #expect(out.contains("Refused:"))
+        }
+
+        /// Defect: `create_profile` applies every optional only inside its
+        /// `title` branch, so model/provider/group are dropped silently when no
+        /// title is given. Pinned RED; the fix lands with the roster slice.
+        @Test("create_profile applies model without a title")
+        func createProfileAppliesOptionsWithoutTitle() async throws {
+            try await install()
+            defer { restore() }
+            let profilesRoot = FileManager.default.temporaryDirectory
+                .appendingPathComponent("gz-profiles-\(UUID().uuidString)", isDirectory: true)
+            ProfileManager.testProfilesRoot = profilesRoot.path
+            defer {
+                ProfileManager.testProfilesRoot = nil
+                try? FileManager.default.removeItem(at: profilesRoot)
+            }
+            _ = try await CreateProfileTool.entry.handler([
+                "name": "gz-option", "model": "some-model",
+            ])
+            let profile = try await ProfileManager().get(name: "gz-option")
+            #expect(profile?.model == "some-model")
+        }
+
+        /// Defect: the `memory` tool writes through `MemoryTool.provider` while
+        /// `profile_edit` reads `AgentPowers.memoriesDirectory` — two addresses
+        /// for one logical document. Pinned RED; the fix lands with the scope
+        /// slice. The `memory` tool has no read action (reads are prompt
+        /// injection), so the assertion is made from the write side.
+        @Test("memory tool and profile_edit share one document")
+        func memoryToolAndProfileEditShareOneDocument() async throws {
+            let (_, memories) = try await install()
+            defer { restore() }
+            _ = memories
+            let otherRoot = FileManager.default.temporaryDirectory
+                .appendingPathComponent("gz-memory-a-\(UUID().uuidString)", isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: otherRoot) }
+            MemoryTool.provider = FileMemoryProvider(directory: otherRoot)
+            _ = try await MemoryTool.entry.handler([
+                "target": "memory", "action": "add", "content": "ground-zero-probe",
+            ])
+            let read = try await ProfileEditTool.entry.handler([
+                "file": "memory", "action": "read",
+            ])
+            #expect(read.contains("ground-zero-probe"))
+        }
     }
 }
