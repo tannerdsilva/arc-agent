@@ -187,18 +187,6 @@ extension ArcWebUITestRoot {
             func record(_ command: String) { commands.append(command) }
         }
 
-        /// captures the fragments a turn pushed, so a test reads the card markup
-        /// the owner actually rendered.
-        private actor PushRecorder {
-            private(set) var batches: [[FragmentUpdate]] = []
-            var html: String { batches.flatMap { $0 }.map(\.html).joined(separator: "\n") }
-            var lastHTML: String { (batches.last ?? []).map(\.html).joined(separator: "\n") }
-            var push: @Sendable ([FragmentUpdate]) async -> Void {
-                { [weak self] updates in await self?.record(updates) }
-            }
-            private func record(_ updates: [FragmentUpdate]) { batches.append(updates) }
-        }
-
         private struct Harness {
             let app: AppState
             let runs: StubRuns
