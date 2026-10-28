@@ -63,10 +63,13 @@ let package = Package(
             url: "https://github.com/apple/swift-crypto.git",
             from: "3.0.0"
         ),
-		// co-developed sibling: arc builds against whatever ../no-webui has checked
-		// out. the accepted revision is recorded in docs/web-ui-architecture.md;
-		// `make check-pin` reports drift.
-		.package(path: "../no-webui"),
+		// co-developed sibling, pinned to a revision so the build is reproducible
+		// independent of whatever ../no-webui has checked out. `make check-pin`
+		// reports drift against this revision.
+		.package(
+			url: "https://github.com/tannerdsilva/no-webui.git",
+			revision: "d26258b4b50dab924adc490f1f5b12feec6cb3ef"
+		),
 		.package(path: "Plugins/ArcSidebarTabs"),
 	],
 
