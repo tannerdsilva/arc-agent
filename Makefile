@@ -57,14 +57,24 @@ test:
 	$(SWIFT) test 2>&1
 
 # ── Dependency pin ────────────────────────────────────────
-# arc pins ../no-webui's sibling by revision in Package.swift, and a revision
-# pin IS recorded in Package.resolved. The pin is the authority; a sibling
-# checkout that is ahead of it is advisory only.
+# the manifest currently uses a LOCAL path pin (../pins/no-webui), so there is no
+# revision in Package.swift to compare. the recorded sha below is what that
+# checkout must be at; a revision pin replaces both it and the manifest entry.
+LOCAL_PIN_SHA := 67d5b6fdb8a382d78b0273d48fd0fef121bde806
+LOCAL_PIN_PATH := ../pins/no-webui
+
 check-pin:
-	@want=$$(grep -A2 'tannerdsilva/no-webui' Package.swift | grep -o '[0-9a-f]\{40\}'); \
-	have=$$(grep -A4 '"identity" : "no-webui"' Package.resolved | grep -o '[0-9a-f]\{40\}' | head -1); \
-	if [ "$$want" = "$$have" ]; then echo "  no-webui pinned at $$have"; \
-	else echo "  ✗ Package.swift ($$want) != Package.resolved ($$have) — run: swift package resolve"; exit 1; fi
+	@rev=$$(grep -A2 'tannerdsilva/no-webui' Package.swift | grep -o '[0-9a-f]\{40\}' | head -1); \
+	if [ -n "$$rev" ]; then \
+	  have=$$(grep -A4 '"identity" : "no-webui"' Package.resolved | grep -o '[0-9a-f]\{40\}' | head -1); \
+	  if [ "$$rev" = "$$have" ]; then echo "  no-webui pinned at $$have"; \
+	  else echo "  ✗ Package.swift ($$rev) != Package.resolved ($$have) — run: swift package resolve"; exit 1; fi; \
+	else \
+	  have=$$(git -C $(LOCAL_PIN_PATH) rev-parse HEAD 2>/dev/null || echo missing); \
+	  if [ "$$have" = "$(LOCAL_PIN_SHA)" ]; then echo "  no-webui local pin at $$have"; \
+	  elif [ "$$have" = "missing" ]; then echo "  ✗ local pin checkout $(LOCAL_PIN_PATH) is missing"; exit 1; \
+	  else echo "  ✗ local checkout $$have != recorded $(LOCAL_PIN_SHA)"; exit 1; fi; \
+	fi
 	@if [ -d ../no-webui ]; then echo "  ℹ sibling at $$(git -C ../no-webui rev-parse --short HEAD) (advisory; the pin is authoritative)"; fi
 
 # ── Clean ─────────────────────────────────────────────────

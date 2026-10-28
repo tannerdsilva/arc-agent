@@ -63,13 +63,14 @@ let package = Package(
             url: "https://github.com/apple/swift-crypto.git",
             from: "3.0.0"
         ),
-		// co-developed sibling, pinned to a revision so the build is reproducible
-		// independent of whatever ../no-webui has checked out. `make check-pin`
-		// reports drift against this revision.
-		.package(
-			url: "https://github.com/tannerdsilva/no-webui.git",
-			revision: "2140b1aeb783465d5f1fe67225e4b2cdc76b6c97"
-		),
+		// TEMPORARY LOCAL PIN: arc builds against ../pins/no-webui, a worktree of
+		// the no-webui repository at 67d5b6f. the basename must stay `no-webui`
+		// — a path dependency's identity is its directory name, and every
+		// `.product(…, package: "no-webui")` below keys on it. not the sibling
+		// ../no-webui, which carries unrelated uncommitted work. the manifest
+		// returns to a revision pin later; `make check-pin` holds this checkout
+		// to the recorded sha meanwhile (LOCAL_PIN_SHA in the Makefile).
+		.package(path: "../pins/no-webui"),
 		.package(path: "Plugins/ArcSidebarTabs"),
 	],
 

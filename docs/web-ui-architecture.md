@@ -21,11 +21,16 @@ of `daemon.json` (on by default).
 
 ## dependency pin
 
-`.package(url: "https://github.com/tannerdsilva/no-webui.git", revision: "2140b1a…")`
-— accepted revision `2140b1a` (2026-10-28). a revision pin *is* recorded in
-`Package.resolved`, so `make check-pin` compares the manifest's revision against
-that file — the pair that must agree — and prints the sibling checkout's sha as
-advisory only.
+**temporary, 2026-10-28:** `.package(path: "../pins/no-webui")` — a worktree of the
+no-webui repository checked out at `67d5b6f`. the basename must stay `no-webui`:
+a path dependency's identity is its directory name, and every
+`.product(…, package: "no-webui")` keys on it. it is **not** the sibling
+`../no-webui`, which carries unrelated uncommitted work.
+
+while the manifest is a path pin there is no revision to compare, so
+`make check-pin` holds that checkout to `LOCAL_PIN_SHA` in the `Makefile`
+instead of comparing `Package.resolved`. a revision pin replaces both, and
+`Package.resolved` then records it again.
 
 ## the co-development rule
 
