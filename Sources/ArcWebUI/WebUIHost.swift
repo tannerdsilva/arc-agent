@@ -141,6 +141,35 @@ public struct WebUIHost: Service {
         await app.runScheduledJob(job)
     }
 
+    /// the config the server is built with.
+    ///
+    /// exposed as one value so a test observes what arc actually runs instead of
+    /// restating the literal: every field below is a default arc relies on
+    /// (capacity headroom, render tokens off, the root page path), and a
+    /// restated literal keeps passing after the real one moves.
+    public var serverConfig: WebUIServerConfig { Self.serverConfig(host: host, port: port) }
+
+    /// the config shape arc runs, independent of an instance.
+    ///
+    /// static because constructing a host resolves storage and a config file: a
+    /// test that pins the server's capacity defaults must not need either.
+    public static func serverConfig(host: String, port: Int) -> WebUIServerConfig {
+        WebUIServerConfig(
+            host: host,
+            port: port,
+            pagePath: "/",
+            // registered at the bare path — the server strips a request's query
+            // before the asset lookup, so a stamped url resolves to the same
+            // bytes. the `?v=` is the *client's* cache key: a rebuilt asset is a
+            // new url and cannot be served from a year-long cache under the old
+            // one.
+            assets: [
+                AppShell.Assets.sheet.registration,
+                AppShell.Assets.overlay.registration,
+            ]
+        )
+    }
+
     public func run() async throws {
         // Route every swift-log line into the in-app ring buffer instead of
         // stdout, so the Logs panel is the operator view. Idempotent: the
@@ -281,19 +310,7 @@ public struct WebUIHost: Service {
         let server = WebUIServer(
             router: pageRouter,
             eventRouter: router,
-            config: WebUIServerConfig(
-                host: host,
-                port: port,
-                pagePath: "/",
-                // Registered at the bare path — the server strips a request's query before
-                // the asset lookup, so a stamped url resolves to the same bytes. The `?v=`
-                // is the *client's* cache key: a rebuilt asset is a new url and cannot be
-                // served from a year-long cache under the old one.
-                assets: [
-                    sheet.registration,
-                    overlay.registration,
-                ]
-            ),
+            config: serverConfig,
             logger: logger
         )
 
