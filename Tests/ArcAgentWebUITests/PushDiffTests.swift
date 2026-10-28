@@ -163,6 +163,29 @@ extension ArcWebUITestRoot {
                 "a delta must never cost a render: the token path is the hot one")
         }
 
+        @Test("an empty batch still asks the edge to look at the page")
+        func emptyBatchAsksTheEdgeToLook() async {
+            // the nudge: a producer that changed structure says nothing else. an
+            // empty batch that the door ignored would leave the page stale, which
+            // is the one failure mode this slice must not introduce.
+            let rig = makeRig(seed: page(panel: "old"), render: page(panel: "old"))
+            await rig.edge.push([])
+
+            #expect(await rig.box.renders == 1, "the nudge costs exactly one render")
+            #expect(
+                await rig.wire.batches.isEmpty,
+                "an unchanged page ships nothing at all — not even an empty batch")
+
+            // and the look is not wasted: a change made while the door was asked
+            // still ships, because the baseline advanced with the render it saw.
+            await rig.box.set(page(panel: "fresh"))
+            await rig.edge.push([])
+
+            let batches = await rig.wire.batches
+            #expect(batches.map { $0.map(\.id) } == [["panel"]], "a real change in the meantime does ship")
+            #expect(batches.first?.first?.html == panelElement("fresh"))
+        }
+
         @Test("a mixed batch ships the structure, then the deltas")
         func mixedBatchPartitions() async {
             let rig = makeRig(seed: page(panel: "old"), render: page(panel: "fresh"))

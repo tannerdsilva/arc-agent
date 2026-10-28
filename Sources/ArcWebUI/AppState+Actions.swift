@@ -74,6 +74,14 @@ extension AppState {
         return true
     }
 
+    /// a structural change happened; the push edge decides what crosses the wire.
+    ///
+    /// the empty batch is the signal, not a payload: `PushEdge` derives every
+    /// replace from a fresh render and never forwards a producer's html. an empty
+    /// batch still asks the edge to look (see its `hasStructure`), which is why
+    /// this is not a no-op.
+    func structuralChange() -> [FragmentUpdate] { [] }
+
     func chatFragments() async -> [FragmentUpdate] {
         await refreshFragments()
     }

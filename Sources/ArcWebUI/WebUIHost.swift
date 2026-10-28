@@ -75,7 +75,9 @@ final class PushEdge: Sendable {
     /// failure would look like a dropped keystroke rather than a dropped batch.
     func push(_ updates: [FragmentUpdate]) async {
         let deltas = updates.filter { $0.op == .text || $0.op == .append }
-        let hasStructure = updates.contains { $0.op == nil || $0.op == .replace }
+        // an empty batch is a producer saying "look at the page": the whole point of
+        // the nudge. it costs one render and ships nothing unless bytes moved.
+        let hasStructure = updates.isEmpty || updates.contains { $0.op == nil || $0.op == .replace }
 
         if hasStructure {
             let frames = differ.messages(forMarkup: await render(), root: "app")
