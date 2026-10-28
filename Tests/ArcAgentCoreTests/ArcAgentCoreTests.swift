@@ -20,7 +20,7 @@ extension ArcCoreTestRoot {
 
         @Test("default registry carries the full tool surface (reference ports stay deleted)")
         func defaultRegistryTools() throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             #expect(registry.allTools.count == 54)
 
             #expect(registry.lookup(name: "read_file")?.toolset == "file")
@@ -53,13 +53,13 @@ extension ArcCoreTestRoot {
 
         @Test("lookup returns nil for unknown tool")
         func lookupUnknown() throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             #expect(registry.lookup(name: "nonexistent") == nil)
         }
 
         @Test("duplicate registration throws")
         func duplicateRegistration() throws {
-            var registry = try ArcAgentCore.buildDefaultRegistry()
+            var registry = try ArcAgentCore.testRegistry()
             #expect(throws: ToolRegistryError.self) {
                 try registry.register(ReadFileTool.entry)
             }
@@ -74,7 +74,7 @@ extension ArcCoreTestRoot {
 
         @Test("registry toolset filtering with all toolsets disabled")
         func allToolsetsDisabled() throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let allToolsets = Set(registry.allTools.map(\.toolset))
             let schemas = registry.buildToolSchemas(enabled: [], disabled: allToolsets)
             #expect(schemas.isEmpty)
@@ -182,7 +182,7 @@ extension ArcCoreTestRoot {
 
         @Test("schema building filters by toolset")
         func schemaFiltering() throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
 
             let fileSchemas = registry.buildToolSchemas(enabled: ["file"], disabled: [])
             #expect(fileSchemas.count == 4)
@@ -869,7 +869,7 @@ extension ArcCoreTestRoot {
 
         @Test("tools command output lists the basic default surface")
         func toolsCommand() throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let names = registry.allTools.map(\.name).sorted()
             #expect(names == ["browser_back", "browser_cdp", "browser_click", "browser_close", "browser_connect", "browser_console", "browser_dialog", "browser_get_images", "browser_navigate", "browser_press", "browser_scroll", "browser_snapshot", "browser_type", "browser_vision", "clarify", "computer_use", "create_profile", "delegate_task", "delete_profile", "execute_code", "get_profile", "kanban_block", "kanban_complete", "kanban_create", "kanban_list", "kanban_show", "list_children", "list_profiles", "mcp_tool", "memory", "patch", "process", "process_watch", "profile_edit", "project_create", "project_list", "project_switch", "read_file", "search_files", "send_bot_message", "send_group_chat", "send_message", "session_search", "skill_manage", "skill_view", "skills_list", "steer_child", "stop_child", "terminal", "todo", "tool_search", "web_extract", "web_search", "write_file"])
         }

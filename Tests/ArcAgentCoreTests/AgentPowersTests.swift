@@ -28,7 +28,6 @@ extension ArcCoreTestRoot {
                 at: memoriesURL, withIntermediateDirectories: true)
             AgentPowers.configure(skills)
             AgentPowers.skillsDirectory = skillsURL
-            AgentPowers.memoriesDirectory = memoriesURL
             Self.tmp = dir
             return (skillsURL, memoriesURL)
         }
@@ -37,11 +36,8 @@ extension ArcCoreTestRoot {
             AgentPowers.configure(AgentPowersConfig())
             AgentPowers.skillsDirectory = FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".arc/skills")
-            AgentPowers.memoriesDirectory = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".arc/memories")
             if let tmp = Self.tmp { try? FileManager.default.removeItem(at: tmp) }
             Self.tmp = nil
-            MemoryTool.provider = nil
         }
 
         /// The grant the installed gate hands out.
@@ -51,6 +47,44 @@ extension ArcCoreTestRoot {
         /// the tool body read the global itself.
         private func installedGrant(_ profile: String = "default") -> ToolGrant {
             AgentPowers.grant(profile: ProfileName(profile)!)
+        }
+
+        /// `profile_edit` for the gate `install()` installed, over the temp
+        /// profile's documents.
+        ///
+        /// Built per invocation, never captured: `profileLocks` re-installs a
+        /// different gate mid-test and the second call must see it. The
+        /// documents root is the temp memories directory the helper created —
+        /// the same place the old process-global static pointed.
+        private func profileEdit(
+            memories: URL,
+            workspace: URL? = nil,
+            profile: String = "default"
+        ) -> ToolEntry {
+            let grant = installedGrant(profile)
+            return ProfileEditTool.entry(
+                context: ToolContext(
+                    profile: ProfileName(profile)!,
+                    sessionID: "ap-tests",
+                    workspace: (workspace ?? memories).path,
+                    grant: grant
+                ),
+                documents: ProfileDocuments(root: memories, grant: grant),
+                profiles: InMemoryProfileStore()
+            )
+        }
+
+        /// `memory` for the installed gate, writing through `provider`.
+        private func memoryTool(provider: any MemoryProvider, profile: String = "default") -> ToolEntry {
+            MemoryTool.entry(
+                context: ToolContext(
+                    profile: ProfileName(profile)!,
+                    sessionID: "ap-tests",
+                    workspace: Self.tmp?.path ?? FileManager.default.currentDirectoryPath,
+                    grant: installedGrant(profile)
+                ),
+                memory: provider
+            )
         }
 
         // MARK: skill_manage (unified arc-parity tool)
@@ -278,41 +312,41 @@ extension ArcCoreTestRoot {
 
         @Test("profile_edit reads and writes MEMORY.md when unlocked")
         func profileMemory() async throws {
-            try await install()
+            let (_, memories) = try await install()
             defer { restore() }
-            let missing = try await ProfileEditTool.entry(grant: installedGrant()).handler(["file": "memory", "action": "read"])
+            let missing = try await profileEdit(memories: memories).handler(["file": "memory", "action": "read"])
             #expect(missing.contains("No MEMORY content yet"))
-            let write = try await ProfileEditTool.entry(grant: installedGrant()).handler([
+            let write = try await profileEdit(memories: memories).handler([
                 "file": "memory", "action": "write", "content": "## Notes\n\nremember this"
             ])
             #expect(write.contains("Updated MEMORY"))
-            let read = try await ProfileEditTool.entry(grant: installedGrant()).handler(["file": "memory", "action": "read"])
+            let read = try await profileEdit(memories: memories).handler(["file": "memory", "action": "read"])
             #expect(read.contains("## Notes"))
             #expect(read.contains("remember this"))
         }
 
         @Test("profile_edit refuses locked files and global profile lock")
         func profileLocks() async throws {
-            try await install(skills: AgentPowersConfig(
+            let (_, memories) = try await install(skills: AgentPowersConfig(
                 profileEdit: true, lockedProfileFiles: ["memory", "agents"]))
             defer { restore() }
-            let mem = try await ProfileEditTool.entry(grant: installedGrant()).handler([
+            let mem = try await profileEdit(memories: memories).handler([
                 "file": "memory", "action": "write", "content": "x"
             ])
             #expect(mem.contains("Refused"))
             #expect(mem.contains("MEMORY is locked"))
-            let agents = try await ProfileEditTool.entry(grant: installedGrant()).handler([
+            let agents = try await profileEdit(memories: memories).handler([
                 "file": "agents", "action": "write", "content": "x"
             ])
             #expect(agents.contains("Refused"))
             // Reads are never blocked.
-            let agentsRead = try await ProfileEditTool.entry(grant: installedGrant()).handler([
+            let agentsRead = try await profileEdit(memories: memories).handler([
                 "file": "agents", "action": "read"
             ])
             #expect(!agentsRead.contains("Refused") || agentsRead.contains("No AGENTS.md"))
 
             try await install(skills: AgentPowersConfig(profileEdit: false))
-            let user = try await ProfileEditTool.entry(grant: installedGrant()).handler([
+            let user = try await profileEdit(memories: memories).handler([
                 "file": "user", "action": "write", "content": "x"
             ])
             #expect(user.contains("Refused"))
@@ -321,10 +355,18 @@ extension ArcCoreTestRoot {
 
         @Test("profile_edit read of AGENTS.md returns the workspace file")
         func profileAgentsRead() async throws {
-            try await install()
+            let (_, memories) = try await install()
             defer { restore() }
-            let result = try await ProfileEditTool.entry(grant: installedGrant()).handler(["file": "agents", "action": "read"])
-            // Any response (content or "No AGENTS.md") is fine; must not be a refusal.
+            // The workspace, not the process working directory: a fixture file
+            // proves the read addresses `context.workspace`.
+            let workspace = memories.appendingPathComponent("workspace", isDirectory: true)
+            try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+            try "workspace agent notes".write(
+                to: workspace.appendingPathComponent("AGENTS.md"), atomically: true, encoding: .utf8)
+
+            let result = try await profileEdit(memories: memories, workspace: workspace)
+                .handler(["file": "agents", "action": "read"])
+            #expect(result.contains("workspace agent notes"))
             #expect(!result.contains("Refused"))
         }
 
@@ -332,16 +374,15 @@ extension ArcCoreTestRoot {
 
         @Test("memory tool refuses MEMORY writes while memory is locked")
         func memoryToolLocked() async throws {
-            try await install(skills: AgentPowersConfig(
+            let (_, memories) = try await install(skills: AgentPowersConfig(
                 profileEdit: true, lockedProfileFiles: ["memory"]))
             defer { restore() }
-            let provider = FileMemoryProvider(directory: AgentPowers.memoriesDirectory)
-            MemoryTool.provider = provider
-            let result = try await MemoryTool.entry.handler([
+            let provider = FileMemoryProvider(directory: memories)
+            let result = try await memoryTool(provider: provider).handler([
                 "action": "add", "content": "should not be stored"
             ])
             #expect(result.contains("Refused"))
-            let content = try? String(contentsOf: AgentPowers.memoriesDirectory
+            let content = try? String(contentsOf: memories
                 .appendingPathComponent("MEMORY.md"), encoding: .utf8)
             #expect(content == nil || content!.isEmpty)
         }
@@ -362,7 +403,7 @@ extension ArcCoreTestRoot {
                 path: skillsURL.path + "/frozen/refs/x.md")
             #expect(frozen?.contains("frozen") == true)
             let mem = AgentPowers.blockedWriteReason(
-                path: AgentPowers.memoriesDirectory.path + "/MEMORY.md")
+                path: "/tmp/profiles/work/MEMORY.md")
             #expect(mem?.contains("MEMORY") == true)
             let soul = AgentPowers.blockedWriteReason(path: "/tmp/SOUL.md")
             #expect(soul?.contains("SOUL") == true)
@@ -377,7 +418,7 @@ extension ArcCoreTestRoot {
             #expect(AgentPowers.blockedWriteReason(
                 path: AgentPowers.skillsDirectory.path + "/anything/SKILL.md") == nil)
             #expect(AgentPowers.blockedWriteReason(
-                path: AgentPowers.memoriesDirectory.path + "/MEMORY.md") == nil)
+                path: "/tmp/profiles/work/MEMORY.md") == nil)
             #expect(AgentPowers.blockedWriteReason(path: "/tmp/AGENTS.md") == nil)
         }
 
@@ -423,7 +464,7 @@ extension ArcCoreTestRoot {
             ))
             defer { AgentPowers.configure(AgentPowersConfig()) }
 
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             _ = ArcAgent(config: ArcAgent.Configuration(
                 model: "test-model",
                 provider: "test",
@@ -470,31 +511,29 @@ extension ArcCoreTestRoot {
                 ProfileManager.testProfilesRoot = nil
                 try? FileManager.default.removeItem(at: profilesRoot)
             }
-            _ = try await CreateProfileTool.entry.handler([
+            _ = try await CreateProfileTool.entry(profiles: TesseraProfileStore.shared).handler([
                 "name": "gz-option", "model": "some-model",
             ])
             let profile = try await ProfileManager().get(name: "gz-option")
             #expect(profile?.model == "some-model")
         }
 
-        /// Defect: the `memory` tool writes through `MemoryTool.provider` while
-        /// `profile_edit` reads `AgentPowers.memoriesDirectory` — two addresses
-        /// for one logical document. Pinned RED; the fix lands with the scope
-        /// slice. The `memory` tool has no read action (reads are prompt
+        /// Defect: the `memory` tool used to write through `MemoryTool.provider`
+        /// while `profile_edit` read `AgentPowers.memoriesDirectory` — two
+        /// addresses for one logical document. Slice 4 gives both tools one
+        /// `ToolContext` and one profile directory, so the write is visible to
+        /// the read. The `memory` tool has no read action (reads are prompt
         /// injection), so the assertion is made from the write side.
         @Test("memory tool and profile_edit share one document")
         func memoryToolAndProfileEditShareOneDocument() async throws {
             let (_, memories) = try await install()
             defer { restore() }
-            _ = memories
-            let otherRoot = FileManager.default.temporaryDirectory
-                .appendingPathComponent("gz-memory-a-\(UUID().uuidString)", isDirectory: true)
-            defer { try? FileManager.default.removeItem(at: otherRoot) }
-            MemoryTool.provider = FileMemoryProvider(directory: otherRoot)
-            _ = try await MemoryTool.entry.handler([
+            // One profile's document root, handed to both tools.
+            let provider = FileMemoryProvider(directory: memories)
+            _ = try await memoryTool(provider: provider).handler([
                 "target": "memory", "action": "add", "content": "ground-zero-probe",
             ])
-            let read = try await ProfileEditTool.entry.handler([
+            let read = try await profileEdit(memories: memories).handler([
                 "file": "memory", "action": "read",
             ])
             #expect(read.contains("ground-zero-probe"))

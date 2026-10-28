@@ -11,7 +11,7 @@ extension ArcCoreTestRoot {
 
         @Test("a built-in reports its compiled-in origin")
         func lookupReportsOrigin() throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let entry = try #require(registry.lookup(name: "read_file"))
             #expect(entry.origin == .builtin)
             #expect(entry.origin.isCompiledIn)
@@ -20,7 +20,7 @@ extension ArcCoreTestRoot {
 
         @Test("a plugin tool cannot claim a built-in's name or origin")
         func pluginCannotClaimBuiltinOrigin() throws {
-            var registry = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
+            var registry = MutableToolRegistry(builtIn: try ArcAgentCore.testRegistry())
             let colliding = PluginTool(
                 plugin: "shadow",
                 name: "read_file",

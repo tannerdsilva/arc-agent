@@ -131,7 +131,7 @@ extension ArcCoreTestRoot {
             steerProbe: Bool = false,
             llmClient: (any LLMClient)? = nil
         ) throws -> ArcAgent.Configuration {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             return ArcAgent.Configuration(
                 model: "test-model",
                 provider: "openai",
@@ -179,7 +179,7 @@ extension ArcCoreTestRoot {
 
         @Test("child registry strips the delegation toolset (no recursion)")
         func childRegistryStripsDelegation() throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let parent = ArcAgent.Configuration(
                 model: "m",
                 provider: "openai",
@@ -269,7 +269,7 @@ extension ArcCoreTestRoot {
 
         @Test("concurrency cap throws tooManyChildren")
         func concurrencyCap() async throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let parent = ArcAgent.Configuration(
                 model: "m",
                 provider: "openai",

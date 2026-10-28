@@ -8,10 +8,11 @@ import Foundation
 // construction, so "write another profile's MEMORY.md" is not a policy
 // violation to detect — it is a value that cannot be built.
 //
-// Scope does not move here: the root is still `AgentPowers.memoriesDirectory`
-// (see `ProfileEditTool.memoriesDirectory`). Slice 4 of the GROUNDZERO plan
-// swaps it for the per-profile root; moving it early turns slice 4's RED test
-// green ahead of its slice.
+// The root is the calling profile's directory
+// (`~/.arc/profiles/<name>`), resolved once by
+// `ArcAgentCore.buildRegistry(context:…)` from `ToolContext.profile`. It is the
+// same directory the CLI hands `FileMemoryProvider`, which is what makes the
+// `memory` tool and `profile_edit` address one document (GROUNDZERO slice 4).
 
 /// A profile's documents, bound to one root.
 public struct ProfileDocuments: Sendable {

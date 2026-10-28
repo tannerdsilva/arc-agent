@@ -120,7 +120,7 @@ extension ArcCoreTestRoot {
             let root = "/tmp/a8-workspace-root-probe"
 
             let client = EventScriptClient(first: .init(chunks: ["done"]), final: .init())
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let agent = await makeAgent(
                 registry: registry, httpClient: httpClient, client: client, workspaceRoot: root)
             _ = try await collect(agent, message: "go")
@@ -142,7 +142,7 @@ extension ArcCoreTestRoot {
             defer { _ = httpClient.shutdown() }
 
             let client = EventScriptClient(first: .init(chunks: ["done"]), final: .init())
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let agent = await makeAgent(
                 registry: registry, httpClient: httpClient, client: client, workspaceRoot: nil)
             _ = try await collect(agent, message: "go")
@@ -166,7 +166,7 @@ extension ArcCoreTestRoot {
                 first: .init(chunks: ["hello"]),
                 final: .init()
             )
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client, maxIterations: 5)
 
             let events = try await collect(agent)
@@ -194,7 +194,7 @@ extension ArcCoreTestRoot {
                 first: .init(toolCalls: [toolCall]),
                 final: .init(toolCalls: [toolCall])
             )
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client, maxIterations: 1)
 
             let events = try await collect(agent)
@@ -223,7 +223,7 @@ extension ArcCoreTestRoot {
                 first: .init(toolCalls: [toolCall]),
                 final: .init(chunks: ["done"])
             )
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let agent = await makeAgent(
                 registry: registry,
                 httpClient: httpClient,
@@ -263,7 +263,7 @@ extension ArcCoreTestRoot {
                 first: .init(toolCalls: [toolCall]),
                 final: .init(chunks: ["done"])
             )
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let agent = await makeAgent(
                 registry: registry,
                 httpClient: httpClient,
@@ -297,7 +297,7 @@ extension ArcCoreTestRoot {
                 Message(role: .assistant, content: "earlier answer"),
             ]
             let client = EventScriptClient(first: .init(chunks: ["done"]), final: .init())
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let agent = await makeAgent(
                 registry: registry,
                 httpClient: httpClient,

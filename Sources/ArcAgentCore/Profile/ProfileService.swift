@@ -78,3 +78,12 @@ public actor ProfileService: Service {
         }
     }
 }
+
+// MARK: - ProfileStore
+//
+// The service is a store-shaped façade over the one backend it owns, so a
+// caller that was handed the service (the daemon's ``SessionRegistry/AgentConfig``)
+// can hand it straight to `buildRegistry(profiles:)` — no second store, no
+// second cache, no reach-around to the private backend. The four requirements
+// above are already implemented; this only declares the relationship.
+extension ProfileService: ProfileStore {}

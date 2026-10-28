@@ -1237,7 +1237,21 @@ actor AppState {
     }
 
     init(thirdPartyPlugins: [any SidebarTabPlugin] = []) async throws {
-        self.registry = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
+        // Boot-time surface. No session is active and `settings` is not loaded
+        // yet, so this is the `.default` scope at the process working
+        // directory; `refreshPlugins()` — fired at the end of this init and on
+        // every plugin toggle — re-scopes the surface to the active chat.
+        self.registry = MutableToolRegistry(builtIn: try ArcAgentCore.buildRegistry(
+            context: ToolContext(
+                profile: .default,
+                sessionID: "",
+                workspace: FileManager.default.currentDirectoryPath,
+                grant: AgentPowers.grant(profile: .default)
+            ),
+            profiles: TesseraProfileStore.shared,
+            memory: FileMemoryProvider(),
+            sessions: FileSessionStore()
+        ))
         let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolset })
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
         self.settings = Self.loadSettings()
@@ -1314,11 +1328,15 @@ actor AppState {
 
     /// Rescan `~/.arc/plugins/` and rebuild the runtime registry with built-in
     /// + enabled plugin tools (the reference agent-init plugin bundling parity).
+    ///
+    /// The rebuild is scoped to the active chat (GROUNDZERO slice 4): the
+    /// surface a turn dispatches through addresses the session's profile, so
+    /// `memory` / `profile_edit` / the roster tools act on that profile rather
+    /// than on `default`.
     func refreshPlugins() async {
         try? await PluginRegistry.shared.loadAll()
         self.pluginManifests = await PluginRegistry.shared.plugins()
-        let allow = self.arcConfig.plugins.enabled.map { Set($0) }
-        if let made = try? await MutableToolRegistry.make(enabledPlugins: allow) {
+        if let made = await rebuiltRegistry(for: activeSessionID) {
             self.registry = made
         }
         let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolset })
@@ -1846,7 +1864,10 @@ actor AppState {
             disabledToolsets: Set(settings.disabledToolsets),
             // the scripted-client seam (nil in production) — see
             // `turnClientOverride`.
-            llmClient: turnClientOverride
+            llmClient: turnClientOverride,
+            // The prompt's "Active ARC profile" line reads this. Nil = default,
+            // which is exactly what an unbound chat is.
+            profileName: pname
         )
 
         let agent = ArcAgent(config: config)
@@ -2086,6 +2107,43 @@ actor AppState {
     func profileName(for sessionID: String?) -> String? {
         if let sid = sessionID, let p = settings.sessionProfile[sid], !p.isEmpty { return p }
         return nil
+    }
+
+    /// The tool scope for `sessionID` (nil = the active session / no chat).
+    ///
+    /// Profile from the session's binding, workspace from the same resolution
+    /// the turn uses, authority from the live gate. A registry built from this
+    /// addresses the *chat's* profile, which is what makes `profile_edit`
+    /// (SOUL defaults to the caller) and the roster tools behave per chat
+    /// instead of per process.
+    ///
+    /// The workspace path is resolved without creating it: `refreshPlugins()`
+    /// runs at boot before any turn, and a tool-surface rebuild must not
+    /// materialize a workspace directory as a side effect.
+    func toolContext(for sessionID: String?) -> ToolContext {
+        let profile = profileName(for: sessionID).flatMap { ProfileName($0) } ?? .default
+        let name = workspaceName(for: sessionID)
+        let workspace = workspaceEntry(named: name)?.path ?? WorkspaceEntry.defaultPath(for: name)
+        return ToolContext(
+            profile: profile,
+            sessionID: sessionID ?? "",
+            workspace: workspace,
+            grant: AgentPowers.grant(profile: profile)
+        )
+    }
+
+    /// Rebuild the runtime tool surface for `sessionID`'s scope, plugins
+    /// included. Returns nil when the built-ins fail to register (the caller
+    /// keeps the surface it already had).
+    func rebuiltRegistry(for sessionID: String?) async -> MutableToolRegistry? {
+        let context = toolContext(for: sessionID)
+        return try? await MutableToolRegistry.make(
+            context: context,
+            profiles: TesseraProfileStore.shared,
+            memory: memory ?? FileMemoryProvider(),
+            sessions: store ?? FileSessionStore(),
+            enabledPlugins: arcConfig.plugins.enabled.map { Set($0) }
+        )
     }
 
     func thinkingLevel(for sessionID: String?) -> String {

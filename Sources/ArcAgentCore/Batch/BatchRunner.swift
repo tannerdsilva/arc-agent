@@ -391,7 +391,21 @@ public actor BatchRunner {
             provider: loadConfig().model.provider,
             baseURL: URL(string: effectiveBase) ?? URL(string: "https://api.openai.com/v1")!,
             apiKey: effectiveKey,
-            registry: (try? ArcAgentCore.buildDefaultRegistry()) ?? CompileTimeToolRegistry(),
+            // Deliberate `.default` scope: a batch trajectory is a sample run
+            // over a dataset, not a profile's session. It must not address any
+            // real profile's documents, and it writes none — the surface is
+            // only sampled for its toolset distribution.
+            registry: (try? ArcAgentCore.buildRegistry(
+                context: ToolContext(
+                    profile: .default,
+                    sessionID: "batch",
+                    workspace: FileManager.default.currentDirectoryPath,
+                    grant: ToolGrant(profile: .default, documentAccess: .none)
+                ),
+                profiles: TesseraProfileStore.shared,
+                memory: FileMemoryProvider(),
+                sessions: FileSessionStore()
+            )) ?? CompileTimeToolRegistry(),
             maxIterations: ctx.options.maxTurns,
             injectProjectContext: false,
             disabledToolsets: disabled

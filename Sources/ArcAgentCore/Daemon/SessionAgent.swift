@@ -97,11 +97,37 @@ public actor SessionAgent: Service {
                 memoryProvider = TesseraMemoryProvider()
             } else {
                 sessionStore = FileSessionStore()
-                memoryProvider = FileMemoryProvider()
+                // Rooted at the profile's directory: `MEMORY.md`/`USER.md`
+                // there are the same documents `profile_edit` addresses, so
+                // the `memory` tool and `profile_edit` cannot disagree
+                // (GROUNDZERO slice 4, the memory-addressing defect).
+                memoryProvider = FileMemoryProvider(
+                    directory: ProfileManager.memoryURL(for: profile))
             }
 
             logger.info("step: building tool registry")
-            let toolRegistry = try await MutableToolRegistry.make(enabledPlugins: pluginAllowList())
+            // The session's scope: its profile (the daemon always has one),
+            // its session id, the workspace it runs in, and the live gate.
+            // `agentConfig.profiles` is the process's one roster writer — the
+            // same `ProfileService` the daemon put in its ServiceGroup — so
+            // the roster tools act through the single writer, not a new one.
+            let sessionProfile = ProfileName(profile) ?? .default
+            let toolContext = ToolContext(
+                profile: sessionProfile,
+                sessionID: sessionID,
+                // A daemon session has no per-session workspace root (the web
+                // UI does): `AGENTS.md` resolves where it always has, relative
+                // to the process.
+                workspace: FileManager.default.currentDirectoryPath,
+                grant: AgentPowers.grant(profile: sessionProfile)
+            )
+            let toolRegistry = try await MutableToolRegistry.make(
+                context: toolContext,
+                profiles: agentConfig.profiles ?? TesseraProfileStore.shared,
+                memory: memoryProvider,
+                sessions: sessionStore,
+                enabledPlugins: pluginAllowList()
+            )
 
             // Resolve the per-session context recipe: global defaults <
             // profile defaults < session overrides.
@@ -186,7 +212,10 @@ public actor SessionAgent: Service {
                 topP: resolvedContext?.topP,
                 maxOutputTokens: resolvedContext?.maxOutputTokens,
                 mcpServers: agentConfig.mcpServers,
-                contextRecipe: resolvedRecipe
+                contextRecipe: resolvedRecipe,
+                // The prompt's "Active ARC profile" line and `profile_edit`'s
+                // SOUL default both read this; it had no caller before slice 4.
+                profileName: profile
             ))
             logger.info("step: setting up client")
             await agent.setupClient(httpClient: httpClient)

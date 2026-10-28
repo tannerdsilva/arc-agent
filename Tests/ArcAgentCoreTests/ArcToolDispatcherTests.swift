@@ -14,7 +14,7 @@ extension ArcCoreTestRoot {
 
         @Test("the catalog is the registry, not a copy of it")
         func catalogMatchesRegistry() throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let dispatcher = ArcToolDispatcher(registry: registry)
             let served = Set(dispatcher.toolCatalog(for: .root).map(\.name))
             #expect(served == Set(registry.allTools.map(\.name)))
@@ -74,7 +74,7 @@ extension ArcCoreTestRoot {
 
         @Test("the local process sees everything; a network caller sees nothing")
         func accessTiers() throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let dispatcher = ArcToolDispatcher(registry: registry)
 
             #expect(dispatcher.toolCatalog(for: .root).count == registry.allTools.count)
@@ -85,7 +85,7 @@ extension ArcCoreTestRoot {
 
         @Test("a loopback caller loses filesystem, shell, code-execution and desktop tools")
         func loopbackCallerLosesLocalOnlyToolsets() throws {
-            let dispatcher = ArcToolDispatcher(registry: try ArcAgentCore.buildDefaultRegistry())
+            let dispatcher = ArcToolDispatcher(registry: try ArcAgentCore.testRegistry())
             let names = Set(dispatcher.toolCatalog(for: .admin).map(\.name))
 
             #expect(names.contains("web_search"))
@@ -128,7 +128,7 @@ extension ArcCoreTestRoot {
             // toolset appears. This is that mechanism, not the table.
             let declared = ArcToolDispatcher.inProcessOnlyToolsets
                 .union(ArcToolDispatcher.localMachineToolsets)
-            let actual = Set(try ArcAgentCore.buildDefaultRegistry().allTools.map(\.toolset))
+            let actual = Set(try ArcAgentCore.testRegistry().allTools.map(\.toolset))
 
             #expect(
                 actual.subtracting(declared).isEmpty,
@@ -235,7 +235,7 @@ extension ArcCoreTestRoot {
             // (c) assembled into the registry the agent reads, and served outward:
             // absent from the loopback catalog while its own toolset's tools are
             // still there.
-            var registry = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
+            var registry = MutableToolRegistry(builtIn: try ArcAgentCore.testRegistry())
             try registry.register(tool, origin: .source(source.name))
             let outward = ArcToolDispatcher(registry: registry)
 

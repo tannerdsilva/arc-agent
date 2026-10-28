@@ -35,7 +35,7 @@ extension ArcCoreTestRoot {
 
         @Test("handler lists the catalog grouped by toolset")
         func handlerListing() async throws {
-            ToolSearchTool.registry = try ArcAgentCore.buildDefaultRegistry()
+            ToolSearchTool.registry = try ArcAgentCore.testRegistry()
             defer { ToolSearchTool.registry = nil }
             let out = try await ToolSearchTool.entry.handler(["query": "file", "limit": 100])
             #expect(out.contains("read_file"))
@@ -46,7 +46,7 @@ extension ArcCoreTestRoot {
 
         @Test("handler names form returns bare names")
         func handlerNames() async throws {
-            ToolSearchTool.registry = try ArcAgentCore.buildDefaultRegistry()
+            ToolSearchTool.registry = try ArcAgentCore.testRegistry()
             defer { ToolSearchTool.registry = nil }
             let out = try await ToolSearchTool.entry.handler(["query": "read", "form": "names"])
             #expect(out.contains("read_file"))
@@ -55,7 +55,7 @@ extension ArcCoreTestRoot {
 
         @Test("invalid form errors clearly")
         func invalidForm() async throws {
-            ToolSearchTool.registry = try ArcAgentCore.buildDefaultRegistry()
+            ToolSearchTool.registry = try ArcAgentCore.testRegistry()
             defer { ToolSearchTool.registry = nil }
             let out = try await ToolSearchTool.entry.handler(["query": "x", "form": "grid"])
             #expect(out.contains("invalid form"))

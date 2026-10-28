@@ -535,12 +535,26 @@ public struct MutableToolRegistry: ToolRegistry {
     /// plugins (reference agent_init plugin toolset bundling). When
     /// `enabledPlugins` is non-nil only plugins in the allow-list install
     /// (reference `plugins.enabled` semantics).
+    ///
+    /// The rebuilt registry is scoped to the *active session*: a plugin tool
+    /// added at runtime joins the same surface the turn loop dispatches
+    /// through, and `memory` / `profile_edit` keep addressing that session's
+    /// profile instead of falling back to `default`.
     public static func make(
+        context: ToolContext,
+        profiles: any ProfileStore,
+        memory: any MemoryProvider,
+        sessions: any SessionStore,
         pluginRegistry: PluginRegistry? = nil,
         enabledPlugins: Set<String>? = nil,
         sources: [any ToolSource] = []
     ) async throws -> MutableToolRegistry {
-        let builtIn = try ArcAgentCore.buildDefaultRegistry()
+        let builtIn = try ArcAgentCore.buildRegistry(
+            context: context,
+            profiles: profiles,
+            memory: memory,
+            sessions: sessions
+        )
         var registry = MutableToolRegistry(builtIn: builtIn)
         let plugins = pluginRegistry ?? PluginRegistry.shared
         try? await plugins.loadAll()

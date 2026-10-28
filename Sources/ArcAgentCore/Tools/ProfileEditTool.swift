@@ -4,32 +4,44 @@ import Foundation
 //
 // The ONLY sanctioned agent path for editing MEMORY.md / USER.md / SOUL.md /
 // AGENTS.md while the profile lockdown is active. The authority it exercises
-// is the ``ToolGrant`` it was built with — not a process-global read — and the
-// memory/user documents are read and written through ``ProfileDocuments``,
-// which is bound to exactly one root.
+// is the ``ToolGrant`` inside the caller's ``ToolContext`` — not a
+// process-global read — and each document resolves to exactly one address:
 //
-// The general `memory` tool's writes are gated by the same locks, and
+// - `memory` / `user` → the ``ProfileDocuments`` this tool was built with,
+//   bound to the calling profile's directory;
+// - `soul` → the calling profile's record (``ToolContext/profile``), unless
+//   the caller names another profile explicitly;
+// - `agents` → `AGENTS.md` under ``ToolContext/workspace``, not the process's
+//   working directory.
+//
+// The general `memory` tool's writes are gated by the same grant, and
 // `write_file`/`terminal` refuse the locked files as defense in depth — so
 // this tool is the only way in until the user unlocks a surface in Settings →
 // Agent powers.
 
 public enum ProfileEditTool {
 
-    /// Where MEMORY.md / USER.md live. Defaults to ``AgentPowers/memoriesDirectory``
-    /// so tests can redirect by overriding that. Slice 4 of the GROUNDZERO
-    /// plan replaces this root with the per-profile one.
-    static var memoriesDirectory: URL {
-        AgentPowers.memoriesDirectory
-    }
-
-    /// The tool, with the authority `grant` carries captured inside it.
-    public static func entry(grant: ToolGrant) -> ToolEntry {
+    /// The tool, scoped to one caller.
+    ///
+    /// - Parameters:
+    ///   - context: the calling identity. Its `profile` is the default SOUL
+    ///     address and its `workspace` is where `AGENTS.md` lives; its `grant`
+    ///     decides every write.
+    ///   - documents: the calling profile's MEMORY.md / USER.md, bound to one
+    ///     root. A write to another profile's document is not representable.
+    ///   - profiles: the roster, for SOUL (stored in the profile record).
+    public static func entry(
+        context: ToolContext,
+        documents: ProfileDocuments,
+        profiles: any ProfileStore
+    ) -> ToolEntry {
         ToolEntry(
             name: "profile_edit",
             toolset: "profile",
             description: "Read or edit the agent's profile files: MEMORY (the agent's persistent "
                 + "notes), USER (the user profile), SOUL (the profile persona/prompt), AGENTS "
                 + "(workspace AGENTS.md). Read is always allowed; writes refuse locked files. "
+                + "SOUL defaults to your own profile. "
                 + "The ONLY sanctioned way to edit these while lockdowns are active in Settings "
                 + "(Agent powers → Profile).",
             schema: .object(
@@ -44,7 +56,7 @@ public enum ProfileEditTool {
                         values: ["read", "write"]
                     ),
                     "content": .string(description: "Replacement content (required for 'write')."),
-                    "profile": .string(description: "Profile name for SOUL editing (default 'default')."),
+                    "profile": .string(description: "Profile name for SOUL editing (default: your own profile)."),
                 ],
                 required: ["file", "action"]
             ),
@@ -60,13 +72,12 @@ public enum ProfileEditTool {
                 }
 
                 // Writes are gated by the captured grant; reads always allowed.
-                if action == "write", let refusal = grant.refusal(for: document) {
+                if action == "write", let refusal = context.grant.refusal(for: document) {
                     return "Error: " + refusal
                 }
 
                 switch document {
                 case .memory, .user:
-                    let documents = ProfileDocuments(root: memoriesDirectory, grant: grant)
                     if action == "read" {
                         let content = (try? documents.read(document)) ?? ""
                         return content.isEmpty
@@ -81,24 +92,30 @@ public enum ProfileEditTool {
                     }
 
                 case .soul:
-                    let profileName = (args["profile"] as? String) ?? "default"
-                    let manager = ProfileManager()
-                    guard var profile = try await manager.get(name: profileName) else {
+                    // The caller's own profile unless another is named: a
+                    // missing `profile` argument must not silently address
+                    // `default` from a profile-scoped agent.
+                    let profileName = (args["profile"] as? String) ?? context.profile.rawValue
+                    guard let name = ProfileName(profileName) else {
+                        return "Error: invalid profile name '\(profileName)'."
+                    }
+                    guard var profile = try await profiles.get(name) else {
                         return "Error: profile '\(profileName)' not found."
                     }
                     if action == "read" {
                         return profile.soulMD ?? "(no SOUL content set for '\(profileName)')"
                     }
                     profile.soulMD = (args["content"] as? String) ?? ""
+                    profile.updatedAt = Date()
                     do {
-                        try await manager.update(profile)
+                        try await profiles.put(profile)
                         return "Updated SOUL for profile '\(profileName)'."
                     } catch {
                         return "Error: could not update SOUL: \(error.localizedDescription)"
                     }
 
                 case .agents:
-                    let url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                    let url = URL(fileURLWithPath: context.workspace)
                         .appendingPathComponent("AGENTS.md")
                     if action == "read" {
                         guard let content = try? String(contentsOf: url, encoding: .utf8) else {
@@ -116,15 +133,5 @@ public enum ProfileEditTool {
             },
             emoji: "🛡️"
         )
-    }
-
-    /// The tool under today's process-global gate.
-    ///
-    /// Computed, deliberately: a `static let` would capture the grant once at
-    /// first access, and every later reconfiguration of ``AgentPowers`` (the
-    /// web UI toggles, the tests) would keep seeing the stale capture. Slice 4
-    /// replaces this with per-agent construction and deletes it.
-    public static var entry: ToolEntry {
-        entry(grant: AgentPowers.grant(profile: .default))
     }
 }

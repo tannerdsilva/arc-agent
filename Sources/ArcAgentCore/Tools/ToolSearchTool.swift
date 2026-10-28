@@ -12,7 +12,8 @@ import Foundation
 public enum ToolSearchTool {
 
     /// The registry searched by the handler. Wired by the agent at startup;
-    /// when nil the handler falls back to ``ArcAgentCore/buildDefaultRegistry()``.
+    /// when nil the handler builds a default-scoped registry (see
+    /// ``resolveRegistry()``).
     public nonisolated(unsafe) static var registry: (any ToolRegistry)?
 
     static let toolsets = "tools"
@@ -59,9 +60,27 @@ public enum ToolSearchTool {
         emoji: "🔎"
     )
 
+    /// The registry the handler searches.
+    ///
+    /// Wired by the agent at startup; when nil (a caller that built a registry
+    /// for its own purposes, e.g. the CLI's `arc local` bridge) the handler
+    /// builds one for a default scoped context. The tool only lists names and
+    /// descriptions, so the scope it is built with cannot leak into a result —
+    /// and the session store is passed through rather than re-created, so
+    /// building a fallback cannot re-point a live `session_search`.
     static func resolveRegistry() -> (any ToolRegistry)? {
         if let registry { return registry }
-        return try? ArcAgentCore.buildDefaultRegistry()
+        return try? ArcAgentCore.buildRegistry(
+            context: ToolContext(
+                profile: .default,
+                sessionID: "",
+                workspace: FileManager.default.currentDirectoryPath,
+                grant: AgentPowers.grant(profile: .default)
+            ),
+            profiles: TesseraProfileStore.shared,
+            memory: FileMemoryProvider(),
+            sessions: SessionSearchTool.store ?? FileSessionStore()
+        )
     }
 
     // MARK: - Catalog + search

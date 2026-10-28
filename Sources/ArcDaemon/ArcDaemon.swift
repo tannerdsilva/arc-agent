@@ -220,7 +220,17 @@ public enum ArcDaemon {
             services.append(try MCPServerAdapter(
                 host: mcp.host,
                 port: mcp.port,
-                registry: try ArcAgentCore.buildDefaultRegistry()
+                registry: try ArcAgentCore.buildRegistry(
+                    context: ToolContext(
+                        profile: .default,
+                        sessionID: "",
+                        workspace: FileManager.default.currentDirectoryPath,
+                        grant: AgentPowers.grant(profile: .default)
+                    ),
+                    profiles: TesseraProfileStore.shared,
+                    memory: FileMemoryProvider(directory: ProfileManager.memoryURL(for: "default")),
+                    sessions: FileSessionStore()
+                )
             ))
         }
         if let kanban = plan.kanban {

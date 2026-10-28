@@ -11,14 +11,23 @@ extension ArcCoreTestRoot {
     struct ToolGrantTests {
 
         private func grant(
-            _ editable: Set<ProfileFile>,
+            _ access: DocumentAccess,
             profile: String = "default"
         ) -> ToolGrant {
             ToolGrant(
                 profile: ProfileName(profile)!,
-                editableDocuments: editable,
+                documentAccess: access,
                 mayManageSkills: false
             )
+        }
+
+        /// Convenience for the common "these documents are open, the rest are
+        /// individually locked" shape.
+        private func grant(
+            _ editable: Set<ProfileFile>,
+            profile: String = "default"
+        ) -> ToolGrant {
+            grant(.only(editable), profile: profile)
         }
 
         private func tempDirectory(_ label: String) throws -> URL {
@@ -31,10 +40,10 @@ extension ArcCoreTestRoot {
         // MARK: - Sentences
 
         /// The refusal text is operator-facing copy quoted by Settings and by
-        /// these tests. It must not be reworded by the move onto a value: the
-        /// literals below are byte-compared, and the bridge is cross-checked
-        /// against the static it replaces for every configuration the gate can
-        /// be in.
+        /// these tests. It must not be reworded by the move onto a value, and
+        /// the two ways a surface can be closed — the global switch off, or
+        /// all four documents individually locked — must not share a sentence
+        /// (GROUNDZERO defect D1).
         @Test("refusal sentences are unchanged")
         func refusalSentencesUnchanged() {
             let globalLocked = "Refused: profile editing is locked in Settings (Agent powers → Profile). "
@@ -44,36 +53,52 @@ extension ArcCoreTestRoot {
             let soulLocked = "Refused: SOUL is locked in Settings (Agent powers → Profile). "
                 + "Unlock it there before editing."
 
-            #expect(grant([]).refusal(for: .memory) == globalLocked)
+            // The global switch: one sentence for the whole surface.
+            for file in ProfileFile.allCases {
+                #expect(grant(.none).refusal(for: file) == globalLocked)
+            }
+            // Individually locked: the document's own sentence...
             #expect(grant([.user, .soul, .agents]).refusal(for: .memory) == memoryLocked)
             #expect(grant([.memory, .user, .agents]).refusal(for: .soul) == soulLocked)
-            #expect(grant([]).refusal(for: .agents) == globalLocked)
+            // ...including when every document is locked — D1: this used to
+            // arrive as an empty set and answer with the global sentence.
+            for file in ProfileFile.allCases {
+                let sentence = grant(.only([])).refusal(for: file)
+                #expect(sentence == "Refused: \(file.displayName) is locked in Settings "
+                    + "(Agent powers → Profile). Unlock it there before editing.")
+                #expect(sentence != globalLocked, "only([]) must not speak for the global switch")
+            }
             // Unlocked is silent, for every document.
             for file in ProfileFile.allCases {
+                #expect(grant(.all).refusal(for: file) == nil)
                 #expect(grant(Set(ProfileFile.allCases)).refusal(for: file) == nil)
             }
             // The path-shaped entry point resolves the right document.
             #expect(grant([.user]).refusal(forPath: "/tmp/proj/MEMORY.md") == memoryLocked)
             #expect(grant([.user]).refusal(forPath: "/tmp/proj/notes.md") == nil)
+            #expect(grant(.none).refusal(forPath: "/tmp/proj/AGENTS.md") == globalLocked)
 
-            // And the bridge produces exactly what the static produces.
+            // And the bridge maps the gate's two locks onto the two states, so
+            // the sentences above are the ones an operator actually sees.
             defer { AgentPowers.configure(AgentPowersConfig()) }
-            let configurations = [
-                AgentPowersConfig(),
-                AgentPowersConfig(profileEdit: false),
-                AgentPowersConfig(profileEdit: true, lockedProfileFiles: ["memory", "agents"]),
-                AgentPowersConfig(profileEdit: true, lockedProfileFiles: ["soul"]),
+            let configurations: [(AgentPowersConfig, DocumentAccess)] = [
+                (AgentPowersConfig(), .all),
+                (AgentPowersConfig(profileEdit: false), .none),
+                (AgentPowersConfig(profileEdit: true, lockedProfileFiles: ["memory", "agents"]),
+                 .only([.user, .soul])),
             ]
-            for config in configurations {
+            for (config, expected) in configurations {
                 AgentPowers.configure(config)
-                let live = AgentPowers.grant(profile: .default)
-                for file in ProfileFile.allCases {
-                    #expect(
-                        live.refusal(for: file)
-                            == AgentPowers.profileWriteRefusal(file: file.rawValue),
-                        "grant drifted from profileWriteRefusal for \(file.rawValue)")
-                }
+                #expect(AgentPowers.grant(profile: .default).documentAccess == expected)
             }
+
+            // All four locked individually is `only([])`, not `.none` — the D1
+            // distinction must survive the trip through the gate.
+            AgentPowers.configure(AgentPowersConfig(
+                profileEdit: true, lockedProfileFiles: ["memory", "user", "soul", "agents"]))
+            let allLocked = AgentPowers.grant(profile: .default)
+            #expect(allLocked.documentAccess == .only([]))
+            #expect(allLocked.refusal(for: .memory) == memoryLocked)
         }
 
         // MARK: - One root

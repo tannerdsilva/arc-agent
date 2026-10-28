@@ -180,7 +180,7 @@ extension ArcCoreTestRoot {
                 first: .init(chunks: ["Hel", "lo, ", "world"]),
                 final: .init()
             )
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
 
             let events = try await collect(agent)
@@ -211,7 +211,7 @@ extension ArcCoreTestRoot {
                 first: .init(toolCalls: [toolCall]),
                 final: .init(chunks: ["done"])
             )
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
 
             let events = try await collect(agent)
@@ -263,7 +263,7 @@ extension ArcCoreTestRoot {
                 first: .init(chunks: ["answer"], reasoning: "thinking hard", usage: usage),
                 final: .init()
             )
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
 
             let events = try await collect(agent)
@@ -309,7 +309,7 @@ extension ArcCoreTestRoot {
                 first: .init(toolCalls: [toolCall]),
                 final: .init(chunks: ["removed"])
             )
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
 
             let recorder = PresenterRecorder()
@@ -352,7 +352,7 @@ extension ArcCoreTestRoot {
                 first: .init(toolCalls: [toolCall]),
                 final: .init(chunks: ["ok"])
             )
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
 
             await agent.setApprovalPresenter { _ in .deny }
@@ -387,7 +387,7 @@ extension ArcCoreTestRoot {
                 first: .init(toolCalls: [toolCall]),
                 final: .init(chunks: ["ok"])
             )
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
 
             let events = try await collect(agent, message: "clean \(dir.path)")
@@ -412,7 +412,7 @@ extension ArcCoreTestRoot {
                 first: .init(toolCalls: [toolCall]),
                 final: .init(chunks: ["picked 2"])
             )
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             // clarify is on the default surface now; the presenter seam is what
             // this test opts into.
             let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
@@ -456,7 +456,7 @@ extension ArcCoreTestRoot {
                 first: .init(toolCalls: [toolCall]),
                 final: .init(chunks: ["ok"])
             )
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             // clarify is on the default surface; the unavailable-error path runs
             // when no presenter is installed.
             let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)

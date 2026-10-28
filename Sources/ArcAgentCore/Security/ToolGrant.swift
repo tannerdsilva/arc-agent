@@ -6,19 +6,21 @@
 // fall back on and no re-read to disagree with.
 //
 // The refusal sentences are the operator-facing strings the gate has always
-// emitted (`AgentPowers.profileWriteRefusal(file:)`); they are reproduced
-// byte-for-byte here because the settings UI and the tests quote them. Do not
-// reword them.
+// emitted; they are reproduced byte-for-byte here because the settings UI and
+// the tests quote them. Do not reword them.
 //
-// ## Encoding of "profile editing is off"
+// ## The two locks are two values
 //
 // The gate has two independent locks: the global `profileEdit` switch and the
-// per-file `lockedProfileFiles` list. A grant carries only the *result* — the
-// set of documents this caller may edit — so the global switch is encoded as
-// the empty set, which is exactly what it means. A profile that has all four
-// documents individually locked therefore reads back as the global sentence
-// (the surface is fully closed either way); every other configuration maps
-// one-to-one.
+// per-file `lockedProfileFiles` list. A grant carries the *result* as a
+// ``DocumentAccess``, which keeps them distinct:
+//
+// - `profileEdit: false` → `.none` → the global sentence;
+// - `profileEdit: true` with all four locked → `.only([])` → the per-file
+//   sentence for whichever document was asked about.
+//
+// Before ``DocumentAccess`` both arrived as an empty set and both produced the
+// global sentence — defect D1 in the GROUNDZERO journal.
 
 /// What one caller may do to the profile's authority-bearing surfaces.
 public struct ToolGrant: Sendable, Hashable {
@@ -26,9 +28,8 @@ public struct ToolGrant: Sendable, Hashable {
     /// The profile this grant is for.
     public let profile: ProfileName
 
-    /// The documents this caller may write. Empty means profile editing is
-    /// off globally.
-    public let editableDocuments: Set<ProfileFile>
+    /// The documents this caller may write, and *why* the others are closed.
+    public let documentAccess: DocumentAccess
 
     /// Whether this caller may create or edit skills.
     public let mayManageSkills: Bool
@@ -39,27 +40,31 @@ public struct ToolGrant: Sendable, Hashable {
     /// value of a gate that has never been locked down.
     public init(
         profile: ProfileName,
-        editableDocuments: Set<ProfileFile> = Set(ProfileFile.allCases),
+        documentAccess: DocumentAccess = .all,
         mayManageSkills: Bool = false
     ) {
         self.profile = profile
-        self.editableDocuments = editableDocuments
+        self.documentAccess = documentAccess
         self.mayManageSkills = mayManageSkills
     }
 
     /// The refusal reason for writing `file`, or `nil` when allowed.
     ///
-    /// Byte-identical to `AgentPowers.profileWriteRefusal(file:)` for every
-    /// configuration except "global lock on OR all four individually locked",
-    /// which share the empty set — see the note above.
+    /// The sentence names the lock that actually applies: the global switch,
+    /// or the one document. `.none` and `.only([…])` never share an answer.
     public func refusal(for file: ProfileFile) -> String? {
-        if editableDocuments.contains(file) { return nil }
-        if editableDocuments.isEmpty {
+        switch documentAccess {
+        case .all:
+            return nil
+        case .only(let files) where files.contains(file):
+            return nil
+        case .none:
             return "Refused: profile editing is locked in Settings (Agent powers → Profile). "
                 + "The agent cannot modify MEMORY/USER/SOUL/AGENTS while 'Agent can edit profile' is off."
+        case .only:
+            return "Refused: \(file.displayName) is locked in Settings (Agent powers → Profile). "
+                + "Unlock it there before editing."
         }
-        return "Refused: \(file.displayName) is locked in Settings (Agent powers → Profile). "
-            + "Unlock it there before editing."
     }
 
     /// The refusal reason for writing the document `path` names, or `nil` when

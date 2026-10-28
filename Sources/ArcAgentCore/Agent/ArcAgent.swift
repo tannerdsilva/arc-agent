@@ -599,9 +599,10 @@ public actor ArcAgent: Service {
                 topP: config.topP
             )
         )
-        // The memory tool writes through the agent's configured provider so
-        // the model reads and writes use the same backend as this agent.
-        MemoryTool.provider = config.memoryProvider
+        // The memory tool's provider is captured at registry construction
+        // (`buildRegistry(context:memory:)`), not re-pointed here: a second
+        // process-wide assignment is exactly the ambient addressing slice 4
+        // deleted.
         // The session-search tool reads through the agent's session store.
         SessionSearchTool.store = config.sessionStore
         // The todo tool is session-scoped: one list per agent instance.
@@ -673,8 +674,8 @@ public actor ArcAgent: Service {
         SteerChildTool.manager = delegationManager
         StopChildTool.manager = delegationManager
 
-        // The memory tool writes through the agent's configured provider.
-        MemoryTool.provider = config.memoryProvider
+        // The memory tool's provider is captured at registry construction
+        // (`buildRegistry(context:memory:)`); nothing to re-point here.
         SessionSearchTool.store = config.sessionStore
         // Session-scoped todo list (one per agent instance).
         TodoTool.store = todoStore

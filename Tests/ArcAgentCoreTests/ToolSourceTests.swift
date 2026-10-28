@@ -99,7 +99,7 @@ extension ArcCoreTestRoot {
 
         @Test("the registry is itself a source")
         func registryIsASource() async throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let tools = try await RegistryToolSource(registry: registry).tools()
 
             #expect(tools.count == registry.allTools.count)
@@ -109,7 +109,7 @@ extension ArcCoreTestRoot {
         @Test("sources assemble into the registry the agent reads")
         func sourcesAssembleIntoTheRegistry() async throws {
             let source = internalToolSource(toolset: "db")
-            let registry = try await MutableToolRegistry.make(
+            let registry = try await ArcAgentCore.testMutableRegistry(
                 pluginRegistry: emptyPlugins(),
                 sources: [source]
             )
@@ -127,7 +127,7 @@ extension ArcCoreTestRoot {
             let second = internalToolSource()
 
             await #expect(throws: ToolRegistryError.self) {
-                _ = try await MutableToolRegistry.make(
+                _ = try await ArcAgentCore.testMutableRegistry(
                     pluginRegistry: emptyPlugins(),
                     sources: [first, second]
                 )

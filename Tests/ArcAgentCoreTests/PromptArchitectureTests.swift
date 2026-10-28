@@ -405,7 +405,7 @@ extension ArcCoreTestRoot {
 
         @Test("disabled toolset is excluded from the tool index")
         func disabledToolsetExcludedFromIndex() async throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let box = ClientScripts(responses: [LLMResponse(content: "ok", finishReason: "stop")])
             let config = makeConfig(registry: registry, injectProjectContext: false, disabledToolsets: ["terminal"])
             _ = try await runOnce(config, box: box)
@@ -425,7 +425,7 @@ extension ArcCoreTestRoot {
 
         @Test("disabled toolset tool cannot be dispatched")
         func disabledToolsetRejectedAtDispatch() async throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let box = ClientScripts(responses: [
                 LLMResponse(content: nil, toolCalls: [
                     ToolCall(id: "d1", function: ToolCallFunction(name: "terminal", arguments: "{}")),

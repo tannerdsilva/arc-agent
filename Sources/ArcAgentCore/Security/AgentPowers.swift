@@ -18,9 +18,6 @@ public enum AgentPowers {
     /// Where skills live (`~/.arc/skills` by default). Overridable for tests.
     public nonisolated(unsafe) static var skillsDirectory: URL = ArcHome.skills
 
-    /// Where MEMORY.md / USER.md live (`~/.arc/memories` by default).
-    public nonisolated(unsafe) static var memoriesDirectory: URL = ArcHome.memories
-
     /// Install the gate from configuration. Installed once at startup by
     /// ``ArcDaemon`` (the daemon's agents, the CLI's agent and a hosted web UI
     /// all consult this one gate); ``ArcAgent`` re-asserts only a
@@ -53,57 +50,51 @@ public enum AgentPowers {
         return nil
     }
 
-    // MARK: Profile files
-
-    /// The refusal reason for writing a profile file, or nil when allowed.
-    /// `file` is one of "memory", "user", "soul", "agents".
-    public static func profileWriteRefusal(file: String) -> String? {
-        if !config.profileEdit {
-            return "Refused: profile editing is locked in Settings (Agent powers → Profile). "
-                + "The agent cannot modify MEMORY/USER/SOUL/AGENTS while 'Agent can edit profile' is off."
-        }
-        if config.lockedProfileFiles.contains(file) {
-            return "Refused: \(file.uppercased()) is locked in Settings (Agent powers → Profile). "
-                + "Unlock it there before editing."
-        }
-        return nil
-    }
-
     // MARK: Profile documents
 
     /// Capture the current gate as an immutable ``ToolGrant``.
     ///
     /// This is the bridge from the process-global switch to the value every
-    /// authority-bearing tool takes: `profile_edit`, `patch`, `terminal` and
-    /// `execute_code` each construct their entry from a grant, and their
-    /// computed `entry` properties call this once per access. It must never be
-    /// captured in a `static let` — the gate is reconfigured at runtime (the
-    /// web UI's toggles, the tests), and a cached grant would go stale and
-    /// keep exercising authority the operator has since revoked.
+    /// authority-bearing tool takes. Construction sites call it once per agent
+    /// (the daemon's session agents, the web UI's turn, the CLI) and hand the
+    /// result to `buildRegistry(context:)`; the four computed `entry`
+    /// properties that used to call it per access are being retired slice by
+    /// slice. It must never be captured in a `static let` — the gate is
+    /// reconfigured at runtime (the web UI's toggles, the tests), and a cached
+    /// grant would go stale and keep exercising authority the operator has
+    /// since revoked.
     ///
-    /// Slice 4 of the GROUNDZERO plan replaces the computed defaults with
-    /// per-agent construction and deletes them; this stays the single reader
-    /// of ``config`` until then.
+    /// The two locks map to two ``DocumentAccess`` cases, so "profile editing
+    /// is off" and "all four documents are locked" stop sharing a refusal
+    /// sentence (defect D1).
     public static func grant(profile: ProfileName) -> ToolGrant {
         let config = self.config
-        let editable: Set<ProfileFile>
-        if config.profileEdit {
-            editable = Set(ProfileFile.allCases.filter { !config.lockedProfileFiles.contains($0.rawValue) })
+        let access: DocumentAccess
+        if !config.profileEdit {
+            access = .none
+        } else if config.lockedProfileFiles.isEmpty {
+            access = .all
         } else {
-            editable = []
+            access = .only(Set(ProfileFile.allCases.filter {
+                !config.lockedProfileFiles.contains($0.rawValue)
+            }))
         }
         return ToolGrant(
             profile: profile,
-            editableDocuments: editable,
+            documentAccess: access,
             mayManageSkills: config.skillsManage
         )
     }
 
-    // MARK: Defense-in-depth path guard (write_file / terminal)
+    // MARK: Defense-in-depth path guard (write_file)
 
     /// Returns a refusal reason when `path` targets a locked surface, else nil.
     /// Used by general write tools so the dedicated tools are the ONLY way in
     /// while a lockdown is on.
+    ///
+    /// Document refusals come from a grant read *now* — this guard must track
+    /// the live gate, not a value captured at startup, because the web UI's
+    /// toggles rewrite it while a session is running.
     public static func blockedWriteReason(path: String) -> String? {
         let url = URL(fileURLWithPath: path)
         let skillBase = skillsDirectory.resolvingSymlinksInPath().path
@@ -125,18 +116,9 @@ public enum AgentPowers {
             return nil
         }
 
-        let name = url.lastPathComponent
-        switch name {
-        case "MEMORY.md":
-            return profileWriteRefusal(file: "memory")
-        case "USER.md":
-            return profileWriteRefusal(file: "user")
-        case "SOUL.md":
-            return profileWriteRefusal(file: "soul")
-        case "AGENTS.md", ".reference.md", "CLAUDE.md", ".cursorrules":
-            return profileWriteRefusal(file: "agents")
-        default:
-            return nil
-        }
+        // The four profile documents, by name — the rule both this guard and
+        // `ToolGrant.refusal(forPath:)` use.
+        guard let document = ProfileFile.at(path: path) else { return nil }
+        return grant(profile: .default).refusal(for: document)
     }
 }

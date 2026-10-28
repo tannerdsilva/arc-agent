@@ -16,7 +16,7 @@
 public enum ToolOrigin: Sendable, Hashable {
 
     /// Compiled into the binary and registered by
-    /// ``ArcAgentCore/buildDefaultRegistry()``.
+    /// ``ArcAgentCore/buildRegistry(context:profiles:memory:sessions:)``.
     case builtin
 
     /// Loaded from an executable plugin at `~/.arc/plugins/<name>/`; carries

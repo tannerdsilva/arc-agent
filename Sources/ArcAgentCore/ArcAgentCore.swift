@@ -1,3 +1,5 @@
+import Foundation
+
 /// The core library for ARC Agent.
 ///
 /// This module contains the agent loop, tool registry, provider profiles,
@@ -11,15 +13,35 @@ public enum ArcAgentCore {
     /// The current library version.
     public static let version = "0.1.0"
 
-    /// Build a ``CompileTimeToolRegistry`` pre-loaded with the built-in tools.
+    /// Build a ``CompileTimeToolRegistry`` pre-loaded with the built-in tools,
+    /// scoped to `context`.
     ///
-    /// This is the primary entry point for creating a tool registry with all
-    /// compiled-in tools. Additional tools can be registered after creation.
+    /// This is the only entry point: a tool surface cannot be built without
+    /// saying *whose* surface it is. The scope-bearing tools capture the
+    /// values they are given here — `memory` its provider, `profile_edit` its
+    /// documents and roster, the roster tools their store — so no tool body
+    /// looks a process-global up at call time (GROUNDZERO slice 4).
     ///
+    /// - Parameters:
+    ///   - context: the calling identity — profile, session, workspace, grant.
+    ///   - profiles: the roster the profile tools read and write.
+    ///   - memory: this caller's memory provider. It must address the same
+    ///     profile directory as `context.profile` or `memory` and
+    ///     `profile_edit` would address two documents again.
+    ///   - sessions: the session store `session_search` reads. Wired here
+    ///     rather than in the agent so a registry built for a caller with no
+    ///     `ArcAgent` (the CLI's `arc local` bridge, the daemon's MCP server)
+    ///     still searches the right store. Slice 6 replaces this ambient
+    ///     assignment with a constructor parameter.
     /// - Returns: A configured ``CompileTimeToolRegistry``.
     /// - Throws: If a built-in tool fails to register (should not happen in
     ///   normal operation since built-in tool names are unique by construction).
-    public static func buildDefaultRegistry() throws -> CompileTimeToolRegistry {
+    public static func buildRegistry(
+        context: ToolContext,
+        profiles: any ProfileStore,
+        memory: any MemoryProvider,
+        sessions: any SessionStore
+    ) throws -> CompileTimeToolRegistry {
         var registry = CompileTimeToolRegistry()
         try registry.register(ReadFileTool.entry)
         try registry.register(WriteFileTool.entry)
@@ -28,13 +50,17 @@ public enum ArcAgentCore {
         try registry.register(ProcessWatchTool.entry)
         try registry.register(WebSearchTool.entry)
         try registry.register(WebExtractTool.entry)
-        try registry.register(MemoryTool.entry)
+        try registry.register(MemoryTool.entry(context: context, memory: memory))
         try registry.register(SessionSearchTool.entry)
         try registry.register(TodoTool.entry)
         try registry.register(SkillViewTool.entry)
         try registry.register(SkillManageTool.entry)
         try registry.register(SkillsListTool.entry)
-        try registry.register(ProfileEditTool.entry)
+        try registry.register(ProfileEditTool.entry(
+            context: context,
+            documents: documents(for: context),
+            profiles: profiles
+        ))
         try registry.register(ClarifyTool.entry)
         try registry.register(PatchTool.entry)
         try registry.register(SearchFilesTool.entry)
@@ -54,13 +80,14 @@ public enum ArcAgentCore {
         try registry.register(KanbanTools.complete)
         try registry.register(KanbanTools.block)
 
-        // Profile/bot mode tools
-        try registry.register(ListProfilesTool.entry)
-        try registry.register(GetProfileTool.entry)
-        try registry.register(SendBotMessageTool.entry)
-        try registry.register(CreateProfileTool.entry)
-        try registry.register(DeleteProfileTool.entry)
-        try registry.register(SendGroupChatTool.entry)
+        // Profile/bot mode tools. Service-scoped: they act on the roster, not
+        // on the calling profile's documents.
+        try registry.register(ListProfilesTool.entry(profiles: profiles))
+        try registry.register(GetProfileTool.entry(profiles: profiles))
+        try registry.register(SendBotMessageTool.entry(context: context, profiles: profiles))
+        try registry.register(CreateProfileTool.entry(profiles: profiles))
+        try registry.register(DeleteProfileTool.entry(profiles: profiles))
+        try registry.register(SendGroupChatTool.entry(context: context))
 
         // Browser tools (CDP provider — no Playwright/Node required)
         try registry.register(BrowserTools.navigate)
@@ -81,6 +108,27 @@ public enum ArcAgentCore {
         try registry.register(MCPClientTool.entry)
         Task { await BrowserRegistry.shared.register(CDPBrowserProvider()) }
 
+        // `session_search` still reads a process-global store (slice 6 gives it
+        // a constructor parameter); point it at the store this caller was
+        // handed so the surface is at least internally consistent.
+        SessionSearchTool.store = sessions
+
         return registry
+    }
+
+    // MARK: - Scope
+
+    /// The documents `context` owns: `MEMORY.md` / `USER.md` under the profile
+    /// directory, bound to the calling grant.
+    ///
+    /// One root, chosen from the profile name — never from caller input after
+    /// construction. `ProfileManager.memoryURL(for:)` is the same directory the
+    /// CLI already hands `FileMemoryProvider`, which is what makes the `memory`
+    /// tool and `profile_edit` address one document.
+    public static func documents(for context: ToolContext) -> ProfileDocuments {
+        let root = ProfileManager.memoryURL(for: context.profile.rawValue)
+            ?? URL(fileURLWithPath: ProfileManager.profilesDir)
+                .appendingPathComponent(context.profile.rawValue, isDirectory: true)
+        return ProfileDocuments(root: root, grant: context.grant)
     }
 }
