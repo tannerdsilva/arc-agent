@@ -156,6 +156,8 @@ let package = Package(
                 .product(name: "WebUIDesignSystem", package: "no-webui"),
                 // the shipped-asset protocol the generated ThemeSheetAssets conforms to.
                 .product(name: "WebUICore", package: "no-webui"),
+                // the region differ the push edge stands on (RegionPolicy, PageDiffer).
+                .product(name: "WebUIState", package: "no-webui"),
                 .product(name: "AsyncHTTPClient", package: "async-http-client"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOHTTP1", package: "swift-nio"),
@@ -251,6 +253,9 @@ let package = Package(
                 // the minifier the emitted sheet goes through: the drift test compares the
                 // product against `minifyCSS(source)`.
                 .product(name: "WebUICore", package: "no-webui"),
+                // SwiftPM does not re-export a dependency: a test naming PageDiffer
+                // needs the product declared here too.
+                .product(name: "WebUIState", package: "no-webui"),
             ],
             resources: [
                 // the palette pins: the values the painted sheet must still hold, extracted
