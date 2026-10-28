@@ -446,16 +446,24 @@ extension ArcWebUITestRoot {
 
         // MARK: - UX-05 the topbar follows the auto-title
 
-        @Test("the turn-chrome push carries the topbar so auto-titles reach the window strip")
-        func turnChromeCarriesTopbar() {
-            // the property is structural: at least three owners push the topbar, so
-            // no single path can leave the strip stale. it is pinned by counting the
-            // push sites, not by matching one exact call spelling — after phase 1.2
-            // the call reads `fragment("topbar", topbarHTML())`.
-            #expect(Self.actions.contains("fragment(\"topbar\""),
-                    "the top strip showed \"New chat\" after an auto-title: the title mutation pushed chat-header but never the topbar — the topbar must ride the same turn chrome the header does")
-            #expect(Self.actions.components(separatedBy: "fragment(\"topbar\"").count >= 3,
-                    "the topbar must be owned by BOTH the title-generating path and every turn-chrome boundary — a single owner leaves one of them stale")
+        @Test("the turn-chrome boundary re-renders the shell, so the topbar cannot go stale")
+        func turnChromeCarriesTopbar() async {
+            // the property is structural now: a turn boundary signals a structural
+            // change, the door answers it with one fresh `appShell()` render, and
+            // that render is the only thing that emits `#topbar`. So no boundary can
+            // ship chrome without the strip — pin both halves of that chain.
+            let actions = Self.actions
+            guard let start = actions.range(of: "func turnChromeFragments()"),
+                  let end = actions.range(of: "func ", range: start.upperBound..<actions.endIndex) else {
+                Issue.record("turnChromeFragments() not found in Actions.swift")
+                return
+            }
+            let body = String(actions[start.lowerBound..<end.lowerBound])
+            #expect(body.contains("structuralChange()"),
+                    "the top strip showed \"New chat\" after an auto-title: the boundary must ask the door to look, and the door's render carries the topbar")
+            let page = await RenderedMarkup.page()
+            #expect(page.contains("id=\"topbar\""),
+                    "the shell the door renders must carry the strip, or the derived change has no region to name")
         }
 
         // MARK: - UX-06 feedback + undo for copy / delete
@@ -523,19 +531,24 @@ extension ArcWebUITestRoot {
         /// box displays the raw interpolation. The older pin only asserted
         /// that the server's own success toast was gone, so it could not see
         /// this. This pin reads the interpolation itself.
-        @Test("the copy-link toasts fragment interpolates the shell, never literal source")
-        func copyLinkToastsInterpolates() {
+        @Test("the copy-link branch stages the marker; the door's render carries the shell")
+        func copyLinkToastsInterpolates() async {
             let actions = Self.actions
-            // Re-based onto the new push spelling: the copy-link branch builds
-            // its #toasts fragment through the fragment bridge, not a hand-written
-            // `<div id="toasts" …>` wrapper string. Assert the structural spelling
-            // and that the literal wrapper is gone.
-            // the payload is the SHELL, not the inner list: an empty inner push
-            // makes the engine remove #toasts outright (see ToastsRegionContractTests).
-            #expect(actions.contains("fragment(\"toasts\", await self.app.toastsShell())"),
-                    "the copy-link branch must route the toasts shell through the fragment bridge")
+            // The branch stages the URL on the state and asks the door to look. The
+            // render is what emits the marker, inside `#toasts` (single-shot: reading
+            // it clears it). Pin both halves, and keep the hand-written wrapper
+            // banned — it shipped the literal interpolation once.
+            #expect(actions.contains("await self.app.markCopyLink(sid)"),
+                    "the copy-link branch must stage the URL the overlay writes to the clipboard")
             #expect(!actions.contains("<div id=\"toasts\" data-component-id=\"toast-dismiss\""),
                     "the hand-written toasts wrapper string must not survive — it ships literal markup")
+            var fixture = AppState.RenderFixture()
+            fixture.pendingCopyURL = "https://example.com/x"
+            let rendered = await AppState(renderFixture: fixture).toastsShell().markup.html
+            #expect(rendered.contains("id=\"toasts\""),
+                    "the fragment must carry the container: an inner-only replace deletes #toasts for the session")
+            #expect(rendered.contains("id=\"pending-copy\" data-copy-url=\"https://example.com/x\""),
+                    "the staged URL must render inside #toasts — that is what the overlay reads")
         }
 
 

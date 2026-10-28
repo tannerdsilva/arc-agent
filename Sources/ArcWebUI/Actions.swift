@@ -11,6 +11,10 @@ import WebUIDesignSystem
 extension AppState {
 
     /// Render fragments for the panels/main/toasts after a state change.
+    ///
+    /// Transitional: every caller in `Actions` is a nudge now, and this body dies
+    /// with its last caller (`Queue`, `NewFeatures`, `SidebarTabBridge` and
+    /// `chatFragments`/`skillPanelFragment`). Do not add callers.
     func refreshFragments(includeApp: Bool = false) async -> [FragmentUpdate] {
         if includeApp {
             let shell = await appShell()
@@ -36,25 +40,6 @@ extension AppState {
         u.append(fragment("toasts", toastsShell()))
         u.append(fragment("modal-root", modalRootHTML()))
         return u
-    }
-
-    /// Iterated when the Logs view or its controls change: re-render the left
-    /// panel (stats + filter chips) and the live log box.
-    /// Standard refresh plus the left iconbar (rail). Needed whenever sidebar
-    /// tab visibility or order changes — refreshFragments alone leaves the
-    /// rail untouched.
-    func fragmentsWithIconbar() async -> [FragmentUpdate] {
-        // refreshFragments already carries the rail (iconbar), so the standard
-        // targeted refresh is the full shell now.
-        return await refreshFragments()
-    }
-
-    func logsFragments() async -> [FragmentUpdate] {
-        [
-            fragment("topbar", topbarHTML()),
-            fragment("panel", await panelHTML()),
-            fragment("log-lines", logLinesBox()),
-        ]
     }
 
     /// Execute one tool call and return its result string. Terminal commands
@@ -739,7 +724,7 @@ extension AppState {
         let configName = configName(for: sessionID)
         guard let preset = settings.modelConfig(named: configName) else {
             _ = toast("No usable model configuration '\(configName)'. Add one in Settings → Preferences.", kind: "error")
-            _ = await refreshFragments()
+            await pusher(structuralChange())
             return
         }
         // Per-profile context overrides: when the chat is bound to a profile
@@ -754,7 +739,7 @@ extension AppState {
         // stored.
         guard turnClientOverride != nil || makeClient(for: effectivePreset) != nil else {
             _ = toast("No usable model configuration '\(configName)'. Add one in Settings → Preferences.", kind: "error")
-            _ = await refreshFragments()
+            await pusher(structuralChange())
             return
         }
 
@@ -1102,24 +1087,19 @@ extension AppState {
         await reloadSessions(selecting: selectAfter ? sessionID : nil)
         // Turn-end boundary: transcript (final message in, live block out), the
         // session row spinner cleared, composer back to send, header meta, toasts.
-        // NOT `#main` — a whole-chat replacement drops scroll and selection at
-        // every turn end.
+        // A nudge, not a batch: the door renders the shell and names only the
+        // regions that moved, so a boundary cannot drag `#main` onto the wire.
         let endChrome = await turnChromeFragments()
-        // The transcript re-render is what removes `#live-turn` and shows the
-        // persisted final message. It is only valid for the chat the client is
-        // actually displaying, and `activeSessionID` is that invariant's proxy:
-        // `reloadSessions` keeps the selection for a running turn's session (and
-        // never strands it at nil while this chat is on screen). If the check
-        // ever fails, make it visible in the Logs instead of leaving a stale
-        // live block on screen silently — the block clears on the next view
-        // switch, which re-renders this session's transcript from the store.
-        let endTranscript: [FragmentUpdate]
-        if activeSessionID == sessionID {
-            endTranscript = await transcriptFragments()
-        } else {
-            endTranscript = []
-            LogCollector.shared.append(level: .warning, text: "[turn] transcript push skipped for session \(String(sessionID.prefix(8))) — active is \(activeSessionID.map { String($0.prefix(8)) } ?? "nil")")
+        // The render that removes `#live-turn` and shows the persisted final
+        // message always describes the chat that is actually on screen, so the
+        // old "skip the transcript when another chat is active" hazard is gone by
+        // construction: there is no session-scoped html to land in the wrong
+        // list. The case is still logged — a turn ending off-screen is a fact an
+        // operator wants in the Logs.
+        if activeSessionID != sessionID {
+            LogCollector.shared.append(level: .warning, text: "[turn] turn ended while another chat was on screen (session \(String(sessionID.prefix(8))), active \(activeSessionID.map { String($0.prefix(8)) } ?? "nil"))")
         }
+        let endTranscript = await transcriptFragments()
         await pusher(endChrome + endTranscript)
         // UX-04: drain the honest queue one turn at a time — the next queued
         // message runs now, and runTurn's own end drains the one after that,
@@ -1155,55 +1135,51 @@ extension AppState {
         activeTurns[sessionID]?.status = "done"
     }
 
-    /// Live-region fragments: the in-progress turn node and the composer flyout —
-    /// and nothing else, so a streaming turn never re-renders the transcript it is
-    /// appending to. `live-turn` opts out of the client's view transition: a
-    /// full-page cross-fade per push reads as a shimmer at token rate.
+    /// Live-region signal: the in-progress turn node.
+    ///
+    /// The turn's own region is pushed explicitly, and only it: the door derives
+    /// every other region from a fresh render, but `#live-turn` is the one node
+    /// whose frame the streaming contract pins at the source
+    /// (`StreamingDomContractTests`), and it is pushed with `transition: false`
+    /// so a token-rate replace never reads as a page cross-fade. The composer
+    /// flyout used to ride this batch; it is shell chrome, so the door's render
+    /// carries it now.
+    ///
+    /// (This is also why `fragment(_:_:)` survives — see its doc comment.)
     func liveFragments() async -> [FragmentUpdate] {
         // The live turn and composer only exist while the chat view is showing;
         // pushing them from another tab logs "[WebUIEngine] Element not found:
-        // #live-turn…" on every coalesced tick.
-        guard activeTabID == "chat" else { return [] }
+        // #live-turn…" on every coalesced tick. An empty batch still asks the
+        // door to look, which is the answer here: nothing is live off-chat.
+        guard activeTabID == "chat" else { return structuralChange() }
         var u: [FragmentUpdate] = []
         if let live = activeTurns[activeSessionID ?? ""] {
             u.append(FragmentUpdate(id: "live-turn", html: render(liveMessageHTML(live)), transition: false))
         }
+        // The approval/clarify/yolo card is the other node the turn pauses on,
+        // and it changes in the same batch (the pause and its release both push
+        // through here). It stays explicit for the same reason as the live node:
+        // the presenter wiring tests read the batch the pusher receives, and that
+        // batch is this function's answer.
         u.append(fragment("composer-flyout", Div { composerFlyoutHTML() }.id("composer-flyout")))
         return u
     }
 
-    /// The transcript node alone. Pushed at message commits, where a committed
-    /// message must appear — stage 0 replaces the whole list; once the engine
-    /// carries the append op this becomes one inserted subtree.
+    /// The transcript node's change, as a nudge. It used to be the `#chat-inner`
+    /// html rendered here; the door derives the regions that actually moved, so
+    /// an off-chat turn end has nothing to skip — the render always describes the
+    /// chat that is on screen.
     func transcriptFragments() async -> [FragmentUpdate] {
-        // The transcript node only exists while the chat view is showing; a
-        // replacement push from another tab logs "[WebUIEngine] Element not
-        // found: #chat-inner" for every committed turn that ends off-chat.
-        guard activeTabID == "chat" else { return [] }
-        let session = activeSession()
-        let inner = Div(class: "chat-inner") {
-            messagesHTML(session?.messages ?? [])
-        }
-        .id("chat-inner")
-        return [fragment("chat-inner", inner)]
+        structuralChange()
     }
 
     /// The chrome that changes at turn boundaries: the session row spinner, the chat
-    /// header meta, the composer (send ⇄ stop), and the toasts (compression hints,
-    /// turn-failure notices). Deliberately NOT `#main` — a whole-chat replacement
-    /// at a boundary kills selection, scroll and focus.
+    /// header meta, the composer (send ⇄ stop), the topbar, and the toasts
+    /// (compression hints, turn-failure notices). A nudge, not a batch: the door
+    /// renders the shell once and names only the regions whose bytes moved — which
+    /// is also why a turn boundary can no longer drag `#main` onto the wire.
     func turnChromeFragments() async -> [FragmentUpdate] {
-        return [
-            // The top strip mirrors the active chat title; a turn boundary is
-            // where auto-titles first exist (first-message default or the
-            // title_gen aux model), so the topbar must ride this push — a
-            // stale "New chat" strip is the UX-05 regression.
-            fragment("topbar", topbarHTML()),
-            fragment("panel", await panelHTML()),
-            FragmentUpdate(id: "chat-header", html: render(chatHeaderHTML())),
-            fragment("composer-wrap", composerHTML()),
-            fragment("toasts", toastsShell()),
-        ]
+        structuralChange()
     }
 
     /// Reload sessions from the store, optionally selecting one.
@@ -1353,6 +1329,24 @@ final class Controller: Sendable {
         self.push = push
     }
 
+    /// A handler's signal that structure changed: ask the one door to look.
+    ///
+    /// A handler's *returned* `[FragmentUpdate]` never crosses `PushEdge`.
+    /// no-webui's dispatcher writes it to the ORIGINATING socket
+    /// (`WebUIServer.dispatch` → `HandlerOutcome.wireMessages`) and diffs
+    /// nothing, and for an empty batch it writes nothing at all. So a handler
+    /// that stops assembling html must push its signal through the door, which
+    /// renders the page once and broadcasts the derived frames to every
+    /// connected tab. The empty return is the second half of that: the server
+    /// has nothing to add once the door has spoken.
+    ///
+    /// Handlers that changed nothing still return `[]` directly and stay
+    /// silent — the door is not asked on a keystroke.
+    func changed() async -> [FragmentUpdate] {
+        await push(app.structuralChange())
+        return []
+    }
+
     // The literal-id escape: registers a fixed-id component with event-type
     // filtering (see the hover-equals-click advisory: handlers must not fire
     // on mouseover etc.).
@@ -1434,7 +1428,7 @@ final class Controller: Sendable {
             wire(router, id: "nav-\(id)", events: ["click"]) { _ in
                 await self.app.switchTab(id)
                 await self.app.notifyTabActivated(id)
-                return await self.app.refreshFragments()
+                return await self.changed()
             }
         }
     }
@@ -1449,7 +1443,7 @@ final class Controller: Sendable {
             let key = dec(String(tid.dropFirst("sbpl-".count))) ?? ""
             let on = event.checked == true
             await self.app.setSidebarPluginHidden(key, hidden: !on)
-            return await self.app.fragmentsWithIconbar()
+            return await self.changed()
         }
     }
 
@@ -1471,13 +1465,13 @@ extension Controller {
     @Wired("chat-new", events: [.click])
     func handleChatNew(_ event: EventData) async -> [FragmentUpdate] {
         await self.newChat()
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("blank-chat-new", events: [.click])
     func handleBlankChatNew(_ event: EventData) async -> [FragmentUpdate] {
         await self.newChat()
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("sess-list", events: [.click])
@@ -1489,13 +1483,13 @@ extension Controller {
     @Wired("cat-menu-close", events: [.click])
     func handleCatMenuClose(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.closeCategoryMenu()
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("chat-del", events: [.click])
     func handleChatDel(_ event: EventData) async -> [FragmentUpdate] {
         await self.deleteActiveChat()
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("composer-input", events: [.input])
@@ -1517,14 +1511,14 @@ extension Controller {
         // `payload` (dynamic button, reference `_addNamedContextBlock`).
         guard let sel = event.string("payload"), !sel.isEmpty else { return [] }
         _ = await self.app.addPendingContext(sel)
-        return [fragment("composer-wrap", await self.app.composerHTML())]
+        return await self.changed()
     }
 
     @Wired("selection-context-del", events: [.click])
     func handleSelectionContextDel(_ event: EventData) async -> [FragmentUpdate] {
         let tid = event.string("targetId") ?? ""
         await self.app.removePendingContext(tid)
-        return [fragment("composer-wrap", await self.app.composerHTML())]
+        return await self.changed()
     }
 
     @Wired("stop-turn", events: [.click])
@@ -1579,7 +1573,7 @@ extension Controller {
     func handleYoloOff(_ event: EventData) async -> [FragmentUpdate] {
         let sid = await self.app.activeSessionID ?? ""
         await self.app.setYolo(sid, false)
-        return [fragment("composer-wrap", await self.app.composerHTML())]
+        return await self.changed()
     }
 
     @Wired("clarify-choice", events: [.click])
@@ -1606,7 +1600,7 @@ extension Controller {
     @Wired("cb-file", events: [.click])
     func handleCbFile(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.toggleFilePop()
-        return await self.app.chatFragments()
+        return await self.changed()
     }
 
     @Wired("queued-sends", events: [.click])
@@ -1617,7 +1611,7 @@ extension Controller {
               let id = Int(tid.dropFirst("qs-del-".count)) else { return [] }
         let sid = await self.app.activeSessionID ?? ""
         await self.app.removeQueuedSend(id, sessionID: sid)
-        return await self.app.chatFragments()
+        return await self.changed()
     }
 
     @Wired("file-path-input", events: [.input])
@@ -1643,13 +1637,13 @@ extension Controller {
         guard let tid = event.string("targetId"), tid.hasPrefix("att-del-"),
               let idx = Int(tid.dropFirst("att-del-".count)) else { return [] }
         await self.app.removeAttachment(idx)
-        return await self.app.chatFragments()
+        return await self.changed()
     }
 
     @Wired("cb-bookmark", events: [.click])
     func handleCbBookmark(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.toggleBookmarkActive()
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("dd-dismiss", events: [.click])
@@ -1657,55 +1651,55 @@ extension Controller {
         // Fired by the runtime when a click lands outside an open
         // dropdown panel — close all of them.
         await self.app.closeComposerSelectors()
-        return await self.app.chatFragments()
+        return await self.changed()
     }
 
     @Wired("cb-ws-toggle", events: [.click])
     func handleCbWsToggle(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.toggleWSSelect()
-        return await self.app.chatFragments()
+        return await self.changed()
     }
 
     @Wired("cb-profile-toggle", events: [.click])
     func handleCbProfileToggle(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.toggleProfileSelect()
-        return await self.app.chatFragments()
+        return await self.changed()
     }
 
     @Wired("cb-model-toggle", events: [.click])
     func handleCbModelToggle(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.toggleModelSelect()
-        return await self.app.chatFragments()
+        return await self.changed()
     }
 
     @Wired("cb-think-toggle", events: [.click])
     func handleCbThinkToggle(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.toggleThinkSelect()
-        return await self.app.chatFragments()
+        return await self.changed()
     }
 
     @Wired("ws-search-input", events: [.input])
     func handleWsSearchInput(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setWSSelectQuery(event.string("value") ?? "")
-        return await self.app.chatFragments()
+        return await self.changed()
     }
 
     @Wired("ws-search-clear", events: [.click])
     func handleWsSearchClear(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setWSSelectQuery("")
-        return await self.app.chatFragments()
+        return await self.changed()
     }
 
     @Wired("model-search-input", events: [.input])
     func handleModelSearchInput(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setModelSelectQuery(event.string("value") ?? "")
-        return await self.app.chatFragments()
+        return await self.changed()
     }
 
     @Wired("model-search-clear", events: [.click])
     func handleModelSearchClear(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setModelSelectQuery("")
-        return await self.app.chatFragments()
+        return await self.changed()
     }
 
     @Wired("ws-pick", events: [.click])
@@ -1714,7 +1708,7 @@ extension Controller {
               let name = dec(String(tid.dropFirst("ws-pick-".count))) else { return [] }
         await self.app.closeComposerSelectors()
         await self.app.setChatWorkspace(name)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("profile-pick", events: [.click])
@@ -1723,7 +1717,7 @@ extension Controller {
               let name = dec(String(tid.dropFirst("pp-".count))) else { return [] }
         await self.app.closeComposerSelectors()
         await self.app.setChatProfile(name)
-        return await self.app.chatFragments()
+        return await self.changed()
     }
 
     @Wired("model-pick", events: [.click])
@@ -1732,7 +1726,7 @@ extension Controller {
               let name = dec(String(tid.dropFirst("mc-".count))) else { return [] }
         await self.app.closeComposerSelectors()
         await self.app.setChatConfig(name)
-        return await self.app.chatFragments()
+        return await self.changed()
     }
 
     @Wired("think-pick", events: [.click])
@@ -1740,34 +1734,34 @@ extension Controller {
         guard let tid = event.string("targetId"), tid.hasPrefix("tp-") else { return [] }
         await self.app.closeComposerSelectors()
         await self.app.setChatThinking(String(tid.dropFirst("tp-".count)))
-        return await self.app.chatFragments()
+        return await self.changed()
     }
 
     @Wired("ws-choose-path", events: [.click])
     func handleWsChoosePath(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.closeComposerSelectors()
         await self.app.openWorkspaceCreate(forChat: true)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("ws-manage", events: [.click])
     func handleWsManage(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.closeComposerSelectors()
         await self.app.switchView(.workspaces)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("pp-manage", events: [.click])
     func handlePpManage(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.closeComposerSelectors()
         await self.app.switchView(.profiles)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("chat-search-input", events: [.input])
     func handleChatSearchInput(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setChatFilter(event.string("value") ?? "")
-        return await self.app.skillPanelFragment()
+        return await self.changed()
     }
 
     @Wired("cat-menu", events: [.click, .submit])
@@ -1778,11 +1772,11 @@ extension Controller {
                   let name = event.string("cat-rename-input") else { return [] }
             await self.app.renameCategory(cid, to: name)
             await self.app.closeCategoryMenu()
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         if tid.hasPrefix("cm-rename-") {
             await self.app.setCategoryMenuRename(true)
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         if tid.hasPrefix("cm-color-") {
             // The engine carries no attribute payloads, so the swatch's
@@ -1791,12 +1785,12 @@ extension Controller {
             guard hex.allSatisfy({ $0.isHexDigit }),
                   let cid = await self.app.menuCategoryID() else { return [] }
             await self.app.setCategoryColor(cid, color: "#" + hex)
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         if tid.hasPrefix("cm-del-") {
             guard let cid = await self.app.menuCategoryID() else { return [] }
             await self.app.deleteCategory(cid)
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         return []
     }
@@ -1813,7 +1807,7 @@ extension Controller {
         } else {
             await self.app.setAddingCategory(false)
         }
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     /// `cat-pick` stays hand-written: it carries `contextmenu`, which is not
@@ -1826,19 +1820,19 @@ extension Controller {
     @Wired("skill-new", events: [.click])
     func handleSkillNew(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setCreateSkill(true)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("skill-search-input", events: [.input])
     func handleSkillSearchInput(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setSkillFilter(event.string("value") ?? "")
-        return await self.app.skillPanelFragment()
+        return await self.changed()
     }
 
     @Wired("tool-search-input", events: [.input])
     func handleToolSearchInput(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setToolFilter(event.string("value") ?? "")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("skill-list", events: [.click, .change])
@@ -1862,7 +1856,7 @@ extension Controller {
     @Wired("skill-cancel", events: [.click])
     func handleSkillCancel(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setCreateSkill(false)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("side-tab-chips", events: [.click])
@@ -1874,20 +1868,20 @@ extension Controller {
         // flips the current visibility.
         let hidden = await self.app.settings.hiddenSidebarTabs.contains(key)
         await self.app.setSidebarTab(key, visible: hidden)
-        return await self.app.fragmentsWithIconbar()
+        return await self.changed()
     }
 
     @Wired("sidebar-tab-order", events: [.change])
     func handleSidebarTabOrder(_ event: EventData) async -> [FragmentUpdate] {
         let keys = (event.string("value") ?? "").split(separator: ",").map(String.init)
         await self.app.setSidebarTabOrder(keys)
-        return await self.app.fragmentsWithIconbar()
+        return await self.changed()
     }
 
     @Wired("skill-edit", events: [.click])
     func handleSkillEdit(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.startSkillEdit()
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("skill-delete", events: [.click])
@@ -1899,7 +1893,7 @@ extension Controller {
         await self.app.requestConfirm(ConfirmRequest(
             kind: "skill", id: name, title: "Delete skill?",
             body: "The skill “\(name)” and its folder under ~/.arc/skills will be removed. This cannot be undone."))
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("sk-edit-form", events: [.submit, .click])
@@ -1910,7 +1904,7 @@ extension Controller {
         if event.event == "click" {
             if event.string("targetId") == "«redacted:sk-…»" {
                 await self.app.cancelSkillEdit()
-                return await self.app.refreshFragments()
+                return await self.changed()
             }
             return []
         }
@@ -1930,7 +1924,7 @@ extension Controller {
         // (the engine restores the field's value and caret across the
         // patch, so the clear lands without disturbing the keystroke).
         if await self.app.clearSkillCreateError(for: "skill-name-input") {
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         return []
     }
@@ -1945,7 +1939,7 @@ extension Controller {
     func handleSkillDescInput(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.storeFormValue("skill-desc-input", event.string("value") ?? "")
         if await self.app.clearSkillCreateError(for: "skill-desc-input") {
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         return []
     }
@@ -1962,7 +1956,7 @@ extension Controller {
     @Wired("profile-new", events: [.click])
     func handleProfileNew(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setCreateProfile(true)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("profile-create-form", events: [.submit])
@@ -1990,7 +1984,7 @@ extension Controller {
     @Wired("pcs-toggle", events: [.click])
     func handlePcsToggle(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setProfileSkillsPickerOpen(!(await self.app.profileSkillsPickerOpen))
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("pcs", events: [.click])
@@ -1999,7 +1993,7 @@ extension Controller {
         guard let name = dec(String(tid.dropFirst("pcs-pick-".count))) else { return [] }
         await self.app.profileSkillsDraftAdd(name)
         await self.app.setProfileSkillsPickerOpen(false)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("pcs-rm", events: [.click])
@@ -2007,7 +2001,7 @@ extension Controller {
         guard let tid = event.string("targetId"), tid.hasPrefix("pcs-rm-") else { return [] }
         guard let name = dec(String(tid.dropFirst("pcs-rm-".count))) else { return [] }
         await self.app.profileSkillsDraftRemove(name)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("profile-name-input", events: [.input])
@@ -2032,7 +2026,7 @@ extension Controller {
     func handleProfileCancel(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setCreateProfile(false)
         await self.app.setEditingProfile(nil)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("profile-list", events: [.click])
@@ -2051,7 +2045,7 @@ extension Controller {
         let skillName = dec(parts[1]) ?? ""
         let on = event.checked == true
         await self.app.toggleProfileSkill(profile: pname, skill: skillName, on: on)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 }
 
@@ -2062,7 +2056,7 @@ extension Controller {
         if event.event == "submit" {
             guard let sid = event.string("rename-id"), let name = event.string("rename-name") else { return [] }
             await self.app.renameSession(sid, to: name)
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         let tid = event.string("targetId") ?? ""
         if tid.hasPrefix("sm-rename-") {
@@ -2079,7 +2073,7 @@ extension Controller {
             // would show the wrong message first.
             guard let sid = dec(String(tid.dropFirst("sm-copy-".count))) else { return [] }
             await self.app.markCopyLink(sid)
-            return [fragment("toasts", await self.app.toastsShell())]
+            return await self.changed()
         }
         if tid.hasPrefix("sm-pin-"), let id = dec(String(tid.dropFirst("sm-pin-".count))) {
             await self.app.toggleBookmark(id)
@@ -2100,7 +2094,7 @@ extension Controller {
         } else {
             return []
         }
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("modal", events: [.click])
@@ -2113,7 +2107,7 @@ extension Controller {
             await self.app.cancelDelete()
             await self.app.cancelProfileDelete()
             await self.app.cancelConfirm()
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         switch req.kind {
         case "profile":
@@ -2136,26 +2130,26 @@ extension Controller {
         default:
             await self.app.cancelConfirm()
         }
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("chat-showarch", events: [.click])
     func handleChatShowArch(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setShowArchived(!self.app.showArchived)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("chat-clear-empty", events: [.click])
     func handleChatClearEmpty(_ event: EventData) async -> [FragmentUpdate] {
         let n = await self.app.emptyDraftCount()
-        guard n > 0 else { return await self.app.refreshFragments() }
+        guard n > 0 else { return await self.changed() }
         await self.app.requestConfirm(ConfirmRequest(
             kind: "empty-drafts", id: "",
             title: n == 1 ? "Clear the empty chat?" : "Clear \(n) empty chats?",
             body: n == 1
                 ? "1 conversation with no messages will be deleted. This cannot be undone."
                 : "\(n) conversations with no messages will be deleted. This cannot be undone."))
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("drawer-toggle", events: [.click])
@@ -2166,13 +2160,13 @@ extension Controller {
     @Wired("outline-toggle", events: [.click])
     func handleOutlineToggle(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.toggleOutline()
-        return [fragment("outline-panel", await self.app.outlinePanelHTML)]
+        return await self.changed()
     }
 
     @Wired("outline-close", events: [.click])
     func handleOutlineClose(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.closeOutline()
-        return [fragment("outline-panel", await self.app.outlinePanelHTML)]
+        return await self.changed()
     }
 }
 
@@ -2181,7 +2175,7 @@ extension Controller {
     @Wired("ws-new", events: [.click])
     func handleWsNew(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.openWorkspaceCreate(forChat: false)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("ws-create-form", events: [.submit])
@@ -2206,7 +2200,7 @@ extension Controller {
     @Wired("ws-cancel", events: [.click])
     func handleWsCancel(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.closeWorkspaceCreate()
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("workspace-list", events: [.click])
@@ -2221,13 +2215,13 @@ extension Controller {
     @Wired("mcp-add", events: [.click])
     func handleMcpAdd(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.openMCPAdd()
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("mcp-cancel", events: [.click])
     func handleMcpCancel(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.closeMCPForm()
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("mcp-name-input", events: [.input])
@@ -2277,7 +2271,7 @@ extension Controller {
         guard let tid = event.string("targetId"), tid.hasPrefix("tl-open-") else { return [] }
         let name = dec(String(tid.dropFirst("tl-open-".count))) ?? ""
         await self.app.selectTool(name)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("tools-toggle", events: [.change])
@@ -2287,7 +2281,7 @@ extension Controller {
         let ts = dec(String(tid.dropFirst("ts-".count))) ?? ""
         let on = event.checked == true
         await self.app.setToolset(ts, enabled: on)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 }
 
@@ -2300,13 +2294,13 @@ extension Controller {
         let name = dec(String(tid.dropFirst("plgl-".count))) ?? ""
         let on = event.checked == true
         await self.app.setPluginEnabled(name, enabled: on)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("plugin-rescan", events: [.click])
     func handlePluginRescan(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.refreshPlugins()
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 }
 
@@ -2317,13 +2311,13 @@ extension Controller {
         guard let tid = event.string("targetId"), tid.hasPrefix("log-filter-") else { return [] }
         let lvl = String(tid.dropFirst("log-filter-".count))
         await self.app.setLogFilter(lvl)
-        return await self.app.logsFragments()
+        return await self.changed()
     }
 
     @Wired("log-clear", events: [.click])
     func handleLogClear(_ event: EventData) async -> [FragmentUpdate] {
         LogCollector.shared.clear()
-        return await self.app.logsFragments()
+        return await self.changed()
     }
 }
 
@@ -2333,7 +2327,7 @@ extension Controller {
     func handleInsRange(_ event: EventData) async -> [FragmentUpdate] {
         let days = Int(event.string("value") ?? "30") ?? 30
         await self.app.setInsightsRange(days)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 }
 
@@ -2355,18 +2349,18 @@ extension Controller {
                     _ = await self.app.surfaceToast("Could not restore the conversation.", kind: "error")
                 } else if let toastID = Int(rest[rest.index(after: lastDash)...]) {
                     // The Undo was consumed — retire its own toast so it
-                    // cannot offer a second, dead undo (refreshFragments
-                    // below re-renders #toasts from the shorter list).
+                    // cannot offer a second, dead undo (the nudge below
+                    // re-derives #toasts from the shorter list).
                     await self.app.dismissToast(id: toastID)
                 }
-                return await self.app.refreshFragments()
+                return await self.changed()
             }
             return []
         }
         guard tid.hasPrefix("t-"),
               let id = Int(tid.dropFirst("t-".count)) else { return [] }
         await self.app.dismissToast(id: id)
-        return [fragment("toasts", await self.app.toastsShell())]
+        return await self.changed()
     }
 }
 
@@ -2395,7 +2389,7 @@ extension Controller {
                 let x = Int(event.string("mouseX") ?? "") ?? 0
                 let y = Int(event.string("mouseY") ?? "") ?? 0
                 await self.app.openCategoryMenu(id: id, x: x, y: y)
-                return await self.app.refreshFragments()
+                return await self.changed()
             }
             return await self.categoryAction(tid)
         }
@@ -2418,7 +2412,7 @@ extension Controller {
                 await app.setActiveCategory(id)
             }
         }
-        return await app.refreshFragments()
+        return await self.changed()
     }
 
     /// Chat row “⋮” menu (copy link / rename / pin / archive / duplicate /
@@ -2451,7 +2445,7 @@ extension Controller {
         if tid.hasPrefix("s-open-"), let id = dec(String(tid.dropFirst("s-open-".count))) {
             await app.setActiveSession(id)
             await app.clearPendingDelete()
-            return await app.refreshFragments()
+            return await self.changed()
         }
         // The row menu (⋮) is toggled client-side; no server re-render so the
         // open menu survives the click that opened it.
@@ -2518,17 +2512,17 @@ extension Controller {
         }
         if await app.isTurnActive(sessionID: sid) {
             await app.queueSend(withContexts, sessionID: sid)
-            return await app.chatFragments()
+            return await self.changed()
         }
         let pusher = push
         Task {
             await self.app.runTurn(userText: withContexts, pusher: pusher, sessionID: sid, displayText: displayOverride)
         }
         // Sender-side response: clear the composer. The transcript and the turn
-        // chrome reach every page through the turn-start broadcast a moment later
-        // (runTurn), so returning them here would only replace `#main` and kill
-        // the sender's scroll/selection for a frame.
-        return [fragment("composer-wrap", await self.app.composerHTML())]
+        // chrome reach every page through the turn-start push a moment later
+        // (runTurn), and the door names only the regions whose bytes moved — so
+        // the sender keeps its scroll and selection instead of a `#main` replace.
+        return await self.changed()
     }
 
     /// Resolve the skill a typed invocation refers to and bump its usage
@@ -2577,74 +2571,74 @@ extension Controller {
             await app.toggleShowTokenUsage()
             let on = await app.settings.showTokenUsage
             _ = await app.hint(on ? "Token usage on." : "Token usage off.")
-            return await app.chatFragments()
+            return await self.changed()
         }
         if name == "stop" {
             let sid = await app.activeSessionID ?? ""
             await app.requestStopTurn(sessionID: sid)
             _ = await app.hint("Stopping current response…")
-            return await app.chatFragments()
+            return await self.changed()
         }
         if name == "new" {
             await self.newChat()
             _ = await app.hint("Started a new chat.")
-            return await app.chatFragments()
+            return await self.changed()
         }
         if name == "title" {
             if args.isEmpty {
                 _ = await app.hint("Usage: /title <new title>", kind: "error")
-                return await app.chatFragments()
+                return await self.changed()
             }
             let sid = await app.activeSessionID ?? ""
             await app.renameSession(sid, to: args)
             _ = await app.hint("Renamed chat to \(trunc(args, 60)).")
-            return await app.chatFragments()
+            return await self.changed()
         }
         if name == "workspace" {
             if args.isEmpty {
                 _ = await app.hint("Usage: /workspace <name>", kind: "error")
-                return await app.chatFragments()
+                return await self.changed()
             }
             let workspaces = await app.settings.workspaces
             guard workspaces.contains(where: { $0.name == args }) else {
                 _ = await app.hint("No workspace named '\(args)'.", kind: "error")
-                return await app.chatFragments()
+                return await self.changed()
             }
             await app.setWorkspace(active: args)
             _ = await app.hint("Workspace '\(args)'.")
-            return await app.chatFragments()
+            return await self.changed()
         }
         if name == "model" {
             if args.isEmpty {
                 _ = await app.hint("Usage: /model <name>", kind: "error")
-                return await app.chatFragments()
+                return await self.changed()
             }
             let configs = await app.settings.modelConfigs
             guard configs.contains(where: { $0.name == args }) else {
                 _ = await app.hint("No model configuration '\(args)'.", kind: "error")
-                return await app.chatFragments()
+                return await self.changed()
             }
             await app.useModelConfig(args)
             _ = await app.hint("Model '\(trunc(args, 40))'.")
-            return await app.chatFragments()
+            return await self.changed()
         }
         if name == "theme" {
             if args.isEmpty {
                 let names = ArcThemeCatalog.entries.map { $0.id }
                 await echoUserMessage(text)
                 await pushAssistantNote("Available color schemes:\n\n" + names.map { "  `\($0)`" }.joined(separator: "\n"))
-                return await app.chatFragments()
+                return await self.changed()
             }
             // Resolve by id first, then by label, case-insensitively.
             let byID = ArcThemeCatalog.entries.first { $0.id.lowercased() == args.lowercased() }
             let byLabel = byID == nil ? ArcThemeCatalog.entries.first { $0.label.lowercased() == args.lowercased() } : nil
             guard let scheme = byID ?? byLabel else {
                 _ = await app.hint("No scheme named '\(args)'. Use /theme to list.", kind: "error")
-                return await app.chatFragments()
+                return await self.changed()
             }
             await app.setColorScheme(scheme.id)
             _ = await app.hint("Theme '\(scheme.label)'.")
-            return await app.chatFragments()
+            return await self.changed()
         }
         if name == "help" {
             await echoUserMessage(text)
@@ -2656,7 +2650,7 @@ extension Controller {
             lines.append("")
             lines.append("Any installed skill can also be invoked directly: type `/` and autocomplete, or `/skill-name <instruction>` (stacked skills allowed: `/a /b do X`).")
             await pushAssistantNote("Available slash commands:\n\n" + lines.joined(separator: "\n"))
-            return await app.chatFragments()
+            return await self.changed()
         }
         if name == "skills" {
             await echoUserMessage(text)
@@ -2669,7 +2663,7 @@ extension Controller {
                 }
             guard !filtered.isEmpty else {
                 await pushAssistantNote("No skills matching \"\(args)\".")
-                return await app.chatFragments()
+                return await self.changed()
             }
             let grouped = Dictionary(grouping: filtered) { ($0.category?.isEmpty == false ? $0.category! : "General") }
             var out: [String] = []
@@ -2683,12 +2677,12 @@ extension Controller {
                 out.append("")
             }
             await pushAssistantNote(out.joined(separator: "\n"))
-            return await app.chatFragments()
+            return await self.changed()
         }
         if name == "use" {
             guard !args.isEmpty else {
                 await pushAssistantNote("Usage: `/use <skill-name>` — forces the agent to consult that skill before its next response.")
-                return await app.chatFragments()
+                return await self.changed()
             }
             guard let key = SkillCommands.resolveSkillCommandKey(args),
                   let info = SkillCommands.getSkillCommands()[key],
@@ -2696,7 +2690,7 @@ extension Controller {
             else {
                 await echoUserMessage(text)
                 await pushAssistantNote("No skill named `\(args)`. Use `/skills` to see available skills.")
-                return await app.chatFragments()
+                return await self.changed()
             }
             await echoUserMessage(text)
             await pushAssistantNote("Next turn: skill `\(info.name)` will be forced.")
@@ -2710,7 +2704,7 @@ extension Controller {
                     pusher: pusher, sessionID: sid, displayText: text
                 )
             }
-            return await app.chatFragments()
+            return await self.changed()
         }
         return nil
     }
@@ -2719,16 +2713,16 @@ extension Controller {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             _ = await app.hint("Enter a file path to attach.", kind: "error")
-            return await app.chatFragments()
+            return await self.changed()
         }
         let exists = FileManager.default.fileExists(atPath: NSString(string: trimmed).expandingTildeInPath)
         guard exists else {
             _ = await app.hint("No such file: \(trunc(trimmed, 60))", kind: "error")
-            return await app.chatFragments()
+            return await self.changed()
         }
         await app.addAttachment(trimmed)
         _ = await app.hint("Attached \(trunc(trimmed, 60))")
-        return await app.chatFragments()
+        return await self.changed()
     }
 
     // MARK: Skills
@@ -2738,9 +2732,9 @@ extension Controller {
     private func saveSkill(original: String, name: String, category: String, desc: String, content: String) async -> [FragmentUpdate] {
         guard !name.isEmpty, !desc.isEmpty else {
             _ = await app.hint("Skill needs at least a name and a description.", kind: "error")
-            return await app.refreshFragments()
+            return await self.changed()
         }
-        guard let current = await app.skill(named: original) else { return await app.refreshFragments() }
+        guard let current = await app.skill(named: original) else { return await self.changed() }
         let fm = FileManager.default
         do {
             let oldDir = current.path.deletingLastPathComponent()
@@ -2757,28 +2751,28 @@ extension Controller {
             try (frontmatter + body).write(to: target, atomically: true, encoding: .utf8)
         } catch {
             _ = await app.hint("Failed to save skill: \(error)", kind: "error")
-            return await app.refreshFragments()
+            return await self.changed()
         }
         await app.reloadSkills()
         await app.cancelSkillEdit()
         await app.selectSkill(name)
         _ = await app.hint("Skill '\(name)' saved.")
-        return await app.refreshFragments()
+        return await self.changed()
     }
 
     private func skillListAction(_ tid: String, checked: Bool? = nil) async -> [FragmentUpdate] {
         if tid.hasPrefix("sk-open-"), let name = dec(String(tid.dropFirst("sk-open-".count))) {
             await self.app.selectSkill(name)
             await self.app.recordSkillEvent(name: name, views: 1)
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         if tid.hasPrefix("sk-toggle-"), let name = dec(String(tid.dropFirst("sk-toggle-".count))) {
             await self.app.toggleSkill(name, enable: checked == true)
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         if tid.hasPrefix("sk-del-"), let name = dec(String(tid.dropFirst("sk-del-".count))) {
             await self.deleteSkill(name)
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         return []
     }
@@ -2790,12 +2784,12 @@ extension Controller {
         if !errors.isEmpty {
             await self.app.setSkillCreateErrors(errors)
             _ = await self.app.hint("Skill needs at least a name and a description.", kind: "error")
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         await self.app.setSkillCreateErrors([:])
         guard let dir = await self.app.skillsDir() else {
             _ = await self.app.hint("No skills directory available.", kind: "error")
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         let skillDir = dir.appendingPathComponent(name)
         do {
@@ -2806,13 +2800,13 @@ extension Controller {
             try body.write(to: skillDir.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
         } catch {
             _ = await self.app.hint("Failed to create skill: \(error)", kind: "error")
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         await self.app.reloadSkills()
         await self.app.setCreateSkill(false)
         await self.app.selectSkill(name)
         _ = await self.app.hint("Skill '\(name)' created.")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     private func deleteSkill(_ name: String) async {
@@ -2833,29 +2827,29 @@ extension Controller {
     private func profileListAction(_ tid: String) async -> [FragmentUpdate] {
         if tid.hasPrefix("pr-edit-"), let name = dec(String(tid.dropFirst("pr-edit-".count))) {
             await self.app.setEditingProfile(name)
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         if tid.hasPrefix("pr-open-"), let name = dec(String(tid.dropFirst("pr-open-".count))) {
             await self.app.selectProfile(name)
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         if tid.hasPrefix("pr-sel-"), let name = dec(String(tid.dropFirst("pr-sel-".count))) {
             guard await self.app.activeSessionID != nil else {
                 _ = await app.hint("Open a chat first, then select the profile for it.", kind: "error")
-                return await self.app.refreshFragments()
+                return await self.changed()
             }
             await self.app.setChatProfile(name)
             await self.app.selectProfile(name)
             _ = await app.hint("Profile '\(name)' selected for this chat.")
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         if tid.hasPrefix("pr-del-"), let name = dec(String(tid.dropFirst("pr-del-".count))) {
             if name == "default" {
                 _ = await app.hint("The default profile cannot be deleted.", kind: "error")
-                return await self.app.refreshFragments()
+                return await self.changed()
             }
             await self.app.requestProfileDelete(name)
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         return []
     }
@@ -2865,19 +2859,19 @@ extension Controller {
     private func deleteProfile(_ name: String) async -> [FragmentUpdate] {
         guard name != "default" else {
             _ = await app.hint("The default profile cannot be deleted.", kind: "error")
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         let pm = ProfileManager()
         do {
             try await pm.delete(name: name)
         } catch {
             _ = await app.hint("Failed to delete profile: \(error)", kind: "error")
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         await self.app.reloadProfiles()
         await self.app.removeProfileRefs(name)
         _ = await app.hint("Profile '\(name)' deleted.")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     /// Create or update a profile from the profile form (the form doubles as
@@ -2909,7 +2903,7 @@ extension Controller {
             if let editName = await self.app.editingProfile {
                 guard var p = try await pm.get(name: editName) else {
                     _ = await app.hint("Profile '\(editName)' no longer exists.", kind: "error")
-                    return await self.app.refreshFragments()
+                    return await self.changed()
                 }
                 p.title = title
                 p.description = desc
@@ -2923,7 +2917,7 @@ extension Controller {
             } else {
                 guard !name.isEmpty else {
                     _ = await app.hint("Profile needs a name.", kind: "error")
-                    return await self.app.refreshFragments()
+                    return await self.changed()
                 }
                 var p = try await pm.create(name: name)
                 p.title = title
@@ -2938,9 +2932,9 @@ extension Controller {
             }
         } catch {
             _ = await app.hint("Failed to save profile: \(error)", kind: "error")
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     // MARK: Tools
@@ -2968,17 +2962,17 @@ extension Controller {
     private func mcpListAction(_ tid: String) async -> [FragmentUpdate] {
         if tid.hasPrefix("mcp-test-"), let name = dec(String(tid.dropFirst("mcp-test-".count))) {
             await app.testMCPServer(name)
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         if tid.hasPrefix("mcp-edit-"), let name = dec(String(tid.dropFirst("mcp-edit-".count))) {
             await app.openMCPEdit(name)
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         if tid.hasPrefix("mcp-del-"), let name = dec(String(tid.dropFirst("mcp-del-".count))) {
             await app.requestConfirm(ConfirmRequest(
                 kind: "mcp", id: name, title: "Delete MCP server?",
                 body: "“\(name)” will be removed from ~/.arc/config.json. Its process stops and the agent loses whatever tools it exposed; nothing inside the server's own directory is touched."))
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         return []
     }
@@ -3004,7 +2998,7 @@ extension Controller {
             await app.storeMCPFormValues(name: name, command: command, argsText: argsText, envText: envText)
             _ = await app.hint("Could not save the MCP server: \(error)", kind: "error")
         }
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     // MARK: Workspaces
@@ -3023,7 +3017,7 @@ extension Controller {
             await app.requestConfirm(ConfirmRequest(
                 kind: "workspace", id: name, title: "Delete workspace?",
                 body: "“\(name)” will be removed from the workspace list. The folder on disk is not touched."))
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         return []
     }
@@ -3039,12 +3033,12 @@ extension Controller {
             await app.storeFormValue("ws-name-input", rawName)
             await app.storeFormValue("ws-path-input", rawPath)
             _ = await app.hint(e.description, kind: "error")
-            return await self.app.refreshFragments()
+            return await self.changed()
         } catch {
             await app.storeFormValue("ws-name-input", rawName)
             await app.storeFormValue("ws-path-input", rawPath)
             _ = await app.hint("Could not add the workspace: \(error)", kind: "error")
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
 
         // Intent: the composer flow binds THIS chat (falling back to the
@@ -3062,7 +3056,7 @@ extension Controller {
         await app.clearWorkspaceCreateFields()
         let effect = bindToChat ? "this chat now uses it" : "it is now the default"
         _ = await app.hint("Workspace '\(entry.name)' created at \(entry.path) — \(effect).")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     private func switchWorkspace(_ name: String) async -> [FragmentUpdate] {
@@ -3071,7 +3065,7 @@ extension Controller {
         await app.setWorkspace(active: name)
         await app.rebuildAndReload()
         _ = await app.hint("Default workspace is now '\(name)'. Chats without their own workspace use it.")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     private func deleteWorkspace(_ name: String) async {
@@ -3093,14 +3087,14 @@ extension Controller {
     @Wired("set-theme", events: [.change])
     func handleSetTheme(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setTheme(event.string("value") ?? "light")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("set-size", events: [.change])
     func handleSetSize(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setTextSize(event.string("value") ?? "md")
         _ = await self.app.hint("Text size updated.")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("theme-pick", events: [.click])
@@ -3109,7 +3103,7 @@ extension Controller {
         let theme = String(tid.dropFirst("thm-".count))
         await self.app.setTheme(theme)
         _ = await self.app.hint("Theme set to \(theme).")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("font-size-pick", events: [.click])
@@ -3117,12 +3111,11 @@ extension Controller {
         guard let tid = event.string("targetId"), tid.hasPrefix("fsz-") else { return [] }
         let size = String(tid.dropFirst("fsz-".count))
         await self.app.setTextSize(size)
-        // UX-22: apply text-size to the live page without a reload.
-        // `refreshFragments(includeApp:)` re-renders the #app shell,
-        // which carries `data-size` (Views.swift:75) — the live page
-        // changes in the same tick as the hint.
+        // UX-22: apply text-size to the live page without a reload. The door's
+        // render is the whole `#app` shell, which carries `data-size`
+        // (Views.swift:75) — the live page changes in the same tick as the hint.
         _ = await self.app.hint("Text size updated.")
-        return await self.app.refreshFragments(includeApp: true)
+        return await self.changed()
     }
 
     @Wired("scheme-pick", events: [.click])
@@ -3131,7 +3124,7 @@ extension Controller {
         if let name = dec(String(tid.dropFirst("scheme-".count))) {
             await self.app.setColorScheme(name)
         }
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("activity-display", events: [.click])
@@ -3140,51 +3133,51 @@ extension Controller {
         let mode = String(tid.dropFirst("actdisp-".count))
         await self.app.setActivityDisplay(mode)
         _ = await self.app.hint("Activity display set to \(mode.replacingOccurrences(of: "_", with: " "))")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("set-think", events: [.change])
     func handleSetThink(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setDefaultThinking(event.string("value") ?? "medium")
         _ = await self.app.hint("Default thinking level updated.")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("set-showtokens", events: [.change])
     func handleSetShowTokens(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setShowTokenUsage(event.checked == true)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("set-showoutline", events: [.change])
     func handleSetShowOutline(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setShowConversationOutline(event.checked == true)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("set-showtps", events: [.change])
     func handleSetShowTps(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setShowTps(event.checked == true)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("set-smart-approval", events: [.change])
     func handleSetSmartApproval(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setSmartApproval(event.checked == true)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("set-smart-pickapath", events: [.change])
     func handleSetSmartPickAPath(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setSmartPickAPath(event.checked == true)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("set-pinlimit", events: [.change])
     func handleSetPinLimit(_ event: EventData) async -> [FragmentUpdate] {
         let n = Int(event.string("value") ?? "") ?? 3
         await self.app.setPinnedSessionsLimit(n)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("aux-edit", events: [.click])
@@ -3192,11 +3185,11 @@ extension Controller {
         guard let tid = event.string("targetId") else { return [] }
         if tid.hasPrefix("aux-edit-") {
             await self.app.setAuxEditing(String(tid.dropFirst("aux-edit-".count)))
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         if tid.hasPrefix("aux-cancel-") {
             await self.app.setAuxEditing(nil)
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         if tid.hasPrefix("aux-reset-") {
             let key = String(tid.dropFirst("aux-reset-".count))
@@ -3204,7 +3197,7 @@ extension Controller {
                 await self.app.clearAuxOverride(task: task)
             }
             await self.app.setAuxEditing(nil)
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         return []
     }
@@ -3220,13 +3213,13 @@ extension Controller {
         }
         await self.app.clearAuxStage(task: key)
         await self.app.setAuxEditing(nil)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("auxmc-toggle", events: [.click])
     func handleAuxMcToggle(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setAuxConfigPickerOpen(!(await self.app.auxConfigPickerOpen))
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("auxmc", events: [.click])
@@ -3244,13 +3237,13 @@ extension Controller {
             }
         }
         await self.app.setAuxConfigPickerOpen(false)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("mainmc-toggle", events: [.click])
     func handleMainMcToggle(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setMainModelPickerOpen(!(await self.app.mainModelPickerOpen))
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("mainmc", events: [.click])
@@ -3261,7 +3254,7 @@ extension Controller {
             _ = await self.app.hint("Active configuration: \(name)")
         }
         await self.app.setMainModelPickerOpen(false)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("set-tessera", events: [.change])
@@ -3270,7 +3263,7 @@ extension Controller {
         await self.app.setTesseraOff(off)
         await self.app.rebuildAndReload()
         _ = await self.app.hint(off ? "Switched to file storage." : "Switched to Tessera storage.", kind: off ? "" : "success")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("set-moa", events: [.change])
@@ -3280,14 +3273,14 @@ extension Controller {
         _ = await self.app.hint(on
             ? "Mixture of Agents enabled — reference models must be configured in ~/.arc/config.json."
             : "Mixture of Agents disabled.")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("storage-pick-toggle", events: [.click])
     func handleStoragePickToggle(_ event: EventData) async -> [FragmentUpdate] {
         let next = !(await self.app.storagePickOpen)
         await self.app.setStoragePickOpen(next)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("storage-pick", events: [.click])
@@ -3303,7 +3296,7 @@ extension Controller {
         } else {
             return []
         }
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("storage-connect", events: [.click])
@@ -3311,9 +3304,9 @@ extension Controller {
         let ok = await self.app.connectStagedStorage()
         if !ok {
             _ = await self.app.hint("Pick a different storage medium first — Save and Connect needs a change.")
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("storage-conn-form", events: [.submit])
@@ -3335,7 +3328,7 @@ extension Controller {
         } else {
             _ = await self.app.hint("Check the storage name, IP and port (1–65535).")
         }
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 }
 
@@ -3351,7 +3344,7 @@ extension Controller {
         guard let tid = event.string("targetId"),
               let cid = dec(String(tid.dropFirst("storage-edit-".count))) else { return [] }
         await self.app.beginStorageEdit(id: cid)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("storage-del", events: [.click])
@@ -3360,13 +3353,13 @@ extension Controller {
               let cid = dec(String(tid.dropFirst("storage-del-".count))) else { return [] }
         await self.app.removeStorageConnection(id: cid)
         _ = await self.app.hint("Tessera storage removed.", kind: "success")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("storage-cancel-edit", events: [.click])
     func handleStorageCancelEdit(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.cancelStorageEdit()
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("ap-skills-global", events: [.change])
@@ -3376,7 +3369,7 @@ extension Controller {
         _ = await self.app.hint(
             on ? "Agent can create/edit skills." : "Skill creation/editing locked — only skill_creation / skill_edit while unlocked.",
             kind: "success")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("ap-profile-global", events: [.change])
@@ -3386,7 +3379,7 @@ extension Controller {
         _ = await self.app.hint(
             on ? "Agent can edit MEMORY/USER/SOUL/AGENTS." : "Profile editing locked — only profile_edit while unlocked.",
             kind: "success")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("ap-skill-locks", events: [.change])
@@ -3402,7 +3395,7 @@ extension Controller {
                 cfg.lockedSkills.removeAll { $0 == name }
             }
         }
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("ap-profilefile-locks", events: [.change])
@@ -3419,7 +3412,7 @@ extension Controller {
                 cfg.lockedProfileFiles.removeAll { $0 == key }
             }
         }
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("al-max-turns", events: [.change])
@@ -3427,7 +3420,7 @@ extension Controller {
         guard let v = Int(event.string("value") ?? ""), v > 0 else { return [] }
         await self.app.setToolIterationLimit(v)
         _ = await self.app.hint("Tool iteration limit set to \(v) (agent.max_turns).", kind: "success")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("al-max-turns-unlimited", events: [.change])
@@ -3437,7 +3430,7 @@ extension Controller {
         _ = await self.app.hint(
             on ? "Tool iteration limit disabled — turns run until the prompt finishes." : "Tool iteration limit restored to 90.",
             kind: "success")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("al-tool-cap", events: [.change])
@@ -3445,7 +3438,7 @@ extension Controller {
         guard let v = Int(event.string("value") ?? ""), v > 0 else { return [] }
         await self.app.setToolLoopCap(v)
         _ = await self.app.hint("Per-tool call cap set to \(v) (guardrails.toolLoopCap).", kind: "success")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("al-tool-cap-unlimited", events: [.change])
@@ -3455,7 +3448,7 @@ extension Controller {
         _ = await self.app.hint(
             on ? "Per-tool call cap disabled." : "Per-tool call cap restored to 25.",
             kind: "success")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("modelcfg-add-form", events: [.submit])
@@ -3490,7 +3483,7 @@ extension Controller {
             } else {
                 return []
             }
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         guard let tid = event.string("targetId") else { return [] }
         return await self.kanbanAction(tid)
@@ -3499,7 +3492,7 @@ extension Controller {
     @Wired("kb-addcol", events: [.click])
     func handleKbAddCol(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setAddingColumn(!self.app.addingColumn)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("kb-addcol-form", events: [.submit, .click])
@@ -3514,7 +3507,7 @@ extension Controller {
         } else {
             await self.app.setAddingColumn(false)
         }
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("kb-addcard-form", events: [.submit, .click])
@@ -3528,7 +3521,7 @@ extension Controller {
         } else {
             await self.app.setAddingCard(nil)
         }
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("memory", events: [.click])
@@ -3541,13 +3534,13 @@ extension Controller {
         } else {
             return []
         }
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("mem-edit", events: [.click])
     func handleMemEdit(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.startMemoryEdit()
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("mem-save-form", events: [.submit, .click])
@@ -3561,7 +3554,7 @@ extension Controller {
         } else {
             return []
         }
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("workspace", events: [.click])
@@ -3577,7 +3570,7 @@ extension Controller {
         let b64 = event.string("upl-b64") ?? ""
         guard !path.isEmpty, !b64.isEmpty else { return [] }
         await self.app.uploadWorkspaceFile(name: name, relPath: path, b64: b64)
-        return await self.workspaceFragments()
+        return await self.changed()
     }
 
     @Wired("ws-new-form", events: [.submit, .click])
@@ -3591,7 +3584,7 @@ extension Controller {
         } else {
             return []
         }
-        return await self.workspaceFragments()
+        return await self.changed()
     }
 
     @Wired("mc-name", events: [.input])
@@ -3671,7 +3664,7 @@ extension Controller {
         } else {
             return []
         }
-        return await app.refreshFragments()
+        return await self.changed()
     }
 
     private func confirmDeleteKanban(_ id: String) async {
@@ -3707,31 +3700,22 @@ extension Controller {
         } else {
             return []
         }
-        return await self.workspaceFragments()
-    }
-
-    private func workspaceFragments() async -> [FragmentUpdate] {
-        let toasts = await app.toastsShell()
-        return [
-            fragment("ws-dock", await app.workspaceDockHTML()),
-            fragment("ws-panel", await app.workspacePanelHTML()),
-            FragmentUpdate(id: "toasts", html: toasts.markup.html),
-        ]
+        return await self.changed()
     }
 
     private func addModelConfig(name: String, model: String, provider: String, baseURL: String, apiKey: String, contextLength ctx: Int?, maxOutputTokens maxtok: Int? = nil) async -> [FragmentUpdate] {
         guard !name.isEmpty, !model.isEmpty, !baseURL.isEmpty else {
             _ = await app.hint("Name, model and base URL are required.", kind: "error")
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         guard URL(string: baseURL) != nil else {
             _ = await app.hint("Base URL is not a valid URL.", kind: "error")
-            return await self.app.refreshFragments()
+            return await self.changed()
         }
         let preset = ModelConfigPreset(name: name, model: model, provider: provider.isEmpty ? "custom" : provider, baseURL: baseURL, apiKey: apiKey, contextLength: ctx, maxOutputTokens: maxtok, source: "ui")
         await app.addModelConfig(preset)
         _ = await app.hint("Configuration '\(name)' added.")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     private func modelConfigAction(_ tid: String) async -> [FragmentUpdate] {
@@ -3741,7 +3725,7 @@ extension Controller {
                 _ = await self.app.hint("Removed configuration '\(name)'.")
             }
         }
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     // MARK: Toasts

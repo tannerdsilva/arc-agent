@@ -113,33 +113,28 @@ extension ArcWebUITestRoot {
 
         // MARK: Refresh behaviour
 
-        @Test("no whole-app includeApp swaps remain except the font-size handler (UX-22)")
-        func targetedRefreshesOnly() {
-            // Scan every UI source file (Actions, SidebarTabBridge, …) — this
-            // pin exists because the offender once hid in a file outside Actions.
-            let dir = "Sources/ArcWebUI"
-            let files = (try? FileManager.default.contentsOfDirectory(atPath: dir))?
-                .filter { $0.hasSuffix(".swift") } ?? []
-            var offenders: [String] = []
-            for f in files {
-                let src = (try? String(contentsOfFile: "\(dir)/\(f)", encoding: .utf8)) ?? ""
-                // Every whole-app swap must be the font-size handler, which
-                // intentionally re-renders the #app shell to apply data-size
-                // (Views.swift:75) to the live page without a reload (UX-22).
-                if src.contains("refreshFragments(includeApp: true)") && !src.contains("font-size-pick") {
-                    offenders.append(f)
-                }
-            }
-            #expect(offenders.isEmpty,
-                    "whole-app swaps remain in: \(offenders.joined(separator: ", "))")
+        @Test("the settings path re-renders the shell, and the shell carries what it needs")
+        func targetedRefreshesOnly() async {
+            // The settings path no longer assembles the `#app` shell by hand: the
+            // font-size handler nudges, and the door's render is the whole shell.
+            // The pin is on the two halves that made UX-22 work — the nudge, and
+            // the attributes the live page needs the shell to carry.
             let actions = Self.source("Actions.swift")
-            #expect(actions.contains("refreshFragments(includeApp: true)"),
-                    "the font-size handler must re-render the #app shell so data-size lands live (UX-22)")
+            guard let start = actions.range(of: "func handleFontSizePick("),
+                  let end = actions.range(of: "func ", range: start.upperBound..<actions.endIndex) else {
+                Issue.record("handleFontSizePick not found in Actions.swift")
+                return
+            }
+            let body = String(actions[start.lowerBound..<end.lowerBound])
+            #expect(body.contains("return await self.changed()"),
+                    "the font-size handler must still ask for a shell re-render so data-size lands live (UX-22)")
+            let shell = await AppState(renderFixture: .init()).appShell().markup.html
+            #expect(shell.contains("data-size="),
+                    "the render the door derives must carry data-size, or a text-size change never lands (UX-22)")
             // the refresh must carry the rail so a view switch repaints the active
-            // state in place; the push spells `fragment("iconbar", …)` since the
-            // builder owns its own <aside> root (phase 1.3).
-            #expect(actions.contains("fragment(\"iconbar\""),
-                    "the targeted refresh carries the rail so view switches stay in place")
+            // state in place; the shell is the only thing that emits it now.
+            #expect(shell.contains("id=\"iconbar\""),
+                    "the shell the door renders must carry the rail so view switches stay in place")
         }
     }
 }

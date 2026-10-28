@@ -26,6 +26,15 @@ extension ArcWebUITestRoot {
 
         private static let push: @Sendable ([FragmentUpdate]) async -> Void = { _ in }
 
+        /// records the batches a handler hands the door.
+        private actor Door {
+            private(set) var batches: [[FragmentUpdate]] = []
+            nonisolated var push: @Sendable ([FragmentUpdate]) async -> Void {
+                { [weak self] updates in await self?.record(updates) }
+            }
+            private func record(_ updates: [FragmentUpdate]) { batches.append(updates) }
+        }
+
         /// One shared `AppState` for the whole suite. Each test builds its own
         /// router and controller, but reusing a single `AppState` avoids the
         /// per-test `AsyncHTTPClient` teardown trap
@@ -197,16 +206,23 @@ extension ArcWebUITestRoot {
 
         /// Prove the pin turns: `chat-new` is @Wired in source, so it answers.
         /// The ratchet only turns one direction — `@Wired` ids cannot be untyped.
+        ///
+        /// "Answers" is a push now, not a payload: the handler signals a structural
+        /// change through the door and returns nothing for the server to write on
+        /// the originating socket.
         @Test("the ratchet turns one direction: @Wired ids cannot be untyped")
         func ratchetTurnsOneDirection() async throws {
+            let door = Door()
             let router = EventRouter()
-            let controller = Controller(app: Self.app, push: Self.push)
+            let controller = Controller(app: Self.app, push: door.push)
             await controller.wireAll(router)
 
             let outcome = await router.dispatch(
                 EventData(component: ComponentID("chat-new"), event: "click", data: [:]))
-            #expect(!outcome.fragments.isEmpty,
-                    "chat-new answers: @Wired registration is present and generated")
+            #expect(await door.batches == [[]],
+                    "chat-new answers: it asks the door to look, and an empty batch is the nudge")
+            #expect(outcome.fragments.isEmpty,
+                    "the batch crossed the door, not the socket — the server has nothing to write")
         }
     }
 }
