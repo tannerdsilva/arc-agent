@@ -192,8 +192,8 @@ extension ArcCoreTestRoot {
             {
               "mcp_servers": {
                 "files": {
-                  "command": "npx",
-                  "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+                  "command": "/usr/local/bin/mcp-filesystem",
+                  "args": ["--root", "/tmp"],
                   "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_x"},
                   "timeout": 120
                 }
@@ -202,10 +202,45 @@ extension ArcCoreTestRoot {
             """
             let config = try JSONDecoder().decode(ArcConfig.self, from: Data(json.utf8))
             #expect(config.mcpServers.keys.contains("files"))
-            #expect(config.mcpServers["files"]?.command == "npx")
-            #expect(config.mcpServers["files"]?.args == ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"])
+            #expect(config.mcpServers["files"]?.command == "/usr/local/bin/mcp-filesystem")
+            #expect(config.mcpServers["files"]?.args == ["--root", "/tmp"])
             #expect(config.mcpServers["files"]?.env["GITHUB_PERSONAL_ACCESS_TOKEN"] == "ghp_x")
             #expect(config.mcpServers["files"]?.timeout == 120)
+        }
+
+        /// The launch policy is enforced at the spawn, not only in the settings
+        /// form, so a hand-edited `~/.arc/config.json` cannot start a package
+        /// manager either. No process is created — the refusal comes first.
+        @Test("a package-manager server is refused before any process is spawned")
+        func refusesPackageManagerConfig() async {
+            let manager = MCPClientManager()
+            await manager.configure([
+                "npm": MCPServerConfig(command: "npx", args: ["-y", "some-server"]),
+                "shell": MCPServerConfig(command: "/bin/sh", args: ["-c", "npm exec some-server"]),
+            ])
+
+            for name in ["npm", "shell"] {
+                do {
+                    _ = try await manager.client(named: name)
+                    Issue.record("'\(name)' must be refused, not spawned")
+                } catch {
+                    #expect(String(describing: error).contains("package manager"))
+                }
+            }
+            await manager.shutdown()
+        }
+
+        /// The tool description is the model's only instruction sheet for this
+        /// pipeline; a package-manager example there is how npm creeps back into
+        /// a config the user never typed.
+        @Test("the mcp_tool description teaches no package manager")
+        func toolDescriptionIsSwiftNative() {
+            let description = MCPClientTool.entry.description
+            for token in ["npx", "npm", "yarn", "pipx", "uvx", "@modelcontextprotocol"] {
+                #expect(!description.contains(token), "description must not name '\(token)'")
+            }
+            #expect(description.contains("swift-mcp"))
+            #expect(description.contains("tools"))
         }
 
         @Test("mcp_tool handler errors clearly when server not configured")
@@ -245,8 +280,8 @@ extension ArcCoreTestRoot {
             var config = ArcConfig()
             config.mcpServers = [
                 "files": MCPServerConfig(
-                    command: "npx",
-                    args: ["-y", "srv", "/tmp"],
+                    command: "/opt/arc/bin/mcp-filesystem",
+                    args: ["--root", "/tmp"],
                     env: ["TOKEN": "x"],
                     timeout: 42,
                     connectTimeout: 7
@@ -257,8 +292,8 @@ extension ArcCoreTestRoot {
             #expect(text.contains("\"mcp_servers\""), "the underscore key must survive an encode")
 
             let back = try JSONDecoder().decode(ArcConfig.self, from: data)
-            #expect(back.mcpServers["files"]?.command == "npx")
-            #expect(back.mcpServers["files"]?.args == ["-y", "srv", "/tmp"])
+            #expect(back.mcpServers["files"]?.command == "/opt/arc/bin/mcp-filesystem")
+            #expect(back.mcpServers["files"]?.args == ["--root", "/tmp"])
             #expect(back.mcpServers["files"]?.env == ["TOKEN": "x"])
             #expect(back.mcpServers["files"]?.timeout == 42)
             #expect(back.mcpServers["files"]?.connectTimeout == 7)

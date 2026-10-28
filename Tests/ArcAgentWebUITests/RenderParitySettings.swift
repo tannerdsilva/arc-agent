@@ -115,7 +115,7 @@ struct RenderParitySettings {
     func settingsMCPThreeGolden() async {
         let html = await app {
             $0.arcConfig.mcpServers = [
-                "filesystem": MCPServerConfig(command: "npx", args: ["-y", "@mcp/fs", "/tmp"]),
+                "filesystem": MCPServerConfig(command: "arc", args: ["tools", "mcp", "serve"]),
                 "github": MCPServerConfig(command: "gh-mcp", args: ["serve"], env: ["TOKEN": "x"]),
                 "postgres": MCPServerConfig(command: "pg-mcp", args: [], timeout: 120),
             ]

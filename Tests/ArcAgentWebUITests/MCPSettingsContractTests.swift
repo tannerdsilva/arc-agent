@@ -58,7 +58,7 @@ extension ArcWebUITestRoot {
             let actions = Self.source("Actions.swift")
             var fixture = AppState.RenderFixture()
             fixture.arcConfig.mcpServers = [
-                "filesystem": MCPServerConfig(command: "npx", args: ["-y", "@mcp/fs"]),
+                "filesystem": MCPServerConfig(command: "arc", args: ["tools", "mcp", "serve"]),
             ]
             let auth = AppState(renderFixture: fixture)
             let html = await auth.mcpSettingsHTML().markup.html

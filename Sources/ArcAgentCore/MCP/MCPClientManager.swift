@@ -41,6 +41,11 @@ public actor MCPClientManager {
     /// A connected session for `name`, spawning it and running the handshake on
     /// first use.
     ///
+    /// The launch policy is checked *here* rather than at config-save time, so
+    /// it covers every door into a spawn — the settings form, the agent's
+    /// `mcp_tool`, and a `~/.arc/config.json` edited by hand. A refused spec
+    /// throws before a transport (and therefore a process) exists.
+    ///
     /// A session that is no longer `.ready` is closed and replaced rather than
     /// resurrected: the framework keeps no respawn watchdog, so replacement on
     /// next use is the recovery path. A spawn that throws is not cached, so the
@@ -50,6 +55,11 @@ public actor MCPClientManager {
             throw MCPClientError.rpc(
                 "unknown MCP server '\(name)' (configured: \(configuredNames().joined(separator: ", ")))"
             )
+        }
+        if let refusal = MCPServerLaunchPolicy.refusal(
+            command: config.command, arguments: config.args
+        ) {
+            throw MCPClientError.launchRefused(refusal)
         }
         if let existing = clients[name] {
             if await existing.currentState() == .ready { return existing }
@@ -134,13 +144,16 @@ public actor MCPClientManager {
         return object
     }
 
+    /// The result as the string a `ToolEntry` handler returns.
+    ///
+    /// `flattenedText` is the framework's own rendering: text blocks joined
+    /// newline-separated, non-text blocks named, and an `isError` result
+    /// prefixed `Error:` — so a failed tool call can never read as success
+    /// text to the agent. The hand-rolled join this replaces dropped that flag
+    /// whenever the server returned error text with it.
     private static func text(of result: MCPToolResult) -> String {
-        let text = result.content.compactMap { block -> String? in
-            if case .text(let value) = block { return value }
-            return nil
-        }.joined(separator: "\n")
-        if text.isEmpty, result.isError { return "(tool returned an error)" }
-        return text.isEmpty ? "(empty result)" : text
+        let text = result.flattenedText
+        return text.isEmpty ? (result.isError ? "Error: (no message)" : "(empty result)") : text
     }
 }
 

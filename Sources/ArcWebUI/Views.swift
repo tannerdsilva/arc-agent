@@ -3496,7 +3496,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Div(class: "set-row set-row-stack") {
                         Div(class: "set-label") { Text("No MCP servers configured.") }
                         Div(class: "set-hint") {
-                            Text("A server is a child process that speaks the Model Context Protocol over stdio — filesystem access, GitHub, databases. Once added it is started on first use, and the agent reaches its tools through the single ")
+                            Text("A server is a child process that speaks the Model Context Protocol over stdio — a local executable, usually built with swift-mcp. Once added it is started on first use, and the agent reaches its tools through the single ")
                             InlineCode("mcp_tool")
                             Text(" bridge (Tools panel): ask the agent to call ")
                             InlineCode("mcp_tool")
@@ -3584,9 +3584,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         return Form(action: "", method: nil, id: "mcp-form", class: "detail-card mcp-form") {
             Heading(title, level: .h1, class: "detail-title")
             Div(class: "detail-sub") {
-                Text("The server is launched directly, as ")
-                InlineCode("/usr/bin/env <command> <args…>")
-                Text(" — never through a shell — with arc's own credentials stripped from its environment. Save, then press Test on the row to start it and list the tools it exposes.")
+                Text("The server is a local executable that speaks MCP over stdio — built with swift-mcp, or any other MCP SDK, and already on this machine. It is launched directly, as ")
+                InlineCode("<command> <args…>")
+                Text(" — never through a shell and never through a package manager — with arc's own credentials stripped from its environment. Save, then press Test on the row to start it and list the tools it exposes.")
             }
             Div(class: "form-grid") {
                 WebUIField(label: "Name", controlID: "mcp-name-input") {
@@ -3600,15 +3600,15 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
                 WebUIField(label: "Command", controlID: "mcp-command-input") {
                     Input(field: "mcp-command-input",
-                          placeholder: "npx", type: .text,
+                          placeholder: "arc", type: .text,
                           value: formValues["mcp-command-input"] ?? "",
                           attributes: [("data-component-id", "mcp-command-input")])
-                    Small("One executable, resolved through PATH. Everything else belongs in Arguments.")
+                    Small("One executable, resolved through PATH. arc ships its own MCP server: Command `arc`, Arguments `tools`, `mcp`, `serve`.")
                         .attribute("style", "color:var(--muted);font-size:0.75em")
                 }
                 WebUIField(label: "Arguments (one per line)", controlID: "mcp-args-input") {
                     TextArea(field: "mcp-args-input",
-                             placeholder: "-y\n@modelcontextprotocol/server-filesystem\n/Users/you/project",
+                             placeholder: "tools\nmcp\nserve",
                              value: formValues["mcp-args-input"] ?? "", rows: 4)
                         .data("component-id", "mcp-args-input")
                     Small("Passed verbatim as argv — quotes are not interpreted, so an argument containing spaces works as typed.")

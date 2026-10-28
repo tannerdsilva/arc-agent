@@ -9,8 +9,8 @@ import MCP
 /// ``AccessLevel/root``.
 ///
 /// One bridge serves two purposes — the introspection harness behind
-/// `arc mcp local`, and the seam a future tool source (a pack, a subprocess
-/// server) plugs into without a second mechanism.
+/// `arc tools mcp local`, and the seam a future tool source (a pack, a
+/// subprocess server) plugs into without a second mechanism.
 public actor LocalMCPBridge {
 
     /// The client this bridge owns.

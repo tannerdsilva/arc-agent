@@ -10,10 +10,15 @@ public enum MCPClientTool {
         name: "mcp_tool",
         toolset: "mcp",
         description: "Call a tool from a connected MCP (Model Context Protocol) server. "
-            + "External MCP servers expose additional tools — filesystem access, GitHub, "
-            + "databases, etc. — that the agent can call like any built-in tool.\n\n"
+            + "External MCP servers expose additional tools — filesystem access, source control, "
+            + "databases — that the agent can call like any built-in tool.\n\n"
+            + "A server is a local executable that speaks MCP over stdio. arc launches it "
+            + "directly: never through a shell, and never through a package manager. "
             + "Configuration is read from config.json under the `mcp_servers` key:\n"
-            + "  mcp_servers: { name: { command: \"npx\", args: [\"-y\", \"<server>\"], env: {}, timeout: 120 } }\n\n"
+            + "  mcp_servers: { name: { command: \"<executable>\", args: [], env: {}, timeout: 120 } }\n"
+            + "The executable is normally a server built with swift-mcp; arc's own server ships "
+            + "in this binary as `arc` with the arguments `tools` `mcp` `serve`. Servers are "
+            + "added and probed in Settings → MCP servers.\n\n"
             + "Use `server` to select which configured server to call and `tool_name` for "
             + "the tool on that server. Call with no arguments (or an empty arguments object) "
             + "for tools that take no input.\n\n"
@@ -32,7 +37,10 @@ public enum MCPClientTool {
                 let manager = MCPClientManager.shared
                 let servers = await manager.configuredNames()
                 if servers.isEmpty {
-                    return "No MCP servers configured. Add an `mcp_servers` block to config.json to connect external tools."
+                    return "No MCP servers configured. Add one in Settings → MCP servers "
+                        + "(or the `mcp_servers` block of ~/.arc/config.json): a local "
+                        + "executable that speaks MCP over stdio, such as a server built "
+                        + "with swift-mcp."
                 }
                 var lines: [String] = ["Configured MCP servers:"]
                 for server in servers.sorted() {

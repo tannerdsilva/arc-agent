@@ -1,6 +1,8 @@
 import ArgumentParser
 import ArcAgentCore
 import Foundation
+import Logging
+import ServiceLifecycle
 
 /// Resolve the live session store the same way the chat path does — with a
 /// `tessera` configuration the admin commands must see the Tessera store
@@ -315,14 +317,13 @@ struct ConfigShow: AsyncParsableCommand {
 
 // MARK: - MCP
 
-/// `arc mcp` — inspect configured MCP servers.
-
+/// `arc tools mcp` — the MCP surface: what arc calls, what arc serves.
 struct McpCmd: AsyncParsableCommand {
 
     static let configuration = CommandConfiguration(
         commandName: "mcp",
-        abstract: "Inspect configured MCP servers.",
-        subcommands: [McpList.self, McpLocal.self]
+        abstract: "Inspect configured MCP servers and serve arc's own tools over MCP.",
+        subcommands: [McpList.self, McpLocal.self, McpServe.self]
     )
 }
 
@@ -341,8 +342,16 @@ struct McpList: AsyncParsableCommand {
         }
         print("⚡ ARC Agent — MCP servers")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        for (name, server) in config.mcpServers {
-            print("  \(name): \(server.command) \(server.args.joined(separator: " "))")
+        // Sorted: a dictionary's iteration order must never reach a report.
+        for (name, server) in config.mcpServers.sorted(by: { $0.key < $1.key }) {
+            print("  \(name): \(([server.command] + server.args).joined(separator: " "))")
+            // A hand-edited entry is visible here rather than only at the first
+            // call: the same policy the spawn consults decides this line.
+            if let refusal = MCPServerLaunchPolicy.refusal(
+                command: server.command, arguments: server.args
+            ) {
+                print("    ⛔ refused at launch — \(refusal.summary); arc launches local executables only")
+            }
         }
     }
 }
@@ -424,6 +433,42 @@ struct McpLocal: AsyncParsableCommand {
     private static func encode(_ payload: [String: Any]) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
         return String(decoding: data, as: UTF8.self)
+    }
+}
+
+/// `arc tools mcp serve` — arc's own tool surface as an MCP server over stdio.
+///
+/// The other half of the pipeline `mcp_tool` consumes: one dispatcher serves
+/// both roles, so the server a peer adds as an `mcp_servers` entry (command
+/// `arc`, arguments `tools` `mcp` `serve`) is this same binary — no package
+/// manager, no interpreter, nothing to install.
+///
+/// The stdio caller is the spawning process, so the trust boundary is "who can
+/// spawn this binary", the same boundary every stdio MCP server has. A parent
+/// that wants a lower level sets `MCP_ACCESS_LEVEL` in the child's environment;
+/// a tool above it is neither listed nor callable.
+struct McpServe: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "serve",
+        abstract: "Serve arc's tool surface as an MCP server over stdio."
+    )
+
+    func run() async throws {
+        let adapter = try MCPServerAdapter(registry: try ArcAgentCore.buildDefaultRegistry())
+        // A standalone process owns its lifecycle: the group handles signals,
+        // and client EOF ends the session — which ends the group cleanly
+        // (`.gracefullyShutdownGroup`) instead of surfacing as a crash.
+        let group = ServiceGroup(
+            configuration: .init(
+                services: [
+                    .init(service: adapter, successTerminationBehavior: .gracefullyShutdownGroup)
+                ],
+                gracefulShutdownSignals: [.sigterm, .sigint],
+                logger: Logger(label: "arc.tools.mcp.serve")
+            )
+        )
+        try await group.run()
     }
 }
 

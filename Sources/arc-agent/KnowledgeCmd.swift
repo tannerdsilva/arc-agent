@@ -19,7 +19,7 @@ struct SecurityOSV: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "osv", abstract: "Audit dependency pins against OSV.dev.")
     @Option() var file: String = "Package.resolved"
     @Option() var api: String = "https://api.osv.dev/v1/querybatch"
-    @Option(help: "OSV ecosystem id (e.g. PyPI, npm, crates.io). Swift is not supported by OSV.")
+    @Option(help: "OSV ecosystem id (e.g. PyPI, crates.io, Go). Swift is not supported by OSV.")
     var ecosystem: String = "Swift"
     func run() async throws {
         guard let data = FileManager.default.contents(atPath: file) else {
@@ -59,7 +59,7 @@ struct SecurityOSV: AsyncParsableCommand {
             print("OSV refused the audit (HTTP \(status)) — OSV has no '\(ecosystem)' ecosystem.")
             print("Pins for manual review:")
             for label in labels { print("  \(label)") }
-            print("Tip: re-run with --ecosystem of a supported format (PyPI, npm, crates.io…).")
+            print("Tip: re-run with --ecosystem of a supported format (PyPI, crates.io, Go…).")
             return
         }
         guard let results = try JSONSerialization.jsonObject(with: Data(buffer: body)) as? [String: Any],
