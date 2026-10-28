@@ -252,7 +252,9 @@ extension AppState {
 
     func notifyQueueView(_ pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void) async {
         guard activeTabID == "todos" else { return }
-        await pusher([fragment("main", self.todosPanelHTML())])
+        // A nudge: the queue's own view is `#main`'s todos panel, and the door
+        // derives it from a fresh render instead of being handed its html here.
+        await pusher(structuralChange())
     }
 
     /// Run one queue task in its own chat (waiting for the chat to be free).
@@ -684,11 +686,11 @@ extension Controller {
 
         if tid == "queue-tab-tasks" || tid == "queue-tab-queue" {
             await self.app.setTodosTab(tid == "queue-tab-tasks" ? .tasks : .queue)
-            return [fragment("main", await self.app.todosPanelHTML())]
+            return await self.changed()
         }
         if tid == "queue-stop" {
             await self.app.requestQueueCancel()
-            return [fragment("main", await self.app.todosPanelHTML())]
+            return await self.changed()
         }
         if tid == "queue-run-sync" || tid == "queue-run-async" {
             guard await self.app.queueRunActive == false else { return [] }
@@ -702,44 +704,44 @@ extension Controller {
                     await app.runQueueParallel(pusher: pusher)
                 }
             }
-            return [fragment("main", await self.app.todosPanelHTML())]
+            return await self.changed()
         }
         if tid == "queue-picker-toggle" {
             await self.app.queueSetPickerOpen(!(await self.app.queuePickerOpen))
-            return [fragment("main", await self.app.todosPanelHTML())]
+            return await self.changed()
         }
         if tid == "queue-picker-close" {
             await self.app.queueSetPickerOpen(false)
-            return [fragment("main", await self.app.todosPanelHTML())]
+            return await self.changed()
         }
         if tid == "queue-picker-add" {
             await self.app.addQueueCandidates()
-            return [fragment("main", await self.app.todosPanelHTML())]
+            return await self.changed()
         }
         if tid == "queue-link-apply" {
             let entryID = await self.app.queueLinksOpen ?? ""
             await self.app.setQueueInputs(entryID, await self.app.queueLinkSel)
             await self.app.queueClearLinkState()
-            return [fragment("main", await self.app.todosPanelHTML())]
+            return await self.changed()
         }
         if tid == "queue-link-clear" {
             let entryID = await self.app.queueLinksOpen ?? ""
             await self.app.clearQueueInputs(entryID)
             await self.app.queueClearLinkState()
-            return [fragment("main", await self.app.todosPanelHTML())]
+            return await self.changed()
         }
         if tid.hasPrefix("queue-inputs-") {
             let id = String(tid.dropFirst("queue-inputs-".count))
             let current: String? = await self.app.queueLinksOpen
             await self.app.queueOpenLinks(current == id ? nil : id)
-            return [fragment("main", await self.app.todosPanelHTML())]
+            return await self.changed()
         }
         if tid.hasPrefix("queue-del-") {
             let id = String(tid.dropFirst("queue-del-".count))
             await self.app.removeQueueEntry(id)
-            return [fragment("main", await self.app.todosPanelHTML())]
+            return await self.changed()
         }
-        return [fragment("main", await self.app.todosPanelHTML())]
+        return await self.changed()
     }
 
     @Wired("queue-order", events: [.change])
@@ -747,19 +749,19 @@ extension Controller {
         let order = (event.string("value") ?? "").split(separator: ",").map(String.init)
         guard !order.isEmpty else { return [] }
         await self.app.reorderQueue(order)
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("queue-loop-toggle", events: [.change])
     func handleQueueLoopToggle(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setQueueLoopEnabled(!(await self.app.settings.queueLoopEnabled))
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("queue-loop-count", events: [.change])
     func handleQueueLoopCount(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setQueueLoopCount(event.string("value") ?? "")
-        return await self.app.refreshFragments()
+        return await self.changed()
     }
 
     @Wired("qpick", events: [.change])
@@ -767,7 +769,7 @@ extension Controller {
         let todoID = event.string("value") ?? ""
         guard !todoID.isEmpty else { return [] }
         await self.app.queueToggleCandidate(todoID)
-        return [fragment("main", await self.app.todosPanelHTML())]
+        return await self.changed()
     }
 
     @Wired("qlink", events: [.change])
@@ -775,6 +777,6 @@ extension Controller {
         let entryID = event.string("value") ?? ""
         guard !entryID.isEmpty else { return [] }
         await self.app.queueToggleLinkSel(entryID)
-        return [fragment("main", await self.app.todosPanelHTML())]
+        return await self.changed()
     }
 }
