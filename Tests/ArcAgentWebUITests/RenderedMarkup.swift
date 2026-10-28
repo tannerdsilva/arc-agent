@@ -23,6 +23,26 @@ enum RenderedMarkup {
         return await app.appShell().markup.html
     }
 
+    /// every surface the server can push, concatenated, from the shared
+    /// fixture: the shell plus each panel, each main, the workspace views, the
+    /// modal and the category menu. the census and fan-out pins read this
+    /// rather than re-deriving the list of regions a page is made of.
+    static func fullSurface() async -> String {
+        let app = AppState(renderFixture: seededFixture())
+        var html = await app.appShell().markup.html
+        for kind in ViewID.allCases {
+            html += await app.renderPanel(for: kind).markup.html
+            html += await app.renderMain(for: kind)
+        }
+        html += await app.workspaceDockHTML().markup.html
+        html += await app.workspacePanelHTML().markup.html
+        html += await app.workspaceBodyHTML().markup.html
+        html += await app.workspaceTreeHTML().markup.html
+        html += await app.modalHTML().markup.html
+        html += await app.categoryMenuHTML().markup.html
+        return html
+    }
+
     /// one fragment by builder name, for a fragment-scoped pin.
     /// supported names: "topbar", "iconbar", "panel", "main", "dock",
     /// "toasts", "modal-root"
