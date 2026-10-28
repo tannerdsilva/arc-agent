@@ -221,3 +221,29 @@ extension ArcWebUITestRoot {
         }
     }
 }
+
+/// the seeding contract, proved on the REAL page rather than a synthetic one.
+///
+/// `PushEdge` seeds from one render and diffs the next, so two renders of the
+/// same state have to be byte-identical. if they are not, every structural push
+/// is answered with a whole-root replace: correct, and useless — the client
+/// re-mounts its entire page on each interaction.
+@Suite("push seeding on the real page")
+struct PushSeedingTests {
+	@Test("two renders of the same state are byte-identical")
+	func shellRenderIsStable() async {
+		let first = await RenderedMarkup.page()
+		let second = await RenderedMarkup.page()
+		#expect(first == second, "a non-deterministic render invalidates seeding")
+	}
+
+	@Test("a seeded differ answers an unchanged render with nothing")
+	func seededDiffOfTheRealPageIsEmpty() async {
+		let page = await RenderedMarkup.page()
+		let differ = PageDiffer(policy: PushEdge.livePolicy)
+		differ.seed(withMarkup: page)
+		#expect(
+			differ.messages(forMarkup: page, root: "app").isEmpty,
+			"the boot page is what the client already holds; nothing may be pushed for it")
+	}
+}
