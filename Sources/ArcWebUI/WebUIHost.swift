@@ -297,9 +297,16 @@ public struct WebUIHost: Service {
             logger: logger
         )
 
-        // The one push edge. Every producer's batch crosses this door, and the
-        // frame that reaches the wire is derived from a fresh render rather than
-        // trusted from the producer.
+        // The one push edge. Every producer's batch crosses this door — handlers
+        // through `Controller.changed()`, the turn loop through the pusher it is
+        // handed — and the frame that reaches the wire is derived from a fresh
+        // render rather than trusted from the producer.
+        //
+        // Three producers do NOT cross it, by design: the log and workspace
+        // streamers broadcast their fragments straight to `server.broadcast`
+        // (they are not page regions the client patches from a page render), and
+        // the token stream's `FragmentUpdate.text` deltas target nodes another
+        // producer owns.
         //
         // The boot shell is captured once and serves twice: the log line's byte
         // count, and the differ's seed. The seed is the shell's ELEMENT markup

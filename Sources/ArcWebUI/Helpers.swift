@@ -69,9 +69,22 @@ func fmtTps(_ v: Double) -> String {
 
 /// materialize a fragment view into the wire type the push pipeline carries.
 ///
-/// `FragmentUpdate.html` is a `String`; converting at this one edge is what
-/// lets every builder above it return a typed view while the push path, the
-/// deduper and the client stay unchanged.
+/// `FragmentUpdate.html` is a `String`; converting at this one edge is what lets
+/// a builder return a typed view while the wire type stays a string.
+///
+/// **This helper is for direct broadcasts only.** Anything that flows through the
+/// push door (`Controller.push` → `PushEdge`) must NOT assemble html: it returns
+/// `structuralChange()` and the edge derives every region from a fresh render.
+/// The surviving callers are the producers that never reach that door:
+///
+/// - `liveLogFragments()` (`log-lines`) and `liveWorkspaceFragments()` (`ws-tree`)
+///   are broadcast straight to `WebUIServer.broadcast` by `WebUIHost`'s
+///   interval streamers, so the edge never sees or diffs them;
+/// - `liveFragments()`' two nodes (`live-turn`, `composer-flyout`) are pinned at
+///   the source by the streaming contract (B5 moves that pin to the wire).
+///
+/// Deltas (`FragmentUpdate.text`) are the other sanctioned explicit shape: they
+/// target a node another producer owns, and the edge forwards them untouched.
 @inlinable
 func fragment(_ id: String, _ view: some WebUI.View) -> FragmentUpdate {
     FragmentUpdate(id: id, html: view.markup.html)

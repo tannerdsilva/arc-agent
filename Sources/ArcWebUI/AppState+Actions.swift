@@ -80,16 +80,13 @@ extension AppState {
     /// replace from a fresh render and never forwards a producer's html. an empty
     /// batch still asks the edge to look (see its `hasStructure`), which is why
     /// this is not a no-op.
+    ///
+    /// producers that can reach the door spell this through
+    /// `Controller.changed()`, which pushes it *and* returns `[]`: a handler's
+    /// returned batch is written to the originating socket by no-webui's
+    /// dispatcher and never diffed, so returning the signal alone would be
+    /// silence.
     func structuralChange() -> [FragmentUpdate] { [] }
-
-    func chatFragments() async -> [FragmentUpdate] {
-        await refreshFragments()
-    }
-
-    /// Panel-only fragment (used by filter search + skill panels).
-    func skillPanelFragment() async -> [FragmentUpdate] {
-        [fragment("panel", await panelHTML())]
-    }
 
     func setCreateSkill(_ on: Bool) {
         createSkill = on
@@ -1871,8 +1868,8 @@ extension AppState {
     /// Best-effort chat-title generation via the title_gen auxiliary model.
     /// Only fires when a title_gen assignment exists and the chat has no
     /// custom title yet; the default stays the first-message auto title.
-    /// Stores the title and pushes a lightweight topbar+panel refresh so the
-    /// streaming chat area is left untouched.
+    /// Stores the title and nudges the door: the render names the topbar and
+    /// panel regions that moved, and leaves the streaming chat area untouched.
     func maybeGenerateTitle(
         sessionID: String,
         pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void
@@ -1903,10 +1900,7 @@ extension AppState {
             guard title != sessionTitle(session) else { return }
             settings.sessionTitles[sessionID] = title
             saveSettings()
-            await pusher([
-                fragment("topbar", topbarHTML()),
-                fragment("panel", await panelHTML()),
-            ])
+            await pusher(structuralChange())
         } catch {
             // Best-effort: a failed title call leaves the auto title in place.
         }

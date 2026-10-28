@@ -10,38 +10,6 @@ import WebUIDesignSystem
 
 extension AppState {
 
-    /// Render fragments for the panels/main/toasts after a state change.
-    ///
-    /// Transitional: every caller in `Actions` is a nudge now, and this body dies
-    /// with its last caller (`Queue`, `NewFeatures`, `SidebarTabBridge` and
-    /// `chatFragments`/`skillPanelFragment`). Do not add callers.
-    func refreshFragments(includeApp: Bool = false) async -> [FragmentUpdate] {
-        if includeApp {
-            let shell = await appShell()
-            let toasts = toastsShell()
-            return [
-                fragment("app", shell),
-                fragment("toasts", toasts),
-            ]
-        }
-        var u: [FragmentUpdate] = [
-            fragment("iconbar", iconbarHTML()),
-            fragment("topbar", topbarHTML()),
-            fragment("panel", await panelHTML()),
-            FragmentUpdate(id: "main", html: render(await mainContentHTML())),
-        ]
-        // The right-hand workspace panel follows the active chat's workspace,
-        // so re-render it on session switches and workspace changes too.
-        u.append(fragment("ws-dock", workspaceDockHTML()))
-        u.append(fragment("ws-panel", workspacePanelHTML()))
-        // push the SHELL: the engine's replaceElement removes a target when the
-        // fragment is empty, so an inner-only push of "no toasts" would delete
-        // #toasts for the rest of the session and swallow every later toast.
-        u.append(fragment("toasts", toastsShell()))
-        u.append(fragment("modal-root", modalRootHTML()))
-        return u
-    }
-
     /// Execute one tool call and return its result string. Terminal commands
     /// are gated by ApprovalManager (reference smart approval): dangerous ones
     /// pause on a permission card until the user approves or denies.
