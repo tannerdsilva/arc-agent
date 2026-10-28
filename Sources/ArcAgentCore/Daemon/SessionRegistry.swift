@@ -84,6 +84,10 @@ public actor SessionRegistry {
         /// process). When nil, each session agent constructs its own — the
         /// standalone path.
         public let storage: StorageRuntime?
+        /// The process's single roster writer (GROUNDZERO slice 3). Nil on the
+        /// standalone path (CLI, tests), where `ProfileManager()` — the shim —
+        /// is still the seam; the daemon always supplies it.
+        public let profiles: ProfileService?
 
         public init(
             model: String,
@@ -101,7 +105,8 @@ public actor SessionRegistry {
             skillInlineCommands: Bool = true,
             backgroundReviewAfter: Int = 0,
             backgroundReviewWindow: Int = 8,
-            storage: StorageRuntime? = nil
+            storage: StorageRuntime? = nil,
+            profiles: ProfileService? = nil
             ) {
             self.model = model
             self.provider = provider
@@ -119,6 +124,7 @@ public actor SessionRegistry {
             self.mcpServers = mcpServers
             self.contextDefaults = contextDefaults
             self.storage = storage
+            self.profiles = profiles
         }
     }
 

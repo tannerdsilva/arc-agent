@@ -39,6 +39,12 @@ public enum ArcDaemon {
         // stay authoritative for the whole process.
         AgentPowers.configure(arc.agentPowers)
 
+        // ONE roster writer for the process (GROUNDZERO slice 3). Every
+        // `ProfileManager()` shim, the session agents, and the web UI resolve
+        // to this service's store, so there is one cache and one serialized
+        // read-modify-write of `index.json` instead of one per call site.
+        let profileService = ProfileService()
+
         // Plan B: scoped process watcher. Configured always (so the
         // `process_watch` tool sees the rules even when disabled); the
         // service joins the tree only when enabled. Owned background
@@ -82,7 +88,8 @@ public enum ArcDaemon {
             toolLoopCap: arc.effectiveToolLoopCap(),
             mcpServers: arc.mcpServers,
             contextDefaults: WebUIContextDefaults.loadFromDisk() ?? arc.contextDefaults,
-            storage: storage
+            storage: storage,
+            profiles: profileService
         )
 
         // ── surfaces ────────────────────────────────────────────────
@@ -185,6 +192,11 @@ public enum ArcDaemon {
 
         // cron rides with a surface: jobs need a runner.
         services.append(cronScheduler)
+
+        // Second Law: the roster's single writer is a service in the tree. It
+        // outlives every turn and every session agent, and its `run()` is the
+        // service's lifetime (teardown belongs there, not in a caller's defer).
+        services.append(profileService)
 
         // Sidecar plugin processes ride the same lifecycle: graceful stop
         // terminates every plugin child before the host exits.

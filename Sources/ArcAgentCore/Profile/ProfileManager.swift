@@ -3,21 +3,32 @@ import SwiftSlash
 
 // MARK: - ProfileManager
 
-/// Manages the lifecycle of agent profiles.
+/// The roster's roster-shaped façade over a ``ProfileStore``.
 ///
-/// ``ProfileManager`` is an **actor** — all state mutations are serialized.
-/// The profile index is persisted as signed NOSTR events (kind 3004) to a
-/// Tessera server when Tessera storage is configured, and to a JSON index
-/// file under `~/.arc/profiles/index.json` otherwise:
-/// - Profile index in Tessera (`arc/p/<name>/<seq>`) or `index.json`
-/// - Per-profile canonical bot-chat id in `profiles/<name>/canonical_chat.txt`
+/// This type used to *be* the store: its own cache, its own read-modify-write
+/// of `index.json`, its own Tessera branch. That logic now lives in
+/// ``FileProfileStore`` (the index + `config.json` format) and
+/// ``TesseraProfileStore`` (the kind-3004 branch, which degrades to that same
+/// file format), behind the ``ProfileStore`` port and the one
+/// ``ProfileService`` that owns it.
+///
+/// `ProfileManager` remains, unchanged in surface, so that the 19 existing
+/// `ProfileManager()` call sites (`arc-agent/Arc.swift`, `ArcWebUI/AppState`,
+/// the roster tools, `SessionHost`) keep compiling and keep behaving. What it
+/// no longer has is a private cache that disagrees with another instance:
+/// every operation delegates to the store, which serializes its own writes.
+///
+/// **This shim is transitional.** It is still one *instance* per call site, but
+/// every instance delegates to the same process-wide store, so the 19 sites
+/// already share one writer and one cache. What slice 4 adds is the service
+/// handle (a lifetime and a single injection point), not the serialization.
 ///
 /// ## Law of the Land
 ///
-/// - **First Law**: ``ProfileManager`` is an actor — all mutable state is
-///   guarded by the actor's serial executor.
-/// - **Second Law**: ``ProfileManager`` is a ``Service`` in the lifecycle
-///   tree when run as a long-lived daemon.
+/// - **First Law**: state is guarded by the store's actor.
+/// - **Second Law**: long-lived ownership belongs to ``ProfileService``, a
+///   `Service` in the daemon's tree. A shim is for call sites that have no
+///   service handle yet.
 public actor ProfileManager {
 
     // MARK: - Paths
@@ -29,7 +40,8 @@ public actor ProfileManager {
     }
 
     /// Test seam: when set, overrides the profile storage root so tests never
-    /// touch the real `~/.arc/profiles` directory.
+    /// touch the real `~/.arc/profiles` directory. Honoured by the store the
+    /// shim delegates to, which resolves it per operation.
     public nonisolated(unsafe) static var testProfilesRoot: String?
 
     /// Path to the index file used when Tessera storage is not configured.
@@ -69,12 +81,26 @@ public actor ProfileManager {
 
     // MARK: - State
 
-    /// In-memory cache of loaded profiles (avoids index reads on every list).
-    private var cache: [String: Profile] = [:]
-    /// Whether the cache has been seeded from the profile index.
-    private var cacheSeeded = false
+    /// The one writer this shim delegates to.
+    ///
+    /// Deliberately the process-wide ``TesseraProfileStore/shared`` rather than
+    /// a fresh ``FileProfileStore``: the file store *is* this backend when
+    /// Tessera is unconfigured, and the Tessera branch must stay live for the
+    /// 19 existing call sites (a daemon with a tunnel would otherwise silently
+    /// start writing `index.json`). One instance also means one cache, so two
+    /// shims cannot hold divergent rosters the way 19 independent managers did.
+    private let store: any ProfileStore
 
-    public init() {}
+    public init() {
+        self.store = TesseraProfileStore.shared
+    }
+
+    /// Inject the roster backend (tests, fixtures). Pass a store whose root
+    /// matches ``profilesDir`` — `create`, `export`, and `importDistribution`
+    /// still read the static path helpers directly.
+    public init(store: any ProfileStore) {
+        self.store = store
+    }
 
     // MARK: - CRUD Operations
 
@@ -88,10 +114,11 @@ public actor ProfileManager {
         guard validateProfileName(name) else {
             throw ProfileError.invalidName(name)
         }
+        guard let profileName = ProfileName(name) else {
+            throw ProfileError.invalidName(name)
+        }
 
-        try await seedCache()
-
-        guard cache[name] == nil else {
+        guard try await store.get(profileName) == nil else {
             throw ProfileError.duplicateName(name)
         }
 
@@ -99,7 +126,9 @@ public actor ProfileManager {
         var profile = Profile(name: name)
 
         // Clone from existing profile if specified
-        if let source = cloneFrom, let sourceProfile = cache[source] {
+        if let source = cloneFrom,
+           let sourceName = ProfileName(source),
+           let sourceProfile = try await store.get(sourceName) {
             profile.title = sourceProfile.title
             profile.description = sourceProfile.description
             profile.model = sourceProfile.model
@@ -122,15 +151,11 @@ public actor ProfileManager {
         )
 
         // Persist the profile record (Tessera or JSON index)
-        try await persistProfile(profile)
-
-        // Update cache
-        cache[name] = profile
+        try await store.put(profile)
 
         return profile
     }
 
-    /// Get a profile by name.
     /// Export a profile as a distribution archive (reference
     /// `profile_distribution.py`): zip of the profile directory rooted at
     /// `<name>/`. Returns the archive path.
@@ -185,10 +210,9 @@ public actor ProfileManager {
             throw ProfileError.importFailed("archive contains no valid profile config.json")
         }
 
-        // Sync the index + cache with the imported record.
+        // Sync the index with the imported record.
         if let profile = importedProfile {
-            try await persistProfile(profile)
-            cache[profile.name] = profile
+            try await store.put(profile)
         }
         return name
     }
@@ -201,32 +225,30 @@ public actor ProfileManager {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
+    /// Get a profile by name, or `nil` when the roster has none. An invalid
+    /// name can never match a record, so it is `nil` rather than an error —
+    /// the same answer the old cache lookup gave.
     public func get(name: String) async throws -> Profile? {
-        try await seedCache()
-        guard let cached = cache[name] else { return nil }
-        // The cache may be newer than the index but older than a hand-edited
-        // config.json; always overlay the authoritative config record.
-        return Self.overlayWithConfig(cached)
+        guard let profileName = ProfileName(name) else { return nil }
+        return try await store.get(profileName)
     }
 
     /// List all profiles, sorted by creation date (newest first).
     public func list() async throws -> [Profile] {
-        try await seedCache()
-        return cache.values.sorted { $0.createdAt > $1.createdAt }
+        try await store.list()
     }
 
     /// Update an existing profile.
     public func update(_ profile: Profile) async throws {
-        try await seedCache()
-        guard cache[profile.name] != nil else {
+        guard let name = ProfileName(profile.name),
+              try await store.get(name) != nil else {
             throw ProfileError.notFound(profile.name)
         }
 
         var updated = profile
         updated.updatedAt = Date()
 
-        try await persistProfile(updated)
-        cache[updated.name] = updated
+        try await store.put(updated)
     }
 
     /// Delete a profile and all its data.
@@ -234,36 +256,12 @@ public actor ProfileManager {
         guard name != "default" else {
             throw ProfileError.cannotDeleteDefault
         }
-
-        try await seedCache()
-        guard cache[name] != nil else {
+        guard let profileName = ProfileName(name),
+              try await store.get(profileName) != nil else {
             throw ProfileError.notFound(name)
         }
 
-        // Remove from the profile index (Tessera or JSON file)
-        if await TesseraConnection.shared.isConfigured {
-            do {
-                try await TesseraConnection.shared.deleteAll(
-                    dTagPrefix: "arc/p/\(name)/",
-                    kind: TesseraConnection.profileKind
-                )
-            } catch let error as TesseraStoreError where error.isUnavailable {
-                var index = loadProfilesFromIndexFile()
-                index.removeValue(forKey: name)
-                try writeIndexFile(index)
-            }
-        } else {
-            var index = loadProfilesFromIndexFile()
-            index.removeValue(forKey: name)
-            try writeIndexFile(index)
-        }
-
-        // Remove filesystem data
-        let profileDir = URL(fileURLWithPath: Self.profilesDir).appendingPathComponent(name)
-        try? FileManager.default.removeItem(at: profileDir)
-
-        // Update cache
-        cache.removeValue(forKey: name)
+        try await store.delete(profileName)
     }
 
     /// Get or create the canonical "Bot Chat" session ID for a profile.
@@ -302,153 +300,6 @@ public actor ProfileManager {
         ]
 
         return lines.compactMap { $0 }.joined(separator: "\n")
-    }
-
-    // MARK: - Private
-
-    /// Seed the in-memory cache from the profile index (Tessera events or
-    /// the JSON index file).
-    private func seedCache() async throws {
-        guard !cacheSeeded else { return }
-
-        do {
-            var loaded: [String: Profile] = [:]
-            // A `testProfilesRoot` override means the manager is hermetic:
-            // always read/write the JSON index under that root, never the
-            // process-wide Tessera store (which would leak profiles across
-            // isolated test roots).
-            if Self.testProfilesRoot == nil, await TesseraConnection.shared.isConfigured {
-                do {
-                    loaded = try await loadProfilesFromTessera()
-                } catch let error as TesseraStoreError where error.isUnavailable {
-                    // Relay/tunnel unavailable mid-run (same degradation as the
-                    // boot-time file fallback): keep profiles functional from
-                    // the JSON index.
-                    loaded = loadProfilesFromIndexFile()
-                }
-            } else {
-                loaded = loadProfilesFromIndexFile()
-            }
-
-            // Ensure the "default" profile always exists
-            if loaded["default"] == nil {
-                let defaultProfile = Profile(name: "default", title: "ARC Agent", description: "The primary agent.")
-                loaded["default"] = defaultProfile
-                _ = try? await persistProfile(defaultProfile)
-            }
-
-            self.cache = loaded
-            self.cacheSeeded = true
-        } catch {
-            throw ProfileError.storageError(error.localizedDescription)
-        }
-    }
-
-    /// Load the newest profile record per name from Tessera.
-    private func loadProfilesFromTessera() async throws -> [String: Profile] {
-        let conn = TesseraConnection.shared
-        try await conn.ensureStarted()
-        var latest: [String: (seq: Int, profile: Profile)] = [:]
-        for record in await conn.snapshot(kind: TesseraConnection.profileKind) {
-            guard let dTag = record.dTag,
-                  dTag.hasPrefix("arc/p/"),
-                  let seq = TesseraConnection.sequenceNumber(fromTagKey: dTag),
-                  let profile = try? JSONDecoder().decode(Profile.self, from: Data(record.content.utf8)) else {
-                continue
-            }
-            if let existing = latest[profile.name], existing.seq > seq { continue }
-            latest[profile.name] = (seq, profile)
-        }
-        return latest.mapValues(\.profile)
-    }
-
-    /// Load the profile index from `~/.arc/profiles/index.json`.
-    private func loadProfilesFromIndexFile() -> [String: Profile] {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: Self.indexFilePath)),
-              let index = try? JSONDecoder().decode([String: Profile].self, from: data) else {
-            return [:]
-        }
-        // The index is a list cache; `profiles/<name>/config.json` is the
-        // authoritative full record (persistProfile writes both, and users
-        // may edit config.json directly). Overlay the config.json fields so
-        // the documented "active profile overrides model/provider/context
-        // from ~/.arc/profiles/<name>/config.json" actually takes effect
-        // even when the index entry is stale (e.g. a profile created with
-        // `arc profile create` and then hand-edited).
-        return index.mapValues { Self.overlayWithConfig($0) }
-    }
-
-    /// Merge the non-nil fields of `profiles/<name>/config.json` over `base`
-    /// (the index/cache entry), so hand-edited config.json values win.
-    static func overlayWithConfig(_ base: Profile) -> Profile {
-        let cfgPath = configPath(for: base.name)
-        guard let configData = try? Data(contentsOf: URL(fileURLWithPath: cfgPath)),
-              let full = try? JSONDecoder().decode(Profile.self, from: configData) else {
-            return base
-        }
-        var merged = base
-        merged.title = full.title
-        merged.description = full.description
-        if let v = full.model { merged.model = v }
-        if let v = full.provider { merged.provider = v }
-        if let v = full.baseURL { merged.baseURL = v }
-        if let v = full.context { merged.context = v }
-        if let v = full.contextSkills { merged.contextSkills = v }
-        if let v = full.enabledToolsets { merged.enabledToolsets = v }
-        if let v = full.disabledToolsets { merged.disabledToolsets = v }
-        if let v = full.soulMD { merged.soulMD = v }
-        merged.hasCustomKey = merged.hasCustomKey || full.hasCustomKey
-        return merged
-    }
-
-    /// Write the profile index to `~/.arc/profiles/index.json`.
-    private func writeIndexFile(_ index: [String: Profile]) throws {
-        try FileManager.default.createDirectory(
-            at: URL(fileURLWithPath: Self.profilesDir),
-            withIntermediateDirectories: true
-        )
-        let enc = JSONEncoder()
-        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try enc.encode(index)
-        try data.write(to: URL(fileURLWithPath: Self.indexFilePath), options: .atomic)
-    }
-
-    /// Persist a profile to Tessera (when configured) or the JSON index.
-    /// When the tunnel is configured but unavailable, the JSON index takes
-    /// over — the write must not hang or fail just because the relay is down.
-    private func persistProfile(_ profile: Profile) async throws {
-        // Keep the profile directory self-contained in every mode (reference
-        // profile distributions rely on `profiles/<name>/config.json`).
-        try writeProfileConfig(profile)
-        if Self.testProfilesRoot == nil, await TesseraConnection.shared.isConfigured {
-            do {
-                let conn = TesseraConnection.shared
-                try await conn.ensureStarted()
-                let seq = await conn.takeSequence()
-                let content = String(decoding: try JSONEncoder().encode(profile), as: UTF8.self)
-                try await conn.publish(
-                    kind: TesseraConnection.profileKind,
-                    dTagValue: "arc/p/\(profile.name)/\(seq)",
-                    content: content
-                )
-                return
-            } catch let error as TesseraStoreError where error.isUnavailable {
-                // Tunnel unavailable: fall through to the JSON index.
-            }
-        }
-        var index = loadProfilesFromIndexFile()
-        index[profile.name] = profile
-        try writeIndexFile(index)
-    }
-
-    /// Write the profile record to `profiles/<name>/config.json`.
-    private func writeProfileConfig(_ profile: Profile) throws {
-        let dir = URL(fileURLWithPath: Self.profilesDir).appendingPathComponent(profile.name, isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let enc = JSONEncoder()
-        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try enc.encode(profile)
-        try data.write(to: dir.appendingPathComponent("config.json"), options: .atomic)
     }
 }
 
