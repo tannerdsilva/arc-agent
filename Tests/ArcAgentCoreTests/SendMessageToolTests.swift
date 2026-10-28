@@ -6,7 +6,10 @@ import ServiceLifecycle
 extension ArcCoreTestRoot {
     /// `send_message` tool tests (reference `tools/send_message_tool.py` parity)
     /// against a mock platform adapter — no network, no bot token.
-    @Suite("Send message tool", .serialized)
+    ///
+    /// Each test builds its own surface and binds its own slots, so the suite
+    /// no longer swaps a process global in and out (GROUNDZERO slice 6).
+    @Suite("Send message tool")
     struct SendMessageToolTests {
 
         final class MockAdapter: PlatformAdapter, @unchecked Sendable {
@@ -26,25 +29,39 @@ extension ArcCoreTestRoot {
             }
         }
 
-        private func withDelivery(_ body: (DeliveryManager, MockAdapter) async throws -> Void) async throws {
+        /// One tool surface plus the slots it reads, so a test can bind the
+        /// delivery path without touching any other surface in the process.
+        private struct Surface {
+            let entry: ToolEntry
+            let delivery: ToolDependency<DeliveryManager>
+            let resolver: ToolDependency<SendMessageTool.HomeChatResolver>
+        }
+
+        private func surface() -> Surface {
+            let deps = ToolDependencies()
+            return Surface(
+                entry: SendMessageTool.entry(
+                    delivery: deps.sendMessageDelivery,
+                    homeChatResolver: deps.homeChatResolver
+                ),
+                delivery: deps.sendMessageDelivery,
+                resolver: deps.homeChatResolver
+            )
+        }
+
+        private func withDelivery(_ body: (Surface, MockAdapter) async throws -> Void) async throws {
             let dm = DeliveryManager()
             let adapter = MockAdapter()
             await dm.register(adapter: adapter)
-            let oldDelivery = SendMessageTool.delivery
-            let oldResolver = SendMessageTool.homeChatResolver
-            SendMessageTool.delivery = dm
-            SendMessageTool.homeChatResolver = nil
-            defer {
-                SendMessageTool.delivery = oldDelivery
-                SendMessageTool.homeChatResolver = oldResolver
-            }
-            try await body(dm, adapter)
+            let surface = surface()
+            surface.delivery.set(dm)
+            try await body(surface, adapter)
         }
 
         @Test("action='list' reports registered adapters")
         func listAction() async throws {
-            try await withDelivery { _, _ in
-                let out = try await SendMessageTool.entry.handler(["action": "list"])
+            try await withDelivery { surface, _ in
+                let out = try await surface.entry.handler(["action": "list"])
                 #expect(out.contains("telegram"))
                 #expect(out.contains("platform:chat_id"))
             }
@@ -52,8 +69,8 @@ extension ArcCoreTestRoot {
 
         @Test("send delivers to platform:chat_id and returns a message id")
         func sendAction() async throws {
-            try await withDelivery { _, adapter in
-                let out = try await SendMessageTool.entry.handler(
+            try await withDelivery { surface, adapter in
+                let out = try await surface.entry.handler(
                     ["action": "send", "target": "telegram:1001", "message": "hello there"]
                 )
                 #expect(out.contains("Sent to telegram"))
@@ -67,8 +84,8 @@ extension ArcCoreTestRoot {
 
         @Test("target with thread id parses into ChatTarget.threadID")
         func threadTarget() async throws {
-            try await withDelivery { _, adapter in
-                _ = try await SendMessageTool.entry.handler(
+            try await withDelivery { surface, adapter in
+                _ = try await surface.entry.handler(
                     ["action": "send", "target": "telegram:-1001:55", "message": "topic ping"]
                 )
                 #expect(adapter.sent[0].target.chatID == "-1001")
@@ -78,9 +95,9 @@ extension ArcCoreTestRoot {
 
         @Test("bare platform uses the home-channel resolver when wired")
         func homeChannel() async throws {
-            try await withDelivery { _, adapter in
-                SendMessageTool.homeChatResolver = { platform in platform == "telegram" ? "home-42" : nil }
-                let out = try await SendMessageTool.entry.handler(
+            try await withDelivery { surface, adapter in
+                surface.resolver.set { platform in platform == "telegram" ? "home-42" : nil }
+                let out = try await surface.entry.handler(
                     ["action": "send", "target": "telegram", "message": "hi"]
                 )
                 #expect(out.contains("Sent to telegram"))
@@ -90,8 +107,8 @@ extension ArcCoreTestRoot {
 
         @Test("bare platform without a resolver errors with guidance")
         func noHome() async throws {
-            try await withDelivery { _, _ in
-                let out = try await SendMessageTool.entry.handler(
+            try await withDelivery { surface, _ in
+                let out = try await surface.entry.handler(
                     ["action": "send", "target": "telegram", "message": "hi"]
                 )
                 #expect(out.contains("no home channel"))
@@ -109,8 +126,8 @@ extension ArcCoreTestRoot {
 
         @Test("react/unreact report unsupported adapters")
         func reactUnsupported() async throws {
-            try await withDelivery { _, _ in
-                let out = try await SendMessageTool.entry.handler(
+            try await withDelivery { surface, _ in
+                let out = try await surface.entry.handler(
                     ["action": "react", "target": "telegram:1", "message": "❤️"]
                 )
                 #expect(out.lowercased().contains("not supported"))
@@ -119,18 +136,16 @@ extension ArcCoreTestRoot {
 
         @Test("unknown action errors")
         func unknownAction() async throws {
-            try await withDelivery { _, _ in
-                let out = try await SendMessageTool.entry.handler(["action": "yell", "message": "x"])
+            try await withDelivery { surface, _ in
+                let out = try await surface.entry.handler(["action": "yell", "message": "x"])
                 #expect(out.contains("unknown action"))
             }
         }
 
         @Test("no delivery manager explains the daemon requirement")
         func noDelivery() async throws {
-            let oldDelivery = SendMessageTool.delivery
-            SendMessageTool.delivery = nil
-            defer { SendMessageTool.delivery = oldDelivery }
-            let out = try await SendMessageTool.entry.handler(
+            let surface = surface()
+            let out = try await surface.entry.handler(
                 ["action": "send", "target": "telegram:1", "message": "hi"]
             )
             #expect(out.contains("daemon"))

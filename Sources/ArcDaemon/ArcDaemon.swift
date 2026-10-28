@@ -129,7 +129,11 @@ public enum ArcDaemon {
                 tesseraOff: plan.tesseraOff,
                 storage: storage,
                 thirdPartyPlugins: sidecarPlugins,
-                sidecarManager: sidecarManager
+                sidecarManager: sidecarManager,
+                // The session host (built just above) owns the process's
+                // platform adapters; the UI's `send_message` gets that path as
+                // a per-surface slot (GROUNDZERO slice 6).
+                delivery: sessionHost?.delivery
             )
         }
 
@@ -241,7 +245,10 @@ public enum ArcDaemon {
                     // with no host there is no delivery path, so the two tools
                     // are simply absent from this surface.
                     messaging: sessionHost?.messaging,
-                    groupChats: sessionHost?.groupChats
+                    groupChats: sessionHost?.groupChats,
+                    // `send_message` reaches the same platform adapters the
+                    // sessions do; the slot is this surface's own (slice 6).
+                    delivery: sessionHost?.delivery
                 )
             ))
         }

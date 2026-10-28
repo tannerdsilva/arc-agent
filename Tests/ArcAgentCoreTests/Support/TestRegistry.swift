@@ -35,7 +35,9 @@ extension ArcAgentCore {
         memory: (any MemoryProvider)? = nil,
         sessions: (any SessionStore)? = nil,
         messaging: (any BotMessageDelivering)? = nil,
-        groupChats: GroupChatManager? = nil
+        groupChats: GroupChatManager? = nil,
+        kanban: (any KanbanBoard)? = nil,
+        dependencies: ToolDependencies = ToolDependencies()
     ) throws -> CompileTimeToolRegistry {
         try buildRegistry(
             context: testContext(profile: profile, workspace: workspace),
@@ -43,7 +45,9 @@ extension ArcAgentCore {
             memory: memory ?? FileMemoryProvider(),
             sessions: sessions ?? FileSessionStore(),
             messaging: messaging ?? CannedReplyMessaging(reply: "ack"),
-            groupChats: groupChats ?? GroupChatManager(profileManager: ProfileManager())
+            groupChats: groupChats ?? GroupChatManager(profileManager: ProfileManager()),
+            kanban: kanban,
+            dependencies: dependencies
         )
     }
 

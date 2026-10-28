@@ -260,13 +260,24 @@ extension ArcCoreTestRoot {
 
         // MARK: - execute_code tool
 
+        /// One `execute_code` entry with its own timeout slot, so a test that
+        /// shortens the timeout cannot shorten another surface's (GROUNDZERO
+        /// slice 6 replaced the `timeoutOverride` process global).
+        private func executeEntry(timeout: Double? = nil) -> ToolEntry {
+            let deps = ToolDependencies()
+            if let timeout { deps.executeCodeTimeout.set(timeout) }
+            return ExecuteCodeTool.entry(
+                grant: AgentPowers.grant(profile: .default),
+                timeout: deps.executeCodeTimeout
+            )
+        }
+
         @Test("execute_code runs a script and returns stdout")
         func executeRuns() async throws {
             await ExecuteCodeTool.dispatcher.setHost { name, args in
                 "tool:\(name):\(args.description)"
             }
-            defer { ExecuteCodeTool.timeoutOverride = nil }
-            let result = try await ExecuteCodeTool.entry.handler([
+            let result = try await executeEntry().handler([
                 "code": "print('hello from python')",
             ])
             #expect(result.contains("\"status\":\"success\""))
@@ -281,8 +292,7 @@ extension ArcCoreTestRoot {
                 await capture.set("\(name)|\(args["path"] ?? "")")
                 return "CONTENT"
             }
-            defer { ExecuteCodeTool.timeoutOverride = nil }
-            let result = try await ExecuteCodeTool.entry.handler([
+            let result = try await executeEntry().handler([
                 "code": "from arc_tools import read_file\n"
                     + "print(read_file('/tmp/fake.txt'))",
             ])
@@ -294,8 +304,7 @@ extension ArcCoreTestRoot {
         @Test("execute_code reports non-zero exits with stderr")
         func executeError() async throws {
             await ExecuteCodeTool.dispatcher.setHost { _, _ in "" }
-            defer { ExecuteCodeTool.timeoutOverride = nil }
-            let result = try await ExecuteCodeTool.entry.handler([
+            let result = try await executeEntry().handler([
                 "code": "import sys\nprint('partial')\nsys.stderr.write('boom traceback')\nsys.exit(3)",
             ])
             #expect(result.contains("\"status\":\"error\""))
@@ -306,9 +315,7 @@ extension ArcCoreTestRoot {
         @Test("execute_code kills long-running scripts on timeout")
         func executeTimeout() async throws {
             await ExecuteCodeTool.dispatcher.setHost { _, _ in "" }
-            ExecuteCodeTool.timeoutOverride = 2
-            defer { ExecuteCodeTool.timeoutOverride = nil }
-            let result = try await ExecuteCodeTool.entry.handler([
+            let result = try await executeEntry(timeout: 2).handler([
                 "code": "print('started')\nimport time\ntime.sleep(60)",
             ])
             #expect(result.contains("\"status\":\"timeout\""))
@@ -320,13 +327,16 @@ extension ArcCoreTestRoot {
             await ExecuteCodeTool.dispatcher.setHost { name, _ in
                 name  // any tool returns
             }
-            defer { ExecuteCodeTool.timeoutOverride = nil }
             let calls = (0..<51).map { _ in "read_file('/tmp/x\(UUID().uuidString)')" }
                 .joined(separator: "\n")
-            let result = try await ExecuteCodeTool.entry.handler([
+            let result = try await executeEntry().handler([
                 "code": "from arc_tools import read_file\n" + calls,
             ])
             #expect(result.contains("Tool-call budget exceeded"))
+            // D3: the message carries the resolved budget, not the literal
+            // `\(ExecuteCodeTool.maxToolCalls)` source text it used to print.
+            #expect(result.contains("max 50"), "budget message did not interpolate: \(result)")
+            #expect(!result.contains("maxToolCalls"), "budget message printed source text: \(result)")
         }
     }
 }

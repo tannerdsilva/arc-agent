@@ -6,64 +6,70 @@ import Foundation
 /// or list available targets.
 ///
 /// Arc's daemon delivers through registered ``PlatformAdapter``s via
-/// ``DeliveryManager``. This tool is wired by the session host at startup
-/// (``SendMessageTool.delivery``); outside a running daemon it explains
-/// itself. Arc's bot-mode tools (`send_bot_message`/`send_group_chat`) remain
-/// for agent-to-agent roster messaging; this is the human-facing platform
-/// delivery surface.
+/// ``DeliveryManager``, bound into this surface's ``ToolDependencies`` slots by
+/// whichever host owns one; a surface with no delivery path explains itself.
+/// Arc's bot-mode tools (`send_bot_message`/`send_group_chat`) remain for
+/// agent-to-agent roster messaging; this is the human-facing platform delivery
+/// surface.
 public enum SendMessageTool {
 
-    /// The delivery manager. Wired by ``SessionHost`` (and by tests).
-    public nonisolated(unsafe) static var delivery: DeliveryManager?
+    /// Resolves a bare platform name (`"telegram"`) to its home chat id.
+    public typealias HomeChatResolver = @Sendable (String) async -> String?
 
-    /// Resolves a bare platform name to its home chat id (wired by the
-    /// session host from its platform config; nil when unknown).
-    public nonisolated(unsafe) static var homeChatResolver: (@Sendable (String) async -> String?)?
-
-    public static let entry = ToolEntry(
-        name: "send_message",
-        toolset: "messaging",
-        description: "Send a message to a connected messaging platform, or list available targets.\n\n"
-            + "IMPORTANT: When the user asks to send to a specific channel or person "
-            + "(not just a bare platform name), call send_message(action='list') FIRST to see "
-            + "available targets, then send to the correct one.\n"
-            + "If the user just says a platform name like 'send to telegram', send directly "
-            + "to the home channel without listing first.\n\n"
-            + "Target format: 'platform' (uses home channel), 'platform:chat_id', or "
-            + "'platform:chat_id:thread_id' for Telegram topics. Examples: 'telegram', "
-            + "'telegram:-1001234567890:17585'.",
-        schema: .object(
-            description: "Send message parameters",
-            properties: [
-                "action": .string(description: "'send' (default) sends a message. 'list' returns all available targets across connected platforms. 'react'/'unreact' attach/retract a reaction (not supported by connected platforms yet)."),
-                "target": .string(description: "Delivery target: 'platform', 'platform:chat_id', or 'platform:chat_id:thread_id'."),
-                "message": .string(description: "The message text to send. To send an image or file, include MEDIA:<local_path> in the message — the platform delivers it as an attachment."),
-                "emoji": .string(description: "For action='react'"),
-                "message_id": .string(description: "For action='react'/'unreact'"),
-            ],
-            required: []
-        ),
-        handler: { args in
-            let action = (args["action"] as? String) ?? "send"
-            switch action {
-            case "list":
-                return await handleList()
-            case "send":
-                return try await handleSend(args)
-            case "react", "unreact":
-                return "Not supported: none of the connected platform adapters implement reactions. "
-                    + "(the reference implementation supports this on iMessage/Photon only; Arc has no such adapter yet.)"
-            default:
-                return "Error: unknown action '\(action)'. Valid actions: send, list, react, unreact"
-            }
-        },
-        emoji: "✉️"
-    )
+    /// The tool, bound to the slots naming the delivery path it acts through.
+    ///
+    /// Both slots replace process globals (GROUNDZERO slice 6): the daemon's
+    /// session host owns the delivery manager, fills the slot on the session's
+    /// own bundle, and a second session's `send_message` cannot answer for it.
+    public static func entry(
+        delivery: ToolDependency<DeliveryManager> = ToolDependency(),
+        homeChatResolver: ToolDependency<HomeChatResolver> = ToolDependency()
+    ) -> ToolEntry {
+        ToolEntry(
+            name: "send_message",
+            toolset: "messaging",
+            description: "Send a message to a connected messaging platform, or list available targets.\n\n"
+                + "IMPORTANT: When the user asks to send to a specific channel or person "
+                + "(not just a bare platform name), call send_message(action='list') FIRST to see "
+                + "available targets, then send to the correct one.\n"
+                + "If the user just says a platform name like 'send to telegram', send directly "
+                + "to the home channel without listing first.\n\n"
+                + "Target format: 'platform' (uses home channel), 'platform:chat_id', or "
+                + "'platform:chat_id:thread_id' for Telegram topics. Examples: 'telegram', "
+                + "'telegram:-1001234567890:17585'.",
+            schema: .object(
+                description: "Send message parameters",
+                properties: [
+                    "action": .string(description: "'send' (default) sends a message. 'list' returns all available targets across connected platforms. 'react'/'unreact' attach/retract a reaction (not supported by connected platforms yet)."),
+                    "target": .string(description: "Delivery target: 'platform', 'platform:chat_id', or 'platform:chat_id:thread_id'."),
+                    "message": .string(description: "The message text to send. To send an image or file, include MEDIA:<local_path> in the message — the platform delivers it as an attachment."),
+                    "emoji": .string(description: "For action='react'"),
+                    "message_id": .string(description: "For action='react'/'unreact'"),
+                ],
+                required: []
+            ),
+            handler: { args in
+                let action = (args["action"] as? String) ?? "send"
+                switch action {
+                case "list":
+                    return await handleList(delivery: delivery)
+                case "send":
+                    return try await handleSend(args, delivery: delivery, homeChatResolver: homeChatResolver)
+                case "react", "unreact":
+                    return "Not supported: none of the connected platform adapters implement reactions. "
+                        + "(the reference implementation supports this on iMessage/Photon only; Arc has no such adapter yet.)"
+                default:
+                    return "Error: unknown action '\(action)'. Valid actions: send, list, react, unreact"
+                }
+            },
+            emoji: "✉️"
+        )
+    }
 
     // MARK: - Actions
 
-    static func handleList() async -> String {
-        guard let delivery = delivery else {
+    static func handleList(delivery: ToolDependency<DeliveryManager>) async -> String {
+        guard let delivery = delivery.get() else {
             return "Error: no delivery manager is wired in this context (is the daemon running?). "
                 + "send_message is available in daemon sessions."
         }
@@ -79,8 +85,12 @@ public enum SendMessageTool {
         return lines.joined(separator: "\n")
     }
 
-    static func handleSend(_ args: [String: Any]) async throws -> String {
-        guard let delivery = delivery else {
+    static func handleSend(
+        _ args: [String: Any],
+        delivery: ToolDependency<DeliveryManager>,
+        homeChatResolver: ToolDependency<HomeChatResolver>
+    ) async throws -> String {
+        guard let delivery = delivery.get() else {
             return "Error: no delivery manager is wired in this context (is the daemon running?)."
         }
         let targetRaw = (args["target"] as? String) ?? ""
@@ -97,7 +107,7 @@ public enum SendMessageTool {
         var chatID = parts.count > 1 ? parts[1] : ""
         let threadID = parts.count > 2 && !parts[2].isEmpty ? parts[2] : nil
         if chatID.isEmpty {
-            if let resolver = homeChatResolver, let home = await resolver(platform) {
+            if let resolver = homeChatResolver.get(), let home = await resolver(platform) {
                 chatID = home
             } else {
                 return "Error: target '\(targetRaw)' has no chat id and no home channel is known for '\(platform)'. Use '\(platform):chat_id'."

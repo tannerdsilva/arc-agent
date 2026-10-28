@@ -357,12 +357,13 @@ extension ArcCoreTestRoot {
                 Message(role: .user, content: "we built the foobar bridge"),
                 Message(role: .assistant, content: "yes and foobar is green"),
             ]))
-            SessionSearchTool.store = store
-            defer { SessionSearchTool.store = nil }
-            let result = try await SessionSearchTool.entry.handler(["query": "foobar"])
+            let deps = ToolDependencies()
+            deps.sessionStore.set(store)
+            let entry = SessionSearchTool.entry(store: deps.sessionStore)
+            let result = try await entry.handler(["query": "foobar"])
             #expect(result.contains("remember"), "expected session id prefix in result: \(result)")
             #expect(result.contains("foobar bridge"))
-            let empty = try await SessionSearchTool.entry.handler(["query": "zzz-no-match"])
+            let empty = try await entry.handler(["query": "zzz-no-match"])
             #expect(empty.contains("No sessions matched"))
         }
 

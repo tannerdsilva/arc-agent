@@ -124,14 +124,21 @@ public struct WebUIHost: Service {
         tesseraOff: Bool = false,
         storage: StorageRuntime? = nil,
         thirdPartyPlugins: [any SidebarTabPlugin] = [],
-        sidecarManager: SidecarPluginManager? = nil
+        sidecarManager: SidecarPluginManager? = nil,
+        delivery: DeliveryManager? = nil
     ) async throws {
         self.host = host
         self.port = port
         self.tesseraOff = tesseraOff
         self.storage = storage
         self.sidecarManager = sidecarManager
-        self.app = try await AppState(thirdPartyPlugins: thirdPartyPlugins)
+        self.app = try await AppState(
+            thirdPartyPlugins: thirdPartyPlugins,
+            // The daemon's platform delivery path, when it has one: the UI's
+            // `send_message` binds this slot instead of the process global it
+            // used to find (GROUNDZERO slice 6).
+            delivery: delivery
+        )
     }
 
     /// Run one scheduled job headless and return its output — the daemon's

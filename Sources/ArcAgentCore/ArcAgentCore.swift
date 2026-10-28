@@ -38,6 +38,15 @@ public enum ArcAgentCore {
     ///     delivery path does not advertise one (the CLI carries neither).
     ///   - groupChats: the group-chat room manager. `nil` likewise omits
     ///     `send_group_chat`. The daemon supplies both.
+    ///   - kanban: the board the `kanban_*` tools act on. `nil` keeps the tools
+    ///     in the surface (they are part of the compiled list) but they report
+    ///     that no board is available.
+    ///   - delivery: the platform delivery path `send_message` acts through.
+    ///     `nil` leaves the tool explaining that no delivery manager is wired.
+    ///   - dependencies: the per-agent slots the tools capture. Pass the bundle
+    ///     you want ``ArcAgent`` to fill when you build the surface for an
+    ///     agent; the default is a fresh bundle, which the registry carries so
+    ///     the agent can adopt it.
     /// - Returns: A configured ``CompileTimeToolRegistry``.
     /// - Throws: If a built-in tool fails to register (should not happen in
     ///   normal operation since built-in tool names are unique by construction).
@@ -47,9 +56,22 @@ public enum ArcAgentCore {
         memory: any MemoryProvider,
         sessions: any SessionStore,
         messaging: (any BotMessageDelivering)? = nil,
-        groupChats: GroupChatManager? = nil
+        groupChats: GroupChatManager? = nil,
+        kanban: (any KanbanBoard)? = nil,
+        delivery: DeliveryManager? = nil,
+        dependencies: ToolDependencies = ToolDependencies()
     ) throws -> CompileTimeToolRegistry {
-        var registry = CompileTimeToolRegistry()
+        var registry = CompileTimeToolRegistry(toolDependencies: dependencies)
+
+        // Resources the caller already owns: bound before the tools are
+        // registered so a handler can never run against an empty slot the
+        // builder could have filled (GROUNDZERO slice 6). A `nil` here means
+        // "this caller owns none", never "clear what the bundle already had" —
+        // a caller that pre-filled the slot (a test's fixture board, the
+        // daemon's delivery manager) keeps it.
+        dependencies.sessionStore.set(sessions)
+        if let kanban { dependencies.kanbanBoard.set(kanban) }
+        if let delivery { dependencies.sendMessageDelivery.set(delivery) }
         try registry.register(ReadFileTool.entry)
         try registry.register(WriteFileTool.entry)
         try registry.register(TerminalTool.entry)
@@ -58,8 +80,8 @@ public enum ArcAgentCore {
         try registry.register(WebSearchTool.entry)
         try registry.register(WebExtractTool.entry)
         try registry.register(MemoryTool.entry(context: context, memory: memory))
-        try registry.register(SessionSearchTool.entry)
-        try registry.register(TodoTool.entry)
+        try registry.register(SessionSearchTool.entry(store: dependencies.sessionStore))
+        try registry.register(TodoTool.entry(store: dependencies.todoStore))
         try registry.register(SkillViewTool.entry)
         try registry.register(SkillManageTool.entry)
         try registry.register(SkillsListTool.entry)
@@ -71,21 +93,24 @@ public enum ArcAgentCore {
         try registry.register(ClarifyTool.entry)
         try registry.register(PatchTool.entry)
         try registry.register(SearchFilesTool.entry)
-        try registry.register(ExecuteCodeTool.entry)
-        try registry.register(DelegateTaskTool.entry)
+        try registry.register(ExecuteCodeTool.entry(
+            grant: context.grant, timeout: dependencies.executeCodeTimeout))
+        try registry.register(DelegateTaskTool.entry(manager: dependencies.delegationManager))
         try registry.register(ProjectListTool.entry)
         try registry.register(ProjectCreateTool.entry)
         try registry.register(ProjectSwitchTool.entry)
-        try registry.register(ToolSearchTool.entry)
-        try registry.register(SendMessageTool.entry)
-        try registry.register(ListChildrenTool.entry)
-        try registry.register(SteerChildTool.entry)
-        try registry.register(StopChildTool.entry)
-        try registry.register(KanbanTools.create)
-        try registry.register(KanbanTools.list)
-        try registry.register(KanbanTools.show)
-        try registry.register(KanbanTools.complete)
-        try registry.register(KanbanTools.block)
+        try registry.register(ToolSearchTool.entry(registry: dependencies.toolSearchRegistry))
+        try registry.register(SendMessageTool.entry(
+            delivery: dependencies.sendMessageDelivery,
+            homeChatResolver: dependencies.homeChatResolver))
+        try registry.register(ListChildrenTool.entry(manager: dependencies.delegationManager))
+        try registry.register(SteerChildTool.entry(manager: dependencies.delegationManager))
+        try registry.register(StopChildTool.entry(manager: dependencies.delegationManager))
+        try registry.register(KanbanTools.create(board: dependencies.kanbanBoard))
+        try registry.register(KanbanTools.list(board: dependencies.kanbanBoard))
+        try registry.register(KanbanTools.show(board: dependencies.kanbanBoard))
+        try registry.register(KanbanTools.complete(board: dependencies.kanbanBoard))
+        try registry.register(KanbanTools.block(board: dependencies.kanbanBoard))
 
         // Profile/bot mode tools. Service-scoped: they act on the roster, not
         // on the calling profile's documents.
@@ -124,10 +149,10 @@ public enum ArcAgentCore {
         try registry.register(MCPClientTool.entry)
         Task { await BrowserRegistry.shared.register(CDPBrowserProvider()) }
 
-        // `session_search` still reads a process-global store (slice 6 gives it
-        // a constructor parameter); point it at the store this caller was
-        // handed so the surface is at least internally consistent.
-        SessionSearchTool.store = sessions
+        // `tool_search` sees the surface it lives on; the agent re-points this
+        // at its own registry (which may carry plugin tools) when it adopts the
+        // bundle.
+        dependencies.toolSearchRegistry.set(registry)
 
         return registry
     }

@@ -17,8 +17,13 @@ public enum ExecuteCodeTool {
     static let maxToolCalls = 50
     static let maxStdoutBytes = 50_000
 
-    static var timeoutSeconds: Double {
-        if let override = timeoutOverride {
+    /// Resolve the script timeout for one entry's slot.
+    ///
+    /// The slot replaces the `timeoutOverride` process global (GROUNDZERO
+    /// slice 6): a test binds its own slot instead of re-pointing every other
+    /// agent's timeout for the duration of a run.
+    static func timeoutSeconds(override: ToolDependency<Double>) -> Double {
+        if let override = override.get() {
             return override
         }
         if let raw = ProcessInfo.processInfo.environment["ARC_EXECUTE_TIMEOUT"],
@@ -28,9 +33,6 @@ public enum ExecuteCodeTool {
         return defaultTimeoutSeconds
     }
 
-    /// Test hook: overrides the script timeout.
-    nonisolated(unsafe) static var timeoutOverride: Double?
-
     /// The tool, with the authority `grant` carries captured inside it.
     ///
     /// The gate over the script text is deliberately best-effort: a Python
@@ -38,7 +40,10 @@ public enum ExecuteCodeTool {
     /// base64). It stops the plain case — a literal `MEMORY.md` in the script —
     /// and nothing more; the airtight guarantee for documents is
     /// ``ProfileDocuments`` plus the `profile_edit`/`memory` tools.
-    public static func entry(grant: ToolGrant) -> ToolEntry {
+    public static func entry(
+        grant: ToolGrant,
+        timeout: ToolDependency<Double> = ToolDependency()
+    ) -> ToolEntry {
         ToolEntry(
             name: "execute_code",
             toolset: "code_execution",
@@ -66,7 +71,7 @@ public enum ExecuteCodeTool {
                 if let refusal = Self.scriptRefusal(code: code, grant: grant) {
                     return "Error: " + refusal
                 }
-                return try await Self.execute(code: code)
+                return try await Self.execute(code: code, timeoutSeconds: Self.timeoutSeconds(override: timeout))
             },
             emoji: "🐍"
         )
@@ -128,7 +133,7 @@ public enum ExecuteCodeTool {
         }
         func run(_ body: @Sendable () async throws -> String) async throws -> String {
             guard remaining > 0 else {
-                throw ToolError.execution("Tool-call budget exceeded (max \\(ExecuteCodeTool.maxToolCalls) per script)")
+                throw ToolError.execution("Tool-call budget exceeded (max \(ExecuteCodeTool.maxToolCalls) per script)")
             }
             remaining -= 1
             return try await body()
@@ -148,7 +153,7 @@ public enum ExecuteCodeTool {
 
     // MARK: - Handler
 
-    static func execute(code: String) async throws -> String {
+    static func execute(code: String, timeoutSeconds: Double) async throws -> String {
         let start = Date()
         let limiter = RunLimiter(budget: maxToolCalls)
         let tempDir = FileManager.default.temporaryDirectory

@@ -29,8 +29,23 @@ public struct CompileTimeToolRegistry: ToolRegistry {
     /// its admission assigned.
     private var tools: [String: RegisteredTool] = [:]
 
+    /// The per-agent dependency slots the tools in this registry were built
+    /// with (GROUNDZERO slice 6).
+    ///
+    /// Carried on the registry rather than passed alongside it so ``ArcAgent``
+    /// can adopt exactly the slots its tools captured — `todo`'s store and the
+    /// agent's store cannot drift apart. A registry built without naming slots
+    /// gets a fresh, empty bundle: one surface, one bundle.
+    public let toolDependencies: ToolDependencies
+
     /// Create an empty registry.
-    public init() {}
+    ///
+    /// - Parameter toolDependencies: the slots the tools registered here were
+    ///   built with. The default is a fresh bundle, which is what a registry
+    ///   assembled by hand (tests, fixtures) wants.
+    public init(toolDependencies: ToolDependencies = ToolDependencies()) {
+        self.toolDependencies = toolDependencies
+    }
 
     // MARK: - ToolRegistry
 

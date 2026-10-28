@@ -473,6 +473,13 @@ public struct MutableToolRegistry: ToolRegistry {
         self.pluginEntries = [:]
     }
 
+    /// The per-agent dependency slots the built-in tools were built with.
+    ///
+    /// Plugin tools carry none of their own, so this is the built-in surface's
+    /// bundle: `ArcAgent` adopts it and the `todo`/delegation/kanban slots its
+    /// tools captured are the ones the agent fills (GROUNDZERO slice 6).
+    public var toolDependencies: ToolDependencies { builtIn.toolDependencies }
+
     // MARK: ToolRegistry
 
     public mutating func register(_ tool: any AgentTool, origin: ToolOrigin) throws {

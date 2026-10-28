@@ -74,6 +74,16 @@ public struct SessionHost: Service {
     /// The group-chat manager this host owns (same reason as ``messaging``).
     public var groupChats: GroupChatManager { groupChatManager }
 
+    /// The platform delivery path this host owns.
+    ///
+    /// Exposed (like ``messaging``) so a sibling surface in the same process —
+    /// the daemon's MCP server builds its own registry — binds `send_message`
+    /// to the one real delivery manager instead of reporting none. Each
+    /// session's own surface gets it from ``SessionAgent``; there is no
+    /// process-global pointer for a second agent to overwrite (GROUNDZERO
+    /// slice 6).
+    public var delivery: DeliveryManager { deliveryManager }
+
     public init(
         api: API? = nil,
         telegramToken: String? = nil,
@@ -83,7 +93,6 @@ public struct SessionHost: Service {
     ) {
         let pm = ProfileManager()
         let dm = DeliveryManager()
-        SendMessageTool.delivery = dm
         let bm = BotMessagingService(profileManager: pm)
         let gcm = GroupChatManager(profileManager: pm)
         let reg = SessionRegistry(

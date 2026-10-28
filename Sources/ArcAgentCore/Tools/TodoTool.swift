@@ -150,82 +150,87 @@ public struct TodoItem: Sendable, Codable, Equatable {
 /// the schema description (static, cache-friendly), exactly like reference.
 enum TodoTool {
 
-    /// Session-scoped store wired by the agent at startup (see
-    /// ``ArcAgent/runConversation`` setup). Static so the handler closure
-    /// (value-captured at registration) can reach the per-agent instance;
-    /// Date-backed for tests only — production wires a per-agent store.
-    nonisolated(unsafe) static var store: TodoStore?
-
-    /// Fallback used when no store has been wired (e.g. `arc tools` listing).
+    /// Scratch list used when no store has been bound (a surface with no
+    /// agent behind it, e.g. `arc tools` listing, never dispatches a handler).
+    /// Never reached by an agent-built surface: ``ArcAgent`` fills its own
+    /// slot, and that slot is per agent — there is no shared pointer left to
+    /// overwrite.
     static let fallbackStore = TodoStore()
 
-    nonisolated(unsafe) static var entry = ToolEntry(
-        name: "todo",
-        toolset: "todo",
-        description: "Manage your task list for the current session. Use for complex tasks "
-            + "with 3+ steps or when the user provides multiple tasks. "
-            + "Call with no parameters to read the current list.\n\n"
-            + "Writing:\n"
-            + "- Provide 'todos' array to create/update items\n"
-            + "- merge=false (default): replace the entire list with a fresh plan\n"
-            + "- merge=true: update existing items by id, add any new ones\n\n"
-            + "Each item: {id: string, content: string, status: pending|in_progress|completed|cancelled}\n"
-            + "List order is priority. Only ONE item in_progress at a time.\n"
-            + "Mark items completed immediately when done. If something fails, "
-            + "cancel it and add a revised item.\n\n"
-            + "Always returns the full current list.",
-        schema: .object(
-            description: "Todo tool parameters",
-            properties: [
-                "todos": .array(
-                    description: "Task items to write. Omit to read current list.",
-                    items: .object(
-                        description: "A todo item",
-                        properties: [
-                            "id": .string(description: "Unique item identifier"),
-                            "content": .string(description: "Task description"),
-                            "status": .enum(
-                                description: "Current status",
-                                values: ["pending", "in_progress", "completed", "cancelled"]
-                            ),
-                        ],
-                        required: ["id", "content", "status"]
-                    )
-                ),
-                "merge": .boolean(
-                    description: "true: update existing items by id, add new ones. false (default): replace the entire list."
-                ),
-            ],
-            required: []
-        ),
-        handler: { args in
-            let store = TodoTool.store ?? TodoTool.fallbackStore
-            var incoming: [TodoItem] = []
-            if let raw = args["todos"] {
-                // LLM sometimes sends todos as a JSON string instead of a list.
-                if let asString = raw as? String {
-                    guard let data = asString.data(using: .utf8),
-                          let parsed = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-                        return "Error: todos must be a list of objects, got unparseable string."
+    /// The tool, bound to the slot `store` names.
+    ///
+    /// The slot is the per-agent replacement for the `TodoTool.store` process
+    /// global (GROUNDZERO slice 6): the registry captures the slot, the agent
+    /// that owns the session's list fills it.
+    static func entry(store: ToolDependency<TodoStore> = ToolDependency()) -> ToolEntry {
+        ToolEntry(
+            name: "todo",
+            toolset: "todo",
+            description: "Manage your task list for the current session. Use for complex tasks "
+                + "with 3+ steps or when the user provides multiple tasks. "
+                + "Call with no parameters to read the current list.\n\n"
+                + "Writing:\n"
+                + "- Provide 'todos' array to create/update items\n"
+                + "- merge=false (default): replace the entire list with a fresh plan\n"
+                + "- merge=true: update existing items by id, add any new ones\n\n"
+                + "Each item: {id: string, content: string, status: pending|in_progress|completed|cancelled}\n"
+                + "List order is priority. Only ONE item in_progress at a time.\n"
+                + "Mark items completed immediately when done. If something fails, "
+                + "cancel it and add a revised item.\n\n"
+                + "Always returns the full current list.",
+            schema: .object(
+                description: "Todo tool parameters",
+                properties: [
+                    "todos": .array(
+                        description: "Task items to write. Omit to read current list.",
+                        items: .object(
+                            description: "A todo item",
+                            properties: [
+                                "id": .string(description: "Unique item identifier"),
+                                "content": .string(description: "Task description"),
+                                "status": .enum(
+                                    description: "Current status",
+                                    values: ["pending", "in_progress", "completed", "cancelled"]
+                                ),
+                            ],
+                            required: ["id", "content", "status"]
+                        )
+                    ),
+                    "merge": .boolean(
+                        description: "true: update existing items by id, add new ones. false (default): replace the entire list."
+                    ),
+                ],
+                required: []
+            ),
+            handler: { args in
+                let store = store.get() ?? Self.fallbackStore
+                var incoming: [TodoItem] = []
+                if let raw = args["todos"] {
+                    // LLM sometimes sends todos as a JSON string instead of a list.
+                    if let asString = raw as? String {
+                        guard let data = asString.data(using: .utf8),
+                              let parsed = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+                            return "Error: todos must be a list of objects, got unparseable string."
+                        }
+                        incoming = parsed.compactMap(Self.item)
+                    } else if let list = raw as? [[String: Any]] {
+                        incoming = list.compactMap(Self.item)
+                    } else {
+                        return "Error: todos must be a list of objects."
                     }
-                    incoming = parsed.compactMap(Self.item)
-                } else if let list = raw as? [[String: Any]] {
-                    incoming = list.compactMap(Self.item)
-                } else {
-                    return "Error: todos must be a list of objects."
                 }
-            }
-            let merge = args["merge"] as? Bool ?? false
-            let result: [TodoItem]
-            if args["todos"] != nil {
-                result = await store.write(incoming, merge: merge)
-            } else {
-                result = await store.read()
-            }
-            return Self.render(result)
-        },
-        emoji: "📋"
-    )
+                let merge = args["merge"] as? Bool ?? false
+                let result: [TodoItem]
+                if args["todos"] != nil {
+                    result = await store.write(incoming, merge: merge)
+                } else {
+                    result = await store.read()
+                }
+                return Self.render(result)
+            },
+            emoji: "📋"
+        )
+    }
 
     static func item(_ dict: [String: Any]) -> TodoItem? {
         guard let id = dict["id"] as? String,

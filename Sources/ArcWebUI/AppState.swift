@@ -1236,11 +1236,19 @@ actor AppState {
         self.pluginTabs = [:]
     }
 
-    init(thirdPartyPlugins: [any SidebarTabPlugin] = []) async throws {
+    init(
+        thirdPartyPlugins: [any SidebarTabPlugin] = [],
+        delivery: DeliveryManager? = nil
+    ) async throws {
         // Boot-time surface. No session is active and `settings` is not loaded
         // yet, so this is the `.default` scope at the process working
         // directory; `refreshPlugins()` — fired at the end of this init and on
         // every plugin toggle — re-scopes the surface to the active chat.
+        //
+        // `delivery` is the daemon's platform delivery path, handed over when
+        // this app is hosted in the daemon process. It binds `send_message` on
+        // *this* surface; before GROUNDZERO slice 6 the tool found it through a
+        // process global the session host happened to have set.
         self.registry = MutableToolRegistry(builtIn: try ArcAgentCore.buildRegistry(
             context: ToolContext(
                 profile: .default,
@@ -1250,7 +1258,8 @@ actor AppState {
             ),
             profiles: TesseraProfileStore.shared,
             memory: FileMemoryProvider(),
-            sessions: FileSessionStore()
+            sessions: FileSessionStore(),
+            delivery: delivery
         ))
         let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolset })
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }

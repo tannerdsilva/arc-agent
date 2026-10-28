@@ -277,14 +277,14 @@ public enum ProgressiveToolDisclosure {
     }
 
     static func toolSearchSchema(manifest: String?) -> [String: Any] {
-        let base = ToolSearchTool.entry.description
+        let base = ToolSearchTool.entry().description
         let description = manifest.map { "\(base)\n\n\($0)" } ?? base
         return [
             "type": "function",
             "function": [
-                "name": ToolSearchTool.entry.name,
+                "name": ToolSearchTool.entry().name,
                 "description": description,
-                "parameters": ToolSearchTool.entry.schema.asDictionary(),
+                "parameters": ToolSearchTool.entry().schema.asDictionary(),
             ] as [String: Any],
         ] as [String: Any]
     }

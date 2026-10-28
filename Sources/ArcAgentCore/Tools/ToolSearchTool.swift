@@ -11,65 +11,72 @@ import Foundation
 /// and returns the same *shape*: a grouped name + short-description listing.
 public enum ToolSearchTool {
 
-    /// The registry searched by the handler. Wired by the agent at startup;
-    /// when nil the handler builds a default-scoped registry (see
-    /// ``resolveRegistry()``).
-    public nonisolated(unsafe) static var registry: (any ToolRegistry)?
-
     static let toolsets = "tools"
     static let forms = ["listing", "names", "mixed"]
 
-    public static let entry = ToolEntry(
-        name: "tool_search",
-        toolset: "tools",
-        description: "Search the available tool catalog for a keyword/phrase, or list all tools. "
-            + "Returns tool names with short descriptions so you can pick the right tool. "
-            + "Parameters: query (omit for the full listing), limit (default 5), form "
-            + "('listing' = name + short description, 'names' = bare names, 'mixed').",
-        schema: .object(
-            description: "Tool search parameters",
-            properties: [
-                "query": .string(description: "Keyword/phrase to search for (omit to list)"),
-                "limit": .integer(description: "Max results (default 5)"),
-                "form": .string(description: "Output form: listing | names | mixed (default listing)"),
-            ],
-            required: []
-        ),
-        handler: { args in
-            let query = ((args["query"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let limit = (args["limit"] as? Int) ?? 5
-            let form = (args["form"] as? String) ?? "listing"
-            guard forms.contains(form) else {
-                return "Error: invalid form '\(form)'. Valid forms: \(forms.joined(separator: ", "))"
-            }
-            guard let registry = resolveRegistry() else {
-                return "Error: tool registry is unavailable."
-            }
-            let tools = registry.allTools
-            let catalog: [CatalogEntry] = tools.map {
-                CatalogEntry(name: $0.name, description: $0.description, toolset: $0.toolset)
-            }
-            let results: [CatalogEntry]
-            if query.isEmpty {
-                results = catalog
-            } else {
-                results = Self.search(catalog, query: query, limit: max(1, limit))
-            }
-            return Self.render(results, form: form, total: catalog.count, query: query)
-        },
-        emoji: "🔎"
-    )
+    /// The tool, bound to the slot naming the registry it searches.
+    ///
+    /// The slot replaces the `ToolSearchTool.registry` process global
+    /// (GROUNDZERO slice 6). It is the self-reference the plan listed as a
+    /// blocker: the builder fills it with the surface it just built, and
+    /// ``ArcAgent`` re-points it at the agent's own registry (which may carry
+    /// plugin tools) when it adopts the bundle — no special case needed.
+    public static func entry(
+        registry: ToolDependency<any ToolRegistry> = ToolDependency()
+    ) -> ToolEntry {
+        ToolEntry(
+            name: "tool_search",
+            toolset: "tools",
+            description: "Search the available tool catalog for a keyword/phrase, or list all tools. "
+                + "Returns tool names with short descriptions so you can pick the right tool. "
+                + "Parameters: query (omit for the full listing), limit (default 5), form "
+                + "('listing' = name + short description, 'names' = bare names, 'mixed').",
+            schema: .object(
+                description: "Tool search parameters",
+                properties: [
+                    "query": .string(description: "Keyword/phrase to search for (omit to list)"),
+                    "limit": .integer(description: "Max results (default 5)"),
+                    "form": .string(description: "Output form: listing | names | mixed (default listing)"),
+                ],
+                required: []
+            ),
+            handler: { args in
+                let query = ((args["query"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let limit = (args["limit"] as? Int) ?? 5
+                let form = (args["form"] as? String) ?? "listing"
+                guard forms.contains(form) else {
+                    return "Error: invalid form '\(form)'. Valid forms: \(forms.joined(separator: ", "))"
+                }
+                guard let registry = resolveRegistry(registry) else {
+                    return "Error: tool registry is unavailable."
+                }
+                let tools = registry.allTools
+                let catalog: [CatalogEntry] = tools.map {
+                    CatalogEntry(name: $0.name, description: $0.description, toolset: $0.toolset)
+                }
+                let results: [CatalogEntry]
+                if query.isEmpty {
+                    results = catalog
+                } else {
+                    results = Self.search(catalog, query: query, limit: max(1, limit))
+                }
+                return Self.render(results, form: form, total: catalog.count, query: query)
+            },
+            emoji: "🔎"
+        )
+    }
 
     /// The registry the handler searches.
     ///
-    /// Wired by the agent at startup; when nil (a caller that built a registry
-    /// for its own purposes, e.g. the CLI's `arc local` bridge) the handler
-    /// builds one for a default scoped context. The tool only lists names and
-    /// descriptions, so the scope it is built with cannot leak into a result —
-    /// and the session store is passed through rather than re-created, so
-    /// building a fallback cannot re-point a live `session_search`.
-    static func resolveRegistry() -> (any ToolRegistry)? {
-        if let registry { return registry }
+    /// The slot is filled by the surface's builder; when it is empty (a caller
+    /// that assembled a registry some other way) the handler builds one for a
+    /// default scoped context. The tool only lists names and descriptions, so
+    /// the scope it is built with cannot leak into a result. The fallback used
+    /// to reuse the live `session_search` store; with per-agent slots there is
+    /// no shared store to reuse — the fallback surface gets its own, and
+    /// cannot re-point a live tool (which is what the old comment feared).
+    static func resolveRegistry(_ slot: ToolDependency<any ToolRegistry>) -> (any ToolRegistry)? {
+        if let registry = slot.get() { return registry }
         return try? ArcAgentCore.buildRegistry(
             context: ToolContext(
                 profile: .default,
@@ -79,7 +86,7 @@ public enum ToolSearchTool {
             ),
             profiles: TesseraProfileStore.shared,
             memory: FileMemoryProvider(),
-            sessions: SessionSearchTool.store ?? FileSessionStore()
+            sessions: FileSessionStore()
         )
     }
 

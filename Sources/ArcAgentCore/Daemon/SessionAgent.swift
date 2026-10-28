@@ -134,6 +134,12 @@ public actor SessionAgent: Service {
                 enabledPlugins: pluginAllowList()
             )
 
+            // `send_message` acts on the delivery path this host owns, bound to
+            // *this session's* surface: the slot travels with the registry, so
+            // a second session in the same process cannot answer for it (the
+            // process-global it replaced is gone — GROUNDZERO slice 6).
+            toolRegistry.toolDependencies.sendMessageDelivery.set(deliveryManager)
+
             // Resolve the per-session context recipe: global defaults <
             // profile defaults < session overrides.
             logger.info("step: resolving context recipe")
