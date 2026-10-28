@@ -33,6 +33,11 @@ public enum ArcAgentCore {
     ///     `ArcAgent` (the CLI's `arc local` bridge, the daemon's MCP server)
     ///     still searches the right store. Slice 6 replaces this ambient
     ///     assignment with a constructor parameter.
+    ///   - messaging: the inter-agent messaging service. When `nil` the
+    ///     `send_bot_message` tool is **not registered**: a surface with no
+    ///     delivery path does not advertise one (the CLI carries neither).
+    ///   - groupChats: the group-chat room manager. `nil` likewise omits
+    ///     `send_group_chat`. The daemon supplies both.
     /// - Returns: A configured ``CompileTimeToolRegistry``.
     /// - Throws: If a built-in tool fails to register (should not happen in
     ///   normal operation since built-in tool names are unique by construction).
@@ -40,7 +45,9 @@ public enum ArcAgentCore {
         context: ToolContext,
         profiles: any ProfileStore,
         memory: any MemoryProvider,
-        sessions: any SessionStore
+        sessions: any SessionStore,
+        messaging: (any BotMessageDelivering)? = nil,
+        groupChats: GroupChatManager? = nil
     ) throws -> CompileTimeToolRegistry {
         var registry = CompileTimeToolRegistry()
         try registry.register(ReadFileTool.entry)
@@ -84,10 +91,19 @@ public enum ArcAgentCore {
         // on the calling profile's documents.
         try registry.register(ListProfilesTool.entry(profiles: profiles))
         try registry.register(GetProfileTool.entry(profiles: profiles))
-        try registry.register(SendBotMessageTool.entry(context: context, profiles: profiles))
         try registry.register(CreateProfileTool.entry(profiles: profiles))
-        try registry.register(DeleteProfileTool.entry(profiles: profiles))
-        try registry.register(SendGroupChatTool.entry(context: context))
+        try registry.register(DeleteProfileTool.entry(context: context, profiles: profiles))
+
+        // Messaging tools exist only where the delivery path does: absent
+        // services mean absent tools, not tools that fail at call time.
+        if let messaging {
+            try registry.register(SendBotMessageTool.entry(
+                context: context, profiles: profiles, messaging: messaging))
+        }
+        if let groupChats {
+            try registry.register(SendGroupChatTool.entry(
+                context: context, profiles: profiles, groupChats: groupChats))
+        }
 
         // Browser tools (CDP provider — no Playwright/Node required)
         try registry.register(BrowserTools.navigate)

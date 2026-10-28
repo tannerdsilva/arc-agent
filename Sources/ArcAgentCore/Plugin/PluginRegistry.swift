@@ -545,6 +545,8 @@ public struct MutableToolRegistry: ToolRegistry {
         profiles: any ProfileStore,
         memory: any MemoryProvider,
         sessions: any SessionStore,
+        messaging: (any BotMessageDelivering)? = nil,
+        groupChats: GroupChatManager? = nil,
         pluginRegistry: PluginRegistry? = nil,
         enabledPlugins: Set<String>? = nil,
         sources: [any ToolSource] = []
@@ -553,7 +555,9 @@ public struct MutableToolRegistry: ToolRegistry {
             context: context,
             profiles: profiles,
             memory: memory,
-            sessions: sessions
+            sessions: sessions,
+            messaging: messaging,
+            groupChats: groupChats
         )
         var registry = MutableToolRegistry(builtIn: builtIn)
         let plugins = pluginRegistry ?? PluginRegistry.shared

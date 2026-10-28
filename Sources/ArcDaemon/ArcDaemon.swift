@@ -45,6 +45,13 @@ public enum ArcDaemon {
         // read-modify-write of `index.json` instead of one per call site.
         let profileService = ProfileService()
 
+        // Data continuity (GROUNDZERO slice 5, D15). Memory lives per profile
+        // now, so an install that predates that still carries its memory in
+        // `~/.arc/memories/`. Relocate it once, before any service reads a
+        // profile document. Idempotent: a no-op from the second run on, and a
+        // profile created later deliberately inherits nothing.
+        await MemoryMigration.runIfNeeded(profiles: profileService)
+
         // Plan B: scoped process watcher. Configured always (so the
         // `process_watch` tool sees the rules even when disabled); the
         // service joins the tree only when enabled. Owned background
@@ -229,7 +236,12 @@ public enum ArcDaemon {
                     ),
                     profiles: TesseraProfileStore.shared,
                     memory: FileMemoryProvider(directory: ProfileManager.memoryURL(for: "default")),
-                    sessions: FileSessionStore()
+                    sessions: FileSessionStore(),
+                    // The session host owns the process's messaging services;
+                    // with no host there is no delivery path, so the two tools
+                    // are simply absent from this surface.
+                    messaging: sessionHost?.messaging,
+                    groupChats: sessionHost?.groupChats
                 )
             ))
         }

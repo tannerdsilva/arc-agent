@@ -126,6 +126,11 @@ public actor SessionAgent: Service {
                 profiles: agentConfig.profiles ?? TesseraProfileStore.shared,
                 memory: memoryProvider,
                 sessions: sessionStore,
+                // Messaging is register-when-available: a daemon session host
+                // owns both services, so its sessions carry both tools; a
+                // surface without them carries neither.
+                messaging: await registry.messagingService,
+                groupChats: await registry.groupChats,
                 enabledPlugins: pluginAllowList()
             )
 

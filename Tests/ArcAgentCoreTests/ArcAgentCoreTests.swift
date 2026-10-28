@@ -874,6 +874,29 @@ extension ArcCoreTestRoot {
             #expect(names == ["browser_back", "browser_cdp", "browser_click", "browser_close", "browser_connect", "browser_console", "browser_dialog", "browser_get_images", "browser_navigate", "browser_press", "browser_scroll", "browser_snapshot", "browser_type", "browser_vision", "clarify", "computer_use", "create_profile", "delegate_task", "delete_profile", "execute_code", "get_profile", "kanban_block", "kanban_complete", "kanban_create", "kanban_list", "kanban_show", "list_children", "list_profiles", "mcp_tool", "memory", "patch", "process", "process_watch", "profile_edit", "project_create", "project_list", "project_switch", "read_file", "search_files", "send_bot_message", "send_group_chat", "send_message", "session_search", "skill_manage", "skill_view", "skills_list", "steer_child", "stop_child", "terminal", "todo", "tool_search", "web_extract", "web_search", "write_file"])
         }
 
+        /// Register-when-available (GROUNDZERO slice 5): a surface built with
+        /// no messaging services carries neither messaging tool, and differs
+        /// from the full surface in exactly those two names. Absence is the
+        /// honest shape — a tool that cannot deliver is not advertised, rather
+        /// than advertised and failing at call time.
+        @Test("a registry without messaging services omits exactly the two messaging tools")
+        func registryWithoutMessagingServices() throws {
+            let full = try ArcAgentCore.testRegistry()
+            let bare = try ArcAgentCore.buildRegistry(
+                context: ArcAgentCore.testContext(),
+                profiles: InMemoryProfileStore(),
+                memory: FileMemoryProvider(),
+                sessions: FileSessionStore()
+            )
+
+            let fullNames = Set(full.allTools.map(\.name))
+            let bareNames = Set(bare.allTools.map(\.name))
+
+            #expect(fullNames.subtracting(bareNames) == Set(["send_bot_message", "send_group_chat"]))
+            #expect(bareNames.subtracting(fullNames).isEmpty)
+            #expect(bareNames.contains("send_message"))
+        }
+
         // =========================================================================
         // MARK: - LLM Error Descriptions
         // =========================================================================

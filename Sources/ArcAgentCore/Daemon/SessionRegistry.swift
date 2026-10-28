@@ -141,6 +141,10 @@ public actor SessionRegistry {
     private let deliveryManager: DeliveryManager
     private let profileManager: ProfileManager
     private(set) var messagingService: BotMessagingService?
+    /// The process's group-chat rooms, when a session host owns them. Read by
+    /// ``SessionAgent`` so a session's tool surface registers
+    /// `send_group_chat` only where rooms actually exist.
+    private(set) var groupChats: GroupChatManager?
     private let logger = Logger(label: "com.arc-agent.session-registry")
 
     /// Delay before the first auto-restart of a crashed session agent, in
@@ -209,6 +213,11 @@ public actor SessionRegistry {
     /// Set the messaging service reference.
     func setMessagingService(_ service: BotMessagingService) {
         self.messagingService = service
+    }
+
+    /// Set the group-chat manager reference.
+    func setGroupChats(_ manager: GroupChatManager) {
+        self.groupChats = manager
     }
 
     /// Get or create a session agent for the given session ID.

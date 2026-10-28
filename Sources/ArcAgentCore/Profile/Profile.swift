@@ -212,7 +212,7 @@ public enum ProfileError: Error, Sendable, CustomStringConvertible, Equatable {
     public var description: String {
         switch self {
         case .invalidName(let name):
-            return "Invalid profile name '\(name)'. Use lowercase alphanumeric, hyphens, underscores (2-64 chars)."
+            return "Invalid profile name '\(name)'. Use 2-64 chars: lowercase letters, digits, hyphens and underscores, starting with a letter or digit."
         case .duplicateName(let name):
             return "A profile named '\(name)' already exists."
         case .notFound(let name):
@@ -230,7 +230,10 @@ public enum ProfileError: Error, Sendable, CustomStringConvertible, Equatable {
 }
 
 /// Validate a profile name.
-/// Rules: 2-64 chars, lowercase alphanumeric, hyphens, underscores.
+/// Rules: 2-64 chars; lowercase letters, digits, hyphens and underscores; the
+/// first character must be a letter or digit (so `-x` and `_x` are invalid, but
+/// a leading digit is fine). The roster-tool prose states the same rule — if
+/// this regex changes, that sentence changes with it (GROUNDZERO D2).
 public func validateProfileName(_ name: String) -> Bool {
     guard name.count >= 2 && name.count <= 64 else { return false }
     let pattern = "^[a-z0-9][a-z0-9_-]+$"

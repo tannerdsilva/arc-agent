@@ -130,6 +130,12 @@ struct Chat: AsyncParsableCommand {
         // built ahead of it would carry the unlocked default.
         AgentPowers.configure(arcConfig.agentPowers)
 
+        // Data continuity (GROUNDZERO slice 5, D15): this path reads memory
+        // from the profile directory, so an install that predates that change
+        // still has its memory in `~/.arc/memories/`. Relocate it once, before
+        // the provider below is built. A no-op from the second run on.
+        await MemoryMigration.runIfNeeded(profiles: TesseraProfileStore.shared)
+
         // Checkpoints: `--checkpoints` forces the safety net on for this
         // session (reference `hermes chat --checkpoints`).
         if checkpoints {
