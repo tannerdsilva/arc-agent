@@ -25,15 +25,16 @@ struct AppSidebarTabHost: SidebarTabHost {
     func navigate(to tabID: String) async {
         await state.switchTab(tabID)
         await state.notifyTabActivated(tabID)
-        // Targeted: plugin tabs render inside #main via the tab protocol
-        // adapter, so the rail + main updates carry the switch — no whole-app
-        // swap (that reads as a page refresh).
-        _ = await state.refreshFragments()
+        // The host holds no door handle, so this cannot repaint on its own: the
+        // page updates on the next structural push from a handler that has one
+        // (a rail click already does). The pre-B4 shape rendered eight regions
+        // here and dropped the batch — that was not a repaint either, and it ate
+        // a staged copy-link marker on the way to the bin.
     }
 
     func refreshTab(_ tabID: String) async {
         guard await state.isActiveTab(tabID) else { return }
-        _ = await state.refreshFragments()
+        // see `navigate(to:)`: no door handle, nothing to push.
     }
 }
 
