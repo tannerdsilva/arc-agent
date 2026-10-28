@@ -107,6 +107,91 @@ actor PushPipeline {
     }
 }
 
+/// The one structural push edge: the door every producer in arc pushes through,
+/// standing on no-webui's `PageDiffer` instead of re-deriving a patch per
+/// handler.
+///
+/// A batch means one of two things, and the door tells them apart rather than
+/// trusting the producer to have:
+///
+/// - a **structural** op (`nil`/`.replace`) says "the page changed". The frame
+///   the client needs is the difference between what it holds and a *fresh*
+///   render, so the edge renders once and ships the differ's frames. The `html`
+///   the producer sent is ignored: a handler that assembled markup is re-sending
+///   bytes the render already contains, at best identical and at worst stale.
+/// - a **delta** op (`.text`, `.append`) is a write against a node another
+///   producer owns — the streaming spans, which `FragmentUpdate.text` rewrites on
+///   every token. It goes to the wire verbatim, transition flag included;
+///   re-deriving it would fight that writer.
+///
+/// Structure ships first, deltas second: a delta targets a node the structural
+/// frame may have re-mounted, and the client would log "Element not found" for a
+/// delta that beat its own container.
+final class PushEdge: Sendable {
+
+    /// The diff arc's page is served from.
+    ///
+    /// `elementID` identity is the only one that is a real address: the engine
+    /// resolves a frame with `getElementById`, and the shell is full of elements
+    /// that carry a component attribute but no `id`. `.finest` coverage is what
+    /// keeps a chrome change from dragging `#app` onto the wire; `.nearestTrackedAncestor`
+    /// makes an appeared node a parent replace instead of a whole page; the two
+    /// excluded spans are the token-owned ones, whose bytes must not make their
+    /// ancestors look changed. `transition: false` is a stated policy, not a `nil`
+    /// delegation — the diff is not a navigation and must not animate as one.
+    static let livePolicy = RegionPolicy(
+        identity: .elementID,
+        coverage: .finest,
+        escalation: .nearestTrackedAncestor,
+        excluded: ["live-turn-text", "live-turn-thinking"],
+        transition: false
+    )
+
+    private let differ: PageDiffer
+    /// the markup a fresh `app.appShell()` answers — the root element's own
+    /// bytes, never a document (a document's diff is scoped to `<body>`, and the
+    /// frames would then name a different root than every later render).
+    private let render: @Sendable () async -> String
+    /// the wire. A closure, not a `WebUIServer`: the door's whole job is to decide
+    /// what crosses, and a test that has to conjure a live server to observe that
+    /// decision is a test that will not be written.
+    private let broadcast: @Sendable ([FragmentUpdate]) async -> Void
+
+    init(
+        differ: PageDiffer,
+        render: @escaping @Sendable () async -> String,
+        broadcast: @escaping @Sendable ([FragmentUpdate]) async -> Void
+    ) {
+        self.differ = differ
+        self.render = render
+        self.broadcast = broadcast
+    }
+
+    /// The door `Controller.push` is wired to.
+    ///
+    /// Partition, never assume: a batch is homogeneous today — all `.text` from
+    /// the token stream, all `.replace` from a handler — but a door that assumed
+    /// it would silently drop a delta the day a producer mixed the two, and the
+    /// failure would look like a dropped keystroke rather than a dropped batch.
+    func push(_ updates: [FragmentUpdate]) async {
+        let deltas = updates.filter { $0.op == .text || $0.op == .append }
+        let hasStructure = updates.contains { $0.op == nil || $0.op == .replace }
+
+        if hasStructure {
+            let frames = differ.messages(forMarkup: await render(), root: "app")
+            // empty means "nothing moved" — the render that triggered this push
+            // produced the bytes the client already holds, so there is no frame and
+            // no reason to wake the wire.
+            if !frames.isEmpty { await broadcast(frames) }
+        }
+        if !deltas.isEmpty { await broadcast(deltas) }
+    }
+
+    /// Declare what the client already holds — the page the host just served — so
+    /// the first patch is a region instead of a whole-root replace.
+    func seed(_ markup: String) { differ.seed(withMarkup: markup) }
+}
+
 /// The Web UI host: boots the app state, serves the page through no-webui's
 /// `WebUIServer`, and streams logs + the workspace tree while it runs.
 ///
@@ -310,19 +395,31 @@ public struct WebUIHost: Service {
             logger: logger
         )
 
-        let deduper = PushDeduper()
-        let pipeline = PushPipeline(app: app, server: server, deduper: deduper)
-        let controller = Controller(app: app, push: { updates in
-            await pipeline.push(updates)
-        })
-        await controller.wireAll(router)
-
-        // the boot page is rendered here, once the stamped asset urls exist, purely
-        // so the log line reports a real byte count.
+        // The one push edge. Every producer's batch crosses this door, and the
+        // frame that reaches the wire is derived from a fresh render rather than
+        // trusted from the producer.
+        //
+        // The boot shell is captured once and serves twice: the log line's byte
+        // count, and the differ's seed. The seed is the shell's ELEMENT markup
+        // (`#app`), not the document — every later `render()` answers `#app`, and
+        // a document's diff is scoped to `<body>`. Seeding a document would diff
+        // two different roots on the first push and ship the whole page.
+        let bootShell = await app.appShell().markup
         let bootPageBytes = makeDocument(
-            await app.appShell().markup,
+            bootShell,
             AppShell.themeAttrs(await app.themeDefaults())
         ).markup.html.utf8.count
+
+        let edge = PushEdge(
+            differ: PageDiffer(policy: PushEdge.livePolicy),
+            render: { [app] in await app.appShell().markup.html },
+            broadcast: { [server] updates in await server.broadcast(updates) }
+        )
+        edge.seed(bootShell.html)
+        let controller = Controller(app: app, push: { updates in
+            await edge.push(updates)
+        })
+        await controller.wireAll(router)
         logger.info("serving http://\(host):\(port) (page \(bootPageBytes) bytes)")
         // no cron engine here: the daemon owns the one scheduler and calls
         // back into this host's `runScheduledJob` for job execution.
