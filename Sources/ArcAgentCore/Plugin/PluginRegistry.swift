@@ -522,7 +522,8 @@ public struct MutableToolRegistry: ToolRegistry {
     /// (reference `plugins.enabled` semantics).
     public static func make(
         pluginRegistry: PluginRegistry? = nil,
-        enabledPlugins: Set<String>? = nil
+        enabledPlugins: Set<String>? = nil,
+        sources: [any ToolSource] = []
     ) async throws -> MutableToolRegistry {
         let builtIn = try ArcAgentCore.buildDefaultRegistry()
         var registry = MutableToolRegistry(builtIn: builtIn)
@@ -531,6 +532,11 @@ public struct MutableToolRegistry: ToolRegistry {
         for tool in await plugins.tools() {
             if let allow = enabledPlugins, !allow.contains(tool.plugin) { continue }
             registry.install(pluginTool: tool)
+        }
+        for source in sources {
+            for tool in try await source.tools() {
+                try registry.register(tool)
+            }
         }
         return registry
     }

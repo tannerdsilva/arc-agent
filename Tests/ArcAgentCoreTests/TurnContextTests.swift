@@ -19,6 +19,7 @@ extension ArcCoreTestRoot {
             client: any LLMClient,
             autoCompression: Bool = true,
             workspaceRoot: String? = nil,
+            initialHistory: [Message]? = nil,
             maxContextTokens: Int = 64_000,
             maxIterations: Int = 25
         ) async -> ArcAgent {
@@ -35,6 +36,7 @@ extension ArcCoreTestRoot {
                 approvalMode: .off,
                 maxContextTokens: maxContextTokens,
                 workspaceRoot: workspaceRoot,
+                initialHistory: initialHistory,
                 autoCompression: autoCompression,
             )
             let agent = ArcAgent(config: config)
@@ -281,6 +283,47 @@ extension ArcCoreTestRoot {
             // since no compression auxiliary override is configured).
             let calls = client.allRecordedMessages
             #expect(calls.count == 2)
+        }
+
+        // MARK: seeded history
+
+        @Test("initial history is seeded once, ahead of the turn's user message")
+        func initialHistorySeedsFirstRequest() async throws {
+            let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+            defer { _ = httpClient.shutdown() }
+
+            let seeded = [
+                Message(role: .user, content: "earlier question"),
+                Message(role: .assistant, content: "earlier answer"),
+            ]
+            let client = EventScriptClient(first: .init(chunks: ["done"]), final: .init())
+            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let agent = await makeAgent(
+                registry: registry,
+                httpClient: httpClient,
+                client: client,
+                initialHistory: seeded
+            )
+
+            _ = try await collect(agent, message: "go")
+            _ = try await collect(agent, message: "again")
+
+            let calls = client.allRecordedMessages
+            #expect(calls.count == 2)
+
+            // first request: the system prompt, the seeded pair in order, then the
+            // turn's own user message.
+            let first = calls[0].map { $0.content ?? "" }
+            let seedIndex = try #require(first.firstIndex(of: "earlier question"))
+            let answerIndex = try #require(first.firstIndex(of: "earlier answer"))
+            let turnIndex = try #require(first.firstIndex(of: "go"))
+            #expect(seedIndex < answerIndex, "seeded pairs keep their order")
+            #expect(answerIndex < turnIndex, "seeded history precedes the turn's message")
+
+            // one-shot: a second turn does not re-apply the seed.
+            let second = calls[1].map { $0.content ?? "" }
+            #expect(second.filter { $0 == "earlier question" }.count == 1)
+            #expect(second.filter { $0 == "earlier answer" }.count == 1)
         }
     }
 }

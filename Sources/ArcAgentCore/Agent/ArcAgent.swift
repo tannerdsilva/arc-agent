@@ -102,6 +102,11 @@ public actor ArcAgent: Service {
         /// default; enabled via `compression.micro_compact`.
         public var microCompact: MicroCompactConfig = MicroCompactConfig()
 
+        /// Whether the agent may run the automatic compression pass at the top
+        /// of each turn loop iteration. Default ON; set false to disable
+        /// auto-compression entirely (a manual `/compress` still works).
+        public var autoCompression: Bool = true
+
         /// Agent-powers lockdown gate (skills + profile files). All locks
         /// default to OFF; the running agent installs this into
         /// ``AgentPowers`` at init so tools refuse locked surfaces.
@@ -168,6 +173,18 @@ public actor ArcAgent: Service {
         /// working directory (the default for the CLI).
         public var contextDirectory: URL?
 
+        /// The workspace root bound to `WorkspacePath.$root` at every tool
+        /// dispatch. `nil` = fall back to the process working directory.
+        /// Two agents in one process with different roots see different
+        /// resolutions for the same relative path.
+        public var workspaceRoot: String?
+
+        /// Initial conversation history seeded once at the start of the first
+        /// turn. Applied in the `streamTurn` prelude before the user message is
+        /// appended, then cleared so it is never re-applied on a retry or a
+        /// second `streamTurn`.
+        public var initialHistory: [Message]? = nil
+
         /// Platform label for the prompt's session line (arc parity).
         public var platformHint: String
 
@@ -206,12 +223,15 @@ public actor ArcAgent: Service {
             fallbackAPIKeys: [String] = [],
             injectProjectContext: Bool = true,
             contextDirectory: URL? = nil,
+            workspaceRoot: String? = nil,
             platformHint: String = "cli",
+            initialHistory: [Message]? = nil,
             moa: MoAConfig = MoAConfig(),
             toolSearch: ToolSearchConfig = ToolSearchConfig(),
             skillInlineCommands: Bool = true,
             backgroundReview: BackgroundReview.Settings = BackgroundReview.Settings(),
             verifyOnStop: Bool = false,
+            autoCompression: Bool = true,
             reasoningEffort: String? = nil,
             temperature: Double? = nil,
             topP: Double? = nil,
@@ -261,13 +281,16 @@ public actor ArcAgent: Service {
             self.fallbackAPIKeys = fallbackAPIKeys
             self.injectProjectContext = injectProjectContext
             self.contextDirectory = contextDirectory
+            self.workspaceRoot = workspaceRoot
             self.platformHint = platformHint
+            self.initialHistory = initialHistory
             self.profileName = profileName
             self.moa = moa
             self.toolSearch = toolSearch
             self.skillInlineCommands = skillInlineCommands
             self.backgroundReview = backgroundReview
             self.verifyOnStop = verifyOnStop
+            self.autoCompression = autoCompression
             self.mcpServers = mcpServers
             self.disabledToolsets = disabledToolsets
             self.delegation = delegation
@@ -327,6 +350,12 @@ public actor ArcAgent: Service {
     /// Session-scoped todo list (reference `todo_tool.py`). One per agent
     /// instance — re-injected after context compression.
     private let todoStore = TodoStore()
+    /// Clarify presenter for this agent's turns (bound to ``ClarifyTool/presenter``
+    /// TaskLocal during the turn via ``withSkillContext``).
+    private var clarifyPresenter: ClarifyTool.Presenter? = nil
+    /// Code-execution host for this agent's turns (bound to
+    /// ``ExecuteCodeTool/host`` TaskLocal during the turn via ``withSkillContext``).
+    private var codeHost: (@Sendable (String, [String: Any]) async throws -> String)? = nil
     /// Streaming reasoning-tag scrubber (reference `think_scrubber.py`
     /// `StreamingThinkScrubber`). Re-entrant per stream — reset at the top
     /// of every new streamed turn so a hung block from an interrupted prior
@@ -403,6 +432,9 @@ public actor ArcAgent: Service {
     private var lastTwoCompressionSavings: [Int] = []
     /// Mid-turn steering messages, drained before the next LLM request.
     private var pendingSteers: [String] = []
+    /// One-shot ``Configuration/initialHistory`` seed, applied before the first
+    /// user message and cleared so a retry never re-applies it.
+    private var pendingInitialHistory: [Message]?
     /// Cooperative interrupt flag, honored at iteration boundaries.
     private var turnInterrupted = false
 
@@ -420,6 +452,7 @@ public actor ArcAgent: Service {
         self.config = config
         self.messageHistory = []
         self.sessionID = config.sessionID ?? UUID().uuidString
+        self.pendingInitialHistory = config.initialHistory
         // The smart-approval classifier is wired from `wireSmartApproval()`
         // (once the agent's own state is fully initialized). An injected
         // manager (web UI turn loop) replaces the agent-local one entirely —
@@ -586,7 +619,7 @@ public actor ArcAgent: Service {
 
     /// Inject a system message at the beginning of the conversation.
     /// Used by the session host to inject profile-specific SOUL.md content.
-    func injectSystemMessage(_ content: String) async {
+    public func injectSystemMessage(_ content: String) async {
         // Remove any existing system messages with the same prefix
         messageHistory.removeAll { msg in
             msg.role == .system && (msg.content?.hasPrefix("[Profile:") ?? false)
@@ -1053,6 +1086,16 @@ public actor ArcAgent: Service {
         await CheckpointGuard.shared.beginTurn()
     }
 
+    /// Apply the one-shot ``Configuration/initialHistory`` seed, if any.
+    ///
+    /// Runs in the `streamTurn` prelude before the user message is appended and
+    /// clears the pending seed, so a retry or a second turn never re-applies it.
+    private func applyInitialHistoryIfNeeded() {
+        guard let initial = pendingInitialHistory else { return }
+        pendingInitialHistory = nil
+        messageHistory.append(contentsOf: initial)
+    }
+
     private func appendUserMessage(_ message: Message) {
         messageHistory.append(message)
     }
@@ -1204,12 +1247,37 @@ public actor ArcAgent: Service {
 
     /// Run `body` with the skill-context TaskLocals anchored to this agent's
     /// session (reference skill_preprocessing needs the session for `${ARC_SESSION_ID}`).
+    /// Register the UI's clarify presenter for this agent's turns.
+    ///
+    /// The presenter is bound to ``ClarifyTool/presenter`` inside
+    /// ``withSkillContext``, so a parallel tool batch dispatched by this agent
+    /// resolves *its own* presenter rather than a sibling agent's.
+    public func setClarifyPresenter(_ presenter: ClarifyTool.Presenter?) async {
+        self.clarifyPresenter = presenter
+    }
+
+    /// Register the host tool-executor closure for this agent's turns.
+    ///
+    /// The host is bound to ``ExecuteCodeTool/host`` inside
+    /// ``withSkillContext``, so host tools reach the surface that spawned the
+    /// turn. `nil` = no host: `execute_code` runs unhosted.
+    public func setCodeHost(_ host: (@Sendable (String, [String: Any]) async throws -> String)?) async {
+        self.codeHost = host
+    }
+
     private func withSkillContext<T>(
         _ body: () async throws -> T
     ) async rethrows -> T {
         try await SkillContext.$sessionID.withValue(config.sessionID ?? "") {
             try await SkillContext.$allowInlineCommands.withValue(config.skillInlineCommands) {
-                try await body()
+                // bind the per-turn presenters so any tool dispatched inside
+                // this turn (including parallel tool batches) sees its own
+                // agent's presenter, not a sibling's.
+                try await ClarifyTool.$presenter.withValue(clarifyPresenter) {
+                    try await ExecuteCodeTool.$host.withValue(codeHost) {
+                        try await body()
+                    }
+                }
             }
         }
     }
@@ -1364,6 +1432,7 @@ public actor ArcAgent: Service {
         focus: String? = nil,
         force: Bool = false
     ) async {
+        guard config.autoCompression || force else { return }
         let limit = effectiveContextLimit()
         let estimated = await estimateRequestTokens()
         guard Self.shouldAutoCompress(
@@ -1913,6 +1982,7 @@ public actor ArcAgent: Service {
                         try await prime()
                         await restoreSessionIfNeeded()
                         await resetTurnState()
+                        await self.applyInitialHistoryIfNeeded()
                         await self.appendUserMessage(Message(role: .user, content: self.effectiveUserText(message)))
                         try await runStreamingTurnLoop(emit: { event in continuation.yield(event) })
                     }
@@ -3083,7 +3153,7 @@ public actor ArcAgent: Service {
                 }
                 return try await self.dispatchAmbientTool(name: name, args: NonSendableBox(args))
             }
-            return try await WorkspacePath.$root.withValue(FileManager.default.currentDirectoryPath) {
+            return try await WorkspacePath.$root.withValue(config.workspaceRoot ?? FileManager.default.currentDirectoryPath) {
                 try await entry.handler(argsBox.value)
             }
         } catch {
@@ -3414,7 +3484,7 @@ public actor ArcAgent: Service {
             - OS: \(osDescription)
             - Home directory: \(NSHomeDirectory())
             - Desktop: \(NSHomeDirectory())/Desktop
-            - Working directory for tools (relative paths resolve here): \(FileManager.default.currentDirectoryPath)
+            - Working directory for tools (relative paths resolve here): \(config.workspaceRoot ?? FileManager.default.currentDirectoryPath)
             - Use ~/... paths (or absolute paths) for user-visible locations; the `terminal` tool's shell expands `~`, and `write_file` accepts paths relative to the working directory.
             """
         }

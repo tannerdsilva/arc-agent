@@ -490,7 +490,7 @@ struct LiveTurn {
     /// Accumulated reasoning/thinking text streamed by the model.
     var thinking: String = ""
     var toolChips: [String] = []
-    var status: String = "running"   // running | tool | done | error
+    var status: String = "running"   // running | tool | compressing | done | error
     /// Name of the tool currently executing (nil outside a tool call) and when it
     /// started — the live status line shows name + a client-ticked clock.
     var toolName: String? = nil

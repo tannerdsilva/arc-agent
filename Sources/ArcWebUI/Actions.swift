@@ -928,7 +928,9 @@ extension AppState {
                             await pusher(await transcriptFragments())
                         }
                     }
-                case .toolCallStarted, .toolCallFinished:
+                case .toolCallStarted, .toolCallFinished, .compressing:
+                    // a compression pass is mid-turn: it must not close the
+                    // held tool round, since text and tools continue after it.
                     break
                 }
 
@@ -979,6 +981,11 @@ extension AppState {
                        let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                         recordSkillToolUse(toolName: name, args: args)
                     }
+                    applyLive(event)
+                    await flush()
+                case .compressing:
+                    // display-only: a compression pass is running. no round
+                    // mutation — the turn's text and tools continue after it.
                     applyLive(event)
                     await flush()
                 case .completed(let finalText, _):

@@ -2,6 +2,7 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 import AsyncHTTPClient
+import Synchronization
 
 // =========================================================================
 // MARK: - Scripted streaming client
@@ -12,7 +13,7 @@ import AsyncHTTPClient
 /// emits `final`. Deltas arrive reasoning → content chunks → tool calls →
 /// usage → finish reason, mirroring the OpenAI-compatible wire order (the
 /// turn loop stops reading at `finishReason`).
-struct EventScriptClient: LLMClient {
+final class EventScriptClient: LLMClient {
 
     struct Round {
         var chunks: [String] = []
@@ -23,6 +24,22 @@ struct EventScriptClient: LLMClient {
 
     let first: Round
     let final: Round
+
+    init(first: Round, final: Round) {
+        self.first = first
+        self.final = final
+    }
+
+    /// Message batches received by each `stream(...)` call, in call order.
+    /// Mutex-guarded: the scripted client is called from the agent actor and
+    /// read from the test body.
+    private let recordedMessages = Mutex<[[Message]]>([])
+
+    /// The messages each model request carried, in request order. Context
+    /// tests assert on what the model actually saw (prompt, seeded history).
+    var allRecordedMessages: [[Message]] {
+        recordedMessages.withLock { $0 }
+    }
 
     func complete(messages: [Message], tools: [[String: Any]]?) async throws -> LLMResponse {
         throw LLMError.apiError(statusCode: 500, message: "scripted client is streaming-only")
@@ -37,6 +54,7 @@ struct EventScriptClient: LLMClient {
         tools: [[String: Any]]?,
         reasoningEffort: String?
     ) -> AsyncThrowingStream<LLMDelta, Error> {
+        recordedMessages.withLock { $0.append(messages) }
         let round = messages.contains(where: { $0.role == .tool }) ? final : first
         return AsyncThrowingStream { continuation in
             Task {

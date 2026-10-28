@@ -132,15 +132,44 @@ extension ArcCoreTestRoot {
             #expect(cfg.auxiliary.resolved(for: .triageSpecifier, over: cfg.model).model == "x")
         }
 
-        @Test("the live ~/.arc/config.json maps aux tasks to the reference oMLX layout")
-        func liveConfigMirrorsreference() throws {
-            let url = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".arc/config.json")
-            guard FileManager.default.fileExists(atPath: url.path),
-                  let data = try? Data(contentsOf: url),
-                  let cfg = try? JSONDecoder().decode(ArcConfig.self, from: data)
-            else { return }  // no local config: nothing to assert
-
+        /// the reference oMLX deployment, expressed as a config VALUE.
+        ///
+        /// pinned here as a fixture rather than read from the maintainer's live
+        /// `~/.arc/config.json`: the live read asserted one particular
+        /// deployment, so it was red on every machine configured with a
+        /// different provider, and it `return`ed silently when the file was
+        /// absent — neither a test of arc nor a reliable live check. the
+        /// routing it asserted is a property of a config value, so a fixture
+        /// pins it on any machine.
+        ///
+        /// the load-bearing assertions are the per-task routing and that the
+        /// main model is untouched: a mistyped or renamed aux key decodes to
+        /// "no override" silently, which is exactly the regression this catches.
+        @Test("a reference-shaped auxiliary block decodes and routes every task")
+        func referenceLayoutDecodesAndRoutes() throws {
+            let json = """
+            {
+              "model": {
+                "defaultModel": "deepseek-v4-flash-vision-exp",
+                "provider": "custom",
+                "baseURL": "https://api.deepseek.com/v1"
+              },
+              "auxiliary": {
+                "compression":       { "model": "Qwen3.6-35B-A3B-OptiQ-4bit", "base_url": "http://127.0.0.1:8000/v1" },
+                "web_extract":       { "model": "LFM2.5-8B-A1B-MLX-bf16",     "base_url": "http://127.0.0.1:8000/v1" },
+                "approval":          { "model": "LFM2.5-8B-A1B-MLX-bf16",     "base_url": "http://127.0.0.1:8000/v1" },
+                "mcp":               { "model": "LFM2.5-8B-A1B-MLX-bf16",     "base_url": "http://127.0.0.1:8000/v1" },
+                "title_generation":  { "model": "LFM2.5-8B-A1B-MLX-bf16",     "base_url": "http://127.0.0.1:8000/v1" },
+                "tts_audio_tags":    { "model": "LFM2.5-8B-A1B-MLX-bf16",     "base_url": "http://127.0.0.1:8000/v1" },
+                "triage_specifier":  { "model": "LFM2.5-8B-A1B-MLX-bf16",     "base_url": "http://127.0.0.1:8000/v1" },
+                "kanban_decomposer": { "model": "LFM2.5-8B-A1B-MLX-bf16",     "base_url": "http://127.0.0.1:8000/v1" },
+                "profile_describer": { "model": "LFM2.5-8B-A1B-MLX-bf16",     "base_url": "http://127.0.0.1:8000/v1" },
+                "curator":           { "model": "LFM2.5-8B-A1B-MLX-bf16",     "base_url": "http://127.0.0.1:8000/v1" },
+                "skills_hub":        { "model": "LFM2.5-8B-A1B-MLX-bf16",     "base_url": "http://127.0.0.1:8000/v1" }
+              }
+            }
+            """
+            let cfg = try JSONDecoder().decode(ArcConfig.self, from: Data(json.utf8))
             let main = cfg.model
 
             // compression -> the Qwen model

@@ -218,7 +218,8 @@ extension AppState {
                     for message in takeToolRoundMessages() {
                         await persist(message)
                     }
-                case .toolCallStarted, .toolCallFinished:
+                case .toolCallStarted, .toolCallFinished, .compressing:
+                    // mid-turn; the held tool round stays open.
                     break
                 }
 
@@ -240,6 +241,10 @@ extension AppState {
                     ))
                 case .toolCallFinished(let id, let name, let result):
                     heldToolRound?.results.append((id: id, name: name, result: result))
+                case .compressing:
+                    // display-only; a scheduled-job transcript stores no
+                    // compression state.
+                    break
                 case .completed(let text, _):
                     round.apply(event)
                     completedText = text

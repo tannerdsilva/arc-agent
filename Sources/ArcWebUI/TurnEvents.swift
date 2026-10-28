@@ -40,7 +40,10 @@ struct TurnTranscript: Sendable {
             toolMessages.append(
                 Message(role: .tool, content: result, name: name, toolCallID: id)
             )
-        case .toolCallStarted, .failed:
+        case .toolCallStarted, .failed, .compressing:
+            // non-terminal bookkeeping the transcript does not record:
+            // starts and failures land as tool/assistant messages elsewhere,
+            // and a compression pass is display-only.
             break
         }
     }
@@ -98,6 +101,10 @@ struct TurnLiveState: Sendable {
             } else {
                 next.status = "tool"
             }
+        case .compressing:
+            // non-terminal, display-only: a compression pass is running. the
+            // next text/tool event restores "running"/"tool".
+            next.status = "compressing"
         case .completed:
             next.status = "done"
         case .failed(let message):
