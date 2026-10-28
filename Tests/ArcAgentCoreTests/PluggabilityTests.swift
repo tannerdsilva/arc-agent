@@ -301,10 +301,11 @@ extension ArcCoreTestRoot {
             let installed = mutable.install(pluginTool: pluginTool)
             #expect(installed)
 
-            // The registry hands back the plugin tool as an existential AgentTool —
+            // The registry hands back the plugin tool paired with its origin —
             // no closure wrapping — and it dispatches through the protocol handler.
-            let tool: (any AgentTool)? = mutable.lookup(name: "echo_tool")
-            let resolved = try #require(tool)
+            let registered = try #require(mutable.lookup(name: "echo_tool"))
+            #expect(registered.origin == .plugin("echo"))
+            let resolved = registered.tool
             #expect(resolved is PluginTool)
             #expect(resolved.name == "echo_tool")
             #expect(resolved.emoji == "🧩")
@@ -319,7 +320,7 @@ extension ArcCoreTestRoot {
                 "\(tool.name)[\(tool.toolset)]"
             }
             let builtIn = try ArcAgentCore.buildDefaultRegistry()
-            let builtInEntry = try #require(builtIn.lookup(name: "read_file"))
+            let builtInEntry = try #require(builtIn.lookup(name: "read_file")?.tool)
             #expect(describe(builtInEntry) == "read_file[file]")
 
             let pluginTool = PluginTool(plugin: "p", name: "p_tool", description: "d", command: "python3")
@@ -333,7 +334,8 @@ extension ArcCoreTestRoot {
             let refused = mutable.install(pluginTool: colliding)
             #expect(!refused)
             // The built-in still wins dispatch.
-            #expect(mutable.lookup(name: "read_file") is ToolEntry)
+            #expect(mutable.lookup(name: "read_file")?.tool is ToolEntry)
+            #expect(mutable.lookup(name: "read_file")?.origin == .builtin)
             // Exactly one read_file function reaches the model.
             let schemas = mutable.buildToolSchemas(enabled: [], disabled: [])
             let readFileFunctions = schemas.filter {

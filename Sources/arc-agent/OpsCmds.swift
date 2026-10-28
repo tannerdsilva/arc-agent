@@ -25,7 +25,7 @@ struct PromptSizeCmd: AsyncParsableCommand {
             registry: registry, disabled: [], config: config.toolSearch,
             contextLength: contextLength)
         let deferredPlan = DeferredToolPolicy.plan(
-            entries: registry.allTools,
+            entries: registry.allTools.map { $0.tool },
             config: config.toolSearch)
         let manifestTokens = ProgressiveToolDisclosure.manifest(
             deferred: deferredPlan.deferred, config: config.toolSearch,

@@ -248,7 +248,9 @@ public enum ProgressiveToolDisclosure {
         config: ToolSearchConfig,
         contextLength: Int?
     ) -> [[String: Any]] {
-        let candidates = registry.allTools.filter { !disabled.contains($0.toolset) }
+        let candidates = registry.allTools
+            .filter { !disabled.contains($0.toolset) }
+            .map { $0.tool }
         let (visible, deferred) = DeferredToolPolicy.plan(entries: candidates, config: config)
         guard deferred.isEmpty == false, config.enabled != "off" else {
             // Eager path — identical output to the plain registry rendering.

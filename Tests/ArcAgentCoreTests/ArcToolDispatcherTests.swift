@@ -236,7 +236,7 @@ extension ArcCoreTestRoot {
             // absent from the loopback catalog while its own toolset's tools are
             // still there.
             var registry = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
-            try registry.register(tool)
+            try registry.register(tool, origin: .source(source.name))
             let outward = ArcToolDispatcher(registry: registry)
 
             let loopback = Set(outward.toolCatalog(for: .admin).map(\.name))

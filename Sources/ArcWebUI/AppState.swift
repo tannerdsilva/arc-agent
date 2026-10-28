@@ -1228,7 +1228,9 @@ actor AppState {
         self.settings.kanbanCards = fixture.kanbanCards
         self.registry = MutableToolRegistry(builtIn: CompileTimeToolRegistry())
         for tool in fixture.registryTools {
-            try? self.registry.register(tool)
+            // Render fixtures are neither compiled in nor plugin-discovered:
+            // they arrive as a source, and are stamped as one.
+            try? self.registry.register(tool, origin: .source("fixture"))
         }
         self.sidebarPlugins = []
         self.pluginTabs = [:]
@@ -1236,7 +1238,7 @@ actor AppState {
 
     init(thirdPartyPlugins: [any SidebarTabPlugin] = []) async throws {
         self.registry = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
-        let grouped = Dictionary(grouping: self.registry.allTools, by: { $0.toolset })
+        let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolset })
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
         self.settings = Self.loadSettings()
         let rawConfig = Self.rawArcConfig()
@@ -1319,7 +1321,7 @@ actor AppState {
         if let made = try? await MutableToolRegistry.make(enabledPlugins: allow) {
             self.registry = made
         }
-        let grouped = Dictionary(grouping: self.registry.allTools, by: { $0.toolset })
+        let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolset })
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
     }
 

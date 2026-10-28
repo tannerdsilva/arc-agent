@@ -27,8 +27,12 @@ public struct ArcToolDispatcher: MCPToolDispatcher {
     }
 
     /// Serves every tool a registry holds.
+    ///
+    /// The dispatcher serves the tools, not their provenance: access policy is
+    /// decided by toolset and placement, and filtering by origin is a separate
+    /// decision this seam does not make.
     public init(registry: some ToolRegistry) {
-        self.entries = registry.allTools
+        self.entries = registry.allTools.map { $0.tool }
     }
 
     // MARK: - MCPToolDispatcher

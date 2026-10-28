@@ -29,8 +29,8 @@ public protocol ToolSource: Sendable {
 /// The registry itself as a source, so surface assembly is uniform.
 ///
 /// A source must not contribute a name the registry it is assembled into already
-/// holds: ``MutableToolRegistry/register(_:)`` refuses the duplicate rather than
-/// letting two tools share one name on the model surface.
+/// holds: ``MutableToolRegistry/register(_:origin:)`` refuses the duplicate
+/// rather than letting two tools share one name on the model surface.
 public struct RegistryToolSource: ToolSource {
 
     public let name = "registry"
@@ -41,7 +41,9 @@ public struct RegistryToolSource: ToolSource {
     }
 
     public func tools() async throws -> [any AgentTool] {
-        registry.allTools
+        // Provenance stays with the registry that assigned it; a source hands
+        // the downstream registry bare tools and names its own origin there.
+        registry.allTools.map { $0.tool }
     }
 }
 

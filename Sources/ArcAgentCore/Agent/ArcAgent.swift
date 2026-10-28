@@ -3031,7 +3031,7 @@ public actor ArcAgent: Service {
             return "Error: Tool '\(tool)' is disabled (toolset '\(entry.toolset)' is disabled by configuration)."
         }
         if name == "tool_describe" {
-            let schema = ProgressiveToolDisclosure.schema(for: entry)
+            let schema = ProgressiveToolDisclosure.schema(for: entry.tool)
             guard let pretty = try? JSONSerialization.data(withJSONObject: schema, options: [.prettyPrinted, .sortedKeys]),
                   let text = String(data: pretty, encoding: .utf8) else {
                 return "Error: could not serialize schema for '\(tool)'."

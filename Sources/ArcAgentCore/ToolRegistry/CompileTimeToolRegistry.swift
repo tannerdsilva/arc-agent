@@ -4,6 +4,10 @@
 /// for built-in tools. Tools are registered at module initialization time via
 /// static extensions or an explicit registration call during agent setup.
 ///
+/// Every tool admitted here is stamped ``ToolOrigin/builtin``: this registry is
+/// the compiled-in tier, and the one-argument ``register(_:)`` the built-in
+/// declarations use supplies that origin without naming it.
+///
 /// ## Thread Safety
 ///
 /// This type is a value type (struct). Mutation requires `var` access, which
@@ -21,32 +25,45 @@
 /// ```
 public struct CompileTimeToolRegistry: ToolRegistry {
 
-    /// The internal storage, keyed by tool name.
-    private var tools: [String: any AgentTool] = [:]
+    /// The internal storage, keyed by tool name. Each value carries the origin
+    /// its admission assigned.
+    private var tools: [String: RegisteredTool] = [:]
 
     /// Create an empty registry.
     public init() {}
 
     // MARK: - ToolRegistry
 
-    /// Register a tool.
+    /// Register a tool with an explicit origin.
     ///
-    /// - Throws: ``ToolRegistryError.duplicateName`` if a tool named
+    /// - Throws: ``ToolRegistryError/duplicateName`` if a tool named
     ///   `tool.name` is already registered.
-    public mutating func register(_ tool: any AgentTool) throws {
+    public mutating func register(_ tool: any AgentTool, origin: ToolOrigin) throws {
         guard tools[tool.name] == nil else {
             throw ToolRegistryError.duplicateName(tool.name)
         }
-        tools[tool.name] = tool
+        tools[tool.name] = RegisteredTool(tool: tool, origin: origin)
     }
 
-    /// Look up a tool by name.
-    public func lookup(name: String) -> (any AgentTool)? {
+    /// Register a compiled-in tool.
+    ///
+    /// Convenience for the built-in declarations: this registry is the
+    /// compiled-in tier, so the origin is ``ToolOrigin/builtin`` by
+    /// construction and the call sites do not name it.
+    ///
+    /// - Throws: ``ToolRegistryError/duplicateName`` if a tool named
+    ///   `tool.name` is already registered.
+    public mutating func register(_ tool: any AgentTool) throws {
+        try register(tool, origin: .builtin)
+    }
+
+    /// Look up a tool by name, with its origin.
+    public func lookup(name: String) -> RegisteredTool? {
         tools[name]
     }
 
-    /// All registered tools, in registration order.
-    public var allTools: [any AgentTool] {
+    /// All registered tools, with their origins, in name order.
+    public var allTools: [RegisteredTool] {
         // Dictionary values are not ordered, but for deterministic schema
         // output we sort by name.
         tools.values.sorted { $0.name < $1.name }

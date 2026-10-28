@@ -452,9 +452,19 @@ public actor PluginRegistry {
 /// at runtime). Built once by ``make`` and immutable thereafter, so it is a
 /// value type conforming to ``ToolRegistry`` (``lookup`` prefers built-ins,
 /// then plugins).
+///
+/// ## Provenance
+///
+/// Origins are assigned on the way in, never accepted from the tool: a
+/// built-in is ``ToolOrigin/builtin`` (it came through
+/// ``CompileTimeToolRegistry``), ``install(pluginTool:)`` stamps
+/// ``ToolOrigin/plugin(_:)`` with the plugin's own name, and
+/// ``register(_:origin:)`` records whatever tier a source registration names.
+/// A plugin therefore cannot claim to be compiled in — the only path a plugin
+/// tool has into this registry overwrites the origin.
 public struct MutableToolRegistry: ToolRegistry {
     public let builtIn: CompileTimeToolRegistry
-    private var pluginEntries: [String: any AgentTool] = [:]
+    private var pluginEntries: [String: RegisteredTool] = [:]
 
     private static let logger = Logger(label: "arc.plugins")
 
@@ -465,22 +475,26 @@ public struct MutableToolRegistry: ToolRegistry {
 
     // MARK: ToolRegistry
 
-    public mutating func register(_ tool: any AgentTool) throws {
+    public mutating func register(_ tool: any AgentTool, origin: ToolOrigin) throws {
         if builtIn.lookup(name: tool.name) != nil || pluginEntries[tool.name] != nil {
             throw ToolRegistryError.duplicateName(tool.name)
         }
-        pluginEntries[tool.name] = tool
+        pluginEntries[tool.name] = RegisteredTool(tool: tool, origin: origin)
     }
 
-    public func lookup(name: String) -> (any AgentTool)? {
+    public func lookup(name: String) -> RegisteredTool? {
         builtIn.lookup(name: name) ?? pluginEntries[name]
     }
 
-    public var allTools: [any AgentTool] {
+    public var allTools: [RegisteredTool] {
         builtIn.allTools + pluginEntries.values
     }
 
     /// Install a plugin tool.
+    ///
+    /// The tool is stamped ``ToolOrigin/plugin(_:)`` with its own plugin's
+    /// name: origin is assigned here, not declared by the plugin, so an
+    /// install can never claim a built-in's provenance.
     ///
     /// - Returns: `false` (and skips the tool) when its `requires_env`
     ///   requirements are unmet — reference `check_fn`/`requires_env` parity:
@@ -499,7 +513,8 @@ public struct MutableToolRegistry: ToolRegistry {
                 "plugin tool '\(pluginTool.name)' from '\(pluginTool.plugin)' collides with an already-registered tool name; not installing")
             return false
         }
-        pluginEntries[pluginTool.name] = pluginTool
+        pluginEntries[pluginTool.name] = RegisteredTool(
+            tool: pluginTool, origin: .plugin(pluginTool.plugin))
         return true
     }
 
@@ -535,7 +550,7 @@ public struct MutableToolRegistry: ToolRegistry {
         }
         for source in sources {
             for tool in try await source.tools() {
-                try registry.register(tool)
+                try registry.register(tool, origin: .source(source.name))
             }
         }
         return registry
