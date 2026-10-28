@@ -20,8 +20,7 @@ public actor FileKanbanBoard: KanbanBoard {
     /// - Parameter directory: The directory to store task files.
     ///   Defaults to `~/.arc/kanban/`.
     public init(directory: URL? = nil) {
-        let dir = directory ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/kanban")
+        let dir = directory ?? ArcHome.kanban
         self.directory = dir
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }
@@ -129,7 +128,9 @@ public actor FileKanbanBoard: KanbanBoard {
     }
 
     private func save(_ task: KanbanTask) throws {
-        let data = try JSONEncoder().encode(task)
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try enc.encode(task)
         try data.write(to: fileURL(for: task.id), options: .atomic)
     }
 

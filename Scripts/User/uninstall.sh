@@ -26,6 +26,9 @@
 #   --force-purge include install.sh checkout dirs (~/.arc-agent*) even if they
 #                contain a .git repo (they are installs, not the dev projects)
 #   --dry-run    print the plan only (default)
+#   --full       also clean macOS caches (~/Library/Caches/arc-agent*), the two
+#                repos' regenerateable .build dirs, and the arc-agent repo's
+#                runtime data/ dir. Implies --force-purge.
 #
 # Env overrides:
 #   ARC_BIN_DIR           (~/.local/bin)
@@ -55,6 +58,7 @@ LOGS=(
 YES=false
 DO_BACKUP=false
 PURGE=false
+FULL=false
 DRY=true
 
 usage() {
@@ -72,6 +76,7 @@ Options:
   --backup        tar up ~/.arc to a timestamped tarball before removing it
   --force-purge   remove install.sh checkouts (~/.arc-agent*) even if they have a .git
   --dry-run       print the plan only (default)
+  --full          full wipe: also macOS caches, repo .build dirs, repo data/ (implies --force-purge)
   -h, --help      this message
 
 The development project folders (ARC_PROJECT_DIRS, default
@@ -85,6 +90,7 @@ for a in "$@"; do
     --backup)       DO_BACKUP=true ;;
     --force-purge)  PURGE=true ;;
     --dry-run)      DRY=true ;;
+    --full)         FULL=true; PURGE=true ;;
     -h|--help)      usage; exit 0 ;;
     *) echo "unknown option: $a (see --help)" >&2; exit 2 ;;
   esac
@@ -132,6 +138,23 @@ remove_checked() {
   fi
 }
 
+# Remove a regenerateable artifact that lives INSIDE a project folder (e.g.
+# .build, runtime data/). These are build products / runtime state, not source,
+# so the project-folder guard is deliberately bypassed for them. The target is
+# always a subpath (/.build, /data), never the repo root.
+remove_artifact() {
+  local label="$1" path="$2"
+  if [ ! -e "$path" ]; then
+    echo "  (absent) $path"
+    return
+  fi
+  if [ "$YES" = true ]; then
+    rm -rf -- "$path" && echo "  rm -rf $path"
+  else
+    echo "  would remove: $path"
+  fi
+}
+
 backup_arc_home() {
   [ "$DO_BACKUP" = true ] || return 0
   [ -d "$ARC_HOME" ] || return 0
@@ -142,9 +165,10 @@ backup_arc_home() {
 }
 
 echo "=== ARC Agent uninstaller ==="
-echo "Mode        : $([ "$DRY" = true ] && echo "DRY RUN (nothing deleted)" || echo "DELETE")"
+echo "Mode        : $([ "$YES" = true ] && echo "DELETE" || echo "DRY RUN (nothing deleted)")"
 echo "Backup      : $([ "$DO_BACKUP" = true ] && echo yes || echo no)"
 echo "Force purge : $([ "$PURGE" = true ] && echo yes || echo no)"
+echo "Full wipe   : $([ "$FULL" = true ] && echo "yes (caches + .build + repo data)" || echo no)"
 echo "Protected   : "
 for p in $PROJECT_DIRS; do echo "                 $p"; done
 echo ""
@@ -175,6 +199,21 @@ for d in $INSTALL_DIRS; do
     remove_checked "install dir" "$d"
   fi
 done
+
+if [ "$FULL" = true ]; then
+  echo "→ macOS caches"
+  for c in "$HOME/Library/Caches/arc-agent" "$HOME/Library/Caches/arc-agent-webui"; do
+    remove_checked "cache" "$c"
+  done
+
+  echo "→ Project build artifacts + runtime leftovers (a fresh clone has none)"
+  for p in $PROJECT_DIRS; do
+    remove_artifact "build dir" "$p/.build"
+    if [ "$(basename "$p")" = "arc-agent" ]; then
+      remove_artifact "runtime data" "$p/data"
+    fi
+  done
+fi
 
 echo ""
 if [ "$YES" = true ]; then

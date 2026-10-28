@@ -22,7 +22,7 @@ A precompiled, Swift-native AI agent harness — architecturally inspired by the
 
 7. **Protocols first, macros last.** Every abstraction starts as a protocol. Concrete types conform to protocols; protocols never depend on concrete types. Only after the protocol proves unwieldy in practice do we introduce a macro to compress the syntax. This ordering is not optional — macros that paper over a bad protocol design hide the problem, not fix it.
 
-8. **Native web UI is a 1.0 requirement.** The project ships with a web-based user interface before version 1.0. The author dislikes web technology and will not write JavaScript, CSS, or HTML by hand — so the UI is *generated*: every page is a typed `View` tree built in Swift on the no-webui framework, its stylesheet is a build product of `Sources/ArcTheme/`, and its client runtime is the framework's embedded engine. No `.swift` file in `Sources/ArcWebUI/` carries an HTML tag inside a string literal, and a test enforces that. This is a non-negotiable requirement, and it is resolved.
+8. **Native web UI is a 1.0 requirement.** The project ships with a web-based user interface before version 1.0. How that UI is built is an open question — the author dislikes web technology and will not write JavaScript, CSS, or HTML by hand. The web UI must be generated, compiled from Swift, or delegated to a separate toolchain. This is a non-negotiable requirement; the approach is undecided and deferred.
 
 ## The Law of the Land
 
@@ -56,6 +56,8 @@ The roadmap below reflects this shift: from **feature expansion** to **vascular 
 ## Instance Relationships
 
 A critical architectural property that must be clear at every level: which components are **singletons** (1 instance per process) and which are **N instances** (per-session, per-request, per-platform). The heap reference graph determines lifecycle, cleanup, and isolation.
+
+On-disk isolation is a separate axis from the in-process graph above. Each running instance relocates its whole config / secrets / data root via the `ARC_HOME` environment variable — `~/.arc` by default, prompted for by `arc setup`. A second `ARC_HOME` gives that instance its own identity (NOSTR keypair), `tessera.application` namespace, data root, and ports, so it is its own user on the shared relay while the REST/UI singleton graph stays per-process.
 
 ```
 Legend:

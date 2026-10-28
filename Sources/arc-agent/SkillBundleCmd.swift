@@ -95,8 +95,7 @@ struct SkillBundleList: AsyncParsableCommand {
 
     func run() throws {
         let reg = registry.map { URL(fileURLWithPath: $0) }
-            ?? FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".arc/skill-packages")
+            ?? ArcHome.skillPackages
         let fm = FileManager.default
         guard fm.fileExists(atPath: reg.path) else {
             print("No package registry at \(reg.path). Drop package directories or .zip files there.")

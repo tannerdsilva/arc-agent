@@ -164,6 +164,25 @@ extension ArcCoreTestRoot {
             #expect(names.count == 2)
         }
 
+        @Test func disabledEagerToolsetWithheldButToolCallBridgeSurvives() {
+            // A disabled eager toolset's schema must be withheld from the tools
+            // array, but the generic tool_call/tool_search bridge still appears
+            // (some OTHER toolset is deferred). The bridge is what lets a model
+            // address a disabled tool BY NAME and waste a turn on the rejection.
+            let registry = StubRegistry(allTools: [
+                entry("terminal", toolset: "terminal"),
+                entry("kanban_show", toolset: "kanban"),
+            ])
+            let schemas = ProgressiveToolDisclosure.buildPromptSchemas(
+                registry: registry, disabled: ["terminal"], config: ToolSearchConfig(), contextLength: 200_000)
+            let names = schemas.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }
+            #expect(!names.contains("terminal"))   // disabled tool not advertised
+            #expect(!names.contains("kanban_show")) // deferred tool deferred
+            #expect(names.contains("tool_call"))   // bridge survives for other deferred tools
+            #expect(names.contains("tool_search"))
+            #expect(names.contains("tool_describe"))
+        }
+
         @Test func deferralStrictlyReducesSchemaTokens() {
             // Deferred tools carry rich schemas (the expensive ones in the real
             // registry); core tools are minimal. Deferring must strictly shrink

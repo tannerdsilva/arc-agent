@@ -28,6 +28,7 @@ else
 fi
 RELAY_PORT="${RELAY_PORT:-51921}"
 RELAY_LOG="${RELAY_LOG:-${TMPDIR:-/tmp}/relay-federated.log}"
+RELAY_LOG_LEVEL="${RELAY_LOG_LEVEL:-debug}"
 
 if [ ! -x "$RELAY_BIN" ]; then
   echo "error: relay binary not found/executable: $RELAY_BIN" >&2
@@ -47,6 +48,7 @@ nohup "$RELAY_BIN" run \
   --database-path "$RELAY_DB" \
   --configuration-path "$RELAY_CFG" \
   --sync-interval 30 \
+  --log-level "$RELAY_LOG_LEVEL" \
   "$RELAY_PORT" "$RELAY_KEY" > "$RELAY_LOG" 2>&1 &
 disown
 

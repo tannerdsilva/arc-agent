@@ -71,6 +71,11 @@ struct WebUILogHandler: LogHandler {
     var metadata: Logger.Metadata = [:]
     let label: String
 
+    init(label: String, logLevel: Logger.Level = .info) {
+        self.label = label
+        self.logLevel = logLevel
+    }
+
     subscript(metadataKey key: String) -> Logger.Metadata.Value? {
         get { metadata[key] }
         set { metadata[key] = newValue }

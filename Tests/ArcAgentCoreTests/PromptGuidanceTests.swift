@@ -25,7 +25,9 @@ extension ArcCoreTestRoot {
             taskCompletionGuidance: Bool = true,
             parallelToolCallGuidance: Bool = true,
             toolAwareGuidance: Bool = true,
-            toolUseEnforcement: Bool = true
+            toolUseEnforcement: Bool = true,
+            soulMD: String? = nil,
+            profileName: String? = nil
         ) -> ArcAgent.Configuration {
             ArcAgent.Configuration(
                 model: model,
@@ -48,13 +50,15 @@ extension ArcCoreTestRoot {
                 toolUseEnforcement: toolUseEnforcement,
                 sessionID: "guidance-test",
                 injectProjectContext: false,
-                platformHint: "cli"
+                platformHint: "cli",
+                soulMD: soulMD,
+                profileName: profileName
             )
         }
 
         private func runOnce(_ config: ArcAgent.Configuration) async throws -> String {
-            let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-            defer { _ = httpClient.shutdown() }
+            let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
+            defer { try? httpClient.shutdown() }
             let box = ClientScripts(responses: [
                 LLMResponse(content: "ok", finishReason: "stop"),
             ])
@@ -152,6 +156,34 @@ extension ArcCoreTestRoot {
             #expect(!prompt.contains("## Tool use enforcement"))
             #expect(prompt.contains("You are ARC Agent"))
             #expect(prompt.contains("## Rules"))
+        }
+
+        @Test("SOUL replaces the default identity block when set")
+        func soulReplacesDefaultIdentity() async throws {
+            let soul = "You are ARC, a terse engineer. No small talk."
+            let with = try await runOnce(makeConfig(registry: try ArcAgentCore.buildDefaultRegistry(), soulMD: soul))
+            #expect(with.contains(soul))
+            #expect(!with.contains("You are ARC Agent"))
+
+            let without = try await runOnce(makeConfig(registry: try ArcAgentCore.buildDefaultRegistry()))
+            #expect(without.contains("You are ARC Agent"))
+            #expect(!without.contains(soul))
+        }
+
+        @Test("the prompt carries the active profile and platform hint")
+        func activeProfileAndPlatformHint() async throws {
+            let named = try await runOnce(makeConfig(
+                registry: try ArcAgentCore.buildDefaultRegistry(),
+                profileName: "work"
+            ))
+            #expect(named.contains("## Active Profile"))
+            #expect(named.contains("Active ARC profile: work"))
+            #expect(named.contains("## Platform"))
+            #expect(named.contains("served on the cli surface"))
+
+            let plain = try await runOnce(makeConfig(registry: try ArcAgentCore.buildDefaultRegistry()))
+            #expect(plain.contains("Active ARC profile: default"))
+            #expect(plain.contains("served on the cli surface"))
         }
 
         @Test("AgentConfig toolUseEnforcement decodes with ON default")

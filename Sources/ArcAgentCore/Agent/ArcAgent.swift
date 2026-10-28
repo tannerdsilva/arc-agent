@@ -53,6 +53,17 @@ public actor ArcAgent: Service {
         public var persistSessions: Bool
         /// The approval mode for dangerous commands.
         public var approvalMode: ApprovalMode
+
+        /// Injected, long-lived approval manager. When set it **replaces** the
+        /// agent's own manager — used by surfaces that rebuild the agent per
+        /// turn (web UI) so "Allow session"/"Allow always" outlive a single
+        /// turn. When nil a fresh manager is built from `approvalMode` and
+        /// `alwaysAllowedCommands`.
+        public var approvalManager: ApprovalManager?
+
+        /// Commands pre-exempted from approval (persisted allowlist), used
+        /// only when `approvalManager` is nil.
+        public var alwaysAllowedCommands: [String]
         /// Single query mode. If set, the agent processes one query and exits.
         public var query: String?
         /// Approximate max context tokens before auto-compression.
@@ -64,6 +75,13 @@ public actor ArcAgent: Service {
         /// Personality overlay text (`/personality <name>`), appended to the
         /// system prompt as a `## Personality` section. Empty = no overlay.
         public var personalityPrompt: String = ""
+
+        /// SOUL identity block (profile-scoped `SOUL.md`). When non-empty it
+        /// *replaces* the hardcoded ARC Agent identity at the top of the system
+        /// prompt, mirroring Hermes' `load_soul_md` identity slot. Nil/empty =
+        /// default ARC Agent identity. This is the identity slot only — it does
+        /// not disable the personality overlay (`personalityPrompt`).
+        public var soulMD: String? = nil
 
         /// Inject the "Finishing the job" task-completion guidance (arc
         /// parity: reference `agent.task_completion_guidance`). Default ON.
@@ -83,11 +101,6 @@ public actor ArcAgent: Service {
         /// completed turn, absorb one exchange into a rolling summary. Off by
         /// default; enabled via `compression.micro_compact`.
         public var microCompact: MicroCompactConfig = MicroCompactConfig()
-
-        /// Whether the agent may run the automatic compression pass at the
-        /// top of each turn loop iteration. Default ON; set false to disable
-        /// auto-compression entirely (a manual `/compress` still works).
-        public var autoCompression: Bool = true
 
         /// Agent-powers lockdown gate (skills + profile files). All locks
         /// default to OFF; the running agent installs this into
@@ -120,12 +133,6 @@ public actor ArcAgent: Service {
         /// fresh session with a new UUID.
         public var sessionID: String?
 
-        /// Initial conversation history seeded once at the start of the first
-        /// turn. Applied in the `streamTurn` prelude before `appendUserMessage`,
-        /// then cleared so it is never re-applied on a retry or a second
-        /// `streamTurn`.
-        public var initialHistory: [Message]? = nil
-
         /// Reasoning effort sent to the provider (reference `reasoning_effort`).
         public var reasoningEffort: String?
 
@@ -143,6 +150,12 @@ public actor ArcAgent: Service {
         /// `nil` falls back to ``maxContextTokens``.
         public var contextLength: Int?
 
+        /// Explicit auto-compression threshold in tokens (per-profile
+        /// `context.compression_budget` / `ARC_COMPRESSION_BUDGET`). When set,
+        /// this is THE compression limit — single source of truth shared with
+        /// the UI's context meter. `nil` = arc-parity default (context/2).
+        public var compressionBudget: Int?
+
         /// Additional API keys for the same endpoint, tried in order when a
         /// key returns 401 (CredentialPool rotation).
         public var fallbackAPIKeys: [String]
@@ -155,14 +168,12 @@ public actor ArcAgent: Service {
         /// working directory (the default for the CLI).
         public var contextDirectory: URL?
 
-        /// The workspace root bound to `WorkspacePath.$root` at every tool
-        /// dispatch. `nil` = fall back to the process working directory.
-        /// Two agents in one process with different roots see different
-        /// resolutions for the same relative path.
-        public var workspaceRoot: String?
-
         /// Platform label for the prompt's session line (arc parity).
         public var platformHint: String
+
+        /// Active ARC profile name (`nil` = default). Rendered in the prompt's
+        /// active-profile hint (arc parity with Hermes).
+        public var profileName: String?
 
         public init(
             model: String,
@@ -178,6 +189,8 @@ public actor ArcAgent: Service {
             maxTurnDuration: Int = 120,
             persistSessions: Bool = true,
             approvalMode: ApprovalMode = .manual,
+            approvalManager: ApprovalManager? = nil,
+            alwaysAllowedCommands: [String] = [],
             query: String? = nil,
             maxContextTokens: Int = 64_000,
             auxiliary: AuxiliaryModelSet = AuxiliaryModelSet(),
@@ -189,18 +202,16 @@ public actor ArcAgent: Service {
             microCompact: MicroCompactConfig = MicroCompactConfig(),
             sessionID: String? = nil,
             contextLength: Int? = nil,
+            compressionBudget: Int? = nil,
             fallbackAPIKeys: [String] = [],
             injectProjectContext: Bool = true,
             contextDirectory: URL? = nil,
-            workspaceRoot: String? = nil,
             platformHint: String = "cli",
-            initialHistory: [Message]? = nil,
             moa: MoAConfig = MoAConfig(),
             toolSearch: ToolSearchConfig = ToolSearchConfig(),
             skillInlineCommands: Bool = true,
             backgroundReview: BackgroundReview.Settings = BackgroundReview.Settings(),
             verifyOnStop: Bool = false,
-            autoCompression: Bool = true,
             reasoningEffort: String? = nil,
             temperature: Double? = nil,
             topP: Double? = nil,
@@ -209,7 +220,10 @@ public actor ArcAgent: Service {
             mcpServers: [String: MCPServerConfig] = [:],
             disabledToolsets: Set<String> = [],
             delegation: DelegationConfig = DelegationConfig(),
-            llmClient: (any LLMClient)? = nil
+            llmClient: (any LLMClient)? = nil,
+            contextRecipe: ResolvedContextRecipe? = nil,
+            soulMD: String? = nil,
+            profileName: String? = nil
         ) {
             self.model = model
             self.provider = provider
@@ -224,10 +238,13 @@ public actor ArcAgent: Service {
             self.maxTurnDuration = maxTurnDuration
             self.persistSessions = persistSessions
             self.approvalMode = approvalMode
+            self.approvalManager = approvalManager
+            self.alwaysAllowedCommands = alwaysAllowedCommands
             self.query = query
             self.maxContextTokens = maxContextTokens
             self.auxiliary = auxiliary
             self.personalityPrompt = personalityPrompt
+            self.soulMD = soulMD
             self.taskCompletionGuidance = taskCompletionGuidance
             self.parallelToolCallGuidance = parallelToolCallGuidance
             self.toolAwareGuidance = toolAwareGuidance
@@ -235,27 +252,27 @@ public actor ArcAgent: Service {
             self.microCompact = microCompact
             self.agentPowers = agentPowers
             self.sessionID = sessionID
-            self.initialHistory = initialHistory
             self.reasoningEffort = reasoningEffort
             self.temperature = temperature
             self.topP = topP
             self.maxOutputTokens = maxOutputTokens
             self.contextLength = contextLength
+            self.compressionBudget = compressionBudget
             self.fallbackAPIKeys = fallbackAPIKeys
             self.injectProjectContext = injectProjectContext
             self.contextDirectory = contextDirectory
-            self.workspaceRoot = workspaceRoot
             self.platformHint = platformHint
+            self.profileName = profileName
             self.moa = moa
             self.toolSearch = toolSearch
             self.skillInlineCommands = skillInlineCommands
             self.backgroundReview = backgroundReview
             self.verifyOnStop = verifyOnStop
-            self.autoCompression = autoCompression
             self.mcpServers = mcpServers
             self.disabledToolsets = disabledToolsets
             self.delegation = delegation
             self.llmClient = llmClient
+            self.contextRecipe = contextRecipe
         }
 
         /// External MCP servers (reference `mcp_servers`).
@@ -271,6 +288,8 @@ public actor ArcAgent: Service {
         /// When set, ``prime()`` uses it instead of building one from the
         /// config's baseURL/apiKey.
         public var llmClient: (any LLMClient)?
+    /// Resolved per-session context segment recipe; nil means all-on (default).
+    public var contextRecipe: ResolvedContextRecipe?
     }
 
     // MARK: - State
@@ -308,12 +327,6 @@ public actor ArcAgent: Service {
     /// Session-scoped todo list (reference `todo_tool.py`). One per agent
     /// instance — re-injected after context compression.
     private let todoStore = TodoStore()
-    /// Clarify presenter for this agent's turns (bound to ``ClarifyTool/presenter``
-    /// TaskLocal during the turn via ``withSkillContext``).
-    private var clarifyPresenter: ClarifyTool.Presenter? = nil
-    /// Code-execution host for this agent's turns (bound to
-    /// ``ExecuteCodeTool/host`` TaskLocal during the turn via ``withSkillContext``).
-    private var codeHost: (@Sendable (String, [String: Any]) async throws -> String)? = nil
     /// Streaming reasoning-tag scrubber (reference `think_scrubber.py`
     /// `StreamingThinkScrubber`). Re-entrant per stream — reset at the top
     /// of every new streamed turn so a hung block from an interrupted prior
@@ -353,7 +366,8 @@ public actor ArcAgent: Service {
     }
     /// Structured logger for diagnostic output.
     private let logger = Logger(label: "com.arc-agent.agent")
-    private let approvalManager: ApprovalManager
+    /// Internal (not private) so tests can verify injected-manager adoption.
+    let approvalManager: ApprovalManager
     private let delegationManager: DelegationManager
     /// Cached system prompt, rebuilt only when memory or skills change.
     private var cachedSystemPrompt: String?
@@ -391,9 +405,6 @@ public actor ArcAgent: Service {
     private var pendingSteers: [String] = []
     /// Cooperative interrupt flag, honored at iteration boundaries.
     private var turnInterrupted = false
-    /// One-shot initial history: applied in the `streamTurn` prelude before
-    /// `appendUserMessage`, then cleared so it is never re-applied.
-    private var pendingInitialHistory: [Message]?
 
     // MARK: - Init
 
@@ -409,10 +420,15 @@ public actor ArcAgent: Service {
         self.config = config
         self.messageHistory = []
         self.sessionID = config.sessionID ?? UUID().uuidString
-        self.pendingInitialHistory = config.initialHistory
         // The smart-approval classifier is wired from `wireSmartApproval()`
-        // (once the agent's own state is fully initialized).
-        self.approvalManager = ApprovalManager(mode: config.approvalMode)
+        // (once the agent's own state is fully initialized). An injected
+        // manager (web UI turn loop) replaces the agent-local one entirely —
+        // it carries the persisted allowlist and session pre-approvals across
+        // turn-scoped agent rebuilds.
+        self.approvalManager = config.approvalManager
+            ?? ApprovalManager(
+                mode: config.approvalMode,
+                alwaysAllowedCommands: config.alwaysAllowedCommands)
         self.toolGuardrails = ToolGuardrails(limits: .init(loopCap: config.toolLoopCap))
         self.delegationManager = DelegationManager(
             maxChildren: config.delegation.maxConcurrentChildren,
@@ -444,27 +460,6 @@ public actor ArcAgent: Service {
         await approvalManager.setPresenter(presenter)
     }
 
-    /// Register the human-clarify presenter for this agent's turns.
-    ///
-    /// The presenter is consulted by ``ClarifyTool`` during this agent's
-    /// turn via the ``ClarifyTool/presenter`` TaskLocal (bound inside
-    /// ``withSkillContext``). Two concurrent agents with different
-    /// presenters cannot cross-talk; the process-wide ``ClarifyTool/presenters``
-    /// box remains the single-agent fallback.
-    public func setClarifyPresenter(_ presenter: ClarifyTool.Presenter?) async {
-        self.clarifyPresenter = presenter
-    }
-
-    /// Register the host tool-executor closure for this agent's turns.
-    ///
-    /// The host is consulted by ``ExecuteCodeTool`` during this agent's
-    /// turn via the ``ExecuteCodeTool/host`` TaskLocal (bound inside
-    /// ``withSkillContext``). The process-wide ``ExecuteCodeTool/dispatcher``
-    /// remains the single-agent fallback.
-    public func setCodeHost(_ host: (@Sendable (String, [String: Any]) async throws -> String)?) async {
-        self.codeHost = host
-    }
-
     /// Smart-approval risk classification via the `approval` auxiliary model.
     /// Returns nil when no approval override is configured or the call fails,
     /// letting the regex detector stand in.
@@ -472,22 +467,16 @@ public actor ArcAgent: Service {
         guard let router = auxRouter, router.hasOverride(.approval) else { return nil }
         guard let hc = httpClient,
               let client = router.makeClient(task: .approval, httpClient: hc) else { return nil }
-        let prompt = """
-        You classify shell commands for an autonomous coding agent. Reply with exactly one word from: safe, suspicious, dangerous, critical. Consider destructive or exfiltrating operations (rm -rf, mkfs, dd, diskutil erase, curl | sh) critical or dangerous.
-
-        Command: \(command)
-        """
+        let prompt = approvalClassifierPrompt(command)
         do {
             let resp = try await client.complete(
                 messages: [Message(role: .user, content: prompt)],
                 tools: nil,
                 reasoningEffort: nil
             )
-            let low = (resp.content ?? "").lowercased()
-            if low.contains("critical") { return .critical }
-            if low.contains("danger") { return .dangerous }
-            if low.contains("suspicious") { return .suspicious }
-            return .safe
+            let verdict = (resp.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            logger.debug("approval classifier raw verdict: \(verdict)")
+            return parseApprovalVerdict(verdict)
         } catch {
             return nil
         }
@@ -557,7 +546,7 @@ public actor ArcAgent: Service {
 
     /// Set up the LLM client for session-host use (without calling `run()`).
     /// The caller owns the HTTPClient lifecycle.
-    func setupClient(httpClient: HTTPClient) async {
+    public func setupClient(httpClient: HTTPClient) async {
         self.httpClient = httpClient
         makeAuxRouter()
         await wireSmartApproval()
@@ -596,14 +585,8 @@ public actor ArcAgent: Service {
     }
 
     /// Inject a system message at the beginning of the conversation.
-    ///
-    /// Used by hosts to inject profile-specific `SOUL.md` content before the
-    /// first turn — the daemon's ``SessionAgent`` and the web UI's per-turn
-    /// agent factory both resolve the bound profile's SOUL and hand it here,
-    /// so the core's tiered prompt builder stays the only prompt builder.
-    /// Prepends a `[Profile: <model>]` block and replaces any earlier
-    /// injected profile block.
-    public func injectSystemMessage(_ content: String) async {
+    /// Used by the session host to inject profile-specific SOUL.md content.
+    func injectSystemMessage(_ content: String) async {
         // Remove any existing system messages with the same prefix
         messageHistory.removeAll { msg in
             msg.role == .system && (msg.content?.hasPrefix("[Profile:") ?? false)
@@ -704,6 +687,21 @@ public actor ArcAgent: Service {
     /// Readline handle for async stdin access.
     private let stdinHandle = FileHandle.standardInput
 
+    /// Cross-platform async line reader for interactive stdin. `FileHandle.bytes`
+    /// (macOS) is unavailable on Linux; `readLine()` reads fd 0 on both.
+    private func arcStdinLines() -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                while let line = readLine() {
+                    continuation.yield(line)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+
     /// Run the interactive readline REPL with slash commands.
     private func runInteractive() async throws {
         print("⚡ ARC Agent — interactive mode")
@@ -712,7 +710,7 @@ public actor ArcAgent: Service {
         print("   Prefix with ! to run a shell command directly.\n")
         print("> ", terminator: "")
 
-        for try await input in stdinHandle.bytes.lines {
+        for try await input in arcStdinLines() {
             if input.hasPrefix("/") {
                 let handled = try await handleSlashCommand(input)
                 if handled {
@@ -1055,16 +1053,6 @@ public actor ArcAgent: Service {
         await CheckpointGuard.shared.beginTurn()
     }
 
-    /// Apply the one-shot ``Configuration/initialHistory`` seed, if any.
-    ///
-    /// Runs in the `streamTurn` prelude before the user message is appended and
-    /// clears the pending seed, so a retry or a second turn never re-applies it.
-    private func applyInitialHistoryIfNeeded() {
-        guard let initial = pendingInitialHistory else { return }
-        pendingInitialHistory = nil
-        messageHistory.append(contentsOf: initial)
-    }
-
     private func appendUserMessage(_ message: Message) {
         messageHistory.append(message)
     }
@@ -1072,7 +1060,7 @@ public actor ArcAgent: Service {
     /// Inject a mid-turn steering instruction. Drained before the next LLM
     /// request so the model sees it on this iteration (reference `/steer`
     /// parity). Rendered as a distinct `[steer: …]` user turn.
-    public func steer(_ message: String) {
+    func steer(_ message: String) {
         pendingSteers.append(message)
     }
 
@@ -1112,6 +1100,10 @@ public actor ArcAgent: Service {
             guard let title = resp.content?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !title.isEmpty, title.count <= 60 else { return }
             if var session = try? await config.sessionStore.get(id: sessionID) {
+                // The session may have been deleted while the title request
+                // was in flight; updating it would republish a non-deleted
+                // meta over the terminal one and resurrect the chat.
+                guard session.deleted != true else { return }
                 session.title = (session.title?.isEmpty == false ? session.title : title)
                 try? await config.sessionStore.update(session)
             }
@@ -1217,14 +1209,7 @@ public actor ArcAgent: Service {
     ) async rethrows -> T {
         try await SkillContext.$sessionID.withValue(config.sessionID ?? "") {
             try await SkillContext.$allowInlineCommands.withValue(config.skillInlineCommands) {
-                // Bind the per-turn presenters so any tool dispatched inside
-                // this turn (including parallel tool batches) sees its own
-                // agent's presenter, not a sibling's.
-                try await ClarifyTool.$presenter.withValue(clarifyPresenter) {
-                    try await ExecuteCodeTool.$host.withValue(codeHost) {
-                        try await body()
-                    }
-                }
+                try await body()
             }
         }
     }
@@ -1320,9 +1305,13 @@ public actor ArcAgent: Service {
         return total
     }
 
-    /// Effective compression threshold: 50% of the model context length when
-    /// known (arc parity), otherwise the configured ``maxContextTokens``.
+    /// Effective compression threshold. Order: explicit ``Configuration/compressionBudget``
+    /// (per-profile budget — the same value the UI meter shows), else 50% of
+    /// the model context length when known (arc parity), else ``maxContextTokens``.
     nonisolated func effectiveContextLimit() -> Int {
+        if let budget = config.compressionBudget, budget > 0 {
+            return budget
+        }
         if let ctx = config.contextLength, ctx > 0 {
             return ctx / 2
         }
@@ -1370,8 +1359,11 @@ public actor ArcAgent: Service {
         return estimated > limit || (lastRealPromptTokens ?? 0) > limit
     }
 
-    private func autoCompressIfNeeded(focus: String? = nil, force: Bool = false) async {
-        guard config.autoCompression || force else { return }
+    func autoCompressIfNeeded(
+        emit: (@Sendable (AgentTurnEvent) -> Void)? = nil,
+        focus: String? = nil,
+        force: Bool = false
+    ) async {
         let limit = effectiveContextLimit()
         let estimated = await estimateRequestTokens()
         guard Self.shouldAutoCompress(
@@ -1381,6 +1373,10 @@ public actor ArcAgent: Service {
             throttled: compressionThrottled,
             force: force
         ) else { return }
+
+        // Visible while it runs (Hermes parity: "Compressing context…").
+        emit?(.compressing)
+        logger.info("compression: running (estimated ~\(estimated) tokens, limit \(limit))")
 
         // Pluggable context engines (reference context_engine): the
         // prune-tool-results variant trims tool output only; everything else
@@ -1917,7 +1913,6 @@ public actor ArcAgent: Service {
                         try await prime()
                         await restoreSessionIfNeeded()
                         await resetTurnState()
-                        await self.applyInitialHistoryIfNeeded()
                         await self.appendUserMessage(Message(role: .user, content: self.effectiveUserText(message)))
                         try await runStreamingTurnLoop(emit: { event in continuation.yield(event) })
                     }
@@ -1947,7 +1942,7 @@ public actor ArcAgent: Service {
                             continuation.yield(text)
                         case .toolCallFinished(_, let name, let result):
                             continuation.yield("[Tool: \(name)] \(result)\n")
-                        case .reasoningDelta, .toolCallStarted, .usage, .completed:
+                        case .compressing, .reasoningDelta, .toolCallStarted, .usage, .completed:
                             break
                         }
                     }
@@ -1961,7 +1956,7 @@ public actor ArcAgent: Service {
 
     /// The core streaming turn loop.
     private func runStreamingTurnLoop(
-        emit: @Sendable (AgentTurnEvent) -> Void
+        emit: @escaping @Sendable (AgentTurnEvent) -> Void
     ) async throws {
         await toolGuardrails.resetTurn()
         guard let hc = self.httpClient else {
@@ -1996,7 +1991,7 @@ public actor ArcAgent: Service {
             if turnInterrupted {
                 turnInterrupted = false
                 emit(.textDelta("Interrupted by user."))
-                emit(.completed(finalText: "Interrupted by user.", terminalReason: nil))
+                emit(.completed(finalText: "Interrupted by user."))
                 await persistConversationIfNeeded()
                 return
             }
@@ -2008,7 +2003,7 @@ public actor ArcAgent: Service {
                 "tool_names": .array(lastToolNames),
             ])
             drainSteers()
-            await autoCompressIfNeeded()
+            await autoCompressIfNeeded(emit: emit)
             var streamFinishReason: String? = nil
 
             let systemPrompt = try await buildSystemPrompt()
@@ -2059,7 +2054,8 @@ public actor ArcAgent: Service {
                     messages: messages.map { $0.snapshotAPI() },
                     tools: toolSchemas,
                     timeout: config.maxTurnDuration,
-                    reasoningEffort: currentReasoningEffort
+                    reasoningEffort: currentReasoningEffort,
+                    emit: emit
                 )
 
                 for try await delta in stream {
@@ -2132,7 +2128,7 @@ public actor ArcAgent: Service {
                 if error is StreamTotalTimeoutError {
                     let text = "The model request exceeded the maximum turn duration. Please try again or shorten the context."
                     emit(.textDelta(text))
-                    emit(.completed(finalText: text, terminalReason: nil))
+                    emit(.completed(finalText: text))
                     await persistConversationIfNeeded()
                     return
                 }
@@ -2145,7 +2141,7 @@ public actor ArcAgent: Service {
                     if await staleTracker.shouldGiveUp {
                         let text = "The model stream stalled repeatedly. Please try again."
                         emit(.textDelta(text))
-                        emit(.completed(finalText: text, terminalReason: nil))
+                        emit(.completed(finalText: text))
                         await persistConversationIfNeeded()
                         return
                     }
@@ -2215,7 +2211,7 @@ public actor ArcAgent: Service {
                 messageHistory.append(Message(role: .assistant, content: content, apiContent: content))
                 turnRecoveryState.markProviderSuccess()
                 if let streamUsage { await recordUsage(streamUsage) }
-                emit(.completed(finalText: content, terminalReason: nil))
+                emit(.completed(finalText: content))
                 await persistConversationIfNeeded()
                 return
 
@@ -2262,7 +2258,7 @@ public actor ArcAgent: Service {
                 turnRecoveryState.emptyStormStreak += 1
                 if turnRecoveryState.emptyStormStreak >= TurnRecoveryState.emptyStormThreshold {
                     emit(.textDelta(RecoveryNudges.emptyStormExhaustedMessage))
-                    emit(.completed(finalText: RecoveryNudges.emptyStormExhaustedMessage, terminalReason: nil))
+                    emit(.completed(finalText: RecoveryNudges.emptyStormExhaustedMessage))
                     await persistConversationIfNeeded()
                     return
                 }
@@ -2444,7 +2440,8 @@ public actor ArcAgent: Service {
         messages: [Message],
         tools: [[String: Any]]?,
         timeout: Int = 120,
-        reasoningEffort: String? = nil
+        reasoningEffort: String? = nil,
+        emit: (@Sendable (AgentTurnEvent) -> Void)? = nil
     ) async throws -> any AsyncSequence<LLMDelta, Error> {
         let cbState = await circuitBreaker.currentState()
         if case .open(let resetAt) = cbState {
@@ -2537,7 +2534,7 @@ public actor ArcAgent: Service {
                         continue
                     }
                 case .contextOverflow:
-                    await autoCompressIfNeeded()
+                    await autoCompressIfNeeded(emit: emit)
                     if retryHandler.shouldRetry(attempt) {
                         try await retryHandler.wait(for: attempt)
                         continue
@@ -2953,10 +2950,17 @@ public actor ArcAgent: Service {
         guard let tool = args["tool"] as? String, !tool.isEmpty else {
             return "Error: 'tool' (string) is required."
         }
+        // Disabled-toolset enforcement for the bridge: tool_describe/tool_call
+        // accept ANY registry tool by name (never the enabled/deferred manifest),
+        // so a model can address a disabled tool and burn a turn on the rejection.
+        // Reject disabled targets here, before routing into full dispatch.
+        guard let entry = config.registry.lookup(name: tool) else {
+            return "Error: Unknown tool '\(tool)'."
+        }
+        guard !config.disabledToolsets.contains(entry.toolset) else {
+            return "Error: Tool '\(tool)' is disabled (toolset '\(entry.toolset)' is disabled by configuration)."
+        }
         if name == "tool_describe" {
-            guard let entry = config.registry.lookup(name: tool) else {
-                return "Error: Unknown tool '\(tool)'."
-            }
             let schema = ProgressiveToolDisclosure.schema(for: entry)
             guard let pretty = try? JSONSerialization.data(withJSONObject: schema, options: [.prettyPrinted, .sortedKeys]),
                   let text = String(data: pretty, encoding: .utf8) else {
@@ -2967,9 +2971,6 @@ public actor ArcAgent: Service {
         // tool_call
         guard tool != "tool_call", tool != "tool_describe", tool != "tool_search" else {
             return "Error: cannot invoke bridge tool '\(tool)' through tool_call."
-        }
-        guard config.registry.lookup(name: tool) != nil else {
-            return "Error: Unknown tool '\(tool)'."
         }
         let inner: String
         if let innerArgs = args["arguments"] as? [String: Any] {
@@ -3082,7 +3083,7 @@ public actor ArcAgent: Service {
                 }
                 return try await self.dispatchAmbientTool(name: name, args: NonSendableBox(args))
             }
-            return try await WorkspacePath.$root.withValue(config.workspaceRoot ?? FileManager.default.currentDirectoryPath) {
+            return try await WorkspacePath.$root.withValue(FileManager.default.currentDirectoryPath) {
                 try await entry.handler(argsBox.value)
             }
         } catch {
@@ -3237,6 +3238,9 @@ public actor ArcAgent: Service {
                     sessionKey: sessionID
                 ) {
                 case .denied:
+                    if let hit = await approvalManager.hardlineDenial(command: args) {
+                        return "Error: Command blocked by security policy (hardline: \(hit)). This command is never executable — approval cannot be granted for it."
+                    }
                     return "Error: Command blocked by security policy."
                 case .requiresReview:
                     return "⚠️ Command requires manual approval. Run it yourself or disable the approval system."
@@ -3298,14 +3302,30 @@ public actor ArcAgent: Service {
         }
 
         // ── Stable tier ──
-        var stable = """
-            You are ARC Agent, an intelligent AI assistant created by Nous Research.
-            You are helpful, knowledgeable, and direct. You assist users with a wide
-            range of tasks including answering questions, writing and editing code,
-            analyzing information, creative work, and executing actions via your tools.
+        let enabled: (ContextSegment) -> Bool = { self.config.contextRecipe?.isEnabled($0) ?? true }
 
-            You communicate clearly, admit uncertainty when appropriate, and prioritize
-            being genuinely useful over being verbose.
+        // ── SOUL identity slot (mirrors Hermes `load_soul_md`) ──
+        // A profile-scoped SOUL replaces the hardcoded ARC Agent identity at
+        // the top of the prompt. When absent the default identity is used.
+        var stable: String
+        if let soul = config.soulMD?.trimmingCharacters(in: .whitespacesAndNewlines), !soul.isEmpty {
+            stable = soul
+        } else {
+            stable = """
+                You are ARC Agent, an intelligent AI assistant created by Nous Research.
+                You are helpful, knowledgeable, and direct. You assist users with a wide
+                range of tasks including answering questions, writing and editing code,
+                analyzing information, creative work, and executing actions via your tools.
+
+                You communicate clearly, admit uncertainty when appropriate, and prioritize
+                being genuinely useful over being verbose.
+                """
+        }
+
+        // The "Available Tools" index is always included — tool availability is
+        // governed by `disabledToolsets` (profile/global), which filters both
+        // this index and the schemas; there is no prompt-only tools toggle.
+        stable += """
 
             ## Available Tools
 
@@ -3313,6 +3333,9 @@ public actor ArcAgent: Service {
             the user's request.
 
             \(buildToolsIndex())
+            """
+
+        stable += """
 
             ## Rules
 
@@ -3322,7 +3345,35 @@ public actor ArcAgent: Service {
             - Keep working until the task is actually complete.
             """
 
+        // ── High-weight custom context: promoted into the rules tier ──
+        // Position + imperative framing give it the strongest compliance.
+        // (Index the items once so the context-tier rendering below can reuse
+        // the same partition.)
+        let customItems = config.contextRecipe?.custom ?? []
+        let highCustom = customItems.filter { $0.weight == .high }
+        if !highCustom.isEmpty {
+            stable += "\n\n## Custom Context (High)\n\nYou MUST follow these instructions in every response:\n\n" +
+                highCustom.map { $0.text }.joined(separator: "\n")
+        }
+
+        // ── Active profile & platform hint (arc parity: hermes prompt_builder) ──
+        let profileLabel = (config.profileName?.isEmpty == false) ? config.profileName! : "default"
+        let platformLabel = config.platformHint.isEmpty ? "cli" : config.platformHint
+        stable += """
+
+            ## Active Profile
+
+            Active ARC profile: \(profileLabel). Other profiles live under
+            ~/.arc/profiles/. Unless the user explicitly directs you to, do not
+            modify another profile's skills, plugins, cron jobs, or memories.
+
+            ## Platform
+
+            This conversation is being served on the \(platformLabel) surface.
+            """
+
         // ── Universal guidance (arc parity: hermes prompt_builder guides) ──
+        if enabled(.guidance) {
         if config.taskCompletionGuidance {
             stable += "\n\n" + PromptGuidance.taskCompletion
         }
@@ -3345,14 +3396,16 @@ public actor ArcAgent: Service {
         if config.toolUseEnforcement {
             stable += "\n\n" + PromptGuidance.toolUseEnforcement(for: config.model)
         }
+        }
 
         // Environment hints (stable per machine).
         let osDescription: String
         #if os(macOS)
         osDescription = "macOS (\(ProcessInfo.processInfo.operatingSystemVersionString))"
         #else
-        osDescription = "\(ProcessInfo.processInfo.operatingSystemName) \(ProcessInfo.processInfo.operatingSystemVersionString)"
+        osDescription = "Linux (\(ProcessInfo.processInfo.operatingSystemVersionString))"
         #endif
+        if enabled(.environment) {
         stable += """
 
 
@@ -3361,18 +3414,27 @@ public actor ArcAgent: Service {
             - OS: \(osDescription)
             - Home directory: \(NSHomeDirectory())
             - Desktop: \(NSHomeDirectory())/Desktop
-            - Working directory for tools (relative paths resolve here): \(config.workspaceRoot ?? FileManager.default.currentDirectoryPath)
+            - Working directory for tools (relative paths resolve here): \(FileManager.default.currentDirectoryPath)
             - Use ~/... paths (or absolute paths) for user-visible locations; the `terminal` tool's shell expands `~`, and `write_file` accepts paths relative to the working directory.
             """
+        }
 
         // ── Personality overlay (reference `/personality`, `agent.system_prompt`) ──
-        if !config.personalityPrompt.isEmpty {
+        if enabled(.personality), !config.personalityPrompt.isEmpty {
             stable += "\n\n## Personality\n\n\(config.personalityPrompt)"
         }
 
         // ── Context tier ──
         var context = ""
-        if config.injectProjectContext {
+        // Medium-weight custom context leads the context tier (higher primacy
+        // than the advisory low tier, which trails the project context). The
+        // `customItems` partition was computed in the stable tier above.
+        let mediumCustom = customItems.filter { $0.weight == .medium }
+        if !mediumCustom.isEmpty {
+            context += "## Custom Context (Medium)\n\nFollow these instructions for this session:\n\n" +
+                mediumCustom.map { $0.text }.joined(separator: "\n") + "\n\n"
+        }
+        if enabled(.projectContext), config.injectProjectContext {
             let files = await loadContextFiles()
             if !files.isEmpty {
                 context += "## Workspace & Project Context\n\n"
@@ -3382,31 +3444,45 @@ public actor ArcAgent: Service {
             }
         }
 
+        // Low-weight custom context trails the context tier as plain advisory
+        // prose (today's behaviour). Not gated by any segment toggle — it is
+        // directly authored per session.
+        let lowCustom = customItems.filter { $0.weight == .low }
+        if !lowCustom.isEmpty {
+            context += "## Custom Context (Low)\n\n" + lowCustom.map { $0.text }.joined(separator: "\n\n") + "\n\n"
+        }
+
         // ── Volatile tier ──
         var volatile = ""
         // The mandatory framing instructs the model to load skills with
         // `skill_view`; inject the section only when the registry actually
         // exposes the loader, so the prompt never advertises a tool the
         // surface lacks.
-        if !config.skills.isEmpty, config.registry.lookup(name: "skill_view") != nil {
+        if enabled(.skills), !config.skills.isEmpty, config.registry.lookup(name: "skill_view") != nil {
             volatile += "## Skills (mandatory)\n\n\(Self.skillsMandatoryFraming)\n\n<available_skills>\n\(buildSkillsIndex(config.skills))\n</available_skills>\n\n"
         }
         if let memory = config.memoryProvider {
-            let memoryContent = MemoryManager.scrub(try await memory.readMemory())
-            if !memoryContent.isEmpty {
-                volatile += "## Memory (Your Persistent Notes)\n\n\(MemoryManager.fence(memoryContent))\n\n"
+            if enabled(.memory) {
+                let memoryContent = MemoryManager.scrub(try await memory.readMemory())
+                if !memoryContent.isEmpty {
+                    volatile += "## Memory (Your Persistent Notes)\n\n\(MemoryManager.fence(memoryContent))\n\n"
+                }
             }
-            let userContent = try await memory.readUser()
-            if !userContent.isEmpty {
-                volatile += "## User Profile\n\n\(MemoryManager.scrub(userContent))\n\n"
+            if enabled(.userProfile) {
+                let userContent = try await memory.readUser()
+                if !userContent.isEmpty {
+                    volatile += "## User Profile\n\n\(MemoryManager.scrub(userContent))\n\n"
+                }
             }
         }
-        volatile += Self.timestampLine(
-            sessionID: sessionID,
-            model: config.model,
-            provider: config.provider,
-            platform: config.platformHint
-        )
+        if enabled(.timestamp) {
+            volatile += Self.timestampLine(
+                sessionID: sessionID,
+                model: config.model,
+                provider: config.provider,
+                platform: config.platformHint
+            )
+        }
 
         let prompt = stable + "\n\n" + context + "\n\n" + volatile
         cachedSystemPrompt = prompt

@@ -4,17 +4,17 @@
 
 ARC Agent is a **precompiled, Swift-native AI agent harness** — architecturally inspired by [the reference agent](https://hermes-agent.nousresearch.com), but built from the ground up for Swift's concurrency model, type system, and distribution story. Single binary, zero interpreter overhead, no npm dependency chain, instant startup.
 
-**Status:** Vascular hardening. The core architecture is built across 236 source files with 1,445 tests — 901 core, 529 web UI, 15 daemon, all green — and a clean, warning-free build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. **One daemon hosts everything** — `arc serve` composes the REST API, the platform adapters, the cron scheduler and the web UI in a single `ServiceGroup`; the UI's CSS and JS are compiled in as Swift (the theme sheet rendered, minified, stamped and gzipped from `Sources/ArcTheme/`, the client overlay embedded from `Assets/overlay.js`) and served by no-webui's `WebUIServer` from content-stamped, immutable-cached urls.
+**Status:** Vascular hardening. The core architecture is built across 220 source files with 1,070 tests — the environment-gated live-config test is the only expected red — and a clean build. The project is now focused on hardening the internal data flow, session integrity, and error recovery before adding new capabilities. **One daemon hosts everything** — `arc serve` composes the REST API, the platform adapters, the cron scheduler and the web UI in a single `ServiceGroup`; the UI's CSS and JS are compiled in as Swift (the theme sheet rendered, minified, stamped and gzipped from `Sources/ArcTheme/`, the client overlay embedded from `Assets/overlay.js`) and served by no-webui's `WebUIServer` from content-stamped, immutable-cached urls.
 
 ## Install
 
 Install the latest release (precompiled binaries; no compiler or dependency chain needed):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tannerdsilva/arc-agent/master/Scripts/User/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tannerdsilva/arc-agent/master/install.sh | bash
 ```
 
-The installer fetches a prebuilt release tarball from GitHub Releases and falls back to a source build (clone + `swift build -c release`) when no asset exists for the platform yet. It installs **one** binary, `arc`, into `~/.local/bin` and leaves configuration to first-run setup. (The standalone `arc-agent-webui` binary was retired in the daemon consolidation; nothing installs it any more.)
+The installer fetches a prebuilt release tarball from GitHub Releases and falls back to a source build (clone + `swift build -c release`) when no asset exists for the platform yet. It installs `arc` and `arc-agent-webui` into `~/.local/bin` and leaves configuration to first-run setup:
 
 ```bash
 arc setup                       # provider, model, approval mode → ~/.arc/config.json
@@ -69,17 +69,7 @@ storage pair, and one log sink; surfaces are gated by `~/.arc/daemon.json`
 retired in the daemon consolidation.
 ```
 
-**54 registered tools** across 16 toolsets — measured from `arc tools list`, and identical to the 54 unique `ToolEntry` names in source: `core`, `file`, `terminal`, `web`, `delegation`, `kanban`, `profile`, `skills`, `mcp`, `project`, `tools`, `messaging`, `browser`, `todo`, `computer_use`, `code_execution` (arc-parity: `project_*`, unified `skill_manage` + `skills_list`, `tool_search`, `send_message`).
-
-### One turn engine
-
-Every surface runs its turns through `ArcAgent`. The web UI mints a per-turn agent
-(`makeTurnAgent`), consumes its `AgentTurnEvent` stream from `streamTurn`, and owns only what a host
-should own: the durable transcript, the live view, the pushers and the turn boundaries. Scheduled
-jobs are the same agent with `headless: true` — one prompt builder (the core's three cache tiers),
-one tool dispatcher, one approval policy, one usage ledger. `Sources/ArcWebUI` has no system-prompt
-builder, no turn loop and no retry machinery of its own; profile SOUL and pinned skills are handed
-to the core as config, not re-implemented as a second builder.
+**55 registered tools** across ~13 toolsets: `core`, `file`, `terminal`, `web`, `delegation`, `kanban`, `profile`, `media`, `webhooks`, `skills`, `mcp`, `project`, `tools`, `messaging` (arc-parity: `project_*`, unified `skill_manage` + `skills_list`, `tool_search`, `send_message`).
 
 ## Quick Start
 
@@ -100,6 +90,57 @@ swift run arc-agent chat -q "hello world"
 # The daemon — REST API + Web UI in one process (UI on http://127.0.0.1:8890)
 swift run arc-agent serve
 ```
+
+## Instance data directory (`ARC_HOME`)
+
+ARC Agent resolves its config, secrets, and data from a single instance root.
+By default this is `~/.arc`, and `arc setup` writes `config.json` and `.env`
+there. Setting the `ARC_HOME` environment variable relocates the whole root, so
+a second, fully-independent agent can run on the same machine and user:
+
+| Piece | Default | With `ARC_HOME=~/arc2` |
+|---|---|---|
+| Config | `~/.arc/config.json` | `~/arc2/config.json` |
+| Secrets (`.env`) | `~/.arc/.env` | `~/arc2/.env` |
+| Daemon surfaces (`daemon.json`) | `~/.arc/daemon.json` | `~/arc2/daemon.json` |
+| Sessions / memories | `~/.arc/sessions`, `~/.arc/memories` | `~/arc2/…` |
+| Skills / plugins | `~/.arc/skills`, `~/.arc/plugins` | `~/arc2/…` |
+| Web UI settings | `~/.arc-agent-webui/settings.json` | `~/arc2/webui/settings.json` |
+| Usage ledger | `~/.arc-agent/usage.json` | `~/arc2/usage/usage.json` |
+
+Each instance keeps its own `ARC_TESSERA_PRIVATE_KEY` (identity/NOSTR keypair)
+in `$ARC_HOME/.env` and its own `tessera.application` namespace in
+`config.json`, so a second instance is its own user on the shared relay rather
+than a twin of the first. `arc setup` prompts for the instance directory
+(defaulting to the current root) and prints how to export `ARC_HOME` for the
+value chosen.
+
+Launch an isolated second instance:
+
+```bash
+export ARC_HOME=~/arc2
+arc setup                      # or accept the setup prompt's default
+tessera-setup.sh               # dir-scoped; writes keys under $ARC_HOME
+export API_PORT=8081 WEBUI_PORT=8891 MCP_SERVER_PORT=8893
+arc serve
+```
+
+When the second instance shares the first instance's relay, point the setup
+at the relay's live DB and peer config so its identity is registered where
+the relay actually reads it:
+
+```bash
+RELAY_DB=~/.arc/tessera/db TESSERA_CFG_DIR=~/.arc/tessera/cfg tessera-setup.sh
+```
+
+The relay DB must know each instance's **user** (the ed25519 identity derived
+from its `ARC_TESSERA_PRIVATE_KEY`) or the relay rejects that instance's
+writes and `arc doctor` fails its health check — `tessera-setup.sh` performs
+this registration (stop the relay first if it is running; the registration
+needs the LMDB write lock).
+
+Ports are env-overridable (`API_PORT`, `WEBUI_PORT`, `MCP_SERVER_PORT`); the
+WebSocket transport binds on `port + 1`, so leave that port free.
 
 ## Web UI
 

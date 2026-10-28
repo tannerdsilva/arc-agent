@@ -49,6 +49,7 @@ public actor SessionAgent: Service {
             let resolvedBaseURL: URL
             let resolvedSOUL: String?
             let resolvedContext: ProfileContextConfig?
+            let resolvedProfileDefaults: ContextRecipe?
 
             if let profileConfig = try await profileManager.get(name: profile) {
                 resolvedModel = profileConfig.model ?? agentConfig.model
@@ -63,6 +64,7 @@ public actor SessionAgent: Service {
                 }
                 resolvedSOUL = profileConfig.soulMD
                 resolvedContext = profileConfig.context
+                resolvedProfileDefaults = profileConfig.contextDefaults
             } else {
                 resolvedModel = agentConfig.model
                 resolvedProvider = agentConfig.provider
@@ -73,6 +75,7 @@ public actor SessionAgent: Service {
                 }
                 resolvedSOUL = nil
                 resolvedContext = nil
+                resolvedProfileDefaults = nil
             }
 
             // Storage backend. When Tessera is configured, sessions and
@@ -100,6 +103,53 @@ public actor SessionAgent: Service {
             logger.info("step: building tool registry")
             let toolRegistry = try await MutableToolRegistry.make(enabledPlugins: pluginAllowList())
 
+            // Resolve the per-session context recipe: global defaults <
+            // profile defaults < session overrides.
+            logger.info("step: resolving context recipe")
+            let sessionOverrides: ContextRecipe?
+            if let existingSession = try? await sessionStore.get(id: sessionID) {
+                sessionOverrides = existingSession.contextOverrides
+            } else {
+                sessionOverrides = nil
+            }
+            let resolvedRecipe = ResolvedContextRecipe.resolve(
+                global: agentConfig.contextDefaults,
+                profile: resolvedProfileDefaults,
+                session: sessionOverrides
+            )
+
+            // Host/guest split (Phase 1): the owner is the sole host. When
+            // this process holds a grant (not ownership) on a shared session,
+            // we must not build or run a second agent — this side is a tunnel
+            // that relays only. Resolve the turn mode from the store's owner +
+            // live grants before constructing the engine, so a guest process
+            // skips the model/provider/tool-registry cost entirely. (With no
+            // resolvable identity, or a session owned by this identity, we
+            // fall through to the normal host path.)
+            logger.info("step: resolving turn mode")
+            if let identity = await TesseraConnection.shared.nostrPublicKeyString {
+                let grants = await TesseraShareStore.shared.latestGrants()
+                // Grant-based pre-check: a grant naming this process as a
+                // grantee means the owner is elsewhere, even if the session
+                // meta (owner field) has not been ingested yet.
+                let grantedElsewhere = grants.contains { grant in
+                    grant.sessionID == sessionID
+                        && grant.owner != identity
+                        && grant.grantees.contains(where: { $0.pubkey == identity })
+                }
+                var isGuest = grantedElsewhere
+                if !isGuest, let stored = try? await sessionStore.get(id: sessionID) {
+                    isGuest = SharedSessionACL.turnMode(
+                        identity: identity, sessionID: sessionID,
+                        sessionOwner: stored.owner, grants: grants
+                    ) == .guest
+                }
+                if isGuest {
+                    logger.info("step: session \\(sessionID) is shared to this process as a guest; owner is sole host — skipping agent construction")
+                    return
+                }
+            }
+
             logger.info("step: creating ArcAgent")
             let agent = ArcAgent(config: ArcAgent.Configuration(
                 model: resolvedModel,
@@ -115,10 +165,14 @@ public actor SessionAgent: Service {
                 maxTurnDuration: 120,
                 persistSessions: agentConfig.tessera != nil ? agentConfig.persistSessions : false,
                 approvalMode: .manual,
+                // Session agents are long-lived, but seed the persisted
+                // "Always allow" list so allowlist entries span restarts.
+                alwaysAllowedCommands: loadConfig().security.alwaysAllowedCommands,
                 query: nil,
                 maxContextTokens: 64_000,
                 sessionID: sessionID,
                 contextLength: resolvedContext?.contextLength,
+                compressionBudget: resolvedContext?.compressionBudget,
                 platformHint: "daemon",
                 moa: agentConfig.moa,
                 skillInlineCommands: agentConfig.skillInlineCommands,
@@ -131,7 +185,8 @@ public actor SessionAgent: Service {
                 temperature: resolvedContext?.temperature,
                 topP: resolvedContext?.topP,
                 maxOutputTokens: resolvedContext?.maxOutputTokens,
-                mcpServers: agentConfig.mcpServers
+                mcpServers: agentConfig.mcpServers,
+                contextRecipe: resolvedRecipe
             ))
             logger.info("step: setting up client")
             await agent.setupClient(httpClient: httpClient)
@@ -169,6 +224,21 @@ public actor SessionAgent: Service {
                 logger.info("step: running conversation")
                 let chat = message.chat
 
+                // Host-runs-every-turn: only the owner generates a response for a
+                // **shared** session. A contributing sharee's message is already
+                // persisted by appendMessage; the owner's agent picks it up. When
+                // ownership can't be resolved (standalone gateway without a store,
+                // or a session we can't see) we run the turn as before, so a
+                // single-user deployment behaves exactly as it did.
+                if let store = agentConfig.storage?.store,
+                   let stored = try? await store.get(id: sessionID),
+                   let storedOwner = stored.owner,
+                   let identity = await TesseraConnection.shared.nostrPublicKeyString,
+                   !SharedSessionACL.isOwner(identity, sessionOwner: storedOwner) {
+                    logger.info("step: session \(sessionID) is shared to this process and not the owner; contribution recorded, skipping turn")
+                    continue
+                }
+
                 // Live streaming delivery (arc parity): typing indicator +
                 // in-place edits while the agent streams, final edit/send at end.
                 var editable = await deliveryManager.canEdit(to: chat)
@@ -201,6 +271,8 @@ public actor SessionAgent: Service {
                             logger.debug("session: reasoning delta \(delta.count) chars (session \(sessionID))")
                         case .usage(let usage):
                             logger.debug("session: usage prompt=\(usage.promptTokens) completion=\(usage.completionTokens) (session \(sessionID))")
+                        case .compressing:
+                            logger.info("session: compressing context (session \(sessionID))")
                         case .completed:
                             break
                         }

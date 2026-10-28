@@ -3,7 +3,6 @@ import AsyncHTTPClient
 import NIOCore
 import NIOHTTP1
 import Crypto
-import SwiftSlash
 
 // MARK: - Event Hooks (reference `website/docs/user-guide/features/hooks.md`)
 
@@ -168,8 +167,7 @@ public actor HookBus {
     /// `HookRegistry.discover_and_load()`). Handlers are `handler.py`
     /// (executed by `python3`) — same `handle(event, context)` contract.
     public func loadFileHooks(directory: URL? = nil) async {
-        let base = directory ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/hooks")
+        let base = directory ?? ArcHome.hooks
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: base, includingPropertiesForKeys: nil
         ) else { return }
@@ -243,44 +241,37 @@ public actor HookBus {
 
     private func runFileHook(_ hook: FileHook, _ job: HookJob) async {
         do {
-            // A hook is run-to-completion with a payload on stdin and a 30 s bound
-            // — exactly `SubprocessRunner`. The old form blocked a thread in
-            // `waitUntilExit()` while a second task slept to `terminate()` it, and
-            // the terminate raced the reap; the runner's timeout signals the whole
-            // process group and reaps it before returning.
-            let executable = hook.interpreter == nil ? hook.handlerURL.path : "/usr/bin/env"
-            // A path SwiftSlash cannot execute produces no child at all, and the
-            // launch then waits on a continuation nothing resumes — so refuse it
-            // here, where the old `Process.run()` would have thrown.
-            guard executable.hasPrefix("/"),
-                  FileManager.default.isExecutableFile(atPath: executable)
-            else {
-                LoggerHolder.log("hook \(hook.name) failed: not an executable: \(executable)")
-                return
-            }
-            var command: Command
+            let process = Process()
             if let interpreter = hook.interpreter {
-                command = Command(
-                    absolutePath: Path("/usr/bin/env"),
-                    arguments: [interpreter, hook.handlerURL.path, job.event])
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                process.arguments = [interpreter, hook.handlerURL.path, job.event]
             } else {
-                command = Command(
-                    absolutePath: Path(hook.handlerURL.path),
-                    arguments: [job.event])
+                process.executableURL = hook.handlerURL
+                process.arguments = [job.event]
             }
-            command.inheritCurrentEnvironment()
+            let input = Pipe()
+            let output = Pipe()
+            let errorPipe = Pipe()
+            process.standardInput = input
+            process.standardOutput = output
+            process.standardError = errorPipe
 
+            try process.run()
             let body = try JSONSerialization.data(withJSONObject: hookJSONPayload(job), options: [])
-            let outcome = try await SubprocessRunner.runBytes(
-                command, timeout: 30, stdin: Array(body))
+            input.fileHandleForWriting.write(body)
+            try? input.fileHandleForWriting.close()
 
-            // stderr is the hook's own diagnostics; it is only interesting when the
-            // hook failed (unchanged from the pipe form).
-            if outcome.exitCodeValue != 0 {
-                let stderr = String(data: outcome.stderr, encoding: .utf8) ?? ""
-                if !stderr.isEmpty {
-                    LoggerHolder.log("hook \(hook.name): \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
-                }
+            // Bounded wait: 30 s cap, then kill.
+            let deadline = Task {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                if process.isRunning { process.terminate() }
+            }
+            process.waitUntilExit()
+            deadline.cancel()
+
+            let stderr = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            if process.terminationStatus != 0, !stderr.isEmpty {
+                LoggerHolder.log("hook \(hook.name): \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
             }
         } catch {
             LoggerHolder.log("hook \(hook.name) failed: \(error)")

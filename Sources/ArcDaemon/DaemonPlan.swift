@@ -1,4 +1,5 @@
 import ArcAgentCore
+import Logging
 
 /// The resolved long-lived surfaces a daemon run composes.
 ///
@@ -36,19 +37,24 @@ public struct DaemonPlan: Sendable, Equatable {
         public var webuiEnabled: Bool?
         /// `--tessera-off`: skip the Tessera probe and use file storage.
         public var tesseraOff: Bool
+        /// `--log-level`: override the daemon-wide swift-log level; nil keeps
+        /// the handler default (.info).
+        public var logLevel: Logger.Level?
 
         public init(
             host: String? = nil,
             port: Int? = nil,
             telegramToken: String? = nil,
             webuiEnabled: Bool? = nil,
-            tesseraOff: Bool = false
+            tesseraOff: Bool = false,
+            logLevel: Logger.Level? = nil
         ) {
             self.host = host
             self.port = port
             self.telegramToken = telegramToken
             self.webuiEnabled = webuiEnabled
             self.tesseraOff = tesseraOff
+            self.logLevel = logLevel
         }
     }
 

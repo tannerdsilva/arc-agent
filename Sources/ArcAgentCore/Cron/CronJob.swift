@@ -72,14 +72,15 @@ public actor FileCronStore: CronStore {
     private let directory: URL
 
     public init(directory: URL? = nil) {
-        let dir = directory ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/cron")
+        let dir = directory ?? ArcHome.cron
         self.directory = dir
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }
 
     public func save(_ job: CronJob) async throws {
-        let data = try JSONEncoder().encode(job)
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try enc.encode(job)
         try data.write(to: directory.appendingPathComponent("\(job.id).json"), options: .atomic)
     }
 

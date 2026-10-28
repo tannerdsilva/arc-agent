@@ -166,8 +166,7 @@ public struct WebUIStorageSelection: Sendable {
     /// Missing file or missing keys returns nil (caller falls back to the
     /// CLI config defaults).
     public static func loadFromDisk() -> WebUIStorageSelection? {
-        let url = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".arc-agent-webui/settings.json")
+        let url = ArcHome.webUISettings
         return load(from: url)
     }
 
@@ -182,5 +181,30 @@ public struct WebUIStorageSelection: Sendable {
         guard let box = try? JSONDecoder().decode(Box.self, from: data) else { return nil }
         guard let active = box.activeStorage else { return nil }
         return WebUIStorageSelection(activeStorage: active, connections: box.storageConnections ?? [])
+    }
+}
+
+
+/// The global default context recipe persisted by the web UI's "Context" tab
+/// (`contextDefaults` in `~/.arc-agent-webui/settings.json`). `ArcDaemon`
+/// consults it at boot so a segment toggle made in the UI is the default the
+/// whole process uses for new sessions on the next start — the choice is not
+/// just cosmetic until a manual edit of `config.json`.
+public struct WebUIContextDefaults: Sendable {
+    /// Tolerant read of the `contextDefaults` key from the web UI settings file.
+    /// Missing file or missing key returns nil (caller falls back to the CLI
+    /// config defaults).
+    public static func loadFromDisk() -> ContextRecipe? {
+        let url = ArcHome.webUISettings
+        return load(from: url)
+    }
+
+    /// Tolerant decode of the recipe from a settings file (the daemon reads
+    /// `~/.arc-agent-webui/settings.json`; tests read temp files).
+    public static func load(from url: URL) -> ContextRecipe? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        struct Box: Codable { var contextDefaults: ContextRecipe? }
+        guard let box = try? JSONDecoder().decode(Box.self, from: data) else { return nil }
+        return box.contextDefaults
     }
 }

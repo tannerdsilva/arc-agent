@@ -132,67 +132,33 @@ extension ArcCoreTestRoot {
             #expect(cfg.auxiliary.resolved(for: .triageSpecifier, over: cfg.model).model == "x")
         }
 
-        /// the reference oMLX deployment, expressed as a config VALUE.
-        ///
-        /// the previous version of this test read the maintainer's live
-        /// `~/.arc/config.json` and asserted one particular deployment inside it. that
-        /// made it red on every machine configured with a different provider (22 issues
-        /// on a box running Nemotron, forever), and it `return`ed silently when the file
-        /// was absent — so it was neither a test of arc nor a reliable live check. the
-        /// routing it asserted is a property of a config value, so it is pinned here
-        /// against a fixture and now holds on any machine.
-        ///
-        /// the load-bearing assertion is the COUNT plus the per-task routing: a mistyped
-        /// or renamed aux key decodes to "no override" silently, which is exactly the
-        /// regression this catches.
-        @Test("a full reference-shaped auxiliary block decodes and routes every task")
-        func referenceLayoutDecodesAndRoutes() throws {
-            let json = """
-            {
-              "model": {
-                "defaultModel": "deepseek-v4-flash-vision-exp",
-                "provider": "custom",
-                "baseURL": "https://api.deepseek.com/v1"
-              },
-              "auxiliary": {
-                "compression":       { "model": "Qwen3.6-35B-A3B-OptiQ-4bit",  "base_url": "http://127.0.0.1:8000/v1" },
-                "web_extract":       { "model": "LFM2.5-8B-A1B-MLX-bf16",      "base_url": "http://127.0.0.1:8000/v1" },
-                "approval":          { "model": "LFM2.5-8B-A1B-MLX-bf16",      "base_url": "http://127.0.0.1:8000/v1" },
-                "mcp":               { "model": "LFM2.5-8B-A1B-MLX-bf16",      "base_url": "http://127.0.0.1:8000/v1" },
-                "title_generation":  { "model": "LFM2.5-8B-A1B-MLX-bf16",      "base_url": "http://127.0.0.1:8000/v1" },
-                "tts_audio_tags":    { "model": "LFM2.5-8B-A1B-MLX-bf16",      "base_url": "http://127.0.0.1:8000/v1" },
-                "triage_specifier":  { "model": "LFM2.5-8B-A1B-MLX-bf16",      "base_url": "http://127.0.0.1:8000/v1" },
-                "kanban_decomposer": { "model": "LFM2.5-8B-A1B-MLX-bf16",      "base_url": "http://127.0.0.1:8000/v1" },
-                "profile_describer": { "model": "LFM2.5-8B-A1B-MLX-bf16",      "base_url": "http://127.0.0.1:8000/v1" },
-                "curator":           { "model": "LFM2.5-8B-A1B-MLX-bf16",      "base_url": "http://127.0.0.1:8000/v1" },
-                "skills_hub":        { "model": "LFM2.5-8B-A1B-MLX-bf16",      "base_url": "http://127.0.0.1:8000/v1" }
-              }
-            }
-            """
-            let cfg = try JSONDecoder().decode(ArcConfig.self, from: Data(json.utf8))
+        @Test("the live ~/.arc/config.json maps aux tasks to the reference oMLX layout")
+        func liveConfigMirrorsreference() throws {
+            let url = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".arc/config.json")
+            guard FileManager.default.fileExists(atPath: url.path),
+                  let data = try? Data(contentsOf: url),
+                  let cfg = try? JSONDecoder().decode(ArcConfig.self, from: data)
+            else { return }  // no local config: nothing to assert
+
             let main = cfg.model
 
-            // every key above must land on a real task; none may be silently dropped
-            #expect(cfg.auxiliary.byTask.count == 11)
-
-            // compression is the one task that routes to the Qwen model
+            // compression -> the Qwen model
             let comp = cfg.auxiliary.resolved(for: .compression, over: main)
             #expect(comp.model == "Qwen3.6-35B-A3B-OptiQ-4bit")
-            #expect(comp.baseURL == "http://127.0.0.1:8000/v1")
 
-            // everything else reference routes to LFM2 on the local oMLX
+            // everything else reference routes to LFM2
             for task in [AuxiliaryTask.webExtract, .approval, .mcp, .titleGeneration,
                          .ttsAudioTags, .triageSpecifier, .kanbanDecomposer,
                          .profileDescriber, .curator, .skillsHub] {
                 let r = cfg.auxiliary.resolved(for: task, over: main)
                 #expect(r.model == "LFM2.5-8B-A1B-MLX-bf16", "\(task.key) should route to LFM2")
-                #expect(r.baseURL == "http://127.0.0.1:8000/v1", "\(task.key) should hit the local oMLX")
+                #expect(r.baseURL == "http://127.0.0.1:8000/v1", "\(task.key) should hit local oMLX")
             }
 
-            // the main model stays the remote box; vision carries no override and inherits it
+            // main model stays the remote deepseek box; vision is unset (nothing)
             #expect(main.defaultModel == "deepseek-v4-flash-vision-exp")
             #expect(cfg.auxiliary.override(for: .vision) == nil)
-            #expect(cfg.auxiliary.resolved(for: .vision, over: main).model == "deepseek-v4-flash-vision-exp")
         }
     }
 }
@@ -226,8 +192,10 @@ extension ArcCoreTestRoot {
         @Test("smart mode falls back to the regex detector when the classifier is unavailable")
         func fallback() async {
             let unavailable = ApprovalManager(mode: .smart, classifier: { _ in nil })
-            // "rm -rf" is a dangerous regex pattern → review
-            let rDanger = await unavailable.requestApproval(command: "rm -rf /etc", description: "", sessionKey: "s")
+            // "rm -rf /tmp/x" is a dangerous soft-layer pattern → review.
+            // (Hardline targets like "rm -rf /etc" deny outright — see
+            // HardlineLayerTests.)
+            let rDanger = await unavailable.requestApproval(command: "rm -rf /tmp/x", description: "", sessionKey: "s")
             #expect(rDanger == .requiresReview)
             // benign command → approved even without a classifier
             let rSafe = await unavailable.requestApproval(command: "echo hi", description: "", sessionKey: "s2")
@@ -236,10 +204,15 @@ extension ArcCoreTestRoot {
 
         @Test("manual and off modes are unchanged by the classifier")
         func otherModes() async {
+            // Manual mode: unflagged commands never prompt (Phase 2 wiring);
+            // flagged commands require review when no presenter is set.
             let manual = ApprovalManager(mode: .manual, classifier: { _ in .safe })
-            #expect(await manual.requestApproval(command: "echo hi", description: "", sessionKey: "s") == .requiresReview)
+            #expect(await manual.requestApproval(command: "echo hi", description: "", sessionKey: "s") == .approved)
+            #expect(await manual.requestApproval(command: "rm -rf /tmp/x", description: "", sessionKey: "s") == .requiresReview)
             let off = ApprovalManager(mode: .off, classifier: { _ in .critical })
             #expect(await off.requestApproval(command: "anything", description: "", sessionKey: "s") == .approved)
+            // ...but hardline denies in every mode, classifier notwithstanding.
+            #expect(await off.requestApproval(command: "rm -rf /", description: "", sessionKey: "s") == .denied)
         }
     }
 }

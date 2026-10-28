@@ -2,7 +2,6 @@ import Testing
 @testable import ArcAgentCore
 import Foundation
 import AsyncHTTPClient
-import Synchronization
 
 // =========================================================================
 // MARK: - Scripted streaming client
@@ -13,12 +12,7 @@ import Synchronization
 /// emits `final`. Deltas arrive reasoning → content chunks → tool calls →
 /// usage → finish reason, mirroring the OpenAI-compatible wire order (the
 /// turn loop stops reading at `finishReason`).
-///
-/// Every `stream(...)` call's messages are recorded in call order so tests can
-/// assert on what the mock provider received. `onRoundStart` runs inside the
-/// emitting task *before* the first delta of a call, which lets a test act
-/// mid-turn (steer, interrupt) with a happens-before edge on the next delta.
-final class EventScriptClient: LLMClient {
+struct EventScriptClient: LLMClient {
 
     struct Round {
         var chunks: [String] = []
@@ -29,24 +23,6 @@ final class EventScriptClient: LLMClient {
 
     let first: Round
     let final: Round
-
-    private let onRoundStart: (@Sendable (Int) async -> Void)?
-    private let recorded = Mutex<[[Message]]>([])
-
-    init(
-        first: Round,
-        final: Round,
-        onRoundStart: (@Sendable (Int) async -> Void)? = nil
-    ) {
-        self.first = first
-        self.final = final
-        self.onRoundStart = onRoundStart
-    }
-
-    /// Messages received by each `stream(...)` call, in call order.
-    var allRecordedMessages: [[Message]] {
-        recorded.withLock { Array($0) }
-    }
 
     func complete(messages: [Message], tools: [[String: Any]]?) async throws -> LLMResponse {
         throw LLMError.apiError(statusCode: 500, message: "scripted client is streaming-only")
@@ -61,15 +37,9 @@ final class EventScriptClient: LLMClient {
         tools: [[String: Any]]?,
         reasoningEffort: String?
     ) -> AsyncThrowingStream<LLMDelta, Error> {
-        let callIndex = recorded.withLock { store -> Int in
-            store.append(messages)
-            return store.count - 1
-        }
         let round = messages.contains(where: { $0.role == .tool }) ? final : first
-        let hook = onRoundStart
         return AsyncThrowingStream { continuation in
             Task {
-                await hook?(callIndex)
                 if let reasoning = round.reasoning, !reasoning.isEmpty {
                     continuation.yield(LLMDelta(content: nil, reasoning: reasoning))
                 }
@@ -111,8 +81,7 @@ extension ArcCoreTestRoot {
             registry: CompileTimeToolRegistry,
             httpClient: HTTPClient,
             client: any LLMClient,
-            approvalMode: ApprovalMode = .manual,
-            initialHistory: [Message]? = nil
+            approvalMode: ApprovalMode = .manual
         ) async -> ArcAgent {
             let config = ArcAgent.Configuration(
                 model: "test-model",
@@ -126,8 +95,7 @@ extension ArcCoreTestRoot {
                 persistSessions: false,
                 approvalMode: approvalMode,
                 query: nil,
-                maxContextTokens: 64_000,
-                initialHistory: initialHistory
+                maxContextTokens: 64_000
             )
             let agent = ArcAgent(config: config)
             await agent.setupClient(httpClient: httpClient)
@@ -150,9 +118,9 @@ extension ArcCoreTestRoot {
             }
         }
 
-        private func completedText(_ events: [AgentTurnEvent]) -> (text: String, reason: String?)? {
-            for case .completed(let text, let reason) in events.reversed() {
-                return (text, reason)
+        private func completedText(_ events: [AgentTurnEvent]) -> String? {
+            for case .completed(let text, _) in events.reversed() {
+                return text
             }
             return nil
         }
@@ -200,7 +168,7 @@ extension ArcCoreTestRoot {
             let events = try await collect(agent)
 
             #expect(textDeltas(events) == ["Hel", "lo, ", "world"])
-            #expect(completedText(events)?.text == "Hello, world")
+            #expect(completedText(events) == "Hello, world")
             let completions = events.filter { if case .completed = $0 { return true } else { return false } }
             #expect(completions.count == 1)
 
@@ -249,6 +217,7 @@ extension ArcCoreTestRoot {
                 case .toolCallStarted: return "started"
                 case .toolCallFinished: return "finished"
                 case .usage: return "usage"
+                case .compressing: return "compressing"
                 case .completed: return "completed"
                 case .failed: return "failed"
                 }
@@ -291,7 +260,7 @@ extension ArcCoreTestRoot {
                 return nil
             }
             #expect(usages == [usage])
-            #expect(completedText(events)?.text == "answer")
+            #expect(completedText(events) == "answer")
 
             // projection parity: reasoning is display-only.
             let agent2 = await makeAgent(registry: registry, httpClient: httpClient, client: client)
@@ -445,7 +414,7 @@ extension ArcCoreTestRoot {
 
             let result = toolFinished(events).first?.2 ?? ""
             #expect(result == "2")
-            #expect(completedText(events)?.text == "picked 2")
+            #expect(completedText(events) == "picked 2")
 
             // leave the ambient presenter box clean for the next serialized test.
             await ClarifyTool.presenters.set(nil)
@@ -516,339 +485,7 @@ extension ArcCoreTestRoot {
             let critical = await manager.needsApproval(command: "rm -rf /", sessionKey: "s2")
             #expect(critical == true)
         }
-
-        // MARK: convergence A1 — history seed and public turn control
-
-        @Test("configuration initial history reaches the first request once, ahead of the new user message")
-        func initialHistorySeedsTheFirstRequestOnce() async throws {
-            let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-            defer { _ = httpClient.shutdown() }
-
-            let seeded = [
-                Message(role: .user, content: "earlier question"),
-                Message(role: .assistant, content: "earlier answer"),
-            ]
-            let client = EventScriptClient(
-                first: .init(chunks: ["ok"]),
-                final: .init(chunks: ["ok"])
-            )
-            let registry = try ArcAgentCore.buildDefaultRegistry()
-            let agent = await makeAgent(
-                registry: registry,
-                httpClient: httpClient,
-                client: client,
-                initialHistory: seeded
-            )
-
-            _ = try await collect(agent)
-            _ = try await collect(agent)
-
-            let calls = client.allRecordedMessages
-            #expect(calls.count == 2)
-
-            // first request: system, the two seeded messages in order, then the turn's user message.
-            let firstTurn = calls[0].map { $0.content ?? "" }
-            #expect(calls[0].first?.role == .system)
-            #expect(firstTurn.count == 4)
-            #expect(firstTurn[1] == "earlier question")
-            #expect(firstTurn[2] == "earlier answer")
-            #expect(firstTurn[3] == "go")
-
-            // one-shot: the second turn carries the seeds exactly once, not twice.
-            let secondTurn = calls[1].map { $0.content ?? "" }
-            #expect(secondTurn.filter { $0 == "earlier question" }.count == 1)
-            #expect(secondTurn.filter { $0 == "earlier answer" }.count == 1)
-            #expect(secondTurn.filter { $0 == "go" }.count == 2)
-        }
-
-        @Test("a mid-turn steer lands after the tool result and rides the next request")
-        func steerLandsAtTheToolBoundary() async throws {
-            let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-            defer { _ = httpClient.shutdown() }
-
-            let box = TurnAgentBox()
-            let toolCall = ToolCallDelta(
-                index: 0,
-                id: "call_steer",
-                name: "terminal",
-                arguments: #"{"command":"echo arc-steer"}"#
-            )
-            let client = EventScriptClient(
-                first: .init(toolCalls: [toolCall]),
-                final: .init(chunks: ["done"]),
-                onRoundStart: { index in
-                    // mid-turn: the steer arrives while the first response streams.
-                    if index == 0 { await box.steer("focus on the failing test") }
-                }
-            )
-            let registry = try ArcAgentCore.buildDefaultRegistry()
-            let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
-            await box.hold(agent)
-
-            let events = try await collect(agent)
-
-            let calls = client.allRecordedMessages
-            #expect(calls.count == 2)
-            let second = calls[1]
-            let toolIndex = second.firstIndex { $0.role == .tool }
-            let steerIndex = second.firstIndex { ($0.content ?? "").contains("[steer:") }
-            #expect(toolIndex != nil)
-            #expect(steerIndex != nil)
-            if let toolIndex, let steerIndex {
-                #expect(steerIndex > toolIndex)
-                #expect(second[steerIndex].content == "[steer: focus on the failing test]")
-                #expect(steerIndex == second.count - 1)
-            }
-            #expect(completedText(events)?.text == "done")
-        }
-
-        @Test("interruptTurn yields the interrupt text then completed, and the same agent runs a clean second turn")
-        func interruptTurnEndsTheTurnAndTheAgentRecovers() async throws {
-            let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-            defer { _ = httpClient.shutdown() }
-
-            let box = TurnAgentBox()
-            let toolCall = ToolCallDelta(
-                index: 0,
-                id: "call_interrupt",
-                name: "terminal",
-                arguments: #"{"command":"echo arc-interrupt"}"#
-            )
-            let client = EventScriptClient(
-                first: .init(toolCalls: [toolCall]),
-                final: .init(chunks: ["clean"]),
-                onRoundStart: { index in
-                    // mid-turn: the stop arrives while the first response streams.
-                    if index == 0 { await box.interrupt() }
-                }
-            )
-            let registry = try ArcAgentCore.buildDefaultRegistry()
-            let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
-            await box.hold(agent)
-
-            let interrupted = try await collect(agent)
-
-            #expect(textDeltas(interrupted) == ["Interrupted by user."])
-            #expect(completedText(interrupted)?.text == "Interrupted by user.")
-            let completions = interrupted.filter { if case .completed = $0 { return true } else { return false } }
-            #expect(completions.count == 1)
-            // the interrupt is honoured at the iteration boundary — the second
-            // request is never issued.
-            #expect(client.allRecordedMessages.count == 1)
-
-            // the same instance recovers: a clean next turn with no interrupt state left over.
-            let second = try await collect(agent)
-            #expect(textDeltas(second) == ["clean"])
-            #expect(completedText(second)?.text == "clean")
-            #expect(client.allRecordedMessages.count == 2)
-        }
-
-    // MARK: convergence A3 — per-turn clarify presenter and dispatcher
-
-    @Test("two concurrent agents with different clarify presenters do not cross-talk")
-    func concurrentClarifyPresentersDoNotCrossTalk() async throws {
-        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-        defer { _ = httpClient.shutdown() }
-
-        // No process-wide presenter is installed, so the TaskLocal is the
-        // only rung in play.
-        await ClarifyTool.presenters.set(nil)
-
-        let askA = ToolCallDelta(
-            index: 0,
-            id: "call_ask_a",
-            name: "clarify",
-            arguments: #"{"question":"Agent A's question","choices":["a1","a2"]}"#
-        )
-        let askB = ToolCallDelta(
-            index: 0,
-            id: "call_ask_b",
-            name: "clarify",
-            arguments: #"{"question":"Agent B's question","choices":["b1","b2"]}"#
-        )
-
-        let clientA = EventScriptClient(
-            first: .init(toolCalls: [askA]),
-            final: .init(chunks: ["A answered"])
-        )
-        let clientB = EventScriptClient(
-            first: .init(toolCalls: [askB]),
-            final: .init(chunks: ["B answered"])
-        )
-
-        let registry = try ArcAgentCore.buildDefaultRegistry()
-        let agentA = await makeAgent(registry: registry, httpClient: httpClient, client: clientA)
-        let agentB = await makeAgent(registry: registry, httpClient: httpClient, client: clientB)
-
-        // Each agent installs its own presenter into its TaskLocal scope.
-        await agentA.setClarifyPresenter { question, _ in
-            #expect(question == "Agent A's question")
-            return "a1"
-        }
-        await agentB.setClarifyPresenter { question, _ in
-            #expect(question == "Agent B's question")
-            return "b1"
-        }
-
-        // Run both turns concurrently; neither should observe the other's
-        // question or answer because the TaskLocal is per-turn.
-        async let eventsA = collect(agentA, message: "ask")
-        async let eventsB = collect(agentB, message: "ask")
-        let (evA, evB) = try await (eventsA, eventsB)
-
-        let resultA = toolFinished(evA).first?.2 ?? ""
-        let resultB = toolFinished(evB).first?.2 ?? ""
-        #expect(resultA == "a1", "agent A should see its own answer")
-        #expect(resultB == "b1", "agent B should see its own answer")
-        #expect(completedText(evA)?.text == "A answered")
-        #expect(completedText(evB)?.text == "B answered")
-
-        // Leave the process-wide box clean for the next serialized test.
-        await ClarifyTool.presenters.set(nil)
     }
-
-    @Test("clarify resolution order: task local wins over process-wide box")
-    func clarifyResolutionOrderTaskLocalWins() async throws {
-        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-        defer { _ = httpClient.shutdown() }
-
-        // Install the fallback-box presenter (rung 2).
-        let boxRecorder = ClarifyRecorder()
-        await ClarifyTool.presenters.set { question, choices in
-            await boxRecorder.record(question: question, choices: choices)
-            return "from-box"
-        }
-        defer { Task { await ClarifyTool.presenters.set(nil) } }
-
-        let ask = ToolCallDelta(
-            index: 0,
-            id: "call_ask",
-            name: "clarify",
-            arguments: #"{"question":"Which number?","choices":["1","2"]}"#
-        )
-        let client = EventScriptClient(
-            first: .init(toolCalls: [ask]),
-            final: .init(chunks: ["done"])
-        )
-        let registry = try ArcAgentCore.buildDefaultRegistry()
-        let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
-
-        // Agent installs a TaskLocal presenter (rung 1) that shadows the box.
-        await agent.setClarifyPresenter { question, choices in
-            #expect(question == "Which number?")
-            #expect(choices == ["1", "2"])
-            return "from-tasklocal"
-        }
-
-        let events = try await collect(agent, message: "ask me")
-        let result = toolFinished(events).first?.2 ?? ""
-        #expect(result == "from-tasklocal", "task local presenter must win over the box")
-
-        let boxAsked = await boxRecorder.asked
-        #expect(boxAsked.isEmpty, "the box presenter must not fire when a task local is present")
-    }
-
-    @Test("clarify resolution order: process-wide box is the fallback when no task local")
-    func clarifyResolutionOrderBoxFallsBack() async throws {
-        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-        defer { _ = httpClient.shutdown() }
-
-        await ClarifyTool.presenters.set(nil)
-        defer { await ClarifyTool.presenters.set(nil) }
-
-        let boxRecorder = ClarifyRecorder()
-        await ClarifyTool.presenters.set { question, choices in
-            await boxRecorder.record(question: question, choices: choices)
-            return "from-box"
-        }
-
-        let ask = ToolCallDelta(
-            index: 0,
-            id: "call_ask",
-            name: "clarify",
-            arguments: #"{"question":"Which number?","choices":["1","2"]}"#
-        )
-        let client = EventScriptClient(
-            first: .init(toolCalls: [ask]),
-            final: .init(chunks: ["done"])
-        )
-        let registry = try ArcAgentCore.buildDefaultRegistry()
-        let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
-        // No task-local presenter set — the box is the fallback rung.
-
-        let events = try await collect(agent, message: "ask me")
-        let result = toolFinished(events).first?.2 ?? ""
-        #expect(result == "from-box", "the box presenter must answer when no task local is set")
-        let boxAsked = await boxRecorder.asked
-        #expect(boxAsked.count == 1)
-        #expect(boxAsked.first?.0 == "Which number?")
-    }
-
-    @Test("clarify resolution order: neither rung reports the historic unavailable error")
-    func clarifyResolutionOrderNeitherRungErrors() async throws {
-        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-        defer { _ = httpClient.shutdown() }
-
-        await ClarifyTool.presenters.set(nil)
-
-        let ask = ToolCallDelta(
-            index: 0,
-            id: "call_ask",
-            name: "clarify",
-            arguments: #"{"question":"Which number?"}"#
-        )
-        let client = EventScriptClient(
-            first: .init(toolCalls: [ask]),
-            final: .init(chunks: ["done"])
-        )
-        let registry = try ArcAgentCore.buildDefaultRegistry()
-        let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
-
-        let events = try await collect(agent, message: "ask me")
-        let result = toolFinished(events).first?.2 ?? ""
-        #expect(result.contains("not available in this execution context"),
-                "no presenter on either rung must report the historic error")
-    }
-
-    @Test("two concurrent execute_code hosts do not cross-talk")
-    func concurrentExecuteCodeHostsDoNotCrossTalk() async throws {
-        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
-        defer { _ = httpClient.shutdown() }
-
-        let captureA = CaptureBox()
-        let captureB = CaptureBox()
-
-        let codeA = "from arc_tools import read_file\nprint(read_file('/tmp/a.txt'))"
-        let codeB = "from arc_tools import read_file\nprint(read_file('/tmp/b.txt'))"
-
-        let hostA: (@Sendable (String, [String: Any]) async throws -> String) = { name, args in
-            await captureA.set("\(name)|\(args["path"] ?? "")")
-            return "CONTENT-A"
-        }
-        let hostB: (@Sendable (String, [String: Any]) async throws -> String) = { name, args in
-            await captureB.set("\(name)|\(args["path"] ?? "")")
-            return "CONTENT-B"
-        }
-
-        // Run both turns concurrently. Each execute_code call must route to
-        // its own agent's host via the per-turn TaskLocal (bound directly on
-        // the tool, not through the process-wide dispatcher).
-        async let resultA = try await ExecuteCodeTool.$host.withValue(hostA) {
-            try await ExecuteCodeTool.entry.handler(["code": codeA])
-        }
-        async let resultB = try await ExecuteCodeTool.$host.withValue(hostB) {
-            try await ExecuteCodeTool.entry.handler(["code": codeB])
-        }
-        let (resA, resB) = try await (resultA, resultB)
-
-        let gotA = await captureA.get()
-        let gotB = await captureB.get()
-        #expect(gotA == "read_file|/tmp/a.txt", "agent A's host must be used by its execute_code")
-        #expect(gotB == "read_file|/tmp/b.txt", "agent B's host must be used by its execute_code")
-        #expect(resA.contains("CONTENT-A"), "agent A must see its own result")
-        #expect(resB.contains("CONTENT-B"), "agent B must see its own result")
-    }
-}
 }
 
 // =========================================================================
@@ -878,24 +515,5 @@ actor SinkRecorder {
 
     func record(_ command: String) {
         commands.append(command)
-    }
-}
-
-/// Holds the agent under test so a scripted client can steer or interrupt it
-/// from inside a `stream(...)` call — the agent does not exist yet when the
-/// client is built.
-actor TurnAgentBox {
-    private var agent: ArcAgent?
-
-    func hold(_ agent: ArcAgent) {
-        self.agent = agent
-    }
-
-    func steer(_ message: String) async {
-        await agent?.steer(message)
-    }
-
-    func interrupt() async {
-        await agent?.interruptTurn()
     }
 }

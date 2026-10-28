@@ -12,7 +12,7 @@ public enum WebUILogging {
 
     private static let installed = Mutex(false)
 
-    public static func install() {
+    public static func install(level: Logger.Level = .info) {
         let first = installed.withLock { done -> Bool in
             if done { return false }
             done = true
@@ -20,7 +20,7 @@ public enum WebUILogging {
         }
         guard first else { return }
         LoggingSystem.bootstrap { label in
-            WebUILogHandler(label: label)
+            WebUILogHandler(label: label, logLevel: level)
         }
     }
 }

@@ -3,14 +3,17 @@ import ArcAgentCore
 import ArcDaemon
 import Foundation
 
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 // MARK: - Ops CLIs (reference `prompt-size`, `doctor`, `status`)
 
 /// `arc prompt-size` — token breakdown of the model-visible prompt surface.
 struct PromptSizeCmd: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "prompt-size",
-        abstract: "Estimate prompt tokens per section (tools, skills, memory, personality).",
-        shouldDisplay: false
+        abstract: "Estimate prompt tokens per section (tools, skills, memory, personality)."
     )
     @Option() var contextLength: Int = 200_000
 
@@ -30,7 +33,7 @@ struct PromptSizeCmd: AsyncParsableCommand {
 
         let skills = discoverSkills()
         let skillsIndex = buildSkillsIndex(skills)
-        let memory = readHomeFiles(".arc/memory.md") + "\n" + readHomeFiles(".arc/user.md")
+        let memory = readHomeFiles("memory.md") + "\n" + readHomeFiles("user.md")
         let personality = config.agent.systemPrompt
 
         let fullTokens = tokens(schemas: full)
@@ -74,7 +77,7 @@ struct PromptSizeCmd: AsyncParsableCommand {
     }
 
     private func readHomeFiles(_ rel: String) -> String {
-        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(rel)
+        let url = ArcHome.root.appendingPathComponent(rel)
         return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
     }
 }
@@ -83,8 +86,7 @@ struct PromptSizeCmd: AsyncParsableCommand {
 struct DoctorCmd: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "doctor",
-        abstract: "Check configuration, credentials, and runtime surfaces.",
-        shouldDisplay: false
+        abstract: "Check configuration, credentials, and runtime surfaces."
     )
     func run() async throws {
         var ok = true
@@ -92,7 +94,7 @@ struct DoctorCmd: AsyncParsableCommand {
             if status == "❌" { ok = false }
             print("\(status) \(message)")
         }
-        let configURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".arc/config.json")
+        let configURL = ArcHome.config
         guard FileManager.default.fileExists(atPath: configURL.path) else {
             print("❌ No config at \(configURL.path). Run `arc setup` first.")
             return
@@ -109,7 +111,7 @@ struct DoctorCmd: AsyncParsableCommand {
         let skills = discoverSkills()
         report(skills.isEmpty ? "⚠️" : "✅", skills.isEmpty ? "no skills installed" : "skills index: \(skills.count) skills")
 
-        let dataDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".arc")
+        let dataDir = ArcHome.root
         let writable = FileManager.default.isWritableFile(atPath: dataDir.path)
         report(writable ? "✅" : "❌", writable ? "data dir writable (\(dataDir.path))" : "data dir NOT writable (\(dataDir.path))")
 
@@ -118,6 +120,21 @@ struct DoctorCmd: AsyncParsableCommand {
         }
         if let tessera = config.tessera {
             print("ℹ️  tessera storage configured: \(tessera)")
+            // The tunnel probe: bounded handshake against the relay. This is
+            // the check that proves the wire, not just the config — an
+            // unregistered user or a dead relay surfaces here, not at first
+            // write time.
+            let clock = ContinuousClock()
+            let reachable = await TesseraAvailability.shared.isTesseraActive()
+            let elapsed = clock.now.duration(to: .now)
+            let ms = elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000
+            if reachable {
+                report("✅", String(format: "tessera tunnel reachable (%@:%d, handshake %.0f ms)", tessera.serverIP, tessera.serverPort, Double(ms)))
+            } else {
+                report("⚠️", "tessera tunnel NOT reachable (\(tessera.serverIP):\(tessera.serverPort)) — storage falls back to files; see arc-serve.log for the handshake error")
+            }
+        } else {
+            print("ℹ️  tessera storage not configured (file storage in use)")
         }
 
         // Tool plugins (deployment surface): discovery never blocks boot —
@@ -158,8 +175,7 @@ struct StatusCmd: AsyncParsableCommand {
 
         // The surfaces are the ones `arc serve` would compose: same file, same
         // resolution (`DaemonPlan`), one probe per enabled surface.
-        let arcHome = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc", isDirectory: true)
+        let arcHome = ArcHome.root
         let daemonConfig = DaemonConfig.load(
             home: arcHome,
             environment: ProcessInfo.processInfo.environment
@@ -195,7 +211,7 @@ struct StatusCmd: AsyncParsableCommand {
         } catch {
             print("cron:      ⚠️ \(error)")
         }
-        let dataDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".arc")
+        let dataDir = ArcHome.root
         if let attrs = try? FileManager.default.attributesOfItem(atPath: dataDir.path),
            let size = attrs[.size] as? Int64 {
             print("data dir:  \(size / 1024) KB")

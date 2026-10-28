@@ -5,6 +5,23 @@ import Foundation
 import Logging
 import ServiceLifecycle
 
+/// `--log-level` value parsing: accepts the swift-log level names (case-insensitive,
+/// `warn` aliases `warning`).
+extension Logger.Level: @retroactive ExpressibleByArgument {
+    public init?(argument: String) {
+        switch argument.lowercased() {
+        case "trace": self = .trace
+        case "debug": self = .debug
+        case "info": self = .info
+        case "notice": self = .notice
+        case "warning", "warn": self = .warning
+        case "error": self = .error
+        case "critical": self = .critical
+        default: return nil
+        }
+    }
+}
+
 @main
 struct Arc: AsyncParsableCommand {
 
@@ -23,32 +40,37 @@ struct Arc: AsyncParsableCommand {
         subcommands: [
             Chat.self,
             BatchCmd.self,
+            HooksCmd.self,
             Serve.self,
-            SessionCmd.self,
-            Plan.self,
-            System.self,
-            ToolsNamespace.self,
-            Config.self,
-            Profile.self,
-            SkillsCmd.self,
             Setup.self,
-            DoctorCmd.self,
+            Tools.self,
+            PluginsCmd.self,
+            Profile.self,
+            SessionsCmd.self,
+            ApprovalsCmd.self,
+            HeartbeatCmd.self,
+            PersonalityCmd.self,
+            GoalCmd.self,
+            SubgoalCmd.self,
+            CheckpointsCmd.self,
+            BlueprintCmd.self,
             PromptSizeCmd.self,
+            DoctorCmd.self,
+            StatusCmd.self,
+            SecurityCmd.self,
+            LearningCmd.self,
+            MemoryCmd.self,
+            SkillsCmd.self,
+            SkillBundleCmd.self,
+            KanbanCmd.self,
+            CronCmd.self,
+            CuratorCmd.self,
+            ConfigCmd.self,
+            McpCmd.self,
+            Version.self,
         ]
     )
-
-    @Flag(name: .shortAndLong, help: "Print the version.")
-    var version = false
-
-    func run() async throws {
-        if version {
-            print("arc-agent \(ArcAgentCore.version)")
-            print("Phase: vascular hardening")
-            return
-        }
-    }
 }
-
 
 // MARK: - Chat
 
@@ -331,6 +353,9 @@ struct Serve: AsyncParsableCommand {
     @Flag(name: .long, help: "Use file storage instead of Tessera.")
     var tesseraOff: Bool = false
 
+    @Option(name: .long, help: "Daemon log level (trace|debug|info|notice|warning|error|critical).")
+    var logLevel: Logger.Level?
+
     func run() async throws {
         let arcConfig = loadConfig()
 
@@ -341,8 +366,7 @@ struct Serve: AsyncParsableCommand {
 
         // Surfaces live in ~/.arc/daemon.json (per-platform blocks; env-var
         // overrides on top). One daemon composes them all.
-        let arcHome = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc", isDirectory: true)
+        let arcHome = ArcHome.root
         let daemonConfig = DaemonConfig.load(
             home: arcHome,
             environment: ProcessInfo.processInfo.environment
@@ -356,7 +380,8 @@ struct Serve: AsyncParsableCommand {
                 port: port,
                 telegramToken: telegramToken,
                 webuiEnabled: webui,
-                tesseraOff: tesseraOff
+                tesseraOff: tesseraOff,
+                logLevel: logLevel
             )
         )
     }
@@ -368,14 +393,23 @@ struct Setup: AsyncParsableCommand {
 
     static let configuration = CommandConfiguration(
         commandName: "setup",
-        abstract: "Configure ARC Agent for first use.",
-        shouldDisplay: false
+        abstract: "Configure ARC Agent for first use."
     )
 
     func run() async throws {
         print("⚡ ARC Agent Setup")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("")
+
+        // Instance data directory (ARC_HOME). The default is `~/.arc`; entering
+        // a path relocates this instance's config, secrets, and data. Set
+        // `ARC_HOME` when launching so later commands target this instance.
+        let defaultHome = ArcHome.root.path
+        print("Instance data directory (ARC_HOME) [\(defaultHome)]: ", terminator: "")
+        if let input = readLine(), !input.isEmpty {
+            ArcHome.setOverride(input)
+        }
+        let instanceHome = ArcHome.root.path
 
         var config = ArcConfig()
 
@@ -416,21 +450,26 @@ struct Setup: AsyncParsableCommand {
         // Save config
         try saveConfig(config)
         print("")
-        print("✅ Configuration saved to ~/.arc/config.json")
+        print("✅ Configuration saved to \(instanceHome)/config.json")
         print("")
         print("Next steps:")
         print("  1. Set your API key: export ARC_API_KEY=sk-...")
-        print("     Or add it to ~/.arc/.env")
-        print("  2. Run: arc chat -q \"hello world\"")
+        print("     Or add it to \(instanceHome)/.env")
+        if ArcHome.overridden {
+            print("  2. Launch this instance with: export ARC_HOME=\(instanceHome)")
+            print("  3. Run: arc chat -q \"hello world\"")
+        } else {
+            print("  2. Run: arc chat -q \"hello world\"")
+        }
     }
 }
 
-// MARK: - Tools (list subcommand for ToolsNamespace)
+// MARK: - Tools
 
-struct ToolsList: AsyncParsableCommand {
+struct Tools: AsyncParsableCommand {
 
     static let configuration = CommandConfiguration(
-        commandName: "list",
+        commandName: "tools",
         abstract: "List registered tools and their schemas."
     )
 
@@ -450,6 +489,20 @@ struct ToolsList: AsyncParsableCommand {
     }
 }
 
+// MARK: - Version
+
+struct Version: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "version",
+        abstract: "Print the version."
+    )
+
+    func run() async throws {
+        print("arc-agent \(ArcAgentCore.version)")
+        print("Phase: vascular hardening")
+    }
+}
 
 // MARK: - Profile
 
@@ -700,64 +753,3 @@ extension Chat {
         return resume.id
     }
 }
-
-// MARK: - CLI Namespaces (refactored subcommand groups)
-
-// `arc session` — session inspection and memory.
-struct SessionCmd: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "session",
-        abstract: "Inspect and manage persisted sessions.",
-        subcommands: [
-            SessionsList.self, SessionsShow.self, SessionsDelete.self,
-            SessionsExport.self, SessionsPrune.self, SessionsRename.self,
-            MemoryCmd.self,
-        ]
-    )
-}
-
-// `arc plan` — goal, subgoal, checkpoints, blueprint (planning domain).
-struct Plan: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "plan",
-        abstract: "Manage standing goals, subgoals, checkpoints, and blueprints.",
-        subcommands: [
-            GoalCmd.self, SubgoalCmd.self, CheckpointsCmd.self, BlueprintCmd.self,
-        ]
-    )
-}
-
-// `arc system` — daemon-background concerns (kanban, cron, status).
-struct System: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "system",
-        abstract: "Inspect system surfaces: kanban board, cron jobs, daemon status.",
-        subcommands: [
-            KanbanCmd.self, CronCmd.self, HeartbeatCmd.self, StatusCmd.self,
-        ]
-    )
-}
-
-// `arc tools` — extensibility surface (tools, hooks, plugins, mcp).
-struct ToolsNamespace: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "tools",
-        abstract: "Inspect and exercise tools, hooks, plugins, and MCP servers.",
-        subcommands: [
-            HooksCmd.self, PluginsCmd.self, McpCmd.self, ToolsList.self,
-        ]
-    )
-}
-
-// `arc config` — read/write ~/.arc/config.json (personality, learning, security, approvals).
-struct Config: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "config",
-        abstract: "Read and write agent configuration (~/.arc/config.json).",
-        subcommands: [
-            ConfigShow.self, PersonalityCmd.self, LearningCmd.self,
-            SecurityCmd.self, ApprovalsCmd.self,
-        ]
-    )
-}
-

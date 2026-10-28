@@ -286,8 +286,7 @@ public struct PluginTool: Sendable {
     /// Invoke the plugin binary: JSON `{"tool": name, "args": {...}}` on
     /// stdin → JSON `{"result": "..."}` on stdout. Bounded: 60s, 1MB.
     public func invoke(args: [String: Any]) async throws -> String {
-        let cwd = cwdOverride ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/plugins/\(plugin)")
+        let cwd = cwdOverride ?? ArcHome.plugins.appendingPathComponent(plugin)
         let exe = try resolveExecutable(cwd: cwd)
         var processArgs = self.args
         if let entry {
@@ -377,8 +376,7 @@ public actor PluginRegistry {
     private let logger = Logger(label: "arc.plugins")
 
     public init(pluginsDir: URL? = nil) {
-        self.pluginsDir = pluginsDir ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/plugins", isDirectory: true)
+        self.pluginsDir = pluginsDir ?? ArcHome.plugins
     }
 
     /// Rescan the plugins directory (reference scans every agent init).
@@ -522,17 +520,9 @@ public struct MutableToolRegistry: ToolRegistry {
     /// plugins (reference agent_init plugin toolset bundling). When
     /// `enabledPlugins` is non-nil only plugins in the allow-list install
     /// (reference `plugins.enabled` semantics).
-    ///
-    /// `sources` contributes tools reached through a carrier rather than declared
-    /// in this module — a pack over the in-process carrier, and later a trusted
-    /// peer's catalog. Each tool installs through `register(_:)`, so a source
-    /// carrying a name the registry already holds is a thrown
-    /// ``ToolRegistryError/duplicateName`` instead of a silent second entry the
-    /// model cannot disambiguate.
     public static func make(
         pluginRegistry: PluginRegistry? = nil,
-        enabledPlugins: Set<String>? = nil,
-        sources: [any ToolSource] = []
+        enabledPlugins: Set<String>? = nil
     ) async throws -> MutableToolRegistry {
         let builtIn = try ArcAgentCore.buildDefaultRegistry()
         var registry = MutableToolRegistry(builtIn: builtIn)
@@ -541,11 +531,6 @@ public struct MutableToolRegistry: ToolRegistry {
         for tool in await plugins.tools() {
             if let allow = enabledPlugins, !allow.contains(tool.plugin) { continue }
             registry.install(pluginTool: tool)
-        }
-        for source in sources {
-            for tool in try await source.tools() {
-                try registry.register(tool)
-            }
         }
         return registry
     }

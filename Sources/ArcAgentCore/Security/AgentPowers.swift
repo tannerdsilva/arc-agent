@@ -16,12 +16,10 @@ public enum AgentPowers {
     public nonisolated(unsafe) static var config: AgentPowersConfig = AgentPowersConfig()
 
     /// Where skills live (`~/.arc/skills` by default). Overridable for tests.
-    public nonisolated(unsafe) static var skillsDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".arc/skills")
+    public nonisolated(unsafe) static var skillsDirectory: URL = ArcHome.skills
 
     /// Where MEMORY.md / USER.md live (`~/.arc/memories` by default).
-    public nonisolated(unsafe) static var memoriesDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".arc/memories")
+    public nonisolated(unsafe) static var memoriesDirectory: URL = ArcHome.memories
 
     /// Install the gate from configuration. Installed once at startup by
     /// ``ArcDaemon`` (the daemon's agents, the CLI's agent and a hosted web UI

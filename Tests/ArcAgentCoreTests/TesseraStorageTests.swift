@@ -25,6 +25,21 @@ extension ArcCoreTestRoot {
             #expect(TesseraConnection.sequenceNumber(fromTagKey: "arc/s/demo/-1") == nil)
         }
 
+        @Test("Floor rule: allocation never collides with observed sequences")
+        func sequenceFloorRule() {
+            // Two processes share one session; each keeps its own counter.
+            // The floor rule is what prevents the second writer's seq from
+            // reusing a d-tag the first writer already used (which would
+            // silently replace the earlier message in every client's index).
+            #expect(TesseraConnection.flooredSequence(next: 0, observedMax: 0) == 1)
+            #expect(TesseraConnection.flooredSequence(next: 41, observedMax: 40) == 41)
+            // Foreign event with a higher seq raises the floor…
+            #expect(TesseraConnection.flooredSequence(next: 41, observedMax: 41) == 42)
+            #expect(TesseraConnection.flooredSequence(next: 5, observedMax: 300) == 301)
+            // …and never lowers a counter that is already ahead.
+            #expect(TesseraConnection.flooredSequence(next: 900, observedMax: 12) == 900)
+        }
+
         @Test("Kind constants occupy the non-replaceable band")
         func kindConstants() {
             // All four kinds must be in 0...9,999 so the server needs no access

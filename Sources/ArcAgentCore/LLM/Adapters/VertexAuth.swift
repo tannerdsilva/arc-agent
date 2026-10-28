@@ -3,6 +3,10 @@ import Foundation
 import Security
 #endif
 
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 /// Google Cloud service-account → OAuth2 bearer token (reference
 /// `vertex_adapter.py` auth path): build an RS256 JWT assertion, exchange it
 /// at `token_uri`, and return the access token. Pure Foundation + Security.

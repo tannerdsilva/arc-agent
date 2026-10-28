@@ -79,8 +79,7 @@ public enum SkillError: Error, Sendable, CustomStringConvertible {
 /// - Parameter directory: The directory to scan. Defaults to `~/.arc/skills/`.
 /// - Returns: An array of discovered skills, sorted by name.
 public func discoverSkills(in directory: URL? = nil) -> [Skill] {
-    let defaultDir = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".arc/skills")
+    let defaultDir = ArcHome.skills
     let dir = directory ?? defaultDir
 
     guard FileManager.default.fileExists(atPath: dir.path) else { return [] }

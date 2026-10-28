@@ -745,11 +745,16 @@ extension ArcCoreTestRoot {
             #expect(level == .critical)
         }
 
-        @Test("approval manager off mode auto-approves")
+        @Test("approval manager off mode: hardline still routes and denies")
         func approvalOffMode() async {
             let manager = ApprovalManager(mode: .off)
+            // Hardline (Phase 1) routes to requestApproval even in .off —
+            // YOLO no longer bypasses the floor (user-confirmed contract).
             let needsApproval = await manager.needsApproval(command: "rm -rf /", sessionKey: "test")
-            #expect(needsApproval == false)
+            #expect(needsApproval == true)
+            let result = await manager.requestApproval(
+                command: "rm -rf /", description: "", sessionKey: "test")
+            #expect(result == .denied)
         }
 
         @Test("approval manager manual mode flags dangerous")

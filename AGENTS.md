@@ -7,7 +7,7 @@ This project has completed five feature-build phases and is now in **vascular ha
 The core architecture is built and proven:
 - **204 Swift source files** across five built targets — ArcAgentCore (164), ArcWebUI (22), ArcTheme (2), ArcDaemon (2), the `arc-agent` CLI (13) — plus the `ArcAssetTool` generator (1)
 - **Swift 6 language mode** — every target compiles under Swift 6 strict concurrency (no `.swiftLanguageMode(.v5)` pins remain); a clean rebuild is warning-free from arc's own sources
-- **1,099 tests** — 881 core (122 suites) + 203 web UI (30 suites) + 15 daemon (2 suites), all green. The `~/.arc/config.json` aux layout is pinned as a fixture rather than read from the developer's live config: it had been the only expected red, and a permanently red run is how a real regression goes unread
+- **922 tests** — 750 core (93 suites) + 157 web UI (23 suites) + 15 daemon (1 suite). The environment-gated core test asserts the live `~/.arc/config.json` aux layout and the reference oMLX models, and fails on a machine configured with a different provider — that is the only expected red
 - **15 dependencies** (AsyncHTTPClient, ArgumentParser, System, ServiceLifecycle, tessera, Hummingbird, swift-mcp, swift-nio, swift-nio-ssl, swift-nio-extras, swift-http-types, SwiftSlash, swift-log, no-webui, ArcSidebarTabs — tessera and ArcSidebarTabs are **local path pins** while they are co-developed; no-webui is version-pinned at 2.0.0)
 - **53 registered tools** across 16 toolsets (arc parity incl. `project_*`, `skill_manage`, `skills_list`, `tool_search`, `send_message`; the reference media/webhook/code-execution ports stay deleted)
 - **Gateway stack** — HTTP server, Telegram adapter, MCP server, session management
@@ -31,7 +31,7 @@ When asked to produce code, assume it is:
 | AGENTS.md | This file |
 | README.md | Updated |
 | Source files | 204 Swift files in `Sources/` (ArcAgentCore 164, ArcWebUI 22, ArcTheme 2, ArcDaemon 2, arc-agent CLI 13, ArcAssetTool 1) |
-| Tests | 1,099 (881 core in 122 suites + 203 web UI in 30 suites + 15 daemon in 2 suites); all green — no expected failures |
+| Tests | 922 (750 core in 93 suites + 157 web UI in 23 suites + 15 daemon in 1 suite); the environment-gated live-config test is the only expected red |
 | Build | Clean — verified on a clean rebuild in Swift 6 language mode; 0 warnings from arc's own sources (the only warnings are 10 `#UnnecessaryEffectMarker` notes emitted from the path-pinned tessera dependency) |
 | Branch | `dev` (active — one squash-merge of the `nowebui` line; `master` is its base) |
 
@@ -47,7 +47,7 @@ When asked to produce code, assume it is:
 | **Session Management** — SessionStore protocol, TesseraSessionStore | `Session/` + `Storage/` | Built |
 | **Memory System** — MemoryProvider protocol, TesseraMemoryProvider, FileMemoryProvider | `Memory/` + `Storage/` | Built |
 | **Skills System** — Skill model, YAML frontmatter parsing, discovery | `Skills/Skill.swift` | Built |
-| **Security** — ApprovalManager, dangerous command detection, AgentPowers lockdown gate | `Security/` | Built |
+| **Security** — ApprovalManager, HardlineBlocker (Layer 1), SoftDetector (Layer 2), ExecutionFlagDetector (Layer 3), ShellLexer, AgentPowers lockdown gate | `Security/` | Built |
 | **Error Handling** — RetryHandler, CircuitBreaker, Failover, RecoveryState | `ErrorHandling/` | Built |
 | **Delegation** — DelegationManager, subagent spawning/steering/stopping | `Delegation/` | Built |
 | **Kanban** — KanbanBoard protocol, FileKanbanBoard, KanbanDispatcher | `Kanban/` | Built |
@@ -99,6 +99,16 @@ This is the contract. This is the foundation. Everything else is negotiable.
   `theme-sheet` embeds the rendered stylesheet with its sha256 content address and its gzip
 
 There is no "disk mode": every asset is compiled into the binary. Chat markdown is rendered server-side by the shared arc-parity renderer (`ArcAgentCore/WebUI/Utilities.swift`), then enhanced client-side (table sort/filter, KaTeX rendering).
+
+## Command Security Layers
+
+Terminal-command gating is a three-layer pipeline in `Sources/ArcAgentCore/Security/` (ported from Hermes `approval.py`):
+
+1. **Layer 1 — `HardlineBlocker`.** Twelve catastrophic patterns (root/system-dir/home deletion, block devices, fork bombs, `kill -1`, kernel shutdown, `sudo -S`). **Unconditional denial, above every mode** — YOLO/`.off`, the always-allow list, pre-approved sessions, and a human pressing "approve" can never execute a hardline command. Denial text names the hit ("hardline: recursive delete of root filesystem").
+2. **Layer 2 — `SoftDetector`.** The 77 Hermes `DANGEROUS_PATTERNS` verbatim (hermes-specific rules remapped to `arc serve` / `~/.arc/config.json`) plus an arc-legacy extras tier (generic `kill`/`pkill`/`killall`/`sudo`). Flagged commands: `.off` → approved (YOLO), `.manual` → human prompt, `.smart` → aux classifier arbitrates (first-word verdict parsing; prose verdicts fall back to prompt). Unflagged commands never prompt in any mode.
+3. **Layer 3 — `ExecutionFlagDetector`.** Quote-aware structural detection: interpreter `-c`/`-e` eval payloads, `bash -c` body rescan, read-tool exec flags (`jq -f`, `git -c`, `ssh -o`), and parser-limit fail-closed guards. `ShellLexer` is the shared substrate (shlex-compatible tokenizer, deobfuscation, detection variants). `rm -f $TMPDIR/arc-verify-*` (verification-artifact cleanup) is the only exemption.
+
+The two Laws apply — all detection runs through immutable compiled patterns (`SecurityRegexStore`, documented thread-safe) with no locks or queues.
 
 ## Design Temperament
 

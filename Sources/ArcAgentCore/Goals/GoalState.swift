@@ -143,8 +143,7 @@ public protocol GoalStoring: Sendable {
 
 public actor GoalStore: GoalStoring {
 
-    private nonisolated(unsafe) static var storageURL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".arc/goals.json")
+    private nonisolated(unsafe) static var storageURL = ArcHome.goals
 
     public static func setStorageURL(_ url: URL) {
         storageURL = url

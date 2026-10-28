@@ -1,5 +1,5 @@
 {
-  "originHash" : "db69890e133699bb33dda1dfc17b37834ea1cf41e07f3758cfcc75ccac4f5a3f",
+  "originHash" : "d681eb45a5aa4a7e06b6a0cf37d741189a056b2c1b7d290e1585ed13394217f2",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -38,6 +38,15 @@
       }
     },
     {
+      "identity" : "no-webui",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tannerdsilva/no-webui.git",
+      "state" : {
+        "revision" : "0886e7bce33d5ca3010cf2fcdc8f6761a3458f07",
+        "version" : "2.1.0"
+      }
+    },
+    {
       "identity" : "nostr-kit-swift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/bwyma1/nostr-kit-swift",
@@ -67,10 +76,10 @@
     {
       "identity" : "quicklmdb",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/tannerdsilva/QuickLMDB.git",
+      "location" : "https://github.com/tannerdsilva/QuickLMDB",
       "state" : {
-        "revision" : "47616e871d500ae7eb798264369188fd71ab7c9a",
-        "version" : "16.0.1"
+        "revision" : "588b11d6de70e4a610ae8934d0e293c7301ac28b",
+        "version" : "16.0.0"
       }
     },
     {
@@ -78,8 +87,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/rawdog.git",
       "state" : {
-        "revision" : "35a2ea5f34ea8aaf9ed025d86abcdfe496c11ff9",
-        "version" : "22.0.1"
+        "revision" : "99afc54d3de7015b2dde3886727c9d82f9c32998",
+        "version" : "22.0.0"
       }
     },
     {
@@ -204,8 +213,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/swift-mcp.git",
       "state" : {
-        "revision" : "ff6b02e2f44071a72352e7664033f2b2183fef8f",
-        "version" : "2.1.2"
+        "revision" : "8560e5ff59ab85b1640b0646e37b13e1b75a450e",
+        "version" : "2.1.1"
       }
     },
     {
@@ -292,7 +301,7 @@
     {
       "identity" : "swift-syntax",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/swift-syntax.git",
+      "location" : "https://github.com/apple/swift-syntax.git",
       "state" : {
         "revision" : "79e4b74a295b6eb74a8b585e3a39d29e70c1dbd1",
         "version" : "603.0.2"
@@ -312,8 +321,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tannerdsilva/SwiftSlash.git",
       "state" : {
-        "revision" : "5dda27d1ebae38ce42e9440f3580cbc778c8af8b",
-        "version" : "6.0.0"
+        "revision" : "89654221a526ad4496f59c32746025067d72491a",
+        "version" : "5.0.1"
       }
     },
     {

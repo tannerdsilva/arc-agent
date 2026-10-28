@@ -27,8 +27,7 @@ struct SkillViewTool {
                 return "Error: 'name' is required."
             }
 
-            let skillsDir = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".arc/skills")
+            let skillsDir = ArcHome.skills
 
             guard FileManager.default.fileExists(atPath: skillsDir.path) else {
                 return "Error: Skills directory not found at \(skillsDir.path)."

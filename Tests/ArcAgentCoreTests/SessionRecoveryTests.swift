@@ -59,6 +59,31 @@ extension ArcCoreTestRoot {
             #expect(SessionRegistry.maxSessionRestarts == 3)
         }
 
+        // MARK: - Bounded generation teardown
+
+        /// A generation that finishes promptly must satisfy the bounded wait
+        /// immediately (no timeout).
+        @Test("awaitGeneration returns true when the generation completes in time")
+        func generationCompletes() async {
+            let task = Task { }
+            let ok = await SessionRegistry.awaitGeneration(task, timeoutNanos: 5_000_000_000)
+            #expect(ok == true)
+        }
+
+        /// A stalled generation must never block the caller: the bounded wait
+        /// returns `false` near the timeout and cancels the stuck task.
+        @Test("awaitGeneration bails out (and cancels) when the generation stalls")
+        func generationStalls() async {
+            let task = Task<Void, Never> { _ = try? await Task.sleep(nanoseconds: 60_000_000_000) }
+            let start = ContinuousClock.now
+            let ok = await SessionRegistry.awaitGeneration(task, timeoutNanos: 200_000_000)
+            let elapsed = start.duration(to: .now)
+            #expect(ok == false, "a stalled generation must report timeout")
+            #expect(elapsed < .seconds(2), "the bounded wait must return near the timeout, not hang")
+            #expect(task.isCancelled, "a stalled generation must be cancelled")
+            task.cancel()
+        }
+
         // MARK: - Identity guard
 
         @Test("crash reported for a superseded agent leaves the successor untouched")

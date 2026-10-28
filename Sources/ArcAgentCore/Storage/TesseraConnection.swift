@@ -62,11 +62,16 @@ public struct TesseraRecord: Sendable {
     public let dTag: String?
     /// The event content decoded from UTF-8.
     public let content: String
+    /// The base64 NOSTR pubkey of the event's signer. Nil for locally
+    /// published records before their echo lands. Used to attribute a
+    /// message to a sharee for the host's wake bridge (Phase 2).
+    public let author: String?
 
-    public init(id: NOSTR_id?, dTag: String?, content: String) {
+    public init(id: NOSTR_id?, dTag: String?, content: String, author: String? = nil) {
         self.id = id
         self.dTag = dTag
         self.content = content
+        self.author = author
     }
 }
 
@@ -124,10 +129,39 @@ public actor TesseraConnection {
     public static let cronKind: UInt32 = 3_005
     /// Standing goal events (TesseraGoalStore).
     public static let goalKind: UInt32 = 3_006
+    /// Session share-grant events (TesseraShareStore).
+    public static let shareKind: UInt32 = 3_007
+    /// Owner→guest streaming delta events. Each carries an incremental text
+    /// chunk of a response in-progress so a guest tunnel can paint the host's
+    /// reply live, plus a `final` marker when the committed 3001 message lands.
+    public static let streamKind: UInt32 = 3_008
+    /// NIP-09 deletion (tombstone) events. Subscribed so a booting client
+    /// receives the tombstones for events deleted while it was away — the
+    /// relay keeps deleted events in its store (removal is query-time), and
+    /// history REQs are served by the deletion-ignoring dumb filter, so
+    /// without this subscription every re-subscribe resurrects deleted
+    /// sessions/messages like zombies.
+    public static let deletionKind: UInt32 = 5
+    /// Sharee leave notices. When a sharee deletes their side of a shared
+    /// session they publish one of these (authored by the sharee, so the
+    /// relay's author-matches-deleter rule is satisfied) to tell the host
+    /// the grantee severed the connection. The host cannot tombstone it —
+    /// it did not author it — so it simply stops being shown once read.
+    public static let leaveKind: UInt32 = 3_010
     /// The prefix on every `d` tag value.
     public static let dTagPrefix = "arc/"
-    /// One subscription per kind; the model receives all six.
-    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles", "arc-cron", "arc-goals"]
+    /// One subscription per kind; the model receives all ten.
+    static let subscriptionIDs = ["arc-msgs", "arc-mem", "arc-meta", "arc-profiles", "arc-cron", "arc-goals", "arc-shares", "arc-stream", "arc-tombstones", "arc-left"]
+
+    /// Kinds the client subscribes to, paired with `subscriptionIDs`.
+    static let subscriptionKinds: [(String, UInt32)] = {
+        let data: [(String, UInt32)] = [
+            ("arc-msgs", messageKind), ("arc-mem", memoryKind), ("arc-meta", metadataKind),
+            ("arc-profiles", profileKind), ("arc-cron", cronKind), ("arc-goals", goalKind),
+            ("arc-shares", shareKind), ("arc-stream", streamKind), ("arc-left", leaveKind),
+        ]
+        return data + [("arc-tombstones", deletionKind)]
+    }()
 
     // MARK: - State
 
@@ -153,6 +187,28 @@ public actor TesseraConnection {
     /// read-after-write semantics; they are dropped once the echo lands.
     private var pendingRecords: [PendingRecord] = []
 
+    // MARK: Live change signal (fix — session list refreshes on share events)
+
+    /// Stream of session-list-affecting model changes (metadata/share arrivals).
+    /// The web UI's session list observes this to live-refresh without a manual
+    /// reload. Consumers should debounce — a busy shared namespace emits bursts.
+    private let (sessionChangeStream, sessionChangeContinuation) = AsyncStream<Void>.makeStream()
+
+    /// Observe externally-published metadata/share events. Emits whenever the
+    /// shared model gains a new session-metadata (3003) or share-grant (3007)
+    /// event — the events that determine which conversations appear in another
+    /// instance's session list. Use it to live-refresh the session list.
+    public nonisolated var sessionChanges: AsyncStream<Void> { sessionChangeStream }
+
+    /// Stream of owner→guest streaming deltas (kind 3008) as they arrive. A
+    /// guest tunnel consumes this to paint a host reply live; the host (which
+    /// authored them) does not consume its own.
+    private let (deltaStream, deltaContinuation) = AsyncStream<TesseraStreamDelta>.makeStream()
+    /// Observe streaming deltas (kind 3008) newly arriving on the relay.
+    public nonisolated var streamDeltas: AsyncStream<TesseraStreamDelta> { deltaStream }
+    /// Ids of stream-delta events already surfaced (dedupes on replay/reconnect).
+    private var seenDeltaIDs: Set<NOSTR_id> = []
+
     // MARK: Record index (fix #1 — bounded per-kind queries)
 
     /// The actor's record index (see ``TesseraRecordIndex``). Updated in
@@ -167,6 +223,17 @@ public actor TesseraConnection {
     /// Whether a Tessera configuration has been provided.
     public var isConfigured: Bool { config != nil }
 
+    /// The Nostr public key of this connection's signing identity, base64-encoded.
+    /// This is the per-user owner id used for session sharing and ACL checks.
+    public var nostrPublicKeyString: String? {
+        guard let nostrPublicKey else { return nil }
+        var bytes = Data()
+        nostrPublicKey.RAW_access_immutable(UnsafeRawBufferPointer.self) { buffer in
+            bytes = Data(buffer)
+        }
+        return bytes.base64EncodedString().isEmpty ? nil : bytes.base64EncodedString()
+    }
+
     /// Probe the relay with a bounded handshake; tears the probe session
     /// down either way so the process never keeps a half-open client.
     /// Used by the CLI to fall back to file storage when the relay is down.
@@ -174,9 +241,22 @@ public actor TesseraConnection {
     /// (connect / subscribe / EOSE) keep this under ~30s worst case without
     /// an outer race — an outer race would leak a half-open raw client into
     /// the shared connection and wedge later shutdown() calls.
+    /// A relay NOTICE whose text classifies as an authorization failure
+    /// (unregistered user, missing access levels). Kept so the health check
+    /// can surface the reason — the tunnel itself is fine, but the relay
+    /// rejects this agent's writes until the user is registered on the DB.
+    private var lastAuthRejection: String?
+
     public func healthCheck(within seconds: UInt64 = 20) async -> Bool {
         do {
             try await ensureStarted()
+            // A healthy tunnel with a pending authorization rejection is the
+            // exact "peer registered, user not registered" failure shape: the
+            // connection works, every write comes back as a NOTICE. Make that
+            // unmistakable here — this is the line `arc doctor` shows.
+            if let rejection = lastAuthRejection {
+                Logger(label: "arc-agent.tessera").error("Tessera tunnel is up, but the relay rejected a write: \"\(rejection)\" — register the agent's user on the relay DB (tessera-setup.sh, or tessera create-unbounded-admin --database-path ~/.arc/tessera/db \"$ARC_TESSERA_PRIVATE_KEY\" <name> with the relay stopped), then restart the relay.")
+            }
             // On success, KEEP the established tunnel up rather than disconnecting
             // it. Shutting down here just to let the next store operation reconnect
             // re-triggers the relay's KCP control-block recreation (connect/disconnect
@@ -219,6 +299,8 @@ public actor TesseraConnection {
         eoseTracker = nil
         isStarted = false
         nextSeq = 0
+        modelMaxSeq = 0
+        writerMsgSeq = 0
         pendingRecords.removeAll()
         recordIndex = TesseraRecordIndex()
     }
@@ -244,17 +326,109 @@ public actor TesseraConnection {
         eoseTracker = nil
         isStarted = false
         nextSeq = 0
+        writerMsgSeq = 0
         pendingRecords.removeAll()
         recordIndex = TesseraRecordIndex()
     }
 
     // MARK: - Sequence numbers
 
+    /// The highest sequence number observed in the live model (foreign
+    /// arrivals included). Floors the counter in `takeSequence` so two
+    /// processes writing one session never collide on `…/<seq>` d-tags —
+    /// a collision silently replaces the earlier message in every client's
+    /// record index (which dedupes by d-tag), i.e. messages vanish.
+    private var modelMaxSeq = 0
+
     /// Allocate the next global sequence number.
+    ///
+    /// Reconciles first so foreign arrivals (the other instance's events)
+    /// raise the floor before the allocation; the steady-state reconcile is
+    /// O(pending). Without this, two instances' independent counters both
+    /// allocate the same seq after boot and overwrite each other's records.
     public func takeSequence() -> Int {
+        if let model { reconcileIndex(model) }
+        nextSeq = Self.flooredSequence(next: nextSeq, observedMax: modelMaxSeq)
         let seq = nextSeq
         nextSeq += 1
         return seq
+    }
+
+    /// Pure collision-avoidance rule: the next sequence must exceed every
+    /// sequence observed from the shared store, whichever process observed it.
+    static func flooredSequence(next: Int, observedMax: Int) -> Int {
+        max(next, observedMax + 1)
+    }
+
+    // MARK: Per-writer message sequences
+    //
+    // Shared sessions previously allocated message d-tags from ONE global
+    // sequence counter. Two instances racing `nextSeq = globalMax() + 1`
+    // from independent model snapshots produced duplicate `arc/s/<sid>/<n>`
+    // d-tags; the record index dedupes by d-tag, so one of the colliding
+    // messages silently vanished everywhere. Writer-namespaced d-tags
+    // (`arc/s/<sid>/<writer>/<n>`) make a collision impossible by
+    // construction: each writer counts its own namespace independently.
+
+    /// URL-safe token identifying this connection's writer namespace:
+    /// base64url of the connection's NOSTR public key. Embedded in every
+    /// per-writer message d-tag.
+    public var writerToken: String? {
+        guard let pk = nostrPublicKey else { return nil }
+        var bytes = Data()
+        pk.RAW_access_immutable(UnsafeRawBufferPointer.self) { bytes = Data($0) }
+        guard !bytes.isEmpty else { return nil }
+        return bytes.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    /// The connection's own per-writer counter. Monotonic across sessions —
+    /// uniqueness is all that is required; transcript ordering uses message
+    /// timestamps (see `TesseraSessionStore.get`).
+    private var writerMsgSeq = 0
+
+    /// Allocate the next sequence in this writer's namespace. Seeded lazily
+    /// from the model so a restart cannot reuse numbers already on the relay.
+    public func takeWriterSequence() -> Int {
+        writerMsgSeq = max(writerMsgSeq, highestWriterSequence())
+        writerMsgSeq += 1
+        return writerMsgSeq
+    }
+
+    /// Highest per-writer sequence observed in the model for this writer's
+    /// token (any session). Returns 0 when there is no identity or no match.
+    private func highestWriterSequence() -> Int {
+        guard let model, let token = writerToken else { return 0 }
+        var maxSeq = 0
+        for (_, event) in model.modelStorage {
+            guard event.kind.RAW_native() == Self.messageKind,
+                  let dTag = findTag(tags: event.tags.array, as: DTag.self),
+                  let key = Self.stringValue(dTag.value),
+                  Self.isWriterNamespaced(key), key.contains("/\(token)/"),
+                  let seq = Self.sequenceNumber(fromTagKey: key) else {
+                continue
+            }
+            maxSeq = max(maxSeq, seq)
+        }
+        return maxSeq
+    }
+
+    /// Whether a `arc/s/...` d-tag key carries the per-writer namespace
+    /// (`arc/s/<sid>/<writer>/<n>`, 3 segments) as opposed to the legacy
+    /// global-sequence format (`arc/s/<sid>/<n>`, 2 segments). Session IDs
+    /// are UUIDs (never contain `/`), so segment count is unambiguous.
+    public static func isWriterNamespaced(_ key: String) -> Bool {
+        guard key.hasPrefix("arc/s/") else { return false }
+        let segments = key.dropFirst("arc/s/".count).split(separator: "/")
+        return segments.count == 3
+    }
+
+    /// Record a sequence number seen on an ingested record (foreign or
+    /// rebuilt) so subsequent allocations cannot reuse it.
+    private func observeSequence(_ seq: Int) {
+        if seq > modelMaxSeq { modelMaxSeq = seq }
     }
 
     /// The highest sequence number found in the cached model. Used to seed
@@ -309,8 +483,8 @@ public actor TesseraConnection {
 
     /// Remove every index entry whose d-tag falls under a prefix (used by
     /// `deleteAll` after the model deletion was applied).
-    private func unindex(dTagPrefix prefix: String, kind: UInt32) {
-        recordIndex.unindex(dTagPrefix: prefix, kind: kind)
+    private func unindex(dTagPrefix prefix: String, kind: UInt32, author: String? = nil) {
+        recordIndex.unindex(dTagPrefix: prefix, kind: kind, author: author)
     }
 
     /// Bring the index up to date with the model before serving a query.
@@ -336,6 +510,8 @@ public actor TesseraConnection {
         let expected = recordIndex.count - unlanded.count
         if storage.count == expected { return } // converged: O(pending) only
 
+        let selfAuthor = nostrPublicKeyString
+
         if storage.count < expected {
             // A record our index still holds is gone from the model (kind-5
             // deletion / clearCache). Rebuild from the model — rare.
@@ -345,8 +521,9 @@ public actor TesseraConnection {
                     .flatMap { Self.stringValue($0.value) }
                 let content = Self.stringValue(event.content) ?? ""
                 let seq = dTag.flatMap(Self.sequenceNumber(fromTagKey:)) ?? 0
+                observeSequence(seq)
                 indexRecord(
-                    TesseraRecord(id: id, dTag: dTag, content: content),
+                    TesseraRecord(id: id, dTag: dTag, content: content, author: Self.publicKeyString(event.publicKey)),
                     kind: event.kind.RAW_native(),
                     seq: seq
                 )
@@ -354,7 +531,7 @@ public actor TesseraConnection {
             for pending in pendingRecords {
                 let seq = Self.sequenceNumber(fromTagKey: pending.dTag) ?? 0
                 indexRecord(
-                    TesseraRecord(id: pending.id, dTag: pending.dTag, content: pending.content),
+                    TesseraRecord(id: pending.id, dTag: pending.dTag, content: pending.content, author: selfAuthor),
                     kind: pending.kind,
                     seq: seq
                 )
@@ -372,7 +549,7 @@ public actor TesseraConnection {
             let content = Self.stringValue(event.content) ?? ""
             let seq = dTag.flatMap(Self.sequenceNumber(fromTagKey:)) ?? 0
             indexRecord(
-                TesseraRecord(id: id, dTag: dTag, content: content),
+                TesseraRecord(id: id, dTag: dTag, content: content, author: Self.publicKeyString(event.publicKey)),
                 kind: event.kind.RAW_native(),
                 seq: seq
             )
@@ -403,6 +580,7 @@ public actor TesseraConnection {
             nostrPrivateKey = privateKey
 
             let model = ArcModel()
+            model.attachChangeSink(sessionChangeContinuation)
             let receiver = TesseraClientReceiverStore()
             receiver.models.append(model)
 
@@ -416,8 +594,22 @@ public actor TesseraConnection {
             session.onEOSE = { [weak tracker] eose in
                 tracker?.mark(String(eose.subscriptionID))
             }
-            session.onNotice = { text in
+            session.onNotice = { [weak self] text in
                 FileHandle.standardError.write(Data("[tessera] notice: \(text)\n".utf8))
+                // Authorization rejections are the silent killer: the tunnel is
+                // healthy, every write bounces with a NOTICE, and nothing else
+                // in the log explains it. Classify and record for the health
+                // check to surface (see `healthCheck`).
+                let lowered = text.lowercased()
+                if lowered.contains("does not exist")
+                    || lowered.contains("no configured access levels")
+                    || lowered.contains("does not have write access")
+                    || lowered.contains("does not have read access") {
+                    Task { [weak self] in
+                        await self?.recordAuthRejection(text)
+                    }
+                    Logger(label: "arc-agent.tessera").error("Tessera relay rejected a request: \"\(text)\" — the agent's user is not registered (or lacks access levels) on the relay DB. Fix with tessera-setup.sh (relay stopped), then restart the relay.")
+                }
             }
             self.model = model
             self.session = session
@@ -441,9 +633,9 @@ public actor TesseraConnection {
             var eoseDone = false
             for _ in 0..<3 {
             	try await Self.boundedOp(seconds: Self.writeTimeoutSeconds) {
-            		for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind]) {
-            			try await session.subscribe(subscriptionID: sub, filters: [Filter(applications: [config.application], kinds: [kind])])
-            		}
+            				for (sub, kind) in Self.subscriptionKinds {
+            					try await session.subscribe(subscriptionID: sub, filters: [Filter(applications: [config.application], kinds: [kind])])
+            				}
             	}
 
             	// Wait for every end-of-history marker, then give the receiver a
@@ -469,7 +661,13 @@ public actor TesseraConnection {
             }
 
             nextSeq = globalMaxSequence() + 1
+            modelMaxSeq = nextSeq - 1
             isStarted = true
+
+            // Begin surfacing owner→guest streaming deltas (kind 3008) to the
+            // guest tunnel as they arrive. Structured-concurrency Task; the
+            // connection is process-wide so it lives for the process.
+            Task { await self.monitorStreamDeltas() }
 
             // Recover a partial/empty history after a reconnect. Reconnecting to
             // a long-running relay can land while it is still recreating its KCP
@@ -490,7 +688,7 @@ public actor TesseraConnection {
                         // Back off so the re-subscribe lands after the relay's KCP
                         // control blocks settle (they are recreated on connect/roam).
                         try? await Task.sleep(nanoseconds: 2_000_000_000)
-                        for (sub, kind) in zip(Self.subscriptionIDs, [Self.messageKind, Self.memoryKind, Self.metadataKind, Self.profileKind, Self.cronKind, Self.goalKind]) {
+                        for (sub, kind) in Self.subscriptionKinds {
                             try? await recSession.subscribe(subscriptionID: sub, filters: [Filter(applications: [recConfig.application], kinds: [kind])])
                         }
                     }
@@ -545,14 +743,35 @@ public actor TesseraConnection {
             content: content
         ))
         try await Self.boundedPublish(session, event: signed)
+        // A clean write proves the agent's user is authorized — drop any stale
+        // rejection the health check would otherwise keep reporting.
+        lastAuthRejection = nil
+    }
+
+    /// Records a relay authorization rejection for the health check to report.
+    private func recordAuthRejection(_ text: String) {
+        lastAuthRejection = text
     }
 
     /// Publish kind-5 deletion events for every known event whose `d` tag
     /// matches the given prefix, and drop them from the model and pending
     /// queue. Events still awaiting their echo are referenced by the id we
     /// signed locally, so the server can still apply the deletion.
-    public func deleteAll(dTagPrefix prefix: String, kind: UInt32) async throws {
+    ///
+    /// - Parameters:
+    ///   - author: When non-nil, only events signed by this public key are
+    ///     tombstoned. This is how per-side deletion works in shared
+    ///     sessions: the relay rejects kind-5s referencing events the
+    ///     deleter did not author, so a host delete passes its own author
+    ///     key (leaving the sharee's messages intact) and a sharee delete
+    ///     passes theirs.
+    public func deleteAll(dTagPrefix prefix: String, kind: UInt32, author: String? = nil) async throws {
         guard let session, let nostrPrivateKey, var model else { return }
+        // Reconcile first: the id sweep below reads the local model snapshot.
+        // Without this, events that landed on the relay seconds earlier but
+        // were not yet folded into the model (a sharee's turn ending right
+        // before the host deletes) are missed and survive as zombies.
+        reconcileIndex(model)
         var ids = model.modelStorage.compactMap { (id, event) -> NOSTR_id? in
             guard event.kind.RAW_native() == kind,
                   let dTag = findTag(tags: event.tags.array, as: DTag.self),
@@ -560,24 +779,32 @@ public actor TesseraConnection {
                   key.hasPrefix(prefix) else {
                 return nil
             }
+            if let author {
+                guard Self.publicKeyString(event.publicKey) == author else { return nil }
+            }
             return id
         }
-        // Events we published whose echo has not landed yet.
-        ids.append(contentsOf: pendingRecords
-            .filter { $0.kind == kind && $0.dTag.hasPrefix(prefix) }
-            .map(\.id))
-        pendingRecords.removeAll { $0.kind == kind && $0.dTag.hasPrefix(prefix) }
+        // Events we published whose echo has not landed yet. Pendings are
+        // always signed by this connection, so under an author filter they
+        // only qualify when the filter names our own key.
+        let selfKey = nostrPublicKey.flatMap(Self.publicKeyString)
+        if author == nil || author == selfKey {
+            ids.append(contentsOf: pendingRecords
+                .filter { $0.kind == kind && $0.dTag.hasPrefix(prefix) }
+                .map(\.id))
+            pendingRecords.removeAll { $0.kind == kind && $0.dTag.hasPrefix(prefix) }
+        }
 
         for id in Set(ids) {
-            // Propagate a delete timeout so callers (ProfileManager etc.) can
-            // fall back (the `try?` here would hide the unavailable tunnel
-            // and leave the removal half-applied).
+            // A deletion handed to the reliable KCP tunnel is never dropped, so
+            // a slow delete (`boundedDelete` returns true on timeout) is treated
+            // as accepted rather than surfaced as an unavailable tunnel.
             guard await Self.boundedDelete(session, eventID: id, signedBy: nostrPrivateKey) else {
                 throw TesseraStoreError.deleteTimeout
             }
             try? model.delete(id: id)
         }
-        unindex(dTagPrefix: prefix, kind: kind)
+        unindex(dTagPrefix: prefix, kind: kind, author: author)
     }
 
     // MARK: - Timeout guards
@@ -640,25 +867,23 @@ public actor TesseraConnection {
         _ session: TesseraSession,
         event: NOSTR_event_signed<UnsignedEvent<ByteBuffer>>
     ) async throws {
-        // The relay's KCP control blocks are recreated on connect/roam, which can
-        // drop an in-flight publish. The NOSTR event pipe has no per-event ACK,
-        // so the only signal of a lost write is the bounded-write timeout. Re-send
-        // the SAME signed event a few times: the relay dedupes by event id, so a
-        // retry is a no-op if the original landed (its ack was lost) or delivers
-        // it if it never got there. Each attempt is its own bounded race (First
-        // Law); no hand-held threads.
-        for _ in 0..<3 {
-            do {
-                try await Self.race(seconds: Self.writeTimeoutSeconds, timeout: .publishTimeout) {
-                    try await session.publish(event)
-                }
-                return
-            } catch {
-                // The write dropped (relay KCP reset). Try the same signed event
-                // again — the relay dedupes by id, so a rescend is safe.
+        // The arc-agent ↔ relay link is a reliable WireGuard/KCP tunnel. A write
+        // handed to the tunnel is never dropped — it retransmits until delivery,
+        // and `myInterface.run()` does not fail (the tunnel only ends on process
+        // shutdown). A write that exceeds `writeTimeoutSeconds` therefore means
+        // the tunnel is slow (send-buffer backpressure during an outage), NOT that
+        // the event was lost. So a timeout is treated as ACCEPTED: we neither fall
+        // back to file nor re-send the same signed event (re-sending could only
+        // duplicate it — the in-flight datagram is already held by the tunnel).
+        do {
+            try await Self.race(seconds: Self.writeTimeoutSeconds, timeout: .publishTimeout) {
+                try await session.publish(event)
             }
+        } catch TesseraStoreError.publishTimeout {
+            // Slow transport, accepted. The blocked write is still being delivered
+            // by the tunnel once it drains; do not surface a failure to the caller.
+            return
         }
-        throw TesseraStoreError.publishTimeout
     }
 
     static func boundedDelete(
@@ -670,6 +895,10 @@ public actor TesseraConnection {
             try await Self.race(seconds: Self.writeTimeoutSeconds, timeout: .deleteTimeout) {
                 try await session.delete(eventID: eventID, signedBy: signedBy)
             }
+            return true
+        } catch TesseraStoreError.deleteTimeout {
+            // Slow transport, accepted: the deletion event is still in the tunnel
+            // and will be delivered (reliable KCP). Do not treat it as a failure.
             return true
         } catch {
             return false
@@ -707,6 +936,84 @@ public actor TesseraConnection {
         return recordIndex.latestGroups(prefix: prefix)
     }
 
+    /// Kind-3001 user messages in `sessionID` authored by anyone other than
+    /// `owner`, ordered by sequence. A session host polls/traces this to
+    /// wake its turn engine when a granted sharee contributes (Phase 2).
+    public func shareeUserMessages(owner: String, sessionID: String) -> [(seq: Int, text: String, author: String)] {
+        guard let model else { return [] }
+        reconcileIndex(model)
+        return Self.shareeContributions(recordIndex.snapshot(kind: Self.messageKind), owner: owner, sessionID: sessionID)
+    }
+
+    /// Pure sharee-contribution filter (unit-testable without a relay): given
+    /// kind-3001 records, returns the user messages in `sessionID` signed by
+    /// an identity other than `owner`, in ascending sequence order.
+    public static func shareeContributions(
+        _ records: [TesseraRecord], owner: String, sessionID: String
+    ) -> [(seq: Int, text: String, author: String)] {
+        let prefix = "arc/s/\(sessionID)/"
+        var out: [(seq: Int, text: String, author: String)] = []
+        for rec in records {
+            guard let author = rec.author, author != owner,
+                  let dTag = rec.dTag, dTag.hasPrefix(prefix),
+                  let stored = try? JSONDecoder().decode(TesseraStoredMessage.self, from: Data(rec.content.utf8)),
+                  stored.sessionID == sessionID,
+                  stored.message.role == .user,
+                  let text = stored.message.content,
+                  let seq = sequenceNumber(fromTagKey: dTag) else {
+                continue
+            }
+            out.append((seq, text, author))
+        }
+        return out.sorted { $0.seq < $1.seq }
+    }
+
+    // MARK: - Streaming deltas (kind 3008)
+
+    /// Publish an owner→guest streaming delta for a session. The host calls
+    /// this as a response streams (incremental `text` chunk, `final` on the
+    /// last chunk) so the guest tunnel paints the reply live.
+    public func publishStreamDelta(sessionID: String, messageSeq: Int, text: String, final: Bool) async throws {
+        guard let owner = nostrPublicKeyString else { throw TesseraStoreError.notStarted }
+        let seq = try await takeSequence()
+        let delta = TesseraStreamDelta(seq: seq, sessionID: sessionID, messageSeq: messageSeq, text: text, final: final, owner: owner)
+        let json = String(data: try JSONEncoder().encode(delta), encoding: .utf8) ?? ""
+        try await publish(kind: Self.streamKind, dTagValue: "arc/stream/\(sessionID)/\(seq)", content: json)
+    }
+
+    /// Every streaming delta for a session, in ascending sequence order
+    /// (full replay — a guest uses this to catch up, then observes the live
+    /// `streamDeltas` stream for new chunks).
+    public func streamDeltaEvents(sessionID: String) -> [(messageSeq: Int, text: String, final: Bool)] {
+        guard let model else { return [] }
+        reconcileIndex(model)
+        let prefix = "arc/stream/\(sessionID)/"
+        var out: [(messageSeq: Int, text: String, final: Bool)] = []
+        for rec in recordIndex.snapshot(kind: Self.streamKind) {
+            guard let dTag = rec.dTag, dTag.hasPrefix(prefix),
+                  let delta = try? JSONDecoder().decode(TesseraStreamDelta.self, from: Data(rec.content.utf8)),
+                  delta.sessionID == sessionID else { continue }
+            out.append((delta.messageSeq, delta.text, delta.final))
+        }
+        return out.sorted { $0.messageSeq < $1.messageSeq }
+    }
+
+    /// Coalescing background diff of kind-3008 arrivals, yielding each new
+    /// delta onto ``streamDeltas``. Dedupes by event id so a reconnect replay
+    /// never re-emits already-surfaced chunks.
+    private func monitorStreamDeltas() async {
+        while true {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard isStarted else { continue }
+            for rec in recordIndex.snapshot(kind: Self.streamKind) {
+                guard let id = rec.id, !seenDeltaIDs.contains(id),
+                      let delta = try? JSONDecoder().decode(TesseraStreamDelta.self, from: Data(rec.content.utf8)) else { continue }
+                seenDeltaIDs.insert(id)
+                deltaContinuation.yield(delta)
+            }
+        }
+    }
+
     /// Reads a RAW string-like value as a Swift `String` from its bytes.
     static func stringValue(_ value: any RAW_accessible) -> String? {
         var out = ""
@@ -714,6 +1021,18 @@ public actor TesseraConnection {
             out = String(decoding: buffer, as: UTF8.self)
         }
         return out.isEmpty ? nil : out
+    }
+
+    /// Base64-encodes a NOSTR `PublicKey` (the signer of an event). Mirrors
+    /// ``nostrPublicKeyString`` so an event's author can be compared to the
+    /// connection's own identity for sharee attribution.
+    static func publicKeyString(_ key: PublicKey) -> String? {
+        var bytes = Data()
+        key.RAW_access_immutable(UnsafeRawBufferPointer.self) { buffer in
+            bytes = Data(buffer)
+        }
+        let encoded = bytes.base64EncodedString()
+        return encoded.isEmpty ? nil : encoded
     }
 }
 
@@ -743,6 +1062,20 @@ private final class ArcModel: TesseraModel<StringContent> {
     private var latestByKey: [ReplaceableKey: NOSTR_id] = [:]
     private var historyByKey: [ReplaceableKey: [NOSTR_id]] = [:]
 
+    /// Connection-side continuation fed when a session-list-affecting event
+    /// (metadata 3003 / share grant 3007) newly arrives. Thread-safe to
+    /// assign/read under `storageLock`; yielded outside the lock.
+    private var changeContinuation: AsyncStream<Void>.Continuation?
+
+    /// Attach the connection's change stream. Called once when the model is
+    /// created so externally-published metadata/share arrivals can be observed
+    /// (drives live session-list refresh in the web UI).
+    func attachChangeSink(_ continuation: AsyncStream<Void>.Continuation?) {
+        storageLock.lock()
+        changeContinuation = continuation
+        storageLock.unlock()
+    }
+
     override var modelStorage: [NOSTR_id: UnsignedEvent<StringContent>] {
         get {
             storageLock.lock()
@@ -751,8 +1084,26 @@ private final class ArcModel: TesseraModel<StringContent> {
         }
         set {
             storageLock.lock()
-            defer { storageLock.unlock() }
+            let before = storage
             storage = newValue
+            let cont = changeContinuation
+            storageLock.unlock()
+            guard cont != nil else { return }
+            // Signal a session-list-affecting change only when a metadata (3003)
+            // or share-grant (3007) event newly arrived. The scan is O(n) over
+            // the shared namespace and only runs on genuine insertion, so it
+            // stays cheap against the small cross-instance share set; the
+            // constant message stream (3001) during a turn does NOT trigger a
+            // relist. Yields outside the lock (yield is thread-safe).
+            if newValue.count > before.count {
+                for (id, event) in newValue where before[id] == nil {
+                    let k = event.kind.RAW_native()
+                    if k == 3_003 || k == 3_007 {
+                        cont?.yield()
+                        break
+                    }
+                }
+            }
         }
     }
 
