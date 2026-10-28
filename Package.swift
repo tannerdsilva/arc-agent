@@ -68,7 +68,7 @@ let package = Package(
 		// reports drift against this revision.
 		.package(
 			url: "https://github.com/tannerdsilva/no-webui.git",
-			revision: "d26258b4b50dab924adc490f1f5b12feec6cb3ef"
+			revision: "2140b1aeb783465d5f1fe67225e4b2cdc76b6c97"
 		),
 		.package(path: "Plugins/ArcSidebarTabs"),
 	],

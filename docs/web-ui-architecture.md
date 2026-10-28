@@ -21,18 +21,22 @@ of `daemon.json` (on by default).
 
 ## dependency pin
 
-`.package(path: "../no-webui")` — accepted revision `48f62cc` (2026-10-27).
-path dependencies are not recorded in `Package.resolved`, so this line is the pin.
-run `make check-pin` after pulling no-webui; it exits non-zero and lists the
-commits when the sibling has moved.
+`.package(url: "https://github.com/tannerdsilva/no-webui.git", revision: "2140b1a…")`
+— accepted revision `2140b1a` (2026-10-28). a revision pin *is* recorded in
+`Package.resolved`, so `make check-pin` compares the manifest's revision against
+that file — the pair that must agree — and prints the sibling checkout's sha as
+advisory only.
 
 ## the co-development rule
 
-arc and no-webui are developed in parallel on the same disk. arc builds against
-`../no-webui`'s working tree, so a no-webui commit can break arc without anyone
-touching arc. before any arc commit: `make check-pin`. after any no-webui commit
-that touches `WebUICore`, `WebUIDesignSystemCore` or `WebUIServer`: run
-`swift build --build-tests` in arc and fix the consumer in the same session.
+arc and no-webui are co-developed on one disk, but arc builds against the
+**pinned revision**, not `../no-webui`'s working tree; the sibling may
+legitimately be ahead of the pin. before any arc commit that depends on
+no-webui: `make check-pin` (non-zero means the manifest and `Package.resolved`
+disagree — run `swift package resolve`). after any no-webui commit that touches
+`WebUICore`, `WebUIDesignSystemCore`, `WebUIServer` or `WebUIState`: move the
+pin, run `swift package resolve`, then `swift build --build-tests` in arc and
+fix the consumer in the same session.
 
 the failure mode this exists for is not a merge conflict — it is silence. when
 no-webui's `@ElementBuilder` moved from erased arrays to a typed view tree, arc

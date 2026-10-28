@@ -19,7 +19,7 @@ import WebUIDesignSystem
 /// `disabled` and `hidden` emit `name=""` (boolean attribute spelling), never
 /// `name="false"`, and are omitted when false.
 @HTMLComponent(.text("label", unlabeled: true), .builder("views"))
-public struct ArcButton: WebUI.View {
+public struct ArcButton<Views: WebUI.View>: WebUI.View {
 
 	public enum ButtonType: String, Sendable {
 		case button = "button"
@@ -52,9 +52,9 @@ public struct ArcButton: WebUI.View {
 
 		buffer.beginElement("button", attributes)
 		buffer.endOpenTag()
-		switch content {
-		case .label(let label): Text(label).render(into: &buffer)
-		case .views(let views): for view in views { view.render(into: &buffer) }
+		switch kind {
+		case .label: Text(label).render(into: &buffer)
+		case .views: views.render(into: &buffer)
 		}
 		buffer.endElement()
 	}

@@ -3,13 +3,18 @@ import WebUI
 /// A settings row: `.set-row` with a label (`.set-label`) and a control.
 ///
 /// Usage: `SettingRow { "Label text" } control: { ... }`
-public struct SettingRow: WebUI.View {
-	public let label: [any WebUI.View]
-	public let control: [any WebUI.View]
+///
+/// generic over the two built subtrees rather than storing `[any View]` arrays:
+/// `@ElementBuilder` folds a block of children into one view (`ErasedViews`),
+/// so the stored value is a `View` the row renders — the erased array is the
+/// shape no-webui retired.
+public struct SettingRow<Label: WebUI.View, Control: WebUI.View>: WebUI.View {
+	public let label: Label
+	public let control: Control
 
 	public init(
-		@ViewBuilder label: () -> [any WebUI.View],
-		@ViewBuilder control: () -> [any WebUI.View]
+		@ElementBuilder label: () -> Label,
+		@ElementBuilder control: () -> Control
 	) {
 		self.label = label()
 		self.control = control()
@@ -20,9 +25,9 @@ public struct SettingRow: WebUI.View {
 		buffer.endOpenTag()
 		buffer.beginElement("div", "class=\"set-label\"")
 		buffer.endOpenTag()
-		for view in label { view.render(into: &buffer) }
+		label.render(into: &buffer)
 		buffer.endElement()
-		for view in control { view.render(into: &buffer) }
+		control.render(into: &buffer)
 		buffer.endElement()
 	}
 }
