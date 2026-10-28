@@ -1619,22 +1619,15 @@ actor AppState {
     func classifyApprovalRisk(_ command: String) async -> DangerLevel? {
         guard httpClient != nil,
               let client = makeAuxClient(for: .approval, sessionID: nil) else { return nil }
-        let prompt = """
-        You classify shell commands for an autonomous coding agent. Reply with exactly one word from: safe, suspicious, dangerous, critical. Consider destructive or exfiltrating operations (rm -rf, mkfs, dd, diskutil erase, curl | sh) critical or dangerous.
-
-        Command: \(command)
-        """
+        let prompt = approvalClassifierPrompt(command)
         do {
             let resp = try await client.complete(
                 messages: [Message(role: .user, content: prompt)],
                 tools: nil,
                 reasoningEffort: nil
             )
-            let low = (resp.content ?? "").lowercased()
-            if low.contains("critical") { return .critical }
-            if low.contains("danger") { return .dangerous }
-            if low.contains("suspicious") { return .suspicious }
-            return .safe
+            let verdict = (resp.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return parseApprovalVerdict(verdict)
         } catch {
             return nil
         }

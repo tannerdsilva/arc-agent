@@ -47,7 +47,7 @@ When asked to produce code, assume it is:
 | **Session Management** — SessionStore protocol, TesseraSessionStore | `Session/` + `Storage/` | Built |
 | **Memory System** — MemoryProvider protocol, TesseraMemoryProvider, FileMemoryProvider | `Memory/` + `Storage/` | Built |
 | **Skills System** — Skill model, YAML frontmatter parsing, discovery | `Skills/Skill.swift` | Built |
-| **Security** — ApprovalManager, dangerous command detection, AgentPowers lockdown gate | `Security/` | Built |
+| **Security** — ApprovalManager, HardlineBlocker (Layer 1), SoftDetector (Layer 2), ExecutionFlagDetector (Layer 3), ShellLexer, AgentPowers lockdown gate | `Security/` | Built |
 | **Error Handling** — RetryHandler, CircuitBreaker, Failover, RecoveryState | `ErrorHandling/` | Built |
 | **Delegation** — DelegationManager, subagent spawning/steering/stopping | `Delegation/` | Built |
 | **Kanban** — KanbanBoard protocol, FileKanbanBoard, KanbanDispatcher | `Kanban/` | Built |
@@ -99,6 +99,16 @@ This is the contract. This is the foundation. Everything else is negotiable.
   `theme-sheet` embeds the rendered stylesheet with its sha256 content address and its gzip
 
 There is no "disk mode": every asset is compiled into the binary. Chat markdown is rendered server-side by the shared arc-parity renderer (`ArcAgentCore/WebUI/Utilities.swift`), then enhanced client-side (table sort/filter, KaTeX rendering).
+
+## Command Security Layers
+
+Terminal-command gating is a three-layer pipeline in `Sources/ArcAgentCore/Security/` (ported from Hermes `approval.py`):
+
+1. **Layer 1 — `HardlineBlocker`.** Twelve catastrophic patterns (root/system-dir/home deletion, block devices, fork bombs, `kill -1`, kernel shutdown, `sudo -S`). **Unconditional denial, above every mode** — YOLO/`.off`, the always-allow list, pre-approved sessions, and a human pressing "approve" can never execute a hardline command. Denial text names the hit ("hardline: recursive delete of root filesystem").
+2. **Layer 2 — `SoftDetector`.** The 77 Hermes `DANGEROUS_PATTERNS` verbatim (hermes-specific rules remapped to `arc serve` / `~/.arc/config.json`) plus an arc-legacy extras tier (generic `kill`/`pkill`/`killall`/`sudo`). Flagged commands: `.off` → approved (YOLO), `.manual` → human prompt, `.smart` → aux classifier arbitrates (first-word verdict parsing; prose verdicts fall back to prompt). Unflagged commands never prompt in any mode.
+3. **Layer 3 — `ExecutionFlagDetector`.** Quote-aware structural detection: interpreter `-c`/`-e` eval payloads, `bash -c` body rescan, read-tool exec flags (`jq -f`, `git -c`, `ssh -o`), and parser-limit fail-closed guards. `ShellLexer` is the shared substrate (shlex-compatible tokenizer, deobfuscation, detection variants). `rm -f $TMPDIR/arc-verify-*` (verification-artifact cleanup) is the only exemption.
+
+The two Laws apply — all detection runs through immutable compiled patterns (`SecurityRegexStore`, documented thread-safe) with no locks or queues.
 
 ## Design Temperament
 

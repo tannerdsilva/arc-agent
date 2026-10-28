@@ -192,8 +192,10 @@ extension ArcCoreTestRoot {
         @Test("smart mode falls back to the regex detector when the classifier is unavailable")
         func fallback() async {
             let unavailable = ApprovalManager(mode: .smart, classifier: { _ in nil })
-            // "rm -rf" is a dangerous regex pattern → review
-            let rDanger = await unavailable.requestApproval(command: "rm -rf /etc", description: "", sessionKey: "s")
+            // "rm -rf /tmp/x" is a dangerous soft-layer pattern → review.
+            // (Hardline targets like "rm -rf /etc" deny outright — see
+            // HardlineLayerTests.)
+            let rDanger = await unavailable.requestApproval(command: "rm -rf /tmp/x", description: "", sessionKey: "s")
             #expect(rDanger == .requiresReview)
             // benign command → approved even without a classifier
             let rSafe = await unavailable.requestApproval(command: "echo hi", description: "", sessionKey: "s2")
@@ -202,10 +204,15 @@ extension ArcCoreTestRoot {
 
         @Test("manual and off modes are unchanged by the classifier")
         func otherModes() async {
+            // Manual mode: unflagged commands never prompt (Phase 2 wiring);
+            // flagged commands require review when no presenter is set.
             let manual = ApprovalManager(mode: .manual, classifier: { _ in .safe })
-            #expect(await manual.requestApproval(command: "echo hi", description: "", sessionKey: "s") == .requiresReview)
+            #expect(await manual.requestApproval(command: "echo hi", description: "", sessionKey: "s") == .approved)
+            #expect(await manual.requestApproval(command: "rm -rf /tmp/x", description: "", sessionKey: "s") == .requiresReview)
             let off = ApprovalManager(mode: .off, classifier: { _ in .critical })
             #expect(await off.requestApproval(command: "anything", description: "", sessionKey: "s") == .approved)
+            // ...but hardline denies in every mode, classifier notwithstanding.
+            #expect(await off.requestApproval(command: "rm -rf /", description: "", sessionKey: "s") == .denied)
         }
     }
 }

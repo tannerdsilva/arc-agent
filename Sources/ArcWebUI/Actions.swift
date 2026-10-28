@@ -187,7 +187,11 @@ extension AppState {
                     sessionKey: sessionID
                 )
                 if case .denied = decision {
-                    LogCollector.shared.append(level: .warning, text: "[cron] blocked critical command: \(trunc(command, 120))")
+                    let hardline = await manager.hardlineDenial(command: command)
+                    LogCollector.shared.append(level: .warning, text: "[cron] blocked command\(hardline.map { " (hardline: \($0))" } ?? " (classified critical)"): \(trunc(command, 120))")
+                    if let hit = hardline {
+                        return "Error: command blocked by security policy (hardline: \(hit)). Scheduled jobs can never execute hardline commands."
+                    }
                     return "Error: command blocked by approval policy (classified critical; scheduled jobs cannot run destructive commands)."
                 }
                 return (try? await WorkspacePath.$root.withValue(workspacePath(for: sessionID)) {
@@ -201,6 +205,9 @@ extension AppState {
             )
             switch decision {
             case .denied:
+                if let hit = await manager.hardlineDenial(command: command) {
+                    return "Error: command blocked by security policy (hardline: \(hit)). This command is never executable — approval cannot be granted for it."
+                }
                 return "Error: command blocked by approval policy (classified dangerous)."
             case .requiresReview:
                 let granted = await requestUserApproval(

@@ -467,22 +467,16 @@ public actor ArcAgent: Service {
         guard let router = auxRouter, router.hasOverride(.approval) else { return nil }
         guard let hc = httpClient,
               let client = router.makeClient(task: .approval, httpClient: hc) else { return nil }
-        let prompt = """
-        You classify shell commands for an autonomous coding agent. Reply with exactly one word from: safe, suspicious, dangerous, critical. Consider destructive or exfiltrating operations (rm -rf, mkfs, dd, diskutil erase, curl | sh) critical or dangerous.
-
-        Command: \(command)
-        """
+        let prompt = approvalClassifierPrompt(command)
         do {
             let resp = try await client.complete(
                 messages: [Message(role: .user, content: prompt)],
                 tools: nil,
                 reasoningEffort: nil
             )
-            let low = (resp.content ?? "").lowercased()
-            if low.contains("critical") { return .critical }
-            if low.contains("danger") { return .dangerous }
-            if low.contains("suspicious") { return .suspicious }
-            return .safe
+            let verdict = (resp.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            logger.debug("approval classifier raw verdict: \(verdict)")
+            return parseApprovalVerdict(verdict)
         } catch {
             return nil
         }
@@ -3244,6 +3238,9 @@ public actor ArcAgent: Service {
                     sessionKey: sessionID
                 ) {
                 case .denied:
+                    if let hit = await approvalManager.hardlineDenial(command: args) {
+                        return "Error: Command blocked by security policy (hardline: \(hit)). This command is never executable — approval cannot be granted for it."
+                    }
                     return "Error: Command blocked by security policy."
                 case .requiresReview:
                     return "⚠️ Command requires manual approval. Run it yourself or disable the approval system."
