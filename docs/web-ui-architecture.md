@@ -197,11 +197,28 @@ The contract now:
   the engine mutates the text node's data, so the only mutations during a stream are
   characterData writes. The `live-turn` node replace is reserved for structural
   changes — status, tool chips, a row appearing or vanishing, the quantized TPS chip.
-- **Boundaries are chrome + transcript, never `#main`.** Turn start/end push
-  `turnChromeFragments()` (panel, chat header, composer, toasts) plus
-  `transcriptFragments()`; a message commit pushes the transcript; sending a message
-  only clears the composer. Replacing `#main` at a boundary killed scroll, selection
-  and focus — no turn path does it any more.
+- **One derived push edge.** No handler assembles fragment html. A handler that
+  changed state calls `Controller.changed()`, which pushes a `structuralChange()` nudge
+  through `PushEdge`; the edge renders the shell once, diffs it against the baseline it
+  holds with no-webui's `PageDiffer`, and broadcasts only the frames whose bytes moved.
+  A turn boundary is therefore never a hand-picked list of regions: measured for a
+  scripted turn, the start boundary shipped nine frames (`s-open-…`, `s-menu-…`,
+  `chat-header`, `chat-scroll`, `chat-inner`, `composer-form`, `composer-input`,
+  `cb-send`), the structural change then shipped `live-turn`, the tokens shipped two
+  text writes, and the commit escalated to a single `#app` frame — bytes outside every
+  region moved, so the differ escalated rather than shipping a partial patch.
+  `#main` is never replaced on a turn boundary, because nothing names regions by hand
+  any more.
+- **A region's identity is the DOM `id`.** `RegionPolicy(identity: .elementID)`: a frame
+  addresses an element the engine resolves with `getElementById`. Twenty elements carry
+  `data-component-id` and no `id` at all — click-routing wrappers (panel bodies, picker
+  grids, tab strips), never patch targets — and twelve pairs carry both attributes with
+  different values, where the DOM id is what a patch must name. Both sets are pinned by
+  `RegionIdentityCensusTests`, so a new one is a decision rather than an accident.
+- **Two spans are excluded from the diff.** `live-turn-text` and `live-turn-thinking` are
+  written only by `FragmentUpdate.text`; an html replace would reset the node the token
+  writer owns, so the differ subtracts them from every ancestor's hash and never ships
+  them.
 - **Transitions are navigation-scale only.** Live fragments carry
   `transition: false`; `append`/`text` ops never animate. A full turn animates at its
   two boundaries at most.
@@ -209,15 +226,20 @@ The contract now:
   line names the running tool with its own client-ticked clock (`data-elapsed`, 1 s
   tick in `overlay.js`) — both stable spans the server never re-renders. Live
   reasoning renders in every activity mode except `hide_all_activity`.
-- **Push hygiene.** `PushDeduper` (in the push closure) drops fragment batches whose
-  HTML repeats the last push for the same id; empty html — the remove-the-node
-  signal — always passes.
+
+The old machinery is gone: `PushDeduper`, `LiveTurnGate` and `PushPipeline` (71 lines
+plus a 0.12 s timer) and the 149-site `refreshFragments()` fan-out. Each job is now
+derived — an unchanged render produces no frames at all, so there is nothing to dedupe;
+ordering is the door's own sequence (structure, then deltas), not a timer; and the
+baseline lives in one `Mutex`-guarded differ per process, which is also why a push is a
+single broadcast: every connected tab receives identical bytes.
 
 After (same chat, measured live): a complete turn = ~63 characterData writes, 5
-structural node swaps, 2 transcript renders, 2 transitions. Contract pins:
-`Tests/ArcAgentWebUITests/StreamingDomContractTests.swift` +
-`StreamingPushHygieneTests.swift`; the engine side is pinned by no-webui's browser
-smoke.
+structural node swaps, 2 transcript renders, 2 transitions. Contract pins, all at the
+wire: `PushDiffTests.swift` (the door — derived structure, verbatim deltas),
+`StreamingDomContractTests.swift` (ids, ops, addressability),
+`RegionIdentityCensusTests.swift`, `PushFanoutTests.swift`, `HostConfigTests.swift`. The
+engine side is pinned by no-webui's browser smoke.
 
 ## Theming and icons
 
@@ -274,6 +296,19 @@ order was "grep both, then delete". do not re-run this analysis and
 
 ## Known gaps
 
+- **Open (2026-10-28): two push guards still read source text.**
+  `UXHardeningContractTests` slices `turnChromeFragments()` out of `Actions.swift`, and
+  `SettingsLayoutContractTests` slices `handleFontSizePick` — both then assert that
+  `structuralChange()` / `changed()` appear in the body. They pass and they do guard the
+  intent, but a rename that changes nothing would fail them, and they cannot see
+  behaviour. Convert them to wire assertions (the shape `StreamingDomContractTests` now
+  uses) when they next need touching.
+- **Open (2026-10-28): concurrent structural pushes are not serialized.**
+  `PushPipeline`'s submission chain went with it. `PageDiffer` makes each read-diff-write
+  atomic, but two producers can interleave `render()`/`messages()` and put frames on the
+  wire out of render order — a transient stale region that the next push corrects. An
+  agent turn pushes structurally once at a time, so this is latent; a submission gate at
+  the door is the fix if it ever bites.
 - **Resolved (2026-09): the client runtime fork is gone.** `RuntimeAsset.swift`
   (a ~59 KB fork of no-webui's `webui-runtime.js`), its `Assets/runtime.js`
   source, and `gen_runtime.py` were deleted. `HTMLDocument` now boots no-webui's
