@@ -544,6 +544,13 @@ extension ArcConfig {
     public func effectiveMaxTurnDuration() -> Int? {
         turnDurationLimit().bound
     }
+
+    /// Effective per-turn wall-clock budget in seconds. `agent.max_turn_duration`
+    /// when present and positive; `nil` (unlimited) otherwise — the default.
+    public func effectiveMaxTurnDuration() -> Int? {
+        guard let n = agent.max_turn_duration, n > 0 else { return nil }
+        return n
+    }
 }
 
 /// Agent behavior configuration.

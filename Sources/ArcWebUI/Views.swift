@@ -1049,6 +1049,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             .id("tool-list-body")
             .data("scroll-key", "tools")
         }
+
     }
 
     // MARK: Workspaces panel
@@ -3152,6 +3153,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             if let pinned = p.contextSkills, !pinned.isEmpty {
                 AkvRow(key: "Context skills", value: pinned.joined(separator: ", "))
             }
+
         }
     }
 
@@ -3865,6 +3867,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
             }
         }
+
     }
 
     func agentPowersSection() -> some WebUI.View {
@@ -5202,6 +5205,7 @@ extension AppState {
                 .attribute("style", "justify-content:center")
             }
         }
+
     }
 
     func memoryMeta(_ key: String) -> (title: String, file: String, note: String) {

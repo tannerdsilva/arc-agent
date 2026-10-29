@@ -17,11 +17,13 @@ struct Bugfix20261028Tests {
     func sectionRoundTrip() {
         let content = "first entry\nsecond line\n§\nsecond entry\n§\nthird"
         let sections = MemorySections.splitSections(content)
+
         #expect(sections.count == 3)
         #expect(sections[0] == "first entry\nsecond line")
         #expect(sections[1] == "second entry")
         #expect(sections[2] == "third")
         #expect(MemorySections.joinSections(sections) == content)
+
     }
 
     @Test("a § inside entry content is not a delimiter; whitespace-tolerant delimiter lines are")
@@ -34,12 +36,14 @@ struct Bugfix20261028Tests {
 
         let padded = "a\n  §  \nb"
         #expect(MemorySections.splitSections(padded).count == 2)
+
     }
 
     @Test("empty bookend sections keep their delimiters; edges canonicalize to \\n§\\n")
     func emptyBookends() {
         let content = "§\nonly entry\n§"
         let sections = MemorySections.splitSections(content)
+
         #expect(sections.count == 3)
         #expect(sections[0].isEmpty && sections[2].isEmpty)
         // Malformed bookends (a file that starts/ends with a bare § line)
@@ -49,6 +53,7 @@ struct Bugfix20261028Tests {
         let rejoined = MemorySections.joinSections(sections)
         #expect(rejoined == "\n§\nonly entry\n§\n")
         #expect(MemorySections.splitSections(rejoined) == sections)
+
     }
 
     // MARK: max turn duration (default unlimited)

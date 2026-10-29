@@ -71,6 +71,7 @@ public actor SessionRegistry {
         /// every hosted agent was hardcoded to `.manual`, so `smart` and `off`
         /// never reached the daemon.
         public let approvalMode: ApprovalMode
+
         /// Mixture-of-Agents configuration (reference `moa` config block).
         public let moa: MoAConfig
         /// Toolsets disabled for every hosted session (`tools.disabledToolsets`
@@ -127,6 +128,7 @@ public actor SessionRegistry {
             toolLoopCap: Limit? = nil,
             maxTurnDuration: Int? = nil,
             approvalMode: ApprovalMode = .manual,
+
             mcpServers: [String: MCPServerConfig] = [:],
             contextDefaults: ContextRecipe? = nil,
             verifyOnStop: Bool = false,
@@ -154,6 +156,7 @@ public actor SessionRegistry {
             self.toolLoopCap = toolLoopCap
             self.maxTurnDuration = maxTurnDuration
             self.approvalMode = approvalMode
+
             self.mcpServers = mcpServers
             self.contextDefaults = contextDefaults
             self.storage = storage

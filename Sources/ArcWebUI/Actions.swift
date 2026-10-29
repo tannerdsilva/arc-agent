@@ -3297,6 +3297,7 @@ extension Controller {
         await self.app.updateAgentPowers { cfg in
             if locked {
                 if !cfg.lockedSkills.contains(name) { cfg.lockedSkills.append(name) }
+
             } else {
                 cfg.lockedSkills.removeAll { $0 == name }
             }
@@ -3501,6 +3502,7 @@ extension Controller {
             await self.app.cancelMemoryEdit()
         } else {
             return []
+
         }
         return await self.changed()
     }

@@ -1646,6 +1646,16 @@ actor AppState {
         await updateConfig { $0.limits.turnDuration = limit }
     }
 
+    /// Persist the per-turn wall-clock budget (`agent.max_turn_duration`) into
+    /// `~/.arc/config.json` and refresh the in-memory copy. `nil` means
+    /// unlimited (the default); a positive value bounds each turn in seconds.
+    func setTurnDuration(_ seconds: Int?) {
+        var raw = Self.rawArcConfig()
+        raw.agent.max_turn_duration = seconds
+        self.arcConfig = raw
+        try? saveConfig(raw)
+    }
+
     /// Persist an "Always allow" command into `~/.arc/config.json` so the CLI
     /// and daemon honor the same allowlist (reference approval patterns parity).
     func persistAlwaysAllowed(_ command: String) async {
