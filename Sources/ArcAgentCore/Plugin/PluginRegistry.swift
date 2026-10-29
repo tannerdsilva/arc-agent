@@ -464,7 +464,7 @@ public actor PluginRegistry {
 /// A plugin therefore cannot claim to be compiled in — the only path a plugin
 /// tool has into this registry overwrites the origin.
 public struct MutableToolRegistry: ToolRegistry {
-    public let builtIn: CompileTimeToolRegistry
+    public private(set) var builtIn: CompileTimeToolRegistry
     private var pluginEntries: [String: RegisteredTool] = [:]
 
     private static let logger = Logger(label: "arc.plugins")
@@ -496,6 +496,22 @@ public struct MutableToolRegistry: ToolRegistry {
 
     public var allTools: [RegisteredTool] {
         builtIn.allTools + pluginEntries.values
+    }
+
+    /// A copy whose named built-ins are re-pointed, leaving the runtime tier
+    /// alone.
+    ///
+    /// Plugin, MCP and fixture tools arrive here at runtime and are
+    /// process-wide: a caller re-scoping the surface for one dispatch (the web
+    /// UI mints an agent per turn, and a turn's session is not necessarily the
+    /// active chat) must not drop them, and must not adopt a different
+    /// dependency bundle — `ArcAgent` takes `toolDependencies` from the
+    /// registry it is handed, so a fresh bundle would hand the turn a second
+    /// `todo` store. Only the names in `replacements` differ from `self`.
+    public func replacingBuiltIns(_ replacements: [any AgentTool]) -> MutableToolRegistry {
+        var copy = self
+        copy.builtIn = builtIn.replacing(replacements)
+        return copy
     }
 
     /// Install a plugin tool.

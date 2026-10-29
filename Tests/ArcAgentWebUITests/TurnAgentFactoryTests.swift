@@ -83,7 +83,7 @@ extension ArcWebUITestRoot {
                 Self.skill("global-off"),
                 Self.skill("kept"),
             ]
-            f.memory = StubMemoryProvider(marker: "stub-memory")
+            f.turnMemory = StubMemoryProvider(marker: "stub-memory")
             f.profiles = [
                 Profile(
                     name: "alpha",
@@ -252,8 +252,10 @@ extension ArcWebUITestRoot {
 }
 
 /// a memory provider the factory test can recognise by its output — proving
-/// `Configuration.memoryProvider` came from `AppState.memory`, not from the
-/// configuration's `FileMemoryProvider` default.
+/// `Configuration.memoryProvider` came from the injected provider seam
+/// (`AppState.turnMemoryOverride`), not from the configuration's
+/// `FileMemoryProvider` default and not from the profile resolution
+/// `makeTurnAgent` would otherwise perform for this bound chat.
 private struct StubMemoryProvider: MemoryProvider {
     let marker: String
 

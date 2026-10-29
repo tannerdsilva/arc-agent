@@ -173,4 +173,38 @@ public enum ArcAgentCore {
                 .appendingPathComponent(context.profile.rawValue, isDirectory: true)
         return ProfileDocuments(root: root, grant: context.grant)
     }
+
+    /// The part of the surface that addresses *one scope's* documents:
+    /// `memory` and `profile_edit`, built together.
+    ///
+    /// A surface that dispatches for more than one profile at a time cannot
+    /// keep these two as built-ins captured at construction. The web UI mints
+    /// an agent per turn and a turn's session is not necessarily the chat that
+    /// was active when the surface was rebuilt, so it takes its shared
+    /// registry and re-points exactly these with
+    /// ``MutableToolRegistry/replacingBuiltIns(_:)`` (GROUNDZERO2 slice 4).
+    ///
+    /// They are built from one `context` and one `memory` on purpose: passing
+    /// a provider that addresses a different directory than `context.profile`
+    /// is how the two tools came to disagree in the first place.
+    ///
+    /// - Parameters:
+    ///   - context: the scope this pair addresses.
+    ///   - memory: that scope's memory provider — `ProfileManager.memoryURL(for:)`
+    ///     for the file backend.
+    ///   - profiles: the roster `profile_edit` writes SOUL through.
+    public static func scopeAddressedTools(
+        context: ToolContext,
+        memory: any MemoryProvider,
+        profiles: any ProfileStore
+    ) -> [any AgentTool] {
+        [
+            MemoryTool.entry(context: context, memory: memory),
+            ProfileEditTool.entry(
+                context: context,
+                documents: documents(for: context),
+                profiles: profiles
+            ),
+        ]
+    }
 }

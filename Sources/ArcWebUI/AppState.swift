@@ -1035,6 +1035,11 @@ actor AppState {
     /// instead of the live HTTP one, so a whole turn can be driven with no
     /// socket. nil in production; A7's golden transcript suite sets it.
     var turnClientOverride: (any LLMClient)?
+    /// Memory-provider seam: when set, a turn is handed this provider instead
+    /// of one resolved from its session's profile (`turnMemoryProvider(for:)`).
+    /// nil in production — a test that must recognise the provider the turn
+    /// actually uses sets it, the same shape as `turnClientOverride`.
+    var turnMemoryOverride: (any MemoryProvider)?
     /// The storage backend this process actually constructed: "tessera" or
     /// "file". Honest label vs `settings.tesseraOff` because the boot-time
     /// fallback can differ from the persisted setting within a process.
@@ -1127,9 +1132,13 @@ actor AppState {
         /// the detail panes look tools up in the registry, not in `toolsets` —
         /// an empty registry renders the blank state no matter the fixture.
         var registryTools: [any AgentTool] = []
-        /// the memory provider the per-turn agent factory hands to the
-        /// configuration; nil (the default) leaves the field unset.
+        /// the process-wide memory provider the runtime would build (what
+        /// `ensureRuntime` assigns). A turn is handed the session profile's
+        /// provider instead — `turnMemoryOverride` is the seam for that.
         var memory: (any MemoryProvider)? = nil
+        /// the provider a turn is handed instead of one resolved from its
+        /// session's profile — the `turnMemoryOverride` seam.
+        var turnMemory: (any MemoryProvider)? = nil
         /// the approval gate `runTool` consults. nil (the default) leaves the
         /// gate unarmed — the production init builds a real manager, which a
         /// render fixture must never do (it reads `~/.arc/config.json`).
@@ -1185,6 +1194,7 @@ actor AppState {
         self.pluginManifests = fixture.pluginManifests
         self.skills = fixture.skills
         self.memory = fixture.memory
+        self.turnMemoryOverride = fixture.turnMemory
         self.approvalManager = fixture.approvalManager
         self.pluginStartupOutcome = fixture.pluginStartupOutcome
         self.pendingCopyURL = fixture.pendingCopyURL
@@ -1781,10 +1791,12 @@ actor AppState {
     ///
     /// Every field resolves from the source the UI's turn loop already reads:
     /// the effective preset (with the bound profile's context overrides
-    /// applied), the shared `registry`, the allowed skills, the `memory`
-    /// provider, the approval mode, auxiliary routing, MoA, tool search,
-    /// agent powers, background review, verify-on-stop, the per-session
-    /// workspace, and the effective tool-iteration budget.
+    /// applied), the shared `registry` — re-pointed at this session's scope for
+    /// the two profile-addressed tools — the allowed skills, the memory
+    /// provider the session's profile owns, the approval mode, auxiliary
+    /// routing, MoA, tool search, agent powers, background review,
+    /// verify-on-stop, the per-session workspace, and the effective
+    /// tool-iteration budget.
     ///
     /// The bound profile's SOUL (if any) and its pinned context skills are
     /// injected as one system message via `injectSystemMessage`, matching the
@@ -1843,6 +1855,27 @@ actor AppState {
         // max iterations mirrors the turn loop's clamp: at least one pass.
         let maxIterations = max(1, iterationBudget ?? Self.effectiveMaxTurns())
 
+        // The memory document this turn reads and writes: the session
+        // profile's, for the file backend (see `turnMemoryProvider`).
+        let turnMemory = turnMemoryProvider(for: sessionID)
+
+        // The surface the turn dispatches through. `registry` was scoped to
+        // whichever chat was active when it was last rebuilt, and its `memory`
+        // and `profile_edit` built-ins captured that scope — and the
+        // process-wide provider — at construction. Re-point exactly those two
+        // at THIS session's profile, keeping every other tool (plugins, MCP,
+        // fixtures) and the shared dependency bundle untouched, so a turn for a
+        // background chat addresses its own documents and the provider above is
+        // the one the `memory` tool actually writes through.
+        let turnContext = toolContext(for: sessionID)
+        let turnRegistry = registry.replacingBuiltIns(
+            ArcAgentCore.scopeAddressedTools(
+                context: turnContext,
+                memory: turnMemory,
+                profiles: TesseraProfileStore.shared
+            )
+        )
+
         // an unparseable preset url must not trap the server; fail closed to
         // the reserved .invalid tld so the request errors out visibly instead
         // of redirecting the key to a different provider.
@@ -1855,11 +1888,14 @@ actor AppState {
             provider: effectivePreset.provider,
             baseURL: baseURL,
             apiKey: effectivePreset.apiKey,
-            registry: registry,
+            registry: turnRegistry,
             // a scratch store: the UI is the transcript's only writer (§3.3), so
             // the agent must never restore from — or persist into — a durable one.
             sessionStore: VolatileSessionStore(),
-            memoryProvider: memory,
+            // the turn's memory document: the session's profile for the file
+            // backend, the process-wide provider for Tessera and for an
+            // unbound chat — see `turnMemoryProvider(for:)`.
+            memoryProvider: turnMemory,
             skills: allowedSkills,
             maxIterations: maxIterations,
             toolLoopCap: arcConfig.effectiveToolLoopCap(),
@@ -2134,6 +2170,38 @@ actor AppState {
         return nil
     }
 
+    /// The memory provider a turn in `sessionID` must address
+    /// (GROUNDZERO2 slice 4, D13).
+    ///
+    /// One chat, one memory document. For the file backend that document lives
+    /// in the session's profile directory — `ProfileManager.memoryURL(for:)`,
+    /// the directory the daemon hands its own sessions and the one
+    /// `ProfileDocuments` writes — so `memory` and `profile_edit` cannot
+    /// disagree about where a memory went. Before this, a UI turn was handed
+    /// the provider resolved once at boot, so a `memory` write landed in
+    /// `~/.arc/memories` while `profile_edit` read
+    /// `~/.arc/profiles/<name>`: the two tools disagreed in the one surface a
+    /// human watches.
+    ///
+    /// Two branches keep the process-wide provider on purpose:
+    /// - **Tessera** — one tunnel, one key set; Tessera memory has no profile
+    ///   dimension, so a per-profile provider would address a document that
+    ///   cannot exist.
+    /// - **no profile bound** — an unbound chat has no profile directory to
+    ///   own, so it keeps the process-wide file provider (`~/.arc/memories`).
+    ///
+    /// `turnMemoryOverride` (nil in production) wins outright: it is the seam
+    /// a test uses to hand a turn a provider it can recognise.
+    func turnMemoryProvider(for sessionID: String?) -> any MemoryProvider {
+        if let override = turnMemoryOverride { return override }
+        if let memory, memory is TesseraMemoryProvider { return memory }
+        if let name = profileName(for: sessionID),
+           let directory = ProfileManager.memoryURL(for: name) {
+            return FileMemoryProvider(directory: directory)
+        }
+        return memory ?? FileMemoryProvider()
+    }
+
     /// The tool scope for `sessionID` (nil = the active session / no chat).
     ///
     /// Profile from the session's binding, workspace from the same resolution
@@ -2165,7 +2233,10 @@ actor AppState {
         return try? await MutableToolRegistry.make(
             context: context,
             profiles: TesseraProfileStore.shared,
-            memory: memory ?? FileMemoryProvider(),
+            // The same provider a turn for this session is handed
+            // (`turnMemoryProvider`): a surface rebuilt here and an agent
+            // minted there must address one document.
+            memory: turnMemoryProvider(for: sessionID),
             sessions: store ?? FileSessionStore(),
             // The same board the boot surface and (in the daemon) the sessions
             // use — a rebuild must not leave the tools without one.

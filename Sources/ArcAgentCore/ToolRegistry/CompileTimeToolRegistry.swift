@@ -85,4 +85,26 @@ public struct CompileTimeToolRegistry: ToolRegistry {
         // output we sort by name.
         tools.values.sorted { $0.name < $1.name }
     }
+
+    /// A copy with `replacements` taking the place of the built-ins that share
+    /// their name (an unknown name is added).
+    ///
+    /// A built-in captures its dependencies at construction — a memory
+    /// provider, a profile's documents — and ``register(_:origin:)`` refuses a
+    /// duplicate name, so a caller that must address a *different* per-call
+    /// scope cannot re-point one in place. It builds the copy it needs
+    /// instead: the web UI's turns run for a session that is not necessarily
+    /// the active chat, and `memory` / `profile_edit` must address the turn's
+    /// profile rather than whichever chat was active when the surface was last
+    /// rebuilt (GROUNDZERO2 slice 4).
+    ///
+    /// Replacements are admitted at the compiled-in tier (``ToolOrigin/builtin``),
+    /// which is the tier they replace.
+    public func replacing(_ replacements: [any AgentTool]) -> CompileTimeToolRegistry {
+        var copy = self
+        for tool in replacements {
+            copy.tools[tool.name] = RegisteredTool(tool: tool, origin: .builtin)
+        }
+        return copy
+    }
 }
