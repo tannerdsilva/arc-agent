@@ -1,3 +1,4 @@
+import ArcToolKit
 import Foundation
 
 // MARK: - Agent powers (runtime lockdown gate)

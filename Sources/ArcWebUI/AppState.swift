@@ -1,4 +1,5 @@
 import ArcAgentCore
+import ArcToolKit
 import AsyncHTTPClient
 import ArcSidebarTabs
 import Foundation

@@ -1,3 +1,5 @@
+import ArcToolKit
+
 // MARK: - Registered tool (tool + its provenance)
 
 /// A tool together with the origin its registry assigned when it was admitted.

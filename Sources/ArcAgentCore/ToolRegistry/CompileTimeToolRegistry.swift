@@ -1,3 +1,5 @@
+import ArcToolKit
+
 /// A compile-time tool registry that stores tools in a dictionary.
 ///
 /// ``CompileTimeToolRegistry`` is the primary ``ToolRegistry`` implementation

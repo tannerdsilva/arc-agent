@@ -1,3 +1,5 @@
+import ArcToolKit
+
 /// A registry that manages tool discovery, registration, and lookup.
 ///
 /// ``ToolRegistry`` is the narrow waist of the ARC Agent tool system. Every tool

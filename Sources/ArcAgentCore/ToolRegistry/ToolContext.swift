@@ -1,3 +1,5 @@
+import ArcToolKit
+
 // MARK: - ToolContext
 //
 // The identity a tool call acts within, captured when the tool is built.

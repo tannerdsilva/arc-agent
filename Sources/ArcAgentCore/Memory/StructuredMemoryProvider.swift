@@ -1,3 +1,4 @@
+import ArcToolKit
 import Foundation
 
 /// The type of a memory entry.

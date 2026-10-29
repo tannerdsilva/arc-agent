@@ -99,10 +99,24 @@ let package = Package(
             ],
         ),
 
+        // ── Authority layer (dependency-free by construction) ─────
+        // Tier, grant, document enum, profile name and the memory-provider
+        // protocol: the authority values, and nothing that can do I/O. The
+        // empty dependency list is the guarantee — "a grant cannot read a
+        // file, spawn a process or look at a clock" is a compile error here,
+        // not a review convention (GROUNDZERO §6, slice 7). Do not add a
+        // dependency to this target: a single Foundation import would restore
+        // the capability the split exists to remove.
+        .target(
+            name: "ArcToolKit",
+            dependencies: []
+        ),
+
         // ── Core library ──────────────────────────────────────────
         .target(
             name: "ArcAgentCore",
             dependencies: [
+                .target(name: "ArcToolKit"),
                 .product(name: "AsyncHTTPClient", package: "async-http-client"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "SystemPackage", package: "swift-system"),

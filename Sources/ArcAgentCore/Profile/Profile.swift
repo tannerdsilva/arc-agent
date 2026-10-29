@@ -1,3 +1,4 @@
+import ArcToolKit
 import Foundation
 
 // MARK: - Avatar Configuration
@@ -230,12 +231,17 @@ public enum ProfileError: Error, Sendable, CustomStringConvertible, Equatable {
 }
 
 /// Validate a profile name.
+///
+/// The rule itself lives in `ArcToolKit` (``ArcToolKit/validateProfileName(_:)``)
+/// because it is authority, not I/O — that target imports only the standard
+/// library, so the rule cannot consult the filesystem. This free function is
+/// the name core has always called; it delegates so the rule has exactly one
+/// definition (GROUNDZERO slice 7).
+///
 /// Rules: 2-64 chars; lowercase letters, digits, hyphens and underscores; the
 /// first character must be a letter or digit (so `-x` and `_x` are invalid, but
 /// a leading digit is fine). The roster-tool prose states the same rule — if
-/// this regex changes, that sentence changes with it (GROUNDZERO D2).
+/// the rule changes, that sentence changes with it (GROUNDZERO D2).
 public func validateProfileName(_ name: String) -> Bool {
-    guard name.count >= 2 && name.count <= 64 else { return false }
-    let pattern = "^[a-z0-9][a-z0-9_-]+$"
-    return name.range(of: pattern, options: .regularExpression) != nil
+    ArcToolKit.validateProfileName(name)
 }
