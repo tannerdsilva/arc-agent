@@ -1,3 +1,4 @@
+import ArcToolKit
 import ArgumentParser
 import ArcAgentCore
 import ArcDaemon
@@ -19,13 +20,26 @@ struct PromptSizeCmd: AsyncParsableCommand {
 
     func run() async throws {
         let config = loadConfig()
-        let registry = try ArcAgentCore.buildDefaultRegistry()
+        // Surface introspection only: this command measures the compiled tool
+        // schemas and never dispatches one, so it builds a `.default` context
+        // with no document authority.
+        let registry = try ArcAgentCore.buildRegistry(
+            context: ToolContext(
+                profile: .default,
+                sessionID: "",
+                workspace: FileManager.default.currentDirectoryPath,
+                grant: ToolGrant(profile: .default, documentAccess: .none)
+            ),
+            profiles: TesseraProfileStore.shared,
+            memory: FileMemoryProvider(),
+            sessions: FileSessionStore()
+        )
         let full = registry.buildToolSchemas(enabled: [], disabled: [])
         let deferredSchemas = ProgressiveToolDisclosure.buildPromptSchemas(
             registry: registry, disabled: [], config: config.toolSearch,
             contextLength: contextLength)
         let deferredPlan = DeferredToolPolicy.plan(
-            entries: registry.allTools,
+            entries: registry.allTools.map { $0.tool },
             config: config.toolSearch)
         let manifestTokens = ProgressiveToolDisclosure.manifest(
             deferred: deferredPlan.deferred, config: config.toolSearch,

@@ -393,7 +393,28 @@ struct McpLocal: AsyncParsableCommand {
     var json = false
 
     func run() async throws {
-        let registry = try ArcAgentCore.buildDefaultRegistry()
+        // `arc local` dispatches tools for real, so it installs the gate
+        // first: the grant is captured when the surface is built.
+        AgentPowers.configure(loadConfig().agentPowers)
+        // `arc local` dispatches tools for real, so the context is the live
+        // gate for the default profile, with `memory` rooted at that profile's
+        // document directory so `memory` and `profile_edit` agree.
+        let registry = try ArcAgentCore.buildRegistry(
+            context: ToolContext(
+                profile: .default,
+                sessionID: "",
+                workspace: FileManager.default.currentDirectoryPath,
+                grant: AgentPowers.grant(profile: .default)
+            ),
+            profiles: TesseraProfileStore.shared,
+            memory: FileMemoryProvider(directory: ProfileManager.memoryURL(for: "default")),
+            sessions: FileSessionStore(),
+            // `arc local` dispatches tools for real, so it needs a real board:
+            // the same core file board `arc kanban list` reads and the daemon
+            // dispatches (GROUNDZERO2 slice 1). Its own instance — this is a
+            // separate process from the daemon.
+            kanban: FileKanbanBoard()
+        )
         let dispatcher = ArcToolDispatcher(registry: registry)
         let bridge = LocalMCPBridge(dispatcher: dispatcher)
 

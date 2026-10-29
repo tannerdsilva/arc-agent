@@ -121,13 +121,13 @@ extension ArcCoreTestRoot {
 
         @Test("mutable registry layers plugin tools over built-ins (reference bundling)")
         func mutableRegistry() async throws {
-            let builtIn = try ArcAgentCore.buildDefaultRegistry()
+            let builtIn = try ArcAgentCore.testRegistry()
             let registry = MutableToolRegistry(builtIn: builtIn)
             #expect(registry.lookup(name: "read_file") != nil)
 
             // No plugins dir → make() falls through cleanly and the full
             // built-in surface remains, with no plugin tools layered on.
-            let made = try await MutableToolRegistry.make(pluginRegistry: PluginRegistry(pluginsDir: FileManager.default.temporaryDirectory.appendingPathComponent("none-\(UUID().uuidString)")))
+            let made = try await ArcAgentCore.testMutableRegistry(pluginRegistry: PluginRegistry(pluginsDir: FileManager.default.temporaryDirectory.appendingPathComponent("none-\(UUID().uuidString)")))
             let schemas = made.buildToolSchemas(enabled: [], disabled: [])
             #expect(schemas.count == 54)
         }
@@ -162,7 +162,7 @@ extension ArcCoreTestRoot {
             #expect(tools[0].toolset == "weather")
             #expect(tools[0].entry == "tool.py")
 
-            var mutable = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
+            var mutable = MutableToolRegistry(builtIn: try ArcAgentCore.testRegistry())
             let installed = mutable.install(pluginTool: tools[0])
             #expect(installed)
             let schemas = mutable.buildToolSchemas(enabled: [], disabled: [])
@@ -222,7 +222,7 @@ extension ArcCoreTestRoot {
             let registry = PluginRegistry(pluginsDir: root)
             try await registry.loadAll()
             let tool = try #require((await registry.tools()).first)
-            var mutable = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
+            var mutable = MutableToolRegistry(builtIn: try ArcAgentCore.testRegistry())
             // Key absent → not installed.
             let before = mutable.install(pluginTool: tool)
             #expect(!before)
@@ -248,7 +248,7 @@ extension ArcCoreTestRoot {
                     .write(to: pluginDir.appendingPathComponent("manifest.json"))
             }
             let registry = PluginRegistry(pluginsDir: root)
-            let made = try await MutableToolRegistry.make(pluginRegistry: registry, enabledPlugins: ["alpha"])
+            let made = try await ArcAgentCore.testMutableRegistry(pluginRegistry: registry, enabledPlugins: ["alpha"])
             #expect(made.lookup(name: "alpha_tool") != nil)
             #expect(made.lookup(name: "beta_tool") == nil)
         }
@@ -295,16 +295,17 @@ extension ArcCoreTestRoot {
             try Data(script.utf8).write(to: pluginDir.appendingPathComponent("run.sh"))
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pluginDir.appendingPathComponent("run.sh").path)
 
-            var mutable = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
+            var mutable = MutableToolRegistry(builtIn: try ArcAgentCore.testRegistry())
             let pluginTool = PluginTool(plugin: "echo", name: "echo_tool", description: "",
                                         command: "./run.sh", args: [], cwdOverride: pluginDir)
             let installed = mutable.install(pluginTool: pluginTool)
             #expect(installed)
 
-            // The registry hands back the plugin tool as an existential AgentTool —
+            // The registry hands back the plugin tool paired with its origin —
             // no closure wrapping — and it dispatches through the protocol handler.
-            let tool: (any AgentTool)? = mutable.lookup(name: "echo_tool")
-            let resolved = try #require(tool)
+            let registered = try #require(mutable.lookup(name: "echo_tool"))
+            #expect(registered.origin == .plugin("echo"))
+            let resolved = registered.tool
             #expect(resolved is PluginTool)
             #expect(resolved.name == "echo_tool")
             #expect(resolved.emoji == "🧩")
@@ -318,8 +319,8 @@ extension ArcCoreTestRoot {
             func describe(_ tool: any AgentTool) -> String {
                 "\(tool.name)[\(tool.toolset)]"
             }
-            let builtIn = try ArcAgentCore.buildDefaultRegistry()
-            let builtInEntry = try #require(builtIn.lookup(name: "read_file"))
+            let builtIn = try ArcAgentCore.testRegistry()
+            let builtInEntry = try #require(builtIn.lookup(name: "read_file")?.tool)
             #expect(describe(builtInEntry) == "read_file[file]")
 
             let pluginTool = PluginTool(plugin: "p", name: "p_tool", description: "d", command: "python3")
@@ -328,12 +329,13 @@ extension ArcCoreTestRoot {
 
         @Test("plugin tool named like a built-in is refused (no duplicate schemas)")
         func pluginToolCollisionGuard() throws {
-            var mutable = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
+            var mutable = MutableToolRegistry(builtIn: try ArcAgentCore.testRegistry())
             let colliding = PluginTool(plugin: "bad", name: "read_file", description: "shadow", command: "python3")
             let refused = mutable.install(pluginTool: colliding)
             #expect(!refused)
             // The built-in still wins dispatch.
-            #expect(mutable.lookup(name: "read_file") is ToolEntry)
+            #expect(mutable.lookup(name: "read_file")?.tool is ToolEntry)
+            #expect(mutable.lookup(name: "read_file")?.origin == .builtin)
             // Exactly one read_file function reaches the model.
             let schemas = mutable.buildToolSchemas(enabled: [], disabled: [])
             let readFileFunctions = schemas.filter {

@@ -5,10 +5,10 @@ import Foundation
 extension ArcCoreTestRoot {
     /// `tool_search` catalog search tests (reference `tools/tool_search.py` parity).
     ///
-    /// Serialized: the registry-backed tests set/clear the shared
-    /// `ToolSearchTool.registry` static. Run in parallel they raced each other's
-    /// deallocs — a boxed-existential release under concurrency segfaulted the
-    /// test process (crash report 2026-10-01 21:02, `invalidForm` frames).
+    /// Serialization is kept from the days of the `ToolSearchTool.registry`
+    /// static, when parallel tests raced each other's deallocs. Each test now
+    /// owns its surface and its slot (GROUNDZERO slice 6), so nothing is
+    /// shared — the trait is harmless, and dropping it is a separate change.
     @Suite("Tool search", .serialized)
     struct ToolSearchTests {
 
@@ -35,9 +35,10 @@ extension ArcCoreTestRoot {
 
         @Test("handler lists the catalog grouped by toolset")
         func handlerListing() async throws {
-            ToolSearchTool.registry = try ArcAgentCore.buildDefaultRegistry()
-            defer { ToolSearchTool.registry = nil }
-            let out = try await ToolSearchTool.entry.handler(["query": "file", "limit": 100])
+            let deps = ToolDependencies()
+            let registry = try ArcAgentCore.testRegistry(dependencies: deps)
+            let out = try await ToolSearchTool.entry(registry: deps.toolSearchRegistry)
+                .handler(["query": "file", "limit": 100])
             #expect(out.contains("read_file"))
             #expect(out.contains("Matching tools"))
             // Listing form groups under 📦
@@ -46,18 +47,20 @@ extension ArcCoreTestRoot {
 
         @Test("handler names form returns bare names")
         func handlerNames() async throws {
-            ToolSearchTool.registry = try ArcAgentCore.buildDefaultRegistry()
-            defer { ToolSearchTool.registry = nil }
-            let out = try await ToolSearchTool.entry.handler(["query": "read", "form": "names"])
+            let deps = ToolDependencies()
+            _ = try ArcAgentCore.testRegistry(dependencies: deps)
+            let out = try await ToolSearchTool.entry(registry: deps.toolSearchRegistry)
+                .handler(["query": "read", "form": "names"])
             #expect(out.contains("read_file"))
             #expect(!out.contains("—"))
         }
 
         @Test("invalid form errors clearly")
         func invalidForm() async throws {
-            ToolSearchTool.registry = try ArcAgentCore.buildDefaultRegistry()
-            defer { ToolSearchTool.registry = nil }
-            let out = try await ToolSearchTool.entry.handler(["query": "x", "form": "grid"])
+            let deps = ToolDependencies()
+            _ = try ArcAgentCore.testRegistry(dependencies: deps)
+            let out = try await ToolSearchTool.entry(registry: deps.toolSearchRegistry)
+                .handler(["query": "x", "form": "grid"])
             #expect(out.contains("invalid form"))
         }
     }

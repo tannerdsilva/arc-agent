@@ -64,6 +64,26 @@ public struct SessionHost: Service {
     /// (`ArcDaemon`) and picks this runner when the web UI is not hosted.
     public let cronRunner: @Sendable (CronJob) async throws -> String
 
+    /// The messaging service this host owns.
+    ///
+    /// Exposed so a sibling surface in the same process — the daemon's MCP
+    /// server, which builds its own tool registry — can register
+    /// `send_bot_message` against the one real service instead of omitting it.
+    public var messaging: BotMessagingService { botMessaging }
+
+    /// The group-chat manager this host owns (same reason as ``messaging``).
+    public var groupChats: GroupChatManager { groupChatManager }
+
+    /// The platform delivery path this host owns.
+    ///
+    /// Exposed (like ``messaging``) so a sibling surface in the same process —
+    /// the daemon's MCP server builds its own registry — binds `send_message`
+    /// to the one real delivery manager instead of reporting none. Each
+    /// session's own surface gets it from ``SessionAgent``; there is no
+    /// process-global pointer for a second agent to overwrite (GROUNDZERO
+    /// slice 6).
+    public var delivery: DeliveryManager { deliveryManager }
+
     public init(
         api: API? = nil,
         telegramToken: String? = nil,
@@ -73,7 +93,6 @@ public struct SessionHost: Service {
     ) {
         let pm = ProfileManager()
         let dm = DeliveryManager()
-        SendMessageTool.delivery = dm
         let bm = BotMessagingService(profileManager: pm)
         let gcm = GroupChatManager(profileManager: pm)
         let reg = SessionRegistry(
@@ -95,6 +114,7 @@ public struct SessionHost: Service {
         // Wire up the messaging service
         Task {
             await reg.setMessagingService(bm)
+            await reg.setGroupChats(gcm)
             await gcm.setMessagingService(bm)
         }
 

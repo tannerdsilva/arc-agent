@@ -456,7 +456,7 @@ extension ArcCoreTestRoot {
 
         @Test("process_watch tool is registered")
         func registered() throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             #expect(registry.lookup(name: "process_watch") != nil)
         }
 

@@ -184,9 +184,9 @@ extension ArcCoreTestRoot {
 
         @Test("tool entry is registered under the todo toolset")
         func entryType() {
-            #expect(TodoTool.entry.name == "todo")
-            #expect(TodoTool.entry.toolset == "todo")
-            #expect(TodoTool.entry.emoji == "📋")
+            #expect(TodoTool.entry().name == "todo")
+            #expect(TodoTool.entry().toolset == "todo")
+            #expect(TodoTool.entry().emoji == "📋")
         }
 
         @Test("render returns a parseable JSON payload with summary")

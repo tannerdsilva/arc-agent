@@ -248,7 +248,9 @@ public enum ProgressiveToolDisclosure {
         config: ToolSearchConfig,
         contextLength: Int?
     ) -> [[String: Any]] {
-        let candidates = registry.allTools.filter { !disabled.contains($0.toolset) }
+        let candidates = registry.allTools
+            .filter { !disabled.contains($0.toolset) }
+            .map { $0.tool }
         let (visible, deferred) = DeferredToolPolicy.plan(entries: candidates, config: config)
         guard deferred.isEmpty == false, config.enabled != "off" else {
             // Eager path — identical output to the plain registry rendering.
@@ -275,14 +277,14 @@ public enum ProgressiveToolDisclosure {
     }
 
     static func toolSearchSchema(manifest: String?) -> [String: Any] {
-        let base = ToolSearchTool.entry.description
+        let base = ToolSearchTool.entry().description
         let description = manifest.map { "\(base)\n\n\($0)" } ?? base
         return [
             "type": "function",
             "function": [
-                "name": ToolSearchTool.entry.name,
+                "name": ToolSearchTool.entry().name,
                 "description": description,
-                "parameters": ToolSearchTool.entry.schema.asDictionary(),
+                "parameters": ToolSearchTool.entry().schema.asDictionary(),
             ] as [String: Any],
         ] as [String: Any]
     }

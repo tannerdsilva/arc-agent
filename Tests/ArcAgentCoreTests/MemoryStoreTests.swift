@@ -1,3 +1,4 @@
+import ArcToolKit
 import Testing
 @testable import ArcAgentCore
 import Foundation
@@ -200,13 +201,21 @@ extension ArcCoreTestRoot {
             let dir = FileManager.default.temporaryDirectory
                 .appendingPathComponent("arc-memtool-\(UUID().uuidString)", isDirectory: true)
             let provider = FileMemoryProvider(directory: dir)
-            MemoryTool.provider = provider
-            defer {
-                MemoryTool.provider = nil
-                try? FileManager.default.removeItem(at: dir)
-            }
+            defer { try? FileManager.default.removeItem(at: dir) }
 
-            let out = try await MemoryTool.entry.handler([
+            // An explicitly unlocked grant: this suite tests memory semantics,
+            // not the gate, so it must not depend on the process-global one.
+            let tool = MemoryTool.entry(
+                context: ToolContext(
+                    profile: .default,
+                    sessionID: "memory-store-tests",
+                    workspace: dir.path,
+                    grant: ToolGrant(profile: .default)
+                ),
+                memory: provider
+            )
+
+            let out = try await tool.handler([
                 "target": "memory",
                 "operations": [
                     ["action": "add", "content": "note one"],
@@ -218,7 +227,7 @@ extension ArcCoreTestRoot {
             let raw = try await provider.readMemory()
             #expect(raw.contains("note one"))
 
-            let err = try await MemoryTool.entry.handler([
+            let err = try await tool.handler([
                 "target": "memory",
                 "action": "replace",
                 "old_text": "nope",
@@ -226,7 +235,7 @@ extension ArcCoreTestRoot {
             ])
             #expect(err.contains("No entry matched"))
 
-            let bad = try await MemoryTool.entry.handler(["target": "memory", "action": "nuke"])
+            let bad = try await tool.handler(["target": "memory", "action": "nuke"])
             #expect(bad.contains("Unknown action"))
         }
     }

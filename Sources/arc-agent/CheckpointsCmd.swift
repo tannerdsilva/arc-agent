@@ -61,6 +61,10 @@ struct CheckpointsList: AsyncParsableCommand {
     var directory: String?
     @Option() var limit: Int = 20
     func run() async throws {
+        // `--limit` reaches `prefix(_:)`, which traps on a negative length.
+        guard limit >= 0 else {
+            throw ValidationError("--limit must be zero or greater (got \(limit)).")
+        }
         let dir = URL(fileURLWithPath: directory ?? FileManager.default.currentDirectoryPath).standardizedFileURL.path
         let store = try checkpointStore()
         let list = await store.list(projectPath: dir)

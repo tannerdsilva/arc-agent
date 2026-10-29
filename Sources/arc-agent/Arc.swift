@@ -1,3 +1,4 @@
+import ArcToolKit
 import ArgumentParser
 import ArcAgentCore
 import ArcDaemon
@@ -125,6 +126,17 @@ struct Chat: AsyncParsableCommand {
     func run() async throws {
         var arcConfig = loadConfig()
 
+        // Install the lockdown gate before anything builds a tool surface: the
+        // grant a registry captures is read from this value, so a surface
+        // built ahead of it would carry the unlocked default.
+        AgentPowers.configure(arcConfig.agentPowers)
+
+        // Data continuity (GROUNDZERO slice 5, D15): this path reads memory
+        // from the profile directory, so an install that predates that change
+        // still has its memory in `~/.arc/memories/`. Relocate it once, before
+        // the provider below is built. A no-op from the second run on.
+        await MemoryMigration.runIfNeeded(profiles: TesseraProfileStore.shared)
+
         // Checkpoints: `--checkpoints` forces the safety net on for this
         // session (reference `hermes chat --checkpoints`).
         if checkpoints {
@@ -192,20 +204,6 @@ struct Chat: AsyncParsableCommand {
             return
         }
 
-        let registry = try await MutableToolRegistry.make(enabledPlugins: pluginAllowList())
-
-        // Toolset selection: `--toolsets` (reference semantics: disables the
-        // listed toolsets) + profile enabled/disabled sets.
-        var disabledToolsets: Set<String> = []
-        if let t = toolsets {
-            disabledToolsets.formUnion(Self.parseList(t))
-        }
-        if let enabled = profileEnabledToolsets {
-            let all = Set(registry.allTools.map(\.toolset))
-            disabledToolsets.formUnion(all.subtracting(enabled))
-        }
-        disabledToolsets.formUnion(profileDisabledToolsets)
-
         // Storage: with a `tessera` configuration, sessions and memory are
         // persisted to the Tessera server as signed NOSTR events. If the
         // relay is unreachable (bounded handshake), fall back to file
@@ -219,6 +217,12 @@ struct Chat: AsyncParsableCommand {
         let sessionStore = storage.sessionStore
         let memoryProvider = storage.memoryProvider
 
+        // The scope this run addresses. `--profile` (or `ARC_PROFILE`) has
+        // already been resolved above; an unset profile is the default one.
+        // The memory provider resolved just above is rooted at the same
+        // profile directory, so `memory` and `profile_edit` address one file.
+        let resolvedProfileName = profileName.flatMap { ProfileName($0) } ?? .default
+
         // Resume resolution (reference `sessions.md` § CLI Session Resume):
         // `-c` continues the most recent CLI session; `--resume` matches by
         // ID, unique prefix, or title (lineage variants pick the newest).
@@ -228,6 +232,38 @@ struct Chat: AsyncParsableCommand {
         } else {
             session
         }
+
+        let registry = try await MutableToolRegistry.make(
+            context: ToolContext(
+                profile: resolvedProfileName,
+                sessionID: resolvedSession ?? "",
+                // The CLI's project root is the process's working directory;
+                // `AGENTS.md` and relative tool paths resolve against it.
+                workspace: FileManager.default.currentDirectoryPath,
+                grant: AgentPowers.grant(profile: resolvedProfileName)
+            ),
+            profiles: TesseraProfileStore.shared,
+            memory: memoryProvider ?? FileMemoryProvider(directory: memoryDir),
+            sessions: sessionStore,
+            // The CLI's own production surface: an `arc` chat can work the same
+            // board `arc kanban list` shows and the daemon dispatches
+            // (GROUNDZERO2 slice 1). One instance for this process; the board
+            // is the core file board over `~/.arc/kanban`.
+            kanban: FileKanbanBoard(),
+            enabledPlugins: pluginAllowList()
+        )
+
+        // Toolset selection: `--toolsets` (reference semantics: disables the
+        // listed toolsets) + profile enabled/disabled sets.
+        var disabledToolsets: Set<String> = []
+        if let t = toolsets {
+            disabledToolsets.formUnion(Self.parseList(t))
+        }
+        if let enabled = profileEnabledToolsets {
+            let all = Set(registry.allTools.map(\.toolset))
+            disabledToolsets.formUnion(all.subtracting(enabled))
+        }
+        disabledToolsets.formUnion(profileDisabledToolsets)
 
         // Discover skills if enabled (profile-isolated directory when active).
         let skillsArg = skills
@@ -284,7 +320,10 @@ struct Chat: AsyncParsableCommand {
             agentPowers: arcConfig.agentPowers,
             mcpServers: arcConfig.mcpServers,
             disabledToolsets: disabledToolsets,
-            delegation: arcConfig.delegation
+            delegation: arcConfig.delegation,
+            // The prompt's "Active ARC profile" line and `profile_edit`'s SOUL
+            // default both read this; it had no caller before slice 4.
+            profileName: profileName
         )
 
         let agent = ArcAgent(config: agentConfig)
@@ -475,7 +514,20 @@ struct Tools: AsyncParsableCommand {
     )
 
     func run() async throws {
-        let registry = try await MutableToolRegistry.make(enabledPlugins: pluginAllowList())
+        // Listing only: the compiled surface at the default scope, with no
+        // document authority — `arc tools` never dispatches.
+        let registry = try await MutableToolRegistry.make(
+            context: ToolContext(
+                profile: .default,
+                sessionID: "",
+                workspace: FileManager.default.currentDirectoryPath,
+                grant: ToolGrant(profile: .default, documentAccess: .none)
+            ),
+            profiles: TesseraProfileStore.shared,
+            memory: FileMemoryProvider(),
+            sessions: FileSessionStore(),
+            enabledPlugins: pluginAllowList()
+        )
         let tools = registry.allTools
 
         print("⚡ ARC Agent — Registered Tools")

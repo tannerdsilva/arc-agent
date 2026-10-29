@@ -27,7 +27,7 @@ extension ArcCoreTestRoot {
 
         @Test("the bridge sees every registered tool")
         func seesEveryTool() async throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let bridge = LocalMCPBridge(registry: registry)
 
             let tools = try await bridge.tools()
@@ -42,7 +42,7 @@ extension ArcCoreTestRoot {
             let (dir, file) = try makeTempFile()
             defer { try? FileManager.default.removeItem(at: dir) }
 
-            let bridge = LocalMCPBridge(registry: try ArcAgentCore.buildDefaultRegistry())
+            let bridge = LocalMCPBridge(registry: try ArcAgentCore.testRegistry())
             let result = try await bridge.call(
                 "read_file",
                 argumentsJSON: try json(for: ["path": file.path])
@@ -59,7 +59,7 @@ extension ArcCoreTestRoot {
             let (dir, file) = try makeTempFile()
             defer { try? FileManager.default.removeItem(at: dir) }
 
-            let bridge = LocalMCPBridge(registry: try ArcAgentCore.buildDefaultRegistry())
+            let bridge = LocalMCPBridge(registry: try ArcAgentCore.testRegistry())
             _ = try await bridge.tools()
             let result = try await bridge.client.callTool("read_file", arguments: ["path": file.path])
 
@@ -73,7 +73,7 @@ extension ArcCoreTestRoot {
             let (dir, file) = try makeTempFile()
             defer { try? FileManager.default.removeItem(at: dir) }
 
-            let bridge = LocalMCPBridge(registry: try ArcAgentCore.buildDefaultRegistry())
+            let bridge = LocalMCPBridge(registry: try ArcAgentCore.testRegistry())
             let arguments = try json(for: ["path": file.path])
 
             // `MCPClient.connect()` is not idempotent, so a second connection would
@@ -88,7 +88,7 @@ extension ArcCoreTestRoot {
 
         @Test("an unserved tool is refused, not silently empty")
         func refusesUnknownTool() async throws {
-            let bridge = LocalMCPBridge(registry: try ArcAgentCore.buildDefaultRegistry())
+            let bridge = LocalMCPBridge(registry: try ArcAgentCore.testRegistry())
 
             await #expect(throws: (any Error).self) {
                 _ = try await bridge.call("no_such_tool")
@@ -99,7 +99,7 @@ extension ArcCoreTestRoot {
 
         @Test("an argument payload that is not a JSON object is reported before the wire")
         func rejectsNonObjectArguments() async throws {
-            let bridge = LocalMCPBridge(registry: try ArcAgentCore.buildDefaultRegistry())
+            let bridge = LocalMCPBridge(registry: try ArcAgentCore.testRegistry())
 
             await #expect(throws: LocalMCPError.self) {
                 _ = try await bridge.call("read_file", argumentsJSON: "[1, 2, 3]")

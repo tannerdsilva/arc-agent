@@ -1,3 +1,4 @@
+import ArcToolKit
 import Foundation
 import Synchronization
 import Testing
@@ -31,21 +32,6 @@ import Testing
 // This suite pins that accepted state: every section a chat relies on must
 // still reach the model, and the two ports must stay wired.
 // ===========================================================================
-
-/// a memory provider with distinct text per block, so the diff can tell the
-/// memory section from the user-profile section.
-private struct ParityMemory: MemoryProvider {
-    let memoryText: String
-    let userText: String
-    func readMemory() async throws -> String { memoryText }
-    func readUser() async throws -> String { userText }
-    func appendMemory(_ text: String) async throws {}
-    func replaceMemory(old: String, new: String) async throws {}
-    func writeMemory(_ text: String) async throws {}
-    func appendUser(_ text: String) async throws {}
-    func replaceUser(old: String, new: String) async throws {}
-    func writeUser(_ text: String) async throws {}
-}
 
 /// records every request the core sends; answers with one short final reply.
 private final class PromptRecordingClient: LLMClient, Sendable {
@@ -107,9 +93,13 @@ extension ArcWebUITestRoot {
         }
 
         /// one fixture conversation: a profile with a SOUL and one pinned skill,
-        /// a disabled skill, memory and user notes, and a session workspace
+        /// a disabled skill, memory and user notes held where a turn reads them
+        /// (the profile's own `MEMORY.md` / `USER.md`), and a session workspace
         /// carrying a project-context file.
-        static func fixture() throws -> (app: AppState, workspace: URL) {
+        ///
+        /// Returns the previous `ProfileManager.testProfilesRoot` so the caller
+        /// can restore it when the turn is over.
+        static func fixture() throws -> (app: AppState, workspace: URL, previousProfilesRoot: String?) {
             let root = FileManager.default.temporaryDirectory
                 .appendingPathComponent("\(workspaceMarker)-\(UUID().uuidString)", isDirectory: true)
             let workspace = root.appendingPathComponent(workspaceMarker, isDirectory: true)
@@ -139,10 +129,25 @@ extension ArcWebUITestRoot {
                 skill("kept-skill", "kept fixture skill", "# kept"),
                 skill("disabled-skill", "disabled fixture skill", "# disabled"),
             ]
-            f.memory = ParityMemory(
-                memoryText: "\(memoryMarker) the assistant remembers",
-                userText: "\(userMarker) the user profile"
-            )
+            // The notes live where a turn actually reads them: the profile's
+            // documents under the profile root (`ProfileManager.memoryURL`).
+            // Written as a real profile's would be — `MEMORY.md` and `USER.md`
+            // in the profile directory — so the prompt is built from the same
+            // file a `memory` write would land in. The root is a temp
+            // directory: the run never touches the operator's roster.
+            let profilesRoot = FileManager.default.temporaryDirectory
+                .appendingPathComponent("\(workspaceMarker)-profiles-\(UUID().uuidString)", isDirectory: true)
+            let profileDirectory = profilesRoot.appendingPathComponent("a8-parity", isDirectory: true)
+            try FileManager.default.createDirectory(
+                at: profileDirectory, withIntermediateDirectories: true)
+            try "\(memoryMarker) the assistant remembers".write(
+                to: profileDirectory.appendingPathComponent("MEMORY.md"),
+                atomically: true, encoding: .utf8)
+            try "\(userMarker) the user profile".write(
+                to: profileDirectory.appendingPathComponent("USER.md"),
+                atomically: true, encoding: .utf8)
+            let previousProfilesRoot = ProfileManager.testProfilesRoot
+            ProfileManager.testProfilesRoot = profilesRoot.path
             f.registryTools = [
                 StubTool(name: "skill_view", toolset: "skills",
                          description: "Load a skill's full content."),
@@ -156,13 +161,16 @@ extension ArcWebUITestRoot {
             f.sessions = [session]
             f.activeSessionID = sessionID
             f.activeTabID = "logs"
-            return (AppState(renderFixture: f), workspace)
+            return (AppState(renderFixture: f), workspace, previousProfilesRoot)
         }
 
         /// the messages one chat turn actually sends, through the production
         /// factory (presenters included).
         static func modelFacingMessages() async throws -> (messages: [Message], workspace: URL) {
-            let (app, workspace) = try fixture()
+            let (app, workspace, previousProfilesRoot) = try fixture()
+            // The profile root is process-wide (`ProfileManager`'s test seam):
+            // restore it as soon as this turn — the only reader — is over.
+            defer { ProfileManager.testProfilesRoot = previousProfilesRoot }
             let client = PromptRecordingClient()
             await app.bindRecordingClient(client)
             let minted = await app.makeTurnAgent(

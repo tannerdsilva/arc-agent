@@ -5132,6 +5132,14 @@ extension AppState {
                                 }
                                 ErasedViews(editors)
                             }
+                            // A refused save (char budget, threat scan, store
+                            // failure) is shown here, beside the editor, and the
+                            // editor keeps the text: the panel never truncates
+                            // a memory to make it fit.
+                            if let refusal = memoryError {
+                                Span(class: "inline-err") { Text(refusal) }
+                                    .id("mem-save-err")
+                            }
                             Div(class: "row-actions-main") {
                                 ArcButton("Save changes", class: "primary-btn", type: .submit)
                                 ArcButton("Cancel", id: "mem-cancel", component: nil, class: "ghost-btn")
@@ -5629,20 +5637,6 @@ extension AppState {
     /// URL of the workspace root directory shown in the right panel.
     func workspaceRootURL() -> URL {
         URL(fileURLWithPath: panelWorkspacePath())
-    }
-
-    /// The editable memory file for a doc key (memory/user/soul); nil for the
-    /// read-only project context.
-    func memoryFileURL(_ key: String) -> URL? {
-        let name: String
-        switch key {
-        case "user": name = "USER.md"
-        case "soul": name = "SOUL.md"
-        case "memory": name = "MEMORY.md"
-        default: return nil
-        }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc-agent-webui").appendingPathComponent(name)
     }
 
     /// AGENTS.md / AGENT.md in the workspace root, if present.

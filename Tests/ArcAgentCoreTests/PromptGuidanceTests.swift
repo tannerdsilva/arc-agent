@@ -74,7 +74,7 @@ extension ArcCoreTestRoot {
 
         @Test("default prompt contains task-completion, parallel-call and tool-aware guidance")
         func defaultPromptHasGuidance() async throws {
-            let prompt = try await runOnce(makeConfig(registry: try ArcAgentCore.buildDefaultRegistry()))
+            let prompt = try await runOnce(makeConfig(registry: try ArcAgentCore.testRegistry()))
             #expect(prompt.contains("## Finishing the job"))
             #expect(prompt.contains("substitute plausible-looking fabricated output"))
             #expect(prompt.contains("## Parallel tool calls"))
@@ -88,7 +88,7 @@ extension ArcCoreTestRoot {
         @Test("guidance drops out when config gates are off")
         func configGatesOff() async throws {
             let prompt = try await runOnce(makeConfig(
-                registry: try ArcAgentCore.buildDefaultRegistry(),
+                registry: try ArcAgentCore.testRegistry(),
                 taskCompletionGuidance: false,
                 parallelToolCallGuidance: false,
                 toolAwareGuidance: false
@@ -116,7 +116,7 @@ extension ArcCoreTestRoot {
 
         @Test("default prompt contains tool-use-enforcement guidance")
         func defaultPromptHasToolUseEnforcement() async throws {
-            let prompt = try await runOnce(makeConfig(registry: try ArcAgentCore.buildDefaultRegistry()))
+            let prompt = try await runOnce(makeConfig(registry: try ArcAgentCore.testRegistry()))
             #expect(prompt.contains("## Tool use enforcement"))
             #expect(prompt.contains("call it and act on its real result"))
             #expect(prompt.contains("not merely describe"))
@@ -125,21 +125,21 @@ extension ArcCoreTestRoot {
         @Test("tool-use-enforcement gains a per-model discipline note")
         func perModelToolUseEnforcementNote() async throws {
             let gemini = try await runOnce(makeConfig(
-                registry: try ArcAgentCore.buildDefaultRegistry(),
+                registry: try ArcAgentCore.testRegistry(),
                 model: "gemini-2.5-pro"
             ))
             #expect(gemini.contains("## Tool use enforcement"))
             #expect(gemini.contains("Gemini/Gemma models"))
 
             let gpt = try await runOnce(makeConfig(
-                registry: try ArcAgentCore.buildDefaultRegistry(),
+                registry: try ArcAgentCore.testRegistry(),
                 model: "gpt-4o"
             ))
             #expect(gpt.contains("GPT/Codex/Grok models"))
 
             // Unknown model: generic core only, no per-model note.
             let plain = try await runOnce(makeConfig(
-                registry: try ArcAgentCore.buildDefaultRegistry(),
+                registry: try ArcAgentCore.testRegistry(),
                 model: "qwen3.6-35b"
             ))
             #expect(plain.contains("## Tool use enforcement"))
@@ -150,7 +150,7 @@ extension ArcCoreTestRoot {
         @Test("tool-use-enforcement drops out when the config gate is off")
         func toolUseEnforcementGateOff() async throws {
             let prompt = try await runOnce(makeConfig(
-                registry: try ArcAgentCore.buildDefaultRegistry(),
+                registry: try ArcAgentCore.testRegistry(),
                 toolUseEnforcement: false
             ))
             #expect(!prompt.contains("## Tool use enforcement"))
@@ -161,11 +161,11 @@ extension ArcCoreTestRoot {
         @Test("SOUL replaces the default identity block when set")
         func soulReplacesDefaultIdentity() async throws {
             let soul = "You are ARC, a terse engineer. No small talk."
-            let with = try await runOnce(makeConfig(registry: try ArcAgentCore.buildDefaultRegistry(), soulMD: soul))
+            let with = try await runOnce(makeConfig(registry: try ArcAgentCore.testRegistry(), soulMD: soul))
             #expect(with.contains(soul))
             #expect(!with.contains("You are ARC Agent"))
 
-            let without = try await runOnce(makeConfig(registry: try ArcAgentCore.buildDefaultRegistry()))
+            let without = try await runOnce(makeConfig(registry: try ArcAgentCore.testRegistry()))
             #expect(without.contains("You are ARC Agent"))
             #expect(!without.contains(soul))
         }
@@ -173,7 +173,7 @@ extension ArcCoreTestRoot {
         @Test("the prompt carries the active profile and platform hint")
         func activeProfileAndPlatformHint() async throws {
             let named = try await runOnce(makeConfig(
-                registry: try ArcAgentCore.buildDefaultRegistry(),
+                registry: try ArcAgentCore.testRegistry(),
                 profileName: "work"
             ))
             #expect(named.contains("## Active Profile"))
@@ -181,7 +181,7 @@ extension ArcCoreTestRoot {
             #expect(named.contains("## Platform"))
             #expect(named.contains("served on the cli surface"))
 
-            let plain = try await runOnce(makeConfig(registry: try ArcAgentCore.buildDefaultRegistry()))
+            let plain = try await runOnce(makeConfig(registry: try ArcAgentCore.testRegistry()))
             #expect(plain.contains("Active ARC profile: default"))
             #expect(plain.contains("served on the cli surface"))
         }

@@ -126,7 +126,7 @@ extension ArcCoreTestRoot {
 
             // The agent's HTTP client is only needed for the default client and
             // fallback path; the scripted mock covers the LLM calls.
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let agent = await makeAgent(registry: registry, httpClient: httpClient)
             await agent.setClient(ScriptedLLMClient(filePath: target.path))
 
@@ -147,7 +147,7 @@ extension ArcCoreTestRoot {
             try "stream payload 99".write(to: target, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: target) }
 
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let agent = await makeAgent(registry: registry, httpClient: httpClient)
             await agent.setClient(ScriptedLLMClient(filePath: target.path))
 

@@ -1,3 +1,4 @@
+import ArcToolKit
 import Foundation
 import SwiftSlash
 import Logging
@@ -452,9 +453,19 @@ public actor PluginRegistry {
 /// at runtime). Built once by ``make`` and immutable thereafter, so it is a
 /// value type conforming to ``ToolRegistry`` (``lookup`` prefers built-ins,
 /// then plugins).
+///
+/// ## Provenance
+///
+/// Origins are assigned on the way in, never accepted from the tool: a
+/// built-in is ``ToolOrigin/builtin`` (it came through
+/// ``CompileTimeToolRegistry``), ``install(pluginTool:)`` stamps
+/// ``ToolOrigin/plugin(_:)`` with the plugin's own name, and
+/// ``register(_:origin:)`` records whatever tier a source registration names.
+/// A plugin therefore cannot claim to be compiled in — the only path a plugin
+/// tool has into this registry overwrites the origin.
 public struct MutableToolRegistry: ToolRegistry {
-    public let builtIn: CompileTimeToolRegistry
-    private var pluginEntries: [String: any AgentTool] = [:]
+    public private(set) var builtIn: CompileTimeToolRegistry
+    private var pluginEntries: [String: RegisteredTool] = [:]
 
     private static let logger = Logger(label: "arc.plugins")
 
@@ -463,24 +474,51 @@ public struct MutableToolRegistry: ToolRegistry {
         self.pluginEntries = [:]
     }
 
+    /// The per-agent dependency slots the built-in tools were built with.
+    ///
+    /// Plugin tools carry none of their own, so this is the built-in surface's
+    /// bundle: `ArcAgent` adopts it and the `todo`/delegation/kanban slots its
+    /// tools captured are the ones the agent fills (GROUNDZERO slice 6).
+    public var toolDependencies: ToolDependencies { builtIn.toolDependencies }
+
     // MARK: ToolRegistry
 
-    public mutating func register(_ tool: any AgentTool) throws {
+    public mutating func register(_ tool: any AgentTool, origin: ToolOrigin) throws {
         if builtIn.lookup(name: tool.name) != nil || pluginEntries[tool.name] != nil {
             throw ToolRegistryError.duplicateName(tool.name)
         }
-        pluginEntries[tool.name] = tool
+        pluginEntries[tool.name] = RegisteredTool(tool: tool, origin: origin)
     }
 
-    public func lookup(name: String) -> (any AgentTool)? {
+    public func lookup(name: String) -> RegisteredTool? {
         builtIn.lookup(name: name) ?? pluginEntries[name]
     }
 
-    public var allTools: [any AgentTool] {
+    public var allTools: [RegisteredTool] {
         builtIn.allTools + pluginEntries.values
     }
 
+    /// A copy whose named built-ins are re-pointed, leaving the runtime tier
+    /// alone.
+    ///
+    /// Plugin, MCP and fixture tools arrive here at runtime and are
+    /// process-wide: a caller re-scoping the surface for one dispatch (the web
+    /// UI mints an agent per turn, and a turn's session is not necessarily the
+    /// active chat) must not drop them, and must not adopt a different
+    /// dependency bundle — `ArcAgent` takes `toolDependencies` from the
+    /// registry it is handed, so a fresh bundle would hand the turn a second
+    /// `todo` store. Only the names in `replacements` differ from `self`.
+    public func replacingBuiltIns(_ replacements: [any AgentTool]) -> MutableToolRegistry {
+        var copy = self
+        copy.builtIn = builtIn.replacing(replacements)
+        return copy
+    }
+
     /// Install a plugin tool.
+    ///
+    /// The tool is stamped ``ToolOrigin/plugin(_:)`` with its own plugin's
+    /// name: origin is assigned here, not declared by the plugin, so an
+    /// install can never claim a built-in's provenance.
     ///
     /// - Returns: `false` (and skips the tool) when its `requires_env`
     ///   requirements are unmet — reference `check_fn`/`requires_env` parity:
@@ -499,7 +537,8 @@ public struct MutableToolRegistry: ToolRegistry {
                 "plugin tool '\(pluginTool.name)' from '\(pluginTool.plugin)' collides with an already-registered tool name; not installing")
             return false
         }
-        pluginEntries[pluginTool.name] = pluginTool
+        pluginEntries[pluginTool.name] = RegisteredTool(
+            tool: pluginTool, origin: .plugin(pluginTool.plugin))
         return true
     }
 
@@ -520,12 +559,36 @@ public struct MutableToolRegistry: ToolRegistry {
     /// plugins (reference agent_init plugin toolset bundling). When
     /// `enabledPlugins` is non-nil only plugins in the allow-list install
     /// (reference `plugins.enabled` semantics).
+    ///
+    /// The rebuilt registry is scoped to the *active session*: a plugin tool
+    /// added at runtime joins the same surface the turn loop dispatches
+    /// through, and `memory` / `profile_edit` keep addressing that session's
+    /// profile instead of falling back to `default`.
+    /// - Parameter kanban: the board the `kanban_*` tools act on. The caller
+    ///   that owns the board (the daemon, the CLI, the web UI) passes it here;
+    ///   `nil` keeps the tools in the surface with an honest "board not
+    ///   available", never a board this builder invented.
     public static func make(
+        context: ToolContext,
+        profiles: any ProfileStore,
+        memory: any MemoryProvider,
+        sessions: any SessionStore,
+        messaging: (any BotMessageDelivering)? = nil,
+        groupChats: GroupChatManager? = nil,
+        kanban: (any KanbanBoard)? = nil,
         pluginRegistry: PluginRegistry? = nil,
         enabledPlugins: Set<String>? = nil,
         sources: [any ToolSource] = []
     ) async throws -> MutableToolRegistry {
-        let builtIn = try ArcAgentCore.buildDefaultRegistry()
+        let builtIn = try ArcAgentCore.buildRegistry(
+            context: context,
+            profiles: profiles,
+            memory: memory,
+            sessions: sessions,
+            messaging: messaging,
+            groupChats: groupChats,
+            kanban: kanban
+        )
         var registry = MutableToolRegistry(builtIn: builtIn)
         let plugins = pluginRegistry ?? PluginRegistry.shared
         try? await plugins.loadAll()
@@ -535,7 +598,7 @@ public struct MutableToolRegistry: ToolRegistry {
         }
         for source in sources {
             for tool in try await source.tools() {
-                try registry.register(tool)
+                try registry.register(tool, origin: .source(source.name))
             }
         }
         return registry

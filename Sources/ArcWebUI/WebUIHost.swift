@@ -124,14 +124,27 @@ public struct WebUIHost: Service {
         tesseraOff: Bool = false,
         storage: StorageRuntime? = nil,
         thirdPartyPlugins: [any SidebarTabPlugin] = [],
-        sidecarManager: SidecarPluginManager? = nil
+        sidecarManager: SidecarPluginManager? = nil,
+        delivery: DeliveryManager? = nil,
+        kanban: (any KanbanBoard)? = nil
     ) async throws {
         self.host = host
         self.port = port
         self.tesseraOff = tesseraOff
         self.storage = storage
         self.sidecarManager = sidecarManager
-        self.app = try await AppState(thirdPartyPlugins: thirdPartyPlugins)
+        self.app = try await AppState(
+            thirdPartyPlugins: thirdPartyPlugins,
+            // The daemon's platform delivery path, when it has one: the UI's
+            // `send_message` binds this slot instead of the process global it
+            // used to find (GROUNDZERO slice 6).
+            delivery: delivery,
+            // The daemon's one kanban board, when hosted in the daemon: the
+            // UI's `kanban_*` tools then act on the board the sessions and the
+            // dispatcher use (GROUNDZERO2 slice 1). Standalone, the UI builds
+            // its own over the same `~/.arc/kanban` directory.
+            kanban: kanban
+        )
     }
 
     /// Run one scheduled job headless and return its output — the daemon's

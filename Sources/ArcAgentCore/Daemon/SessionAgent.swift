@@ -1,3 +1,4 @@
+import ArcToolKit
 import Foundation
 import AsyncHTTPClient
 import ServiceLifecycle
@@ -48,6 +49,7 @@ public actor SessionAgent: Service {
             let resolvedProvider: String
             let resolvedBaseURL: URL
             let resolvedSOUL: String?
+            let resolvedProfileRecord: Profile?
             let resolvedContext: ProfileContextConfig?
             let resolvedProfileDefaults: ContextRecipe?
 
@@ -63,6 +65,7 @@ public actor SessionAgent: Service {
                     resolvedBaseURL = URL(string: "https://api.openai.com/v1")!
                 }
                 resolvedSOUL = profileConfig.soulMD
+                resolvedProfileRecord = profileConfig
                 resolvedContext = profileConfig.context
                 resolvedProfileDefaults = profileConfig.contextDefaults
             } else {
@@ -74,6 +77,7 @@ public actor SessionAgent: Service {
                     resolvedBaseURL = URL(string: "https://api.openai.com/v1")!
                 }
                 resolvedSOUL = nil
+                resolvedProfileRecord = nil
                 resolvedContext = nil
                 resolvedProfileDefaults = nil
             }
@@ -97,11 +101,53 @@ public actor SessionAgent: Service {
                 memoryProvider = TesseraMemoryProvider()
             } else {
                 sessionStore = FileSessionStore()
-                memoryProvider = FileMemoryProvider()
+                // Rooted at the profile's directory: `MEMORY.md`/`USER.md`
+                // there are the same documents `profile_edit` addresses, so
+                // the `memory` tool and `profile_edit` cannot disagree
+                // (GROUNDZERO slice 4, the memory-addressing defect).
+                memoryProvider = FileMemoryProvider(
+                    directory: ProfileManager.memoryURL(for: profile))
             }
 
             logger.info("step: building tool registry")
-            let toolRegistry = try await MutableToolRegistry.make(enabledPlugins: pluginAllowList())
+            // The session's scope: its profile (the daemon always has one),
+            // its session id, the workspace it runs in, and the live gate.
+            // `agentConfig.profiles` is the process's one roster writer — the
+            // same `ProfileService` the daemon put in its ServiceGroup — so
+            // the roster tools act through the single writer, not a new one.
+            let sessionProfile = ProfileName(profile) ?? .default
+            let toolContext = ToolContext(
+                profile: sessionProfile,
+                sessionID: sessionID,
+                // A daemon session has no per-session workspace root (the web
+                // UI does): `AGENTS.md` resolves where it always has, relative
+                // to the process.
+                workspace: FileManager.default.currentDirectoryPath,
+                grant: AgentPowers.grant(profile: sessionProfile)
+            )
+            let toolRegistry = try await MutableToolRegistry.make(
+                context: toolContext,
+                profiles: agentConfig.profiles ?? TesseraProfileStore.shared,
+                memory: memoryProvider,
+                sessions: sessionStore,
+                // Messaging is register-when-available: a daemon session host
+                // owns both services, so its sessions carry both tools; a
+                // surface without them carries neither.
+                messaging: await registry.messagingService,
+                groupChats: await registry.groupChats,
+                // The daemon's one board, not a per-session one: `kanban_list`
+                // reads the in-memory cache a `FileKanbanBoard` keeps, so a
+                // second instance over the same directory would not see the
+                // tasks another surface created.
+                kanban: agentConfig.kanban,
+                enabledPlugins: pluginAllowList()
+            )
+
+            // `send_message` acts on the delivery path this host owns, bound to
+            // *this session's* surface: the slot travels with the registry, so
+            // a second session in the same process cannot answer for it (the
+            // process-global it replaced is gone — GROUNDZERO slice 6).
+            toolRegistry.toolDependencies.sendMessageDelivery.set(deliveryManager)
 
             // Resolve the per-session context recipe: global defaults <
             // profile defaults < session overrides.
@@ -186,15 +232,32 @@ public actor SessionAgent: Service {
                 topP: resolvedContext?.topP,
                 maxOutputTokens: resolvedContext?.maxOutputTokens,
                 mcpServers: agentConfig.mcpServers,
-                contextRecipe: resolvedRecipe
+                contextRecipe: resolvedRecipe,
+                // The prompt's "Active ARC profile" line and `profile_edit`'s
+                // SOUL default both read this; it had no caller before slice 4.
+                profileName: profile
             ))
             logger.info("step: setting up client")
             await agent.setupClient(httpClient: httpClient)
 
-            // Inject the SOUL.md as a system message if present
+            // Inject the profile's SOUL as a system message, with the
+            // agent-messaging protocol appended only when this session's
+            // surface actually carries `send_bot_message`: the condition is
+            // the registry lookup inside `sessionSystemMessage` — the same
+            // register-when-available decision (D21) that put the tool there —
+            // so a CLI-shaped or service-less surface is never taught a tool
+            // it does not have, and a caller's flag cannot drift from the
+            // surface it claims to describe.
             logger.info("step: checking soul")
-            if let soul = resolvedSOUL {
-                await agent.injectSystemMessage(soul)
+            let profileStore: any ProfileStore = agentConfig.profiles ?? TesseraProfileStore.shared
+            let roster: [Profile] = (try? await profileStore.list()) ?? []
+            if let prompt = sessionSystemMessage(
+                soul: resolvedSOUL,
+                registry: toolRegistry,
+                profile: resolvedProfileRecord ?? Profile(name: profile),
+                roster: roster
+            ) {
+                await agent.injectSystemMessage(prompt)
             }
 
             // Process incoming messages (with session-heartbeat injection:
@@ -345,6 +408,14 @@ public actor SessionAgent: Service {
                 // 1. Response continuation (for HTTP API callers awaiting the result)
                 responseContinuation.yield(finalText)
                 // 2. Delivery manager (for platform adapters like Telegram)
+                //
+                // And the correlated channel: a caller that asked THIS message a
+                // question (send_bot_message) is waiting on its id, not on the
+                // single-consumer `responses` stream. Publishing under the id of
+                // the message that started the turn is what keeps two concurrent
+                // askers' answers apart. A reply nobody waits for is dropped by
+                // the registry.
+                await registry.publishReply(id: message.id, text: finalText)
 
                 // Report activity for the "active now" strip
                 if let messaging = await registry.messagingService {

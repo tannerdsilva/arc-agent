@@ -1,3 +1,4 @@
+import ArcToolKit
 import Foundation
 import Testing
 @testable import ArcAgentCore
@@ -231,9 +232,14 @@ extension ArcCoreTestRoot {
 
 /// Minimal in-test registry.
 private struct StubRegistry: ToolRegistry {
-    let allTools: [any AgentTool]
-    func lookup(name: String) -> (any AgentTool)? { allTools.first { $0.name == name } }
-    mutating func register(_ tool: any AgentTool) throws {}
+    let allTools: [RegisteredTool]
+
+    init(allTools: [any AgentTool]) {
+        self.allTools = allTools.map { RegisteredTool(tool: $0, origin: .builtin) }
+    }
+
+    func lookup(name: String) -> RegisteredTool? { allTools.first { $0.name == name } }
+    mutating func register(_ tool: any AgentTool, origin: ToolOrigin) throws {}
     func buildToolSchemas(enabled: Set<String>, disabled: Set<String>) -> [[String: Any]] {
         allTools
             .filter { !disabled.contains($0.toolset) }

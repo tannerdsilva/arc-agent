@@ -39,6 +39,19 @@ public enum ArcDaemon {
         // stay authoritative for the whole process.
         AgentPowers.configure(arc.agentPowers)
 
+        // ONE roster writer for the process (GROUNDZERO slice 3). Every
+        // `ProfileManager()` shim, the session agents, and the web UI resolve
+        // to this service's store, so there is one cache and one serialized
+        // read-modify-write of `index.json` instead of one per call site.
+        let profileService = ProfileService()
+
+        // Data continuity (GROUNDZERO slice 5, D15). Memory lives per profile
+        // now, so an install that predates that still carries its memory in
+        // `~/.arc/memories/`. Relocate it once, before any service reads a
+        // profile document. Idempotent: a no-op from the second run on, and a
+        // profile created later deliberately inherits nothing.
+        await MemoryMigration.runIfNeeded(profiles: profileService)
+
         // Plan B: scoped process watcher. Configured always (so the
         // `process_watch` tool sees the rules even when disabled); the
         // service joins the tree only when enabled. Owned background
@@ -71,6 +84,17 @@ public enum ArcDaemon {
         }
         let storage = await StorageRuntime.resolve(tessera: effectiveTessera, tesseraOff: effectiveOff)
 
+        // ONE kanban board for the whole process (GROUNDZERO2 slice 1, D22).
+        // The board is real and the daemon has always dispatched against one;
+        // what was missing is the *join* — every agent surface builds its
+        // registry through `MutableToolRegistry.make`, which had no `kanban:`
+        // parameter, so the five `kanban_*` tools read an empty slot and
+        // answered "board not available". One instance, handed to the sessions,
+        // the MCP surface, the web UI's tool surface and the dispatcher below:
+        // a `FileKanbanBoard` lists from its in-memory cache, so a second
+        // instance over `~/.arc/kanban` would not see the first one's tasks.
+        let kanbanBoard = FileKanbanBoard()
+
         let agentConfig = SessionRegistry.AgentConfig(
             model: arc.model.defaultModel,
             provider: arc.model.provider,
@@ -83,7 +107,9 @@ public enum ArcDaemon {
             maxTurnDuration: arc.effectiveMaxTurnDuration() ?? 0,
             mcpServers: arc.mcpServers,
             contextDefaults: WebUIContextDefaults.loadFromDisk() ?? arc.contextDefaults,
-            storage: storage
+            storage: storage,
+            profiles: profileService,
+            kanban: kanbanBoard
         )
 
         // ── surfaces ────────────────────────────────────────────────
@@ -116,7 +142,17 @@ public enum ArcDaemon {
                 tesseraOff: plan.tesseraOff,
                 storage: storage,
                 thirdPartyPlugins: sidecarPlugins,
-                sidecarManager: sidecarManager
+                sidecarManager: sidecarManager,
+                // The session host (built just above) owns the process's
+                // platform adapters; the UI's `send_message` gets that path as
+                // a per-surface slot (GROUNDZERO slice 6).
+                delivery: sessionHost?.delivery,
+                // Same board the sessions and the dispatcher use (GROUNDZERO2
+                // slice 1): the UI's turn loop dispatches tools straight
+                // through its own registry, so without this its `kanban_*`
+                // tools would answer "board not available" in the one process
+                // that has a board.
+                kanban: kanbanBoard
             )
         }
 
@@ -187,6 +223,11 @@ public enum ArcDaemon {
         // cron rides with a surface: jobs need a runner.
         services.append(cronScheduler)
 
+        // Second Law: the roster's single writer is a service in the tree. It
+        // outlives every turn and every session agent, and its `run()` is the
+        // service's lifetime (teardown belongs there, not in a caller's defer).
+        services.append(profileService)
+
         // Sidecar plugin processes ride the same lifecycle: graceful stop
         // terminates every plugin child before the host exits.
         services.append(SidecarPluginService(manager: sidecarManager))
@@ -209,7 +250,28 @@ public enum ArcDaemon {
             services.append(try MCPServerAdapter(
                 host: mcp.host,
                 port: mcp.port,
-                registry: try ArcAgentCore.buildDefaultRegistry()
+                registry: try ArcAgentCore.buildRegistry(
+                    context: ToolContext(
+                        profile: .default,
+                        sessionID: "",
+                        workspace: FileManager.default.currentDirectoryPath,
+                        grant: AgentPowers.grant(profile: .default)
+                    ),
+                    profiles: TesseraProfileStore.shared,
+                    memory: FileMemoryProvider(directory: ProfileManager.memoryURL(for: "default")),
+                    sessions: FileSessionStore(),
+                    // The session host owns the process's messaging services;
+                    // with no host there is no delivery path, so the two tools
+                    // are simply absent from this surface.
+                    messaging: sessionHost?.messaging,
+                    groupChats: sessionHost?.groupChats,
+                    // The process's one board: an MCP client that calls
+                    // `kanban_create` works the board the sessions see.
+                    kanban: kanbanBoard,
+                    // `send_message` reaches the same platform adapters the
+                    // sessions do; the slot is this surface's own (slice 6).
+                    delivery: sessionHost?.delivery
+                )
             ))
         }
         if let kanban = plan.kanban {
@@ -217,7 +279,7 @@ public enum ArcDaemon {
             // CORE board (~/.arc/kanban), not the web UI's panel. Default off;
             // see KanbanConfig.
             services.append(KanbanDispatcher(
-                board: FileKanbanBoard(),
+                board: kanbanBoard,
                 pollIntervalSeconds: UInt64(kanban.pollSeconds)
             ))
         }

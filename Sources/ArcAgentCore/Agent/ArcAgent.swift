@@ -1,3 +1,4 @@
+import ArcToolKit
 import Foundation
 import AsyncHTTPClient
 import Logging
@@ -36,6 +37,17 @@ public actor ArcAgent: Service {
         /// The tool registry (built-ins plus any runtime-discovered plugin
         /// tools; see ``MutableToolRegistry``).
         public var registry: any ToolRegistry
+        /// The per-agent dependency slots this agent fills.
+        ///
+        /// These are the late-bound resources the tool surface captures
+        /// (GROUNDZERO slice 6): the session's todo list, the delegation
+        /// manager, the session store, the tool-search self-reference. `nil` —
+        /// the default — means **adopt the registry's**: a surface built by
+        /// ``ArcAgentCore/buildRegistry(…)`` carries the slots its tools were
+        /// built with, so the agent fills exactly the ones they read. Pass a
+        /// bundle explicitly only when the registry was assembled some other
+        /// way and its tools captured a bundle you hold.
+        public var toolDependencies: ToolDependencies? = nil
         /// The session store.
         public var sessionStore: SessionStore
         /// The memory provider for persistent memory injection.
@@ -244,7 +256,8 @@ public actor ArcAgent: Service {
             llmClient: (any LLMClient)? = nil,
             contextRecipe: ResolvedContextRecipe? = nil,
             soulMD: String? = nil,
-            profileName: String? = nil
+            profileName: String? = nil,
+            toolDependencies: ToolDependencies? = nil
         ) {
             self.model = model
             self.provider = provider
@@ -297,6 +310,7 @@ public actor ArcAgent: Service {
             self.delegation = delegation
             self.llmClient = llmClient
             self.contextRecipe = contextRecipe
+            self.toolDependencies = toolDependencies
         }
 
         /// External MCP servers (reference `mcp_servers`).
@@ -319,6 +333,10 @@ public actor ArcAgent: Service {
     // MARK: - State
 
     private let config: Configuration
+    /// The per-agent dependency slots this agent's tools read (GROUNDZERO
+    /// slice 6). Resolved at init from the configuration, else from the
+    /// registry the tools were built with.
+    private let toolDependencies: ToolDependencies
     private var llmClient: (any LLMClient)?
     private var httpClient: HTTPClient?
     private var auxRouter: AuxiliaryModelRouter?
@@ -470,6 +488,34 @@ public actor ArcAgent: Service {
             childMaxTurns: config.delegation.maxTurns,
             childTimeout: config.delegation.defaultTimeout
         )
+        // Resolve this agent's dependency slots before any tool can run.
+        //
+        // The registry carries the slots its tools captured (GROUNDZERO slice
+        // 6), so adopting its bundle — rather than inventing a second one — is
+        // what makes `todo`'s store and this agent's store the same slot. An
+        // explicit bundle in the configuration wins: it is how a surface that
+        // assembled its registry another way still names the slots to fill.
+        self.toolDependencies = config.toolDependencies
+            ?? (config.registry as? any ToolDependencyCarrying)?.toolDependencies
+            ?? ToolDependencies()
+        wireToolDependencies()
+    }
+
+    /// Bind this agent's own resources into the slots its tool surface reads.
+    ///
+    /// These are the lines that used to read `TodoTool.store = todoStore`,
+    /// `DelegateTaskTool.manager = delegationManager` and
+    /// `SessionSearchTool.store = config.sessionStore`: the same late binding,
+    /// moved from a process global to this agent's slots. Called from `init`,
+    /// so a tool can never observe an empty slot this agent owns.
+    private nonisolated func wireToolDependencies() {
+        toolDependencies.todoStore.set(todoStore)
+        toolDependencies.sessionStore.set(config.sessionStore)
+        toolDependencies.delegationManager.set(delegationManager)
+        // `tool_search` must search the surface the agent actually dispatches
+        // through — the registry it was configured with, which may carry plugin
+        // tools the builder had not installed when it filled the slot.
+        toolDependencies.toolSearchRegistry.set(config.registry)
     }
 
     /// Wire the `approval` auxiliary model into smart approval mode.
@@ -600,13 +646,11 @@ public actor ArcAgent: Service {
                 topP: config.topP
             )
         )
-        // The memory tool writes through the agent's configured provider so
-        // the model reads and writes use the same backend as this agent.
-        MemoryTool.provider = config.memoryProvider
-        // The session-search tool reads through the agent's session store.
-        SessionSearchTool.store = config.sessionStore
-        // The todo tool is session-scoped: one list per agent instance.
-        TodoTool.store = todoStore
+        // The memory tool's provider is captured at registry construction
+        // (`buildRegistry(context:memory:)`), not re-pointed here: a second
+        // process-wide assignment is exactly the ambient addressing slice 4
+        // deleted. The session-scoped slots (`session_search`, `todo`) are
+        // filled once in `init` — per agent, not per process (slice 6).
     }
 
     /// Replace the LLM client for this agent.
@@ -668,17 +712,9 @@ public actor ArcAgent: Service {
         )
         self.llmClient = config.llmClient ?? client
 
-        // Wire delegation tools to the manager
-        DelegateTaskTool.manager = delegationManager
-        ListChildrenTool.manager = delegationManager
-        SteerChildTool.manager = delegationManager
-        StopChildTool.manager = delegationManager
-
-        // The memory tool writes through the agent's configured provider.
-        MemoryTool.provider = config.memoryProvider
-        SessionSearchTool.store = config.sessionStore
-        // Session-scoped todo list (one per agent instance).
-        TodoTool.store = todoStore
+        // Delegation, session-search and todo slots are filled in `init`
+        // (`wireToolDependencies()`), against this agent's own manager, store
+        // and list — no process global left to assign here.
     }
 
     /// Tear the HTTP client down (streaming callers own their client).
@@ -2362,15 +2398,11 @@ public actor ArcAgent: Service {
         timeout: Int = 120,
         reasoningEffort: String? = nil
     ) async throws -> LLMResponse {
-        // Check circuit breaker — if open, reject immediately
-        let cbState = await circuitBreaker.currentState()
-        if case .open(let resetAt) = cbState {
-            throw CircuitBreakerError.open(
-                label: circuitBreaker.label,
-                resetAt: resetAt,
-                lastFailureReason: "Circuit breaker is open"
-            )
-        }
+        // Admission, not a state read: `admit()` performs the open → half-open
+        // transition once the reset window elapses. Gating on `currentState()`
+        // left a tripped breaker rejecting every call until the process
+        // restarted — a 30-second outage disabled the agent for good.
+        try await circuitBreaker.admit()
 
         var lastError: Error? = nil
         /// Client rebuilt by PRIMARY transport recovery (used only after a
@@ -2516,14 +2548,8 @@ public actor ArcAgent: Service {
         reasoningEffort: String? = nil,
         emit: (@Sendable (AgentTurnEvent) -> Void)? = nil
     ) async throws -> any AsyncSequence<LLMDelta, Error> {
-        let cbState = await circuitBreaker.currentState()
-        if case .open(let resetAt) = cbState {
-            throw CircuitBreakerError.open(
-                label: circuitBreaker.label,
-                resetAt: resetAt,
-                lastFailureReason: "Circuit breaker is open"
-            )
-        }
+        // Admission, not a state read — see `callWithRetry`.
+        try await circuitBreaker.admit()
 
         var lastError: Error? = nil
         /// Client rebuilt by PRIMARY transport recovery (used only after a
@@ -3034,7 +3060,7 @@ public actor ArcAgent: Service {
             return "Error: Tool '\(tool)' is disabled (toolset '\(entry.toolset)' is disabled by configuration)."
         }
         if name == "tool_describe" {
-            let schema = ProgressiveToolDisclosure.schema(for: entry)
+            let schema = ProgressiveToolDisclosure.schema(for: entry.tool)
             guard let pretty = try? JSONSerialization.data(withJSONObject: schema, options: [.prettyPrinted, .sortedKeys]),
                   let text = String(data: pretty, encoding: .utf8) else {
                 return "Error: could not serialize schema for '\(tool)'."

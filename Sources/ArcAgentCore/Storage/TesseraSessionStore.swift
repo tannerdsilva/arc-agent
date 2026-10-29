@@ -354,7 +354,7 @@ public actor TesseraSessionStore: SessionStore {
                 && !($0.deleted == true && identity != nil && $0.owner == identity)
         }
         let ordered = visible.sorted { $0.updatedAt > $1.updatedAt }
-        let page = ordered.dropFirst(max(0, offset)).prefix(limit)
+        let page = ordered.dropFirst(max(0, offset)).prefix(max(0, limit))
         // Metadata-only summaries: message bodies are materialized lazily via
         // get(id:) when a chat is opened (bounded memory at very large scale).
         return page.map { meta in

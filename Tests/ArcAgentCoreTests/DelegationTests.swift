@@ -129,9 +129,10 @@ extension ArcCoreTestRoot {
         private func makeParentConfig(
             filePath: String,
             steerProbe: Bool = false,
-            llmClient: (any LLMClient)? = nil
+            llmClient: (any LLMClient)? = nil,
+            dependencies: ToolDependencies = ToolDependencies()
         ) throws -> ArcAgent.Configuration {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry(dependencies: dependencies)
             return ArcAgent.Configuration(
                 model: "test-model",
                 provider: "openai",
@@ -179,7 +180,7 @@ extension ArcCoreTestRoot {
 
         @Test("child registry strips the delegation toolset (no recursion)")
         func childRegistryStripsDelegation() throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let parent = ArcAgent.Configuration(
                 model: "m",
                 provider: "openai",
@@ -215,9 +216,13 @@ extension ArcCoreTestRoot {
             try "1".write(to: target, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: target) }
 
-            let agent = try await primeAgent(try makeParentConfig(filePath: target.path, steerProbe: true))
-            guard let manager = DelegateTaskTool.manager else {
-                Issue.record("manager not wired by prime()")
+            let deps = ToolDependencies()
+            let agent = try await primeAgent(try makeParentConfig(
+                filePath: target.path, steerProbe: true, dependencies: deps))
+            // The slot the tool reads, filled by the agent — not a process
+            // global the next agent would overwrite (GROUNDZERO slice 6).
+            guard let manager = deps.delegationManager.get() else {
+                Issue.record("manager slot not wired by the agent")
                 return
             }
 
@@ -240,12 +245,14 @@ extension ArcCoreTestRoot {
 
         @Test("cancel stops a running child and marks it cancelled")
         func cancelStopsChild() async throws {
+            let deps = ToolDependencies()
             let agent = try await primeAgent(try makeParentConfig(
                 filePath: "/tmp/never-read.txt",
-                llmClient: SlowScriptedClient(sleepSeconds: 5)
+                llmClient: SlowScriptedClient(sleepSeconds: 5),
+                dependencies: deps
             ))
-            guard let manager = DelegateTaskTool.manager else {
-                Issue.record("manager not wired by prime()")
+            guard let manager = deps.delegationManager.get() else {
+                Issue.record("manager slot not wired by the agent")
                 return
             }
 
@@ -269,7 +276,7 @@ extension ArcCoreTestRoot {
 
         @Test("concurrency cap throws tooManyChildren")
         func concurrencyCap() async throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let parent = ArcAgent.Configuration(
                 model: "m",
                 provider: "openai",

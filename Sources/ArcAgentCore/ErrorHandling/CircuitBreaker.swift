@@ -29,7 +29,8 @@ public actor CircuitBreaker {
         case closed
         /// Threshold exceeded — calls are rejected immediately.
         case open(resetAt: Date)
-        /// Probing — one call is allowed to test recovery.
+        /// Probing — calls are admitted again so recovery can be observed; the
+        /// first failure reopens the circuit for another window.
         case halfOpen
 
         public var description: String {
@@ -64,18 +65,38 @@ public actor CircuitBreaker {
     /// Execute an operation through the circuit breaker.
     /// - Parameter operation: The async operation to execute.
     /// - Returns: The operation's result.
-    /// - Throws: ``CircuitBreakerError.open`` if the circuit is open.
+    /// - Throws: ``CircuitBreakerError/open(label:resetAt:lastFailureReason:)`` if the circuit is open.
     public func call<T>(operation: () async throws -> T) async throws -> T {
-        try await checkState()
+        try admit()
 
         do {
             let result = try await operation()
-            try await onSuccess()
+            onSuccess()
             return result
         } catch {
-            try await onFailure(error)
+            onFailure(error)
             throw error
         }
+    }
+
+    /// Ask whether a call may proceed now.
+    ///
+    /// This is the **only** place the ``State/open(resetAt:)`` → ``State/halfOpen``
+    /// transition happens: `currentState()` is a pure query, so a caller that
+    /// gates on it alone leaves a tripped breaker rejecting every call for the
+    /// life of the process — the reset window elapses and nothing ever notices.
+    /// Admission is therefore an action, not a read.
+    ///
+    /// - Throws: ``CircuitBreakerError/open(label:resetAt:lastFailureReason:)``
+    ///   while the reset window is still running.
+    public func admit() throws {
+        try checkState()
+    }
+
+    /// Record a successful call: a probe in `half-open` closes the circuit, and
+    /// a success in `closed` clears the consecutive-failure count.
+    public func recordSuccess() {
+        onSuccess()
     }
 
     /// The current state of the circuit breaker.
@@ -103,12 +124,14 @@ public actor CircuitBreaker {
 
     // MARK: - Private
 
-    private func checkState() async throws {
+    private func checkState() throws {
         switch state {
         case .closed:
             return
         case .open(let resetAt):
             if Date() >= resetAt {
+                // The window elapsed: probe the endpoint instead of rejecting
+                // it forever. This transition is what `admit()` exists for.
                 state = .halfOpen
                 return
             }
@@ -122,7 +145,7 @@ public actor CircuitBreaker {
         }
     }
 
-    private func onSuccess() async throws {
+    private func onSuccess() {
         switch state {
         case .halfOpen:
             // Success in half-open means we've recovered
@@ -138,7 +161,7 @@ public actor CircuitBreaker {
         }
     }
 
-    private func onFailure(_ error: Error) async throws {
+    private func onFailure(_ error: Error) {
         failureCount += 1
         lastFailure = Date()
         lastFailureReason = error.localizedDescription

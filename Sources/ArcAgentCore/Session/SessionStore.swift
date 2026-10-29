@@ -322,7 +322,9 @@ public struct FileSessionStore: SessionStore {
             return dateA > dateB
         }
         .dropFirst(max(0, offset))
-        .prefix(limit)
+        // Defence in depth: `prefix(_:)` traps on a negative length, and the
+        // CLI passes its `--limit` straight through.
+        .prefix(max(0, limit))
 
         var sessions: [Session] = []
         for file in files {

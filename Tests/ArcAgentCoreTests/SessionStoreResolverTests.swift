@@ -105,7 +105,7 @@ extension ArcCoreTestRoot {
             try "streamed payload 42".write(to: target, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: target) }
 
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let store = RecordingSessionStore()
             let config = ArcAgent.Configuration(
                 model: "test-model",

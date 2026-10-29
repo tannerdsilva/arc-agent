@@ -357,12 +357,13 @@ extension ArcCoreTestRoot {
                 Message(role: .user, content: "we built the foobar bridge"),
                 Message(role: .assistant, content: "yes and foobar is green"),
             ]))
-            SessionSearchTool.store = store
-            defer { SessionSearchTool.store = nil }
-            let result = try await SessionSearchTool.entry.handler(["query": "foobar"])
+            let deps = ToolDependencies()
+            deps.sessionStore.set(store)
+            let entry = SessionSearchTool.entry(store: deps.sessionStore)
+            let result = try await entry.handler(["query": "foobar"])
             #expect(result.contains("remember"), "expected session id prefix in result: \(result)")
             #expect(result.contains("foobar bridge"))
-            let empty = try await SessionSearchTool.entry.handler(["query": "zzz-no-match"])
+            let empty = try await entry.handler(["query": "zzz-no-match"])
             #expect(empty.contains("No sessions matched"))
         }
 
@@ -405,7 +406,7 @@ extension ArcCoreTestRoot {
 
         @Test("disabled toolset is excluded from the tool index")
         func disabledToolsetExcludedFromIndex() async throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let box = ClientScripts(responses: [LLMResponse(content: "ok", finishReason: "stop")])
             let config = makeConfig(registry: registry, injectProjectContext: false, disabledToolsets: ["terminal"])
             _ = try await runOnce(config, box: box)
@@ -425,7 +426,7 @@ extension ArcCoreTestRoot {
 
         @Test("disabled toolset tool cannot be dispatched")
         func disabledToolsetRejectedAtDispatch() async throws {
-            let registry = try ArcAgentCore.buildDefaultRegistry()
+            let registry = try ArcAgentCore.testRegistry()
             let box = ClientScripts(responses: [
                 LLMResponse(content: nil, toolCalls: [
                     ToolCall(id: "d1", function: ToolCallFunction(name: "terminal", arguments: "{}")),

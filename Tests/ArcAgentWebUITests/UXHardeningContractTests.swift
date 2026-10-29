@@ -1163,7 +1163,7 @@ extension ArcWebUITestRoot {
             #expect(actions.contains("if selectedSkill == nil { selectedSkill = skills.first?.name }"))
             #expect(actions.contains("if selectedProfile == nil { selectedProfile = profiles.first?.name }"))
             #expect(actions.contains("if selectedTool == nil { selectedTool = registry.allTools.first?.name }"))
-            #expect(actions.contains("if memoryDoc == nil { openMemoryDoc(\"memory\") }"))
+            #expect(actions.contains("if memoryDoc == nil { await openMemoryDoc(\"memory\") }"))
             #expect(actions.contains("if tasksSelectedID == nil { tasksSelectedID = settings.scheduledJobs.first?.id }"))
         }
 

@@ -30,7 +30,7 @@ public actor VolatileSessionStore: SessionStore {
 
     public func list(limit: Int, offset: Int) async throws -> [Session] {
         let sorted = sessions.values.sorted { $0.updatedAt > $1.updatedAt }
-        return Array(sorted.dropFirst(offset).prefix(limit)).map { summary in
+        return Array(sorted.dropFirst(max(0, offset)).prefix(max(0, limit))).map { summary in
             var s = summary
             s.messages = []
             s.messageCount = summary.messages.count

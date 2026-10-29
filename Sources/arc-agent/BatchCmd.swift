@@ -1,3 +1,4 @@
+import ArcToolKit
 import ArgumentParser
 import Foundation
 import ArcAgentCore
@@ -70,7 +71,19 @@ struct BatchCmd: AsyncParsableCommand {
 
     func run() async throws {
         let arcConfig = loadConfig()
-        let registry = try ArcAgentCore.buildDefaultRegistry()
+        // Surface introspection only: the batch planner reads toolsets and tool
+        // names off the compiled surface; it never dispatches a tool here.
+        let registry = try ArcAgentCore.buildRegistry(
+            context: ToolContext(
+                profile: .default,
+                sessionID: "",
+                workspace: FileManager.default.currentDirectoryPath,
+                grant: ToolGrant(profile: .default, documentAccess: .none)
+            ),
+            profiles: TesseraProfileStore.shared,
+            memory: FileMemoryProvider(),
+            sessions: FileSessionStore()
+        )
         let allToolsets = Array(Set(registry.allTools.map(\.toolset))).sorted()
         let allToolNames = Set(registry.allTools.map(\.name))
 

@@ -1,3 +1,4 @@
+import ArcToolKit
 import SystemPackage
 import Foundation
 
@@ -6,39 +7,103 @@ import Foundation
 /// `patch` with the full 9-strategy fuzzy matcher.
 public enum PatchTool {
 
-    public static let entry = ToolEntry(
-        name: "patch",
-        toolset: "file",
-        description: "Targeted find-and-replace edits. "
-            + "Use this instead of write_file for surgical changes. "
-            + "Replace mode: path + old_string + new_string (optionally "
-            + "replace_all for multiple occurrences). Patch mode: a V4A diff "
-            + "patch (*** Begin Patch ... *** End Patch) for multi-file edits. "
-            + "Auto-runs syntax checks and returns a unified diff.",
-        schema: .object(properties: [
-            "mode": .string(description: "replace (default) or patch", default: "replace"),
-            "path": .string(description: "Path of the file to edit"),
-            "old_string": .string(description: "Exact text to find"),
-            "new_string": .string(description: "Replacement text"),
-            "replace_all": .boolean(description: "Replace all occurrences instead of requiring a unique match (default: false)", default: false),
-            "patch": .string(description: "V4A diff patch content (patch mode)"),
-        ]),
-        handler: { args in
-            let mode = (args["mode"] as? String) ?? "replace"
-            switch mode {
-            case "patch":
-                let patchText: String = try Self.required(args, key: "patch")
-                return try await Self.applyV4A(patchText)
-            default:
-                let path: String = try Self.required(args, key: "path")
-                let oldString: String = try Self.required(args, key: "old_string")
-                let newString: String = try Self.required(args, key: "new_string")
-                let replaceAll = (args["replace_all"] as? Bool) ?? false
-                return try await Self.replace(path: path, old: oldString, new: newString, replaceAll: replaceAll)
+    /// The tool, with the authority `grant` carries captured inside it.
+    ///
+    /// Both modes are gated: replace mode on its `path`, patch mode on every
+    /// target the V4A text names. A path the grant excludes is refused before
+    /// any file is touched.
+    public static func entry(grant: ToolGrant) -> ToolEntry {
+        ToolEntry(
+            name: "patch",
+            toolset: "file",
+            description: "Targeted find-and-replace edits. "
+                + "Use this instead of write_file for surgical changes. "
+                + "Replace mode: path + old_string + new_string (optionally "
+                + "replace_all for multiple occurrences). Patch mode: a V4A diff "
+                + "patch (*** Begin Patch ... *** End Patch) for multi-file edits. "
+                + "Auto-runs syntax checks and returns a unified diff.",
+            schema: .object(properties: [
+                "mode": .string(description: "replace (default) or patch", default: "replace"),
+                "path": .string(description: "Path of the file to edit"),
+                "old_string": .string(description: "Exact text to find"),
+                "new_string": .string(description: "Replacement text"),
+                "replace_all": .boolean(description: "Replace all occurrences instead of requiring a unique match (default: false)", default: false),
+                "patch": .string(description: "V4A diff patch content (patch mode)"),
+            ]),
+            handler: { args in
+                let mode = (args["mode"] as? String) ?? "replace"
+                switch mode {
+                case "patch":
+                    let patchText: String = try Self.required(args, key: "patch")
+                    if let refusal = Self.v4aRefusal(patchText: patchText, grant: grant) {
+                        return "Error: " + refusal
+                    }
+                    return try await Self.applyV4A(patchText)
+                default:
+                    let path: String = try Self.required(args, key: "path")
+                    if let refusal = grant.refusal(forPath: path) {
+                        return "Error: " + refusal
+                    }
+                    let oldString: String = try Self.required(args, key: "old_string")
+                    let newString: String = try Self.required(args, key: "new_string")
+                    let replaceAll = (args["replace_all"] as? Bool) ?? false
+                    return try await Self.replace(path: path, old: oldString, new: newString, replaceAll: replaceAll)
+                }
+            },
+            emoji: "🔧"
+        )
+    }
+
+    /// The tool under today's process-global gate.
+    ///
+    /// Computed, deliberately: a `static let` would capture the grant once at
+    /// first access, so every later reconfiguration of ``AgentPowers`` (the web
+    /// UI toggles, the tests) would keep exercising the stale capture. Slice 4
+    /// of the GROUNDZERO plan replaces this with per-agent construction.
+    public static var entry: ToolEntry {
+        entry(grant: AgentPowers.grant(profile: .default))
+    }
+
+    // MARK: - Authority gate (V4A mode)
+
+    /// The targets a V4A patch names, in the order they appear.
+    ///
+    /// `*** Move File:` carries two paths (`src -> dst`); both are targets —
+    /// the source is deleted and the destination written.
+    static func v4aTargets(in patchText: String) -> [String] {
+        let markers = ["*** Update File:", "*** Add File:", "*** Delete File:", "*** Move File:"]
+        var targets: [String] = []
+        for rawLine in patchText.components(separatedBy: "\n") {
+            let line = rawLine.hasSuffix("\r") ? String(rawLine.dropLast()) : rawLine
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            for marker in markers where trimmed.hasPrefix(marker) {
+                let value = String(trimmed.dropFirst(marker.count))
+                    .trimmingCharacters(in: .whitespaces)
+                guard !value.isEmpty else { continue }
+                if marker == "*** Move File:", let arrow = value.range(of: "->") {
+                    let source = String(value[..<arrow.lowerBound]).trimmingCharacters(in: .whitespaces)
+                    let destination = String(value[arrow.upperBound...]).trimmingCharacters(in: .whitespaces)
+                    if !source.isEmpty { targets.append(source) }
+                    if !destination.isEmpty { targets.append(destination) }
+                } else {
+                    targets.append(value)
+                }
             }
-        },
-        emoji: "🔧"
-    )
+        }
+        return targets
+    }
+
+    /// The first refusal among the patch's targets, or nil when every target
+    /// is outside the grant's authority.
+    static func v4aRefusal(patchText: String, grant: ToolGrant) -> String? {
+        for target in v4aTargets(in: patchText) {
+            if let refusal = grant.refusal(forPath: target) {
+                return refusal
+            }
+        }
+        return nil
+    }
+
 
     // MARK: - Replace mode
 

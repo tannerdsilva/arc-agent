@@ -30,6 +30,15 @@ public enum ReadFileTool {
             let path: String = try Self.required(args, key: "path")
             let offset: Int = (args["offset"] as? Int) ?? 1
             let limit: Int = (args["limit"] as? Int) ?? 2000
+            // Untrusted counts. A negative limit reverses the slice range and a
+            // negative offset reads before the file; both trap the process.
+            // Answer with text the model can act on instead.
+            guard offset >= 0 else {
+                return "Error: offset must be zero or greater (got \(offset))."
+            }
+            guard limit >= 1 else {
+                return "Error: limit must be a positive integer (got \(limit))."
+            }
             return try await Self.readFile(path: path, offset: offset, limit: limit)
         },
         emoji: "📄"
@@ -58,17 +67,22 @@ public enum ReadFileTool {
 
         let lines = content.components(separatedBy: .newlines)
         let startIndex = max(0, offset - 1)
-        let endIndex = min(lines.count, startIndex + limit)
 
         guard startIndex < lines.count else {
             return "Error: Offset \(offset) exceeds file length (\(lines.count) lines)."
         }
 
-        let selectedLines = lines[startIndex..<endIndex]
+        // Defence in depth: the handler rejects a non-positive limit, but this
+        // is the slicing site — any other caller gets the same guarantee. The
+        // clamp also keeps `startIndex + take` inside the file, so no arithmetic
+        // on an untrusted `limit` can overflow.
+        let take = max(0, min(limit, lines.count - startIndex))
+        let selectedLines = lines[startIndex..<(startIndex + take)]
         let numbered = selectedLines.enumerated().map { (i, line) in
             "\(startIndex + i + 1)|\(line)"
         }
 
+        let endIndex = startIndex + take
         let totalLines = lines.count
         var result = numbered.joined(separator: "\n")
 

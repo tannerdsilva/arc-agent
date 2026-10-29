@@ -1,3 +1,5 @@
+import ArcToolKit
+
 /// A registry that manages tool discovery, registration, and lookup.
 ///
 /// ``ToolRegistry`` is the narrow waist of the ARC Agent tool system. Every tool
@@ -12,6 +14,14 @@
 /// ``lookup(name:)`` and ``allTools`` are safe to call from any task
 /// concurrently with registration.
 ///
+/// ## Provenance
+///
+/// Registration carries a ``ToolOrigin`` and lookup returns a
+/// ``RegisteredTool`` — the tool *and* the origin its registry assigned. A name
+/// therefore has exactly one owner, and that owner always has an origin:
+/// provenance cannot be dropped on the floor because ``lookup(name:)`` cannot
+/// return a bare tool.
+///
 /// ## Design (Protocols First)
 ///
 /// This protocol is the first step in the three-step design ordering:
@@ -24,22 +34,28 @@ public protocol ToolRegistry: Sendable {
 
     /// Register a tool with the registry.
     ///
-    /// - Parameter tool: The tool entry to register (built-in or plugin —
-    ///   anything conforming to ``AgentTool``).
-    /// - Throws: ``ToolRegistryError.duplicateName`` if a tool with the same
+    /// - Parameters:
+    ///   - tool: The tool entry to register (built-in or plugin — anything
+    ///     conforming to ``AgentTool``).
+    ///   - origin: Where the tool came from, assigned by the admitting
+    ///     registry — never declared by the tool.
+    /// - Throws: ``ToolRegistryError/duplicateName`` if a tool with the same
     ///   name is already registered.
-    mutating func register(_ tool: any AgentTool) throws
+    mutating func register(_ tool: any AgentTool, origin: ToolOrigin) throws
 
     /// Look up a tool by name.
     ///
     /// - Parameter name: The tool's unique name.
-    /// - Returns: The tool, or `nil` if no tool with that name is registered.
-    func lookup(name: String) -> (any AgentTool)?
+    /// - Returns: The tool and its origin, or `nil` if no tool with that name
+    ///   is registered.
+    /// - Note: Provenance survives the lookup; a caller that only needs to
+    ///   dispatch reads ``RegisteredTool/tool``.
+    func lookup(name: String) -> RegisteredTool?
 
-    /// All registered tools.
+    /// All registered tools, each with its origin.
     ///
     /// The order is insertion order — tools registered first appear first.
-    var allTools: [any AgentTool] { get }
+    var allTools: [RegisteredTool] { get }
 
     /// Build the OpenAI-compatible function-calling schema array.
     ///

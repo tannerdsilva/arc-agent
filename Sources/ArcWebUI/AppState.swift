@@ -1,4 +1,5 @@
 import ArcAgentCore
+import ArcToolKit
 import AsyncHTTPClient
 import ArcSidebarTabs
 import Foundation
@@ -875,6 +876,17 @@ actor AppState {
     var memoryEdit = false
     var skillEdit = false
     var memoryContent = ""
+    /// The refusal the panel's last write received — the store's budget
+    /// sentence, the threat scanner's, or a profile-store failure. Rendered
+    /// beside the editor and cleared when it opens, closes, or a write lands:
+    /// a human edit that breaks a memory rule is refused, never truncated.
+    var memoryError: String? = nil
+    /// Test seam for the one-time legacy Memory-panel seed: where the dead
+    /// panel's files and their marker live. `nil` (production) means the real
+    /// paths — `~/.arc-agent-webui` and `~/.arc/.webui-memory-migration-v1` —
+    /// which on a real machine hold the human's own memory, so a fixture must
+    /// point both into its temp tree.
+    var memoryPanelLegacyPaths: (legacy: URL, marker: URL)? = nil
 
     /// Kanban UI mode (phase: kanban).
     var addingColumn = false
@@ -1034,11 +1046,21 @@ actor AppState {
     /// instead of the live HTTP one, so a whole turn can be driven with no
     /// socket. nil in production; A7's golden transcript suite sets it.
     var turnClientOverride: (any LLMClient)?
+    /// Memory-provider seam: when set, a turn is handed this provider instead
+    /// of one resolved from its session's profile (`turnMemoryProvider(for:)`).
+    /// nil in production — a test that must recognise the provider the turn
+    /// actually uses sets it, the same shape as `turnClientOverride`.
+    var turnMemoryOverride: (any MemoryProvider)?
     /// The storage backend this process actually constructed: "tessera" or
     /// "file". Honest label vs `settings.tesseraOff` because the boot-time
     /// fallback can differ from the persisted setting within a process.
     var runtimeBackend: String = "file"
     var memory: (any MemoryProvider)?
+    /// The kanban board this UI's tool surface acts on (GROUNDZERO2 slice 1).
+    /// The daemon hands over the process's one board; a standalone UI builds
+    /// its own over `~/.arc/kanban`, the same directory the daemon and the CLI
+    /// administer. Nil only in the render-fixture init, where no tool runs.
+    var kanban: (any KanbanBoard)?
     var runtimeKey: String?
     /// In-memory storage fallback flag (never persisted): set by
     /// ``forceTesseraOff()`` when the boot-time Tessera probe times out.
@@ -1121,9 +1143,13 @@ actor AppState {
         /// the detail panes look tools up in the registry, not in `toolsets` —
         /// an empty registry renders the blank state no matter the fixture.
         var registryTools: [any AgentTool] = []
-        /// the memory provider the per-turn agent factory hands to the
-        /// configuration; nil (the default) leaves the field unset.
+        /// the process-wide memory provider the runtime would build (what
+        /// `ensureRuntime` assigns). A turn is handed the session profile's
+        /// provider instead — `turnMemoryOverride` is the seam for that.
         var memory: (any MemoryProvider)? = nil
+        /// the provider a turn is handed instead of one resolved from its
+        /// session's profile — the `turnMemoryOverride` seam.
+        var turnMemory: (any MemoryProvider)? = nil
         /// the approval gate `runTool` consults. nil (the default) leaves the
         /// gate unarmed — the production init builds a real manager, which a
         /// render fixture must never do (it reads `~/.arc/config.json`).
@@ -1140,6 +1166,12 @@ actor AppState {
         var memoryDoc: String? = nil
         var memoryEdit = false
         var memoryContent = ""
+        /// the refusal the panel's last write received (`memoryError`).
+        var memoryError: String? = nil
+        /// the one-time legacy panel seed's source directory + marker — a
+        /// fixture points both into its temp tree so it never reads or writes
+        /// the operator's `~/.arc-agent-webui`
+        var memoryPanelLegacy: (legacy: URL, marker: URL)? = nil
         // phase 7: right-hand workspace panel state. the dock, the panel and the
         // preview are all state-driven, so a fixture that cannot set this state
         // can only ever capture the closed panel.
@@ -1179,6 +1211,7 @@ actor AppState {
         self.pluginManifests = fixture.pluginManifests
         self.skills = fixture.skills
         self.memory = fixture.memory
+        self.turnMemoryOverride = fixture.turnMemory
         self.approvalManager = fixture.approvalManager
         self.pluginStartupOutcome = fixture.pluginStartupOutcome
         self.pendingCopyURL = fixture.pendingCopyURL
@@ -1209,6 +1242,8 @@ actor AppState {
         self.memoryDoc = fixture.memoryDoc
         self.memoryEdit = fixture.memoryEdit
         self.memoryContent = fixture.memoryContent
+        self.memoryError = fixture.memoryError
+        self.memoryPanelLegacyPaths = fixture.memoryPanelLegacy
         self.workspaceOpen = fixture.workspaceOpen
         self.wsNewMode = fixture.wsNewMode
         self.showHiddenFiles = fixture.showHiddenFiles
@@ -1228,15 +1263,50 @@ actor AppState {
         self.settings.kanbanCards = fixture.kanbanCards
         self.registry = MutableToolRegistry(builtIn: CompileTimeToolRegistry())
         for tool in fixture.registryTools {
-            try? self.registry.register(tool)
+            // Render fixtures are neither compiled in nor plugin-discovered:
+            // they arrive as a source, and are stamped as one.
+            try? self.registry.register(tool, origin: .source("fixture"))
         }
         self.sidebarPlugins = []
         self.pluginTabs = [:]
     }
 
-    init(thirdPartyPlugins: [any SidebarTabPlugin] = []) async throws {
-        self.registry = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
-        let grouped = Dictionary(grouping: self.registry.allTools, by: { $0.toolset })
+    init(
+        thirdPartyPlugins: [any SidebarTabPlugin] = [],
+        delivery: DeliveryManager? = nil,
+        kanban: (any KanbanBoard)? = nil
+    ) async throws {
+        // Boot-time surface. No session is active and `settings` is not loaded
+        // yet, so this is the `.default` scope at the process working
+        // directory; `refreshPlugins()` — fired at the end of this init and on
+        // every plugin toggle — re-scopes the surface to the active chat.
+        //
+        // `delivery` is the daemon's platform delivery path, handed over when
+        // this app is hosted in the daemon process. It binds `send_message` on
+        // *this* surface; before GROUNDZERO slice 6 the tool found it through a
+        // process global the session host happened to have set.
+        //
+        // `kanban` is the same shape for the board (GROUNDZERO2 slice 1): the
+        // UI's turn loop dispatches tools straight through this registry, so a
+        // surface with an empty board slot answers "board not available" for
+        // every `kanban_*` call no matter what the daemon has. A standalone UI
+        // (no daemon to hand one over) builds its own over `~/.arc/kanban`.
+        let board = kanban ?? FileKanbanBoard()
+        self.kanban = board
+        self.registry = MutableToolRegistry(builtIn: try ArcAgentCore.buildRegistry(
+            context: ToolContext(
+                profile: .default,
+                sessionID: "",
+                workspace: FileManager.default.currentDirectoryPath,
+                grant: AgentPowers.grant(profile: .default)
+            ),
+            profiles: TesseraProfileStore.shared,
+            memory: FileMemoryProvider(),
+            sessions: FileSessionStore(),
+            kanban: board,
+            delivery: delivery
+        ))
+        let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolset })
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
         self.settings = Self.loadSettings()
         let rawConfig = Self.rawArcConfig()
@@ -1312,14 +1382,18 @@ actor AppState {
 
     /// Rescan `~/.arc/plugins/` and rebuild the runtime registry with built-in
     /// + enabled plugin tools (the reference agent-init plugin bundling parity).
+    ///
+    /// The rebuild is scoped to the active chat (GROUNDZERO slice 4): the
+    /// surface a turn dispatches through addresses the session's profile, so
+    /// `memory` / `profile_edit` / the roster tools act on that profile rather
+    /// than on `default`.
     func refreshPlugins() async {
         try? await PluginRegistry.shared.loadAll()
         self.pluginManifests = await PluginRegistry.shared.plugins()
-        let allow = self.arcConfig.plugins.enabled.map { Set($0) }
-        if let made = try? await MutableToolRegistry.make(enabledPlugins: allow) {
+        if let made = await rebuiltRegistry(for: activeSessionID) {
             self.registry = made
         }
-        let grouped = Dictionary(grouping: self.registry.allTools, by: { $0.toolset })
+        let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolset })
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
     }
 
@@ -1746,10 +1820,12 @@ actor AppState {
     ///
     /// Every field resolves from the source the UI's turn loop already reads:
     /// the effective preset (with the bound profile's context overrides
-    /// applied), the shared `registry`, the allowed skills, the `memory`
-    /// provider, the approval mode, auxiliary routing, MoA, tool search,
-    /// agent powers, background review, verify-on-stop, the per-session
-    /// workspace, and the effective tool-iteration budget.
+    /// applied), the shared `registry` — re-pointed at this session's scope for
+    /// the two profile-addressed tools — the allowed skills, the memory
+    /// provider the session's profile owns, the approval mode, auxiliary
+    /// routing, MoA, tool search, agent powers, background review,
+    /// verify-on-stop, the per-session workspace, and the effective
+    /// tool-iteration budget.
     ///
     /// The bound profile's SOUL (if any) and its pinned context skills are
     /// injected as one system message via `injectSystemMessage`, matching the
@@ -1808,6 +1884,27 @@ actor AppState {
         // max iterations mirrors the turn loop's clamp: at least one pass.
         let maxIterations = max(1, iterationBudget ?? Self.effectiveMaxTurns())
 
+        // The memory document this turn reads and writes: the session
+        // profile's, for the file backend (see `turnMemoryProvider`).
+        let turnMemory = turnMemoryProvider(for: sessionID)
+
+        // The surface the turn dispatches through. `registry` was scoped to
+        // whichever chat was active when it was last rebuilt, and its `memory`
+        // and `profile_edit` built-ins captured that scope — and the
+        // process-wide provider — at construction. Re-point exactly those two
+        // at THIS session's profile, keeping every other tool (plugins, MCP,
+        // fixtures) and the shared dependency bundle untouched, so a turn for a
+        // background chat addresses its own documents and the provider above is
+        // the one the `memory` tool actually writes through.
+        let turnContext = toolContext(for: sessionID)
+        let turnRegistry = registry.replacingBuiltIns(
+            ArcAgentCore.scopeAddressedTools(
+                context: turnContext,
+                memory: turnMemory,
+                profiles: TesseraProfileStore.shared
+            )
+        )
+
         // an unparseable preset url must not trap the server; fail closed to
         // the reserved .invalid tld so the request errors out visibly instead
         // of redirecting the key to a different provider.
@@ -1820,11 +1917,14 @@ actor AppState {
             provider: effectivePreset.provider,
             baseURL: baseURL,
             apiKey: effectivePreset.apiKey,
-            registry: registry,
+            registry: turnRegistry,
             // a scratch store: the UI is the transcript's only writer (§3.3), so
             // the agent must never restore from — or persist into — a durable one.
             sessionStore: VolatileSessionStore(),
-            memoryProvider: memory,
+            // the turn's memory document: the session's profile for the file
+            // backend, the process-wide provider for Tessera and for an
+            // unbound chat — see `turnMemoryProvider(for:)`.
+            memoryProvider: turnMemory,
             skills: allowedSkills,
             maxIterations: maxIterations,
             toolLoopCap: arcConfig.effectiveToolLoopCap(),
@@ -1854,7 +1954,10 @@ actor AppState {
             disabledToolsets: Set(settings.disabledToolsets),
             // the scripted-client seam (nil in production) — see
             // `turnClientOverride`.
-            llmClient: turnClientOverride
+            llmClient: turnClientOverride,
+            // The prompt's "Active ARC profile" line reads this. Nil = default,
+            // which is exactly what an unbound chat is.
+            profileName: pname
         )
 
         let agent = ArcAgent(config: config)
@@ -2094,6 +2197,81 @@ actor AppState {
     func profileName(for sessionID: String?) -> String? {
         if let sid = sessionID, let p = settings.sessionProfile[sid], !p.isEmpty { return p }
         return nil
+    }
+
+    /// The memory provider a turn in `sessionID` must address
+    /// (GROUNDZERO2 slice 4, D13).
+    ///
+    /// One chat, one memory document. For the file backend that document lives
+    /// in the session's profile directory — `ProfileManager.memoryURL(for:)`,
+    /// the directory the daemon hands its own sessions and the one
+    /// `ProfileDocuments` writes — so `memory` and `profile_edit` cannot
+    /// disagree about where a memory went. Before this, a UI turn was handed
+    /// the provider resolved once at boot, so a `memory` write landed in
+    /// `~/.arc/memories` while `profile_edit` read
+    /// `~/.arc/profiles/<name>`: the two tools disagreed in the one surface a
+    /// human watches.
+    ///
+    /// Two branches keep the process-wide provider on purpose:
+    /// - **Tessera** — one tunnel, one key set; Tessera memory has no profile
+    ///   dimension, so a per-profile provider would address a document that
+    ///   cannot exist.
+    /// - **no profile bound** — an unbound chat has no profile directory to
+    ///   own, so it keeps the process-wide file provider (`~/.arc/memories`).
+    ///
+    /// `turnMemoryOverride` (nil in production) wins outright: it is the seam
+    /// a test uses to hand a turn a provider it can recognise.
+    func turnMemoryProvider(for sessionID: String?) -> any MemoryProvider {
+        if let override = turnMemoryOverride { return override }
+        if let memory, memory is TesseraMemoryProvider { return memory }
+        if let name = profileName(for: sessionID),
+           let directory = ProfileManager.memoryURL(for: name) {
+            return FileMemoryProvider(directory: directory)
+        }
+        return memory ?? FileMemoryProvider()
+    }
+
+    /// The tool scope for `sessionID` (nil = the active session / no chat).
+    ///
+    /// Profile from the session's binding, workspace from the same resolution
+    /// the turn uses, authority from the live gate. A registry built from this
+    /// addresses the *chat's* profile, which is what makes `profile_edit`
+    /// (SOUL defaults to the caller) and the roster tools behave per chat
+    /// instead of per process.
+    ///
+    /// The workspace path is resolved without creating it: `refreshPlugins()`
+    /// runs at boot before any turn, and a tool-surface rebuild must not
+    /// materialize a workspace directory as a side effect.
+    func toolContext(for sessionID: String?) -> ToolContext {
+        let profile = profileName(for: sessionID).flatMap { ProfileName($0) } ?? .default
+        let name = workspaceName(for: sessionID)
+        let workspace = workspaceEntry(named: name)?.path ?? WorkspaceEntry.defaultPath(for: name)
+        return ToolContext(
+            profile: profile,
+            sessionID: sessionID ?? "",
+            workspace: workspace,
+            grant: AgentPowers.grant(profile: profile)
+        )
+    }
+
+    /// Rebuild the runtime tool surface for `sessionID`'s scope, plugins
+    /// included. Returns nil when the built-ins fail to register (the caller
+    /// keeps the surface it already had).
+    func rebuiltRegistry(for sessionID: String?) async -> MutableToolRegistry? {
+        let context = toolContext(for: sessionID)
+        return try? await MutableToolRegistry.make(
+            context: context,
+            profiles: TesseraProfileStore.shared,
+            // The same provider a turn for this session is handed
+            // (`turnMemoryProvider`): a surface rebuilt here and an agent
+            // minted there must address one document.
+            memory: turnMemoryProvider(for: sessionID),
+            sessions: store ?? FileSessionStore(),
+            // The same board the boot surface and (in the daemon) the sessions
+            // use — a rebuild must not leave the tools without one.
+            kanban: kanban,
+            enabledPlugins: arcConfig.plugins.enabled.map { Set($0) }
+        )
     }
 
     func thinkingLevel(for sessionID: String?) -> String {
