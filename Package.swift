@@ -236,6 +236,8 @@ let package = Package(
         .testTarget(
             name: "ArcAgentCoreTests",
             dependencies: [
+                // the authority tests name ToolGrant / ProfileName directly (D27).
+                .target(name: "ArcToolKit"),
                 .target(name: "ArcAgentCore"),
                 // the shutdown-contract test builds a real ServiceGroup.
                 .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
@@ -259,6 +261,8 @@ let package = Package(
         .testTarget(
             name: "ArcAgentWebUITests",
             dependencies: [
+                // PromptParityTests and TurnAgentFactoryTests name ProfileName / ToolGrant (D27).
+                .target(name: "ArcToolKit"),
                 .target(name: "ArcWebUI"),
                 .target(name: "ArcTheme"),
                 // the cron-store migration test constructs a FileCronStore.
