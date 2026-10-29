@@ -1936,6 +1936,10 @@ actor AppState {
             auxiliary: arcConfig.auxiliary,
             sessionID: sessionID,
             contextLength: effectivePreset.contextLength,
+            // the engine's compressor owns the decision: explicit per-profile
+            // budget first, else contextLength/2, else maxContextTokens — the
+            // same value the context ring shows as its threshold marker.
+            compressionBudget: compressionBudget(for: sessionID),
             injectProjectContext: true,
             contextDirectory: URL(fileURLWithPath: root),
             workspaceRoot: root,
@@ -1945,7 +1949,7 @@ actor AppState {
             toolSearch: arcConfig.toolSearch,
             backgroundReview: backgroundReview,
             verifyOnStop: arcConfig.agent.verifyOnStop,
-            autoCompression: false,
+            autoCompression: true,
             reasoningEffort: reasoningEffort,
             temperature: effectivePreset.temperature,
             topP: effectivePreset.topP,

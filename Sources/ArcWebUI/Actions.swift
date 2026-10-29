@@ -406,98 +406,6 @@ extension AppState {
         }
     }
 
-    // MARK: Context compression (arc parity)
-
-    /// Rough token estimate for a message list (chars/4 + overhead).
-    func estimateTokens(_ msgs: [Message]) -> Int {
-        var n = 0
-        for m in msgs {
-            n += (m.content?.count ?? 0) / 4
-            n += (m.reasoning?.count ?? 0) / 4
-            n += 60
-        }
-        return n
-    }
-
-    /// Extractive record of older messages (fallback summary).
-    func extractiveRecord(_ msgs: [Message]) -> String {
-        msgs.compactMap { m -> String? in
-            guard let c = m.content, !c.isEmpty else { return nil }
-            let roleLabel: String
-            switch m.role {
-            case .system: roleLabel = "system"
-            case .user: roleLabel = "user"
-            case .assistant: roleLabel = "assistant"
-            case .tool: roleLabel = m.name ?? "tool"
-            }
-            return "[\(roleLabel)] \(trunc(c, 900))"
-        }
-        .joined(separator: "\n")
-    }
-
-    /// Rebuild a model-facing history: system messages + the compression
-    /// summary + the most recent 10 messages.
-    static func compressedHistory(_ msgs: [Message], summary: String) -> [Message] {
-        let systemMessages = msgs.filter { $0.role == .system }
-        let nonSystem = msgs.filter { $0.role != .system }
-        let recent = Array(nonSystem.suffix(min(10, nonSystem.count)))
-        let summaryMessage = Message(
-            role: .system,
-            content: """
-            The following is a compressed record of earlier conversation context. Key information, decisions, and facts from these exchanges are preserved below:
-
-            \(summary)
-            """
-        )
-        return systemMessages + [summaryMessage] + recent
-    }
-
-    /// arc-parity context compression. When the token estimate exceeds the
-    /// budget, the `compression` auxiliary model (Qwen3.6 in the default
-    /// config) summarizes the older tail and a recent window replaces it in
-    /// the model-facing history. The durable session transcript stays intact;
-    /// the summary is stored once per session. Env ARC_COMPRESSION_BUDGET
-    /// overrides the default 32k budget (used by tests).
-    func compressHistoryIfNeeded(_ msgs: [Message], sessionID: String) async -> ([Message], Bool) {
-        guard !msgs.isEmpty else { return (msgs, false) }
-        // Per-profile compression budget: the bound profile's setting wins,
-        // then the env override, then the 32k default.
-        let budget = compressionBudget(for: sessionID)
-        guard estimateTokens(msgs) > budget else { return (msgs, false) }
-        if let existing = settings.sessionCompressions[sessionID] {
-            return (Self.compressedHistory(msgs, summary: existing), true)
-        }
-        let nonSystem = msgs.filter { $0.role != .system }
-        let minRecent = min(10, nonSystem.count)
-        let compressible = Array(nonSystem.prefix(nonSystem.count - minRecent))
-        guard !compressible.isEmpty else { return (msgs, false) }
-
-        let record = extractiveRecord(compressible)
-        var summary = record
-        if arcConfig.auxiliary.override(for: .compression)?.isSet == true,
-           httpClient != nil,
-           let client = makeAuxClient(for: .compression, sessionID: sessionID) {
-            let prompt = """
-            You are the context compressor for a long agent conversation. Produce a dense summary
-            of the conversation excerpts below. Preserve every decision, fact, path, tool result,
-            and instruction verbatim where practical. Target 150-400 words.
-
-            \(record)
-            """
-            if let out = try? await client.complete(
-                messages: [Message(role: .user, content: prompt)],
-                tools: nil,
-                reasoningEffort: nil
-            ).content,
-            !out.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                summary = out.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-        }
-        settings.sessionCompressions[sessionID] = summary
-        saveSettings()
-        return (Self.compressedHistory(msgs, summary: summary), true)
-    }
-
     // MARK: - Core-service integrations (arc parity)
 
     /// Per-turn tool guardrails, rebuilt from `~/.arc/config.json` at the
@@ -810,16 +718,12 @@ extension AppState {
         }
 
         var history = session.messages
-        // arc-parity context compression: when the estimate exceeds the
-        // budget, the `compression` auxiliary model (Qwen3.6) summarizes the
-        // older tail and a recent window replaces it for the model-facing
-        // request. The stored transcript stays intact. Applies at most once
-        // per session (durable summary).
-        let (compressed, didCompress) = await compressHistoryIfNeeded(history, sessionID: sessionID)
-        if didCompress {
-            history = compressed
-            _ = hint("Conversation history compressed (est. \(estimateTokens(history)) tokens now).")
-        }
+        // Context compression is owned by the engine now (autoCompression on
+        // the turn agent): the full-request budget is re-checked after every
+        // round, the real provider count gates alongside the estimate, and
+        // summaries fold iteratively instead of going stale. The transcript
+        // below stays the DURABLE list — never the compressed view — so
+        // ghost-heal and persistence see what was actually said.
         // the agent appends this turn's user message itself, so the seed is the
         // model-facing history the UI built minus the message stored above.
         let seed = Array(history.dropLast())
