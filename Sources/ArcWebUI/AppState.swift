@@ -1828,7 +1828,7 @@ actor AppState {
             skills: allowedSkills,
             maxIterations: maxIterations,
             toolLoopCap: arcConfig.effectiveToolLoopCap(),
-            maxTurnDuration: 120,
+            maxTurnDuration: arcConfig.effectiveMaxTurnDuration() ?? 0,
             persistSessions: false,
             approvalMode: approvalMode,
             query: nil,

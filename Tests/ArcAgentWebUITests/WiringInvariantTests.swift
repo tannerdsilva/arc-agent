@@ -63,7 +63,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_settings_admin(router)
-            #expect(router.handlerCount(in: .default) == 30, "settings_admin group registration drifted")
+            #expect(router.handlerCount(in: .default) == 32, "settings_admin group registration drifted")
         }
 
         @Test("every skills handler is registered after wireGroup_skills")

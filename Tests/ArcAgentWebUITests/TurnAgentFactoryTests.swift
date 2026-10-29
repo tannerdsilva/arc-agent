@@ -145,7 +145,8 @@ extension ArcWebUITestRoot {
             // the turn's own identity and budget.
             #expect(config.platformHint == "webui")
             #expect(config.maxIterations == AppState.effectiveMaxTurns())
-            #expect(config.maxTurnDuration == 120)
+            #expect(config.maxTurnDuration == 0,
+                    "unlimited by default (agent.max_turn_duration unset → 0)")
             #expect(config.disabledToolsets == Set(["browser", "cron"]))
             let turnBudget = await app.compressionBudget(for: "s-alpha")
             #expect(turnBudget == 12_000, "the profile's compression budget")

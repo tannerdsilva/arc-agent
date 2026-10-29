@@ -29,6 +29,8 @@ struct RegionIdentityCensusTests {
 		"al-max-turns-wrap|al-max-turns",
 		"al-tool-cap-unl-wrap|al-tool-cap-unlimited",
 		"al-tool-cap-wrap|al-tool-cap",
+		"al-turn-duration-unl-wrap|al-turn-duration-unlimited",
+		"al-turn-duration-wrap|al-turn-duration",
 		"chat-showarch-link|chat-showarch",
 		"sess-list-body|sess-list",
 		"skill-new-main|skill-new",

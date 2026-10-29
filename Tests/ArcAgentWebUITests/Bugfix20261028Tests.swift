@@ -16,39 +16,39 @@ struct Bugfix20261028Tests {
     @Test("splitSections splits on bare § lines and rejoins byte-exactly")
     func sectionRoundTrip() {
         let content = "first entry\nsecond line\n§\nsecond entry\n§\nthird"
-        let sections = MemoryDocRoute.splitSections(content)
+        let sections = MemorySections.splitSections(content)
         #expect(sections.count == 3)
         #expect(sections[0] == "first entry\nsecond line")
         #expect(sections[1] == "second entry")
         #expect(sections[2] == "third")
-        #expect(MemoryDocRoute.joinSections(sections) == content)
+        #expect(MemorySections.joinSections(sections) == content)
     }
 
     @Test("a § inside entry content is not a delimiter; whitespace-tolerant delimiter lines are")
     func delimiterPrecision() {
         let content = "entry with § mid-line stays whole\n§\nnext"
-        let sections = MemoryDocRoute.splitSections(content)
+        let sections = MemorySections.splitSections(content)
         #expect(sections.count == 2)
         #expect(sections[0] == "entry with § mid-line stays whole")
-        #expect(MemoryDocRoute.joinSections(sections) == "entry with § mid-line stays whole\n§\nnext")
+        #expect(MemorySections.joinSections(sections) == "entry with § mid-line stays whole\n§\nnext")
 
         let padded = "a\n  §  \nb"
-        #expect(MemoryDocRoute.splitSections(padded).count == 2)
+        #expect(MemorySections.splitSections(padded).count == 2)
     }
 
     @Test("empty bookend sections keep their delimiters; edges canonicalize to \\n§\\n")
     func emptyBookends() {
         let content = "§\nonly entry\n§"
-        let sections = MemoryDocRoute.splitSections(content)
+        let sections = MemorySections.splitSections(content)
         #expect(sections.count == 3)
         #expect(sections[0].isEmpty && sections[2].isEmpty)
         // Malformed bookends (a file that starts/ends with a bare § line)
         // rejoin with the canonical "\n§\n" delimiter — both § separators are
         // preserved; only the edge newlines are canonicalized. Well-formed
         // files (delimiter strictly between entries) are byte-exact.
-        let rejoined = MemoryDocRoute.joinSections(sections)
+        let rejoined = MemorySections.joinSections(sections)
         #expect(rejoined == "\n§\nonly entry\n§\n")
-        #expect(MemoryDocRoute.splitSections(rejoined) == sections)
+        #expect(MemorySections.splitSections(rejoined) == sections)
     }
 
     // MARK: max turn duration (default unlimited)
