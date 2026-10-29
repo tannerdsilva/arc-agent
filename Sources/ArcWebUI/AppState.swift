@@ -1040,6 +1040,11 @@ actor AppState {
     /// fallback can differ from the persisted setting within a process.
     var runtimeBackend: String = "file"
     var memory: (any MemoryProvider)?
+    /// The kanban board this UI's tool surface acts on (GROUNDZERO2 slice 1).
+    /// The daemon hands over the process's one board; a standalone UI builds
+    /// its own over `~/.arc/kanban`, the same directory the daemon and the CLI
+    /// administer. Nil only in the render-fixture init, where no tool runs.
+    var kanban: (any KanbanBoard)?
     var runtimeKey: String?
     /// In-memory storage fallback flag (never persisted): set by
     /// ``forceTesseraOff()`` when the boot-time Tessera probe times out.
@@ -1239,7 +1244,8 @@ actor AppState {
 
     init(
         thirdPartyPlugins: [any SidebarTabPlugin] = [],
-        delivery: DeliveryManager? = nil
+        delivery: DeliveryManager? = nil,
+        kanban: (any KanbanBoard)? = nil
     ) async throws {
         // Boot-time surface. No session is active and `settings` is not loaded
         // yet, so this is the `.default` scope at the process working
@@ -1250,6 +1256,14 @@ actor AppState {
         // this app is hosted in the daemon process. It binds `send_message` on
         // *this* surface; before GROUNDZERO slice 6 the tool found it through a
         // process global the session host happened to have set.
+        //
+        // `kanban` is the same shape for the board (GROUNDZERO2 slice 1): the
+        // UI's turn loop dispatches tools straight through this registry, so a
+        // surface with an empty board slot answers "board not available" for
+        // every `kanban_*` call no matter what the daemon has. A standalone UI
+        // (no daemon to hand one over) builds its own over `~/.arc/kanban`.
+        let board = kanban ?? FileKanbanBoard()
+        self.kanban = board
         self.registry = MutableToolRegistry(builtIn: try ArcAgentCore.buildRegistry(
             context: ToolContext(
                 profile: .default,
@@ -1260,6 +1274,7 @@ actor AppState {
             profiles: TesseraProfileStore.shared,
             memory: FileMemoryProvider(),
             sessions: FileSessionStore(),
+            kanban: board,
             delivery: delivery
         ))
         let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolset })
@@ -2152,6 +2167,9 @@ actor AppState {
             profiles: TesseraProfileStore.shared,
             memory: memory ?? FileMemoryProvider(),
             sessions: store ?? FileSessionStore(),
+            // The same board the boot surface and (in the daemon) the sessions
+            // use — a rebuild must not leave the tools without one.
+            kanban: kanban,
             enabledPlugins: arcConfig.plugins.enabled.map { Set($0) }
         )
     }

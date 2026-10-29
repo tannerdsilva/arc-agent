@@ -408,7 +408,12 @@ struct McpLocal: AsyncParsableCommand {
             ),
             profiles: TesseraProfileStore.shared,
             memory: FileMemoryProvider(directory: ProfileManager.memoryURL(for: "default")),
-            sessions: FileSessionStore()
+            sessions: FileSessionStore(),
+            // `arc local` dispatches tools for real, so it needs a real board:
+            // the same core file board `arc kanban list` reads and the daemon
+            // dispatches (GROUNDZERO2 slice 1). Its own instance — this is a
+            // separate process from the daemon.
+            kanban: FileKanbanBoard()
         )
         let dispatcher = ArcToolDispatcher(registry: registry)
         let bridge = LocalMCPBridge(dispatcher: dispatcher)

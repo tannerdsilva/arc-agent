@@ -245,6 +245,11 @@ struct Chat: AsyncParsableCommand {
             profiles: TesseraProfileStore.shared,
             memory: memoryProvider ?? FileMemoryProvider(directory: memoryDir),
             sessions: sessionStore,
+            // The CLI's own production surface: an `arc` chat can work the same
+            // board `arc kanban list` shows and the daemon dispatches
+            // (GROUNDZERO2 slice 1). One instance for this process; the board
+            // is the core file board over `~/.arc/kanban`.
+            kanban: FileKanbanBoard(),
             enabledPlugins: pluginAllowList()
         )
 

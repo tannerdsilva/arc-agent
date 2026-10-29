@@ -88,6 +88,14 @@ public actor SessionRegistry {
         /// standalone path (CLI, tests), where `ProfileManager()` — the shim —
         /// is still the seam; the daemon always supplies it.
         public let profiles: ProfileService?
+        /// The process's one kanban board, when the host has one. Sessions
+        /// build their registry through `MutableToolRegistry.make`, which had
+        /// no `kanban:` parameter until slice 1 of GROUNDZERO2: the five
+        /// `kanban_*` tools read a slot nothing filled, so every call answered
+        /// "board not available" while the daemon dispatched against a real
+        /// board over `~/.arc/kanban`. Nil keeps that honest refusal for a host
+        /// with no board.
+        public let kanban: (any KanbanBoard)?
 
         public init(
             model: String,
@@ -106,7 +114,8 @@ public actor SessionRegistry {
             backgroundReviewAfter: Int = 0,
             backgroundReviewWindow: Int = 8,
             storage: StorageRuntime? = nil,
-            profiles: ProfileService? = nil
+            profiles: ProfileService? = nil,
+            kanban: (any KanbanBoard)? = nil
             ) {
             self.model = model
             self.provider = provider
@@ -125,6 +134,7 @@ public actor SessionRegistry {
             self.contextDefaults = contextDefaults
             self.storage = storage
             self.profiles = profiles
+            self.kanban = kanban
         }
     }
 

@@ -548,6 +548,10 @@ public struct MutableToolRegistry: ToolRegistry {
     /// added at runtime joins the same surface the turn loop dispatches
     /// through, and `memory` / `profile_edit` keep addressing that session's
     /// profile instead of falling back to `default`.
+    /// - Parameter kanban: the board the `kanban_*` tools act on. The caller
+    ///   that owns the board (the daemon, the CLI, the web UI) passes it here;
+    ///   `nil` keeps the tools in the surface with an honest "board not
+    ///   available", never a board this builder invented.
     public static func make(
         context: ToolContext,
         profiles: any ProfileStore,
@@ -555,6 +559,7 @@ public struct MutableToolRegistry: ToolRegistry {
         sessions: any SessionStore,
         messaging: (any BotMessageDelivering)? = nil,
         groupChats: GroupChatManager? = nil,
+        kanban: (any KanbanBoard)? = nil,
         pluginRegistry: PluginRegistry? = nil,
         enabledPlugins: Set<String>? = nil,
         sources: [any ToolSource] = []
@@ -565,7 +570,8 @@ public struct MutableToolRegistry: ToolRegistry {
             memory: memory,
             sessions: sessions,
             messaging: messaging,
-            groupChats: groupChats
+            groupChats: groupChats,
+            kanban: kanban
         )
         var registry = MutableToolRegistry(builtIn: builtIn)
         let plugins = pluginRegistry ?? PluginRegistry.shared

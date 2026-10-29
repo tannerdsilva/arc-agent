@@ -132,6 +132,11 @@ public actor SessionAgent: Service {
                 // surface without them carries neither.
                 messaging: await registry.messagingService,
                 groupChats: await registry.groupChats,
+                // The daemon's one board, not a per-session one: `kanban_list`
+                // reads the in-memory cache a `FileKanbanBoard` keeps, so a
+                // second instance over the same directory would not see the
+                // tasks another surface created.
+                kanban: agentConfig.kanban,
                 enabledPlugins: pluginAllowList()
             )
 

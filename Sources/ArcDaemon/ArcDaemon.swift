@@ -84,6 +84,17 @@ public enum ArcDaemon {
         }
         let storage = await StorageRuntime.resolve(tessera: effectiveTessera, tesseraOff: effectiveOff)
 
+        // ONE kanban board for the whole process (GROUNDZERO2 slice 1, D22).
+        // The board is real and the daemon has always dispatched against one;
+        // what was missing is the *join* — every agent surface builds its
+        // registry through `MutableToolRegistry.make`, which had no `kanban:`
+        // parameter, so the five `kanban_*` tools read an empty slot and
+        // answered "board not available". One instance, handed to the sessions,
+        // the MCP surface, the web UI's tool surface and the dispatcher below:
+        // a `FileKanbanBoard` lists from its in-memory cache, so a second
+        // instance over `~/.arc/kanban` would not see the first one's tasks.
+        let kanbanBoard = FileKanbanBoard()
+
         let agentConfig = SessionRegistry.AgentConfig(
             model: arc.model.defaultModel,
             provider: arc.model.provider,
@@ -96,7 +107,8 @@ public enum ArcDaemon {
             mcpServers: arc.mcpServers,
             contextDefaults: WebUIContextDefaults.loadFromDisk() ?? arc.contextDefaults,
             storage: storage,
-            profiles: profileService
+            profiles: profileService,
+            kanban: kanbanBoard
         )
 
         // ── surfaces ────────────────────────────────────────────────
@@ -133,7 +145,13 @@ public enum ArcDaemon {
                 // The session host (built just above) owns the process's
                 // platform adapters; the UI's `send_message` gets that path as
                 // a per-surface slot (GROUNDZERO slice 6).
-                delivery: sessionHost?.delivery
+                delivery: sessionHost?.delivery,
+                // Same board the sessions and the dispatcher use (GROUNDZERO2
+                // slice 1): the UI's turn loop dispatches tools straight
+                // through its own registry, so without this its `kanban_*`
+                // tools would answer "board not available" in the one process
+                // that has a board.
+                kanban: kanbanBoard
             )
         }
 
@@ -246,6 +264,9 @@ public enum ArcDaemon {
                     // are simply absent from this surface.
                     messaging: sessionHost?.messaging,
                     groupChats: sessionHost?.groupChats,
+                    // The process's one board: an MCP client that calls
+                    // `kanban_create` works the board the sessions see.
+                    kanban: kanbanBoard,
                     // `send_message` reaches the same platform adapters the
                     // sessions do; the slot is this surface's own (slice 6).
                     delivery: sessionHost?.delivery
@@ -257,7 +278,7 @@ public enum ArcDaemon {
             // CORE board (~/.arc/kanban), not the web UI's panel. Default off;
             // see KanbanConfig.
             services.append(KanbanDispatcher(
-                board: FileKanbanBoard(),
+                board: kanbanBoard,
                 pollIntervalSeconds: UInt64(kanban.pollSeconds)
             ))
         }
