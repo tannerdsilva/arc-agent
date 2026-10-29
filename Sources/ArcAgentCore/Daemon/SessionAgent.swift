@@ -162,7 +162,7 @@ public actor SessionAgent: Service {
                 skills: [],
                 maxIterations: agentConfig.maxIterations ?? 25,
                 toolLoopCap: agentConfig.toolLoopCap,
-                maxTurnDuration: 120,
+                maxTurnDuration: agentConfig.maxTurnDuration ?? 0,
                 persistSessions: agentConfig.tessera != nil ? agentConfig.persistSessions : false,
                 approvalMode: .manual,
                 // Session agents are long-lived, but seed the persisted

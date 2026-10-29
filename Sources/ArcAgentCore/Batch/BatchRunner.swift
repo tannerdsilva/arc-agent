@@ -393,6 +393,7 @@ public actor BatchRunner {
             apiKey: effectiveKey,
             registry: (try? ArcAgentCore.buildDefaultRegistry()) ?? CompileTimeToolRegistry(),
             maxIterations: ctx.options.maxTurns,
+            maxTurnDuration: loadConfig().effectiveMaxTurnDuration() ?? 0,
             injectProjectContext: false,
             disabledToolsets: disabled
         )

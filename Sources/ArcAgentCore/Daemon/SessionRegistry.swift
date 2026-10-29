@@ -64,6 +64,9 @@ public actor SessionRegistry {
         /// Per-tool call cap for hosted sessions (nil = default 25;
         /// 0/negative = unlimited).
         public let toolLoopCap: Int?
+        /// Max turn wall-clock seconds for hosted sessions (nil/0/negative =
+        /// unlimited — the default).
+        public let maxTurnDuration: Int?
         /// Mixture-of-Agents configuration (reference `moa` config block).
         public let moa: MoAConfig
         /// Verify work at turn end (reference `verify_on_stop`).
@@ -95,6 +98,7 @@ public actor SessionRegistry {
             moa: MoAConfig = MoAConfig(),
             maxIterations: Int? = nil,
             toolLoopCap: Int? = nil,
+            maxTurnDuration: Int? = nil,
             mcpServers: [String: MCPServerConfig] = [:],
             contextDefaults: ContextRecipe? = nil,
             verifyOnStop: Bool = false,
@@ -116,6 +120,7 @@ public actor SessionRegistry {
             self.backgroundReviewWindow = backgroundReviewWindow
             self.maxIterations = maxIterations
             self.toolLoopCap = toolLoopCap
+            self.maxTurnDuration = maxTurnDuration
             self.mcpServers = mcpServers
             self.contextDefaults = contextDefaults
             self.storage = storage

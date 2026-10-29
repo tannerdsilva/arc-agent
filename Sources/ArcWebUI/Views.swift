@@ -993,7 +993,7 @@ extension AppState {
         }
         return """
         \(head)
-        <div class="panel-body">\(rows.joined())</div>
+        <div class="panel-body" id="tool-list-body" data-scroll-key="tools">\(rows.joined())</div>
         """
     }
 
@@ -2598,25 +2598,26 @@ extension AppState {
     func profileKV(_ p: Profile) -> String {
         var rows = ""
         rows += "<div class=\"kv\"><span class=\"k\">Name</span><span class=\"v\">\(esc(p.name))</span></div>"
-        rows += "<div class=\"kv\"><span class=\"k\">Model</span><span class=\"v\">\(esc(p.model ?? "inherit"))</span></div>"
-        rows += "<div class=\"kv\"><span class=\"k\">Provider</span><span class=\"v\">\(esc(p.provider ?? "inherit"))</span></div>"
+        rows += "<div class=\"kv\"><span class=\"k\">Model</span><span class=\"v\">\(esc(p.model ?? "Inherit Default"))</span></div>"
+        rows += "<div class=\"kv\"><span class=\"k\">Provider</span><span class=\"v\">\(esc(p.provider ?? "Inherit Default"))</span></div>"
         if let b = p.baseURL { rows += "<div class=\"kv\"><span class=\"k\">Base URL</span><span class=\"v\">\(esc(b))</span></div>" }
         return rows
     }
 
-    /// Per-profile context parameters summary (kv rows; "inherit" when unset)
-    /// plus the pinned context skills, if any.
+    /// Per-profile context parameters summary (kv rows; "Inherit Default" when
+    /// unset) plus the pinned context skills, if any. The label span carries a
+    /// trailing ": " so the value never renders flush against the name.
     func profileContextHTML(_ p: Profile) -> String {
         var rows = ""
         if let ctx = p.context, !ctx.isEmpty {
-            rows += "<div class=\"kv\"><span class=\"k\">Context window</span><span class=\"v\">\(ctx.contextLength.map { "\($0) tokens" } ?? "inherit")</span></div>"
-            rows += "<div class=\"kv\"><span class=\"k\">Max output</span><span class=\"v\">\(ctx.maxOutputTokens.map { "\($0) tokens" } ?? "inherit")</span></div>"
-            rows += "<div class=\"kv\"><span class=\"k\">Reasoning effort</span><span class=\"v\">\(esc(ctx.reasoningEffort ?? "inherit"))</span></div>"
-            rows += "<div class=\"kv\"><span class=\"k\">Temperature</span><span class=\"v\">\(ctx.temperature.map { String($0) } ?? "inherit")</span></div>"
-            rows += "<div class=\"kv\"><span class=\"k\">Top P</span><span class=\"v\">\(ctx.topP.map { String($0) } ?? "inherit")</span></div>"
-            rows += "<div class=\"kv\"><span class=\"k\">Compress at</span><span class=\"v\">\(ctx.compressionBudget.map { "\($0) tokens" } ?? "inherit")</span></div>"
+            rows += "<div class=\"kv\"><span class=\"k\">Context window: </span><span class=\"v\">\(ctx.contextLength.map { "\($0) tokens" } ?? "Inherit Default")</span></div>"
+            rows += "<div class=\"kv\"><span class=\"k\">Max output: </span><span class=\"v\">\(ctx.maxOutputTokens.map { "\($0) tokens" } ?? "Inherit Default")</span></div>"
+            rows += "<div class=\"kv\"><span class=\"k\">Reasoning effort: </span><span class=\"v\">\(esc(ctx.reasoningEffort ?? "Inherit Default"))</span></div>"
+            rows += "<div class=\"kv\"><span class=\"k\">Temperature: </span><span class=\"v\">\(ctx.temperature.map { String($0) } ?? "Inherit Default")</span></div>"
+            rows += "<div class=\"kv\"><span class=\"k\">Top P: </span><span class=\"v\">\(ctx.topP.map { String($0) } ?? "Inherit Default")</span></div>"
+            rows += "<div class=\"kv\"><span class=\"k\">Compress at: </span><span class=\"v\">\(ctx.compressionBudget.map { "\($0) tokens" } ?? "Inherit Default")</span></div>"
         } else {
-            rows += "<div class=\"kv\"><span class=\"k\">Context</span><span class=\"v\">inherit (no overrides)</span></div>"
+            rows += "<div class=\"kv\"><span class=\"k\">Context: </span><span class=\"v\">Inherit Default (no overrides)</span></div>"
         }
         if let pinned = p.contextSkills, !pinned.isEmpty {
             let names = pinned.map { esc($0) }.joined(separator: ", ")
@@ -3049,6 +3050,8 @@ extension AppState {
         let loopUnlimited = (rawLoop ?? 1) <= 0
         let effLoop = arcConfig.effectiveToolLoopCap()
         let loopValue = effLoop == Int.max ? 25 : effLoop
+        let turnUnlimited = arcConfig.effectiveMaxTurnDuration() == nil
+        let turnValue = arcConfig.effectiveMaxTurnDuration() ?? 120
         func sw(_ id: String, _ on: Bool) -> String {
             "<label class=\"switch\"><input type=\"checkbox\" id=\"\(id)\" data-no-restore \(on ? "checked" : "")><span class=\"track\"></span><span class=\"knob\"></span></label>"
         }
@@ -3079,6 +3082,18 @@ extension AppState {
               <div class="set-label">Unlimited per-tool calls<small>No synthetic call cap for any tool in a turn.</small></div>
               <div id="al-tool-cap-unl-wrap" data-component-id="al-tool-cap-unlimited" data-event="change">
                 \(sw("al-tool-cap-unlimited", loopUnlimited))
+              </div>
+            </div>
+            <div class="set-row" style="margin-top:14px">
+              <div class="set-label">Max turn duration<small>Wall-clock budget per turn in seconds. The turn is stopped when the budget is exceeded.</small></div>
+              <div id="al-turn-duration-wrap" data-component-id="al-turn-duration" data-event="change">
+                <input type="number" id="al-turn-duration" min="1" step="1" value="\(turnValue)" \(turnUnlimited ? "disabled" : "") style="\(numStyle)">
+              </div>
+            </div>
+            <div class="set-row">
+              <div class="set-label">Unlimited turn duration<small>Default: turns run with no wall-clock limit.</small></div>
+              <div id="al-turn-duration-unl-wrap" data-component-id="al-turn-duration-unlimited" data-event="change">
+                \(sw("al-turn-duration-unlimited", turnUnlimited))
               </div>
             </div>
           </div>
@@ -3850,14 +3865,24 @@ extension AppState {
         }
         let meta = memoryMeta(doc)
         let title = meta.title, sub = meta.file
+        // Memory entries are `§`-delimited; the web UI renders the delimiter
+        // as a real line separator between entry sections (view + editor).
+        // Display-only: the stored file keeps its exact bytes.
+        let sections = MemoryDocRoute.splitSections(memoryContent)
         if memoryEdit {
+            let editors = sections.enumerated().map { (idx, section) -> String in
+                let area = """
+                <textarea id="mem-content-\(idx)" name="mem-content-\(idx)" data-no-restore class="mem-textarea" spellcheck="false">\(esc(section))</textarea>
+                """
+                return idx == sections.count - 1 ? area : area + "<div class=\"mem-sep\"></div>"
+            }.joined()
             return """
             <div class="main-view"><div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
               <form id="mem-save-form" data-component-id="mem-save-form" class="detail-card">
                 <h1 class="detail-title" style="margin:0">Edit \(esc(sub))</h1>
                 <div class="detail-sub">\(esc(meta.note))</div>
                 <input type="hidden" name="mem-key" value="\(doc)">
-                <textarea id="mem-content" name="mem-content" data-component-id="mem-content" class="mem-textarea" spellcheck="false">\(esc(memoryContent))</textarea>
+                \(editors)
                 <div class="row-actions-main">
                   <button type="submit" class="primary-btn">Save changes</button>
                   \(btn("mem-cancel", "", "ghost-btn", "Cancel"))
@@ -3868,7 +3893,7 @@ extension AppState {
         }
         let contentHTML = memoryContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "<div class=\"empty-hint\">\(esc(sub)) is empty. Press " + WebUIIcon(.edit, size: .small).markup.html + " to start writing.</div>"
-            : mdBox(memoryContent)
+            : sections.map { mdBox($0) }.joined(separator: "<div class=\"mem-sep\"></div>")
         return """
         <div class="main-view"><div id="main-scroll" class="main-scroll" data-scroll-key="main-scroll">
           <div class="detail-card">

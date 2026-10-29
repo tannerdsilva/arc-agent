@@ -183,7 +183,9 @@ extension AppState {
 
     func insightsMain() -> String {
         let totalUses = insights.skillStats.values.reduce(0) { $0 + $1.uses }
-        let touched = insights.skillStats.values.filter { $0.uses > 0 || $0.views > 0 || $0.patches > 0 }.count
+        // "Skills Used" counts genuine invocations (uses) only — panel views
+        // are passive browsing and must not mark a skill as used.
+        let touched = insights.skillStats.values.filter { $0.uses > 0 }.count
         let skillNames = Array(Set(skills.map(\.name)).union(insights.skillStats.keys)).sorted()
 
         // Section 1 — skill usage

@@ -639,7 +639,7 @@ extension AppState {
             sessionStore: store,
             memoryProvider: memory,
             maxIterations: max(1, Self.effectiveMaxTurns()),
-            maxTurnDuration: 120,
+            maxTurnDuration: arcConfig.effectiveMaxTurnDuration() ?? 0,
             persistSessions: false,
             approvalMode: .manual,
             // Share the app-level manager: it outlives this turn-scoped agent
@@ -3074,6 +3074,21 @@ final class Controller: Sendable {
                 kind: "success")
             return await self.app.refreshFragments()
         }
+        wire(router, id: "al-turn-duration", events: ["change"]) { event in
+            guard let v = Int(event.string("value") ?? ""), v > 0 else { return [] }
+            await self.app.setTurnDuration(v)
+            _ = await self.app.hint("Max turn duration set to \(v)s (agent.max_turn_duration).", kind: "success")
+            return await self.app.refreshFragments()
+        }
+        wire(router, id: "al-turn-duration-unlimited", events: ["change"]) { event in
+            let on = event.checked == true
+            await self.app.setTurnDuration(on ? nil : 120)
+            _ = await self.app.hint(
+                on ? "Turn duration unlimited — turns run with no wall-clock limit."
+                   : "Max turn duration set to 120s.",
+                kind: "success")
+            return await self.app.refreshFragments()
+        }
         wire(router, id: "modelcfg-add-form", events: ["submit"]) { event in
             let name = (event.string("mc-name") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let model = (event.string("mc-model") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3159,7 +3174,19 @@ final class Controller: Sendable {
         wire(router, id: "mem-save-form", events: ["submit", "click"]) { event in
             if event.event == "submit" {
                 let key = event.string("mem-key") ?? "memory"
-                let content = event.string("mem-content") ?? ""
+                // The editor renders one textarea per §-delimited entry
+                // section (mem-content-0, mem-content-1, …) with a visible
+                // separator between them. Reassemble in index order with the
+                // canonical "\n§\n" delimiter so the stored file keeps the
+                // exact entry shape (view-layer split is display-only).
+                let indexed: [(Int, String)] = event.data.compactMap { (k, v) in
+                    guard k.hasPrefix("mem-content-"), case .string(let s) = v,
+                          let i = Int(k.dropFirst("mem-content-".count)) else { return nil }
+                    return (i, s)
+                }.sorted { $0.0 < $1.0 }
+                let content = indexed.isEmpty
+                    ? (event.string("mem-content") ?? "")
+                    : MemoryDocRoute.joinSections(indexed.map(\.1))
                 await self.app.saveMemoryDoc(key, content: content)
             } else if event.string("targetId") == "mem-cancel" {
                 await self.app.cancelMemoryEdit()

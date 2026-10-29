@@ -27,6 +27,35 @@ enum MemoryDocRoute {
         }
     }
 
+    // MARK: §-entry sections (view-layer only)
+
+    /// Memory files store entries joined by a line that is exactly `§`
+    /// (reference `ENTRY_DELIMITER = "\n§\n"`). The web UI shows each entry
+    /// section separately with a real line separator between them — this
+    /// split is display-only and never touches the stored bytes.
+    static func splitSections(_ content: String) -> [String] {
+        var sections: [String] = []
+        var current: [String] = []
+        for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.trimmingCharacters(in: .whitespaces) == "§" {
+                sections.append(current.joined(separator: "\n"))
+                current = []
+            } else {
+                current.append(String(line))
+            }
+        }
+        sections.append(current.joined(separator: "\n"))
+        // A leading/trailing delimiter yields empty bookend sections; keep
+        // them so the round-trip through the editor preserves the count.
+        return sections
+    }
+
+    /// Inverse of ``splitSections`` — rejoins edited sections with the
+    /// canonical delimiter so the saved file keeps the same byte shape.
+    static func joinSections(_ sections: [String]) -> String {
+        sections.joined(separator: "\n§\n")
+    }
+
     /// The profile whose SOUL the panel reads/edits. Empty means "use the
     /// default primary profile". Passed in by the caller so this stays a pure
     /// function of its inputs (and testable without a full ``AppState``).
