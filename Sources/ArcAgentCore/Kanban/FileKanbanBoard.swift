@@ -58,6 +58,7 @@ public actor FileKanbanBoard: KanbanBoard {
         assignee: String? = nil,
         limit: Int = 50
     ) async throws -> [KanbanTask] {
+        hydrateFromDirectory()
         var tasks = Array(cache.values)
 
         if let status {
@@ -141,5 +142,38 @@ public actor FileKanbanBoard: KanbanBoard {
         else { return nil }
         cache[id] = task
         return task
+    }
+
+    /// Merge the tasks that are on disk into `cache`.
+    ///
+    /// `cache` starts empty at construction, so a freshly constructed board —
+    /// a restarted daemon, a second process over the same directory, the CLI's
+    /// `arc kanban list` — would otherwise list nothing until something read a
+    /// task by id. Hydration closes that gap on the board's primary read path.
+    ///
+    /// An entry already in memory always wins: `update` has persisted it, and
+    /// a deleted task's file is gone, so hydration can only add what this
+    /// instance has not seen. A file that cannot be read or decoded is skipped
+    /// — the same tolerance ``load(id:)`` has — rather than failing the list.
+    ///
+    /// The directory is the source of truth for tasks this instance has not
+    /// touched; there is no watcher and no second cache. Every `list` re-reads
+    /// it, which is what lets two live instances see each other's work.
+    private func hydrateFromDirectory() {
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        let decoder = JSONDecoder()
+        for url in entries where url.pathExtension == "json" {
+            guard let data = try? Data(contentsOf: url),
+                  let task = try? decoder.decode(KanbanTask.self, from: data)
+            else { continue }
+            if cache[task.id] == nil {
+                cache[task.id] = task
+            }
+        }
     }
 }
