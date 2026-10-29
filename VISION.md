@@ -333,7 +333,7 @@ let toolsetDefinitions: [String: ToolsetDef] = [
 ]
 ```
 
-**43 tools across ~9 toolsets.**
+**54 tools across 16 toolsets.**
 
 **Schema generation for LLM:**
 
