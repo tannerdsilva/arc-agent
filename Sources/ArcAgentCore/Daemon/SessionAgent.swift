@@ -49,6 +49,7 @@ public actor SessionAgent: Service {
             let resolvedProvider: String
             let resolvedBaseURL: URL
             let resolvedSOUL: String?
+            let resolvedProfileRecord: Profile?
             let resolvedContext: ProfileContextConfig?
             let resolvedProfileDefaults: ContextRecipe?
 
@@ -64,6 +65,7 @@ public actor SessionAgent: Service {
                     resolvedBaseURL = URL(string: "https://api.openai.com/v1")!
                 }
                 resolvedSOUL = profileConfig.soulMD
+                resolvedProfileRecord = profileConfig
                 resolvedContext = profileConfig.context
                 resolvedProfileDefaults = profileConfig.contextDefaults
             } else {
@@ -75,6 +77,7 @@ public actor SessionAgent: Service {
                     resolvedBaseURL = URL(string: "https://api.openai.com/v1")!
                 }
                 resolvedSOUL = nil
+                resolvedProfileRecord = nil
                 resolvedContext = nil
                 resolvedProfileDefaults = nil
             }
@@ -237,10 +240,24 @@ public actor SessionAgent: Service {
             logger.info("step: setting up client")
             await agent.setupClient(httpClient: httpClient)
 
-            // Inject the SOUL.md as a system message if present
+            // Inject the profile's SOUL as a system message, with the
+            // agent-messaging protocol appended only when this session's
+            // surface actually carries `send_bot_message`: the condition is
+            // the registry lookup inside `sessionSystemMessage` — the same
+            // register-when-available decision (D21) that put the tool there —
+            // so a CLI-shaped or service-less surface is never taught a tool
+            // it does not have, and a caller's flag cannot drift from the
+            // surface it claims to describe.
             logger.info("step: checking soul")
-            if let soul = resolvedSOUL {
-                await agent.injectSystemMessage(soul)
+            let profileStore: any ProfileStore = agentConfig.profiles ?? TesseraProfileStore.shared
+            let roster: [Profile] = (try? await profileStore.list()) ?? []
+            if let prompt = sessionSystemMessage(
+                soul: resolvedSOUL,
+                registry: toolRegistry,
+                profile: resolvedProfileRecord ?? Profile(name: profile),
+                roster: roster
+            ) {
+                await agent.injectSystemMessage(prompt)
             }
 
             // Process incoming messages (with session-heartbeat injection:

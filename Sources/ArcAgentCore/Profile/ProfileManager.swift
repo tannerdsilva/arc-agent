@@ -285,28 +285,12 @@ public actor ProfileManager {
         return sessionID
     }
 
-    /// Generate the default SOUL.md content for a profile.
-    public static func defaultSoul(for profile: Profile, roster: [Profile]) -> String {
-        let teammates = roster.filter { $0.name != profile.name }
-        let lines = [
-            "# \(profile.displayName)",
-            "",
-            profile.title.isEmpty ? nil : "**Role:** \(profile.title)",
-            profile.description.isEmpty ? nil : "**Mission:** \(profile.description)",
-            "",
-            "You are \(profile.displayName), a persistent named agent (profile `\(profile.name)`) on this machine.",
-            "You keep your own memory, skills, and conversation history across sessions.",
-            "",
-            messagingProtocolSection(name: profile.name, displayName: profile.displayName, teammates: teammates)
-        ]
-
-        return lines.compactMap { $0 }.joined(separator: "\n")
-    }
 }
 
 // MARK: - Messaging Protocol Section
 
-/// The agent-to-agent messaging protocol section appended to every SOUL.md.
+/// The agent-to-agent messaging protocol section appended to a daemon
+/// session's system message when its surface carries `send_bot_message`.
 /// This teaches each bot how to communicate with its peers.
 public func messagingProtocolSection(
     name: String,
@@ -362,4 +346,49 @@ public func messagingProtocolSection(
     ]
 
     return lines.joined(separator: "\n")
+}
+
+/// The system message a daemon session injects, or `nil` when there is nothing
+/// to say.
+///
+/// The profile's SOUL leads. The agent-to-agent protocol follows **only when
+/// this session's surface carries `send_bot_message`** — messaging is
+/// register-when-available (D21), so the registry lookup that finds the tool is
+/// the same decision that appends the text describing it, and a `Bool` threaded
+/// from the caller cannot promise a protocol the surface does not have.
+///
+/// A SOUL that already documents the protocol is left alone: an operator's own
+/// copy wins over a second one.
+func sessionSystemMessage(
+    soul: String?,
+    registry: any ToolRegistry,
+    profile: Profile,
+    roster: [Profile]
+) -> String? {
+    var sections: [String] = []
+
+    if let soul {
+        // Trimmed so the sections are separated by exactly one blank line,
+        // whatever trailing newline the SOUL document was saved with.
+        let text = soul.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty { sections.append(text) }
+    }
+
+    if registry.lookup(name: "send_bot_message") != nil {
+        let messaging = messagingProtocolSection(
+            name: profile.name,
+            displayName: profile.displayName,
+            teammates: roster.filter { $0.name != profile.name }
+        )
+        // The heading is read off the section itself: the product copy exists
+        // exactly once, in `messagingProtocolSection`, so this dedupe cannot
+        // drift from the text it is checking for.
+        let heading = messaging.components(separatedBy: "\n").first ?? messaging
+        if !(soul?.contains(heading) ?? false) {
+            sections.append(messaging)
+        }
+    }
+
+    let message = sections.joined(separator: "\n\n")
+    return message.isEmpty ? nil : message
 }

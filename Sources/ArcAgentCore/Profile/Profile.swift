@@ -115,7 +115,7 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
     public var disabledToolsets: Set<String>?
 
     /// Custom SOUL.md content (personality + instructions).
-    /// When nil, a default SOUL is generated from title + description.
+    /// When nil, the agent keeps the built-in identity from its system prompt.
     public var soulMD: String?
 
     /// Per-profile model context parameters (window size, generation budget,
