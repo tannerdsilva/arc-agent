@@ -110,9 +110,19 @@ public actor FileKanbanBoard: KanbanBoard {
     }
 
     public func recomputeReady() async throws {
-        for var task in cache.values where task.status == .todo {
+        // `cache` starts empty at construction, and `KanbanDispatcher` calls
+        // this before its first `list`, so without hydration a restarted
+        // daemon promotes nothing on its first tick.
+        hydrateFromDirectory()
+
+        // Snapshot: the loop below writes `cache` (`load` caches what it reads)
+        // and a dictionary cannot be mutated while its values are iterated.
+        for var task in Array(cache.values) where task.status == .todo {
             let allParentsDone = task.parents.allSatisfy { parentID in
-                cache[parentID]?.status == .done
+                // A parent another instance completed is on disk but not in
+                // this cache; treat it as the task it is, not as not-done.
+                // A parent that exists nowhere still reads as not done.
+                (cache[parentID] ?? load(id: parentID))?.status == .done
             }
             if allParentsDone {
                 task.status = .ready
