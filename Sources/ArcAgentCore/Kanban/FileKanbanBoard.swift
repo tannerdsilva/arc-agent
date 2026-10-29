@@ -70,7 +70,10 @@ public actor FileKanbanBoard: KanbanBoard {
 
         return tasks
             .sorted { $0.priority > $1.priority || ($0.priority == $1.priority && $0.createdAt < $1.createdAt) }
-            .prefix(limit)
+            // Defence in depth: the tool rejects a non-positive limit, but the
+            // CLI and the dispatcher reach this directly, and `prefix(_:)`
+            // traps on a negative length.
+            .prefix(max(0, limit))
             .map { $0 }
     }
 

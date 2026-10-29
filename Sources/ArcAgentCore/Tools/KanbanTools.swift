@@ -72,6 +72,11 @@ struct KanbanTools {
                 let statusFilter = (args["status"] as? String).flatMap { TaskStatus(rawValue: $0) }
                 let assigneeFilter = args["assignee"] as? String
                 let limit = args["limit"] as? Int ?? 20
+                // Untrusted count: `prefix(_:)` traps on a negative length, and
+                // the board is only reachable from a tool call and a CLI flag.
+                guard limit >= 1 else {
+                    return "Error: limit must be a positive integer (got \(limit))."
+                }
 
                 let tasks = try await board.list(status: statusFilter, assignee: assigneeFilter, limit: limit)
                 guard !tasks.isEmpty else {

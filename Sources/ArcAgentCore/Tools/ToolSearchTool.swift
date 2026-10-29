@@ -43,6 +43,10 @@ public enum ToolSearchTool {
             handler: { args in
                 let query = ((args["query"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 let limit = (args["limit"] as? Int) ?? 5
+                // Untrusted count: `prefix(_:)` traps on a negative length.
+                guard limit >= 1 else {
+                    return "Error: limit must be a positive integer (got \(limit))."
+                }
                 let form = (args["form"] as? String) ?? "listing"
                 guard forms.contains(form) else {
                     return "Error: invalid form '\(form)'. Valid forms: \(forms.joined(separator: ", "))"
@@ -101,6 +105,9 @@ public enum ToolSearchTool {
     /// Token-overlap scoring (reference BM25-order-of-magnitude: name terms weigh
     /// more than description terms; longer matches rank higher).
     static func search(_ catalog: [CatalogEntry], query: String, limit: Int) -> [CatalogEntry] {
+        // Defence in depth: the handler rejects a non-positive limit, but this
+        // is the slicing site, and `prefix(_:)` traps on a negative length.
+        let limit = max(0, limit)
         let terms = tokenize(query)
         guard !terms.isEmpty else { return Array(catalog.prefix(limit)) }
         let scored = catalog.map { entry -> (CatalogEntry, Int) in

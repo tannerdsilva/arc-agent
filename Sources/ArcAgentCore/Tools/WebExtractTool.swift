@@ -32,6 +32,11 @@ public enum WebExtractTool {
             let urls = try Self.collectURLs(args)
             let format = args["format"] as? String
             let charLimit: Int = (args["char_limit"] as? Int) ?? 15000
+            // Untrusted count: the truncation slices `prefix`/`suffix` by
+            // `charLimit / 2`, and both trap on a negative length.
+            guard charLimit >= 1 else {
+                return "Error: char_limit must be a positive integer (got \(charLimit))."
+            }
             return try await Self.extract(urls: urls, format: format, charLimit: charLimit)
         },
         emoji: "🌐"
@@ -119,6 +124,9 @@ public enum WebExtractTool {
     }
 
     private static func extract(urls: [String], format: String?, charLimit: Int) async throws -> String {
+        // Defence in depth: the handler rejects a non-positive limit, but the
+        // truncation below slices by half of it.
+        let charLimit = max(1, charLimit)
         // Resolve the extract backend (reference `_resolve_provider`).
         let config = loadConfig()
         let configured = config.web.extractBackend ?? config.web.backend
