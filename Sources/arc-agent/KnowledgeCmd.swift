@@ -175,16 +175,27 @@ struct SkillsSyncStatus: AsyncParsableCommand {
         guard FileManager.default.fileExists(atPath: hubDir) else {
             print("Hub not found at \(hubDir). Create it with `arc skills sync push`."); return
         }
-        let local = Dictionary(uniqueKeysWithValues: discoverSkills().map { (URL(fileURLWithPath: $0.path.path).deletingLastPathComponent().lastPathComponent, $0.path) })
-        _ = local
-        let localNames = Set(discoverSkills().map(\.name))
-        let hubNames = Set(hubSkillDates(hubDir).keys)
+        // Keyed by skill NAME, which is what the hub is keyed by. Two skills can
+        // share a parent directory name (`toolA/foo` and `toolB/foo`), and a
+        // name can be discovered twice; the plain initializer traps on either.
+        // First wins, matching `discoverSkills`' sorted order.
+        let local = Dictionary(
+            discoverSkills().map { ($0.name, $0.path) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let localNames = Set(local.keys)
+        let hubDates = hubSkillDates(hubDir)
+        let hubNames = Set(hubDates.keys)
         for missing in hubNames.subtracting(localNames) { print("→ hub-only: \(missing)") }
         for extra in localNames.subtracting(hubNames) { print("← local-only: \(extra)") }
         for common in localNames.intersection(hubNames).sorted() {
-            let hm = hubSkillDates(hubDir)[common] ?? .distantPast
+            let hm = hubDates[common] ?? .distantPast
+            // The path came from the same discovery pass as the name set, so no
+            // second scan and no force-unwrap: a skill deleted in between would
+            // otherwise crash the command.
+            guard let path = local[common] else { continue }
             let lm: Date? = (try? FileManager.default.attributesOfItem(
-                atPath: discoverSkills().first { $0.name == common }!.path.path
+                atPath: path.path
             ))?[.modificationDate] as? Date
             if let lm, lm > hm { print("≈ newer locally: \(common)") }
             else if let lm, lm < hm { print("≈ newer in hub: \(common)") }
