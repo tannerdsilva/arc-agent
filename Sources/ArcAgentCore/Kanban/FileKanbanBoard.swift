@@ -91,6 +91,10 @@ public actor FileKanbanBoard: KanbanBoard {
     }
 
     public func addDependency(parentID: String, childID: String) async throws {
+        // A task that depends on itself can never satisfy its own parents.
+        guard parentID != childID else {
+            throw KanbanError.cycleDetected
+        }
         guard var parent = cache[parentID] ?? load(id: parentID) else {
             throw KanbanError.notFound(parentID)
         }
@@ -98,8 +102,18 @@ public actor FileKanbanBoard: KanbanBoard {
             throw KanbanError.notFound(childID)
         }
 
-        // Check for cycles: does child already depend on parent?
-        if parent.parents.contains(childID) || child.children.contains(parentID) {
+        // The edge is a set member, not a list entry: adding it twice is a
+        // no-op. Either side recording it already means it is linked.
+        if parent.children.contains(childID) || child.parents.contains(parentID) {
+            return
+        }
+
+        // A cycle exists when the child already reaches the parent through its
+        // own descendants — appending parent → child would close the loop. The
+        // one-hop check this replaces caught only two-task loops, so a longer
+        // ring (A → B → C, then C → A) built a board whose tasks could never
+        // become ready.
+        if reaches(childID, ancestor: parentID) {
             throw KanbanError.cycleDetected
         }
 
@@ -110,6 +124,23 @@ public actor FileKanbanBoard: KanbanBoard {
         cache[childID] = child
         try save(parent)
         try save(child)
+    }
+
+    /// Whether `start` reaches `target` by following child edges.
+    ///
+    /// Reads through the cache and then the directory, so a cycle that spans
+    /// tasks another instance wrote is still refused. `visited` bounds the walk
+    /// even when the directory already holds a cycle.
+    private func reaches(_ start: String, ancestor target: String) -> Bool {
+        var visited: Set<String> = []
+        var frontier = [start]
+        while let current = frontier.popLast() {
+            if current == target { return true }
+            guard visited.insert(current).inserted else { continue }
+            guard let task = cache[current] ?? load(id: current) else { continue }
+            frontier.append(contentsOf: task.children)
+        }
+        return false
     }
 
     public func recomputeReady() async throws {
