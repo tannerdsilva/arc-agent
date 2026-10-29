@@ -4,9 +4,8 @@ import Foundation
 ///
 /// reference' `terminal(background=true)` returns a stable `session_id` that the
 /// agent manages with `process(action: poll|log|wait|kill)`. This actor is the
-/// arc-agent equivalent: it owns detached `Process` instances, captures their
-/// output to a per-session log file, tracks exit state, and serves the same
-/// collect surface.
+/// arc-agent equivalent: it owns the child sessions, captures their output to a
+/// per-session log file, tracks exit state, and serves the same collect surface.
 ///
 /// ## Rationale (vascular hardening)
 /// Long runs (`swift test` on a big suite, builds, servers) used to burn the
@@ -16,12 +15,17 @@ import Foundation
 /// pattern.
 ///
 /// ## Concurrency
-/// Foundation `Process` is the documented background exception in this
-/// codebase (SwiftSlash has no detached-launch API; see `TerminalTool`).
-/// Each session gets one structured `Task` that reaps via `waitUntilExit()`
-/// and records exit state — no ad-hoc daemon threads. Output goes to a temp
-/// file rather than pipes, so capture can never deadlock on a full pipe
-/// buffer and reads are demand-driven.
+/// Each session is a ``SubprocessSession``: a SwiftSlash child with `.own`
+/// process-group placement, byte channels, and one structured task that owns the
+/// reap. Nothing blocks a thread and nothing is signalled by hand.
+///
+/// This used to be the codebase's documented `Foundation.Process` exception.
+/// `Process` has no placement knob, so the shell joined **arc's own** process
+/// group: `kill` signalled the shell's pid while whatever the shell had started
+/// kept running, and the group arc could never address was the one it needed.
+/// The `.own` placement is what makes ``kill(id:)`` one signal that reaches the
+/// tree. Output is appended to a temp file rather than piped, so capture can
+/// never deadlock on a full pipe buffer and reads stay demand-driven.
 public actor ProcessRegistry {
 
     public static let shared = ProcessRegistry()
@@ -33,20 +37,28 @@ public actor ProcessRegistry {
         let id: String
         let command: String
         let workdir: String?
-        let process: Process
+        let session: SubprocessSession
+        /// The pid the kernel assigned, when one was observable. A child that exits
+        /// faster than the launch poll publishes no pid, and the session still works.
+        let pid: Int32?
         let logURL: URL
         let outputHandle: FileHandle
         let startedAt = Date()
         private(set) var exited = false
         private(set) var exitCode: Int? = nil
         private(set) var completionReason = "exited"
+        /// arc ended this session, so the exit status is a consequence not a cause.
+        private(set) var requestedKill = false
 
-        init(id: String, command: String, workdir: String?, process: Process,
-             logURL: URL, outputHandle: FileHandle) {
+        func requestKill() { requestedKill = true }
+
+        init(id: String, command: String, workdir: String?, session: SubprocessSession,
+             pid: Int32?, logURL: URL, outputHandle: FileHandle) {
             self.id = id
             self.command = command
             self.workdir = workdir
-            self.process = process
+            self.session = session
+            self.pid = pid
             self.logURL = logURL
             self.outputHandle = outputHandle
         }
@@ -63,49 +75,69 @@ public actor ProcessRegistry {
 
     // MARK: - Start
 
-    /// Start `command` detached, capturing combined stdout/stderr to a temp
-    /// log. Returns the arc-style `session_id` for ``poll``/``log``/``wait``/
+    /// Start `command` in the background, capturing combined stdout/stderr to a
+    /// temp log. Returns the arc-style `session_id` for ``poll``/``log``/``wait``/
     /// ``kill``.
     @discardableResult
-    public func start(command: String, workdir: String? = nil) throws -> String {
+    public func start(command: String, workdir: String? = nil) async throws -> String {
         let id = UUID().uuidString.lowercased()
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("arc-proc-\(id).log")
         FileManager.default.createFile(atPath: logURL.path, contents: nil)
         let outputHandle = try FileHandle(forWritingTo: logURL)
 
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/bin/bash")
-        proc.arguments = ["-c", command]
-        if let workdir {
-            proc.currentDirectoryURL = URL(fileURLWithPath: workdir)
+        // The shell runs through the same session type as every other long-lived
+        // child arc owns — one spawn path, `.own` placement, byte channels.
+        let session = SubprocessSession(
+            executable: "/bin/bash",
+            arguments: ["-c", command],
+            workingDirectory: workdir)
+        let pid: Int32?
+        do {
+            pid = try await session.start()
+        } catch {
+            try? outputHandle.close()
+            throw error
         }
-        proc.standardOutput = outputHandle
-        proc.standardError = outputHandle
 
         let entry = Entry(
             id: id, command: command, workdir: workdir,
-            process: proc, logURL: logURL, outputHandle: outputHandle)
+            session: session, pid: pid, logURL: logURL, outputHandle: outputHandle)
         entries[id] = entry
-
-        try proc.run()
 
         // Plan A: owned-process lifecycle events for hooks/jobs/notifications.
         let spawnedContext: [String: HookValue] = [
             "session_id": .string(id),
             "command": .string(command),
-            "pid": .int(Int(proc.processIdentifier)),
+            // 0 when the child exited before its pid was observable
+            "pid": .int(Int(pid ?? 0)),
             "workdir": .string(workdir ?? ""),
             "host": .string(ProcessInfo.processInfo.hostName),
         ]
         Task { await HookBus.shared.emit("process:spawned", spawnedContext) }
 
-        // Reap + record exit state (one structured task per session).
+        // One structured task per session: drain both byte channels into the log,
+        // then record the exit state. The group's implicit await at scope exit is
+        // what guarantees the log is complete before `exited` becomes observable.
         Task { [weak self] in
-            proc.waitUntilExit()
-            let code = Int(proc.terminationStatus)
-            let reason = proc.terminationReason == .uncaughtSignal ? "killed" : "exited"
-            await self?.markExited(id: id, code: code, reason: reason)
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    for await bytes in session.stdout {
+                        await self?.append(bytes, id: id)
+                    }
+                }
+                group.addTask {
+                    for await bytes in session.stderr {
+                        await self?.append(bytes, id: id)
+                    }
+                }
+            }
+            // The reap is the authority for both values: await it rather than
+            // reading state the drain may have outraced (a child can close both
+            // channels before it is reaped).
+            let exit = await session.waitForExit() ?? -1
+            let reason = await session.exitStatus()?.reason ?? "exited"
+            await self?.markExited(id: id, code: Int(exit), reason: reason)
         }
         return id
     }
@@ -149,7 +181,7 @@ public actor ProcessRegistry {
                     command: entry.command,
                     status: entry.exited ? "exited" : "running",
                     exitCode: entry.exitCode,
-                    pid: Int32(entry.process.processIdentifier)
+                    pid: entry.pid
                 )
             }
     }
@@ -202,27 +234,23 @@ public actor ProcessRegistry {
         return snapshot(id: id)
     }
 
-    /// Terminate a session (SIGTERM to the shell's children, then the shell;
-    /// the reaper task records `killed`). No-op for exited sessions. Waits
-    /// (bounded, 3 s) for the reaper so the returned snapshot is settled.
+    /// Terminate a session: SIGTERM to its process group, SIGKILL if it holds on
+    /// past the grace, then the reaper records `killed`. No-op for exited
+    /// sessions. Waits (bounded, 3 s) for the reaper so the returned snapshot is
+    /// settled.
     public func kill(id: String) async -> Snapshot? {
         guard let entry = entries[id] else { return nil }
         if !entry.exited {
-            let pid = entry.process.processIdentifier
-            // SIGTERM the shell's direct children first (a bare SIGTERM to
-            // bash would orphan `swift test` etc. in this same process group),
-            // then the shell itself. /bin/kill spawn is the same documented
-            // Foundation-Process exception as everything else here.
-            let helper = Process()
-            helper.executableURL = URL(fileURLWithPath: "/bin/bash")
-            helper.arguments = [
-                "-c",
-                "pkill -TERM -P \(pid) 2>/dev/null; sleep 0.2; kill -TERM \(pid) 2>/dev/null",
-            ]
-            try? helper.run()
-            helper.waitUntilExit()
+            // One signal, aimed at the GROUP. The session asked for `.own`, so the
+            // shell leads its own group and this reaches the shell and everything it
+            // started — including `swift test` and the compilers beneath it. The old
+            // path spawned a `/bin/bash -c "pkill -P <pid>; sleep 0.2; kill <pid>"`
+            // helper *because* a pid-only signal could not reach the tree — the
+            // placement removes the need for the helper entirely.
+            entry.requestKill()
+            await entry.session.shutdown(grace: .seconds(2))
         }
-        // Bounded settle: the actor reaper records exit state asynchronously.
+        // Bounded settle: the session's reaper records exit state asynchronously.
         let deadline = Date().addingTimeInterval(3)
         while !entry.exited && Date() < deadline {
             try? await Task.sleep(nanoseconds: 50_000_000) // 50 ms
@@ -232,9 +260,20 @@ public actor ProcessRegistry {
 
     // MARK: - Internals
 
+    /// Append child output to the session log. Called from the drain tasks, but
+    /// always executes inside the actor, so the two streams can never interleave a
+    /// partial write and the `FileHandle` never leaves this isolation domain.
+    private func append(_ bytes: [UInt8], id: String) {
+        guard let entry = entries[id], !bytes.isEmpty else { return }
+        try? entry.outputHandle.write(contentsOf: bytes)
+    }
+
     private func markExited(id: String, code: Int, reason: String) {
-        guard let entry = entries[id] else { return }
-        entry.markExited(code: code, reason: reason)
+        guard let entry = entries[id], !entry.exited else { return }
+        // arc asked for the kill: whatever the exit status says (a shell reports
+        // 143 rather than dying by signal), the session ended because arc ended it,
+        // and that is what the `process` surface reports.
+        entry.markExited(code: code, reason: entry.requestedKill ? "killed" : reason)
         // Plan A: exit lifecycle event (fires exactly once, in the reaper).
         let context: [String: HookValue] = [
             "session_id": .string(id),

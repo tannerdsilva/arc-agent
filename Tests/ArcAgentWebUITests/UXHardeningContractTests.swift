@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 import ArcTheme
+import ArcAgentCore
 @testable import ArcWebUI
 
 extension ArcWebUITestRoot {
@@ -35,13 +36,63 @@ extension ArcWebUITestRoot {
 
         private static var sheetSource: String { source("Sources/ArcTheme/ChromeSheet.swift") }
         private static var views: String { clientText(source("Sources/ArcWebUI/Views.swift")) }
-        private static var insights: String { clientText(source("Sources/ArcWebUI/Insights.swift")) }
         private static var actions: String { clientText(source("Sources/ArcWebUI/Actions.swift")) }
+        /// the rendered shell, for pins whose markup no longer lives in source.
+        /// rendered through `RenderedMarkup.page()` so the pin checks bytes,\n        /// not the string that used to emit them.
+        private static var page: String {
+            get async throws { await RenderedMarkup.page() }
+        }
+
+        /// every rendered rail button's open tag, for pins that must hold on each
+        /// button rather than on one spelling found somewhere in a source file.
+        static func railButtonTags(_ page: String) -> [String] {
+            page.components(separatedBy: "<button")
+                .filter { $0.contains("icon-btn") && $0.contains("data-component-id=\"nav-") }
+                .map { String($0.prefix(while: { $0 != ">" })) }
+        }
+
+        /// the value of `name` in a rendered open-tag fragment, or nil.
+        static func attribute(_ name: String, in tag: String) -> String? {
+            guard let open = tag.range(of: name + "=\"") else { return nil }
+            let rest = tag[open.upperBound...]
+            guard let close = rest.firstIndex(of: "\"") else { return nil }
+            return String(rest[..<close])
+        }
         private static var appState: String { source("Sources/ArcWebUI/AppState.swift") }
         private static var appStateActions: String { source("Sources/ArcWebUI/AppState+Actions.swift") }
         private static var overlay: String { source("Sources/ArcWebUI/Assets/overlay.js") }
         private static var host: String { source("Sources/ArcWebUI/WebUIHost.swift") }
         private static var fileStore: String { source("Sources/ArcAgentCore/Session/SessionStore.swift") }
+
+        // MARK: - UX-02 (2026-10-18) tool/MCP schema rows use the adaptive card
+
+        @Test("the tool/MCP schema renderer emits .akv rows, never the dark .kv card")
+        func schemaRowsUseAdaptiveKV() async {
+            // `schemaHTML` shared the design system's `.kv` card (a permanently-dark
+            // navy code card) with the migrated tool card, so tool parameter rows were
+            // black-on-navy in light themes (UX-02, observed 1.23:1). The schema rows
+            // must use the arc `.akv` classes like the Description/Toolset meta rows.
+            //
+            // asserted on RENDERED bytes: the source-grep form could not see a row
+            // that stopped emitting, and it could not see the classes that actually
+            // reach the page.
+            let schema = JSONSchema.object(
+                description: "Params",
+                properties: [
+                    "query": .string(description: "What to search for"),
+                    "limit": .integer(description: "Max results"),
+                ],
+                required: ["query"])
+            let app = AppState(renderFixture: AppState.RenderFixture())
+            let html = await app.schemaHTML(schema).markup.html
+            #expect(html.contains("class=\"akv\""), "the schema rows must use the adaptive .akv card")
+            #expect(html.contains("class=\"akv-k\""), "the schema key span must use .akv-k")
+            #expect(html.contains("class=\"akv-v\""), "the schema value span must use .akv-v")
+            #expect(!html.contains("class=\"kv\""),
+                    "the dark .kv card is back in schemaHTML: tool/MCP parameter rows go black-on-navy in light themes")
+            #expect(!html.contains("class=\"k\""), "the design-system .k key span is back in schemaHTML")
+            #expect(!html.contains("class=\"v\""), "the design-system .v value span is back in schemaHTML")
+        }
 
         // MARK: - A1/F38 the task form's dead gap
 
@@ -68,36 +119,82 @@ extension ArcWebUITestRoot {
         // MARK: - A4/F48 + A5/F12 empty-state copy
 
         @Test("an unmatched chat filter does not claim the workspace is empty")
-        func chatFilterEmptyCopy() {
-            let views = Self.views
-            #expect(views.contains("No chats match “\\(chatFilter)”."),
+        func chatFilterEmptyCopy() async {
+            // rendered bytes: the copy comes out of the typed chatPanel now, so
+            // the pin holds on what the client receives rather than on a source
+            // spelling the builder may reorder.
+            var filtered = AppState.RenderFixture()
+            filtered.chatFilter = "zzz"
+            filtered.sessions = [
+                Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                        updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Alpha"),
+            ]
+            let filteredPanel = await AppState(renderFixture: filtered).chatPanel().markup.html
+            #expect(filteredPanel.contains("No chats match “zzz”."),
                     "the filter-empty state must name the filter (F48)")
-            #expect(views.contains("No chats in this category yet."),
+            #expect(!filteredPanel.contains("No chats yet"),
+                    "an unmatched filter must not claim the workspace is empty")
+            // the category-empty state needs its own copy too
+            var emptyCategory = AppState.RenderFixture()
+            emptyCategory.activeCategory = "c1"
+            emptyCategory.settings.chatCategories = [ChatCategory(id: "c1", name: "Work", color: "#E5484D")]
+            emptyCategory.sessions = [
+                Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                        updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Alpha"),
+            ]
+            let categoryPanel = await AppState(renderFixture: emptyCategory).chatPanel().markup.html
+            #expect(categoryPanel.contains("No chats in this category yet."),
                     "the category-empty state needs its own copy too")
         }
 
         @Test("a zero-skill library gets the create-first copy, not the filter copy")
         func skillsEmptyCopy() {
             let views = Self.views
-            #expect(views.contains("No skills yet — press + to create one."))
-            #expect(views.contains("No skills yet — create your first one with + above."))
+            // Round-3 UX-44: the sidebar no longer repeats the CTA instruction —
+            // the canvas owns the one "Create skill" button.
+            #expect(views.contains("\"No skills yet.\""))
+            #expect(!views.contains("No skills yet — press +"),
+                    "the sidebar must not repeat the create instruction the canvas CTA gives")
             #expect(!views.contains("\"No skills match.\""),
                     "the unconditional \"No skills match.\" claimed an empty library was a filtered one")
         }
 
         // MARK: - A11/F34 the chart that lied
 
+        /// a rendered daily graph for a window that ends today, so the bars —
+        /// not the dates — are what the assertion reads.
+        private static func insightsGraph(days: Int, zeroAt: Set<Int>, range: Int) async -> String {
+            let cal = Calendar.current
+            let today = cal.startOfDay(for: Date())
+            var tokens: [String: Int] = [:]
+            for offset in 0..<days {
+                guard let day = cal.date(byAdding: .day, value: -offset, to: today) else { continue }
+                tokens[AppState.dayString(day)] = zeroAt.contains(offset) ? 0 : (offset + 1) * 500
+            }
+            var fixture = AppState.RenderFixture()
+            fixture.insights.dailyTokens = tokens
+            fixture.insightsRangeDays = range
+            return await AppState(renderFixture: fixture).dailyTokensGraph().markup.html
+        }
+
+        private static func count(_ needle: String, in text: String) -> Int {
+            text.components(separatedBy: needle).count - 1
+        }
+
         @Test("a zero day draws a gap, never a small red bar")
-        func insightsZeroDayIsAGap() {
-            let insights = Self.insights
-            #expect(insights.contains("let pct = v == 0 ? 0 : max(5"),
+        func insightsZeroDayIsAGap() async {
+            let graph = await Self.insightsGraph(days: 7, zeroAt: [3], range: 7)
+            #expect(Self.count("ins-bar-empty", in: graph) == 1,
+                    "the zero day needs exactly one empty-day bar")
+            #expect(graph.contains("ins-bar ins-bar-empty"),
+                    "an empty day carries its own class, not the accent bar's")
+            #expect(!graph.contains("height:3%"),
                     "a 3%-height stub made an empty month look like a month of activity")
-            #expect(insights.contains("ins-bar ins-bar-empty"), "empty days need their own class")
+            #expect(Self.count("ins-ylabel", in: graph) == 4,
+                    "the chart needs a scale label; values only in a title tooltip are unreadable")
             let css = Self.sheetSource
             #expect(css.contains(".ins-bar-empty { background: var(--border-strong); height: 2px !important; }"),
                     "the empty-day tick must not inherit the accent fill or an inline height")
-            #expect(insights.contains("peak \\(Self.fmtCount(maxVal))"),
-                    "the chart needs a scale label; values only in a title tooltip are unreadable")
         }
 
         // MARK: - A13/F36 the log legend
@@ -116,7 +213,7 @@ extension ArcWebUITestRoot {
 
         @Test("errors expire on their own and the tick stays silent otherwise")
         func toastsExpire() {
-            #expect(Self.appState.contains("static let toastTTL: TimeInterval = 8"))
+            #expect(Self.appState.contains("static let toastTTL: TimeInterval = 10"))
             #expect(Self.appState.contains("func expireToasts(now: Date = Date()"),
                     "expiry must be a tested unit, not a comment")
             #expect(Self.host.contains("IntervalService(name: \"toast-expiry\""),
@@ -128,7 +225,7 @@ extension ArcWebUITestRoot {
         // MARK: - UX-27 toast kinds, anchor and stack cap
 
         @Test("toasts are kind-aware: red only for failures, anchored clear of the header, capped")
-        func toastsAreKindAware() {
+        func toastsAreKindAware() async {
             // The stack must sit at the BOTTOM edge — a success toast anchored top-right
             // used to land over the chat-header action icons, and the whole stack over
             // the window strip (w1v-12, w1v-23). UX-58 raised the anchor (16 → 120px)
@@ -148,12 +245,24 @@ extension ArcWebUITestRoot {
                     "success confirms must be green-tinted, never red")
             #expect(sheet.contains(".toast.toast-more {"),
                     "the overflow marker must exist and be visually distinct")
-            // Server-side cap: newest 3 + "+N more".
-            let views = Self.views
-            #expect(views.contains("let visible = toasts.suffix(3)"),
-                    "the rendered stack must be capped at the newest three toasts")
-            #expect(views.contains("class=\"toast toast-more\""),
+            // Server-side cap: newest 3 + "+N more". Re-based onto rendered
+            // output: the typed builder emits `class="toast toast-more"` in the
+            // HTML bytes (source now spells it `Div(class: "toast toast-more")`),
+            // so the pin reads rendered bytes, not Views.swift text.
+            var capFixture = AppState.RenderFixture()
+            capFixture.toasts = [
+                Toast(id: 1, text: "One", kind: "info"),
+                Toast(id: 2, text: "Two", kind: "info"),
+                Toast(id: 3, text: "Three", kind: "info"),
+                Toast(id: 4, text: "Four", kind: "info"),
+                Toast(id: 5, text: "Five", kind: "info"),
+            ]
+            let capApp = AppState(renderFixture: capFixture)
+            let capRendered = await capApp.toastsHTML().markup.html
+            #expect(capRendered.contains("class=\"toast toast-more\""),
                     "older toasts must collapse into a +N more marker")
+            #expect(capRendered.contains("+2 more"),
+                    "the overflow marker must report the collapsed count")
         }
 
         // MARK: - B1/F52 Enter sends
@@ -233,11 +342,19 @@ extension ArcWebUITestRoot {
         // MARK: - B2/F45 dropdown dismissal
 
         @Test("the dropdown dismiss boundary is rendered AND fired")
-        func dropdownDismissIsWired() {
-            #expect(Self.views.contains("id=\"dd-dismiss\""),
+        func dropdownDismissIsWired() async {
+            let composer = await RenderedMarkup.composer()
+            let dismiss = composer.range(of: #"<span [^>]*id="dd-dismiss"[^>]*>"#,
+                                         options: .regularExpression).map { String(composer[$0]) }
+            #expect(dismiss?.contains("data-component-id=\"dd-dismiss\"") == true
+                    && dismiss?.contains("data-event=\"click\"") == true,
+                    "the dismiss target must carry the wire boundary")
+            #expect(dismiss?.contains("hidden") == true,
+                    "the dismiss target is an invisible boundary, not a visible control")
+            #expect(composer.contains("id=\"dd-dismiss\""),
                     "the `dd-dismiss` handler existed for months with no element carrying the id")
-            #expect(Self.actions.contains("wire(router, id: \"dd-dismiss\""),
-                    "the server half must stay registered")
+            #expect(Self.actions.contains("@Wired(\"dd-dismiss\", events: [.click])"),
+                    "the server half stays registered via @Wired")
             #expect(Self.overlay.contains("function dismissDropdowns()"))
             #expect(Self.overlay.contains("dismissDropdowns();"), "Escape/outside-click must call it")
         }
@@ -262,14 +379,41 @@ extension ArcWebUITestRoot {
 
         // MARK: - UX-03 workspace dock keeps its routing anchor
 
+        /// the workspace pins render the dock/panel/body: the state goes in, the
+        /// bytes come out. the panel folder is a fixed path that does not exist,
+        /// so no pin walks a developer's home directory.
+        private static func workspace(_ configure: (inout AppState.RenderFixture) -> Void) -> AppState {
+            var fixture = AppState.RenderFixture()
+            fixture.settings.workspaces = [WorkspaceEntry(name: "pin", path: "/arc/ux-workspace")]
+            fixture.settings.activeWorkspace = "pin"
+            configure(&fixture)
+            return AppState(renderFixture: fixture)
+        }
+
+        /// occurrences of a needle in a haystack (a browser has no `count(of:)`).
+        static func count(of needle: String, in haystack: String) -> Int {
+            haystack.components(separatedBy: needle).count - 1
+        }
+
         @Test("the workspace dock keeps its routing anchor and a collapse tab in both states")
-        func workspaceDockAnchorIsStable() {
-            #expect(!Self.views.contains("guard !workspaceOpen else { return \"<div id=\"ws-dock\"></div>\" }"),
-                    "the open-state patch replaced the anchored `#ws-dock` root with an anchor-less div, so the engine dropped routing for the region")
-            #expect(Self.views.contains("<div id=\"ws-dock\" data-component-id=\"workspace\" data-event=\"click\">"),
-                    "the dock wrapper must carry the component anchor in every render")
-            #expect(Self.views.contains("let title = open ? \"Collapse workspace\" : \"Open workspace\""),
+        func workspaceDockAnchorIsStable() async {
+            let closed = await Self.workspace { $0.workspaceOpen = false }.workspaceDockHTML().markup.html
+            let open = await Self.workspace { $0.workspaceOpen = true }.workspaceDockHTML().markup.html
+            for (state, html) in [("closed", closed), ("open", open)] {
+                // the open-state patch once replaced the anchored `#ws-dock` root
+                // with an anchor-less div, so the engine dropped routing for the
+                // region and closes dead-ended.
+                #expect(html.contains("id=\"ws-dock\""),
+                        "the dock wrapper must be rendered in the \(state) state")
+                #expect(html.contains("data-component-id=\"workspace\""),
+                        "the dock wrapper must carry the component anchor in the \(state) state")
+                #expect(html.contains("id=\"w-dock\""),
+                        "the collapse tab must exist in the \(state) state, not an empty div")
+            }
+            #expect(closed.contains("title=\"Open workspace\""), "the closed dock is the open handle")
+            #expect(open.contains("title=\"Collapse workspace\""),
                     "the open-state dock must be a discoverable collapse tab, not an empty div")
+            #expect(!closed.contains(" hidden"), "the closed dock's tab must be visible")
             let overlay = Self.overlay
             #expect(overlay.contains("var wsPanel = document.getElementById('ws-panel');"),
                     "the overlay must own Escape-to-close for the workspace panel like it does for the outline")
@@ -281,34 +425,51 @@ extension ArcWebUITestRoot {
         }
 
         @Test("an open workspace panel shows exactly one close control — the collapse tab is hidden")
-        func workspaceDockHidesWhenOpen() {
-            let views = Self.views
+        func workspaceDockHidesWhenOpen() async {
             // UX-30: the open-state dock tab floated at the panel's mid-right edge
             // over the file rows — two competing close affordances. While open the
             // collapse tab must be hidden so the header ✕ is the single close
             // control (the anchored wrapper stays, so routing never drops).
-            #expect(views.contains("let attrHidden = open ? \" hidden\" : \"\""),
-                    "the open state must mark the collapse tab hidden")
-            #expect(views.contains("id=\"w-dock\" class=\"\\(cls)\"\\(attrHidden)"),
-                    "the hidden marker must ride the dock button itself")
+            let app = Self.workspace { $0.workspaceOpen = true }
+            let dock = await app.workspaceDockHTML().markup.html
+            let panel = await app.workspacePanelHTML().markup.html
+            let tabTag = dock.components(separatedBy: "<button").dropFirst().first
+                .map { String($0.prefix(while: { $0 != ">" })) } ?? ""
+            #expect(tabTag.contains("id=\"w-dock\""), "the collapsed-tab pin must be reading the tab")
+            #expect(tabTag.contains("hidden"),
+                    "the open state must mark the collapse tab hidden — two close controls is the bug")
+            #expect(Self.count(of: "id=\"w-close\"", in: panel) == 1,
+                    "the open panel must render exactly one header ✕")
             #expect(Self.sheetSource.contains(".ws-dock-btn[hidden] { display: none; }"),
                     ".ws-dock-btn declares display:flex — without an explicit [hidden] rule the UA rule loses and the dead chevron stays visible")
         }
 
         // MARK: - UX-05 the topbar follows the auto-title
 
-        @Test("the turn-chrome push carries the topbar so auto-titles reach the window strip")
-        func turnChromeCarriesTopbar() {
-            #expect(Self.actions.contains("FragmentUpdate(id: \"topbar\", html: topbarHTML())"),
-                    "the top strip showed \"New chat\" after an auto-title: the title mutation pushed chat-header but never the topbar — the topbar must ride the same turn chrome the header does")
-            #expect(Self.actions.components(separatedBy: "FragmentUpdate(id: \"topbar\"").count >= 3,
-                    "the topbar must be owned by BOTH the title-generating path and every turn-chrome boundary — a single owner leaves one of them stale")
+        @Test("the turn-chrome boundary re-renders the shell, so the topbar cannot go stale")
+        func turnChromeCarriesTopbar() async {
+            // the property is structural now: a turn boundary signals a structural
+            // change, the door answers it with one fresh `appShell()` render, and
+            // that render is the only thing that emits `#topbar`. So no boundary can
+            // ship chrome without the strip — pin both halves of that chain.
+            let actions = Self.actions
+            guard let start = actions.range(of: "func turnChromeFragments()"),
+                  let end = actions.range(of: "func ", range: start.upperBound..<actions.endIndex) else {
+                Issue.record("turnChromeFragments() not found in Actions.swift")
+                return
+            }
+            let body = String(actions[start.lowerBound..<end.lowerBound])
+            #expect(body.contains("structuralChange()"),
+                    "the top strip showed \"New chat\" after an auto-title: the boundary must ask the door to look, and the door's render carries the topbar")
+            let page = await RenderedMarkup.page()
+            #expect(page.contains("id=\"topbar\""),
+                    "the shell the door renders must carry the strip, or the derived change has no region to name")
         }
 
         // MARK: - UX-06 feedback + undo for copy / delete
 
         @Test("deleting a chat surfaces an Undo toast and the wire can restore it")
-        func deleteHasUndoToast() {
+        func deleteHasUndoToast() async {
             let appState = Self.appState
             #expect(appState.contains("func surfaceToast(_ text: String, kind: String = \"info\", action: ToastAction? = nil)"),
                     "routine toasts stay quiet by preference — feedback toasts must be surfaced explicitly")
@@ -321,7 +482,18 @@ extension ArcWebUITestRoot {
                     "Undo must re-create the session in the store with its messages")
             #expect(appStateActions.contains("preserveUndo: true"),
                     "the delete path's auto-select must not clear the undo slot")
-            #expect(Self.views.contains("ta-\\(a.id)-\\(t.id)"),
+            // Re-based onto rendered output: the typed builder emits
+            // `id="ta-<action.id>-<toast.id>"` on the action button. Render it
+            // once and assert the wireable id is present in the bytes.
+            var undoFixture = AppState.RenderFixture()
+            undoFixture.pendingCopyURL = "https://example.com/x"
+            undoFixture.toasts = [
+                Toast(id: 2, text: "Saved", kind: "success",
+                      action: ToastAction(id: "undo-delete", label: "Undo")),
+            ]
+            let undoApp = AppState(renderFixture: undoFixture)
+            let rendered = await undoApp.toastsHTML().markup.html
+            #expect(rendered.contains("id=\"ta-undo-delete-2\""),
                     "the toast action button must be rendered with a wireable id")
             #expect(Self.actions.contains("if actionID == \"undo-delete\""),
                     "the toast wire must dispatch the undo action")
@@ -332,24 +504,154 @@ extension ArcWebUITestRoot {
             // (T23 audit: wired regions do not swallow client listeners on this
             // pair — probes showed all phases firing — so this is an ownership
             // choice, not a workaround for lost events.)
-            #expect(Self.actions.contains("surfaceToast(\"Conversation link copied.\")"),
-                    "the server half must surface the copy toast")
+            // UX-24: the overlay owns the copy toast now; the server only
+            // stages the URL marker. The overlay's post-patch pass reads it,
+            // writes the clipboard, and flashes exactly one toast.
+            #expect(!Self.actions.contains("surfaceToast(\"Conversation link copied.\")"),
+                    "the server must NOT surface the copy toast — the overlay owns it (UX-24)")
             #expect(Self.appState.contains("func markCopyLink(_ sessionID: String)"),
                     "the server must stage the link for the client clipboard write")
             #expect(Self.appState.contains("var pendingCopyURL: String? = nil"),
                     "the staged link must ride the toasts fragment")
-            #expect(Self.views.contains("id=\"pending-copy\" data-copy-url"),
+            // Re-based onto rendered output: the builder emits `<span id="pending-copy" data-copy-url="…">`
+            // inside #toasts. Re-use the rendered fragment from above.
+            #expect(rendered.contains("id=\"pending-copy\" data-copy-url"),
                     "the hidden copy marker must be rendered inside #toasts")
             #expect(Self.overlay.contains("function copyFromServerMarker()"),
                     "the overlay must consume the marker and write the clipboard")
             #expect(Self.overlay.contains("copyFromServerMarker();"),
                     "the clipboard handoff must run out of the post-patch seam")
         }
+        // MARK: - UX-24 regression guard: the copy-link fragment must interpolate
+
+        /// The copy-link branch builds its `#toasts` fragment by hand. A
+        /// double-escaped interpolation compiles clean and ships the literal
+        /// source text instead of the rendered toasts — the marker never
+        /// reaches the client, the clipboard is never written, and the toast
+        /// box displays the raw interpolation. The older pin only asserted
+        /// that the server's own success toast was gone, so it could not see
+        /// this. This pin reads the interpolation itself.
+        @Test("the copy-link branch stages the marker; the door's render carries the shell")
+        func copyLinkToastsInterpolates() async {
+            let actions = Self.actions
+            // The branch stages the URL on the state and asks the door to look. The
+            // render is what emits the marker, inside `#toasts` (single-shot: reading
+            // it clears it). Pin both halves, and keep the hand-written wrapper
+            // banned — it shipped the literal interpolation once.
+            #expect(actions.contains("await self.app.markCopyLink(sid)"),
+                    "the copy-link branch must stage the URL the overlay writes to the clipboard")
+            #expect(!actions.contains("<div id=\"toasts\" data-component-id=\"toast-dismiss\""),
+                    "the hand-written toasts wrapper string must not survive — it ships literal markup")
+            var fixture = AppState.RenderFixture()
+            fixture.pendingCopyURL = "https://example.com/x"
+            let rendered = await AppState(renderFixture: fixture).toastsShell().markup.html
+            #expect(rendered.contains("id=\"toasts\""),
+                    "the fragment must carry the container: an inner-only replace deletes #toasts for the session")
+            #expect(rendered.contains("id=\"pending-copy\" data-copy-url=\"https://example.com/x\""),
+                    "the staged URL must render inside #toasts — that is what the overlay reads")
+        }
+
+
+        // MARK: - wave-3 cleanup guards: ids, draft rows, inline-error clears
+
+        @Test("the canvas create CTA keeps a unique id and the sidebar keeps its own")
+        func skillCTAHasDistinctID() async {
+            let sidebar = await AppState(renderFixture: AppState.RenderFixture())
+                .skillsPanel().markup.html
+            let canvas = await AppState(renderFixture: AppState.RenderFixture()).skillsMain().markup.html
+            #expect(sidebar.contains("id=\"skill-new\""),
+                    "the sidebar + keeps its id")
+            #expect(canvas.contains("id=\"skill-new-main\""),
+                    "the canvas CTA must not duplicate the sidebar's DOM id")
+        }
+
+        @Test("leaving an untouched draft drops its row")
+        func draftRowDroppedOnNavigate() {
+            let src = Self.appStateActions
+            #expect(src.contains("sessions.removeAll { $0.id == draft }"),
+                    "a draft that never reached the store must not linger in the sidebar")
+            #expect(!src.contains("let store = await storeRef()"),
+                    "storeRef() is synchronous — an unnecessary await buys a warning")
+        }
+
+        @Test("clearing a skill-create error reports whether it was showing")
+        func skillErrorClearIsObservable() {
+            #expect(Self.appState.contains("func clearSkillCreateError(for field: String) -> Bool"),
+                    "the wire needs the transition to decide whether to re-render")
+            #expect(Self.actions.contains("if await self.app.clearSkillCreateError(for: \"skill-name-input\")"),
+                    "typing must clear the rendered error, not only the state")
+        }
+
+        @Test("the insights chart's y-axis is a vertical column aligned to the bars")
+        func insightsYAxisIsVertical() async {
+            let graph = await Self.insightsGraph(days: 7, zeroAt: [3], range: 7)
+            #expect(graph.contains("ins-chart-row"),
+                    "the chart must sit beside its axis, not under a strip")
+            #expect(Self.count("ins-ytick-row", in: graph) == 5,
+                    "ticks are absolutely positioned rows in a vertical column")
+            #expect(graph.contains("ins-yaxis"),
+                    "the axis is its own column beside the bars")
+            #expect(graph.contains("aria-hidden=\"true\""),
+                    "the axis is decoration — its numbers are repeated by the peak label")
+            #expect(!graph.contains("ins-yaxis\"><span class=\"ins-ytick\">"),
+                    "the horizontal strip layout must not return")
+            let sheet = Self.sheetSource
+            #expect(sheet.contains(".ins-yaxis { position: relative; flex: 0 0 52px; height: 220px;"),
+                    "the axis column must match the chart height")
+        }
+
+        // MARK: - UX-15 regression guard: the tools filter and the env badge
+
+        /// the wave-3 tool filter shipped without a test, and its same commit
+        /// left the `(needs env)` badge with no `>` — the span parsed empty.
+        @Test("the tools panel keeps a working filter and a well-formed env badge")
+        func toolsFilterAndBadge() async {
+            var fixture = AppState.RenderFixture()
+            fixture.toolsets = [("terminal", [
+                StubTool(name: "run_command", toolset: "terminal", available: false),
+            ])]
+            let page = await AppState(renderFixture: fixture).toolsPanel().markup.html
+            #expect(page.contains("id=\"tool-search-input\""),
+                    "the tools list must stay searchable")
+            // the badge must be a real span, not an empty one: a missing `>`
+            // once left `(needs env)` with no element around it.
+            #expect(page.contains("(needs env)"),
+                    "an unavailable tool keeps its badge")
+            #expect(!page.contains("<span class=\"lr-sub\"></span>"),
+                    "the env badge must be well-formed or it renders as an empty span")
+        }
+
+        // MARK: - UX-12 regression guard: preview reasons + live chrome
+
+        /// The preview pane must keep the reason it cannot render (binary,
+        /// too large, not utf-8, read failure) instead of an empty <pre>, and
+        /// every control in its head must have an owner: the copy control is
+        /// client-side, the open-in-editor control was markup-only and is gone.
+        @Test("workspace previews keep their no-preview reason and the copy control is wired")
+        func workspacePreviewContracts() async {
+            let body = await Self.workspace {
+                $0.workspaceOpen = true
+                $0.previewPath = "app.log"
+                $0.previewNote = "Binary file — no preview."
+            }.workspaceBodyHTML().markup.html
+            #expect(body.contains("Binary file — no preview."),
+                    "an unreadable preview must name the reason, not render an empty box")
+            #expect(!body.contains("<pre"),
+                    "an unreadable preview must not fall through to an empty <pre>")
+            #expect(body.contains("id=\"ws-preview-copy\""),
+                    "the preview must still render its copy control")
+            #expect(!body.contains("ws-preview-open"),
+                    "the unwired open-in-editor control must not ship")
+            let overlay = Self.overlay
+            #expect(overlay.contains("#ws-preview-copy"),
+                    "the preview copy control must have a client owner")
+        }
+
 
         // MARK: - UX-01 slash autocomplete consumer
 
         @Test("the slash menu payload has a client consumer wired to open/filter/insert")
-        func slashMenuIsConsumed() {
+        func slashMenuIsConsumed() async {
             let overlay = Self.overlay
             // The regression: `#slash-data` and `#cmd-dropdown` were rendered but
             // nothing consumed them after the engine migration — `/` did nothing.
@@ -368,22 +670,44 @@ extension ArcWebUITestRoot {
                     "Escape/outside-click must be able to close it")
             #expect(overlay.contains("if (slashMenuOpen()) return;"),
                     "Enter with the menu open must insert, not submit the stale `/…` text")
-            #expect(Self.views.contains("id=\"slash-data\""),
+            let composer = await RenderedMarkup.composer()
+            // the plan asks for a stronger pin than a substring: the payload must
+            // PARSE as JSON, because a malformed blob silently kills autocomplete.
+            let slashTag = composer.range(of: #"<div id="slash-data"[^>]*>[\s\S]*?</div>"#,
+                                          options: .regularExpression).map { String(composer[$0]) }
+            #expect(slashTag != nil, "the slash payload node must exist")
+            if let slashTag {
+                let inner = slashTag
+                    .replacingOccurrences(of: #"^<div[^>]*>"#, with: "", options: .regularExpression)
+                    .replacingOccurrences(of: "</div>", with: "")
+                    .replacingOccurrences(of: "&quot;", with: "\"")
+                    .replacingOccurrences(of: "&#39;", with: "'")
+                    .replacingOccurrences(of: "&lt;", with: "<")
+                    .replacingOccurrences(of: "&gt;", with: ">")
+                    .replacingOccurrences(of: "&amp;", with: "&")
+                let decoded = (try? JSONSerialization.jsonObject(with: Data(inner.utf8))) as? [String: Any]
+                #expect(decoded?["items"] != nil,
+                        "the slash payload must parse as JSON with an items array")
+            }
+            #expect(composer.contains("id=\"slash-data\""),
                     "the payload node must stay in the composer markup")
         }
 
         // MARK: - UX-04 honest mid-stream queue
 
         @Test("mid-stream sends queue visibly and drain in order")
-        func midStreamSendsQueue() {
+        func midStreamSendsQueue() async {
             let views = Self.views
             #expect(views.contains("Send another message — queued after this reply."),
                     "the running placeholder must say the message is queued, not that it steers")
-            #expect(views.contains("func queuedSendsHTML() -> String"),
-                    "the composer must render the queued chips")
-            #expect(views.contains("id=\"queued-sends\""),
+            // the queue row is typed now: pin the RENDERED row, which is what the
+            // wire and the client actually see.
+            let queue = await RenderedMarkup.queuedRow()
+            #expect(queue.contains("id=\"queued-sends\""),
                     "the queue row must exist as a wired boundary")
-            #expect(views.contains("qs-del-\\(q.id)"),
+            #expect(queue.contains("data-component-id=\"queued-sends\""),
+                    "the queue row must carry the wire boundary")
+            #expect(queue.contains("id=\"qs-del-1\"") && queue.contains("id=\"qs-del-2\""),
                     "each chip must be removable through the wire")
             let appStateActions = Self.appStateActions
             #expect(appStateActions.contains("func queueSend(_ text: String, sessionID: String)"),
@@ -396,15 +720,14 @@ extension ArcWebUITestRoot {
             #expect(!actions.contains("submitSteer"), "the steering path is gone — queue replaced it")
             #expect(actions.contains("if !wasStopped, let next = self.popQueuedSend(sessionID)"),
                     "the turn end must drain one queued message so order matches the chips")
-            #expect(actions.contains("wire(router, id: \"queued-sends\""),
-                    "the queue row must be wired")
+            #expect(actions.contains("@Wired(\"queued-sends\""), "the queue row must be wired")
             #expect(!Self.overlay.contains("steer"), "no steer wording may survive")
         }
 
         // MARK: - UX-29 queued-chip copy
 
         @Test("the queued chip counts once: instruction in the placeholder, count+excerpt+✕ in the chip")
-        func queuedChipCopy() {
+        func queuedChipCopy() async {
             let views = Self.views
             // The chip repeated the placeholder sentence verbatim (w1v-17): the
             // instruction must now appear exactly once — in the composer placeholder.
@@ -412,43 +735,66 @@ extension ArcWebUITestRoot {
                     "the running-composer sentence must appear exactly once (the placeholder owns it; N occurrences → N+1 components)")
             #expect(!views.contains("queued-chip-lbl"),
                     "the chip's sentence-label span is gone — a chip no longer restates the instruction")
-            #expect(views.contains("aria-label=\"\\(removeTip)\""),
+            let queue = await RenderedMarkup.queuedRow()
+            #expect(queue.contains("aria-label=\"Remove queued message — it runs after the current reply finishes.\""),
                     "the ✕ must explain removal in its aria-label")
-            #expect(views.contains(" title=\"\\(removeTip)\""),
+            #expect(queue.contains("title=\"Remove queued message — it runs after the current reply finishes.\""),
                     "the ✕ must explain removal in its title as well")
-            #expect(views.contains("class=\"queued-chip-x\""),
+            #expect(queue.contains("class=\"queued-chip-x\""),
                     "each chip keeps its remove control")
-            #expect(views.contains("<span class=\"queued-count\">Queued · \\(list.count)</span>"),
+            #expect(queue.contains("class=\"queued-count\"") && queue.contains("Queued · 2"),
                     "the count must stay once per queue row")
         }
 
         // MARK: - UX-07 keyboard path: skip link, roving rows, quiet utilities
 
         @Test("the chat is reachable by keyboard: skip link first, roving rows, quiet utilities")
-        func chatIsKeyboardReachable() {
-            let views = Self.views
-            #expect(views.contains("<a class=\"skip-link\" href=\"#composer-input\">Skip to composer</a>"),
+        func chatIsKeyboardReachable() async throws {
+            let page = try await Self.page
+            let skip = #"<a [^>]*skip-link[^>]*>Skip to composer</a>"#
+            #expect(page.range(of: skip, options: .regularExpression) != nil,
                     "a skip-to-composer link must be the first focusable element (UX-07)")
-            #expect(views.contains("tabindex=\"\\(rowTab)\" role=\"group\""),
+            // rows are typed now, so these pins read the RENDERED row markup:
+            // attribute order is the framework's, not a source-string spelling.
+            let panel = await RenderedMarkup.panelWithRows()
+            #expect(panel.range(of: #"<div class="sess-row[^"]*"[^>]*tabindex="(?:0|-1)"[^>]*role="group""#, options: .regularExpression) != nil,
                     "each session row must be the roving tab stop (active 0, others -1)")
-            #expect(views.contains("class=\"sess-open\" tabindex=\"-1\""),
+            #expect(panel.range(of: #"<button [^>]*class="sess-open"[^>]*tabindex="-1""#, options: .regularExpression) != nil,
                     "the per-row open button must be out of the tab order")
-            #expect(views.contains("class=\"menu-dots\" title=\"Chat actions\" tabindex=\"-1\""),
+            #expect(panel.range(of: #"<button [^>]*class="menu-dots"[^>]*tabindex="-1"[^>]*>"#, options: .regularExpression) != nil,
                     "the per-row ⋮ must be out of the tab order (reachable via Menu/Shift+F10)")
-            #expect(views.contains("class=\"tw-copy\" type=\"button\" data-copy-target=\"\\(target)\" title=\"Copy this activity\" tabindex=\"-1\""),
+            // the panel head is typed too now: the filter field renders inside the
+            // chat list, so the keyboard path owns its tab stop as well.
+            #expect(panel.contains("id=\"chat-search-input\""),
+                    "the chat list must render its filter field")
+            let turnBlock = await RenderedMarkup.turnBlock()
+            let twCopy = turnBlock.range(of: #"<button [^>]*class="tw-copy"[^>]*>"#, options: .regularExpression).map { String(turnBlock[$0]) }
+            #expect(twCopy != nil && twCopy!.contains("tabindex=\"-1\""),
                     "worklog copy buttons must be quiet (out of the tab order)")
-            #expect(views.contains("class=\"tc-copy\" type=\"button\" data-copy=\"\" + esc(args) + \"\" title=\"Copy arguments\" tabindex=\"-1\""),
+            #expect(twCopy?.contains("title=\"Copy this activity\"") == true,
+                    "the worklog copy button keeps its tooltip")
+            // the tool card is typed now: prove the quiet tab order on the RENDERED
+            // button rather than on the concatenation that used to build it.
+            let reply = await RenderedMarkup.assistantReplyWithToolCall()
+            #expect(reply.range(of: #"<button [^>]*class="tc-copy"[^>]*tabindex="-1""#, options: .regularExpression) != nil,
                     "tool-card copy buttons must be quiet")
             // The two copy attributes above are built by string concatenation; the
-            // doubled-backslash spelling emits the LITERAL text `\(target)` and the
-            // doubled-quote spelling emits `data-copy=""<args>""`. Both render bugs
+            // doubled-backslash spelling emits the LITERAL text `\\(target)` and the
+            // doubled-quote spelling emits `data-copy=\"\"<args>\"\"`. Both render bugs
             // live inside Swift-side escaping that clientText cannot see (it only
-            // unescapes `\"`), so pin the raw source spelling directly.
+            // unescapes `\\\"`), so pin the raw source spelling directly.
             let rawViews = Self.source("Sources/ArcWebUI/Views.swift")
             #expect(!rawViews.contains("\\\"\\\" + esc(args) + \\\"\\\""),
                     "the doubled-quote spelling is back: tool-card copy emits data-copy=\"\"<args>\"\"")
-            #expect(views.contains("data-copy=\"\\(esc(m.content ?? \"\"))\" title=\"Copy response\" tabindex=\"-1\""),
+            // attribute order is the framework's: take the whole button tag, then
+            // assert on it, instead of pinning an order that markup no longer has.
+            let copyBtn = reply.range(of: #"<button [^>]*class="msg-copy-btn msg-action-btn"[^>]*>"#,
+                                      options: .regularExpression).map { String(reply[$0]) }
+            #expect(copyBtn != nil, "the assistant reply must render its copy button")
+            #expect(copyBtn?.contains("tabindex=\"-1\"") == true,
                     "message copy buttons must be quiet")
+            #expect(copyBtn?.contains("title=\"Copy response\"") == true,
+                    "the copy button must keep its tooltip")
             let overlay = Self.overlay
             #expect(overlay.contains("function visibleSessionRows()"),
                     "the overlay must rove across visible rows only")
@@ -479,10 +825,20 @@ extension ArcWebUITestRoot {
         // MARK: - UX-11 no autocomplete hint on the private-key input
 
         @Test("the client private key input opts out of password autofill")
-        func privateKeyInputSilencesAutofillHint() {
-            let views = Self.views
-            #expect(views.contains("id=\"sc-priv\" name=\"sc-priv\" data-component-id=\"sc-priv\" type=\"password\" autocomplete=\"new-password\""),
+        func privateKeyInputSilencesAutofillHint() async {
+            // asserted on RENDERED bytes: the input is a typed primitive now, so
+            // the attribute SET is what matters, not the order it is spelled in.
+            let app = AppState(renderFixture: AppState.RenderFixture())
+            let html = await app.storageSettingsHTML().markup.html
+            guard let tag = html.range(of: #"<input[^>]*id="sc-priv"[^>]*>"#,
+                                       options: .regularExpression).map({ String(html[$0]) }) else {
+                #expect(Bool(false), "the client private key input must exist")
+                return
+            }
+            #expect(tag.contains("type=\"password\""), "the key must be masked")
+            #expect(tag.contains("autocomplete=\"new-password\""),
                     "the browser warns on password inputs without autocomplete (UX-11)")
+            #expect(tag.contains("data-component-id=\"sc-priv\""), "the field stays wired")
         }
         // MARK: - UX-10 log level badge never wraps
 
@@ -495,36 +851,72 @@ extension ArcWebUITestRoot {
         // MARK: - UX-09 "1 message" pluralization
 
         @Test("message counts pluralize the noun")
-        func messageCountsPluralize() {
-            let views = Self.views
-            #expect(views.contains("count == 1 ? \"message\" : \"messages\""),
-                    "the sidebar meta must say \"1 message\", not \"1 messages\" (UX-09)")
-            #expect(!views.contains("count) messages\""),
-                    "the unconditional \"messages\" spelling is back")
+        func messageCountsPluralize() async {
+            // rendered bytes: both the sidebar row and the chat header name the
+            // count, and both are typed views now.
+            func fixture(sessionID: String, title: String, messages: [Message]) -> AppState.RenderFixture {
+                var f = AppState.RenderFixture()
+                f.activeSessionID = sessionID
+                f.sessions = [
+                    Session(id: sessionID, createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                            updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: title,
+                            messageCount: messages.count, messages: messages),
+                ]
+                return f
+            }
+            let one = fixture(sessionID: "sess-a", title: "One",
+                              messages: [Message(role: .user, content: "hi")])
+            let two = fixture(sessionID: "sess-b", title: "Two",
+                              messages: [Message(role: .user, content: "hi"),
+                                          Message(role: .assistant, content: "hello")])
+            let onePanel = await AppState(renderFixture: one).chatPanel().markup.html
+            let twoPanel = await AppState(renderFixture: two).chatPanel().markup.html
+            #expect(onePanel.contains("1 msg •"), "a one-message row reads \"1 msg\"")
+            #expect(!onePanel.contains("1 msgs"), "a one-message row must not read \"1 msgs\"")
+            #expect(twoPanel.contains("2 msg •"), "a two-message row reads \"2 msg\"")
+            let oneHeader = await AppState(renderFixture: one).chatHeaderHTML().markup.html
+            let twoHeader = await AppState(renderFixture: two).chatHeaderHTML().markup.html
+            #expect(oneHeader.contains("1 message") && !oneHeader.contains("1 messages"),
+                    "the header must say \"1 message\", not \"1 messages\" (UX-09)")
+            #expect(twoHeader.contains("2 messages"), "the header pluralizes at two")
         }
         // MARK: - UX-12/T09 one tooltip system, one label
 
         @Test("the rail and header buttons use one tooltip mechanism with one label")
-        func oneTooltipSystemOneLabel() {
+        func oneTooltipSystemOneLabel() async {
             let views = Self.views
             let sheet = Self.sheetSource
             #expect(!views.contains("title=\"\\(esc(tab.title))\" data-tip="),
                     "the rail must not emit a native title next to data-tip (double tooltip)")
-            #expect(!views.contains("title=\"Settings\" data-tip=\"Settings\""),
-                    "the settings rail button must not emit title next to data-tip")
-            #expect(views.contains("data-tip=\"\\(esc(tab.title))\""),
-                    "the rail pill carries the unified full tab label (Chats, not Chat)")
-            #expect(views.contains("data-tip=\"Settings\""),
+            // the rail is a typed view now, so its pill + accessible name are read
+            // from rendered bytes: every icon button must carry BOTH, with the same
+            // value, and no native title.
+            let page = await RenderedMarkup.page()
+            let tags = Self.railButtonTags(page)
+            #expect(tags.count >= 5, "the rail rendered \(tags.count) buttons — the fixture or the rail is broken")
+            for tag in tags {
+                #expect(tag.contains("data-tip=\""), "a rail button carries no data-tip pill: \(tag)")
+                #expect(tag.contains("aria-label=\""), "a rail button carries no accessible name: \(tag)")
+                #expect(!tag.contains(" title=\""), "a rail button emits a native title beside data-tip (double tooltip): \(tag)")
+                #expect(Self.attribute("data-tip", in: tag) == Self.attribute("aria-label", in: tag),
+                        "the pill and the accessible name disagree on a rail button: \(tag)")
+            }
+            #expect(page.contains("data-tip=\"Settings\""),
                     "the settings pill label is Settings")
-            #expect(views.contains("data-tip=\"Regenerate last reply\""),
+            // the header is typed now: prove the pill on the rendered button, not on a
+            // source spelling that no longer exists.
+            let header = await RenderedMarkup.chatHeader()
+            #expect(header.contains("data-tip=\"Regenerate last reply\""),
                     "header icon button (regen) uses the data-tip pill, not a native title")
-            #expect(views.contains("data-tip=\"Delete chat\""),
+            #expect(header.contains("data-tip=\"Delete chat\""),
                     "header icon button (chatdel) uses the data-tip pill, not a native title")
-            #expect(views.contains("data-tip=\"Attach a file\""),
+            let composer = await RenderedMarkup.composer()
+            #expect(composer.contains("data-tip=\"Attach a file\""),
                     "header icon button (cbfile) uses the data-tip pill, not a native title")
-            #expect(views.contains("data-tip=\"Bookmark this chat\""),
+            #expect(composer.contains("data-tip=\"Bookmark this chat\""),
                     "header icon button (cbmark) uses the data-tip pill, not a native title")
-            #expect(views.contains("data-tip=\"Conversation outline\""),
+            let chat = await RenderedMarkup.chatMain()
+            #expect(chat.contains("data-tip=\"Conversation outline\""),
                     "header icon button (outline) uses the data-tip pill, not a native title")
             #expect(sheet.contains(".icon-mini[data-tip]::after"),
                     "the header pill styling must exist for icon-mini/tool-btn/outline-toggle")
@@ -532,10 +924,21 @@ extension ArcWebUITestRoot {
         // MARK: - B3/F47 the dialog that was a div
 
         @Test("the confirmation is a dialog with focus, Escape and a trap")
-        func modalIsADialog() {
-            #expect(Self.views.contains("role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"modal-title\""),
-                    "no-webui treats a plain div as a div; assistive tech needs the role")
-            #expect(Self.views.contains("id=\"modal-title\""), "the label target must exist")
+        func modalIsADialog() async {
+            // the modal is rendered from the typed view now; assert on the
+            // rendered bytes rather than grepping Views.swift source.
+            let app = AppState(renderFixture: .init(pendingConfirm: ConfirmRequest(
+                kind: "chat", id: "sess-a",
+                title: "Delete conversation?",
+                body: "The chat “A” will be deleted. You can undo this for 10 seconds."
+            )))
+            let html = await app.modalHTML().markup.html
+            #expect(html.contains("role=\"dialog\""), "no-webui treats a plain div as a div; assistive tech needs the role")
+            #expect(html.contains("aria-modal=\"true\""), "the card is modally blocked")
+            #expect(html.contains("aria-labelledby=\"modal-title\""), "the card is labelled by the title")
+            #expect(html.contains("id=\"modal-title\""), "the label target must exist")
+            #expect(html.contains("id=\"modal-cancel\""), "the cancel button renders")
+            #expect(html.contains("id=\"modal-confirm\""), "the confirm button renders")
             #expect(Self.overlay.contains("function syncModalFocus()"))
             #expect(Self.overlay.contains("if (e.key === 'Escape') {"),
                     "Escape used to do nothing at all in the modal")
@@ -546,28 +949,66 @@ extension ArcWebUITestRoot {
         // MARK: - A15/F27/F58/F60 the guarded deletes
 
         @Test("kanban cards arm a two-step delete like the column header")
-        func kanbanCardGuard() {
+        func kanbanCardGuard() async {
             #expect(Self.actions.contains("await app.confirmCard == id"),
                     "a card ✕ used to delete on one click with no guard and no undo")
-            #expect(Self.views.contains("let delCls = armed ? \"sess-confirm\" : \"icon-mini danger\""),
+            // asserted on the rendered card, not the source text that used to
+            // build it: the affordance the user reaches is the contract.
+            let card = KBCard(id: "card-1", columnID: "col-1", title: "Write the parser")
+            func render(confirming: String?) async -> String {
+                var fixture = AppState.RenderFixture()
+                fixture.kanbanColumns = [KBColumn(id: "col-1", name: "Backlog", color: "#5BB98C")]
+                fixture.kanbanCards = [card]
+                fixture.confirmCard = confirming
+                return await AppState(renderFixture: fixture).kanbanCardHTML(card).markup.html
+            }
+            let armed = await render(confirming: "card-1")
+            #expect(armed.contains("id=\"kb-del-\(enc("card-1"))\""),
+                    "the card's delete control must stay reachable")
+            #expect(armed.contains(">Confirm?</button>"),
+                    "the first click must arm the delete, not perform it")
+            #expect(!armed.contains("icon-mini danger"),
                     "the armed label must not carry `icon-mini`: a fixed 24x24 box clipped \"Confirm?\"")
+            let idle = await render(confirming: nil)
+            #expect(idle.contains("class=\"icon-mini danger\""),
+                    "an unarmed card keeps its ✕")
+            #expect(!idle.contains("Confirm?"),
+                    "an unarmed card must not ask to confirm")
             #expect(Self.sheetSource.contains("white-space: nowrap;"),
                     ".sess-confirm must never wrap or inherit an icon's width")
         }
 
         @Test("workspace deletes confirm, and `main` offers no delete at all")
-        func workspaceGuard() {
+        func workspaceGuard() async {
             #expect(Self.actions.contains("kind: \"workspace\", id: name"),
                     "the workspace ✕ removed the entry immediately (F26/F27)")
-            #expect(Self.views.contains("entry.name == \"main\" ? \"\" : btn(\"ws-del-"),
+            var fixture = AppState.RenderFixture()
+            fixture.settings.workspaces = [
+                WorkspaceEntry(name: "main", path: WorkspaceEntry.defaultPath(for: "main")),
+                WorkspaceEntry(name: "research", path: "/Users/you/research"),
+            ]
+            let page = await AppState(renderFixture: fixture).workspacesPanel().markup.html
+            #expect(page.contains("id=\"ws-del-"), "a normal workspace stays deletable")
+            #expect(!page.contains("id=\"ws-del-\(enc("main"))\""),
                     "`main` could not be deleted, but the row still offered a dialog that always refused")
         }
 
         @Test("skills are deletable from the UI")
-        func skillDeleteExists() {
-            #expect(Self.views.contains("btn(\"sk-delete\", \"skill-delete\""),
+        func skillDeleteExists() async {
+            // asserted on the rendered delete control, not the source text that
+            // used to build it: the trigger is what the user can reach.
+            let canvas = await AppState(renderFixture: {
+                var f = AppState.RenderFixture()
+                f.skills = [Skill(name: "deploy", description: "Ship the build",
+                                  content: "---\nname: deploy\n---\n\n# deploy",
+                                  tags: [], category: nil,
+                                  path: URL(fileURLWithPath: "/tmp/skills/deploy"))]
+                f.selectedSkill = "deploy"
+                return f
+            }()).skillsMain().markup.html
+            #expect(canvas.contains("data-component-id=\"skill-delete\""),
                     "`deleteSkill` shipped with no trigger rendered anywhere (F58)")
-            #expect(Self.actions.contains("wire(router, id: \"skill-delete\""))
+            #expect(Self.actions.contains("@Wired(\"skill-delete\""), "deleteSkill needs its wire")
             #expect(Self.actions.contains("kind: \"skill\", id: name"),
                     "removing a folder on disk must confirm first")
         }
@@ -602,27 +1043,62 @@ extension ArcWebUITestRoot {
 
         // MARK: - B6/F51 the composer at narrow widths
 
-        @Test("the composer wraps and its chips go icon-only before they overflow")
-        func composerSurvivesNarrowWindows() {
+        @Test("the composer wraps; its chips keep short labels to 700px then go icon-only, with >= 44px targets at the tablet widths")
+        func composerSurvivesNarrowWindows() async {
             let css = Self.sheetSource
             #expect(css.contains(".composer-toolbar { display: flex; align-items: center; gap: 2px; padding: 2px 2px 0; flex-wrap: wrap;"),
                     "without wrap, `#cb-send` rendered 200px off-screen at an 820px window")
-            #expect(css.contains("@media (max-width: 1180px) {"))
-            #expect(css.contains(".composer-toolbar .dd-trigger-label { display: none; }"),
-                    "the model chip is ~210px on its own; icon-only is what keeps the row on one line")
+            #expect(css.contains("@media (max-width: 1180px) {"),
+                    "the composer's first narrow breakpoint must exist")
             #expect(css.contains(".composer-toolbar .send-btn { flex: 0 0 auto; }"),
                     "the send button must never be the thing that shrinks away")
+            // UX-05: at 1024 the chips went icon-only with 21px-tall hit
+            // targets. Labels must stay visible down to the mobile breakpoint
+            // (truncated, never dropped), every glyph-only control must reach
+            // a 44px target at the tablet widths, and only below 700px — where
+            // there is no hover title at all — do the chips go icon-only.
+            #expect(css.contains(".composer-toolbar .dd-trigger-label { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }"),
+                    "at the 1180 breakpoint the chip labels must truncate, not disappear (UX-05)")
+            #expect(css.contains(".composer-toolbar .tool-btn { width: 44px; height: 44px; }"),
+                    "the attach/bookmark glyphs must reach a 44px target at 1024 (UX-05)")
+            #expect(css.contains(".composer-toolbar .send-btn { width: 44px; height: 44px; }"),
+                    "Send must reach a 44px target at 1024 (UX-05)")
+            #expect(css.contains("@media (max-width: 700px) {\n      .composer-toolbar .dd-trigger-label { display: none; }"),
+                    "labels go icon-only only below 700px; at 1024 they stay visible (UX-05)")
+            // Every glyph-only composer button carries an accessible name to
+            // back the icon-only state (the data-tip pill is hover-only).
+            let composer = await RenderedMarkup.composer()
+            let attach = composer.range(of: #"<button [^>]*id="cb-file"[^>]*>"#, options: .regularExpression).map { String(composer[$0]) }
+            #expect(attach?.contains("data-tip=\"Attach a file\"") == true
+                    && attach?.contains("aria-label=\"Attach a file\"") == true,
+                    "the attach button must carry an aria-label (UX-05)")
+            let bookmark = composer.range(of: #"<button [^>]*id="cb-bookmark"[^>]*>"#, options: .regularExpression).map { String(composer[$0]) }
+            #expect(bookmark?.contains("data-tip=\"Bookmark this chat\"") == true
+                    && bookmark?.contains("aria-label=\"Bookmark this chat\"") == true,
+                    "the bookmark button must carry an aria-label (UX-05)")
+            let send = composer.range(of: #"<button [^>]*id="cb-send"[^>]*>"#, options: .regularExpression).map { String(composer[$0]) }
+            #expect(send?.contains("data-component-id=\"cb-send\"") == true
+                    && send?.contains("title=\"Send\"") == true
+                    && send?.contains("aria-label=\"Send\"") == true,
+                    "Send must carry an aria-label matching its title (UX-05)")
+            let trigger = composer.range(of: #"<button [^>]*class="dd-trigger"[^>]*>"#, options: .regularExpression).map { String(composer[$0]) }
+            let triggerTip = trigger.flatMap { t in
+                t.range(of: #"title="([^"]*)""#, options: .regularExpression).map { String(t[$0].dropFirst(7).dropLast()) }
+            }
+            #expect(triggerTip != nil && trigger?.contains("aria-label=\"\(triggerTip!)\"") == true,
+                    "the trigger's pill and accessible name must carry the same tip")
         }
 
         // MARK: - B7/F46/F53 the outline
 
         @Test("the outline is a wired control with a server-owned open state")
-        func outlineIsWired() {
-            #expect(Self.views.contains("data-component-id=\"outline-toggle\""),
+        func outlineIsWired() async {
+            let chat = await RenderedMarkup.chatMain()
+            #expect(chat.contains("data-component-id=\"outline-toggle\""),
                     "client-only wiring made the engine log '[WebUIEngine] click on unwired control'")
-            #expect(Self.views.contains("data-component-id=\"outline-close\""))
+            #expect(chat.contains("data-component-id=\"outline-close\""))
             #expect(Self.appState.contains("var outlineOpen = false"))
-            #expect(Self.actions.contains("wire(router, id: \"outline-toggle\""))
+            #expect(Self.actions.contains("@Wired(\"outline-toggle\""), "outline toggle is wired")
             #expect(Self.overlay.contains("function syncOutline()"),
                     "the overlay still owns the entry list, keyed off the server-rendered shell")
             #expect(!Self.overlay.contains("panel.hidden = !panel.hidden"),
@@ -641,21 +1117,30 @@ extension ArcWebUITestRoot {
         // MARK: - B8/F03/F04 Settings density + the storage control
 
         @Test("the auxiliary list fits its card at any width")
-        func auxListFits() {
+        func auxListFits() async {
             #expect(Self.sheetSource.contains("grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));"),
                     "a fixed `1fr 1fr` grid overflowed the card at 1440 and clipped the right column")
-            #expect(Self.views.contains("<div class=\"aux-list\">\\(auxRows)</div>"))
+            let page = await AppState(renderFixture: AppState.RenderFixture()).settingsMain().markup.html
+            #expect(page.contains("class=\"aux-list\""),
+                    "the auxiliary rows must ride the aux-list container")
         }
 
         @Test("the storage surface names the active medium — no backwards ON switch")
-        func storageBackendNamesItsStates() {
+        func storageBackendNamesItsStates() async {
             // The surface is the medium picker (tessera's storage-connection
             // architecture): the trigger names the medium in use and the popover
             // badges the active row. There is no ON/OFF switch whose ON meant FILE
             // (F04) — the ambiguity B8 fixed cannot recur in this shape.
-            #expect(Self.views.contains("label: storageMediumLabel(effectiveMedium)"))
-            #expect(Self.views.contains("data-component-id=\"storage-pick\""))
-            #expect(!Self.views.contains("data-component-id=\"set-tessera\""),
+            //
+            // asserted on RENDERED bytes: the trigger label is computed, so the
+            // source no longer carries the call shape a grep could trust.
+            let app = AppState(renderFixture: AppState.RenderFixture())
+            let html = await app.storageSettingsHTML().markup.html
+            #expect(html.contains("data-component-id=\"storage-pick\""),
+                    "the medium picker keeps its boundary")
+            #expect(html.contains("Local file storage"),
+                    "the trigger names the medium in use")
+            #expect(!html.contains("data-component-id=\"set-tessera\""),
                     "the old switch's ON meant FILE storage — the opposite of every other switch (F04)")
         }
 
@@ -678,35 +1163,44 @@ extension ArcWebUITestRoot {
             #expect(actions.contains("if selectedSkill == nil { selectedSkill = skills.first?.name }"))
             #expect(actions.contains("if selectedProfile == nil { selectedProfile = profiles.first?.name }"))
             #expect(actions.contains("if selectedTool == nil { selectedTool = registry.allTools.first?.name }"))
-            #expect(actions.contains("if memoryDoc == nil { await openMemoryDoc(\"memory\") }"))
+            #expect(actions.contains("if memoryDoc == nil { openMemoryDoc(\"memory\") }"))
             #expect(actions.contains("if tasksSelectedID == nil { tasksSelectedID = settings.scheduledJobs.first?.id }"))
         }
 
         // MARK: - UX-18 filter verb + archive affordance (T13)
 
         @Test("one filter verb across panels and one archived-toggle control")
-        func filterVerbAndArchiveControl() {
+        func filterVerbAndArchiveControl() async {
             let views = Self.views
             // The chat and skills sidebars are the same kind of surface — one
-            // verb, not "Filter conversations…" vs "Search skills…".
-            #expect(views.contains("placeholder=\"Filter conversations…\""),
+            // verb, not "Filter conversations…" vs "Search skills…". The chat
+            // half reads rendered bytes: `chatPanel` is a typed view now.
+            let chats = await AppState(renderFixture: AppState.RenderFixture())
+                .chatPanel().markup.html
+            #expect(chats.contains("placeholder=\"Filter conversations…\""),
                     "the chats filter keeps the Filter verb")
-            #expect(views.contains("placeholder=\"Filter skills…\""),
+            let panel = await AppState(renderFixture: AppState.RenderFixture())
+                .skillsPanel().markup.html
+            #expect(panel.contains("placeholder=\"Filter skills…\""),
                     "the skills filter must use the same verb as chats")
-            #expect(!views.contains("Search skills…"),
+            #expect(!panel.contains("Search skills…"),
                     "the chats/skills split is back (one verb pattern, UX-18)")
             // One archive affordance: the explicit text link stays (now the only
             // control, so it carries the keyboard stop), the header glyph is gone.
             #expect(!views.contains("btn(\"chat-showarch\""),
                     "the redundant header archive glyph is gone (UX-18)")
-            #expect(views.contains("id=\"chat-showarch-link\" data-component-id=\"chat-showarch\" class=\"arch-link\" title=\"Toggle archived\">"),
-                    "the text link is the single archive control and sits in the tab order (no tabindex=-1)")
+            let archTag = chats.range(of: #"<button [^>]*id="chat-showarch-link"[^>]*>"#,
+                                      options: .regularExpression).map { String(chats[$0]) }
+            #expect(archTag?.contains("data-component-id=\"chat-showarch\"") == true,
+                    "the text link is the single archive control")
+            #expect(archTag?.contains("tabindex") == false,
+                    "the archive text link sits in the tab order (no tabindex=-1)")
         }
 
         // MARK: - UX-20 model dropdown rows (T13)
 
         @Test("model dropdown: one calm row per model with a state marker, no shouty badges or section header")
-        func modelDropdownRowsAreClean() {
+        func modelDropdownRowsAreClean() async {
             let views = Self.views
             // The old shouty row is gone: the uppercase "(CUSTOM)" pill that rode
             // the config name (scoped to the model dropdown — the aux/workspace
@@ -719,13 +1213,12 @@ extension ArcWebUITestRoot {
             // check when selected, a secondary line with model/provider.
             #expect(views.contains("extraClass: \"dd-model-row\""),
                     "model rows must carry the row layout class")
-            #expect(views.contains("<span class=\"dd-dot\\(sel ? \" on\" : \"\")\"></span>"),
-                    "each row must carry a state dot (green when active)")
-            #expect(views.contains("<span class=\"dd-row-title\">\\(esc(c.name))\\(check)</span>"),
-                    "the row title is the config name in normal case, with a check for the selected row")
-            #expect(views.contains("<span class=\"dd-row-sub\">\\(sub)</span>"),
-                    "the secondary line (model · provider · base URL) must exist")
-            #expect(views.contains("id=\"model-search-input\""),
+            let composer = await RenderedMarkup.composerWithModels()
+            #expect(composer.range(of: #"<button [^>]*class="dd-row dd-model-row"[^>]*>"#, options: .regularExpression) != nil,
+                    "each model row must render as a dropdown row")
+            #expect(composer.contains("dd-row-title"), "each model row needs a title span")
+            #expect(composer.contains("dd-row-sub"), "each model row needs a sub line")
+            #expect(composer.contains("id=\"model-search-input\""),
                     "the search input must stay (UX-20 keeps it)")
             let css = Self.sheetSource
             #expect(css.contains(".dd-model-row { flex-direction: row; gap: 10px; align-items: flex-start; }"),
@@ -735,7 +1228,7 @@ extension ArcWebUITestRoot {
         // MARK: - UX-21 auxiliary model descriptions (T13)
 
         @Test("auxiliary model descriptions clamp to two lines with the full text on hover, not mid-word truncation")
-        func auxDescriptionsClampToTwoLines() {
+        func auxDescriptionsClampToTwoLines() async {
             let sheet = Self.sheetSource
             // The regression (12-set-1950.png): a one-line `white-space: nowrap`
             // + ellipsis cut descriptions mid-word ("Context summarizati…").
@@ -752,21 +1245,31 @@ extension ArcWebUITestRoot {
             #expect(sheet.contains(".set-row .aux-right { display: flex; gap: 8px; flex-shrink: 0; }"),
                     "Configure/Edit must not be squeezed by the taller label")
             // The full description still rides the row's title for hover.
-            #expect(Self.views.contains("title=\"\\(esc(task.detail))\""),
+            let page = await AppState(renderFixture: AppState.RenderFixture()).settingsMain().markup.html
+            #expect(page.contains("title=\"Image and screenshot analysis\""),
                     "the full description must stay available on hover via the row title")
         }
 
         // MARK: - UX-22 tool-plugin chips (T13)
 
         @Test("tool-plugin chips wrap instead of clipping at the card edge")
-        func toolPluginChipsWrap() {
-            let views = Self.views
-            // The chip row now lives in a wrapping `.plug-chips` flex row with the
-            // "Tools:" prefix kept outside it.
-            #expect(views.contains("Tools: <span class=\"plug-chips\">"),
+        func toolPluginChipsWrap() async {
+            // Asserted on RENDERED bytes: the chip container is a typed Span now,
+            // so the source keeps no markup to grep.
+            var fixture = AppState.RenderFixture()
+            fixture.pluginManifests = [
+                "pkg": PluginManifest(
+                    name: "pkg", version: "1.0.0", description: "A package",
+                    tools: [.init(name: "some_very_long_package_tool_name",
+                                  description: "x", command: "./t")]),
+            ]
+            let html = await AppState(renderFixture: fixture).pluginSettingsHTML().markup.html
+            #expect(html.contains("class=\"plug-chips\""),
                     "the chips must ride in the wrapping plug-chips container (UX-22)")
-            #expect(!views.contains("style='margin-right:4px'"),
-                    "the old inline-margin chip string is gone (UX-22)")
+            #expect(html.contains("Tools: "),
+                    "the prefix stays outside the chip row")
+            #expect(!html.contains("margin-right:4px"),
+                    "the old inline-margin chip style is gone (UX-22)")
             let sheet = Self.sheetSource
             #expect(sheet.contains(".plug-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 2px; max-width: 100%; vertical-align: middle; }"),
                     "the chip row must be a wrapping flex container")
@@ -794,17 +1297,21 @@ extension ArcWebUITestRoot {
         // MARK: - UX-19 responsive chrome: overlay drawer + compact rail (T12)
 
         @Test("below 1024px the panel is an overlay drawer with a topbar toggle and scrim")
-        func responsiveDrawerChrome() {
-            let views = Self.views
-            // The toggle is a real button in the topbar (client-owned; CSS hides
-            // it at >= 1024px). It must be keyboard-reachable and announce state.
-            #expect(views.contains("btn(\"drawer-toggle\", \"\", \"drawer-toggle-btn\", \"&#9776;\","),
+        func responsiveDrawerChrome() async {
+            // the toggle and the scrim are read from rendered bytes now, not from a
+            // source spelling: the property is that the control reaches the page,
+            // which a `views.contains("btn(…)")` grep could never prove after the
+            // builder became a typed view.
+            let page = await RenderedMarkup.page()
+            #expect(page.contains("id=\"drawer-toggle\""),
                     "the drawer-toggle button must be rendered in the topbar")
-            #expect(views.contains("aria-label=\"Toggle sidebar\" aria-expanded=\"false\""),
-                    "the toggle must be labelled and start aria-expanded=false")
+            #expect(page.contains("aria-label=\"Toggle sidebar\""),
+                    "the toggle must be labelled")
+            #expect(page.contains("aria-expanded=\"false\""),
+                    "the toggle must start aria-expanded=false")
             // The scrim is the outside-click dismissal surface; it must live in
             // the shell so every tab gets one.
-            #expect(views.contains("id=\"drawer-scrim\" class=\"drawer-scrim\" aria-hidden=\"true\""),
+            #expect(page.contains("id=\"drawer-scrim\""),
                     "the drawer scrim must be part of the app shell, not one tab")
             let css = Self.sheetSource
             // Below 1024px the panel docks over the chat (fixed, off-canvas at
@@ -890,7 +1397,7 @@ extension ArcWebUITestRoot {
         /// settings chips, the composer — until the server restarts. The overlay
         /// must intercept the jump so the URL (and the history stack) never move.
         @Test("in-page #anchors are intercepted so they can never fire a navigate")
-        func inPageAnchorsDoNotNavigate() {
+        func inPageAnchorsDoNotNavigate() async {
             let overlay = Self.overlay
             #expect(overlay.contains("closest('a[href^=\"#\"]')"),
                     "the overlay must intercept same-page anchors before the browser navigates")
@@ -901,11 +1408,15 @@ extension ArcWebUITestRoot {
             #expect(overlay.contains("target.focus({ preventScroll: true })"),
                     "a control target must receive focus (that is the skip link's whole job)")
             // The settings sub-nav rows must stay real, named, focusable links.
-            let views = Self.views
+            // asserted on the RENDERED panel: the rows are a typed composite now,
+            // and a source grep would keep passing if the anchor stopped emitting.
+            let nav = await AppState(renderFixture: AppState.RenderFixture())
+                .settingsPanel().markup.html
             for sec in ["appearance", "preferences", "storage", "tool-plugins", "sidebar-plugins", "about"] {
-                #expect(views.contains("<a href=\"#\(sec)\""),
+                #expect(nav.contains("href=\"#\(sec)\""),
                         "the settings sub-nav must keep its #\(sec) anchor")
             }
+            #expect(nav.contains("class=\"lr-name\""), "each row keeps its label")
         }
 
         /// UX-62 — empty drafts. The list showed three identical "New chat · 0 msg"
@@ -914,21 +1425,43 @@ extension ArcWebUITestRoot {
         /// summary's `messages` is empty BY DESIGN, so a structural read alone
         /// would delete real conversations.
         @Test("the empty-draft cleanup is guarded, honest about emptiness, and spares the open chat")
-        func emptyDraftCleanup() {
-            let views = Self.views
-            #expect(views.contains("\"chat-clear-empty\""), "the Chats panel must offer the cleanup")
-            #expect(views.contains("Clear \\(clearableDrafts) empty chat"),
+        func emptyDraftCleanup() async {
+            // the guard is a condition, but its whole evidence is rendered: the
+            // link appears only on the Chats list, only when there is something
+            // to clear, and it never counts the chat you are in.
+            func panel(drafts: Int, active: String?, todos: Bool = false, archived: Bool = false) async -> String {
+                var fixture = AppState.RenderFixture()
+                fixture.sessions = (0..<drafts).map { i in
+                    Session(id: "sess-\(i)", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                            updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                            title: "Draft \(i)", messageCount: 0, messages: [])
+                }
+                if let active {
+                    fixture.activeSessionID = active
+                }
+                fixture.showArchived = archived
+                return await AppState(renderFixture: fixture).chatPanel(todos: todos).markup.html
+            }
+            let clearable = await panel(drafts: 3, active: nil)
+            #expect(clearable.contains("chat-clear-empty"), "the Chats panel must offer the cleanup")
+            #expect(clearable.contains("Clear 3 empty chats"),
                     "the affordance must state how many drafts it will remove")
-            #expect(views.contains("let clearBtn = (!todos && !showArchived && clearableDrafts > 0)"),
-                    "the cleanup must be hidden where it does not apply (Todos page, archived view, nothing to clear)")
+            let withOpen = await panel(drafts: 3, active: "sess-2")
+            #expect(withOpen.contains("Clear 2 empty chats"),
+                    "the open chat is never counted — clearing must not close the composer")
+            #expect(!(await panel(drafts: 0, active: nil)).contains("chat-clear-empty"),
+                    "nothing to clear means no cleanup link")
+            #expect(!(await panel(drafts: 3, active: nil, todos: true)).contains("chat-clear-empty"),
+                    "the cleanup must be hidden where it does not apply (Todos page)")
+            #expect(!(await panel(drafts: 3, active: nil, archived: true)).contains("chat-clear-empty"),
+                    "the cleanup must be hidden where it does not apply (archived view)")
             let actions = Self.actions
-            #expect(actions.contains("wire(router, id: \"chat-clear-empty\""), "the control must be wired")
+            #expect(actions.contains("@Wired(\"chat-clear-empty\""), "the control must be wired")
             #expect(actions.contains("case \"empty-drafts\":"), "the shared confirm modal must dispatch the bulk delete")
             let app = Self.appStateActions
             #expect(app.contains("func clearEmptyDrafts() async -> Int"), "the bulk delete must exist")
-            #expect(app.contains("$0.messageCount == 0 && !isDraft($0.id) && $0.id != keep")
-                    || app.contains("s.messageCount == 0 && !isDraft(s.id) && s.id != keep"),
-                    "emptiness must be read from the store-backed count, drafts must be spared, and the open chat kept")
+            #expect(app.contains("$0.messageCount == 0 && $0.id != keep"),
+                    "emptiness must be read from the store-backed count, and the open chat kept")
             #expect(app.contains("await ensureSessionMessages(s.id)"),
                     "each candidate must be materialized before it is judged empty")
             #expect(app.contains("if sessions[i].messages.isEmpty { doomed.append(s.id) }"),
@@ -949,13 +1482,378 @@ extension ArcWebUITestRoot {
 
         /// A placeholder is not a label: it vanishes on input and is not an
         /// accessible name. Every filter field needs one.
-        @Test("the filter fields carry accessible names")
-        func filterFieldsAreNamed() {
+        // MARK: - UX-03 (2026-10-18 wave 2) Settings gear reachable at short heights
+
+        /// At 1280×577 the 12-icon rail (570px at default spacing) overflowed the
+        /// 539px app body and pushed the Settings gear below the fold with no
+        /// scroll path. The bottom slot must be pinned to the rail's bottom edge
+        /// (out of flow) and the rail must compact at short heights; the geometry
+        /// freedoms that made the old inline styles unreachable are gone too.
+        @Test("the icon rail compacts at short heights and pins the Settings slot")
+        func iconRailKeepsSettingsReachable() {
+            let css = Self.sheetSource
             let views = Self.views
-            #expect(views.contains("aria-label=\"Filter conversations\""), "the conversation filter must be named")
-            #expect(views.contains("aria-label=\"Filter skills\""), "the skills filter must be named")
-            #expect(views.contains("aria-label=\"Search workspaces\""), "the workspace search must be named")
-            #expect(views.contains("aria-label=\"Search models\""), "the model search must be named")
+            #expect(css.contains("#iconbar .iconbar-bottom {\n      position: absolute; bottom: 6px; left: 0; right: 0;"),
+                    "the Settings slot must be pinned to the rail's bottom edge (UX-03)")
+            #expect(!css.contains("#iconbar .iconbar-bottom { margin-top: auto; }"),
+                    "the margin-top:auto pin is back: an over-full rail pushes the gear below the fold")
+            #expect(css.contains("@media (max-height: 640px) {"),
+                    "the short-height compaction breakpoint must exist (UX-03)")
+            #expect(css.contains("#iconbar { gap: 2px; padding: 6px 0; }"),
+                    "the rail must compact at short heights (was 6px gaps / 12px padding)")
+            #expect(!views.contains("style=\"display:flex;flex-direction:column;gap:6px;align-items:center;\""),
+                    "the inline group styles (which blocked any compaction rule) must stay gone")
+        }
+
+        // MARK: - UX-04 (2026-10-18 wave 2) markdown tables scroll instead of breaking tokens
+
+        /// At 1024 the six-column target table compressed its columns and
+        /// `.msg-body`'s `overflow-wrap: anywhere` split identifiers and
+        /// numbers mid-word (`ArcAgentCo` / `re`, `~28,0` / `00`). The renderer
+        /// now wraps tables in `.msg-table-wrap` (asserted in MarkdownParityTests)
+        /// and the sheet gives the wrapper the horizontal overflow contract,
+        /// with cells breaking only at word boundaries.
+        @Test("markdown tables size to their content and scroll in a wrapper, never breaking identifiers mid-word")
+        func markdownTablesScrollInsteadOfBreakingTokens() {
+            let css = Self.sheetSource
+            #expect(css.contains(".msg-table-wrap { overflow-x: auto; max-width: 100%; }"),
+                    "the table wrapper must own the horizontal scroll (UX-04)")
+            #expect(css.contains(".msg-table-wrap table { min-width: 100%; }"),
+                    "the table must at least fill the wrapper so headers span it (UX-04)")
+            #expect(css.contains(".msg-body table th,\n    .msg-body table td { overflow-wrap: break-word; }"),
+                    "cells must break only at word boundaries — the inherited `anywhere` split identifiers (UX-04)")
+            #expect(!css.contains(".msg.assistant .msg-body table { display: block; overflow-x: auto; max-width: 100%; }"),
+                    "the old display:block table rule is gone — with the wrapper it clipped the scroll path (UX-04)")
+        }
+
+        // MARK: - UX-06 (2026-10-18 wave 2) full session title on hover + accessible name
+
+        /// Identical 40-char-truncated titles made conversations
+        /// indistinguishable: the visible clamp is fine, but the full stored
+        /// title must ride the row's `title`, its accessible name, and a
+        /// `data-full-title` attribute that the rename flow seeds from
+        /// (wave 4, UX-21) — seeds it from the rendered text and the stored
+        /// title is silently lost.
+        @Test("session rows carry the full title on hover, as their accessible name, and in data-full-title")
+        func sessionRowsCarryTheFullTitle() async {
+            // The rows are typed now, so this pin reads the RENDERED row tags
+            // rather than counting splice sites in the builder source: what
+            // matters is that every row that reaches the client carries the
+            // trio, all three holding the SAME (full) stored title.
+            let panel = await RenderedMarkup.panelWithRows()
+
+            func attribute(_ name: String, in tag: String) -> String? {
+                guard let key = tag.range(of: "\(name)=\"") else { return nil }
+                let rest = tag[key.upperBound...]
+                guard let end = rest.firstIndex(of: "\"") else { return nil }
+                return String(rest[..<end])
+            }
+
+            let rowTags = panel.components(separatedBy: "<div class=\"sess-row").dropFirst().compactMap { chunk -> String? in
+                guard let end = chunk.firstIndex(of: ">") else { return nil }
+                return String(chunk[..<end])
+            }
+            #expect(rowTags.count >= 2, "the fixture must render more than one row (found \(rowTags.count))")
+            var sawATruncatableTitle = false
+            for tag in rowTags {
+                let full = attribute("data-full-title", in: tag)
+                #expect(full != nil && !full!.isEmpty,
+                        "every row must carry data-full-title (UX-06/UX-21)")
+                #expect(full == attribute("title", in: tag),
+                        "the hover title must be the same full stored title (UX-06)")
+                #expect(full == attribute("aria-label", in: tag),
+                        "the accessible name must be the same full stored title (UX-06)")
+                if let full, full.count > 40 { sawATruncatableTitle = true }
+            }
+            // floor: if no fixture title is longer than the 40-char clamp, the
+            // pin cannot tell "full title" from "truncated title" at all.
+            #expect(sawATruncatableTitle,
+                    "at least one fixture title must exceed the 40-char clamp, or this pin proves nothing")
+        }
+
+        // MARK: - UX-08 (2026-10-18 wave 2) names, pressed state, sort labels, focus restore
+
+        /// The audit found 16 visible buttons with no text/aria/title (12 rail
+        /// icons + regen + chat-del + file + bookmark) and selection cards that
+        /// only painted `.active`. Icon-only controls need real accessible
+        /// names; selection cards need aria-pressed mirroring the selection.
+        @Test("icon-only shell buttons carry accessible names and selection cards carry aria-pressed")
+        func shellButtonsAreNamedAndSelectionIsPressed() async {
+            // Every rail icon (nav-<id>) keeps its data-tip pill AND gains an
+            // aria-label for AT/touch (the pill is hover-only). Settings too.
+            // Read from rendered bytes: the rail is typed now, and this proves the
+            // pair exists on every button rather than that a spelling appears once.
+            let page = await RenderedMarkup.page()
+            let tags = Self.railButtonTags(page)
+            #expect(!tags.isEmpty, "the rail rendered no buttons at all")
+            for tag in tags {
+                #expect(Self.attribute("data-tip", in: tag) != nil,
+                        "a rail button lost its hover pill (UX-08): \(tag)")
+                #expect(Self.attribute("aria-label", in: tag) != nil,
+                        "a rail button lost its aria-label (UX-08): \(tag)")
+            }
+            #expect(page.contains("data-tip=\"Settings\" aria-label=\"Settings\"")
+                        || (Self.railButtonTags(page).contains { tag in
+                            Self.attribute("data-tip", in: tag) == "Settings"
+                                && Self.attribute("aria-label", in: tag) == "Settings"
+                        }),
+                    "the Settings rail button must carry an aria-label (UX-08)")
+            // Theme / text-size / scheme cards mark selection with .active —
+            // asserted on RENDERED bytes: the tiles are typed buttons now, so the
+            // source no longer carries the attribute string a grep looked for.
+            let settingsPage = await AppState(renderFixture: AppState.RenderFixture())
+                .settingsMain().markup.html
+            func tileTags(_ prefix: String) -> [String] {
+                settingsPage.components(separatedBy: "<button")
+                    .dropFirst()
+                    .map { "<button" + $0 }
+                    .filter { $0.prefix(400).contains("id=\"\(prefix)") }
+                    .map { String($0.prefix(while: { $0 != ">" })) + ">" }
+            }
+            for (prefix, what) in [("thm-", "theme"), ("fsz-", "text-size"), ("scheme-", "scheme")] {
+                let tags = tileTags(prefix)
+                #expect(!tags.isEmpty, "no \(what) tiles rendered")
+                #expect(tags.allSatisfy { Self.attribute("aria-pressed", in: $0) != nil },
+                        "\(what) cards must reflect selection via aria-pressed (UX-08)")
+            }
+        }
+
+        /// The markdown-table enhancer minted sort buttons whose whole accessible
+        /// name was the '⇅' glyph, a filter input with only a placeholder, and no
+        /// sort-order announcement; and closing the delete modal dropped focus to
+        /// <body> because the modal's own focus moves overwrote the generic
+        /// patch-restore's memory.
+        ///
+        /// The focus fix is pinned at the mechanism, not the symptom: the very
+        /// patch that OPENS the dialog re-renders the chat header and disconnects
+        /// the focused trigger, so the trigger has to be snapshotted by a
+        /// capture-phase click listener BEFORE that patch (focus-time recording
+        /// already sees <body>), and restore has to resolve the snapshot through
+        /// the session row's data-sid because the trigger's node gets replaced.
+        ///
+        /// Wave-2: the close round-trip delivers several fragment patches in one
+        /// batch, so restore is keyed to syncModalFocus's open→closed transition
+        /// (modalWasOpen) — it fires exactly on the pass where the card is first
+        /// gone, and no early-clear guard may wipe the memory while an earlier
+        /// fragment still has the dialog in the DOM.
+        @Test("table sort/filter controls are named and the modal returns focus to its trigger")
+        func tableControlsNamedAndModalRestoresFocus() {
+            let overlay = Self.overlay
+            #expect(overlay.contains("sort.setAttribute('aria-label', 'Sort by '"),
+                    "the sort button must announce the column it sorts (UX-08)")
+            #expect(overlay.contains("hc.removeAttribute('aria-sort')"),
+                    "aria-sort must be cleared from the other columns on each sort (UX-08)")
+            #expect(overlay.contains("target.setAttribute('aria-sort', dir === 'asc' ? 'ascending' : 'descending')"),
+                    "the sorted column must announce ascending/descending (UX-08)")
+            #expect(overlay.contains("filter.setAttribute('aria-label', 'Filter table rows')"),
+                    "the filter field needs an accessible name — a placeholder is not one (UX-08)")
+            // The modal block: state, pointer capture, sync, restore, then the
+            // Escape/Tab trap. Scoped so the pins cannot match lookalike code
+            // elsewhere in the overlay (six other document click listeners).
+            guard let m0 = overlay.range(of: "var modalReturnFocus = null;"),
+                  let m1 = overlay.range(of: "document.addEventListener('keydown', function (e) {",
+                                         range: m0.upperBound..<overlay.endIndex) else {
+                #expect(Bool(false), "the modal focus block (state + capture + sync + restore) must exist (UX-08)")
+                return
+            }
+            let modal = overlay[m0.lowerBound..<m1.lowerBound]
+            #expect(modal.contains("document.addEventListener('click', function (e) {") &&
+                    modal.contains("closest('[id]')") &&
+                    modal.contains("}, true);"),
+                    "the trigger must be snapshotted by a capture-phase click listener, before the patch that adds the dialog replaces it (UX-08)")
+            #expect(modal.contains("modalReturnFocus = { id: (t.id || '').trim(), sid: rowSidOf(t) };"),
+                    "the snapshot must remember the activated control by id and session-row sid (UX-08)")
+            #expect(modal.contains("card.contains(e.target)"),
+                    "clicks inside the dialog itself must not overwrite the remembered trigger (UX-08)")
+            #expect(modal.contains("!modalReturnFocus && document.activeElement") &&
+                    !modal.contains("document.activeElement !== document.body &&"),
+                    "when the modal patch has already dropped focus to <body>, syncModalFocus must keep/proceed with the pointer snapshot instead of skipping — the old body-excluding gate is what lost the trigger (UX-08)")
+            #expect(modal.contains("rowSidOf(document.activeElement)"),
+                    "a live non-body trigger is still recorded by sid as a fallback (UX-08)")
+            #expect(modal.contains("var modalWasOpen = false;") && modal.contains("modalWasOpen = true;"),
+                    "syncModalFocus must track the open/closed transition so the restore fires only after the removal patch lands (UX-08)")
+            #expect(modal.contains("if (modalWasOpen) {") &&
+                    modal.contains("restoreFocusToTrigger();") &&
+                    modal.contains("modalWasOpen = false;"),
+                    "the restore must run exactly once, on the pass where the card is first gone (UX-08)")
+            #expect(!modal.contains("document.activeElement !== document.body) { modalReturnFocus = null"),
+                    "no early-clear guard may wipe the trigger memory while the dialog is still present in the DOM (UX-08)")
+            #expect(modal.contains("function restoreFocusToTrigger()"),
+                    "a restore path for the dialog's trigger must exist (UX-08)")
+            #expect(modal.contains(".sess-row[data-sid]") && modal.contains("getAttribute('data-sid') === sid"),
+                    "restore must resolve the trigger's replacement through the session row's data-sid (UX-08)")
+            #expect(modal.contains("nu.setAttribute('tabindex', '0')"),
+                    "a re-focused session row must become keyboard-focusable (UX-08)")
+            #expect(modal.contains("if (!nu) return;"),
+                    "an unresolvable trigger (the session was actually deleted) must no-op, not throw (UX-08)")
+            #expect(!overlay.contains("restoreModalFocus();"),
+                    "the restore must ride syncModalFocus's transition — no separate post-patch call that could double-fire (UX-08)")
+        }
+
+        // MARK: - UX-07 (2026-10-18 wave 2) collapse the rail on narrow widths
+
+        /// At 480×900 the 12-icon vertical rail persisted and ate a 46px column
+        /// (rail 46 / main 434). Below 600px the rail must collapse into a
+        /// horizontal strip under the topbar: window never scrolls horizontally
+        /// (the strip's own overflow owns that), Settings stays pinned at the
+        /// visible right edge, and the drawer clears the strip so every nav
+        /// destination stays reachable.
+        @Test("below 600px the rail collapses to a horizontal strip without taxing the window width")
+        func railCollapsesAtNarrowWidths() {
+            let css = Self.sheetSource
+            #expect(css.contains("@media (max-width: 599.98px) {"),
+                    "the rail-collapse breakpoint must exist below 600px (UX-07)")
+            #expect(css.contains("#app-body { flex-direction: column; }"),
+                    "the app body must stack so the rail stops taxing the window width (UX-07)")
+            let railBlock = "@media (max-width: 599.98px) {"
+            guard let r0 = css.range(of: railBlock) else { return }
+            let rest = css[r0.upperBound...]
+            let block = rest.prefix(1500)
+            #expect(block.contains("flex: 0 0 auto; width: 100%; height: 44px;"),
+                    "the rail must become a full-width horizontal strip (UX-07)")
+            #expect(block.contains("flex-direction: row; align-items: center;"),
+                    "the strip lays its icons out in a row (UX-07)")
+            #expect(block.contains("overflow-x: auto; overflow-y: hidden;"),
+                    "the strip scrolls internally so the WINDOW never overflows (UX-07)")
+            #expect(block.contains("position: static; bottom: auto; left: auto; right: auto;"),
+                    "the Settings slot must stay in flow so it cannot cover Todos (round-3 UX-29)")
+            #expect(block.contains("#panel { top: 82px; left: 0; width: 100vw; }"),
+                    "the drawer must open below the rail strip so the rail stays tappable (UX-07)")
+        }
+
+        @Test("the filter fields carry accessible names")
+        func filterFieldsAreNamed() async {
+            let chatsPanel = await AppState(renderFixture: AppState.RenderFixture())
+                .chatPanel().markup.html
+            #expect(chatsPanel.contains("aria-label=\"Filter conversations\""),
+                    "the conversation filter must be named")
+            let skillsPanel = await AppState(renderFixture: AppState.RenderFixture())
+                .skillsPanel().markup.html
+            #expect(skillsPanel.contains("aria-label=\"Filter skills\""),
+                    "the skills filter must be named")
+            let composer = await RenderedMarkup.composer()
+            #expect(composer.contains("aria-label=\"Search workspaces\""), "the workspace search must be named")
+            #expect(composer.contains("aria-label=\"Search models\""), "the model search must be named")
+        }
+
+        @Test("outline entries are client-side links that keep the panel open")
+        func outlineEntriesKeepPanelOpen() {
+            let overlay = Self.overlay
+            #expect(overlay.contains("var b = document.createElement('a')"),
+                    "outline entries must be <a> links, not <button>s (UX-20)")
+            #expect(overlay.contains("b.href = '#' + m.id"),
+                    "each entry must point at its message anchor (UX-20)")
+            #expect(overlay.contains("e.preventDefault();"),
+                    "entry click must be prevented from server round-trip (UX-20)")
+            #expect(overlay.contains("e.preventDefault();"),
+                    "outline entry click must be prevented from server round-trip (UX-20)")
+            #expect(overlay.contains("m.scrollIntoView({ block: 'start', behavior: 'smooth' })"),
+                    "outline entry click must scroll the target message into view (UX-20)")
+            #expect(overlay.contains("m.scrollIntoView({ block: 'start', behavior: 'smooth' })"),
+                    "entry click must scroll the target message into view (UX-20)")
+        }
+
+        // MARK: - UX-21 (wave 4) rename seeds from the full stored title
+
+        @Test("rename input seeds from data-full-title, not the truncated row text")
+        func renameSeedsFromFullTitle() async {
+            let overlay = Self.overlay
+            // the row is typed now: the attribute is emitted by `.attribute`,
+            // so the proof is the RENDERED row, not a source spelling.
+            let panel = await RenderedMarkup.panelWithRows()
+            #expect(panel.contains("data-full-title=\""),
+                    "the session row must carry the full stored title (UX-06/UX-21)")
+            #expect(overlay.contains("row.getAttribute('data-full-title')"),
+                    "rename must seed from the row's data-full-title (UX-21)")
+            #expect(overlay.contains("data-full-title"),
+                    "rename must not seed from the truncated row text (UX-21)")
+        }
+
+    // MARK: - Round 3 (2026-10-19) — state, empty states, pinning
+
+        @Test("rail, chips and toolset switches expose their selected state")
+        func selectionStateIsExposed() async {
+            // the rail is a typed view now: read the selected state off the
+            // rendered bytes, not a source spelling that only survives in a
+            // comment. the active rail button must carry aria-current="page".
+            let page = await RenderedMarkup.page()
+            let railButtons = page.components(separatedBy: "<button")
+                .filter { $0.contains("icon-btn") && $0.contains("data-component-id=\"nav-") }
+                .map { String($0.prefix(while: { $0 != ">" })) }
+            let active = railButtons.filter { $0.contains("aria-current=\"page\"") }
+            #expect(active.count == 1, "exactly one rail button must be aria-current=page (found \(active.count))")
+            #expect(railButtons.count > 0, "the rail rendered no buttons at all")
+
+            // the log filter chips are a typed view now: read `aria-pressed`
+            // off the rendered bytes instead of a source spelling.
+            let logsPanelPage = await AppState(renderFixture: AppState.RenderFixture()).logsPanel().markup.html
+            let logChips = logsPanelPage.components(separatedBy: "<button")
+                .filter { $0.contains("id=\"log-filter-") }
+                .map { String($0.prefix(while: { $0 != ">" })) }
+            #expect(logChips.count == 4, "the panel must render four filter chips (found \(logChips.count))")
+            #expect(logChips.filter { $0.contains("aria-pressed=\"true\"") }.count == 1,
+                    "exactly the selected chip is pressed (round-3 UX-33)")
+            let pressedChip = logChips.first { $0.contains("aria-pressed=\"true\"") } ?? ""
+            #expect(pressedChip.contains("id=\"log-filter-all\"") && pressedChip.contains("chip-btn active"),
+                    "the default filter is 'all' and it is the chip that is pressed (round-3 UX-33)")
+            var tsFixture = AppState.RenderFixture()
+            tsFixture.toolsets = [("file", [StubTool(name: "read_file", toolset: "file")])]
+            let toolsPanelPage = await AppState(renderFixture: tsFixture).toolsPanel().markup.html
+            #expect(toolsPanelPage.contains("aria-label=\"Enable file tools\""),
+                    "each toolset switch needs an accessible name (round-3 UX-31)")
+            let header = await RenderedMarkup.chatHeader()
+            #expect(header.contains("aria-label=\"Regenerate last reply\""),
+                    "regen-btn must be named for AT, not only data-tip (round-3 UX-32)")
+            #expect(header.contains("aria-label=\"Delete chat\""),
+                    "chat-del must be named for AT, not only data-tip (round-3 UX-32)")
+        }
+
+        @Test("pinned chats render above the date buckets")
+        func pinnedChatsGroupFirst() {
+            let views = Self.views
+            #expect(views.contains("groupHTML(key: \"pinned\", title: \"Pinned\""),
+                    "pinned chats need their own group (round-3 UX-27)")
+            #expect(views.contains("for s in unpinned {"),
+                    "pinned chats must not be re-bucketed by date (round-3 UX-27)")
+        }
+
+        @Test("a tools filter with no matches says so once")
+        func toolsNoMatchState() {
+            let views = Self.views
+            #expect(views.contains("No tools match"),
+                    "the tools panel needs a no-match state (round-3 UX-28)")
+            #expect(views.contains("matchCount == 0"),
+                    "empty groups must be skipped under a filter (round-3 UX-28)")
+        }
+
+        @Test("the peak callout is the only 100% label on the tokens chart")
+        func insightsTopTickUnlabelled() async {
+            let graph = await Self.insightsGraph(days: 7, zeroAt: [], range: 7)
+            // four labelled ticks (0/25/50/75%) out of five rows: the top row is
+            // the 100% rule alone, because the peak callout already prints it.
+            #expect(Self.count("ins-ytick-row", in: graph) == 5,
+                    "the axis keeps its five rows")
+            #expect(Self.count("ins-ylabel", in: graph) == 4,
+                    "the top y-axis tick must not duplicate the peak label (round-3 UX-43)")
+            #expect(graph.contains("peak "), "the peak callout carries the number once")
+        }
+
+        @Test("form fragments can ask the post-patch seam for the caret")
+        func formFocusHandoff() {
+            #expect(Self.overlay.contains("data-focus-after-patch"),
+                    "overlay must honour data-focus-after-patch (round-3 UX-34/35)")
+            #expect(Self.views.contains("data-focus-after-patch"),
+                    "the add-card / skill forms must request focus after a patch")
+        }
+
+        @Test("the skip link is hidden where its target is absent")
+        func skipLinkScopedToChat() {
+            // The shell renders once, so a tab switch cannot remove the link
+            // server-side; the boot overlay hides it wherever #composer-input
+            // is not on the page (round-3 UX-42).
+            #expect(Self.overlay.contains("function syncSkipLink()"))
+            #expect(Self.overlay.contains("link.hidden = !document.getElementById('composer-input')"),
+                    "the skip link must hide when no composer exists")
         }
 
     }

@@ -61,6 +61,13 @@ public enum SubprocessError: Error, Sendable, CustomStringConvertible {
 /// - **Timeout = process-group kill**: cancelling the run task signals the
 ///   child's entire process group (SwiftSlash `run(cancellationSignal:)`),
 ///   then reaps — no orphaned processes.
+/// - **Placement is part of the spawn contract**: every child is spawned with
+///   `processGroup: .own`, so each arc child leads its own group and one
+///   signal reaches its whole tree without touching arc's own group. The
+///   value is also what a *nested* launch resolves against — a child that
+///   re-runs this path from inside a launch inherits and joins the enclosing
+///   group — so the guarantee survives the plugin and ACP trees. See
+///   `docs/process-placement.md`.
 public enum SubprocessRunner {
 
     /// Default bytes captured per stream.
@@ -101,7 +108,17 @@ public enum SubprocessRunner {
             dataChannels[STDIN_FILENO] = .read(.fromParentProcess(stream: .init()))
         }
 
-        let child = ChildProcess(command, dataChannels: dataChannels)
+        // arc asks for `.own` explicitly, never the resolved default: arc owns
+        // the process groups of everything it spawns, so its teardown reaches
+        // the whole tree in every deployment — including when arc is itself a
+        // launch child, where the default would join arc's group and downgrade
+        // cancellation to a pid-only kill. every SwiftSlash 6 program arc spawns
+        // is itself a launch child, so *its* children resolve `.inherited` and
+        // join the group arc owns: the cascade is transitive inside the tree arc
+        // owns, which is the only tree arc can clean up. `.detached` is never
+        // requested — a detached child is unreachable by design, and arc has no
+        // use for a process it cannot stop.
+        let child = ChildProcess(command, processGroup: .own, dataChannels: dataChannels)
 
         // Payload to stdin is queued in the writer FIFO (non-blocking yield;
         // `write` would await a flush future that only completes once the

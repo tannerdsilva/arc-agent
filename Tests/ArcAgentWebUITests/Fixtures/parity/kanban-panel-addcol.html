@@ -1,0 +1,16 @@
+<div class="panel-head">
+  <span class="panel-title">Kanban</span>
+  <div class="panel-actions"><button type="button" id="kb-addcol" title="Cancel" data-component-id="kb-addcol" class="plus-btn"><svg class="icon icon--sm" viewBox="0 0 24 24" width="0.75em" height="0.75em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+</div>
+<div class="panel-body" data-component-id="kanban" data-event="click">
+  <form id="kb-addcol-form" data-component-id="kb-addcol-form" class="cat-add-form">
+  <input id="kb-addcol-name" name="kb-addcol-name" data-component-id="kb-addcol-name" type="text" placeholder="Column name" autofocus>
+  <input type="hidden" name="kb-addcol-color" id="kb-addcol-color" class="color-value" value="#E5484D">
+  <div class="cat-swatches"><button type="button" class="cat-swatch sel" data-color="#E5484D" style="background:#E5484D"></button><button type="button" class="cat-swatch" data-color="#E1914B" style="background:#E1914B"></button><button type="button" class="cat-swatch" data-color="#D9A441" style="background:#D9A441"></button><button type="button" class="cat-swatch" data-color="#5BB98C" style="background:#5BB98C"></button><button type="button" class="cat-swatch" data-color="#2F9EB7" style="background:#2F9EB7"></button><button type="button" class="cat-swatch" data-color="#4F6FDD" style="background:#4F6FDD"></button><button type="button" class="cat-swatch" data-color="#9D5CD0" style="background:#9D5CD0"></button><button type="button" class="cat-swatch" data-color="#C25A8A" style="background:#C25A8A"></button><button type="button" class="cat-swatch" data-color="#8A8271" style="background:#8A8271"></button></div>
+  <div class="cat-add-actions">
+    <button type="submit" class="primary-btn">Add</button>
+    <button type="button" id="kb-addcol-cancel" class="ghost-btn">Cancel</button>
+  </div>
+</form>
+  <div class="empty-hint">No columns — press + to add one.</div>
+</div>

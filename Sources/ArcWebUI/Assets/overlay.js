@@ -430,6 +430,10 @@
           sort.type = 'button';
           sort.className = 'markdown-table-sort';
           sort.title = 'Sort column';
+          // UX-08: the glyph alone ('⇅') was the whole accessible name. The
+          // button must name the column it sorts, and the header must expose
+          // the applied sort order via aria-sort.
+          sort.setAttribute('aria-label', 'Sort by ' + (th.textContent || 'this column'));
           sort.textContent = '\u21C5';
           sort.addEventListener('click', (function (tbl, colIdx) {
             return function () {
@@ -438,6 +442,18 @@
               var dir = asc ? 'desc' : 'asc';
               tbl.setAttribute('data-sort-col', String(colIdx));
               tbl.setAttribute('data-sort-dir', dir);
+              var hdr = tbl.querySelector('thead tr');
+              if (hdr) {
+                for (var h = 0; h < hdr.children.length; h++) {
+                  var hc = hdr.children[h];
+                  if (!hc || !hc.removeAttribute) continue;
+                  if (hc.removeAttribute) hc.removeAttribute('aria-sort');
+                }
+                var target = hdr.children[colIdx];
+                if (target && target.setAttribute) {
+                  target.setAttribute('aria-sort', dir === 'asc' ? 'ascending' : 'descending');
+                }
+              }
               var body = tbl.querySelector('tbody');
               if (!body) return;
               var rows = Array.prototype.slice.call(body.querySelectorAll('tr'));
@@ -452,6 +468,7 @@
               var sels = tbl.querySelectorAll('.markdown-table-sort');
               for (var s = 0; s < sels.length; s++) {
                 sels[s].textContent = s === colIdx ? (dir === 'asc' ? '\u25B2' : '\u25BC') : '\u21C5';
+                sels[s].setAttribute('aria-label', 'Sort by ' + (sels[s].closest ? (sels[s].closest('th').textContent || '') : ''));
               }
             };
           })(table, c));
@@ -464,6 +481,9 @@
         filter.type = 'text';
         filter.className = 'markdown-table-filter';
         filter.placeholder = 'Filter table';
+        // UX-08: the filter field is icon/placeholder-only; a placeholder is
+        // not an accessible name.
+        filter.setAttribute('aria-label', 'Filter table rows');
         // Delegated on the table so the handler survives any re-render that
         // replaces the input element.
         table.addEventListener('input', function (ev) {
@@ -613,6 +633,16 @@
     if (el.value !== want) el.value = want;
   }
 
+  // Round-3 UX-42: the skip link lives in the app shell, which renders once —
+  // a tab switch only patches fragments, so the link would keep pointing at a
+  // composer that is no longer on the page. Show it only where the target
+  // exists; a keyboard user on a rail view never tabs into a dead jump.
+  function syncSkipLink() {
+    var link = document.querySelector('.skip-link');
+    if (!link) return;
+    link.hidden = !document.getElementById('composer-input');
+  }
+
   // ---- Confirmation dialog: focus, Escape, and a light focus trap.
   // The dialog is a server-rendered fragment the engine patches in, so nothing
   // moves focus into it and Escape had no owner. Land focus on Cancel, route
@@ -622,12 +652,103 @@
     return document.querySelector('.modal-overlay .modal-card');
   }
 
+  // UX-08: remember the control whose activation opened the confirmation
+  // dialog. Closing it (Cancel/confirm/Escape) is a fragment patch that
+  // removes #modal-overlay and the browser drops focus to <body> — the
+  // generic patch-restore alone cannot help because its lastFocusedControl is
+  // overwritten by the modal's own focus moves (Cancel/Delete take focus
+  // inside the dialog). Restoring from THIS memory puts the keyboard user
+  // back on the trigger (or its re-rendered replacement).
+  //
+  // The trigger must be captured at POINTER time, not focus time: the very
+  // fragment patch that ADDS the dialog also re-renders the chat header,
+  // which disconnects the focused control, so by the time syncModalFocus
+  // runs the browser has already dropped focus to <body> and there is
+  // nothing left to record. A document-level capture-phase click listener
+  // snapshots the activated control (its id plus the data-sid of the
+  // sess-row that owns it) BEFORE the patch, and syncModalFocus adopts that
+  // snapshot whenever it finds no live focus to record. Clicks inside the
+  // dialog itself never overwrite the remembered trigger. The snapshots stay
+  // keyed by id + data-sid because the patch replaces the trigger's node.
+  //
+  // The restore is keyed to a TRANSITION, not to the snapshot alone: the close
+  // round-trip delivers several fragment patches in one batch and the runtime
+  // calls enhancePatched for each. The old restoreModalFocus began with an
+  // early guard (activeElement !== body → forget the trigger), and the very
+  // first patch in the batch ran while the dialog was STILL in the DOM — with
+  // focus on #modal-cancel — so the guard wiped the memory before the removal
+  // patch arrived. syncModalFocus therefore tracks whether the dialog was open
+  // on the previous pass (modalWasOpen) and performs the restore exactly once,
+  // on the pass where the card is first gone — right after the DOM actually
+  // reflects the removal. No other code path restores.
+  var modalReturnFocus = null;
+  var modalWasOpen = false;
+  document.addEventListener('click', function (e) {
+    var card = modalCard();
+    if (card && card.contains(e.target)) return;
+    var t = e.target && e.target.closest ? e.target.closest('[id]') : null;
+    if (!t || !t.id) return;
+    modalReturnFocus = { id: (t.id || '').trim(), sid: rowSidOf(t) };
+  }, true);
+
+  // Runs after every patch. While the dialog is present: adopt the pointer
+  // snapshot if none is live, and land focus on Cancel. On the pass where the
+  // dialog has just been removed, hand focus back to the trigger that opened
+  // it — this is the single restore seam, and it fires only after the DOM
+  // reflects the removal, so no earlier fragment in the batch can clear the
+  // memory before it is used.
   function syncModalFocus() {
     var card = modalCard();
-    if (!card) return;
+    if (!card) {
+      if (modalWasOpen) {
+        modalWasOpen = false;
+        restoreFocusToTrigger();
+      }
+      return;
+    }
+    modalWasOpen = true;
     if (card.contains(document.activeElement)) return;
+    // activeElement is usually <body> here (the modal patch just disconnected
+    // the focused trigger) — fall back to the pointer-time snapshot. When a
+    // live focus target does survive (programmatic open), record it directly.
+    if (!modalReturnFocus && document.activeElement &&
+        document.activeElement !== document.body) {
+      modalReturnFocus = {
+        id: (document.activeElement.id || '').trim(),
+        sid: rowSidOf(document.activeElement)
+      };
+    }
     var target = card.querySelector('#modal-cancel') || card.querySelector('button');
     if (target) target.focus();
+  }
+
+  // The dialog is gone and was open on the previous pass: hand focus back to
+  // the remembered trigger — re-queried by id (or by its session row's
+  // data-sid) because the fragment patch may have replaced the node. The
+  // memory is consumed once so the next open records a fresh trigger, and it
+  // is never cleared while a card is present (this is the only caller and it
+  // only ever runs with the card gone). A trigger that no longer resolves
+  // (e.g. the session was actually deleted) leaves focus alone — no throw, no
+  // jump.
+  function restoreFocusToTrigger() {
+    if (!modalReturnFocus) return;
+    var mem = modalReturnFocus;
+    modalReturnFocus = null;
+    var id = (mem && mem.id) ? String(mem.id).trim() : '';
+    var sid = (mem && mem.sid) ? String(mem.sid) : '';
+    var nu = null;
+    if (id) nu = document.getElementById(id);
+    if (!nu && sid) {
+      var rows = document.querySelectorAll('.sess-row[data-sid]');
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i].getAttribute('data-sid') === sid) { nu = rows[i]; break; }
+      }
+    }
+    if (!nu) return;
+    if (sid) nu.setAttribute('tabindex', '0');
+    if (nu.disabled || nu.getAttribute('aria-hidden') === 'true') return;
+    if (getComputedStyle ? getComputedStyle(nu).display === 'none' : false) return;
+    nu.focus({ preventScroll: true });
   }
 
   document.addEventListener('keydown', function (e) {
@@ -842,38 +963,17 @@
     nu.focus({ preventScroll: true });
   }
 
-  // ---- Context-preview disclosures (new-session panel): keep the ones the
-  // user opened across fragment re-renders, because a segment toggle repaints
-  // the whole panel. `toggle` does not bubble, so each <details> is bound once;
-  // open ids are remembered and re-applied on every enhance pass.
-  var openDisclosures = {};
-  function syncOpenDisclosures(scope) {
-    var node = (scope && scope.querySelectorAll) ? scope : document;
-    var list = node.querySelectorAll('details.ctx-preview');
-    for (var i = 0; i < list.length; i++) {
-      var d = list[i];
-      if (!d.__bound) {
-        d.__bound = true;
-        d.addEventListener('toggle', function () {
-          if (this.open) openDisclosures[this.id] = true;
-          else delete openDisclosures[this.id];
-        });
-      }
-      if (d.id && openDisclosures[d.id]) d.open = true;
-    }
-  }
-
   function enhanceAll() {
     resizeComposerIfNew();
     enhanceMarkdownTables(document);
     stickToChat();
     syncPanelScroll();
     syncComposerDraft();
+    syncSkipLink();
     syncModalFocus();
     syncOutline();
     bootSettingsSpy();
     copyFromServerMarker();
-    syncOpenDisclosures(document);
   }
 
   function enhancePatched(changed) {
@@ -889,15 +989,18 @@
     stickToChat();
     syncPanelScroll();
     syncComposerDraft();
+    syncSkipLink();
     syncModalFocus();
     syncOutline();
     bootSettingsSpy();
     copyFromServerMarker();
-    syncOpenDisclosures(changed && changed.length ? changed[0] : document);
     // T26: a fragment patch may have just replaced the control the user
     // activated — return focus to its equivalent so the keyboard trail does
     // not reset to <body>.
     restoreFocusAfterPatch();
+    // UX-08: focus return for the confirmation dialog rides syncModalFocus's
+    // open→closed transition (above), which fires exactly when the removal
+    // patch lands in the DOM — one restore path, no double-fire.
     // UX-45: `+` (new chat) leaves focus on the button; the app asked for the
     // composer and the new chat's fragment just landed — put the caret in it.
     if (focusComposerWanted) {
@@ -907,6 +1010,21 @@
         ci.focus();
         ci.setSelectionRange(ci.value.length, ci.value.length);
         resizeComposerIfNew();
+      }
+    }
+    // Round-3 UX-34/35: a form fragment that just landed can ask for the caret
+    // with [data-focus-after-patch] (the add-card form, the first invalid skill
+    // field). Only take focus when nothing else holds it — never yank the caret
+    // out of a field the user has already moved to.
+    var ae = document.activeElement;
+    if (!ae || ae === document.body) {
+      var want = document.querySelector('[data-focus-after-patch]');
+      if (want && want.focus) {
+        want.removeAttribute('data-focus-after-patch');
+        try { want.focus(); } catch (_) {}
+        if (want.setSelectionRange && typeof want.value === 'string') {
+          want.setSelectionRange(want.value.length, want.value.length);
+        }
       }
     }
   }
@@ -1048,7 +1166,9 @@
 
   // ---- Conversation outline (reference #2124): the toggle opens the panel;
   // entries are the open chat's user messages, built on demand from the
-  // rendered anchors. Jumping releases the stick — the reader is choosing a
+  // rendered anchors. Entries are plain client-side links: a click jumps to
+  // the message anchor and keeps the panel open (no server round-trip, no
+  // panel close). Jumping releases the stick — the reader is choosing a
   // position and must not be yanked back to the live text. Delegated, so it
   // survives every re-render.
   function buildOutline() {
@@ -1058,8 +1178,8 @@
     var msgs = document.querySelectorAll('.chat-inner .msg.user[id^="msg-user-"]');
     for (var i = 0; i < msgs.length; i++) {
       (function (m, idx) {
-        var b = document.createElement('button');
-        b.type = 'button';
+        var b = document.createElement('a');
+        b.href = '#' + m.id;
         b.className = 'outline-entry';
         var num = document.createElement('span');
         num.className = 'outline-entry-num';
@@ -1071,7 +1191,8 @@
         b.title = raw.slice(0, 240);
         b.appendChild(num);
         b.appendChild(txt);
-        b.addEventListener('click', function () {
+        b.addEventListener('click', function (e) {
+          e.preventDefault();
           stick = false;
           m.scrollIntoView({ block: 'start', behavior: 'smooth' });
           m.classList.remove('outline-jump-flash');
@@ -1080,11 +1201,8 @@
           setTimeout(function () { m.classList.remove('outline-jump-flash'); }, 1400);
           var s = chatScroller();
           if (s) updateJumpBtn(s);
-          // The panel's open state is server-owned now, so closing is a click
-          // on the server-wired close control (it used to flip `hidden` here,
-          // which the next fragment push would have undone).
-          var close = document.getElementById('outline-close');
-          if (close) close.click();
+          // Panel stays open: entries are client-side only now. The close
+          // button is the only server-owned control in the panel.
         });
         entries.appendChild(b);
       })(msgs[i], i);
@@ -1105,6 +1223,18 @@
     if (!panel || panel.hidden) return;
     buildOutline();
   }
+
+  // ---- Context window chip (UX-23): a <button> that responds to activation,
+  // not just hover. Click toggles the tooltip (focus-within already opens it
+  // for keyboard users via the CSS); touch gets a path too.
+  document.addEventListener('click', function (e) {
+    var chip = e.target && e.target.closest ? e.target.closest('.ctx-indicator') : null;
+    if (!chip) return;
+    var wrap = chip.closest('.ctx-indicator-wrap');
+    if (!wrap) return;
+    var open = wrap.classList.toggle('ctx-open');
+    chip.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
 
   // ---- Session group headers (Today / Last Week / Older): collapse
   // and expand entirely client-side.
@@ -1426,7 +1556,10 @@
       flashToast('Could not copy the link.', 'error');
     }
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(target).catch(writeFailed);
+      navigator.clipboard.writeText(target).then(function () {
+        // The overlay owns the toast: exactly one, from the clipboard result.
+        flashToast('Conversation link copied.');
+      }).catch(writeFailed);
     } else {
       var ta = document.createElement('textarea');
       ta.value = target;
@@ -1434,10 +1567,43 @@
       ta.style.opacity = '0';
       document.body.appendChild(ta);
       ta.select();
-      try { if (!document.execCommand('copy')) writeFailed(); } catch (err) { writeFailed(); }
+      try {
+        if (!document.execCommand('copy')) writeFailed();
+        else flashToast('Conversation link copied.');
+      } catch (err) { writeFailed(); }
       document.body.removeChild(ta);
     }
   }
+
+  // ---- Workspace preview copy (UX-12): the preview's copy control is
+  // client-side, and the toast follows the clipboard promise — the same
+  // owner rule as the conversation-link copy above. `innerText` gives the
+  // rendered text for a markdown preview and the raw text for a <pre>.
+  document.addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest('#ws-preview-copy') : null;
+    if (!btn) return;
+    var body = document.querySelector('.ws-preview-scroll .ws-preview-body');
+    var text = body ? (body.innerText || body.textContent || '') : '';
+    function copied() { flashToast('File content copied.'); }
+    function failed() { flashToast('Could not copy the file.', 'error'); }
+    if (!text.trim()) { failed(); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(copied).catch(failed);
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        if (!document.execCommand('copy')) failed();
+        else copied();
+      } catch (err) { failed(); }
+      document.body.removeChild(ta);
+    }
+  });
+
 
   // ---- Rename conversation: inline edit of the row title, committed
   // through a hidden form that rides the normal runtime pipeline.
@@ -1454,7 +1620,12 @@
     var openBtn = row && row.querySelector('.sess-open');
     var sid = b.getAttribute('data-sid');
     if (!row || !openBtn || !sid) return;
-    var current = ((openBtn.querySelector('.sess-title') || {}).textContent || '').trim();
+    // Seed from the full stored title (data-full-title on the row, UX-06) —
+    // never from the truncated 40-char row text, which would commit permanent
+    // truncation when the rename is committed (UX-21). Fall back to the
+    // rendered title for rows that predate the attribute.
+    var current = (row.getAttribute('data-full-title') || '').trim()
+        || ((openBtn.querySelector('.sess-title') || {}).textContent || '').trim();
     var input = document.createElement('input');
     input.type = 'text';
     input.className = 'rename-input';

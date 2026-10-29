@@ -65,24 +65,36 @@ func fmtTps(_ v: Double) -> String {
     return String(format: "%.1f t/s", v)
 }
 
-// MARK: - Small HTML fragments
+// MARK: - Typed markup bridge
 
-/// A tiny attribute string builder used across renderers.
-func attr(_ name: String, _ value: String) -> String {
-    " \(name)=\"\(esc(value))\""
+/// materialize a fragment view into the wire type the push pipeline carries.
+///
+/// `FragmentUpdate.html` is a `String`; converting at this one edge is what lets
+/// a builder return a typed view while the wire type stays a string.
+///
+/// **This helper is for direct broadcasts only.** Anything that flows through the
+/// push door (`Controller.push` → `PushEdge`) must NOT assemble html: it returns
+/// `structuralChange()` and the edge derives every region from a fresh render.
+/// The surviving callers are the producers that never reach that door:
+///
+/// - `liveLogFragments()` (`log-lines`) and `liveWorkspaceFragments()` (`ws-tree`)
+///   are broadcast straight to `WebUIServer.broadcast` by `WebUIHost`'s
+///   interval streamers, so the edge never sees or diffs them;
+/// - `liveFragments()`' two nodes (`live-turn`, `composer-flyout`) are pinned at
+///   the source by the streaming contract (B5 moves that pin to the wire).
+///
+/// Deltas (`FragmentUpdate.text`) are the other sanctioned explicit shape: they
+/// target a node another producer owns, and the edge forwards them untouched.
+@inlinable
+func fragment(_ id: String, _ view: some WebUI.View) -> FragmentUpdate {
+    FragmentUpdate(id: id, html: view.markup.html)
 }
 
-func div(_ id: String?, _ cls: String, _ content: String) -> String {
-    let idAttr = id.map { " id=\"\($0)\"" } ?? ""
-    return "<div\(idAttr) class=\"\(cls)\">\(content)</div>"
-}
+/// render a typed view where a `-> String` signature must survive one more phase.
+@inlinable
+func render<V: WebUI.View>(_ view: V) -> String { view.markup.html }
 
-/// A button. `component` is the `data-component-id` the engine routes to; pass "" for a
-/// control that must NOT own a boundary (its id is then reported as `targetId` by the
-/// enclosing boundary). An empty attribute would still be a boundary — `findComponent`
-/// matches on presence — so an empty value omits the attribute rather than emitting
-/// `data-component-id=""`, which would shadow the container and swallow the click.
-func btn(_ id: String, _ component: String, _ cls: String, _ label: String, _ extra: String = "") -> String {
-    let routing = component.isEmpty ? "" : " data-component-id=\"\(component)\""
-    return "<button type=\"button\" id=\"\(id)\"\(extra)\(routing) class=\"\(cls)\">\(label)</button>"
-}
+/// existential overload: a `[any View]` element (a block collected into a list)
+/// still needs to become bytes at the push edge.
+@inlinable
+func render(_ view: any WebUI.View) -> String { view.markup.html }

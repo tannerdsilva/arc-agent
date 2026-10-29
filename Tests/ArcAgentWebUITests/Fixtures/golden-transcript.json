@@ -1,0 +1,42 @@
+[
+  {
+    "content" : "hello",
+    "createdAt" : 814585228.009567,
+    "role" : "user"
+  },
+  {
+    "content" : "Working on it. ",
+    "createdAt" : 814585228.014837,
+    "reasoning" : "considering the request",
+    "role" : "assistant",
+    "toolCalls" : [
+      {
+        "function" : {
+          "arguments" : "{\"value\":\"alpha\"}",
+          "name" : "echo"
+        },
+        "id" : "call-echo-1",
+        "type" : "function"
+      }
+    ]
+  },
+  {
+    "content" : "echo: alpha",
+    "createdAt" : 814585228.01556,
+    "name" : "echo",
+    "role" : "tool",
+    "toolCallID" : "call-echo-1"
+  },
+  {
+    "content" : "All done.",
+    "createdAt" : 814585228.01733,
+    "role" : "assistant",
+    "tps" : 200,
+    "turnDuration" : 0.0077970027923583984,
+    "usage" : {
+      "completionTokens" : 40,
+      "promptTokens" : 120,
+      "totalTokens" : 160
+    }
+  }
+]

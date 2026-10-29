@@ -33,7 +33,7 @@ let package = Package(
         ),
 		.package(
 			url: "https://github.com/tannerdsilva/swift-mcp.git",
-			"2.1.1"..<"3.0.0"
+			"2.1.2"..<"3.0.0"
 		),
         .package(
             url: "https://github.com/apple/swift-nio.git",
@@ -53,7 +53,7 @@ let package = Package(
         ),
         .package(
             url: "https://github.com/tannerdsilva/SwiftSlash.git",
-            from: "5.0.1"
+            "6.0.0"..<"7.0.0"
         ),
         .package(
             url: "https://github.com/apple/swift-log.git",
@@ -63,11 +63,15 @@ let package = Package(
             url: "https://github.com/apple/swift-crypto.git",
             from: "3.0.0"
         ),
-	.package(
-            url: "https://github.com/tannerdsilva/no-webui.git",
-            "2.0.0"..<"3.0.0"
-        ),
-	.package(path: "Plugins/ArcSidebarTabs"),
+		// TEMPORARY LOCAL PIN: arc builds against ../pins/no-webui, a worktree of
+		// the no-webui repository at 67d5b6f. the basename must stay `no-webui`
+		// — a path dependency's identity is its directory name, and every
+		// `.product(…, package: "no-webui")` below keys on it. not the sibling
+		// ../no-webui, which carries unrelated uncommitted work. the manifest
+		// returns to a revision pin later; `make check-pin` holds this checkout
+		// to the recorded sha meanwhile (LOCAL_PIN_SHA in the Makefile).
+		.package(path: "../pins/no-webui"),
+		.package(path: "Plugins/ArcSidebarTabs"),
 	],
 
     targets: [
@@ -153,7 +157,8 @@ let package = Package(
                 .product(name: "WebUIDesignSystem", package: "no-webui"),
                 // the shipped-asset protocol the generated ThemeSheetAssets conforms to.
                 .product(name: "WebUICore", package: "no-webui"),
-                .product(name: "SwiftSlash", package: "SwiftSlash"),
+                // the region differ the push edge stands on (RegionPolicy, PageDiffer).
+                .product(name: "WebUIState", package: "no-webui"),
                 .product(name: "AsyncHTTPClient", package: "async-http-client"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOHTTP1", package: "swift-nio"),
@@ -200,6 +205,19 @@ let package = Package(
             ]
         ),
 
+        // ── Test fixture: process-placement observer ──────────────
+        // No product: a test-only executable that observes the placement of the
+        // children arc spawns from *inside a launch* — the only place arc's
+        // explicit `.own` differs from the resolved default. The test targets
+        // spawn it, so it must be an in-package executable target.
+        .executableTarget(
+            name: "ArcSubprocessFixture",
+            dependencies: [
+                .target(name: "ArcAgentCore"),
+                .product(name: "SwiftSlash", package: "SwiftSlash"),
+            ],
+        ),
+
         // ── Tests ─────────────────────────────────────────────────
         .testTarget(
             name: "ArcAgentCoreTests",
@@ -236,6 +254,9 @@ let package = Package(
                 // the minifier the emitted sheet goes through: the drift test compares the
                 // product against `minifyCSS(source)`.
                 .product(name: "WebUICore", package: "no-webui"),
+                // SwiftPM does not re-export a dependency: a test naming PageDiffer
+                // needs the product declared here too.
+                .product(name: "WebUIState", package: "no-webui"),
             ],
             resources: [
                 // the palette pins: the values the painted sheet must still hold, extracted

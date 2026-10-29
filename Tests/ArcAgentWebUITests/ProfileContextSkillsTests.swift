@@ -18,35 +18,48 @@ extension ArcWebUITestRoot {
             #expect(src.contains("pinned to this profile"))
         }
 
-        @Test("prompt builder injects the pinned section")
+        @Test("the per-turn agent factory injects the pinned section")
         func promptInjection() {
-            let actions = Self.source("Actions.swift")
-            #expect(actions.contains("SkillsPrompt.pinnedSection"))
-            #expect(actions.contains("p.contextSkills, !pinned.isEmpty"))
+            // CONVERGE A8: the UI builder is gone. The pinned section is now
+            // prompt content the factory hands to the core as one injected
+            // system message (the SOUL precedent), so the core's tiered builder
+            // stays the only builder. The behavioural proof lives in
+            // `PromptParityTests.profileBlocksAreInjected`.
+            let state = Self.source("AppState.swift")
+            #expect(state.contains("SkillsPrompt.pinnedSection"))
+            #expect(state.contains("profile.contextSkills, !pinned.isEmpty"))
+            #expect(state.contains("agent.injectSystemMessage"))
             let promptSrc = Self.source("SkillsPrompt.swift") // resolves under ArcAgentCore/Skills/
             #expect(promptSrc.contains("pinnedSection"))
             #expect(promptSrc.contains("Pinned Profile Skills"))
         }
 
         @Test("profile edit form renders the context skills section")
-        func formSection() {
-            let views = Self.source("Views.swift")
-            #expect(views.contains("Context skills"))
-            #expect(views.contains("profileContextSkillsHTML()"))
-            #expect(views.contains("pcs-toggle"))
-            #expect(views.contains("data-component-id=\"pcs\""))
-            #expect(views.contains("data-component-id=\"pcs-rm\""))
+        func formSection() async {
+            // rendered, not grepped: the picker is a view tree now, so the only
+            // honest question is whether the wiring attributes reached the DOM.
+            var f = AppState.RenderFixture()
+            f.profiles = [Profile(name: "fast", title: "Fast", description: "Quick answers",
+                                  model: "gpt-5-mini")]
+            f.editingProfile = "fast"
+            let page = await AppState(renderFixture: f).profilesMain().markup.html
+            #expect(page.contains("Context skills"), "the section keeps its heading")
+            #expect(page.contains("id=\"pcs-toggle\""), "the picker has its trigger")
+            #expect(page.contains("data-component-id=\"pcs\""),
+                    "the popover is wired by component id — a class-only marker never fires")
+            #expect(page.contains("data-component-id=\"pcs-rm\""),
+                    "the remove row is wired by component id")
         }
 
         @Test("profile wires cover picker add/remove/save")
         func wires() {
             let actions = Self.source("Actions.swift")
-            #expect(actions.contains("id: \"pcs-toggle\""))
-            #expect(actions.contains("id: \"pcs\""))
-            #expect(actions.contains("id: \"pcs-rm\""))
-            #expect(actions.contains("tid.hasPrefix(\"pcs-pick-\")"))
-            #expect(actions.contains("profileSkillsDraft"))
-            #expect(actions.contains("p.contextSkills = contextSkills"))
+            #expect(actions.contains("@Wired(\"pcs-toggle\""), "pcs-toggle is @Wired")
+            #expect(actions.contains("@Wired(\"pcs\""), "pcs is @Wired")
+            #expect(actions.contains("@Wired(\"pcs-rm\""), "pcs-rm is @Wired")
+            #expect(actions.contains("tid.hasPrefix(\"pcs-pick-\")"), "pcs-pick targetId prefix")
+            #expect(actions.contains("profileSkillsDraft"), "profileSkillsDraft used")
+            #expect(actions.contains("p.contextSkills = contextSkills"), "contextSkills assignment")
         }
 
         // MARK: - Helpers

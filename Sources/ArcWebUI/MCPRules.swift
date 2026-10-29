@@ -5,14 +5,19 @@ import Foundation
 /// become a stored `mcp_servers.<name>` entry.
 ///
 /// The form is flat text, but the value it produces is a process launch
-/// spec: `command` is a single argv[0] resolved through `/usr/bin/env`, and
+/// spec: `command` is a single argv[0] resolved through `PATH`, and
 /// `args` are argv entries handed straight to it. Nothing is ever run through
 /// a shell, so no quoting or expansion happens anywhere — which is exactly why
 /// the rules must reject the two shapes users type by habit:
 ///
-/// - a whole command line in the `command` field (`npx -y server`), which
+/// - a whole command line in the `command` field (`arc tools mcp serve`), which
 ///   would otherwise be looked up as a single executable name;
 /// - shell quoting inside the arguments field, which would arrive literally.
+///
+/// And one shape arc refuses outright: a package-manager launcher. An MCP
+/// server here is a program already on this machine, so the policy lives in
+/// ``MCPServerLaunchPolicy`` (shared with the spawn path) rather than being
+/// restated in the form.
 ///
 /// Filesystem access is injected (`fileExists`) so the rule matrix is pinned
 /// in tests without touching disk.
@@ -103,9 +108,10 @@ enum MCPRules {
     }
 
     /// The full save plan: the name is unique (or is the server being edited),
-    /// the command is one executable, and the args/env text parses. A stated
-    /// name collision is an error — the user typed that name, so it must fail
-    /// loudly rather than silently overwrite another server.
+    /// the command is one executable, the launcher is one arc will run, and the
+    /// args/env text parses. A stated name collision is an error — the user
+    /// typed that name, so it must fail loudly rather than silently overwrite
+    /// another server.
     ///
     /// `previousName` is the server being edited: a plan whose name equals it is
     /// not a collision with itself, so the caller never has to pre-filter the
@@ -128,6 +134,12 @@ enum MCPRules {
         let name = try normalizeName(rawName)
         let command = try normalizeCommand(rawCommand)
         let args = parseArgs(argsText)
+        // The one shape arc refuses outright: a launcher that resolves a
+        // package over the network. Checked on the parsed argv so a wrapper
+        // (`env`, `sh -c`) cannot smuggle one past the command field.
+        if let refusal = MCPServerLaunchPolicy.refusal(command: command, arguments: args) {
+            throw MCPRuleError.launchRefused(refusal.description)
+        }
         let env = try parseEnv(envText)
         if existingNames.contains(name), name != previousName {
             throw MCPRuleError.nameExists(name)
@@ -157,6 +169,7 @@ enum MCPRuleError: Error, Equatable, CustomStringConvertible {
     case commandRequired
     case commandInvalid(String)
     case commandLooksLikeCommandLine
+    case launchRefused(String)
     case envLineMissingEquals(String)
     case envKeyInvalid(String)
     case envKeyDuplicate(String)
@@ -172,11 +185,13 @@ enum MCPRuleError: Error, Equatable, CustomStringConvertible {
         case .nameExists(let name):
             return "An MCP server named '\(name)' already exists. Edit it instead of adding a second one."
         case .commandRequired:
-            return "Command is required — the executable to launch (for example npx or python3)."
+            return "Command is required — the executable to launch (for example `arc`, or the full path to a server you built)."
         case .commandInvalid(let reason):
             return "Invalid command (\(reason))."
         case .commandLooksLikeCommandLine:
-            return "Command must be one executable, not a whole command line. Put 'npx' in Command and '-y <server>' in Arguments — nothing is run through a shell, so a command line typed here is looked up as a single (missing) executable."
+            return "Command must be one executable, not a whole command line. Put `arc` in Command and `tools`, `mcp`, `serve` in Arguments — nothing is run through a shell, so a command line typed here is looked up as a single (missing) executable."
+        case .launchRefused(let reason):
+            return reason
         case .envLineMissingEquals(let line):
             return "Environment line '\(line)' is not KEY=VALUE."
         case .envKeyInvalid(let key):

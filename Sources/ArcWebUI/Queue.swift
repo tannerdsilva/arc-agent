@@ -1,6 +1,7 @@
 import ArcAgentCore
 import Foundation
 import WebUI
+import WebUIDesignSystem
 
 // MARK: - Run-queue model
 
@@ -251,7 +252,9 @@ extension AppState {
 
     func notifyQueueView(_ pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void) async {
         guard activeTabID == "todos" else { return }
-        await pusher([FragmentUpdate(id: "main", html: self.todosPanelHTML())])
+        // A nudge: the queue's own view is `#main`'s todos panel, and the door
+        // derives it from a fresh render instead of being handed its html here.
+        await pusher(structuralChange())
     }
 
     /// Run one queue task in its own chat (waiting for the chat to be free).
@@ -382,99 +385,154 @@ extension AppState {
 extension AppState {
 
     /// Tab buttons for the Todos panel (Tasks | Run queue).
-    func todosTabsHTML() -> String {
+    func todosTabsHTML() -> some WebUI.View {
         let tasksCls = todosTab == .tasks ? " todo-tab-active" : ""
         let queueCls = todosTab == .queue ? " todo-tab-active" : ""
-        return """
-        <div class="todo-tabs" data-component-id="queue" data-event="click">
-          <button type="button" id="queue-tab-tasks" class="todo-tab\(tasksCls)">Tasks</button>
-          <button type="button" id="queue-tab-queue" class="todo-tab\(queueCls)">Run queue</button>
-          <span class="todo-tabs-count">\(settings.queuePlan.count) queued</span>
-        </div>
-        """
+        return Div(class: "todo-tabs") {
+            ArcButton("Tasks", id: "queue-tab-tasks", component: nil, class: "todo-tab\(tasksCls)")
+            ArcButton("Run queue", id: "queue-tab-queue", component: nil, class: "todo-tab\(queueCls)")
+            Span(class: "todo-tabs-count") { Text("\(settings.queuePlan.count) queued") }
+        }
+        .wire("queue")
     }
 
     /// Row of a queue entry. `linkPop` renders the inline "feed output"
     /// checklist when the link button is open.
-    func queueRowHTML(_ e: QueueEntry, index: Int, plan: [QueueEntry]) -> String {
+    func queueRowHTML(_ e: QueueEntry, index: Int, plan: [QueueEntry]) -> some WebUI.View {
         let todo = queueTodo(e)
         let missing = todo == nil ? " missing" : ""
         let status = queueStatuses[e.id] ?? ""
         let statusCls = status.isEmpty ? "" : " qst-" + status
         let statusText = status.isEmpty ? "" : (status == "done" ? "done" : status == "failed" ? "failed" : status)
-        // Feed chips: same named-context presentation as the composer's
-        // "Reply with selection" context blocks (truncated + accent bar).
-        let inputsChips: String
-        if e.inputs.isEmpty {
-            inputsChips = "<span class=\"queue-in\">no feed</span>"
-        } else {
-            let plan = settings.queuePlan
-            let chips = e.inputs.compactMap { id -> String? in
-                guard let i = plan.firstIndex(where: { $0.id == id }) else { return nil }
-                let todo = queueTodo(plan[i])
-                let label = trunc(todo?.text ?? "…", 60)
-                let full = todo?.text ?? ""
-                return "<span class=\"queue-feed-chip\" title=\"\(esc(full))\">"
-                    + "<span class=\"queue-feed-accent\"></span>"
-                    + "<span class=\"queue-feed-label\">Task \(i + 1): \(esc(label))</span></span>"
-            }.joined()
-            inputsChips = "<span class=\"queue-in\">feeds: <span class=\"queue-feed-chips\">\(chips)</span></span>"
+        return Group {
+            Div(class: "queue-row\(missing)\(statusCls)") {
+                Span(class: "queue-grip") { WebUIIcon(.moreVertical, size: .small) }
+                    .title("Drag to reorder")
+                Span(class: "queue-idx") { Text("\(index + 1)") }
+                Div(class: "queue-main") {
+                    Div(class: "queue-text") { Text(todo?.text ?? "⚠︎ todo no longer exists") }
+                    Div(class: "queue-meta") {
+                        // the chat label and the separator are one text node; the feed
+                        // chips follow it as their own views.
+                        Text(queueChatLabel(e.chatID) + " · ")
+                        queueFeedSummary(e)
+                    }
+                }
+                ArcButton(id: "queue-inputs-\(e.id)", component: nil, class: "icon-mini queue-link-btn") {
+                    WebUIIcon(.link, size: .small)
+                }
+                .title("Feed earlier task output into this task")
+                Span(class: "queue-status\(statusCls)") { Text(statusText) }
+                ArcButton(id: "queue-del-\(e.id)", component: nil, class: "icon-mini danger") {
+                    WebUIIcon(.x, size: .small)
+                }
+                .title("Remove from queue")
+            }
+            .attribute("draggable", "true")
+            .data("qid", e.id)
+            if queueLinksOpen == e.id { queueLinkPopupHTML(e, plan: plan) }
         }
-        let linkPop = queueLinksOpen == e.id ? queueLinkPopupHTML(e, plan: plan) : ""
-        return """
-        <div class="queue-row\(missing)\(statusCls)" draggable="true" data-qid="\(e.id)">
-          <span class="queue-grip" title="Drag to reorder">\(WebUIIcon(.moreVertical, size: .small).markup.html)</span>
-          <span class="queue-idx">\(index + 1)</span>
-          <div class="queue-main">
-            <div class="queue-text">\(esc(todo?.text ?? "⚠︎ todo no longer exists"))</div>
-            <div class="queue-meta">\(esc(queueChatLabel(e.chatID))) · \(inputsChips)</div>
-          </div>
-          <button type="button" id="queue-inputs-\(e.id)" class="icon-mini queue-link-btn" title="Feed earlier task output into this task">\(WebUIIcon(.link, size: .small).markup.html)</button>
-          <span class="queue-status\(statusCls)">\(esc(statusText))</span>
-          <button type="button" id="queue-del-\(e.id)" class="icon-mini danger" title="Remove from queue">\(WebUIIcon(.x, size: .small).markup.html)</button>
-        </div>
-        \(linkPop)
-        """
+    }
+
+    /// The "feeds:" line of a queue row — the named-context presentation the
+    /// composer's "Reply with selection" blocks use (truncated + accent bar).
+    /// The plan read here is the LIVE queue, not the caller's snapshot.
+    private func queueFeedSummary(_ e: QueueEntry) -> some WebUI.View {
+        let plan = settings.queuePlan
+        let chips: [any WebUI.View] = e.inputs.compactMap { id -> (any WebUI.View)? in
+            guard let i = plan.firstIndex(where: { $0.id == id }) else { return nil }
+            let todo = queueTodo(plan[i])
+            let label = trunc(todo?.text ?? "…", 60)
+            return Span(class: "queue-feed-chip") {
+                Span(class: "queue-feed-accent") {}
+                Span(class: "queue-feed-label") { Text("Task \(i + 1): \(label)") }
+            }
+            .title(todo?.text ?? "")
+        }
+        return Group {
+            if e.inputs.isEmpty {
+                Span(class: "queue-in") { Text("no feed") }
+            } else {
+                Span(class: "queue-in") {
+                    Text("feeds: ")
+                    Span(class: "queue-feed-chips") { chips }
+                }
+            }
+        }
     }
 
     /// Inline checklist: which OTHER tasks feed this task's context.
     /// Without the loop only earlier tasks may feed; with the loop on any
     /// task may feed — later tasks' output arrives on the next pass.
-    func queueLinkPopupHTML(_ e: QueueEntry, plan: [QueueEntry]) -> String {
+    func queueLinkPopupHTML(_ e: QueueEntry, plan: [QueueEntry]) -> some WebUI.View {
         let myIdx = plan.firstIndex(where: { $0.id == e.id }) ?? 0
         let loopOn = settings.queueLoopEnabled
-        var rows: [String] = []
+        var rows: [any WebUI.View] = []
         for (i, prev) in plan.enumerated() where prev.id != e.id && (loopOn || i < myIdx) {
             let later = loopOn && i > myIdx
-            let checked = queueLinkSel.contains(prev.id) ? " checked" : ""
-            let laterTag = later ? "<span class='queue-link-loop'>loops back</span>" : ""
-            rows.append("<label class='queue-link-row'><input type='checkbox' id='qlink-\(prev.id)' value='\(prev.id)' data-component-id='qlink' data-event='change'\(checked)><span class='queue-link-num'>Task \(i + 1)</span><span class='queue-link-title' title='\(esc(queueTodo(prev)?.text ?? ""))'>\(esc(trunc(queueTodo(prev)?.text ?? "…", 80)))</span>\(laterTag)</label>")
-        }
-        let body: String
-        if rows.isEmpty {
-            body = "<div class='queue-link-empty'>No other tasks to feed from.</div>"
-        } else {
-            body = rows.joined()
+            let checked = queueLinkSel.contains(prev.id)
+            let full = queueTodo(prev)?.text ?? ""
+            rows.append(
+                FieldLabel(class: "queue-link-row") {
+                    Input(id: "qlink-\(prev.id)", type: .checkbox, value: prev.id)
+                        .wire("qlink", on: .change)
+                        .flag(.checked, when: checked)
+                    Span(class: "queue-link-num") { Text("Task \(i + 1)") }
+                    Span(class: "queue-link-title") { Text(trunc(full.isEmpty ? "…" : full, 80)) }
+                        .title(full)
+                    if later {
+                        Span(class: "queue-link-loop") { Text("loops back") }
+                    }
+                }
+            )
         }
         let head = loopOn ? "Feed output of other tasks into this task" : "Feed output of earlier tasks into this task"
-        let note = loopOn ? "<div class='queue-link-note'>Loop is on: later tasks feed back on the next pass.</div>" : ""
-        return """
-        <div class="queue-link">
-          <div class="queue-link-head">\(head)</div>
-          \(body)
-          \(note)
-          <div class="queue-link-actions">
-            <button type="button" id="queue-link-apply" class="primary-btn">Apply</button>
-            <button type="button" id="queue-link-clear" class="ghost-btn">Clear</button>
-          </div>
-        </div>
-        """
+        return Div(class: "queue-link") {
+            Div(class: "queue-link-head") { Text(head) }
+            if rows.isEmpty {
+                Div(class: "queue-link-empty") { Text("No other tasks to feed from.") }
+            } else {
+                rows
+            }
+            if loopOn {
+                Div(class: "queue-link-note") { Text("Loop is on: later tasks feed back on the next pass.") }
+            }
+            Div(class: "queue-link-actions") {
+                ArcButton("Apply", id: "queue-link-apply", component: nil, class: "primary-btn")
+                ArcButton("Clear", id: "queue-link-clear", component: nil, class: "ghost-btn")
+            }
+        }
     }
 
     /// "Add tasks" picker: every chat's open todos as checkboxes.
-    func queuePickerHTML() -> String {
-        guard queuePickerOpen else { return "" }
-        var sections: [String] = []
+    func queuePickerHTML() -> some WebUI.View {
+        let sections = queuePickerSections()
+        let count = queueCandidates.count
+        return Group {
+            if queuePickerOpen {
+                Div(class: "queue-picker") {
+                    Div(class: "queue-picker-head") {
+                        Span { Text("Add todos from your chats") }
+                        ArcButton(id: "queue-picker-close", component: nil, class: "icon-mini") {
+                            WebUIIcon(.x, size: .small)
+                        }
+                    }
+                    if sections.isEmpty {
+                        Div(class: "queue-pick-empty") { Text("No open todos in any chat.") }
+                    } else {
+                        sections
+                    }
+                    Div(class: "queue-picker-foot") {
+                        ArcButton("Add \(count) selected", id: "queue-picker-add", component: nil, class: "primary-btn")
+                    }
+                }
+            }
+        }
+    }
+
+    /// one section per chat with open todos that are not already queued.
+    private func queuePickerSections() -> [any WebUI.View] {
+        var sections: [any WebUI.View] = []
         for s in sessions where !isArchived(s.id) {
             let list = (settings.todos[s.id] ?? []).filter { t in
                 guard !t.done else { return false }
@@ -482,201 +540,243 @@ extension AppState {
                 return !settings.queuePlan.contains(where: { $0.chatID == s.id && $0.todoID == t.id })
             }
             guard !list.isEmpty else { continue }
-            let cbs = list.map { t -> String in
-                let checked = queueCandidates.contains(t.id) ? " checked" : ""
-                return "<label class='queue-pick-row'><input type='checkbox' id='qpick-\(t.id)' value='\(t.id)' data-component-id='qpick' data-event='change'\(checked)><span class='queue-pick-text'>\(esc(t.text))</span></label>"
-            }.joined()
-            sections.append("<div class='queue-pick-chat'><div class='queue-pick-title'>\(esc(queueChatLabel(s.id)))</div>\(cbs)</div>")
+            let cbs: [any WebUI.View] = list.map { t in
+                let checked = queueCandidates.contains(t.id)
+                return FieldLabel(class: "queue-pick-row") {
+                    Input(id: "qpick-\(t.id)", type: .checkbox, value: t.id)
+                        .wire("qpick", on: .change)
+                        .flag(.checked, when: checked)
+                    Span(class: "queue-pick-text") { Text(t.text) }
+                }
+            }
+            sections.append(
+                Div(class: "queue-pick-chat") {
+                    Div(class: "queue-pick-title") { Text(queueChatLabel(s.id)) }
+                    cbs
+                }
+            )
         }
-        let body = sections.isEmpty
-            ? "<div class='queue-pick-empty'>No open todos in any chat.</div>"
-            : sections.joined()
-        let count = queueCandidates.count
-        return """
-        <div class="queue-picker">
-          <div class="queue-picker-head">
-            <span>Add todos from your chats</span>
-            <button type="button" id="queue-picker-close" class="icon-mini">\(WebUIIcon(.x, size: .small).markup.html)</button>
-          </div>
-          \(body)
-          <div class="queue-picker-foot">
-            <button type="button" id="queue-picker-add" class="primary-btn">Add \(count) selected</button>
-          </div>
-        </div>
-        """
+        return sections
     }
 
     /// The Run queue tab content.
-    func queuePanelHTML() -> String {
+    func queuePanelHTML() -> some WebUI.View {
         let plan = settings.queuePlan
-        let rows = plan.enumerated().map { i, e in queueRowHTML(e, index: i, plan: plan) }.joined()
-        let empty = plan.isEmpty ? """
-            <div class="todo-empty">
-              <div class="todo-empty-ico">\(WebUIIcon(.fastForward, size: .extraLarge).markup.html)</div>
-              <div>Nothing queued yet</div>
-              <small>Add todos from any chat below, drag to reorder, then run them.</small>
-            </div>
-            """ : ""
-        let picker = queuePickerHTML()
         let running = queueRunActive
         let loopOn = settings.queueLoopEnabled
-        var runBtns: String
-        if running {
-            var passText = ""
-            if queueLoopPass > 0 {
-                passText = " · pass \(queueLoopPass)/\(max(1, settings.queueLoopCount))"
+        // the rows are materialized up front: a builder cannot take `[some View]`
+        let rows: [any WebUI.View] = plan.enumerated().map { i, e in queueRowHTML(e, index: i, plan: plan) }
+        return Div(class: "todo-card queue-card") {
+            Div(class: "todo-head") {
+                Div {
+                    Element(.h2, class: "todo-title") { Text("Run queue") }
+                    Div(class: "todo-sub") {
+                        Text("Tasks run in the order shown. Sequential feeds linked output; parallel runs each chat at once.")
+                    }
+                }
+                Div(class: "todo-head-actions") {
+                    Div(class: "queue-ctrl") {
+                        if running {
+                            queueRunningStatus()
+                            ArcButton("Stop", id: "queue-stop", component: nil, class: "queue-stop-btn")
+                                .title("Stop the queue run; prompts already running in chats keep going")
+                        } else {
+                            queueRunControls()
+                            queueLoopRow(loopOn: loopOn)
+                        }
+                    }
+                }
             }
-            runBtns = "<span class='queue-running'><span class='queue-running-dot'></span>Running…\(esc(passText))</span>"
-            runBtns += "<button type=\"button\" id=\"queue-stop\" class=\"queue-stop-btn\" title=\"Stop the queue run; prompts already running in chats keep going\">Stop</button>"
-        } else {
-            let checked = loopOn ? " checked" : ""
-            let countField = loopOn ? """
-            <label class="queue-loop-count" title="How many times to run the queue (1 = no loop)">
-              <span class="queue-loop-count-label">Loops</span>
-              <input type="number" id="queue-loop-count" data-component-id="queue-loop-count" data-event="change" min="1" max="99" value="\(settings.queueLoopCount)" class="queue-loop-count-input">
-            </label>
-            """ : ""
-            runBtns = """
-            <div class="queue-ctrl-btns">
-              <button type="button" id="queue-run-sync" class="queue-run-btn" title="Run tasks in the shown order; linked tasks receive earlier output as context">
-                <span class="queue-run-ico">\(WebUIIcon(.play, size: .small).markup.html)</span>Run sequential
-              </button>
-              <button type="button" id="queue-run-async" class="queue-run-btn" title="Run each chat at the same time; same-chat tasks are combined">
-                <span class="queue-run-ico">\(WebUIIcon(.fastForward, size: .small).markup.html)</span>Run parallel
-              </button>
-              <button type="button" id="queue-picker-toggle" class="queue-add-btn">\(WebUIIcon(.plus, size: .small).markup.html) Add tasks</button>
-            </div>
-            <div class="queue-loop-row">
-              <label class="queue-loop-toggle" title="Repeat the sequential run; linked later tasks feed back on the next pass">
-                <span class="switch"><input type="checkbox" id="queue-loop-toggle" value="1" data-component-id="queue-loop-toggle" data-event="change"\(checked)><span class="track"></span><span class="knob"></span></span>
-                <span class="queue-loop-label">Loop sequential</span>
-              </label>
-              \(countField)
-            </div>
-            """
+            Div(class: "queue-list") {
+                if plan.isEmpty { queueEmptyState() }
+                rows
+            }
+            queuePickerHTML()
+            Input(
+                id: "queue-order",
+                type: .hidden,
+                attributes: [("value", "")]
+            )
+            .wire("queue-order", on: .change)
+            .data("no-restore", "")
         }
-        return """
-        <div class="todo-card queue-card" data-component-id="queue" data-event="click">
-          <div class="todo-head">
-            <div>
-              <h2 class="todo-title">Run queue</h2>
-              <div class="todo-sub">Tasks run in the order shown. Sequential feeds linked output; parallel runs each chat at once.</div>
-            </div>
-            <div class="todo-head-actions"><div class="queue-ctrl">\(runBtns)</div></div>
-          </div>
-          <div class="queue-list">
-            \(empty)
-            \(rows)
-          </div>
-          \(picker)
-          <input type="hidden" id="queue-order" data-component-id="queue-order" data-event="change" data-no-restore value="">
-        </div>
-        """
+        .wire("queue")
+    }
+
+    /// the "Running… · pass n/m" pill plus the stop button's sibling slot.
+    private func queueRunningStatus() -> some WebUI.View {
+        var passText = ""
+        if queueLoopPass > 0 {
+            passText = " · pass \(queueLoopPass)/\(max(1, settings.queueLoopCount))"
+        }
+        return Span(class: "queue-running") {
+            Span(class: "queue-running-dot") {}
+            Text("Running…" + passText)
+        }
+    }
+
+    /// the three buttons that start a run or open the picker, idle state only.
+    private func queueRunControls() -> some WebUI.View {
+        Div(class: "queue-ctrl-btns") {
+            ArcButton(id: "queue-run-sync", component: nil, class: "queue-run-btn") {
+                Span(class: "queue-run-ico") { WebUIIcon(.play, size: .small) }
+                Text("Run sequential")
+            }
+            .title("Run tasks in the shown order; linked tasks receive earlier output as context")
+            ArcButton(id: "queue-run-async", component: nil, class: "queue-run-btn") {
+                Span(class: "queue-run-ico") { WebUIIcon(.fastForward, size: .small) }
+                Text("Run parallel")
+            }
+            .title("Run each chat at the same time; same-chat tasks are combined")
+            ArcButton(id: "queue-picker-toggle", component: nil, class: "queue-add-btn") {
+                WebUIIcon(.plus, size: .small)
+                Text(" Add tasks")
+            }
+        }
+    }
+
+    /// the loop switch, plus the pass-count field when the loop is on.
+    private func queueLoopRow(loopOn: Bool) -> some WebUI.View {
+        Div(class: "queue-loop-row") {
+            FieldLabel(class: "queue-loop-toggle") {
+                Span(class: "switch") {
+                    Input(id: "queue-loop-toggle", type: .checkbox, value: "1")
+                        .wire("queue-loop-toggle", on: .change)
+                        .flag(.checked, when: loopOn)
+                    Span(class: "track") {}
+                    Span(class: "knob") {}
+                }
+                Span(class: "queue-loop-label") { Text("Loop sequential") }
+            }
+            .title("Repeat the sequential run; linked later tasks feed back on the next pass")
+            if loopOn {
+                FieldLabel(class: "queue-loop-count") {
+                    Span(class: "queue-loop-count-label") { Text("Loops") }
+                    Input(
+                        id: "queue-loop-count",
+                        type: .number,
+                        value: "\(settings.queueLoopCount)",
+                        attributes: [("min", "1"), ("max", "99"), ("class", "queue-loop-count-input")]
+                    )
+                    .wire("queue-loop-count", on: .change)
+                }
+                .title("How many times to run the queue (1 = no loop)")
+            }
+        }
+    }
+
+    /// the empty-queue placeholder.
+    private func queueEmptyState() -> some WebUI.View {
+        Div(class: "todo-empty") {
+            Div(class: "todo-empty-ico") { WebUIIcon(.fastForward, size: .extraLarge) }
+            Div { Text("Nothing queued yet") }
+            Small("Add todos from any chat below, drag to reorder, then run them.")
+        }
     }
 }
 
-// MARK: - Controller wire (run queue)
+// MARK: - Controller wires (run queue)
 
+@WireGroup("queue")
 extension Controller {
 
-    func wireQueue(_ router: EventRouter) {
-        // click/submit only: change frames carry `{value, checked}` (no
-        // targetId), so every queue change control owns its own component id
-        // (see wireQueueChangeControls).
-        wire(router, id: "queue", events: ["click", "submit"]) { event in
-            guard let tid = event.string("targetId") else { return [] }
+    @Wired("queue", events: [.click, .submit])
+    func handleQueue(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId") else { return [] }
 
-            if tid == "queue-tab-tasks" || tid == "queue-tab-queue" {
-                await self.app.setTodosTab(tid == "queue-tab-tasks" ? .tasks : .queue)
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid == "queue-stop" {
-                await self.app.requestQueueCancel()
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid == "queue-run-sync" || tid == "queue-run-async" {
-                guard await self.app.queueRunActive == false else { return [] }
-                let pusher = self.push
-                let sequential = tid == "queue-run-sync"
-                let app = self.app
-                Task {
-                    if sequential {
-                        await app.runQueueSequential(pusher: pusher)
-                    } else {
-                        await app.runQueueParallel(pusher: pusher)
-                    }
-                }
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid == "queue-picker-toggle" {
-                await self.app.queueSetPickerOpen(!(await self.app.queuePickerOpen))
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid == "queue-picker-close" {
-                await self.app.queueSetPickerOpen(false)
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid == "queue-picker-add" {
-                await self.app.addQueueCandidates()
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid == "queue-link-apply" {
-                let entryID = await self.app.queueLinksOpen ?? ""
-                await self.app.setQueueInputs(entryID, await self.app.queueLinkSel)
-                await self.app.queueClearLinkState()
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid == "queue-link-clear" {
-                let entryID = await self.app.queueLinksOpen ?? ""
-                await self.app.clearQueueInputs(entryID)
-                await self.app.queueClearLinkState()
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid.hasPrefix("queue-inputs-") {
-                let id = String(tid.dropFirst("queue-inputs-".count))
-                let current: String? = await self.app.queueLinksOpen
-                await self.app.queueOpenLinks(current == id ? nil : id)
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            if tid.hasPrefix("queue-del-") {
-                let id = String(tid.dropFirst("queue-del-".count))
-                await self.app.removeQueueEntry(id)
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-            }
-            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+        if tid == "queue-tab-tasks" || tid == "queue-tab-queue" {
+            await self.app.setTodosTab(tid == "queue-tab-tasks" ? .tasks : .queue)
+            return await self.changed()
         }
-        wireQueueChangeControls(router)
+        if tid == "queue-stop" {
+            await self.app.requestQueueCancel()
+            return await self.changed()
+        }
+        if tid == "queue-run-sync" || tid == "queue-run-async" {
+            guard await self.app.queueRunActive == false else { return [] }
+            let pusher = self.push
+            let sequential = tid == "queue-run-sync"
+            let app = self.app
+            Task {
+                if sequential {
+                    await app.runQueueSequential(pusher: pusher)
+                } else {
+                    await app.runQueueParallel(pusher: pusher)
+                }
+            }
+            return await self.changed()
+        }
+        if tid == "queue-picker-toggle" {
+            await self.app.queueSetPickerOpen(!(await self.app.queuePickerOpen))
+            return await self.changed()
+        }
+        if tid == "queue-picker-close" {
+            await self.app.queueSetPickerOpen(false)
+            return await self.changed()
+        }
+        if tid == "queue-picker-add" {
+            await self.app.addQueueCandidates()
+            return await self.changed()
+        }
+        if tid == "queue-link-apply" {
+            let entryID = await self.app.queueLinksOpen ?? ""
+            await self.app.setQueueInputs(entryID, await self.app.queueLinkSel)
+            await self.app.queueClearLinkState()
+            return await self.changed()
+        }
+        if tid == "queue-link-clear" {
+            let entryID = await self.app.queueLinksOpen ?? ""
+            await self.app.clearQueueInputs(entryID)
+            await self.app.queueClearLinkState()
+            return await self.changed()
+        }
+        if tid.hasPrefix("queue-inputs-") {
+            let id = String(tid.dropFirst("queue-inputs-".count))
+            let current: String? = await self.app.queueLinksOpen
+            await self.app.queueOpenLinks(current == id ? nil : id)
+            return await self.changed()
+        }
+        if tid.hasPrefix("queue-del-") {
+            let id = String(tid.dropFirst("queue-del-".count))
+            await self.app.removeQueueEntry(id)
+            return await self.changed()
+        }
+        return await self.changed()
     }
 
-    /// Change controls in the Run queue. Change frames carry `{value, checked}`
-    /// only (no `targetId`), so each control owns its own component id and the
-    /// handler reads identity from `value` (the markup emits each row id there).
-    func wireQueueChangeControls(_ router: EventRouter) {
-        wire(router, id: "queue-order", events: ["change"]) { event in
-            let order = (event.string("value") ?? "").split(separator: ",").map(String.init)
-            guard !order.isEmpty else { return [] }
-            await self.app.reorderQueue(order)
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "queue-loop-toggle", events: ["change"]) { _ in
-            await self.app.setQueueLoopEnabled(!(await self.app.settings.queueLoopEnabled))
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "queue-loop-count", events: ["change"]) { event in
-            await self.app.setQueueLoopCount(event.string("value") ?? "")
-            return await self.app.refreshFragments()
-        }
-        wire(router, id: "qpick", events: ["change"]) { event in
-            let todoID = event.string("value") ?? ""
-            guard !todoID.isEmpty else { return [] }
-            await self.app.queueToggleCandidate(todoID)
-            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-        }
-        wire(router, id: "qlink", events: ["change"]) { event in
-            let entryID = event.string("value") ?? ""
-            guard !entryID.isEmpty else { return [] }
-            await self.app.queueToggleLinkSel(entryID)
-            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-        }
+    @Wired("queue-order", events: [.change])
+    func handleQueueOrder(_ event: EventData) async -> [FragmentUpdate] {
+        let order = (event.string("value") ?? "").split(separator: ",").map(String.init)
+        guard !order.isEmpty else { return [] }
+        await self.app.reorderQueue(order)
+        return await self.changed()
+    }
+
+    @Wired("queue-loop-toggle", events: [.change])
+    func handleQueueLoopToggle(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setQueueLoopEnabled(!(await self.app.settings.queueLoopEnabled))
+        return await self.changed()
+    }
+
+    @Wired("queue-loop-count", events: [.change])
+    func handleQueueLoopCount(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setQueueLoopCount(event.string("value") ?? "")
+        return await self.changed()
+    }
+
+    @Wired("qpick", events: [.change])
+    func handleQueuePick(_ event: EventData) async -> [FragmentUpdate] {
+        let todoID = event.string("value") ?? ""
+        guard !todoID.isEmpty else { return [] }
+        await self.app.queueToggleCandidate(todoID)
+        return await self.changed()
+    }
+
+    @Wired("qlink", events: [.change])
+    func handleQueueLink(_ event: EventData) async -> [FragmentUpdate] {
+        let entryID = event.string("value") ?? ""
+        guard !entryID.isEmpty else { return [] }
+        await self.app.queueToggleLinkSel(entryID)
+        return await self.changed()
     }
 }

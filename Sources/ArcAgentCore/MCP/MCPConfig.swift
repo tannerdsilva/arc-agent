@@ -2,8 +2,9 @@ import Foundation
 
 /// MCP server configuration (reference `mcp_servers.<name>` entry).
 public struct MCPServerConfig: Codable, Sendable, Equatable {
-    /// The command to launch. Resolved against `PATH` by the transport, so a
-    /// bare name (`npx`) and an absolute path both work.
+    /// The executable to launch. Resolved against `PATH` by the transport, so a
+    /// bare name (`arc`) and an absolute path both work. A package-manager
+    /// launcher is refused before any spawn — see ``MCPServerLaunchPolicy``.
     public var command: String
     /// Arguments passed to the command.
     public var args: [String]
@@ -76,6 +77,9 @@ public enum MCPClientError: Error, CustomStringConvertible {
     case shutdown
     case timeout
     case rpc(String)
+    /// The configured launch spec is one arc will never run
+    /// (``MCPServerLaunchPolicy``).
+    case launchRefused(MCPServerLaunchRefusal)
 
     public var description: String {
         switch self {
@@ -83,6 +87,7 @@ public enum MCPClientError: Error, CustomStringConvertible {
         case .shutdown: return "MCP client shut down"
         case .timeout: return "MCP request timed out"
         case .rpc(let msg): return "MCP RPC error: \(msg)"
+        case .launchRefused(let refusal): return refusal.description
         }
     }
 }

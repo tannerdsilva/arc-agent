@@ -78,10 +78,15 @@ enum HardlineBlocker {
          "recursive delete of home directory"),
         // 4. Filesystem format.
         (#"\bmkfs(\.[a-z0-9]+)?\b"#, "format filesystem (mkfs)"),
-        // 5-6. Raw block device overwrites.
-        (#"\bdd\b[^\n]*\bof=/dev/(sd|nvme|hd|mmcblk|vd|xvd)[a-z0-9]*"#,
+        // 5-6. Raw block device overwrites. the alternation must cover both
+        // families: `sd|nvme|hd|mmcblk|vd|xvd` are linux block devices and
+        // `r?disk` is the macOS family (`/dev/disk0`, `/dev/rdisk2`). a raw
+        // disk write is the same act on either platform, so omitting the
+        // macOS names left a hole where `dd if=/dev/zero of=/dev/disk9`
+        // classified as safe.
+        (#"\bdd\b[^\n]*\bof=/dev/(sd|nvme|hd|mmcblk|vd|xvd|r?disk)[a-z0-9]*"#,
          "dd to raw block device"),
-        (#">\s*/dev/(sd|nvme|hd|mmcblk|vd|xvd)[a-z0-9]*\b"#,
+        (#">\s*/dev/(sd|nvme|hd|mmcblk|vd|xvd|r?disk)[a-z0-9]*\b"#,
          "redirect to raw block device"),
         // 7. Fork bomb (classic shell form).
         (#":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"#, "fork bomb"),

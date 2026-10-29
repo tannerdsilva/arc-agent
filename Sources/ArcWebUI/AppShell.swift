@@ -16,9 +16,13 @@ public enum AppShell {
     /// scheme sheet LAST.
     ///
     /// The body is an `UnsafeMarkup`, not a `String`: 2.0's document body carries the
-    /// type, so a page cannot come from an unlabelled string. arc's chrome is hand-built
-    /// markup, so `appShell()` mints it once via `.trusted(_:)` — the single greppable
-    /// place arc vouches for its own html.
+    /// type, so a page cannot come from an unlabelled string. The body is built as a
+    /// typed `View` tree (`Views.appShell()`), so this function never mints trust for
+    /// arc's own chrome — the only trusted-markup seams left are the plugin panel ABI
+    /// and sanitized markdown content.
+    ///
+    /// The head is `HeadContent`, not markup: `HTMLDocument` adds the render nonce to
+    /// the overlay script and sanitizes its url, so this file carries no html at all.
     ///
     /// Two parameters, not one, and the order is the contract. `HTMLDocument` emits
     /// `stylesheetURL:` (the base sheet) before `themeStylesheetURL:`, and its `head:` slot —
@@ -36,9 +40,10 @@ public enum AppShell {
                 title: "ARC Agent",
                 body: body,
                 rawStyles: [],
-                head: """
-                <script src="\(overlayURL)"></script>
-                """,
+                // typed head: the overlay script is an `externalScript`, so the
+                // document adds the render nonce itself and the url is escaped
+                // like every other attribute — no markup string in this file.
+                headContent: HeadContent { .script(src: overlayURL) },
                 htmlAttributes: themeAttrs,
                 devMode: false,
                 // Extras, not a restated policy: a full policy names no nonce source, and

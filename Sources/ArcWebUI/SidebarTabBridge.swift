@@ -25,15 +25,16 @@ struct AppSidebarTabHost: SidebarTabHost {
     func navigate(to tabID: String) async {
         await state.switchTab(tabID)
         await state.notifyTabActivated(tabID)
-        // Targeted: plugin tabs render inside #main via the tab protocol
-        // adapter, so the rail + main updates carry the switch — no whole-app
-        // swap (that reads as a page refresh).
-        _ = await state.refreshFragments()
+        // The host holds no door handle, so this cannot repaint on its own: the
+        // page updates on the next structural push from a handler that has one
+        // (a rail click already does). The pre-B4 shape rendered eight regions
+        // here and dropped the batch — that was not a repaint either, and it ate
+        // a staged copy-link marker on the way to the bin.
     }
 
     func refreshTab(_ tabID: String) async {
         guard await state.isActiveTab(tabID) else { return }
-        _ = await state.refreshFragments()
+        // see `navigate(to:)`: no door handle, nothing to push.
     }
 }
 
@@ -51,10 +52,13 @@ struct AppSidebarTabRegistrar: SidebarTabRegistrar {
         handler: @escaping @Sendable (SidebarTabEvent) async -> [SidebarFragment]
     ) {
         router.register({ event in
-            guard events.contains(event.event) else { return [] }
+            // the kit is dependency-free and speaks strings; the typed frame
+            // stops at this seam. this is the only conversion site.
+            let rawEvent = event.event.rawValue
+            guard events.contains(rawEvent) else { return [] }
             let kitEvent = SidebarTabEvent(
                 componentID: event.component.value,
-                event: event.event,
+                event: rawEvent,
                 values: Self.flatten(event.data)
             )
             let fragments = await handler(kitEvent)
@@ -237,6 +241,23 @@ enum SidebarTabIconRenderer {
             return WebUIIconCustom(name: name, body: body, size: size).markup.html
         case .emoji(let glyph):
             return "<span class=\"rail-emoji\" role=\"img\" aria-hidden=\"true\">\(SidebarTabHTML.escape(glyph))</span>"
+        }
+    }
+
+    /// Produces the same markup as `render`, but as a typed `View` that owns
+    /// its element (no wrapper). Byte-identical to the string form.
+    static func view(_ icon: SidebarTabIcon, size: IconSize = .large) -> some WebUI.View {
+        Group {
+            switch icon {
+            case .named(let name):
+                WebUIIcon(IconName(rawValue: name) ?? .link, size: size)
+            case .custom(let name, let body):
+                WebUIIconCustom(name: name, body: body, size: size)
+            case .emoji(let glyph):
+                Span(class: "rail-emoji") { Text(glyph) }
+                    .attribute("role", "img")
+                    .aria(.hidden(.yes))
+            }
         }
     }
 }

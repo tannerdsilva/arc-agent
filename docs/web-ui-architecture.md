@@ -19,6 +19,38 @@ adapters — one `ServiceGroup` per process — so the UI shares the daemon's
 storage pair, log sink and shutdown. The surface is gated by the `webui` block
 of `daemon.json` (on by default).
 
+## dependency pin
+
+**temporary, 2026-10-28:** `.package(path: "../pins/no-webui")` — a worktree of the
+no-webui repository checked out at `67d5b6f`. the basename must stay `no-webui`:
+a path dependency's identity is its directory name, and every
+`.product(…, package: "no-webui")` keys on it. it is **not** the sibling
+`../no-webui`, which carries unrelated uncommitted work.
+
+while the manifest is a path pin there is no revision to compare, so
+`make check-pin` holds that checkout to `LOCAL_PIN_SHA` in the `Makefile`
+instead of comparing `Package.resolved`. a revision pin replaces both, and
+`Package.resolved` then records it again.
+
+## the co-development rule
+
+arc and no-webui are co-developed on one disk, but arc builds against the
+**pinned revision**, not `../no-webui`'s working tree; the sibling may
+legitimately be ahead of the pin. before any arc commit that depends on
+no-webui: `make check-pin` (non-zero means the manifest and `Package.resolved`
+disagree — run `swift package resolve`). after any no-webui commit that touches
+`WebUICore`, `WebUIDesignSystemCore`, `WebUIServer` or `WebUIState`: move the
+pin, run `swift package resolve`, then `swift build --build-tests` in arc and
+fix the consumer in the same session.
+
+the failure mode this exists for is not a merge conflict — it is silence. when
+no-webui's `@ElementBuilder` moved from erased arrays to a typed view tree, arc
+reported **one** compile error, because each file masks the next: the bridge's
+`HTMLEvent` frame hid `NewFeatures.swift`, which hid 41 sites in `Views.swift`,
+which hid a second seam in `Actions.swift`. a build that stops at the first
+error tells you nothing about the size of the drift. fix one error, rebuild,
+and expect the count to rise before it falls.
+
 ## Layout
 
 ```
@@ -103,6 +135,49 @@ something an entry has to remember to ask for.
    turns, the live log ring buffer, the workspace tree) go out through
    `WebUIServer.broadcast`.
 
+## Event wiring
+
+Handlers are **generated, not typed**. A controller type declares one
+`@WireGroup(n)` per registration group, and the macro expands it into
+`wireGroup_<n>(_ router:)` on that type; every `@Wired(id, events:)` handler the
+group encloses becomes one `router.register` call in that function. `@Wired` is a
+**peer marker — on its own it expands to nothing.** A `@Wired` handler in an
+`extension Controller` that carries no `@WireGroup` therefore compiles cleanly and
+is silently never registered; that failure shipped once and is fixed on this tree.
+Registration is invisible in rendered bytes — no snapshot, parity digest or
+browser smoke can see it — and `dispatch` returns `.fragments([])` both for "no
+handler" and for "handler declined with a guard", so `EventRouter.handlerCount(in:)`
+is the only honest observation. Never use a dispatch assertion as proof of
+registration.
+
+`Controller.wireAll` composes the generated groups with three hand-written
+registrations that a `@Wired` marker cannot express — the only sanctioned literal
+ids (documented in the `Controller.wire` doc comment):
+
+- `nav-\(id)` in `wireNav` — the ids are not static literals; they come from
+  `app.railTabIDs()` and are interpolated in a loop.
+- `sidebar-plugin-toggle` in `wireSidebarPluginToggles` — one fixed id covers every
+  third-party plugin row, and the handler dispatches on the event's `targetId`
+  (`sbpl-<key>`).
+- `cat-pick` in `wireChat` — it carries `contextmenu`, which is not an `HTMLEvent`
+  case, so the macro cannot express its event set.
+
+The census (measured 2026-10-22 on `htmlstring-eliminate` with a throwaway
+diagnostic, `swift test --filter DiagTests`, since removed: a fresh `EventRouter`
+per group, one `wireGroup_<g>` call, then `handlerCount`):
+
+```
+CHAT 45, SETTINGS 25, SETTINGS_ADMIN 30, SKILLS 15, PROFILES 11, MCP 8,
+CHATMENU 7, WORKSPACES 6, QUEUE 6, TOOLS 2, PLUGINS 2, LOGS 2, INSIGHTS 1,
+TOASTS 1, TODOS 1, CRON 1, REGEN 1                     = 164 in 17 groups
+```
+
+164 distinct ids, no duplicate. `wireAll` therefore registers **178 handlers**:
+164 generated + 12 `nav-\(id)` + the 2 remaining escapes. The numbers are
+measured, not derived — and the golden parity digest over
+`Tests/ArcAgentWebUITests/Fixtures/parity` does not move when registration
+changes, which is exactly why the invariant is counted rather than rendered.
+
 ## Streaming turns
 
 A running turn renders into a dedicated live node, never by re-rendering the
@@ -122,11 +197,28 @@ The contract now:
   the engine mutates the text node's data, so the only mutations during a stream are
   characterData writes. The `live-turn` node replace is reserved for structural
   changes — status, tool chips, a row appearing or vanishing, the quantized TPS chip.
-- **Boundaries are chrome + transcript, never `#main`.** Turn start/end push
-  `turnChromeFragments()` (panel, chat header, composer, toasts) plus
-  `transcriptFragments()`; a message commit pushes the transcript; sending a message
-  only clears the composer. Replacing `#main` at a boundary killed scroll, selection
-  and focus — no turn path does it any more.
+- **One derived push edge.** No handler assembles fragment html. A handler that
+  changed state calls `Controller.changed()`, which pushes a `structuralChange()` nudge
+  through `PushEdge`; the edge renders the shell once, diffs it against the baseline it
+  holds with no-webui's `PageDiffer`, and broadcasts only the frames whose bytes moved.
+  A turn boundary is therefore never a hand-picked list of regions: measured for a
+  scripted turn, the start boundary shipped nine frames (`s-open-…`, `s-menu-…`,
+  `chat-header`, `chat-scroll`, `chat-inner`, `composer-form`, `composer-input`,
+  `cb-send`), the structural change then shipped `live-turn`, the tokens shipped two
+  text writes, and the commit escalated to a single `#app` frame — bytes outside every
+  region moved, so the differ escalated rather than shipping a partial patch.
+  `#main` is never replaced on a turn boundary, because nothing names regions by hand
+  any more.
+- **A region's identity is the DOM `id`.** `RegionPolicy(identity: .elementID)`: a frame
+  addresses an element the engine resolves with `getElementById`. Twenty elements carry
+  `data-component-id` and no `id` at all — click-routing wrappers (panel bodies, picker
+  grids, tab strips), never patch targets — and twelve pairs carry both attributes with
+  different values, where the DOM id is what a patch must name. Both sets are pinned by
+  `RegionIdentityCensusTests`, so a new one is a decision rather than an accident.
+- **Two spans are excluded from the diff.** `live-turn-text` and `live-turn-thinking` are
+  written only by `FragmentUpdate.text`; an html replace would reset the node the token
+  writer owns, so the differ subtracts them from every ancestor's hash and never ships
+  them.
 - **Transitions are navigation-scale only.** Live fragments carry
   `transition: false`; `append`/`text` ops never animate. A full turn animates at its
   two boundaries at most.
@@ -134,15 +226,20 @@ The contract now:
   line names the running tool with its own client-ticked clock (`data-elapsed`, 1 s
   tick in `overlay.js`) — both stable spans the server never re-renders. Live
   reasoning renders in every activity mode except `hide_all_activity`.
-- **Push hygiene.** `PushDeduper` (in the push closure) drops fragment batches whose
-  HTML repeats the last push for the same id; empty html — the remove-the-node
-  signal — always passes.
+
+The old machinery is gone: `PushDeduper`, `LiveTurnGate` and `PushPipeline` (71 lines
+plus a 0.12 s timer) and the 149-site `refreshFragments()` fan-out. Each job is now
+derived — an unchanged render produces no frames at all, so there is nothing to dedupe;
+ordering is the door's own sequence (structure, then deltas), not a timer; and the
+baseline lives in one `Mutex`-guarded differ per process, which is also why a push is a
+single broadcast: every connected tab receives identical bytes.
 
 After (same chat, measured live): a complete turn = ~63 characterData writes, 5
-structural node swaps, 2 transcript renders, 2 transitions. Contract pins:
-`Tests/ArcAgentWebUITests/StreamingDomContractTests.swift` +
-`StreamingPushHygieneTests.swift`; the engine side is pinned by no-webui's browser
-smoke.
+structural node swaps, 2 transcript renders, 2 transitions. Contract pins, all at the
+wire: `PushDiffTests.swift` (the door — derived structure, verbatim deltas),
+`StreamingDomContractTests.swift` (ids, ops, addressability),
+`RegionIdentityCensusTests.swift`, `PushFanoutTests.swift`, `HostConfigTests.swift`. The
+engine side is pinned by no-webui's browser smoke.
 
 ## Theming and icons
 
@@ -172,8 +269,46 @@ smoke.
   `WebUIRuntime`, `WebUIIcon`), `WebUIDesignSystem` (`DesignToken`, `WebUITheme`,
   `@Theme`, `TokenAlias`, `ThemeCatalog`), `WebUIServer`.
 
+## why arc keeps its own components
+
+the design system ships its own component set; arc keeps **10 hand-written
+components** in `Sources/ArcWebUI/Components/` anyway. every one of them emits
+arc's chrome classes, not framework classes: `akv`, `detail-card`,
+`ctx-ring-svg`, `set-row`. the nearest framework component emits different
+markup — `<dl class="list--desc">` for `WebUIDescriptionList`, `.card` for
+`WebUICard`, a `progressbar` role for `WebUICircularProgress` — so replacing one
+would change rendered bytes and orphan the 520 selectors of chrome sheet that
+style them.
+
+two of them additionally carry guarantees the framework cannot express:
+`ArcButton` keeps `routing:` (the component id is not the element id, which is
+how the wire dispatches on `targetId`) and `ArcSwitch` carries a `value:`
+payload the change wires read. `WebUIButton` has no `routing:` and
+`WebUIToggle` has no `value:`.
+
+what was actually dead, measured rather than assumed: `DropdownRow`, `ListRow`
+and `NamedListRow` had zero call sites outside their own file, and four
+selectors had zero references. those were deleted. `SettingRow` was on that list
+too and was **wrong** — it has 18 live call sites — which is why the deletion
+order was "grep both, then delete". do not re-run this analysis and
+"discover" a migration onto the framework components: it would silently drop
+`data-component-id` routing on four sites.
+
 ## Known gaps
 
+- **Open (2026-10-28): two push guards still read source text.**
+  `UXHardeningContractTests` slices `turnChromeFragments()` out of `Actions.swift`, and
+  `SettingsLayoutContractTests` slices `handleFontSizePick` — both then assert that
+  `structuralChange()` / `changed()` appear in the body. They pass and they do guard the
+  intent, but a rename that changes nothing would fail them, and they cannot see
+  behaviour. Convert them to wire assertions (the shape `StreamingDomContractTests` now
+  uses) when they next need touching.
+- **Open (2026-10-28): concurrent structural pushes are not serialized.**
+  `PushPipeline`'s submission chain went with it. `PageDiffer` makes each read-diff-write
+  atomic, but two producers can interleave `render()`/`messages()` and put frames on the
+  wire out of render order — a transient stale region that the next push corrects. An
+  agent turn pushes structurally once at a time, so this is latent; a submission gate at
+  the door is the fix if it ever bites.
 - **Resolved (2026-09): the client runtime fork is gone.** `RuntimeAsset.swift`
   (a ~59 KB fork of no-webui's `webui-runtime.js`), its `Assets/runtime.js`
   source, and `gen_runtime.py` were deleted. `HTMLDocument` now boots no-webui's

@@ -122,8 +122,8 @@ extension ArcCoreTestRoot {
                 maxContextTokens: 64_000
             )
             let agent = ArcAgent(config: config)
-            let httpClient = HTTPClient(eventLoopGroupProvider: .createNew)
-            defer { try? httpClient.shutdown() }
+            let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+            defer { _ = httpClient.shutdown() }
             await agent.setupClient(httpClient: httpClient)
             await agent.setClient(ScriptedLLMClient(filePath: target.path))
 

@@ -21,7 +21,7 @@ extension AppState {
         case .tools:
             if selectedTool == nil { selectedTool = registry.allTools.first?.name }
         case .memory:
-            if memoryDoc == nil { await openMemoryDoc("memory") }
+            if memoryDoc == nil { openMemoryDoc("memory") }
         case .tasks:
             // the panel renders from the store-backed cache; refresh on open.
             await refreshScheduledJobs()
@@ -74,14 +74,19 @@ extension AppState {
         return true
     }
 
-    func chatFragments() async -> [FragmentUpdate] {
-        await refreshFragments()
-    }
-
-    /// Panel-only fragment (used by filter search + skill panels).
-    func skillPanelFragment() async -> [FragmentUpdate] {
-        [FragmentUpdate(id: "panel", html: await panelHTML())]
-    }
+    /// a structural change happened; the push edge decides what crosses the wire.
+    ///
+    /// the empty batch is the signal, not a payload: `PushEdge` derives every
+    /// replace from a fresh render and never forwards a producer's html. an empty
+    /// batch still asks the edge to look (see its `hasStructure`), which is why
+    /// this is not a no-op.
+    ///
+    /// producers that can reach the door spell this through
+    /// `Controller.changed()`, which pushes it *and* returns `[]`: a handler's
+    /// returned batch is written to the originating socket by no-webui's
+    /// dispatcher and never diffed, so returning the signal alone would be
+    /// silence.
+    func structuralChange() -> [FragmentUpdate] { [] }
 
     func setCreateSkill(_ on: Bool) {
         createSkill = on
@@ -124,10 +129,6 @@ extension AppState {
     }
 
     func setActiveSession(_ id: String, preserveUndo: Bool = false) async {
-        // Auto-prune a blank chat on navigation: a chat with no sent messages
-        // and no draft text is removed (a chat holding draft text is kept as a
-        // draft). Never fires for the same-session reselect or Cron rows.
-        await pruneBlankChatOnNavigate(from: activeSessionID, to: id)
         activeSessionID = id
         pendingDelete = false
         filePopOpen = false
@@ -136,6 +137,15 @@ extension AppState {
         // (falling back to the newest chat) passes preserveUndo so the Undo
         // toast survives the very moment that raised it.
         if !preserveUndo { undoableDelete = nil }
+        // UX-10: leaving an untouched draft drops it — the client-side draft
+        // created by `+` never reaches the store unless a message is sent.
+        if let draft = draftSessionID, draft != id {
+            draftSessionID = nil
+            // the untouched draft was never persisted: drop its row so the
+            // sidebar does not keep a ghost "New chat" the store never lists.
+            sessions.removeAll { $0.id == draft }
+            sessionVersion += 1
+        }
         attachments = []
         forceScrollBottom = true
         // Follow the chat's own workspace (right panel + composer selector).
@@ -148,220 +158,44 @@ extension AppState {
         evictOverloadedCache()
     }
 
-    /// If the chat we are navigating away from is a blank empty chat (no sent
-    /// messages and no draft text), remove it. Draft chats (which hold text)
-    /// are kept. This is the auto-removal half of the "drafts" feature.
-    private func pruneBlankChatOnNavigate(from oldID: String?, to newID: String) async {
-        guard let oldID, oldID != newID, !oldID.hasPrefix("Cron-") else { return }
-        guard let s = sessions.first(where: { $0.id == oldID }) else { return }
-        guard s.messageCount == 0, s.messages.isEmpty else { return }
-        let draft = settings.composerDrafts[oldID] ?? ""
-        if !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
-        // Blank empty chat: remove it (a stray + that produced no text).
-        if let store { try? await store.delete(id: oldID) }
-        sessions.removeAll { $0.id == oldID }
-        settings.sessionWorkspaces.removeValue(forKey: oldID)
-        settings.sessionCategories.removeValue(forKey: oldID)
-        settings.sessionProfile.removeValue(forKey: oldID)
-        settings.bookmarkedSessions.removeAll { $0 == oldID }
-        settings.todos.removeValue(forKey: oldID)
-        settings.composerDrafts.removeValue(forKey: oldID)
-        settings.sessionTitles.removeValue(forKey: oldID)
-        saveSettings()
+    /// Promote a client-side draft (created by `+`) to the in-memory draft
+    /// slot. The draft is not persisted to the store until the first send.
+    func setDraftSession(_ session: Session) {
+        draftSessionID = session.id
+        // Mirror the new chat into the in-memory sessions cache so the
+        // sidebar can render it (with 0 messages) before it is persisted.
+        if !sessions.contains(where: { $0.id == session.id }) {
+            sessions.insert(session, at: 0)
+            sessionVersion += 1
+        }
     }
 
-    func setShowDrafts(_ on: Bool) {
-        settings.showDrafts = on
-        saveSettings()
+    /// True when `sessionID` is the untouched client-side draft created by
+    /// `+` — not yet persisted to the store.
+    func isDraftSession(_ sessionID: String) -> Bool {
+        draftSessionID == sessionID
     }
 
-    func toggleShowDrafts() {
-        settings.showDrafts = !settings.showDrafts
-        saveSettings()
+    /// Persist the client-side draft to the store (first send). After this
+    /// the draft is a normal session and `draftSessionID` is cleared.
+    func persistDraftSession(_ sessionID: String) async {
+        guard draftSessionID == sessionID,
+              let store = storeRef(),
+              let idx = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
+        do {
+            try await store.create(sessions[idx])
+        } catch {
+            LogCollector.shared.append(level: .error, text: "[store] failed to persist draft session \(String(sessionID.prefix(8))): \(error)")
+            return
+        }
+        draftSessionID = nil
+        // Reload so the store-backed list picks up the persisted session and
+        // the sidebar row keeps its place.
+        await reloadSessions(selecting: sessionID)
     }
 
     func clearPendingDelete() {
         pendingDelete = false
-    }
-
-    // MARK: - New-session creation panel (per-session context)
-
-    /// Open the "Create session" panel, seeding the recipe from the resolved
-    /// global+profile defaults so the user sees what a default new session
-    /// inherits (and can override per-segment + add custom context).
-    func openNewSessionPanel() {
-        let boundName = profileName(for: activeSessionID)
-        let boundProfile = boundName.flatMap { n in profiles.first { $0.name == n } }
-        let resolved = ResolvedContextRecipe.resolve(
-            global: settings.contextDefaults,
-            profile: boundProfile?.contextDefaults,
-            session: nil
-        )
-        var recipe = ContextRecipe()
-        for seg in ContextSegment.allCases {
-            recipe.segments[seg] = resolved.isEnabled(seg)
-        }
-        newSessionRecipe = recipe
-        newSessionCustom = recipe.customItems
-        activeCustomIndex = 0
-        showNewSessionPanel = true
-    }
-
-    func closeNewSessionPanel() {
-        showNewSessionPanel = false
-    }
-
-    /// Remember which custom-context textarea was last focused (change frames
-    /// carry no targetId, so the row index is captured via the click channel).
-    func setActiveCustomIndex(_ idx: Int) {
-        activeCustomIndex = idx
-    }
-
-    /// Flip one segment in the in-progress panel recipe.
-    func setNewSessionSegment(_ seg: ContextSegment, on: Bool) {
-        newSessionRecipe.segments[seg] = on
-    }
-
-    func setNewSessionCustom(_ idx: Int, text: String) {
-        guard newSessionCustom.indices.contains(idx) else { return }
-        let weight = newSessionCustom[idx].weight
-        newSessionCustom[idx] = CustomContextItem(text: text, weight: weight)
-    }
-
-    /// Change the effective weight of one custom-context row. The change frame
-    /// carries the select value but no row identity, so the index is whatever
-    /// row was last focused (captured via the panel's click channel, the same
-    /// contract the text-area change handler relies on).
-    func setNewSessionCustomWeight(_ idx: Int, weight: CustomContextWeight) {
-        guard newSessionCustom.indices.contains(idx) else { return }
-        newSessionCustom[idx].weight = weight
-    }
-
-    func addNewSessionCustom() {
-        newSessionCustom.append(CustomContextItem(text: ""))
-    }
-
-    func removeNewSessionCustom(_ idx: Int) {
-        guard newSessionCustom.indices.contains(idx) else { return }
-        newSessionCustom.remove(at: idx)
-    }
-
-    /// Stitch the panel's free-form rows into the recipe's `custom` list
-    /// (non-empty, de-duplicated). nil when nothing was entered.
-    func finalizedNewSessionRecipe() -> ContextRecipe {
-        ContextRecipe(
-            segments: newSessionRecipe.segments,
-            custom: ContextRecipe.stitchCustom(newSessionCustom)
-        )
-    }
-
-    /// Create a session from the panel. `recipe` nil = inherit the
-    /// profile/global defaults (never set a per-session override).
-    func createNewSession(recipe: ContextRecipe?) async -> [FragmentUpdate] {
-        await ensureRuntime()
-        guard let store = storeRef() else {
-            _ = toast("No storage available — cannot create a chat.", kind: "error")
-            return await refreshFragments()
-        }
-        var session = Session()
-        if let recipe, !recipe.isEmpty {
-            session.contextOverrides = recipe
-        }
-        do {
-            try await store.create(session)
-        } catch {
-            LogCollector.shared.append(level: .error, text: "[store] failed to create session \\(String(session.id.prefix(8))): \\(error)")
-            _ = toast("Could not create the chat — storage error (see Logs).", kind: "error")
-            return await refreshFragments()
-        }
-        pinSessionWorkspace(session.id)
-        showNewSessionPanel = false
-        await reloadSessions(selecting: session.id)
-        await setActiveSession(session.id)
-        _ = hint("New chat created.")
-        return await refreshFragments()
-    }
-
-    /// The literal prompt block a context segment contributes, for the panel's
-    /// "Show context" disclosure. Data-driven segments read live values.
-    func contextSegmentPreview(_ seg: ContextSegment) async -> String {
-        let sid = activeSessionID
-        switch seg {
-        case .memory:
-            if let mem = memory, let m = try? await mem.readMemory(),
-               !m.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return "## Memory (Your Persistent Notes)\n\n\(previewCap(m))"
-            }
-            return "## Memory (Your Persistent Notes)\n\n(No persistent notes yet.)"
-        case .userProfile:
-            if let mem = memory, let u = try? await mem.readUser(),
-               !u.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return "## User Profile\n\n\(previewCap(u))"
-            }
-            return "## User Profile\n\n(No user profile yet.)"
-        case .skills:
-            let pname = profileName(for: sid)
-            let disabled = pname.flatMap { settings.profileSkills[$0] } ?? settings.disabledSkills
-            let allowed = skills.filter { !disabled.contains($0.name) }
-            if registry.lookup(name: "skill_view") != nil, !allowed.isEmpty {
-                return "## Skills (mandatory)\n\n<available_skills>\n\(previewCap(buildSkillsIndex(allowed)))\n</available_skills>"
-            }
-            return "## Skills (mandatory)\n\n(No skills available.)"
-        case .environment:
-            #if os(macOS)
-            let os = "macOS (\(ProcessInfo.processInfo.operatingSystemVersionString))"
-            #else
-            let os = "Linux (\(ProcessInfo.processInfo.operatingSystemVersionString))"
-            #endif
-            return """
-            ## Environment
-
-            - OS: \(os)
-            - Home directory: \(NSHomeDirectory())
-            - Working directory for tools: \(workspacePath(for: sid))
-            """
-        case .projectContext:
-            let files = await previewContextFiles(for: workspacePath(for: sid))
-            if files.isEmpty {
-                return "## Workspace & Project Context\n\n(No AGENTS.md / CLAUDE.md / .cursorrules found.)"
-            }
-            return "## Workspace & Project Context\n\n" + files.map { "### \($0)\n\(previewCap($1, 320))" }.joined(separator: "\n\n")
-        case .guidance:
-            return "## Finishing the job\n\n- Use your tools to take action — do not describe what you would do.\n- Keep working until the task is actually complete."
-        case .personality:
-            // The personality overlay is config-defined; surface its framing.
-            return "## Personality\n\n(If a personality overlay is set for this agent's config, it is injected here.)"
-        case .timestamp:
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.dateFormat = "EEEE, MMMM dd, yyyy"
-            let model = configName(for: sid)
-            let cfg = settings.modelConfig(named: model)
-            let provider = cfg?.provider.isEmpty == false ? cfg!.provider : "custom"
-            return "Conversation started: \(formatter.string(from: Date())) | Session: \(String((sid ?? "").prefix(8))) | Model: \(cfg?.model ?? model) | Provider: \(provider)"
-        }
-    }
-
-    /// Truncate a preview block so the disclosure stays readable.
-    private func previewCap(_ s: String, _ n: Int = 600) -> String {
-        s.count <= n ? s : String(s.prefix(n)) + "\n…"
-    }
-
-    /// Read AGENTS.md / .arc.md / CLAUDE.md / .cursorrules from a directory
-    /// for the project-context preview.
-    private func previewContextFiles(for dir: String) async -> [(String, String)] {
-        let fm = FileManager.default
-        var out: [(String, String)] = []
-        for name in ["AGENTS.md", ".arc.md", "CLAUDE.md", ".cursorrules"] {
-            let url = URL(fileURLWithPath: dir).appendingPathComponent(name)
-            guard fm.fileExists(atPath: url.path),
-                  let data = try? Data(contentsOf: url),
-                  let content = String(data: data, encoding: .utf8) else { continue }
-            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            out.append((name, trimmed))
-        }
-        return out
     }
 
     /// Mark the next chat-scroll render with `data-follow="bottom"` so a
@@ -391,7 +225,7 @@ extension AppState {
     // MARK: Form values
 
     func storeFormValue(_ key: String, _ value: String) {
-        formValues[key] = value
+        formValues[FieldID(key)] = value
     }
 
     /// Per-chat composer draft (arc parity). Persisted with a 1.5 s
@@ -430,7 +264,7 @@ extension AppState {
     }
 
     func readFormValue(_ key: String) -> String {
-        formValues[key] ?? ""
+        formValues[FieldID(key)] ?? ""
     }
 
     // MARK: Chat composer
@@ -580,15 +414,6 @@ extension AppState {
         saveSettings()
     }
 
-    /// "Show the context page when creating a chat" toggle. On: the sidebar
-    /// "+" / blank-canvas CTA opens the create-session panel; off: a chat is
-    /// minted directly with the resolved defaults.
-    func setContextPanelOnNewChat(_ on: Bool) {
-        guard settings.contextPanelOnNewChat != on else { return }
-        settings.contextPanelOnNewChat = on
-        saveSettings()
-    }
-
     func setShowTps(_ on: Bool) {
         guard settings.showTps != on else { return }
         settings.showTps = on
@@ -686,7 +511,7 @@ extension AppState {
                .max(by: { $0.updatedAt < $1.updatedAt }) {
             await setActiveSession(newest.id, preserveUndo: true)
         }
-        _ = surfaceToast("Conversation deleted.", action: ToastAction(id: "undo-delete", label: "Undo"))
+        _ = surfaceToast("Conversation deleted. Undo for 10 seconds.", action: ToastAction(id: "undo-delete", label: "Undo"))
     }
 
     /// Resurrect the chat the Undo toast points at (UX-06): re-create the
@@ -734,7 +559,7 @@ extension AppState {
         let keep = activeSessionID
         return sessions.filter {
             !$0.id.hasPrefix("Cron-") && !isArchived($0.id)
-                && $0.messageCount == 0 && !isDraft($0.id) && $0.id != keep
+                && $0.messageCount == 0 && $0.id != keep
         }.count
     }
 
@@ -758,7 +583,7 @@ extension AppState {
         let keep = activeSessionID
         var doomed: [String] = []
         for s in sessions
-        where !s.id.hasPrefix("Cron-") && !isArchived(s.id) && s.messageCount == 0 && !isDraft(s.id) && s.id != keep {
+        where !s.id.hasPrefix("Cron-") && !isArchived(s.id) && s.messageCount == 0 && s.id != keep {
             await ensureSessionMessages(s.id)
             guard let i = sessions.firstIndex(where: { $0.id == s.id }) else { continue }
             if sessions[i].messages.isEmpty { doomed.append(s.id) }
@@ -791,7 +616,6 @@ extension AppState {
                 await ensureRuntime()
                 let fresh = Session()
                 try? await store.create(fresh)
-                pinSessionWorkspace(fresh.id)
                 await reloadSessions(selecting: fresh.id)
                 await setActiveSession(fresh.id, preserveUndo: true)
             }
@@ -833,6 +657,7 @@ extension AppState {
             // Unarchiving while in the archived-only view: exit it so the
             // conversation reappears in the normal list immediately.
             if showArchived { showArchived = false }
+            surfaceToast("Conversation restored to the main list.")
         } else {
             settings.archivedSessions.append(id)
             // The row leaves the list without a trace; surface where it went
@@ -841,112 +666,6 @@ extension AppState {
             surfaceToast("Conversation archived — find it under “Show archived conversations”.")
         }
         saveSettings()
-    }
-
-    // MARK: Session sharing (tasks 7-8)
-
-    /// Reload the cached latest share grants (kind 3007).
-    func refreshShareGrants() async {
-        shareGrants = await TesseraShareStore.shared.latestGrants()
-        await refreshShareViewState()
-    }
-
-    /// Recompute the per-session share view state the views read
-    /// synchronously: our role on foreign-owned sessions, host-deleted
-    /// flags, and grantee leave notices. Called whenever grants or the
-    /// session list change.
-    func refreshShareViewState() async {
-        let identity = await identityPubkey()
-        cachedIdentity = identity
-        var roles: [String: ShareRole] = [:]
-        var deleted: Set<String> = []
-        for session in sessions {
-            if session.deleted == true { deleted.insert(session.id) }
-            guard let identity, !identity.isEmpty,
-                  let owner = session.owner, owner != identity else { continue }
-            if let role = SharedSessionACL.role(
-                identity: identity, sessionID: session.id,
-                sessionOwner: owner, grants: shareGrants
-            ) {
-                roles[session.id] = role
-            }
-        }
-        shareRoles = roles
-        deletedSessionIDs = deleted
-        // Leave notices from other writers, grouped by session (host view).
-        var left: [String: [String]] = [:]
-        let notices = await (store as? TesseraSessionStore)?.leaveNotices() ?? []
-        for notice in notices where notice.writer != identity {
-            left[notice.sessionID, default: []].append(notice.writer)
-        }
-        if left != leftSharees { leftSharees = left }
-    }
-
-    /// The grant currently governing a session (nil if none).
-    func shareGrant(for id: String) -> TesseraShareGrant? {
-        let owner = sessions.first(where: { $0.id == id })?.owner
-        return SharedSessionACL.grant(sessionID: id, owner: owner, grants: shareGrants)
-    }
-
-    /// Whether a session is shared at all (owner granted it to others, or it
-    /// was granted to this user). Works for both the owner and a sharee.
-    func isSessionShared(_ id: String) -> Bool {
-        !(shareGrant(for: id)?.grantees.isEmpty ?? true)
-    }
-
-    /// Open the Share panel for a session, seeding the staged grantee list
-    /// from the current grant (if any).
-    func openSharePanel(_ id: String) async {
-        await refreshShareGrants()
-        sharePanelSessionID = id
-        shareDraftPubkey = ""
-        shareDraftRole = .contribute
-        shareStaged = shareGrant(for: id)?.grantees ?? []
-    }
-
-    func closeSharePanel() {
-        sharePanelSessionID = nil
-        shareStaged = []
-        shareDraftPubkey = ""
-    }
-
-    func setShareDraftPubkey(_ v: String) { shareDraftPubkey = v }
-    func setShareDraftRole(_ v: ShareRole) { shareDraftRole = v }
-
-    /// Stage a new grantee from the draft (validates non-empty, de-duplicated).
-    func stageShareGrantee() -> Bool {
-        let pk = shareDraftPubkey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !pk.isEmpty, !shareStaged.contains(where: { $0.pubkey == pk }) else { return false }
-        shareStaged.append(ShareGrantee(pubkey: pk, role: shareDraftRole))
-        shareDraftPubkey = ""
-        return true
-    }
-
-    func unstageShareGrantee(_ pubkey: String) {
-        shareStaged.removeAll { $0.pubkey == pubkey }
-    }
-
-    /// Commit the staged grantees as a fresh kind-3007 grant owned by this
-    /// process's identity.
-    func saveShare(_ id: String) async {
-        guard let owner = await identityPubkey() else { return }
-        // Trap fix: a pubkey typed into the draft field but never "Added" used
-        // to be silently dropped by the save (the draft is separate from the
-        // staged list the publish reads). Stage any non-empty draft first so
-        // what the user typed is exactly what gets published.
-        _ = stageShareGrantee()
-        try? await TesseraShareStore.shared.grant(sessionID: id, owner: owner, grantees: shareStaged)
-        await refreshShareGrants()
-    }
-
-    func revokeShare(_ id: String) async {
-        try? await TesseraShareStore.shared.revoke(sessionID: id)
-        await refreshShareGrants()
-    }
-
-    /// This process's Nostr pubkey (base64), used as the session owner id.
-    func identityPubkey() async -> String? {
-        await TesseraConnection.shared.nostrPublicKeyString
     }
 
     func duplicateSession(_ id: String) async {
@@ -1104,14 +823,19 @@ extension AppState {
         saveSettings()
     }
 
-    func setAddingCard(_ columnID: String?) { addingCardColumnID = columnID }
+    func setAddingCard(_ columnID: String?) {
+        addingCardColumnID = columnID
+        kanbanAddError = nil
+    }
 
     func addKanbanCard(_ title: String, in columnID: String) {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else {
+            kanbanAddError = "Give the card a title."
             _ = hint("Card needs a title.", kind: "error")
             return
         }
+        kanbanAddError = nil
         settings.kanbanCards.append(KBCard(id: UUID().uuidString, columnID: columnID, title: t))
         addingCardColumnID = nil
         saveSettings()
@@ -1140,40 +864,40 @@ extension AppState {
 
     // MARK: Memory panel
 
-    func openMemoryDoc(_ key: String) async {
+    func openMemoryDoc(_ key: String) {
         memoryEdit = false
         memoryDoc = key
-        memoryContent = key == "context" ? "" : await loadMemoryText(key)
+        memoryContent = key == "context" ? "" : loadMemoryText(key)
     }
 
     func startMemoryEdit() { memoryEdit = true }
 
     func cancelMemoryEdit() { memoryEdit = false }
 
-    func saveMemoryDoc(_ key: String, content: String) async {
+    func saveMemoryDoc(_ key: String, content: String) {
         guard key != "context" else { return }
-        let ok = await MemoryDocRoute.save(key, content: content, memory: memory, profileName: soulProfileName())
+        let ok = writeMemoryText(key, content: content)
         memoryContent = content
         memoryEdit = false
-        _ = hint(ok ? "Saved \(MemoryDocRoute.fileName(key))." : "Could not write \(MemoryDocRoute.fileName(key)).", kind: ok ? "" : "error")
+        _ = hint(ok ? "Saved \(memoryFileURL(key)?.lastPathComponent ?? "file")." : "Could not write \(memoryFileURL(key)?.lastPathComponent ?? "file").", kind: ok ? "" : "error")
     }
 
-    func loadMemoryText(_ key: String) async -> String {
-        await MemoryDocRoute.load(key, memory: memory, profileName: soulProfileName())
+    func loadMemoryText(_ key: String) -> String {
+        guard let url = memoryFileURL(key), let s = try? String(contentsOf: url, encoding: .utf8) else { return "" }
+        return s
     }
 
     @discardableResult
-    func writeMemoryText(_ key: String, content: String) async -> Bool {
-        await MemoryDocRoute.save(key, content: content, memory: memory, profileName: soulProfileName())
-    }
-
-    /// The profile whose SOUL the memory panel reads/edits — the bound session
-    /// profile if the active chat is bound, else the selected profile, else the
-    /// default primary profile.
-    func soulProfileName() -> String {
-        if let selectedProfile { return selectedProfile }
-        if let p = profileName(for: activeSessionID) { return p }
-        return ""
+    func writeMemoryText(_ key: String, content: String) -> Bool {
+        guard let url = memoryFileURL(key) else { return false }
+        let fm = FileManager.default
+        try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        do {
+            try content.write(to: url, atomically: true, encoding: .utf8)
+            return true
+        } catch {
+            return false
+        }
     }
 
     // MARK: Workspace panel
@@ -1307,6 +1031,10 @@ extension AppState {
         skillFilter = text
     }
 
+    func setToolFilter(_ text: String) {
+        toolFilter = text
+    }
+
     func selectSkill(_ name: String) {
         selectedSkill = name
         createSkill = false
@@ -1403,6 +1131,18 @@ extension AppState {
         saveSettings()
     }
 
+    /// Record the sidecar startup outcome per plugin, as returned by
+    /// `SidecarPluginManager.startupOutcome`. Called after discovery so the
+    /// Settings → Tool plugins row can render a failure badge (UX-25).
+    func setPluginStartupOutcomes(_ outcomes: [String: SidecarPluginManager.PluginStartupOutcome]) {
+        for (name, outcome) in outcomes {
+            switch outcome {
+            case .running: pluginStartupOutcome[name] = nil
+            case .failed(let reason): pluginStartupOutcome[name] = reason
+            }
+        }
+    }
+
     /// The profile bound to the active chat, if any. Empty = global context.
     func activeSkillContext() -> String {
         profileName(for: activeSessionID) ?? ""
@@ -1436,7 +1176,8 @@ extension AppState {
     }
 
     func skillsDir() -> URL? {
-        ArcHome.skills
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".arc/skills")
     }
 
     // MARK: Profiles
@@ -1508,9 +1249,6 @@ extension AppState {
             return false
         }
         sessions = list
-        // Session sharing: refresh the kind-3007 grant cache so the Shared
-        // badge / Share panel reflect current grants on every reload.
-        await refreshShareGrants()
         // Fresh summaries: the previous store's materialized bodies (and the
         // LRU that tracked them) no longer apply — see ensureSessionMessages
         // for why a stale LRU entry would blank a reopened chat.
@@ -1529,32 +1267,11 @@ extension AppState {
         return ctx
     }
 
-    /// SOUL identity for a chat: the bound profile's `SOUL.md`, or nil when a
-    /// chat isn't bound to a profile or the profile has no SOUL set. Consumed
-    /// by `makeTurnAgent` to seed the core prompt's identity slot.
-    func soulMD(for sessionID: String?) -> String? {
-        guard let pname = profileName(for: sessionID),
-              let p = profiles.first(where: { $0.name == pname }) else { return nil }
-        let soul = p.soulMD?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return soul.isEmpty ? nil : soul
-    }
-
     /// Effective auto-compress threshold for a chat: the bound profile's
     /// compression budget, else the ARC_COMPRESSION_BUDGET env, else 32k.
-    /// (Display/legacy default; the ENGINE's threshold is the explicit
-    /// budget when set — see ``explicitCompressionBudget``.)
     func compressionBudget(for sessionID: String?) -> Int {
         if let b = profileContext(for: sessionID)?.compressionBudget, b > 0 { return b }
         return Int(ProcessInfo.processInfo.environment["ARC_COMPRESSION_BUDGET"] ?? "") ?? 32_000
-    }
-
-    /// The compression threshold actually handed to the engine: an explicit
-    /// profile budget or ARC_COMPRESSION_BUDGET env, else nil (engine falls
-    /// back to its arc-parity default of context/2). Single source of truth
-    /// shared by ``makeTurnAgent`` and the context meter.
-    func explicitCompressionBudget(for sessionID: String?) -> Int? {
-        if let b = profileContext(for: sessionID)?.compressionBudget, b > 0 { return b }
-        return Int(ProcessInfo.processInfo.environment["ARC_COMPRESSION_BUDGET"] ?? "")
     }
 
     /// Parse an optional Int from a form value (empty string → nil).
@@ -1678,16 +1395,6 @@ extension AppState {
             selectedWorkspace = name
         }
         saveSettings()
-    }
-
-    /// Pin the given chat's workspace to the current global default (no-op
-    /// if the chat already has a selection). Called at session creation and
-    /// on a chat's first turn, so chats stop following the workspace tabs —
-    /// only an explicit in-chat selection moves an existing chat afterwards.
-    func pinSessionWorkspace(_ id: String) {
-        let alreadyPinned = settings.sessionWorkspaces[id].map { !$0.isEmpty } ?? false
-        settings.pinWorkspace(for: id)
-        if !alreadyPinned { saveSettings() }
     }
 
     func removeWorkspace(_ name: String) {
@@ -1870,7 +1577,7 @@ extension AppState {
     /// Drop the storage form's transient field values (after save/cancel).
     func clearStorageForm() {
         for k in ["sc-name", "sc-ip", "sc-port", "sc-app", "sc-pub", "sc-priv"] {
-            formValues[k] = nil
+            formValues[FieldID(k)] = nil
         }
     }
 
@@ -2088,16 +1795,16 @@ extension AppState {
     /// Fragment for the live-updated tree, mirroring the original render so
     /// the whole ws-tree element (with its data-root) is replaced wholesale.
     func liveWorkspaceFragments() async -> [FragmentUpdate] {
-        let path = esc(panelWorkspacePath())
-        return [
-            FragmentUpdate(
-                id: "ws-tree",
-                html: "<div class=\"ws-body\" id=\"ws-tree\" data-component-id=\"workspace\" data-event=\"click\" data-root=\"\(path)\">\n" +
-                      "  <div class=\"ws-path\" title=\"\(path)\">\(path)</div>\n" +
-                      "  \(cachedWSTreeHTML)\n" +
-                      "</div>"
-            ),
-        ]
+        let path = panelWorkspacePath()
+        let body = Div {
+            Div(class: "ws-path") { Text(path) }
+                .title(path)
+            // the listing is the bytes the scan just rendered: walking the
+            // directory again here would be a second synchronous scan of the
+            // same tree, which is the cost the cache exists to avoid.
+            TrustedMarkup(cachedWSTreeHTML, from: .other("workspace-tree"))
+        }
+        return [fragment("ws-tree", wsTreeShell(body))]
     }
 
     /// Apply a model configuration as an auxiliary task's override: copies
@@ -2161,8 +1868,8 @@ extension AppState {
     /// Best-effort chat-title generation via the title_gen auxiliary model.
     /// Only fires when a title_gen assignment exists and the chat has no
     /// custom title yet; the default stays the first-message auto title.
-    /// Stores the title and pushes a lightweight topbar+panel refresh so the
-    /// streaming chat area is left untouched.
+    /// Stores the title and nudges the door: the render names the topbar and
+    /// panel regions that moved, and leaves the streaming chat area untouched.
     func maybeGenerateTitle(
         sessionID: String,
         pusher: @escaping @Sendable ([FragmentUpdate]) async -> Void
@@ -2189,14 +1896,11 @@ extension AppState {
             }
             guard let t = reply.content?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !t.isEmpty else { return }
-            let title = String(t.prefix(44))
+            let title = String(t.prefix(90))
             guard title != sessionTitle(session) else { return }
             settings.sessionTitles[sessionID] = title
             saveSettings()
-            await pusher([
-                FragmentUpdate(id: "topbar", html: topbarHTML()),
-                FragmentUpdate(id: "panel", html: panelHTML()),
-            ])
+            await pusher(structuralChange())
         } catch {
             // Best-effort: a failed title call leaves the auto title in place.
         }

@@ -28,7 +28,8 @@ public enum TerminalTool {
             + "For long runs (test suites, builds, servers) set background=true to get a "
             + "session_id back, work on other things, then collect with process(action=...) "
             + "(poll/log/wait/kill) — do not burn the turn on a foreground timeout. "
-            + "Never use nohup/setsid/trailing '&' — use background=true so the agent tracks the process.",
+            + "nohup/setsid/trailing '&' are refused outright (arc does not create processes it "
+            + "cannot stop) — use background=true so the agent tracks the process.",
         schema: .object(
             description: "Execute a shell command",
             properties: [
@@ -104,6 +105,15 @@ public enum TerminalTool {
         workdir: String?,
         background: Bool
     ) async throws -> String {
+        // I1: arc never creates a process it cannot stop. The refusal is
+        // absolute and sits ahead of BOTH paths — a tracked job that nohups its
+        // real work outlives arc's tracking just as surely as a foreground one
+        // escapes it, so `background=true` is the supported alternative rather
+        // than a bypass.
+        if let refusal = DetachmentPolicy.refusal(for: command) {
+            return "Error: " + refusal
+        }
+
         // Background mode: detached launch via ProcessRegistry (reference
         // `terminal(background=true)` parity — returns a session_id that the
         // `process` tool collects with poll/log/wait/kill). Foundation

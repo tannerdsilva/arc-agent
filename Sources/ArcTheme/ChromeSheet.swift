@@ -15,6 +15,7 @@ public static let css: String = """
       --radius-md: 11px;
       --radius-sm: 8px;
       --warning: #E68A00;
+      --warning-strong: #E68A00;
     }
     /* Text size (user setting -> #app data-size; md = default) */
     #app[data-size="sm"] { --font-size: 13px; }
@@ -38,7 +39,7 @@ public static let css: String = """
       --border: #EAE2D3;
       --border-strong: #D5CEBE;
       --text: #2A2723;
-      --muted: #8A8271;
+      --muted: #7A7263;
       --accent: #B8860B;
       --accent-strong: #9A6F09;
       --accent-soft: rgba(184, 134, 11, 0.10);
@@ -46,6 +47,7 @@ public static let css: String = """
       --link: #0288A8;
       --danger: #B34141;
       --danger-soft: rgba(179, 65, 65, 0.10);
+      --warning-strong: #8A5B00;
       --success: #4E7C3A;
       --shadow: 0 2px 12px rgba(60, 50, 30, 0.08);
       --user-bubble: rgba(184, 134, 11, 0.10);
@@ -96,7 +98,7 @@ public static let css: String = """
       --border: #EAE2D3;
       --border-strong: #D5CEBE;
       --text: #2A2723;
-      --muted: #8A8271;
+      --muted: #7A7263;
       --accent: #B8860B;
       --accent-strong: #9A6F09;
       --accent-soft: rgba(184, 134, 11, 0.10);
@@ -104,6 +106,7 @@ public static let css: String = """
       --link: #0288A8;
       --danger: #B34141;
       --danger-soft: rgba(179, 65, 65, 0.10);
+      --warning-strong: #8A5B00;
       --success: #4E7C3A;
       --shadow: 0 2px 12px rgba(60, 50, 30, 0.08);
       --user-bubble: rgba(184, 134, 11, 0.10);
@@ -215,6 +218,7 @@ public static let css: String = """
       gap: 6px;
       background: var(--sidebar);
       border-right: 1px solid var(--border);
+      position: relative;
     }
     .icon-btn {
       width: 40px; height: 40px;
@@ -291,7 +295,31 @@ public static let css: String = """
     .icon-mini[data-tip]:hover::after,
     .tool-btn[data-tip]:hover::after,
     .outline-toggle-btn[data-tip]:hover::after { opacity: 1; transition-delay: 0.18s; }
-    #iconbar .iconbar-bottom { margin-top: auto; }
+    /* The rail's two groups own their layout here (the inline styles they used
+       to carry could not be overridden by any short-height compaction rule).
+       The BOTTOM group pins the Settings slot to the rail's bottom edge with
+       absolute positioning (UX-03): it takes no flow space, so an over-full
+       top group can never push the gear out of the window, and tooltips keep
+       working because the rail itself stays overflow: visible. */
+    #iconbar .iconbar-top,
+    #iconbar .iconbar-bottom {
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+    }
+    #iconbar .iconbar-top { flex: 1 1 auto; min-height: 0; }
+    #iconbar .iconbar-bottom {
+      position: absolute; bottom: 6px; left: 0; right: 0;
+      flex: 0 0 auto;
+    }
+    /* Short windows (UX-03): the 12-icon rail is 570px tall at default
+       spacing and overflowed the 539px app body at 1280×577, clipping the
+       Settings gear. Compact spacing fits all 12 icons in a 577px window,
+       and the pinned bottom group keeps the gear reachable regardless of how
+       many plugin tabs the rail grows. */
+    @media (max-height: 640px) {
+      #iconbar { gap: 2px; padding: 6px 0; }
+      #iconbar .iconbar-top,
+      #iconbar .iconbar-bottom { gap: 2px; }
+    }
 
     /* Panel (left of main, same width for every view) */
     #panel {
@@ -390,10 +418,10 @@ public static let css: String = """
       word-break: break-word;
     }
     .log-line .log-time { flex: 0 0 auto; color: var(--muted); font-variant-numeric: tabular-nums; }
-    .log-line .log-lvl { flex: 0 0 auto; min-width: 44px; white-space: nowrap; text-transform: uppercase; font-size: 0.86em; opacity: 0.85; }
+    .log-line .log-lvl { flex: 0 0 auto; min-width: 44px; white-space: nowrap; text-transform: uppercase; font-size: 0.86em; }
     .log-line .log-msg { color: var(--text); min-width: 0; }
     .log-line.lvl-info .log-lvl { color: var(--muted); }
-    .log-line.lvl-warn .log-lvl { color: var(--warning); }
+    .log-line.lvl-warn .log-lvl { color: var(--warning-strong); }
     .log-line.lvl-err .log-lvl { color: var(--danger); }
     .log-line.lvl-debug .log-lvl { color: var(--muted); font-style: italic; }
 
@@ -430,7 +458,6 @@ public static let css: String = """
     .sess-caret { display: inline-flex; align-items: center; opacity: 0.7; transition: transform 0.15s ease; }
     .sess-caret svg { width: 10px; height: 10px; }
     .sess-group-head .sess-group-title { flex: 0 0 auto; }
-    .sess-group-count { margin-left: auto; opacity: 0.55; font-weight: 500; }
     /* Collapsed buckets hide their rows; the caret rotates from down to right. */
     .sess-group.collapsed .sess-caret { transform: rotate(-90deg); }
     .sess-group.collapsed .sess-group-rows { display: none; }
@@ -458,7 +485,8 @@ public static let css: String = """
     .sess-row:focus-within .menu-dots { color: var(--text); background: var(--surface); }
     .sess-open {
       flex: 1; min-width: 0;
-      display: flex; flex-direction: column; gap: 2px;
+      display: flex; flex-direction: column; justify-content: center; gap: 2px;
+      min-height: 28px;
       text-align: left;
       background: transparent; border: none;
       padding: 8px 8px;
@@ -644,10 +672,6 @@ public static let css: String = """
       padding: 5px 12px; font-size: 0.82em; border-radius: var(--radius-sm);
     }
     .menu-left { display: flex; align-items: center; padding-right: 2px; }
-    .menu-label {
-      font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.05em;
-      color: var(--muted); padding: 7px 12px 3px;
-    }
     .chat-menu button.menu-sel { color: var(--accent-strong); }
     /* "Move to Category" panel (swaps the chat-menu item list) */
     .catmenu-head { width: 100%; display: flex; align-items: center; justify-content: space-between; }
@@ -833,13 +857,20 @@ public static let css: String = """
     }
     .form-grid input:focus, .form-grid select:focus, .form-grid textarea:focus { border-color: var(--accent-border); }
     .form-grid textarea { min-height: 90px; resize: vertical; font-family: ui-monospace, Menlo, monospace; font-size: 0.85em; }
+    .inline-err { color: var(--danger); font-size: 0.8em; margin-top: 4px; }
+    /* Round-3 UX-35: an invalid field must LOOK invalid, not only announce it
+       through aria-invalid; the inline message stays the explanation. */
+    .input-invalid { border-color: var(--danger) !important; }
+    .req-tag { margin-left: 6px; font-size: 0.72em; font-weight: 500; letter-spacing: 0.02em; color: var(--muted); text-transform: uppercase; }
+    [hidden] { display: none !important; }
     .primary-btn {
       background: var(--accent);
-      /* WCAG AA label on the accent fill: the label is the theme's opposite
-         token (text in light mode, bg in dark mode) so the pair clears 4.5:1
-         on every scheme's accent (mono's grey accent fails white text at
-         3.38 and black fails it in dark mode — the mode-swap covers both). */
-      color: var(--text);
+      /* WCAG AA label on the accent fill: `--accent-fg` is chosen per scheme
+         and per mode against that scheme's `--accent` (the mode-swap to
+         text/bg failed Graphite light, where a dark accent meets a dark
+         label at 1.18:1). Every scheme x mode pair clears 4.5:1 — enforced
+         by PrimaryButtonAccentContrastTests. */
+      color: var(--accent-fg);
       border: none;
       border-radius: var(--radius-sm);
       padding: 8px 16px;
@@ -848,7 +879,6 @@ public static let css: String = """
       cursor: pointer;
       transition: background 0.15s;
     }
-    html[data-theme="dark"] .primary-btn { color: var(--bg); }
     .primary-btn:hover { background: var(--accent-strong); }
     .primary-btn:disabled, .primary-btn[disabled] { opacity: 0.45; cursor: default; }
     .primary-btn:disabled:hover { background: var(--accent); }
@@ -876,11 +906,6 @@ public static let css: String = """
       border-color: color-mix(in srgb, var(--danger) 84%, white);
     }
     .danger-btn:hover { background: var(--danger-soft); }
-    .accent-btn {
-      background: transparent; color: var(--accent-strong);
-      border: 1px solid var(--accent-border); border-radius: var(--radius-sm);
-      padding: 8px 16px; font-size: 0.92em; cursor: pointer;
-    }
     .row-actions-main { display: flex; gap: 8px; margin-top: 12px; }
     /* Approaching an action cluster brings its icon buttons to full strength
        (the cluster is an interactive signature for hover coverage). */
@@ -899,9 +924,53 @@ public static let css: String = """
       font-size: 1.05em; font-weight: 700; margin: 0 0 10px;
       padding-bottom: 6px; border-bottom: 1px solid var(--border);
     }
-    .set-section .set-desc { color: var(--muted); font-size: 0.9em; margin: 0 0 14px; max-width: 62ch; line-height: 1.5; }
-    .panel-note { color: var(--muted); font-size: 0.88em; padding: 0 16px; line-height: 1.5; }
     .set-row { display: flex; align-items: center; gap: 14px; padding: 7px 0; }
+    /* a settings nav row's anchor: was an inline style on all seven rows. */
+    .panel-nav-link { color: inherit; text-decoration: none; flex: 1; }
+    /* settings stacks and rows: the same column/row recipes, repeated across
+       the panels. layout components, not utilities — each is one shape. */
+    .set-row-stack { flex-direction: column; align-items: stretch; gap: 6px; }
+    .set-row-stack-tight { flex-direction: column; align-items: stretch; gap: 4px; }
+    .row-split { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .row-actions-inline { flex-direction: row; align-items: center; gap: 8px; }
+    .probe-error { color: var(--danger, #e5484d); }
+    .row-icon { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .mcp-form { max-width: 640px; }
+    .set-row-stack-lg { flex-direction: column; align-items: stretch; gap: 8px; }
+    .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .storage-picker-row { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+    .storage-row-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+    .form-sep { margin-top: 14px; border-top: 1px dashed var(--border); padding-top: 14px; }
+    /* panel rows: the four inline styles the skills/profiles/tools/workspaces
+       panels carried on every row (phase 6). */
+    .sess-open-flush { padding: 0; }
+    .ts-row { padding: 6px 10px; }
+    .lr-sub-grow { flex: 1; }
+    .lr-sub-path { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* main panes (phase 6.4): the last inline styles on the detail surfaces. */
+    .detail-h3 { margin: 16px 0 6px; }
+    .ws-form { max-width: 560px; }
+    .form-hint { color: var(--muted); font-size: 0.75em; }
+    /* skills pane (phase 6.4b) */
+    .skill-form { max-width: 720px; }
+    .skill-desc { color: var(--text); font-size: 0.98em; margin: 0 0 12px; }
+    .detail-body-lead { margin-top: 14px; }
+    .mem-head-title { margin: 0; }
+    .blank-cta { margin-top: 12px; }
+    /* profiles pane (phase 6.4c) */
+    .profile-form { max-width: 560px; }
+    /* card spacing + heading rhythm: were inline styles on 9 settings cards. */
+    .card-stack { margin-top: 12px; }
+    .card-lead { margin-bottom: 12px; }
+    .card-h3 { margin: 0 0 6px; }
+    .card-sub { margin-bottom: 10px; }
+    .row-actions-flush { margin: 0; }
+    .btn-sm { padding: 4px 10px; font-size: 0.8em; }
+    /* a numeric settings field. replaces the inline style blob four settings
+       rows used to carry (`width:96px;padding:8px;background:var(--code-bg);…`)
+       — a component style, not a utility: one field shape, repeated. */
+    .num-input { width: 96px; padding: 8px; background: var(--code-bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
     .set-row .set-label { flex: 1; font-size: 0.92em; }
     .set-row .set-label small { display: block; color: var(--muted); font-size: 0.92em; margin-top: 1px; }
     .set-row select, .set-row input[type="text"], .set-row input[type="password"] {
@@ -911,6 +980,9 @@ public static let css: String = """
     }
     .set-row select:focus, .set-row input:focus { border-color: var(--accent-border); }
     .set-hint { color: var(--muted); font-size: 0.86em; }
+    /* the incomplete-storage note (set-warn) was markup-only until the census
+       learned to read escaped-quote markup; a warning needs its colour. */
+    .set-warn { color: var(--warning); }
     .side-tab-chips { display: flex; flex-wrap: wrap; gap: 8px; }
     .side-tab-chip {
       display: inline-flex; align-items: center; gap: 6px;
@@ -942,7 +1014,6 @@ public static let css: String = """
       background: var(--surface-2); color: var(--muted);
     }
     .side-tab-chip.drag-src { opacity: 0.55; }
-    .side-tab-chip.drag-over { border-color: var(--accent-border); }
 
     /* ─── Scheduled tasks (cron) page ─────────────────────────────── */
     .task-list { display: flex; flex-direction: column; gap: 6px; }
@@ -1013,13 +1084,6 @@ public static let css: String = """
     }
     /* Segmented control (Storage backend): two named states, no implied ON. */
     .seg { display: inline-flex; gap: 2px; padding: 2px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 9px; flex-shrink: 0; }
-    .seg-btn {
-      border: none; background: transparent; color: var(--muted);
-      font: inherit; font-size: 0.86em; font-weight: 600;
-      padding: 5px 12px; border-radius: 7px; cursor: pointer;
-    }
-    .seg-btn:hover { color: var(--text); }
-    .seg-btn.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18); }
     .aux-editing { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin: 6px 0; background: var(--surface-2); }
     .aux-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 10px; }
     .aux-field { display: flex; flex-direction: column; gap: 3px; font-size: 0.84em; color: var(--muted); }
@@ -1088,7 +1152,6 @@ public static let css: String = """
     .ins-scale { font-size: 0.84em; color: var(--muted); margin: 0 0 2px; }
     .ins-xaxis { display: flex; margin-top: 7px; }
     .ins-xlabel { flex: 1; text-align: center; font-size: 0.84em; color: var(--muted); overflow: hidden; }
-    .accent-swatches { display: flex; gap: 6px; }
     .swatch {
       width: 26px; height: 26px; border-radius: 50%;
       border: 2px solid var(--border); cursor: pointer;
@@ -1174,6 +1237,10 @@ public static let css: String = """
        edge, and a long unbroken package token breaks inside its badge. */
     .plug-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 2px; max-width: 100%; vertical-align: middle; }
     .plug-chips .mc-badge { margin-right: 0; max-width: 100%; overflow-wrap: anywhere; }
+    /* UX-25: the sidecar's startup outcome on the plugin row. Without these
+       rules the failure badge is plain hint text and reads as enabled. */
+    .plugin-failed { color: var(--danger); }
+    .plugin-running { color: var(--success); }
 
     /* ─── Chat main (reference look: centered column, rails, bubbles) ── */
     .chat-main { flex: 1; display: flex; flex-direction: column; min-height: 0; position: relative; }
@@ -1183,6 +1250,9 @@ public static let css: String = """
       border-bottom: 1px solid var(--border);
       background: var(--sidebar);
     }
+    /* Round-3 UX-36: the title column must be allowed to shrink, or the
+       ellipsis never engages and narrow windows cut the title mid-word. */
+    .chat-header > div:first-child { flex: 1 1 auto; min-width: 0; }
     .chat-title { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0.01em; }
     .chat-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
@@ -1236,11 +1306,21 @@ public static let css: String = """
        blocks and tables keep the full body width and scroll horizontally
        rather than wrapping inside the narrower measure. */
     .msg.assistant .msg-body { text-align: left; max-width: 46rem; }
-    .msg.assistant .msg-body table { display: block; overflow-x: auto; max-width: 100%; }
+    /* Markdown tables (UX-04): the renderer wraps tables in .msg-table-wrap,
+       which scrolls horizontally when the columns need more room than the
+       reading column offers. `table-layout: auto` + `min-width: 100%` size
+       columns to their content, so a long identifier or number forces the
+       whole table wider (and the wrapper to scroll) instead of breaking
+       mid-word; cells break only at word boundaries. */
+    .msg-table-wrap { overflow-x: auto; max-width: 100%; }
+    .msg-table-wrap table { min-width: 100%; }
+    .msg-body table th,
+    .msg-body table td { overflow-wrap: break-word; }
     /* Role header: avatar rail + name (left); usage + time grouped right. */
     .msg-meta {
       font-size: 12px; font-weight: 500; color: var(--muted);
       margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+      flex-wrap: wrap; row-gap: 4px;
     }
     .msg-meta .mm-left { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
     .msg-meta .mm-spacer { flex: 1 1 auto; }
@@ -1270,6 +1350,7 @@ public static let css: String = """
       background: var(--surface);
       font-size: 12px; font-weight: 500;
       font-variant-numeric: tabular-nums;
+      white-space: nowrap;
       vertical-align: 1px; line-height: 1.4;
     }
     .msg-usage-inline {
@@ -1366,27 +1447,6 @@ public static let css: String = """
     }
     .outline-jump-flash { animation: outline-flash 1.2s ease-out forwards; }
 
-    /* Steer indicator: transient banner below messages (arc parity).
-       Badge + italic steer body, accent-tinted. */
-    .steer-indicator {
-      display: flex; align-items: baseline; gap: 8px;
-      padding: 10px 0; opacity: 0.65;
-      font-style: italic; color: var(--accent-strong);
-    }
-    .steer-indicator .steer-body {
-      white-space: pre-wrap; word-break: break-word;
-    }
-    .steer-badge {
-      display: inline-block;
-      font-size: 11.5px; font-weight: 600;
-      letter-spacing: 0.04em; text-transform: uppercase;
-      color: var(--accent-strong);
-      background: var(--accent-soft);
-      border: 1px solid var(--accent-border);
-      border-radius: 4px; padding: 1px 6px;
-      vertical-align: middle; line-height: 1.6;
-      font-style: normal; flex-shrink: 0;
-    }
     /* Token usage renders in `.msg-meta` (see `.msg-usage-inline`). */
 
     /* Message body markdown scaling (reference msg-body rules) */
@@ -1607,7 +1667,6 @@ public static let css: String = """
       cursor: pointer; padding: 6px 10px; color: var(--muted);
       font-size: 0.86em; user-select: none;
     }
-    details.thinking .think-body { padding: 4px 12px 10px; color: var(--muted); white-space: pre-wrap; }
 
     /* ── Message hover footer: produced-at time + copy (arc parity) ── */
     .msg-foot { display: flex; align-items: center; gap: 8px; margin-top: 5px; opacity: 0; transition: opacity 0.15s; }
@@ -1617,18 +1676,6 @@ public static let css: String = """
     .msg-action-btn { background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 5px; border-radius: 5px; display: inline-flex; align-items: center; transition: color 0.12s, background 0.12s; }
     .msg-action-btn:hover { color: var(--text); background: var(--surface-2); }
     .msg-action-btn svg { width: 12px; height: 12px; }
-    .tool-chip {
-      display: inline-flex; align-items: center; gap: 6px;
-      margin: 3px 6px 3px 0;
-      padding: 4px 10px;
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      font-size: 0.86em;
-      color: var(--muted);
-      font-family: ui-monospace, Menlo, monospace;
-    }
-    .tool-chip .tc-name { color: var(--accent-strong); font-weight: 600; }
     .tool-pills { display: flex; flex-direction: column; align-items: stretch; gap: 2px; margin: 6px 0 4px; }
     /* Each tool call expands independently; cards stack vertically. */
     /* arc parity: tool call rows are bubble-like pills. */
@@ -1690,52 +1737,6 @@ public static let css: String = """
     @keyframes blink { 50% { opacity: 0; } }
 
     .live-status { font-size: 0.84em; color: var(--muted); margin: -8px 0 12px; display: flex; gap: 8px; align-items: center; }
-    /* Live tool activity rows (streaming bubble): visible while the agent is
-       processing; flat rows with a subtle 1px divider between them. */
-    .live-tool-stack { margin: 8px 0 4px; display: flex; flex-direction: column; }
-    .live-tool {
-      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-      padding: 6px 10px;
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      font-size: 0.8em;
-    }
-    .live-tool + .live-tool { margin-top: 4px; }
-    .live-tool .lt-name { color: var(--accent-strong); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
-    .live-tool .lt-name svg { width: 12px; height: 12px; }
-    .live-tool .lt-args { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 48ch; }
-    .live-tool .lt-state { margin-left: auto; color: var(--muted); }
-    .live-tool .lt-state.done { color: var(--success); }
-    .live-tool .lt-preview { flex-basis: 100%; color: var(--muted); font-size: 0.92em; border-top: 1px solid var(--border); padding-top: 4px; margin-top: 2px; white-space: pre-wrap; }
-
-    /* ─── Permission card (reference approval) ─────────────────────── */
-    .perm-card {
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      background: var(--surface);
-      padding: 10px 12px;
-      margin: 2px 0 10px;
-      max-width: 720px;
-    }
-    .perm-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-    .perm-ico { color: var(--warning, #E68A00); font-size: 13px; }
-    .perm-title { font-weight: 600; font-size: 12.5px; color: var(--text); }
-    .perm-cmd { margin: 4px 0 10px; }
-    .perm-cmd code {
-      display: block; padding: 6px 8px; border-radius: 6px;
-      background: var(--bg); border: 1px solid var(--border);
-      font-family: var(--font-mono); font-size: 12px; color: var(--text);
-      word-break: break-all;
-    }
-    .perm-actions { display: flex; gap: 8px; justify-content: flex-end; }
-    .perm-btn {
-      border: 1px solid var(--border); border-radius: 999px;
-      padding: 5px 14px; font-size: 12px; font-weight: 600;
-      background: var(--surface); color: var(--text); cursor: pointer;
-    }
-    .perm-btn.allow { background: var(--accent); border-color: var(--accent); color: #fff; }
-    .perm-btn.deny { background: transparent; color: var(--danger); border-color: var(--danger); }
 
     /* ── Composer flyout: arc-parity approval card ── */
     .composer-flyout { width: 100%; }
@@ -1799,7 +1800,6 @@ public static let css: String = """
     }
     .approval-btn.yolo:hover { background: rgba(245, 158, 11, 0.22); border-color: rgba(245, 158, 11, 0.55); color: #fbbf24; }
     .approval-btn svg, .approval-ico svg, .clarify-ico svg, .clarify-collapse svg, .approval-collapse svg, .approval-dismiss svg,
-    .clarify-badge-svg { display: block; }
 
     /* ── Composer flyout: arc-parity clarification card ── */
     .clarify-inner {
@@ -1897,7 +1897,7 @@ public static let css: String = """
     }
     .todo-tab:hover { color: var(--text); border-color: var(--border-strong); }
     .todo-tab-active {
-      color: var(--accent);
+      color: var(--text);
       border-color: var(--accent);
       background: var(--accent-soft);
     }
@@ -2208,9 +2208,34 @@ public static let css: String = """
        the backstop so nothing can ever leave the viewport. */
     .composer-toolbar .dd-trigger { min-width: 0; }
     .composer-toolbar .send-btn { flex: 0 0 auto; }
+    /* Below ~1180px the four selector chips tighten: the model chip is ~210px
+       wide on its own, and at 820px the whole row used to push `#cb-send`
+       200px off-screen. The .dd-trigger already truncates its label with an
+       ellipsis, so the chip now CAPS the label instead of dropping it —
+       the model/workspace value is the composer's most important context
+       (UX-05: unlabelled gears at 1024 with 21px-tall hit targets). */
     @media (max-width: 1180px) {
+      .composer-toolbar .dd-trigger-label { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .composer-toolbar .dd-trigger { padding: 8px 10px; }
+    }
+    /* UX-05: at the 1024 tablet width every composer control — the chip
+       triggers, the attach/bookmark glyphs and Send — keeps at least a 44px
+       hit target (they were 21-38px). Labels stay visible so the targets
+       carry their meaning; the wrapping toolbar is the backstop so nothing
+       can ever leave the viewport. */
+    @media (max-width: 1024px) {
+      .composer-toolbar .dd-trigger,
+      .composer-toolbar .tool-btn,
+      .composer-toolbar .send-btn { min-height: 44px; }
+      .composer-toolbar .tool-btn { width: 44px; height: 44px; }
+      .composer-toolbar .send-btn { width: 44px; height: 44px; }
+    }
+    /* Below 700px the rail-plus-composer strip cannot pay for four labelled
+       chips at 44px; the chips go icon-only here — their labels were never
+       visible on a touch viewport anyway — while the 44px targets above
+       keep every control operable. */
+    @media (max-width: 700px) {
       .composer-toolbar .dd-trigger-label { display: none; }
-      .composer-toolbar .dd-trigger { padding: 6px 7px; }
     }
     .tool-btn {
       width: 30px; height: 30px;
@@ -2253,7 +2278,7 @@ public static let css: String = """
     .ctx-indicator.ctx-high .ctx-ring-value { stroke: var(--danger); }
     .ctx-tooltip { position: absolute; right: 0; bottom: calc(100% + 10px); min-width: 210px; max-width: 250px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22); font-size: 12px; line-height: 1.45; color: var(--muted); opacity: 0; transform: translateY(4px); pointer-events: none; transition: opacity 0.14s ease, transform 0.14s ease; z-index: 30; }
     .ctx-tooltip::after { content: ''; position: absolute; right: 10px; top: 100%; border-width: 6px 6px 0 6px; border-style: solid; border-color: var(--surface) transparent transparent transparent; }
-    .ctx-indicator-wrap:hover .ctx-tooltip, .ctx-indicator-wrap:focus-within .ctx-tooltip { opacity: 1; transform: translateY(0); pointer-events: auto; }
+    .ctx-indicator-wrap:hover .ctx-tooltip, .ctx-indicator-wrap:focus-within .ctx-tooltip, .ctx-indicator-wrap.ctx-open .ctx-tooltip { opacity: 1; transform: translateY(0); pointer-events: auto; }
     .ctx-tooltip-title { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 5px; }
     .ctx-tooltip-line + .ctx-tooltip-line { margin-top: 3px; }
     .send-btn {
@@ -2354,7 +2379,6 @@ public static let css: String = """
     .dd-pop.hidden { display: none; }
     /* Settings pickers (Main model / Auxiliary models) open downward — the
        settings list is tall, so an upward popover would clip. */
-    .dd-pop-down { bottom: auto; top: calc(100% + 8px); }
     .dd-settings .dd-trigger {
       border: 1px solid var(--border); background: var(--surface-2);
       color: var(--text); border-radius: 8px; max-width: 300px;
@@ -2387,7 +2411,6 @@ public static let css: String = """
     .dd-row-title { font-size: 0.86em; font-weight: 600; color: var(--text); display: inline-flex; align-items: center; gap: 5px; }
     .dd-row-sub { font-size: 0.84em; color: var(--muted); }
     .dd-empty { padding: 10px; font-size: 0.86em; color: var(--muted); }
-    .dd-section { font-size: 0.76em; letter-spacing: 0.06em; color: var(--muted); padding: 6px 10px 2px; text-transform: uppercase; }
     .dd-note { font-size: 0.84em; color: var(--muted); padding: 2px 6px 8px; }
     .dd-foot { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 4px; display: flex; flex-direction: column; }
     .dd-foot-row {
@@ -2442,7 +2465,7 @@ public static let css: String = """
     .badge-active { color: #7fb3e8; border-color: rgba(127, 179, 232, 0.55); }
     .badge-inactive { color: var(--muted); border-color: var(--border); }
     .badge-default { color: var(--muted); border-color: var(--border); }
-    .badge-green { color: #6fce8f; border-color: rgba(111, 206, 143, 0.5); background: rgba(111, 206, 143, 0.08); text-transform: none; }
+    .badge-green { color: var(--success); border-color: color-mix(in srgb, var(--success) 50%, transparent); background: color-mix(in srgb, var(--success) 8%, transparent); text-transform: none; }
     .badge-red { color: var(--danger); border-color: var(--danger); }
     .pl-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
     .pl-code {
@@ -2580,8 +2603,6 @@ public static let css: String = """
       cursor: pointer; white-space: nowrap;
     }
 
-    /* ── Chat menu: "Set category" hover flyout submenu (arc parity) ── */
-    .menu-item.has-sub { position: relative; display: flex; }
     /* The submenu is positioned and shown by runtime.js (fixed coordinates so
        it escapes .panel-body's overflow:auto clip) — CSS hover is deliberately
        not used: the JS version also works for keyboard focus. */
@@ -2596,21 +2617,6 @@ public static let css: String = """
       display: inline-flex; align-items: center; color: var(--muted);
       margin-left: auto; padding-left: 14px;
     }
-    .menu-sub {
-      position: absolute; left: 100%; top: -6px;
-      min-width: 190px; z-index: 70;
-      display: none;
-      flex-direction: column;
-      background: var(--surface);
-      border: 1px solid var(--border-strong);
-      border-radius: 12px;
-      box-shadow: var(--shadow);
-      padding: 5px;
-      max-height: 320px; overflow-y: auto;
-    }
-    .menu-item.has-sub:focus-within .menu-sub { display: flex; }
-    .menu-sub button { width: 100%; box-sizing: border-box; }
-    .menu-sub button.menu-sel { background: var(--accent-soft); color: var(--accent-strong); }
 
     /* ── Settings → Color scheme: 3-dot palette tile grid (reference Skin) ── */
     .scheme-grid {
@@ -2639,47 +2645,6 @@ public static let css: String = """
     .chat-menu button.danger:hover { background: var(--danger-soft); }
 
     .pin-badge { font-size: 0.86em; margin-right: 3px; }
-
-    /* Session sharing (tasks 7-8) */
-    .share-badge {
-      display: inline-flex; align-items: center;
-      font-size: 0.72em; font-weight: 600;
-      padding: 1px 6px; border-radius: 999px;
-      margin-right: 5px; vertical-align: 1px;
-      color: var(--accent);
-      background: color-mix(in srgb, var(--accent) 12%, transparent);
-      border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-    }
-    /* Inbound share (this instance is the sharee): neutral tone, access
-       level is spelled out in the label text itself. */
-    .share-badge.in {
-      color: var(--text-muted);
-      background: color-mix(in srgb, var(--text-muted) 10%, transparent);
-      border-color: color-mix(in srgb, var(--text-muted) 30%, transparent);
-    }
-    /* Draft conversations: a chat with no sent messages but un-sent text. */
-    .draft-badge {
-      display: inline-flex; align-items: center;
-      font-size: 0.72em; font-weight: 600; font-style: italic;
-      padding: 1px 6px; border-radius: 999px;
-      margin-right: 5px; vertical-align: 1px;
-      color: var(--draft-fg, #b8860b);
-      background: color-mix(in srgb, var(--draft-fg, #b8860b) 12%, transparent);
-      border: 1px dashed color-mix(in srgb, var(--draft-fg, #b8860b) 45%, transparent);
-    }
-    .share-card { width: min(440px, 92vw); }
-    .share-card h3 { margin: 0 0 2px; }
-    .share-card .share-sub { margin: 2px 0 12px; color: var(--text-muted); font-size: 0.92em; }
-    .share-list { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; margin-bottom: 10px; }
-    .share-empty { color: var(--text-muted); font-size: 0.9em; padding: 6px 2px; }
-    .share-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; }
-    .share-pk { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; }
-    .share-role { font-size: 0.78em; padding: 1px 6px; border-radius: 999px; white-space: nowrap; }
-    .share-role.share-ro-con { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
-    .share-role.share-ro-read { color: var(--text-muted); background: color-mix(in srgb, var(--text-muted) 12%, transparent); }
-    .share-rm { font-size: 0.8em; }
-    .share-add-row { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
-    .share-add-row input { flex: 1; min-width: 0; }
     .sess-row.archived .sess-title { opacity: 0.62; }
     .rename-input {
       flex: 1; min-width: 0;
@@ -2723,30 +2688,6 @@ public static let css: String = """
     .danger-btn { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
     .danger-btn:hover { background: var(--danger); color: var(--surface); }
 
-    /* ─── New-session creation panel ──────────────────────────────────────────── */
-    .session-panel { width: min(580px, calc(100vw - 40px)); max-height: min(82vh, 760px); display: flex; flex-direction: column; }
-    .session-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-    .session-panel-head h3 { margin: 0; font-size: 1.08em; }
-    .session-panel-sub { margin: 4px 0 14px; color: var(--muted); font-size: 0.9em; line-height: 1.5; }
-    .session-scroll { overflow-y: auto; flex: 1 1 auto; min-height: 0; padding-right: 4px; }
-    .session-panel .set-section { margin-bottom: 18px; }
-    .session-seg { border-bottom: 1px solid var(--border); }
-    .session-seg .set-row { padding: 6px 0; }
-    .ctx-preview { margin: 0 0 10px; }
-    .ctx-preview summary { cursor: pointer; color: var(--muted); font-size: 0.82em; user-select: none; padding: 2px 0; }
-    .ctx-preview summary:hover { color: var(--text); }
-    .ctx-preview pre { margin: 6px 0 0; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; font-size: 0.82em; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; color: var(--muted); }
-    .session-custom-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
-    .session-custom-row { display: flex; flex-direction: column; gap: 4px; }
-    .session-custom-head { display: flex; align-items: center; gap: 8px; }
-    .session-custom-weight { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font-size: 0.82em; font-family: inherit; }
-    .session-custom-weight:focus { border-color: var(--accent-border); outline: none; }
-    .session-custom-weight-label { color: var(--muted); font-size: 0.78em; }
-    .session-custom-input { flex: 1; min-width: 0; resize: vertical; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 0.88em; line-height: 1.5; font-family: inherit; }
-    .session-custom-input:focus { border-color: var(--accent-border); outline: none; }
-    .session-custom-row .icon-mini { margin-top: 4px; }
-    .session-add-btn { width: 100%; margin-top: 2px; }
-    .session-panel-actions { margin-top: 14px; justify-content: flex-end; }
     /* ─── Kanban ─────────────────────────────────────────────── */
     .kb-pcol { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .kanban-main { overflow: hidden; }
@@ -2759,9 +2700,9 @@ public static let css: String = """
         position: absolute; top: 6px; right: 6px; z-index: 2;
         font-size: 11.5px; padding: 3px 9px; border-radius: 6px;
         border: 1px solid var(--border); background: var(--surface);
-        color: var(--muted); cursor: pointer; opacity: .85;
+        color: var(--muted); cursor: pointer;
     }
-    .copy-code:hover { opacity: 1; }
+    .copy-code:hover { color: var(--text); }
     #main.todo-panel { flex: 1; height: 100%; overflow-y: auto; display: flex; flex-direction: column; padding: 22px clamp(20px, 7vw, 88px) 12px; box-sizing: border-box; }
     .todo-card {
       background: var(--surface); border: 1px solid var(--border);
@@ -2811,7 +2752,7 @@ public static let css: String = """
     .todo-runall-ico { display: flex; }
     .todo-empty { padding: 42px 16px; text-align: center; color: var(--muted); font-size: 13px; }
     .todo-empty-ico { opacity: .4; margin-bottom: 8px; display: flex; justify-content: center; }
-    .todo-empty small { display: block; margin-top: 4px; opacity: .7; }
+    .todo-empty small { display: block; margin-top: 4px; }
     .todo-foot { padding: 12px 16px; border-top: 1px solid var(--border); background: var(--surface-2); }
     .todo-add { display: flex; gap: 8px; }
     .todo-add input {
@@ -2820,19 +2761,6 @@ public static let css: String = """
     }
     .todo-add input:focus { outline: none; border-color: var(--accent); }
     .todo-add button { border-radius: 999px; }
-    .cron-panel { padding: 18px; max-width: 720px; margin: 0 auto; }
-    .cron-dot { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 13px; }
-    .cron-add { display: flex; gap: 8px; margin-top: 14px; }
-    .cron-add input {
-      flex: 1; background: var(--bg); color: var(--text);
-      border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; min-width: 0;
-    }
-    .cron-row { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--border-subtle); }
-    .cron-dot.on { color: var(--success); }
-    .cron-info { flex: 1; min-width: 0; }
-    .cron-name { font-size: 13px; font-weight: 600; }
-    .cron-sched { font-weight: 400; opacity: .7; font-size: 12px; margin-left: 6px; }
-    .cron-meta { font-size: 12px; opacity: .65; margin-top: 2px; }
     .icon-mini { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 14px; padding: 2px 4px; display: inline-flex; align-items: center; justify-content: center; }
     .icon-mini:hover { color: var(--text); }
     .icon-mini.danger:hover { color: var(--danger); }
@@ -2972,7 +2900,7 @@ public static let css: String = """
     .ws-preview-body {
       margin: 0; padding: 10px 12px;
       font-family: ui-monospace, "SF Mono", Menlo, monospace;
-      font-size: 0.8em; line-height: 1.45; white-space: pre;
+      font-size: 0.8em; line-height: 1.45; white-space: pre-wrap;
       color: var(--text);
     }
     .ws-path {
@@ -3070,17 +2998,6 @@ public static let css: String = """
       letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 999px;
       border: 1px solid var(--border-strong); color: var(--muted); background: var(--hover-bg); vertical-align: 1px; }
     .cmd-item-badge-skill { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-strong); }
-
-    /* ── Reply with selection (reference messages.js parity) ── */
-    .selected-text-reply-btn { position: fixed; z-index: 1200; display: inline-flex; align-items: center;
-      gap: 6px; padding: 8px 14px; border: 2px solid var(--accent-strong); border-radius: 999px;
-      background: var(--surface); color: var(--text);
-      box-shadow: 0 8px 24px rgba(0,0,0,.30), 0 0 0 1px var(--border);
-      font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer; opacity: 0;
-      pointer-events: none; transform: translateY(4px);
-      transition: opacity .12s ease, transform .12s ease; user-select: none; }
-    .selected-text-reply-btn.visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
-    .selected-text-reply-btn:hover { background: var(--surface-2); border-color: var(--accent); }
 
     /* ── Context chips (reference _renderSelectionChips parity) ── */
     .selection-chips-wrap { display: flex; flex-direction: column; gap: 8px; max-width: 100%;
@@ -3190,6 +3107,55 @@ public static let css: String = """
       #ws-dock { padding: 8px 4px; }
       .ws-dock-btn { width: 36px; height: 36px; }
     }
+    /* Below 600px the vertical 12-icon rail eats the whole left column and a
+       third of a 480px window. Collapse it into a single 44px horizontal
+       strip under the topbar: the app body becomes a column, the rail scrolls
+       sideways (its own overflow, so the WINDOW never does), and the Settings
+       slot rides at the END of that strip (in flow, not sticky: pinning it
+       over the strip covered Todos at 480px — round-3 UX-29), so every
+       destination stays reachable and the composer gets the full window. */
+    @media (max-width: 599.98px) {
+      #app-body { flex-direction: column; }
+      #iconbar {
+        flex: 0 0 auto; width: 100%; height: 44px;
+        flex-direction: row; align-items: center;
+        gap: 4px; padding: 2px 6px;
+        overflow-x: auto; overflow-y: hidden;
+        border-right: none; border-bottom: 1px solid var(--border);
+      }
+      #iconbar .iconbar-top { flex: 0 0 auto; min-height: 0; }
+      #iconbar .iconbar-top,
+      #iconbar .iconbar-bottom { flex-direction: row; }
+      /* The Settings slot used to be sticky, which parked the gear on top of
+         whichever destination happened to be under it (round-3 UX-29: at 480
+         it covered the Todos button). Keep it in flow at the END of the strip
+         and let the strip itself scroll; the fade below is the scroll cue. */
+      #iconbar .iconbar-bottom {
+        position: static; bottom: auto; left: auto; right: auto;
+        flex: 0 0 auto; align-items: center;
+        background: transparent; padding-left: 0; padding-right: 4px;
+      }
+      #iconbar {
+        -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent 100%);
+        mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent 100%);
+      }
+      /* the drawer opens after the topbar AND the rail strip, so the rail
+         stays tappable while the drawer is open (UX-61 principle) */
+      #panel { top: 82px; left: 0; width: 100vw; }
+      .drawer-scrim { top: 82px; left: 0; }
+    }
+    /* ── Insights daily tokens chart y-axis (UX-14) ────────────────── */
+    /* UX-14: a real vertical axis. The tick rows are absolutely positioned in a
+       220px column that matches .ins-chart, so a label sits at the height of the
+       bar it quantifies; the wave-3 strip laid the five ticks in a row. */
+    .ins-chart-row { display: flex; align-items: stretch; gap: 8px; }
+    .ins-chart-row .ins-chart { flex: 1 1 auto; min-width: 0; }
+    .ins-yaxis { position: relative; flex: 0 0 52px; height: 220px; font-size: 11px; color: var(--muted); }
+    .ins-ytick-row { position: absolute; right: 0; display: flex; align-items: center; gap: 4px; transform: translateY(50%); }
+    .ins-ytick { width: 6px; height: 1px; background: var(--border); }
+    .ins-ylabel { text-align: right; white-space: nowrap; }
+
     """
 
 }
+

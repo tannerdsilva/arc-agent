@@ -39,11 +39,20 @@ public enum ClarifyTool {
     /// The process-wide presenter box (nil = headless: the tool errors).
     public static let presenters = PresenterBox()
 
+    /// Task-local presenter bound by the agent for the whole turn.
+    /// Checked first in `ask()` before falling back to the process-wide box.
+    /// Two concurrent agents with different presenters cannot cross-talk
+    /// because each turn binds its own TaskLocal value.
+    @TaskLocal public static var presenter: Presenter? = nil
+
     /// Answer used when a presenter is injected but the question went
     /// unanswered (user stop, timeout with no fallback).
     static let unansweredText = "No response from the user. Use your best judgement and proceed."
 
     /// Ask through the ambient presenter (or report unavailability).
+    ///
+    /// Resolution order: TaskLocal (per-turn, bound by ArcAgent) →
+    /// process-wide PresenterBox (single-agent fallback) → historic error.
     static func ask(args: [String: Any]) async -> String {
         let question = ((args["question"] as? String) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -51,7 +60,14 @@ public enum ClarifyTool {
             return "Error: clarify requires a question."
         }
         let choices = Array(((args["choices"] as? [String]) ?? []).prefix(4))
-        guard let presenter = await presenters.current() else {
+        // TaskLocal takes precedence; the box is the fallback rung.
+        let ambient: Presenter?
+        if let taskLocal = Self.presenter {
+            ambient = taskLocal
+        } else {
+            ambient = await presenters.current()
+        }
+        guard let presenter = ambient else {
             return "Error: Clarify tool is not available in this execution context."
         }
         guard let answer = await presenter(question, choices),

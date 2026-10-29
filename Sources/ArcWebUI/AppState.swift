@@ -234,25 +234,12 @@ struct WorkspaceEntry: Codable, Equatable {
         if name == "main" {
             return home.appendingPathComponent("workspace").path
         }
-        return ArcHome.workspaces.appendingPathComponent(name).path
+        return home.appendingPathComponent(".arc/workspaces/\(name)").path
     }
 }
 
 /// Persisted UI + app settings (stored at ~/.arc-agent-webui/settings.json).
 struct AppSettings: Codable, Equatable {
-    /// Pin a chat's workspace at creation/first use so it stops following the
-    /// global default. The chat keeps this workspace until the user selects a
-    /// different one in the chat itself (`setChatWorkspace`). Idempotent: an
-    /// existing (non-empty) selection always wins. Returns the pinned name.
-    @discardableResult
-    mutating func pinWorkspace(for sessionID: String) -> String {
-        if let existing = sessionWorkspaces[sessionID], !existing.isEmpty {
-            return existing
-        }
-        sessionWorkspaces[sessionID] = activeWorkspace
-        return activeWorkspace
-    }
-
     var theme: String = "light"
     var textSize: String = "md"
     var accent: String = "#B8860B"
@@ -295,11 +282,6 @@ struct AppSettings: Codable, Equatable {
     /// model choosing the best offered answer, instead of the unguided
     /// "use your best judgement" notice to the main model.
     var smartPickAPath: Bool = true
-    /// When on, the sidebar "+" / blank-canvas "New chat" opens the
-    /// create-session panel (per-session context segments + custom context)
-    /// instead of minting a chat directly. Off by default: "+" just creates
-    /// the chat with the resolved global+profile defaults.
-    var contextPanelOnNewChat: Bool = false
 
     var recentFiles: [String] = []
 
@@ -327,8 +309,6 @@ struct AppSettings: Codable, Equatable {
     var scheduledJobs: [CronJob] = []
     /// Archived chats are hidden from the default list but restorable.
     var archivedSessions: [String] = []
-    /// Show un-sent draft chats in the conversation list (badged "Draft").
-    var showDrafts: Bool = true
 
     /// User-created chat categories and per-chat assignment (session id → category id).
     var chatCategories: [ChatCategory] = []
@@ -371,9 +351,6 @@ struct AppSettings: Codable, Equatable {
     var sidebarTabs: [String] = AppSettings.defaultSidebarTabs
     /// Tabs currently hidden from the rail (subset of sidebarTabs).
     var hiddenSidebarTabs: [String] = []
-    /// Global default context recipe for new sessions. Segments not present
-    /// inherit the code default (all on). nil = today's behavior.
-    var contextDefaults: ContextRecipe?
     /// Sessions where approvals are skipped (reference "/api/session/yolo" parity):
     /// the user tapped "Skip all this session" in an approval card.
     var yoloSessions: [String] = []
@@ -408,7 +385,6 @@ struct AppSettings: Codable, Equatable {
         case storageConnections, activeStorage
         case recentFiles
         case sessionConfig, sessionProfile, sessionThinking, sessionTitles, sessionCompressions, archivedSessions
-        case showDrafts
         case chatCategories, sessionCategories
         case kanbanColumns, kanbanCards
         case todos
@@ -423,9 +399,7 @@ struct AppSettings: Codable, Equatable {
         case showTokenUsage, showTps, pinnedSessionsLimit
         case showConversationOutline
         case sidebarTabs, hiddenSidebarTabs, yoloSessions
-        case contextDefaults
         case smartApproval, smartPickAPath
-        case contextPanelOnNewChat
     }
 
     /// Tolerant decode: any missing (or mistyped) key falls back to the field's
@@ -463,7 +437,6 @@ struct AppSettings: Codable, Equatable {
         sessionTitles = try c.decodeIfPresent([String: String].self, forKey: .sessionTitles) ?? [:]
         sessionCompressions = try c.decodeIfPresent([String: String].self, forKey: .sessionCompressions) ?? [:]
         archivedSessions = try c.decodeIfPresent([String].self, forKey: .archivedSessions) ?? []
-        showDrafts = try c.decodeIfPresent(Bool.self, forKey: .showDrafts) ?? true
         chatCategories = try c.decodeIfPresent([ChatCategory].self, forKey: .chatCategories) ?? []
         sessionCategories = try c.decodeIfPresent([String: String].self, forKey: .sessionCategories) ?? [:]
         if let m = try? c.decodeIfPresent([String: [TodoItem]].self, forKey: .todos) {
@@ -490,11 +463,9 @@ struct AppSettings: Codable, Equatable {
         showConversationOutline = try c.decodeIfPresent(Bool.self, forKey: .showConversationOutline) ?? true
         sidebarTabs = try c.decodeIfPresent([String].self, forKey: .sidebarTabs) ?? AppSettings.defaultSidebarTabs
         hiddenSidebarTabs = try c.decodeIfPresent([String].self, forKey: .hiddenSidebarTabs) ?? []
-        contextDefaults = try c.decodeIfPresent(ContextRecipe.self, forKey: .contextDefaults)
         yoloSessions = try c.decodeIfPresent([String].self, forKey: .yoloSessions) ?? []
         smartApproval = try c.decodeIfPresent(Bool.self, forKey: .smartApproval) ?? true
         smartPickAPath = try c.decodeIfPresent(Bool.self, forKey: .smartPickAPath) ?? true
-        contextPanelOnNewChat = try c.decodeIfPresent(Bool.self, forKey: .contextPanelOnNewChat) ?? false
         // Rebuild the canonical order from the stored list (relative order
         // preserved; keys missing because they are NEW defaults are
         // re-inserted at their default slot and start VISIBLE). The old
@@ -519,7 +490,7 @@ struct LiveTurn {
     /// Accumulated reasoning/thinking text streamed by the model.
     var thinking: String = ""
     var toolChips: [String] = []
-    var status: String = "running"   // running | tool | done | error
+    var status: String = "running"   // running | tool | compressing | done | error
     /// Name of the tool currently executing (nil outside a tool call) and when it
     /// started — the live status line shows name + a client-ticked clock.
     var toolName: String? = nil
@@ -546,9 +517,7 @@ struct PendingApproval {
     let command: String
     let description: String
     let sessionID: String
-    /// Yields the user's decision. Now carries the core ``ApprovalDecision``
-    /// because the collapsed turn engine's approval presenter drives this card.
-    let continuation: AsyncStream<ApprovalDecision>.Continuation
+    let continuation: AsyncStream<Bool>.Continuation
 }
 
 /// arc-parity clarification request: the agent's `clarify` tool is waiting
@@ -714,6 +683,10 @@ actor AppState {
     }
     var activeSessionID: String?
     var sessionVersion = 0
+    /// The client-side draft created by `+` that has not yet been persisted:
+    /// it lives only in memory until the first send writes it to the store.
+    /// Navigating away from an untouched draft drops it.
+    var draftSessionID: String?
     /// Text of the last submit per session, for the draft guard window (see
     /// `storeComposerDraft`): a trailing debounced input frame carrying the
     /// just-sent text must not resurrect the cleared draft.
@@ -722,6 +695,7 @@ actor AppState {
     var skills: [Skill] = []
     var selectedSkill: String?
     var skillFilter = ""
+    var toolFilter = ""
     var skillVersion = 0
 
     var profiles: [Profile] = []
@@ -732,7 +706,7 @@ actor AppState {
 
     var selectedWorkspace: String?
 
-    var formValues: [String: String] = [:]
+    var formValues: FieldValues = [:]
     /// Debounced settings save for composer drafts (cancelled + rescheduled on
     /// each keystroke; writes at most once per ~1.5 s while typing).
     var draftSaveTask: Task<Void, Never>?
@@ -853,44 +827,6 @@ actor AppState {
     /// and the open state survives a reload.
     var outlineOpen = false
 
-    // MARK: Session sharing (tasks 7-8)
-    /// Cached latest share grants (kind 3007), keyed by sessionID. Populated
-    /// by refreshShareGrants() on boot and after any share mutation.
-    var shareGrants: [TesseraShareGrant] = []
-    /// The session whose Share panel is open in the chat view (nil = closed).
-    var sharePanelSessionID: String? = nil
-    /// Draft fields for the Share panel's "add grantee" form.
-    var shareDraftPubkey = ""
-    var shareDraftRole: ShareRole = .contribute
-    /// Staged grantees pending Save (replaces the live grant on commit).
-    var shareStaged: [ShareGrantee] = []
-    /// Cached per-session share view state, refreshed with the grants and
-    /// the session list: role for foreign-owned sessions (nil = not shared
-    /// to us), the host's terminal delete flag, and grantee leave notices
-    /// (host view). Views read this synchronously; recomputation is async.
-    var shareRoles: [String: ShareRole] = [:]
-    var deletedSessionIDs: Set<String> = []
-    /// Leave notices (kind 3010) grouped by session — the host's "X left
-    /// the session" indicator source. Only notices from OTHER identities.
-    var leftSharees: [String: [String]] = [:]
-    /// Cached identity pubkey (refreshed alongside the share view state).
-    var cachedIdentity: String?
-
-    /// New-session creation panel. The per-session context controls live here
-    /// (the old "Context" tab was folded into it).
-    var showNewSessionPanel = false
-    /// The in-progress per-session context recipe edited in the panel. It is
-    /// seeded from the resolved global+profile defaults when the panel opens,
-    /// so the user sees (and can override) what a default new session inherits.
-    var newSessionRecipe = ContextRecipe()
-    /// The free-form custom-context drafts being edited (add/remove rows,
-    /// each with an effective weight). On "Create Session" these are stitched
-    /// (non-empty, de-duplicated) into the session's `contextOverrides.custom`.
-    var newSessionCustom: [CustomContextItem] = [CustomContextItem(text: "")]
-    /// Which custom-context textarea the user last focused (change frames carry
-    /// no targetId, so the index is captured via the panel's click boundary).
-    var activeCustomIndex = 0
-
     /// Chat list filtering (phase: categories).
     var chatFilter = ""
     var activeCategory = "all"      // "all" | "unassigned" | category id
@@ -917,8 +853,11 @@ actor AppState {
     /// (path, showHidden, expanded set). Repeated shell re-renders of an
     /// OPEN panel reuse this instead of rescanning the directory. Cleared
     /// when the panel is (re)opened or on a file/folder mutation.
+    ///
+    /// The cache holds the built VIEW, not its bytes: a tree is a `Group` of
+    /// rows, so the fixed point a render cache needs is the existential.
     var workspaceTreeCacheKey: String? = nil
-    var workspaceTreeCacheHTML: String? = nil
+    var workspaceTreeCacheView: (any WebUI.View)? = nil
 
     /// The workspace-relative path of a file open in the panel's preview pane,
     /// its read content, and an optional notice (binary / oversized / unreadable).
@@ -940,6 +879,9 @@ actor AppState {
     /// Kanban UI mode (phase: kanban).
     var addingColumn = false
     var addingCardColumnID: String? = nil
+    /// Round-3 UX-34: inline reason for an empty card title, rendered next to
+    /// the field instead of only in a corner toast.
+    var kanbanAddError: String? = nil
     var confirmColumn: String? = nil
     /// Card awaiting delete confirmation — the board's in-place two-step, the
     /// same guard `confirmColumn` already gives columns.
@@ -954,6 +896,11 @@ actor AppState {
     /// Active turns keyed by sessionID — different chats may run concurrently.
     /// Stop is scoped to the turn's own session.
     var activeTurns: [String: LiveTurn] = [:]
+    /// The agent each live turn runs on, keyed by sessionID (CONVERGE A7). The
+    /// stop button reaches the turn's own agent through this handle; the entry
+    /// is removed when the turn ends, so a stopped chat can never interrupt a
+    /// later turn.
+    var turnAgents: [String: ArcAgent] = [:]
     /// arc-style approval gate for the webui tool loop: the terminal tool
     /// is checked against ApprovalManager, and dangerous commands pause the
     /// turn on a permission card until the user approves or denies.
@@ -1037,6 +984,36 @@ actor AppState {
     /// data source (arc plugin metadata parity).
     var pluginManifests: [String: PluginManifest] = [:]
 
+    /// Sidecar startup outcome per plugin: nil = sidecar started and is
+    /// running; non-nil = the failure reason, shown as a badge on the
+    /// plugin row so a failed sidecar never reads as "enabled" (UX-25).
+    var pluginStartupOutcome: [String: String] = [:]
+
+    /// Actor-isolated setter for `pluginStartupOutcome` (called from the host).
+    func setPluginStartupOutcome(_ name: String, _ reason: String?) {
+        if let reason { pluginStartupOutcome[name] = reason } else { pluginStartupOutcome[name] = nil }
+    }
+
+    /// Inline required-field errors for the skills create form: keyed by
+    /// input id (`skill-name-input`, `skill-desc-input`). Populated by the
+    /// submit wire and cleared on next input (UX-26).
+    var skillCreateErrors: [String: String] = [:]
+
+    /// Actor-isolated setter for `skillCreateErrors` (called from the wire).
+    func setSkillCreateErrors(_ errors: [String: String]) {
+        skillCreateErrors = errors
+    }
+
+    /// Actor-isolated clearer for a single skill-create error field. Returns
+    /// true when an error was showing, so the wire only pays for a fragment on
+    /// the transition — typing in a clean field costs nothing.
+    @discardableResult
+    func clearSkillCreateError(for field: String) -> Bool {
+        let had = skillCreateErrors[field] != nil
+        skillCreateErrors[field] = nil
+        return had
+    }
+
     // MARK: MCP server presets (Settings → MCP servers)
 
     /// The add/edit form is open (either adding a new server or editing the
@@ -1052,19 +1029,11 @@ actor AppState {
     // MARK: Runtime pieces (rebuilt when workspace / tessera mode changes)
 
     var httpClient: HTTPClient?
-
-    /// Long-lived observer of `TesseraConnection.shared.sessionChanges` that
-    /// live-refreshes the session list when another instance grants a share or
-    /// updates session metadata (see `startSessionChangeListener`).
-    private var sessionChangeTask: Task<Void, Never>?
-
-    /// Core turn engines per session (Option B collapse). Each session's
-    /// `ArcAgent` persists nothing itself (`persistSessions = false`); the web
-    /// UI owns the transcript store and reconstructs messages from the agent's
-    /// event stream. Retained so the Stop button can call `interruptTurn()`.
-    var turnAgents: [String: ArcAgent] = [:]
-
     var store: (any SessionStore)?
+    /// Scripted-client seam: when set, a turn's provider client is this value
+    /// instead of the live HTTP one, so a whole turn can be driven with no
+    /// socket. nil in production; A7's golden transcript suite sets it.
+    var turnClientOverride: (any LLMClient)?
     /// The storage backend this process actually constructed: "tessera" or
     /// "file". Honest label vs `settings.tesseraOff` because the boot-time
     /// fallback can differ from the persisted setting within a process.
@@ -1089,6 +1058,181 @@ actor AppState {
     let cronStore = RuntimeCronStore()
 
     // MARK: Init
+
+    /// render-test seam: a deterministic state with no storage, no config reads and
+    /// no background work.
+    ///
+    /// the production init resolves storage, reads `~/.arc-agent-webui/settings.json`
+    /// and `~/.arc/config.json`, installs the global `AgentPowers` gate and spawns an
+    /// unstructured task; none of that belongs in a render test, and none of it is
+    /// needed to draw a fragment. every renderer reads only the fields below.
+    struct RenderFixture: Sendable {
+        var settings = AppSettings()
+        var sessions: [Session] = []
+        var messages: [Message] = []
+        var arcConfig = ArcConfig()
+        var activeSessionID: String?
+        var activeTabID: String = "chat"
+        var toasts: [Toast] = []
+        var toolsets: [(name: String, tools: [any AgentTool])] = []
+        var categoryMenu: CategoryMenu? = nil
+        var categoryMenuRename = false
+        var pendingConfirm: ConfirmRequest? = nil
+        /// the composer flyout is only visible while something is armed; these
+        /// seams are the only way to pin its four states from a render test.
+        var pendingApproval: PendingApproval? = nil
+        var pendingClarify: PendingClarify? = nil
+        /// plugin cards only render when a manifest is discovered; the startup
+        /// outcome drives the running/failed chips.
+        var pluginManifests: [String: PluginManifest] = [:]
+        /// discovered skills: the agent-powers lock rows render per skill.
+        var skills: [Skill] = []
+        var pluginStartupOutcome: [String: String] = [:]
+        var pendingCopyURL: String? = nil
+        /// Left-panel chat list filter text (drives the "No chats match" branch).
+        var chatFilter = ""
+        /// Show archived chats instead of active ones.
+        var showArchived = false
+        /// Active turns keyed by session ID (drives the row spinner).
+        var activeTurns: [String: LiveTurn] = [:]
+        /// the mid-stream queue row is only visible when a session has queued
+        /// sends; a fixture seam is the only way to pin it from a render test.
+        var queuedSends: [String: [QueuedSend]] = [:]
+        /// Active category: "all" | "unassigned" | category id.
+        var activeCategory = "all"
+        /// Whether the category create form is open.
+        var addingCategory = false
+        // phase 6: the skills/profiles/tools/workspaces surfaces read this state
+        // directly, so a fixture that cannot set it captures an empty page.
+        var profiles: [Profile] = []
+        var selectedProfile: String?
+        var selectedSkill: String?
+        var selectedTool: String?
+        var selectedWorkspace: String?
+        var skillFilter = ""
+        var toolFilter = ""
+        // create/edit forms + the profile skills picker are transient view state
+        var createProfile = false
+        var createWorkspace = false
+        var editingProfile: String?
+        var formValues: FieldValues = [:]
+        var profileSkillsDraft: [String] = []
+        var profileSkillsPickerOpen = false
+        /// the detail panes look tools up in the registry, not in `toolsets` —
+        /// an empty registry renders the blank state no matter the fixture.
+        var registryTools: [any AgentTool] = []
+        /// the memory provider the per-turn agent factory hands to the
+        /// configuration; nil (the default) leaves the field unset.
+        var memory: (any MemoryProvider)? = nil
+        /// the approval gate `runTool` consults. nil (the default) leaves the
+        /// gate unarmed — the production init builds a real manager, which a
+        /// render fixture must never do (it reads `~/.arc/config.json`).
+        var approvalManager: ApprovalManager? = nil
+        // phase 7: kanban board state
+        var kanbanColumns: [KBColumn] = []
+        var kanbanCards: [KBCard] = []
+        var addingColumn = false
+        var addingCardColumnID: String? = nil
+        var kanbanAddError: String? = nil
+        var confirmColumn: String? = nil
+        var confirmCard: String? = nil
+        // phase 7: memory state
+        var memoryDoc: String? = nil
+        var memoryEdit = false
+        var memoryContent = ""
+        // phase 7: right-hand workspace panel state. the dock, the panel and the
+        // preview are all state-driven, so a fixture that cannot set this state
+        // can only ever capture the closed panel.
+        var workspaceOpen = false
+        var wsNewMode = ""              // "" | "file" | "folder" (inline create)
+        var showHiddenFiles = false
+        var expandedPaths: Set<String> = []
+        var previewPath: String? = nil
+        var previewContent: String? = nil
+        var previewNote: String? = nil
+        // phase 7.5: insights analytics state for the daily graph and skill stats
+        var insights: InsightsData = InsightsData()
+        var insightsRangeDays: Int = 30
+        // phase 7.6a: queue state
+        var todosTab: TodosTab = .tasks
+        var queuePickerOpen = false
+        var queueLinksOpen: String? = nil
+        var queueLinkSel: Set<String> = []
+        // phase 7.6b: the scheduled-tasks page reads its selection from here, so
+        // a fixture that cannot set it can only ever capture the empty main.
+        var tasksSelectedID: String? = nil
+    }
+
+    init(renderFixture fixture: RenderFixture) {
+        self.settings = fixture.settings
+        self.sessions = fixture.sessions
+        self.arcConfig = fixture.arcConfig
+        self.activeSessionID = fixture.activeSessionID
+        self.activeTabID = fixture.activeTabID
+        self.toasts = fixture.toasts
+        self.toolsets = fixture.toolsets
+        self.categoryMenu = fixture.categoryMenu
+        self.categoryMenuRename = fixture.categoryMenuRename
+        self.pendingConfirm = fixture.pendingConfirm
+        self.pendingApproval = fixture.pendingApproval
+        self.pendingClarify = fixture.pendingClarify
+        self.pluginManifests = fixture.pluginManifests
+        self.skills = fixture.skills
+        self.memory = fixture.memory
+        self.approvalManager = fixture.approvalManager
+        self.pluginStartupOutcome = fixture.pluginStartupOutcome
+        self.pendingCopyURL = fixture.pendingCopyURL
+        self.chatFilter = fixture.chatFilter
+        self.showArchived = fixture.showArchived
+        self.activeTurns = fixture.activeTurns
+        self.queuedSends = fixture.queuedSends
+        self.activeCategory = fixture.activeCategory
+        self.addingCategory = fixture.addingCategory
+        self.profiles = fixture.profiles
+        self.selectedProfile = fixture.selectedProfile
+        self.selectedSkill = fixture.selectedSkill
+        self.selectedTool = fixture.selectedTool
+        self.selectedWorkspace = fixture.selectedWorkspace
+        self.skillFilter = fixture.skillFilter
+        self.toolFilter = fixture.toolFilter
+        self.createProfile = fixture.createProfile
+        self.createWorkspace = fixture.createWorkspace
+        self.editingProfile = fixture.editingProfile
+        self.formValues = fixture.formValues
+        self.profileSkillsDraft = fixture.profileSkillsDraft
+        self.profileSkillsPickerOpen = fixture.profileSkillsPickerOpen
+        self.addingColumn = fixture.addingColumn
+        self.addingCardColumnID = fixture.addingCardColumnID
+        self.kanbanAddError = fixture.kanbanAddError
+        self.confirmColumn = fixture.confirmColumn
+        self.confirmCard = fixture.confirmCard
+        self.memoryDoc = fixture.memoryDoc
+        self.memoryEdit = fixture.memoryEdit
+        self.memoryContent = fixture.memoryContent
+        self.workspaceOpen = fixture.workspaceOpen
+        self.wsNewMode = fixture.wsNewMode
+        self.showHiddenFiles = fixture.showHiddenFiles
+        self.expandedPaths = fixture.expandedPaths
+        self.previewPath = fixture.previewPath
+        self.previewContent = fixture.previewContent
+        self.previewNote = fixture.previewNote
+        self.insights = fixture.insights
+        self.insightsRangeDays = fixture.insightsRangeDays
+        self.todosTab = fixture.todosTab
+        self.queuePickerOpen = fixture.queuePickerOpen
+        self.queueLinksOpen = fixture.queueLinksOpen
+        self.queueLinkSel = fixture.queueLinkSel
+        self.tasksSelectedID = fixture.tasksSelectedID
+        self.settings.insightsRangeDays = fixture.insightsRangeDays
+        self.settings.kanbanColumns = fixture.kanbanColumns
+        self.settings.kanbanCards = fixture.kanbanCards
+        self.registry = MutableToolRegistry(builtIn: CompileTimeToolRegistry())
+        for tool in fixture.registryTools {
+            try? self.registry.register(tool)
+        }
+        self.sidebarPlugins = []
+        self.pluginTabs = [:]
+    }
 
     init(thirdPartyPlugins: [any SidebarTabPlugin] = []) async throws {
         self.registry = MutableToolRegistry(builtIn: try ArcAgentCore.buildDefaultRegistry())
@@ -1253,7 +1397,8 @@ actor AppState {
     /// The raw `~/.arc/config.json` (no environment overrides applied) — the
     /// file the aux editor reads and writes so env vars never get baked in.
     static func rawArcConfig() -> ArcConfig {
-        let url = ArcHome.config
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".arc/config.json")
         if let data = try? Data(contentsOf: url),
            let cfg = try? JSONDecoder().decode(ArcConfig.self, from: data) {
             return cfg
@@ -1326,7 +1471,8 @@ actor AppState {
     // MARK: Settings persistence
 
     static var settingsURL: URL {
-        ArcHome.webUISettings
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".arc-agent-webui/settings.json")
     }
 
     static func loadSettings() -> AppSettings {
@@ -1351,9 +1497,7 @@ actor AppState {
         let url = Self.settingsURL
         try? FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let enc = JSONEncoder()
-        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? enc.encode(settings) else { return }
+        guard let data = try? JSONEncoder().encode(settings) else { return }
         try? data.write(to: url, options: .atomic)
     }
 
@@ -1401,7 +1545,9 @@ actor AppState {
 
     /// How long a surfaced error stays on screen before it clears itself. Long
     /// enough to read and act on, short enough that it never becomes furniture.
-    static let toastTTL: TimeInterval = 8
+    /// The delete-undo toast advertises "Undo for 10 seconds", so this must
+    /// match that window exactly.
+    static let toastTTL: TimeInterval = 10
 
     /// Drop toasts past their TTL. Returns true only when the set actually
     /// changed, so the host broadcasts a fragment set that shrank and stays
@@ -1416,7 +1562,7 @@ actor AppState {
     /// by id, so the wrapper (id + routing attributes) must be re-emitted
     /// verbatim — same shape as `toastsShell()` in the page.
     func toastFragments() -> [FragmentUpdate] {
-        [FragmentUpdate(id: "toasts", html: toastsShell())]
+        [FragmentUpdate(id: "toasts", html: toastsShell().markup.html)]
     }
 
     // MARK: Runtime construction
@@ -1478,9 +1624,6 @@ actor AppState {
             runtimeBackend = attachedStorage.backend
             store = attachedStorage.store
             memory = attachedStorage.memory
-            if attachedStorage.backend == "tessera" {
-                startSessionChangeListener()
-            }
             return
         }
         let tesseraOff = settings.tesseraOff || runtimeTesseraOff
@@ -1504,7 +1647,6 @@ actor AppState {
                 await TesseraConnection.shared.configure(cfg)
                 store = TesseraSessionStore()
                 memory = TesseraMemoryProvider()
-                startSessionChangeListener()
             } else {
                 runtimeBackend = "file"
                 store = FileSessionStore()
@@ -1520,26 +1662,6 @@ actor AppState {
         runtimeKey = nil
     }
 
-    /// Observe shared-model session changes (metadata 3003 / share grant 3007)
-    /// and live-refresh the session list, so a conversation shared from another
-    /// instance appears without a manual reload. Debounced (≤1 relist / 300ms)
-    /// so a burst of events coalesces, and `reloadSessions` only re-renders when
-    /// the visible list actually changed — no churn from the constant message
-    /// stream. Idempotent; no-op in file mode (the stream simply never emits).
-    func startSessionChangeListener() {
-        guard sessionChangeTask == nil else { return }
-        sessionChangeTask = Task { [weak self] in
-            var lastRelist = Date.distantPast
-            for await _ in TesseraConnection.shared.sessionChanges {
-                guard let self else { return }
-                let now = Date()
-                guard now.timeIntervalSince(lastRelist) >= 0.3 else { continue }
-                lastRelist = now
-                await self.reloadSessions()
-            }
-        }
-    }
-
     /// Release the process-scoped resources this actor owns.
     ///
     /// The host calls this at the end of its `run()` (Second Law: cleanup
@@ -1552,8 +1674,6 @@ actor AppState {
     /// Idempotent, and `ensureRuntime()` re-creates the client if a live host
     /// still needs one.
     func shutdown() async {
-        sessionChangeTask?.cancel()
-        sessionChangeTask = nil
         if let client = httpClient {
             try? await client.shutdown()
             httpClient = nil
@@ -1620,7 +1740,164 @@ actor AppState {
         return router.makeClient(task: task, httpClient: hc)
     }
 
+    // MARK: Per-turn agent factory (CONVERGE A5)
+
+    /// Mint a configured `ArcAgent` for one UI turn, plus its `Configuration`.
+    ///
+    /// Every field resolves from the source the UI's turn loop already reads:
+    /// the effective preset (with the bound profile's context overrides
+    /// applied), the shared `registry`, the allowed skills, the `memory`
+    /// provider, the approval mode, auxiliary routing, MoA, tool search,
+    /// agent powers, background review, verify-on-stop, the per-session
+    /// workspace, and the effective tool-iteration budget.
+    ///
+    /// The bound profile's SOUL (if any) and its pinned context skills are
+    /// injected as one system message via `injectSystemMessage`, matching the
+    /// `SessionAgent` precedent — they are prompt *content*, handed to the core
+    /// as config, so the core's tiered builder stays the only prompt builder.
+    ///
+    /// - Parameters:
+    ///   - preset: The model configuration preset for this turn.
+    ///   - profileContext: The bound profile's context overrides, if any.
+    ///   - thinking: The session's thinking level ("off" means no effort).
+    ///   - headless: Whether this turn runs without a human in the loop.
+    ///     Retained for the presenter wiring that follows (A6); it does not
+    ///     alter the configuration.
+    ///   - sessionID: The session this turn belongs to.
+    ///   - initialHistory: The model-facing history the host already built.
+    ///   - maxIterations: The turn's tool-iteration budget; nil keeps the
+    ///     session policy (`effectiveMaxTurns`). A scheduled job passes its own
+    ///     cap so retiring the job loop does not change how long a job runs.
+    /// - Returns: The agent and the `Configuration` it was built from.
+    func makeTurnAgent(
+        preset: ModelConfigPreset,
+        profileContext: ProfileContextConfig?,
+        thinking: String,
+        headless: Bool,
+        sessionID: String,
+        initialHistory: [Message]? = nil,
+        maxIterations iterationBudget: Int? = nil
+    ) async -> (agent: ArcAgent, config: ArcAgent.Configuration) {
+        // apply the profile's context overrides to the preset (contextLength,
+        // maxOutputTokens, temperature, topP).
+        let effectivePreset = profileContext.map { preset.applying($0) } ?? preset
+
+        // resolve the session's workspace root (created on first use) — it is
+        // both the tool root and the project-context directory.
+        let root = workspacePath(for: sessionID)
+
+        // allowed skills: the shared list minus the bound profile's disabled
+        // override, falling back to the global disabled list.
+        let pname = profileName(for: sessionID)
+        let disabled = pname.flatMap { settings.profileSkills[$0] } ?? settings.disabledSkills
+        let allowedSkills = skills.filter { !disabled.contains($0.name) }
+
+        // approval mode from config.
+        let approvalMode = ApprovalMode(rawValue: arcConfig.security.approvalMode) ?? .manual
+
+        // background review settings from config.
+        let backgroundReview = BackgroundReview.Settings(
+            afterToolCalls: arcConfig.agent.backgroundReviewAfter,
+            window: arcConfig.agent.backgroundReviewWindow
+        )
+
+        // reasoning effort: the profile override wins, then the thinking level
+        // ("off" means no effort).
+        let reasoningEffort = profileContext?.reasoningEffort ?? (thinking == "off" ? nil : thinking)
+
+        // max iterations mirrors the turn loop's clamp: at least one pass.
+        let maxIterations = max(1, iterationBudget ?? Self.effectiveMaxTurns())
+
+        // an unparseable preset url must not trap the server; fail closed to
+        // the reserved .invalid tld so the request errors out visibly instead
+        // of redirecting the key to a different provider.
+        let baseURL = URL(string: effectivePreset.baseURL)
+            ?? URL(string: "https://invalid.invalid")!
+
+        // build the configuration from those sources.
+        let config = ArcAgent.Configuration(
+            model: effectivePreset.model,
+            provider: effectivePreset.provider,
+            baseURL: baseURL,
+            apiKey: effectivePreset.apiKey,
+            registry: registry,
+            // a scratch store: the UI is the transcript's only writer (§3.3), so
+            // the agent must never restore from — or persist into — a durable one.
+            sessionStore: VolatileSessionStore(),
+            memoryProvider: memory,
+            skills: allowedSkills,
+            maxIterations: maxIterations,
+            toolLoopCap: arcConfig.effectiveToolLoopCap(),
+            maxTurnDuration: 120,
+            persistSessions: false,
+            approvalMode: approvalMode,
+            query: nil,
+            maxContextTokens: compressionBudget(for: sessionID),
+            auxiliary: arcConfig.auxiliary,
+            sessionID: sessionID,
+            contextLength: effectivePreset.contextLength,
+            injectProjectContext: true,
+            contextDirectory: URL(fileURLWithPath: root),
+            workspaceRoot: root,
+            platformHint: "webui",
+            initialHistory: initialHistory,
+            moa: Self.turnMoAConfig(arcConfig.moa, enabledBySwitch: settings.moaEnabled),
+            toolSearch: arcConfig.toolSearch,
+            backgroundReview: backgroundReview,
+            verifyOnStop: arcConfig.agent.verifyOnStop,
+            autoCompression: false,
+            reasoningEffort: reasoningEffort,
+            temperature: effectivePreset.temperature,
+            topP: effectivePreset.topP,
+            maxOutputTokens: effectivePreset.maxOutputTokens,
+            agentPowers: arcConfig.agentPowers,
+            disabledToolsets: Set(settings.disabledToolsets),
+            // the scripted-client seam (nil in production) — see
+            // `turnClientOverride`.
+            llmClient: turnClientOverride
+        )
+
+        let agent = ArcAgent(config: config)
+
+        // inject the profile's SOUL and its pinned context skills as one
+        // system message, matching the SessionAgent precedent. pinned skills
+        // are full SKILL.md bodies the profile always carries — retiring the
+        // UI builder must not drop them from the model's context (A8 parity).
+        var profileBlocks: [String] = []
+        if let pname,
+           let profile = profiles.first(where: { $0.name == pname }) {
+            if let soul = profile.soulMD, !soul.isEmpty {
+                profileBlocks.append(soul)
+            }
+            if let pinned = profile.contextSkills, !pinned.isEmpty {
+                let pinnedSkills = skills.filter { pinned.contains($0.name) }
+                if !pinnedSkills.isEmpty {
+                    profileBlocks.append(SkillsPrompt.pinnedSection(skills: pinnedSkills))
+                }
+            }
+        }
+        if !profileBlocks.isEmpty {
+            await agent.injectSystemMessage(profileBlocks.joined(separator: "\n\n"))
+        }
+
+        return (agent, config)
+    }
+
     // MARK: Approval gating (reference smart command approval)
+
+    /// The MoA block a UI turn hands to the core.
+    ///
+    /// The UI's switch is ``AppSettings/moaEnabled`` (Settings → Preferences) and
+    /// the core reads `config.moa.enabled`; the legacy loop ran the advisory only
+    /// when the switch was on, whatever `~/.arc/config.json` said. Carrying the
+    /// switch's value keeps that behaviour now that the core runs the advisory
+    /// (CONVERGE A7). No reference models means nothing to fan out, so the block
+    /// stays off.
+    static func turnMoAConfig(_ config: MoAConfig, enabledBySwitch: Bool) -> MoAConfig {
+        var moa = config
+        moa.enabled = enabledBySwitch && !moa.referenceModels.isEmpty
+        return moa
+    }
 
     /// Smart-approval risk classification via the `approval` auxiliary model.
     /// Mirror of the harness `ArcAgent.classifyApprovalRisk`; returns nil when
@@ -1629,15 +1906,22 @@ actor AppState {
     func classifyApprovalRisk(_ command: String) async -> DangerLevel? {
         guard httpClient != nil,
               let client = makeAuxClient(for: .approval, sessionID: nil) else { return nil }
-        let prompt = approvalClassifierPrompt(command)
+        let prompt = """
+        You classify shell commands for an autonomous coding agent. Reply with exactly one word from: safe, suspicious, dangerous, critical. Consider destructive or exfiltrating operations (rm -rf, mkfs, dd, diskutil erase, curl | sh) critical or dangerous.
+
+        Command: \(command)
+        """
         do {
             let resp = try await client.complete(
                 messages: [Message(role: .user, content: prompt)],
                 tools: nil,
                 reasoningEffort: nil
             )
-            let verdict = (resp.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            return parseApprovalVerdict(verdict)
+            let low = (resp.content ?? "").lowercased()
+            if low.contains("critical") { return .critical }
+            if low.contains("danger") { return .dangerous }
+            if low.contains("suspicious") { return .suspicious }
+            return .safe
         } catch {
             return nil
         }
@@ -1648,22 +1932,22 @@ actor AppState {
     func resolveApproval(_ choice: ApprovalChoice) async {
         guard let pa = pendingApproval else { return }
         pendingApproval = nil
-        let decision: ApprovalDecision
+        let granted: Bool
         switch choice {
         case .once:
-            decision = .approve
+            granted = true
         case .session:
             // reference "Allow session": pre-approve the rest of the session.
             await approvalManager?.preApproveSession(pa.sessionID)
-            decision = .allowSession
+            granted = true
         case .always:
             // reference "Always allow": persist the command to the allowlist.
             await approvalManager?.alwaysAllow(command: pa.command)
-            decision = .alwaysAllow
+            granted = true
         case .deny:
-            decision = .deny
+            granted = false
         }
-        pa.continuation.yield(decision)
+        pa.continuation.yield(granted)
         pa.continuation.finish()
     }
 
@@ -1825,35 +2109,29 @@ actor AppState {
     }
 
     func sessionTitle(_ s: Session) -> String {
+        // Round-3 UX-30: 44 chars cut every long prompt mid-phrase and the
+        // clipped string was all that hover, aria and the delete dialog ever
+        // saw. Keep a longer stored/derived title — the ROW still clamps it
+        // visually, so the list looks the same while the full name is
+        // available everywhere a person needs to identify the chat.
         if let custom = settings.sessionTitles[s.id],
            !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return custom
         }
         if let first = s.messages.first(where: { $0.role == .user }),
            let c = first.content, !c.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return trunc(c, 44)
+            return trunc(c, 90)
         }
         // Unloaded summaries carry the title hint (first user message) in
         // `title`; fall back to "New chat" only when neither exists.
         if let t = s.title, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return trunc(t, 44)
+            return trunc(t, 90)
         }
         return "New chat"
     }
 
     func isArchived(_ id: String) -> Bool {
         settings.archivedSessions.contains(id)
-    }
-
-    /// True when a chat is a draft: it has no sent messages but holds
-    /// un-delivered composer text (non-blank `composerDrafts`). Such chats are
-    /// kept (and badged) rather than treated as throwaway empty chats.
-    func isDraft(_ id: String) -> Bool {
-        guard !id.hasPrefix("Cron-") else { return false }
-        guard let s = sessions.first(where: { $0.id == id }) else { return false }
-        guard s.messageCount == 0, s.messages.isEmpty else { return false }
-        let text = settings.composerDrafts[id] ?? ""
-        return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     func isBookmarked(_ sessionID: String) -> Bool {
@@ -1881,4 +2159,3 @@ actor AppState {
         return cat.name
     }
 }
-

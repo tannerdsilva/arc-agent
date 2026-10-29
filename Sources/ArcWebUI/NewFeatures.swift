@@ -4,6 +4,7 @@ import Foundation
 import Logging
 import NIO
 import WebUI
+import WebUIDesignSystem
 
 // MARK: - arc-parity panels: Tasks (cron) + Todos, plus regenerate & vision.
 
@@ -115,10 +116,12 @@ extension AppState {
     // store; the CRUD below writes through to the store, and execution comes
     // back through `runScheduledJob` via the daemon's cron runner.
 
-    /// Run one scheduled job fully headless: the agent turn is executed with
-    /// the scheduled prompt in a per-job session, tools allowed, with smart
-    /// classification deciding dangerous commands (no interactive prompt —
-    /// critical commands are blocked and logged, never run).
+    /// Run one scheduled job fully headless: the job's turn runs on the same
+    /// per-turn `ArcAgent` an interactive chat mints (CONVERGE A8) — one engine,
+    /// one prompt builder, one tool dispatch — with the scheduler's approval
+    /// policy (nobody can answer a card, critical commands are blocked and
+    /// logged, never run), the job's own iteration cap, and the UI as the
+    /// transcript's only writer.
     /// Runs the job's turn and returns the final assistant text — the daemon's
     /// cron runner consumes it (the UI's Run-now ignores it).
     @discardableResult
@@ -139,57 +142,149 @@ extension AppState {
         }
         session.updatedAt = now
 
+        // the same pre-flight a chat turn keeps: a configuration that cannot
+        // build a client at all fails before the prompt is stored.
         guard let preset = settings.modelConfig(named: configName(for: sid)),
-              let client = makeClient(for: preset) else {
+              turnClientOverride != nil || makeClient(for: preset) != nil else {
             // the caller (Run-now or the daemon scheduler) records lastOutput
             return "Error: no model configuration"
         }
 
         let userMsg = Message(role: .user, content: job.prompt, createdAt: now)
         session.messages.append(userMsg)
-        await persistMessage(userMsg, sessionID: sid, store: store)
+        await persistMessage(userMsg, sessionID: sid, store: store, healWith: session.messages)
 
-        let system = Message(role: .system, content: await buildSystemPrompt(config: preset, sessionID: sid))
-        // Progressive disclosure parity (same as the interactive turn path):
-        // deferrable toolsets are replaced by the tool_search/tool_describe/
-        // tool_call bridges + manifest.
-        let tools = ProgressiveToolDisclosure.buildPromptSchemas(
-            registry: registry,
-            disabled: Set(settings.disabledToolsets),
-            config: arcConfig.toolSearch,
-            contextLength: preset.contextLength ?? arcConfig.model.contextLength
+        // the job's turn on the same engine as a chat turn: same tiered prompt
+        // builder, same progressive tool disclosure, same guardrails. the 25-round
+        // cap is the retired loop's, so a job that used to stop stops here too.
+        let minted = await makeTurnAgent(
+            preset: preset,
+            profileContext: profileContext(for: sid),
+            thinking: thinkingLevel(for: sid),
+            headless: true,
+            sessionID: sid,
+            // the agent appends the job's prompt itself; the seed is everything
+            // the job session already carried.
+            initialHistory: Array(session.messages.dropLast()),
+            maxIterations: Self.scheduledJobIterations,
+            pusher: { _ in }
         )
-        var history = session.messages
-        var finalText = ""
-        var iterations = 0
-        while iterations < 25 {
-            iterations += 1
-            var msgs = [system]
-            msgs.append(contentsOf: history)
-            guard let response = try? await client.complete(messages: msgs, tools: tools, reasoningEffort: nil) else {
-                finalText = "Error: LLM request failed"
-                break
-            }
-            if let t = response.content, !t.isEmpty {
-                finalText = t
-            }
-            if let calls = response.toolCalls, !calls.isEmpty {
-                for call in calls {
-                    let result = await runTool(call, sessionID: sid, pusher: { _ in }, headless: true)
-                    let toolMsg = Message(role: .tool, content: result, name: call.function.name, createdAt: Date())
-                    history.append(toolMsg)
-                    await persistMessage(toolMsg, sessionID: sid, store: store)
-                }
-                let asst = Message(role: .assistant, content: "Ran \(calls.count) tool call(s).", createdAt: Date())
-                history.append(asst)
-                await persistMessage(asst, sessionID: sid, store: store)
-                continue
-            }
-            break
+        let agent = minted.agent
+
+        var round = TurnTranscript()
+        var heldToolRound: ScheduledToolRound?
+        var streamed = ""
+        var completedText: String?
+        var failure: String?
+
+        /// take the held tool round as the messages it stores: its assistant
+        /// message (content, reasoning, tool calls) then one tool message per
+        /// result — the transcript shape a chat turn writes, tool-call ids
+        /// included, so the job session replays as a valid tool conversation.
+        func takeToolRoundMessages() -> [Message] {
+            guard let held = heldToolRound else { return [] }
+            heldToolRound = nil
+            var messages = [Message(
+                role: .assistant,
+                content: held.content.isEmpty ? nil : held.content,
+                toolCalls: held.calls,
+                createdAt: Date(),
+                reasoning: held.reasoning.isEmpty ? nil : held.reasoning
+            )]
+            messages.append(contentsOf: held.results.map { result in
+                Message(
+                    role: .tool,
+                    content: result.result,
+                    name: result.name,
+                    toolCallID: result.id,
+                    createdAt: Date()
+                )
+            })
+            return messages
         }
-        let asstMsg = Message(role: .assistant, content: finalText, createdAt: Date())
-        history.append(asstMsg)
-        await persistMessage(asstMsg, sessionID: sid, store: store)
+
+        func persist(_ message: Message) async {
+            await persistMessage(message, sessionID: sid, store: store)
+        }
+
+        do {
+            try await agent.prime()
+            for try await event in agent.streamTurn(message: job.prompt) {
+                // a round closes when the next round's stream begins: a text or
+                // reasoning delta, the provider's usage report, or a terminal
+                // event. the held tool round is written in one piece then.
+                switch event {
+                case .textDelta, .reasoningDelta, .usage, .completed, .failed:
+                    for message in takeToolRoundMessages() {
+                        await persist(message)
+                    }
+                case .toolCallStarted, .toolCallFinished, .compressing:
+                    // mid-turn; the held tool round stays open.
+                    break
+                }
+
+                switch event {
+                case .textDelta(let text):
+                    round.apply(event)
+                    streamed += text
+                case .reasoningDelta, .usage:
+                    round.apply(event)
+                case .toolCallStarted(let id, let name, let arguments):
+                    if heldToolRound == nil {
+                        heldToolRound = ScheduledToolRound(content: round.content, reasoning: round.reasoning)
+                        round = TurnTranscript()
+                    }
+                    heldToolRound?.calls.append(ToolCall(
+                        id: id,
+                        type: "function",
+                        function: ToolCallFunction(name: name, arguments: arguments)
+                    ))
+                case .toolCallFinished(let id, let name, let result):
+                    heldToolRound?.results.append((id: id, name: name, result: result))
+                case .compressing:
+                    // display-only; a scheduled-job transcript stores no
+                    // compression state.
+                    break
+                case .completed(let text, _):
+                    round.apply(event)
+                    completedText = text
+                case .failed(let message):
+                    failure = message
+                }
+            }
+        } catch {
+            // a throwing stream is a transport failure — the same shape as
+            // `.failed`. a tool round that finished before it is still real
+            // work, so it lands in the transcript.
+            for message in takeToolRoundMessages() {
+                await persist(message)
+            }
+            failure = "\(error)"
+        }
+        await agent.shutdownHTTPClient()
+
+        // the reply: the core's terminal text once a turn completed, else the
+        // streamed text, else the failure — the value `lastOutput` records.
+        let finalText: String
+        if let completedText, !completedText.isEmpty {
+            finalText = completedText
+        } else if let failure {
+            finalText = failure
+        } else if !round.content.isEmpty {
+            finalText = round.content
+        } else {
+            finalText = streamed
+        }
+        let asstMsg = Message(
+            role: .assistant,
+            content: finalText,
+            createdAt: Date(),
+            reasoning: round.reasoning.isEmpty ? nil : round.reasoning,
+            usage: round.usage,
+            terminalReason: round.terminalReason
+        )
+        await persist(asstMsg)
+
         // Job bookkeeping is the caller's: the daemon's scheduler records
         // lastRunAt/runCount/lastOutput/nextRunAt, and Run-now does the same
         // through `updateJob`.
@@ -202,6 +297,11 @@ extension AppState {
         }
         return finalText
     }
+
+    /// The retired job loop's own ceiling: 25 LLM rounds per run. The core's
+    /// `maxIterations` counts the same unit (one loop iteration per model call),
+    /// so the cap means what it meant before the runner moved onto the engine.
+    static let scheduledJobIterations = 25
 
     func jobSessionID(_ job: CronJob) -> String { "Cron-\(job.id)" }
 
@@ -284,6 +384,16 @@ extension AppState {
     }
 }
 
+/// The tool round a scheduled job holds until the next round begins, so one
+/// assistant message plus its tool results land as one unit. The same buffer
+/// shape `runTurn` keeps; the job path has no live turn to report into.
+private struct ScheduledToolRound {
+    var content: String
+    var reasoning: String
+    var calls: [ToolCall] = []
+    var results: [(id: String, name: String, result: String)] = []
+}
+
 /// Compute the next fire date for a cron expression (supports "30m",
 /// "every 2h", "0 9 * * *", and ISO timestamps).
 func CronNext(expression: String, from date: Date) -> Date? {
@@ -326,129 +436,172 @@ func parseInterval(_ s: String) -> TimeInterval? {
 
 extension AppState {
 
-    /// The Todos view: tab switcher (Tasks | Run queue) + active tab body.
-    func todosPanelHTML() -> String {
+    /// the todos view: the tab switcher (Tasks | Run queue) above whichever tab
+    /// is active. this is the `main` region, not a `todos` panel — 17 push
+    /// sites address it by that id.
+    func todosPanelHTML() -> some WebUI.View {
         migrateLegacyTodosIfNeeded()
-        let tabs = todosTabsHTML()
-        let body = todosTab == .tasks ? todosTasksHTML() : queuePanelHTML()
-        return "<div id=\"main\" class=\"todo-panel\">" + tabs + body + "</div>"
+        return Div(id: "main", class: "todo-panel") {
+            todosTabsHTML()
+            if todosTab == .tasks {
+                todosTasksHTML()
+            } else {
+                queuePanelHTML()
+            }
+        }
     }
 
-    /// The Tasks tab body (per-chat todo list).
-    func todosTasksHTML() -> String {
+    /// the Tasks tab body: this chat's todo list plus the add form.
+    func todosTasksHTML() -> some WebUI.View {
         let chat = activeSessionID ?? ""
         let items = todos(for: chat)
         let pending = items.filter { !$0.done }.count
         let done = items.count - pending
 
-        var rows: [String] = []
+        // the rows are materialized up front: a builder cannot take `[some View]`
+        var rows: [any WebUI.View] = []
         for t in items {
-            rows.append("""
-            <div class="todo-row\(t.done ? " done" : "")" data-tid="\(t.id)">
-              <button type="button" id="todo-toggle-\(t.id)" class="todo-check" title="\(t.done ? "Mark not done" : "Mark done")" aria-label="Toggle">
-                \(WebUIIcon(.check, size: .small).markup.html)
-              </button>
-              <span class="todo-text">\(esc(t.text))</span>
-              <button type="button" id="todo-run-\(t.id)" class="todo-run" title="Run in chat" aria-label="Run in chat">
-                \(WebUIIcon(.play, size: .small).markup.html)
-              </button>
-              <button type="button" id="todo-del-\(t.id)" class="todo-x" title="Remove" aria-label="Remove">
-                \(WebUIIcon(.x, size: .small).markup.html)
-              </button>
-            </div>
-            """)
+            rows.append(
+                Div(class: t.done ? "todo-row done" : "todo-row") {
+                    ArcButton(id: "todo-toggle-\(t.id)", component: nil, class: "todo-check") {
+                        WebUIIcon(.check, size: .small)
+                    }
+                    .title(t.done ? "Mark not done" : "Mark done")
+                    .aria(.label("Toggle"))
+                    Span(class: "todo-text") { Text(t.text) }
+                    ArcButton(id: "todo-run-\(t.id)", component: nil, class: "todo-run") {
+                        WebUIIcon(.play, size: .small)
+                    }
+                    .title("Run in chat")
+                    .aria(.label("Run in chat"))
+                    ArcButton(id: "todo-del-\(t.id)", component: nil, class: "todo-x") {
+                        WebUIIcon(.x, size: .small)
+                    }
+                    .title("Remove")
+                    .aria(.label("Remove"))
+                }
+                .data("tid", t.id)
+            )
         }
 
         let chatLabel: String
         if chat.isEmpty {
             chatLabel = "Open a chat from the sidebar — todos belong to the chat you are using."
         } else if let s = sessions.first(where: { $0.id == chat }) {
-            chatLabel = "for “\(esc(sessionTitle(s)))”"
+            chatLabel = "for “\(sessionTitle(s))”"
         } else {
             chatLabel = "for this chat"
         }
 
-        let empty = items.isEmpty ? """
-            <div class="todo-empty">
-              <div class="todo-empty-ico">\(WebUIIcon(.check, size: .extraLarge).markup.html)</div>
-              <div>\(chat.isEmpty ? "Select a chat to see its todos" : "No todos for this chat yet")</div>
-              <small>Add one below — it stays with this chat.</small>
-            </div>
-            """ : ""
-        let clearBtn = done > 0
-            ? btn("todo-clear-done", "", "ghost-btn", "Clear done (\(done))", " title=\"Remove completed todos\"")
-            : ""
-        return """
-        <div class="todo-card" data-component-id="todos" data-event="click">
-          <div class="todo-head">
-            <div>
-              <h2 class="todo-title">Todos</h2>
-                <div class="todo-sub">\(chatLabel)</div>
-              </div>
-              <div class="todo-head-actions">
-                \(clearBtn)
-                <button type="button" id="todo-run-all" class="todo-runall" title="Run all open todos in chat" aria-label="Run all open todos in chat">
-                  <span class="todo-runall-ico">\(WebUIIcon(.fastForward, size: .small).markup.html)</span>Run all
-                </button>
-                <span class="todo-pill">\(pending) open</span>
-              </div>
-            </div>
-            <div class="todo-list">
-              \(empty)
-              \(rows.joined())
-            </div>
-            <div class="todo-foot">
-              <form id="todo-add-form" data-component-id="todos" class="todo-add">
-                <input type="text" id="todo-add-text" data-no-restore name="todo-text" placeholder="Add a todo for this chat…" autocomplete="off">
-                <button type="submit" class="primary-btn">Add</button>
-              </form>
-            </div>
-          </div>
-        """
+        return Div(class: "todo-card") {
+            Div(class: "todo-head") {
+                Div {
+                    Element(.h2, class: "todo-title") { Text("Todos") }
+                    Div(class: "todo-sub") { Text(chatLabel) }
+                }
+                Div(class: "todo-head-actions") {
+                    if done > 0 {
+                        ArcButton("Clear done (\(done))", id: "todo-clear-done",
+                                  component: nil, class: "ghost-btn")
+                            .title("Remove completed todos")
+                    }
+                    ArcButton(id: "todo-run-all", component: nil, class: "todo-runall") {
+                        Span(class: "todo-runall-ico") { WebUIIcon(.fastForward, size: .small) }
+                        Text("Run all")
+                    }
+                    .title("Run all open todos in chat")
+                    .aria(.label("Run all open todos in chat"))
+                    Span(class: "todo-pill") { Text("\(pending) open") }
+                }
+            }
+            Div(class: "todo-list") {
+                if items.isEmpty {
+                    Div(class: "todo-empty") {
+                        Div(class: "todo-empty-ico") { WebUIIcon(.check, size: .extraLarge) }
+                        Div { Text(chat.isEmpty ? "Select a chat to see its todos" : "No todos for this chat yet") }
+                        Small("Add one below — it stays with this chat.")
+                    }
+                }
+                rows
+            }
+            Div(class: "todo-foot") {
+                // the add form declares the boundary; its field keeps only ids
+                // (the engine reports the target, so the submit round-trips).
+                Form(action: "", method: nil, id: "todo-add-form", class: "todo-add") {
+                    Input(id: "todo-add-text", name: "todo-text",
+                          placeholder: "Add a todo for this chat…", type: .text,
+                          attributes: [("autocomplete", "off")])
+                        .data("no-restore", "")
+                    ArcButton("Add", class: "primary-btn", type: .submit)
+                }
+                .data("component-id", "todos")
+            }
+        }
+        .wire("todos")
     }
 
     /// Scheduled Tasks page — left panel: one chat row per scheduled task.
-    func tasksPanel() -> String {
+    func tasksPanel() -> some WebUI.View {
         // the boundary lives on the containers; the controls keep only ids, or
         // the engine never reports them (id + data-component-id on one element
         // is a dead control — the click identity contract).
-        let newBtn = btn("task-new", "", "plus-btn", WebUIIcon(.plus, size: .medium).markup.html, " title=\"New scheduled task\"")
-        let head = """
-        <div class="panel-head" data-component-id="tasks" data-event="click">
-          <span class="panel-title">Scheduled Tasks</span>
-          <div class="panel-actions">\(newBtn)</div>
-        </div>
-        """
-        let rows = settings.scheduledJobs.map { taskRowHTML($0) }.joined()
-        let body = rows.isEmpty
-            ? "<div class=\"panel-note\">No scheduled tasks yet. Create one to run a prompt on a schedule — each task gets its own chat (kept out of the main chat list).</div>"
-            : "<div class=\"task-list\" data-component-id=\"tasks\" data-event=\"click\">\(rows)</div>"
-        return head + "<div class=\"panel-body\">\(body)</div>"
+        let rows: [any WebUI.View] = settings.scheduledJobs.map { taskRowHTML($0) }
+        return Group {
+            Div(class: "panel-head") {
+                Span(class: "panel-title") { Text("Scheduled Tasks") }
+                Div(class: "panel-actions") {
+                    ArcButton(id: "task-new", component: nil, class: "plus-btn") {
+                        WebUIIcon(.plus, size: .medium)
+                    }
+                    .title("New scheduled task")
+                }
+            }
+            .wire("tasks")
+            Div(class: "panel-body") {
+                if rows.isEmpty {
+                    Div(class: "panel-note") {
+                        Text("No scheduled tasks yet. Create one to run a prompt on a schedule — each task gets its own chat (kept out of the main chat list).")
+                    }
+                } else {
+                    Div(class: "task-list") { rows }
+                        .wire("tasks")
+                }
+            }
+        }
     }
 
-    private func taskRowHTML(_ j: CronJob) -> String {
+    /// one scheduled task as a chat-list row. internal (not private) so the
+    /// parity harness can pin it in isolation.
+    func taskRowHTML(_ j: CronJob) -> some WebUI.View {
         let active = j.id == tasksSelectedID ? " active" : ""
         let dot = j.isActive ? " on" : ""
         let next = j.nextRunAt.map { fmtRel($0) } ?? "—"
         let runs = j.runCount > 0 ? " · \(j.runCount) run\(j.runCount == 1 ? "" : "s")" : ""
-        return """
-        <button type="button" id="task-open-\(j.id)" class="task-row\(active)">
-          <span class="task-dot\(dot)">●</span>
-          <span class="task-ri">
-            <span class="task-rname">\(esc(j.name))</span>
-            <span class="task-rmeta">\(esc(j.schedule)) · next \(esc(next))\(runs)</span>
-          </span>
-        </button>
-        """
+        return ArcButton(id: "task-open-\(j.id)", component: nil, class: "task-row\(active)") {
+            Span(class: "task-dot\(dot)") { Text("●") }
+            Span(class: "task-ri") {
+                Span(class: "task-rname") { Text(j.name) }
+                Span(class: "task-rmeta") { Text("\(j.schedule) · next \(next)\(runs)") }
+            }
+        }
     }
 
     /// Scheduled Tasks page — main pane: selected task's controls + its chat,
     /// or the create form when nothing is selected.
-    func tasksMain() -> String {
-        guard let sel = tasksSelectedID,
-              let job = settings.scheduledJobs.first(where: { $0.id == sel }) else {
-            return taskMainEmpty()
+    func tasksMain() -> some WebUI.View {
+        Group {
+            if let sel = tasksSelectedID,
+               let job = settings.scheduledJobs.first(where: { $0.id == sel }) {
+                tasksMainBody(job)
+            } else {
+                taskMainEmpty()
+            }
         }
+    }
+
+    /// the selected task's controls + chat. one concrete return type so the
+    /// builder sees a single view, never an opaque branch.
+    private func tasksMainBody(_ job: CronJob) -> some WebUI.View {
         let sid = jobSessionID(job)
         let msgs = sessions.first(where: { $0.id == sid })?.messages ?? []
         let status = job.isActive ? "Active" : "Stopped"
@@ -457,81 +610,112 @@ extension AppState {
         let last = job.lastRunAt.map { fmtRel($0) } ?? "never"
         let out = job.lastOutput.map { trunc($0, 160) } ?? "—"
         let toggleLabel = job.isActive ? "Stop" : "Start"
-        let ctrl = """
-        <div class="detail-card task-ctrl-card">
-          <div class="task-ctrl-head">
-            <div class="task-ctrl-main">
-              <div class="task-ctrl-name">\(esc(job.name)) <span class="task-status \(statusCls)">\(status)</span></div>
-              <div class="task-ctrl-meta">\(esc(job.schedule)) · next \(esc(next)) · last \(esc(last)) · \(job.runCount) run\(job.runCount == 1 ? "" : "s")</div>
-            </div>
-            <div class="row-actions-main" style="margin:0" data-component-id="tasks" data-event="click">
-              <button type="button" id="task-toggle-\(job.id)" class="ghost-btn">\(toggleLabel)</button>
-              <button type="button" id="task-now-\(job.id)" class="ghost-btn">Run now</button>
-              <button type="button" id="task-del-\(job.id)" class="icon-mini danger" title="Delete task and its chat">\(WebUIIcon(.x, size: .small).markup.html)</button>
-            </div>
-          </div>
-          <div class="task-ctrl-line"><span class="task-ctrl-key">Prompt</span><span class="task-ctrl-val">\(esc(job.prompt))</span></div>
-          <div class="task-ctrl-line"><span class="task-ctrl-key">Last output</span><span class="task-ctrl-val">\(esc(out))</span></div>
-        </div>
-        """
-        let thread = """
-        <div class="task-thread">
-          <div class="chat-scroll" id="task-chat-scroll" data-scroll-key="tasks-thread">
-            <div class="chat-inner" id="task-chat-inner">\(messagesHTML(msgs))</div>
-          </div>
-        </div>
-        """
-        return """
-        <div class="main-view tasks-main-view">
-          <div class="tasks-main-wrap">
-            \(ctrl)
-            \(thread)
-          </div>
-        </div>
-        """
+        let ctrl = Div(class: "detail-card task-ctrl-card") {
+            Div(class: "task-ctrl-head") {
+                Div(class: "task-ctrl-main") {
+                    Div(class: "task-ctrl-name") {
+                        Text("\(job.name) ")
+                        Span(class: "task-status \(statusCls)") { Text(status) }
+                    }
+                    Div(class: "task-ctrl-meta") {
+                        Text("\(job.schedule) · next \(next) · last \(last) · \(job.runCount) run\(job.runCount == 1 ? "" : "s")")
+                    }
+                }
+                Div(class: "row-actions-main") {
+                    ArcButton(toggleLabel, id: "task-toggle-\(job.id)", component: nil, class: "ghost-btn")
+                    ArcButton("Run now", id: "task-now-\(job.id)", component: nil, class: "ghost-btn")
+                    ArcButton(id: "task-del-\(job.id)", component: nil, class: "icon-mini danger") {
+                        WebUIIcon(.x, size: .small)
+                    }
+                    .title("Delete task and its chat")
+                }
+                .attribute("style", "margin:0")
+                .wire("tasks")
+            }
+            Div(class: "task-ctrl-line") {
+                Span(class: "task-ctrl-key") { Text("Prompt") }
+                Span(class: "task-ctrl-val") { Text(job.prompt) }
+            }
+            Div(class: "task-ctrl-line") {
+                Span(class: "task-ctrl-key") { Text("Last output") }
+                Span(class: "task-ctrl-val") { Text(out) }
+            }
+        }
+        let thread = Div(class: "task-thread") {
+            Div(class: "chat-scroll") {
+                Div(class: "chat-inner") { messagesHTML(msgs) }
+                    .id("task-chat-inner")
+            }
+            .id("task-chat-scroll")
+            .data("scroll-key", "tasks-thread")
+        }
+        return Group {
+            Div(class: "main-view tasks-main-view") {
+                Div(class: "tasks-main-wrap") {
+                    ctrl
+                    thread
+                }
+            }
+        }
     }
 
-    private func taskMainEmpty() -> String {
-        return """
-        <div class="main-view"><div class="main-scroll" data-scroll-key="tasks-main">
-          <h2 class="todo-title">Scheduled tasks</h2>
-          <p class="todo-sub">Recurring prompts run headless in their own chat, kept out of the main chat list. Select a task on the left to see its controls and chat, or create a new one below.</p>
-          \(taskFormHTML())
-        </div></div>
-        """
+    func taskMainEmpty() -> some WebUI.View {
+        Div(class: "main-view") {
+            Div(class: "main-scroll") {
+                Element(.h2, class: "todo-title") { Text("Scheduled tasks") }
+                Element(.p, class: "todo-sub") {
+                    Text("Pick a task on the left to see its controls and chat, or create a new one below.")
+                }
+                taskFormHTML()
+            }
+            .data("scroll-key", "tasks-main")
+        }
     }
 
-    private func taskFormHTML() -> String {
-        return """
-        <div class="detail-card">
-          <h3 style="margin:0 0 10px">New scheduled task</h3>
-          <form id="task-add-form" data-component-id="tasks" class="task-add">
-            <label class="task-field">Title
-              <input type="text" id="task-title" name="task-title" placeholder="e.g. Morning digest" autocomplete="off">
-            </label>
-            <div class="task-add-row">
-              <label class="task-field">Start <span class="task-opt">optional — empty starts now</span>
-                <input type="datetime-local" id="task-start" name="task-start">
-              </label>
-              <label class="task-field">Every
-                <span class="task-every">
-                  <input type="number" id="task-every" name="task-every" min="1" step="1" value="15">
-                  <select id="task-unit" name="task-unit">
-                    <option value="m">minutes</option>
-                    <option value="h">hours</option>
-                    <option value="d">days</option>
-                  </select>
-                </span>
-              </label>
-            </div>
-            <label class="task-field">Prompt
-              <textarea id="task-prompt" name="task-prompt" rows="4" placeholder="What should the agent run?"></textarea>
-            </label>
-            <button type="submit" class="primary-btn">Schedule task</button>
-            <p class="task-preview">Runs on the interval you pick, starting immediately unless a Start time is set. Each run gets its own chat, kept out of the main list.</p>
-          </form>
-        </div>
-        """
+    func taskFormHTML() -> some WebUI.View {
+        Div(class: "detail-card") {
+            Element(.h3) { Text("New scheduled task") }
+                .attribute("style", "margin:0 0 10px")
+            // a real form: Enter in any field submits, and the boundary on the
+            // form is what routes that submit to the cron handler. the field
+            // basis layout (`task-add-row` / `task-field`) is a css pin.
+            Form(action: "", method: nil, id: "task-add-form", class: "task-add") {
+                FieldLabel(class: "task-field") {
+                    Text("Title")
+                    Input(field: "task-title", placeholder: "e.g. Morning digest",
+                          attributes: [("autocomplete", "off")])
+                }
+                Div(class: "task-add-row") {
+                    FieldLabel(class: "task-field") {
+                        Text("Start")
+                        Span(class: "task-opt") { Text("optional — empty starts now") }
+                        Input(field: "task-start", type: .datetimeLocal)
+                    }
+                    FieldLabel(class: "task-field") {
+                        Text("Every")
+                        Span(class: "task-every") {
+                            Input(field: "task-every", type: .number, value: "15",
+                                  attributes: [("min", "1"), ("step", "1")])
+                            Select(field: "task-unit", options: [
+                                SelectOption(value: "m", label: "minutes"),
+                                SelectOption(value: "h", label: "hours"),
+                                SelectOption(value: "d", label: "days"),
+                            ])
+                        }
+                    }
+                }
+                FieldLabel(class: "task-field") {
+                    Text("Prompt")
+                    TextArea(field: "task-prompt",
+                             placeholder: "What should the agent run?", rows: 4)
+                }
+                ArcButton("Schedule task", class: "primary-btn", type: .submit)
+                Element(.p, class: "task-preview") {
+                    Text("Runs on the interval you pick, starting immediately unless a Start time is set. Each run gets its own chat, kept out of the main list.")
+                }
+            }
+            .data("component-id", "tasks")
+        }
     }
 
     /// Parse a `<input type="datetime-local">` value ("yyyy-MM-dd'T'HH:mm") as
@@ -554,87 +738,93 @@ extension AppState {
 
 // MARK: - Controller wires (todos, cron, regenerate)
 
+@WireGroup("todos")
 extension Controller {
 
-    func wireTodos(_ router: EventRouter) {
-        wire(router, id: "todos", events: ["click", "submit"]) { event in
-            if event.event == "submit" {
-                let text = event.string("todo-text") ?? ""
-                await self.app.addTodo(text)
-                return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+    @Wired("todos", events: [.click, .submit])
+    func handleTodos(_ event: EventData) async -> [FragmentUpdate] {
+        if event.event == "submit" {
+            let text = event.string("todo-text") ?? ""
+            await self.app.addTodo(text)
+            return await self.changed()
+        }
+        guard let tid = event.string("targetId") else { return [] }
+        // Clicks on the add-todo text field/form are cursor placement, not
+        // actions — never re-render from them (that would wipe the draft).
+        if tid.hasPrefix("todo-add") { return [] }
+        if tid.hasPrefix("todo-toggle-") {
+            await self.app.toggleTodo(String(tid.dropFirst("todo-toggle-".count)))
+        } else if tid.hasPrefix("todo-del-") {
+            await self.app.removeTodo(String(tid.dropFirst("todo-del-".count)))
+        } else if tid == "todo-run-all" {
+            let ids = await self.app.openTodoIDs()
+            let texts = await self.app.openTodoTexts()
+            guard !texts.isEmpty else {
+                _ = await self.app.hint("No open todos to run.")
+                return await self.changed()
             }
-            guard let tid = event.string("targetId") else { return [] }
-            // Clicks on the add-todo text field/form are cursor placement, not
-            // actions — never re-render from them (that would wipe the draft).
-            if tid.hasPrefix("todo-add") { return [] }
-            if tid.hasPrefix("todo-toggle-") {
-                await self.app.toggleTodo(String(tid.dropFirst("todo-toggle-".count)))
-            } else if tid.hasPrefix("todo-del-") {
-                await self.app.removeTodo(String(tid.dropFirst("todo-del-".count)))
-            } else if tid == "todo-run-all" {
-                let ids = await self.app.openTodoIDs()
-                let texts = await self.app.openTodoTexts()
-                guard !texts.isEmpty else {
-                    _ = await self.app.hint("No open todos to run.")
-                    return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
-                }
-                // Running the set marks them done.
-                await self.app.markTodosDone(ids)
-                let prompt = texts.joined(separator: "\n")
+            // Running the set marks them done.
+            await self.app.markTodosDone(ids)
+            let prompt = texts.joined(separator: "\n")
+            await self.app.switchView(.chat)
+            return await self.submitChat(text: prompt)
+        } else if tid.hasPrefix("todo-run-") {
+            let id = String(tid.dropFirst("todo-run-".count))
+            if let text = await self.app.todoText(for: id) {
+                // Running a todo marks it done.
+                await self.app.markTodosDone([id])
+                // Run the todo as a real chat message: switch to the Chat
+                // view and submit through the normal composer path.
                 await self.app.switchView(.chat)
-                return await self.submitChat(text: prompt)
-            } else if tid.hasPrefix("todo-run-") {
-                let id = String(tid.dropFirst("todo-run-".count))
-                if let text = await self.app.todoText(for: id) {
-                    // Running a todo marks it done.
-                    await self.app.markTodosDone([id])
-                    // Run the todo as a real chat message: switch to the Chat
-                    // view and submit through the normal composer path.
-                    await self.app.switchView(.chat)
-                    return await self.submitChat(text: text)
-                }
-            } else if tid.hasPrefix("todo-clear-done") {
-                await self.app.clearDoneTodos()
+                return await self.submitChat(text: text)
             }
-            return [FragmentUpdate(id: "main", html: await self.app.todosPanelHTML())]
+        } else if tid.hasPrefix("todo-clear-done") {
+            await self.app.clearDoneTodos()
         }
+        return await self.changed()
     }
+}
 
-    func wireCron(_ router: EventRouter) {
-        wire(router, id: "tasks", events: ["click", "submit"]) { event in
-            if event.event == "submit" {
-                let title = event.string("task-title") ?? ""
-                let everyRaw = event.string("task-every") ?? ""
-                let unit = event.string("task-unit") ?? "m"
-                let prompt = event.string("task-prompt") ?? ""
-                let first = await self.app.taskStartDate(event.string("task-start") ?? "")
-                let n = max(1, Int(everyRaw) ?? 15)
-                await self.app.addJob(name: title, schedule: "every \(n)\(unit)", prompt: prompt, firstRun: first)
-                return await self.app.refreshFragments()
-            }
-            guard let tid = event.string("targetId") else { return [] }
-            if tid == "task-new" {
-                await self.app.selectTaskJob(nil)
-            } else if tid.hasPrefix("task-open-") {
-                await self.app.selectTaskJob(String(tid.dropFirst("task-open-".count)))
-            } else if tid.hasPrefix("task-toggle-") {
-                await self.app.toggleJob(String(tid.dropFirst("task-toggle-".count)))
-            } else if tid.hasPrefix("task-now-") {
-                await self.app.runJobNow(String(tid.dropFirst("task-now-".count)))
-            } else if tid.hasPrefix("task-del-") {
-                await self.app.deleteJob(String(tid.dropFirst("task-del-".count)))
-            }
-            return await self.app.refreshFragments()
+@WireGroup("cron")
+extension Controller {
+
+    @Wired("tasks", events: [.click, .submit])
+    func handleCron(_ event: EventData) async -> [FragmentUpdate] {
+        if event.event == "submit" {
+            let title = event.string("task-title") ?? ""
+            let everyRaw = event.string("task-every") ?? ""
+            let unit = event.string("task-unit") ?? "m"
+            let prompt = event.string("task-prompt") ?? ""
+            let first = await self.app.taskStartDate(event.string("task-start") ?? "")
+            let n = max(1, Int(everyRaw) ?? 15)
+            await self.app.addJob(name: title, schedule: "every \(n)\(unit)", prompt: prompt, firstRun: first)
+            return await self.changed()
         }
+        guard let tid = event.string("targetId") else { return [] }
+        if tid == "task-new" {
+            await self.app.selectTaskJob(nil)
+        } else if tid.hasPrefix("task-open-") {
+            await self.app.selectTaskJob(String(tid.dropFirst("task-open-".count)))
+        } else if tid.hasPrefix("task-toggle-") {
+            await self.app.toggleJob(String(tid.dropFirst("task-toggle-".count)))
+        } else if tid.hasPrefix("task-now-") {
+            await self.app.runJobNow(String(tid.dropFirst("task-now-".count)))
+        } else if tid.hasPrefix("task-del-") {
+            await self.app.deleteJob(String(tid.dropFirst("task-del-".count)))
+        }
+        return await self.changed()
     }
+}
 
-    func wireRegen(_ router: EventRouter) {
-        wire(router, id: "regen", events: ["click"]) { event in
-            guard let tid = event.string("targetId"),
-                  tid.hasPrefix("regen-"),
-                  let lastUser = await self.app.regenText() else { return [] }
-            return await self.submitChat(text: lastUser)
-        }
+@WireGroup("regen")
+extension Controller {
+
+    @Wired("regen", events: [.click])
+    func handleRegen(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId"),
+              tid.hasPrefix("regen-"),
+              let lastUser = await self.app.regenText() else { return [] }
+        return await self.submitChat(text: lastUser)
     }
 }
 

@@ -5,105 +5,93 @@ import Logging
 import ServiceLifecycle
 import WebUI
 import WebUIServer
+import WebUIState
 
-/// Drops fragment updates whose HTML repeats the last push for the same id.
+/// The one structural push edge: the door every producer in arc pushes through,
+/// standing on no-webui's `PageDiffer` instead of re-deriving a patch per
+/// handler.
 ///
-/// Streaming turns re-emit chrome that did not change between token pushes (the
-/// composer flyout, the session-row spinner), and the client would tear down and
-/// rebuild identical nodes for nothing. Empty html means "remove the node" and
-/// always passes: a skipped removal could strand a node an intervening parent
-/// push re-created.
-actor PushDeduper {
-    private var last: [String: String] = [:]
-
-    func filter(_ updates: [FragmentUpdate]) -> [FragmentUpdate] {
-        updates.filter { update in
-            if update.html.isEmpty { return true }
-            if last[update.id] == update.html { return false }
-            last[update.id] = update.html
-            return true
-        }
-    }
-}
-
-/// Orders live-turn fragment ops after the chat region render that re-mounts
-/// them. `#live-turn` and its spans only exist in the client once the owning
-/// chat's `#main`/`#chat-inner` render landed; a concurrently-issued live op can
-/// beat that render over the wire, and the engine then logs
-/// "[WebUIEngine] Element not found: #live-turn" while the server still thinks
-/// the chat is on screen (the visible-view check passes at call time). Holding
-/// live ops for a short window after any chat-region render lets the render
-/// apply first; afterward the ops flow normally (nothing is dropped, only
-/// delayed). Ops for a view that is genuinely not displayed are still dropped.
-actor LiveTurnGate {
-    private var chatRenderAt = Date.distantPast
-
-    func markChatRender() {
-        chatRenderAt = Date()
-    }
-
-    func allows(_ id: String, liveVisible: Bool) -> Bool {
-        let isLiveOp = id == "live-turn" || id.hasPrefix("live-turn-")
-        guard isLiveOp else { return true }
-        guard liveVisible else { return false }
-        // the chat render that carries `#live-turn` is still in flight
-        return Date().timeIntervalSince(chatRenderAt) >= 0.12
-    }
-}
-
-/// Serializes every fragment push onto one submission-ordered chain.
+/// A batch means one of two things, and the door tells them apart rather than
+/// trusting the producer to have:
 ///
-/// Two producers share the push path — action responses and the turn stream —
-/// and their broadcasts could interleave: a live op gated as "chat visible"
-/// could reach the wire AFTER the view render that removed its element (or
-/// before the render that mounts it), forcing the engine's
-/// "Element not found: #live-turn-thinking" warning — the gates went red on
-/// exactly that. One chain, one order: each batch waits for the previous
-/// batch's broadcast before its own gating + broadcast runs, so what the gate
-/// decided is what the wire delivers, in that order.
-actor PushPipeline {
-    private let app: AppState
-    private let server: WebUIServer
-    private let deduper: PushDeduper
-    private let gate = LiveTurnGate()
-    /// Tail of the submission chain; each `push` appends one link.
-    private var tail: Task<Void, Never>?
+/// - a **structural** op (`nil`/`.replace`) says "the page changed". The frame
+///   the client needs is the difference between what it holds and a *fresh*
+///   render, so the edge renders once and ships the differ's frames. The `html`
+///   the producer sent is ignored: a handler that assembled markup is re-sending
+///   bytes the render already contains, at best identical and at worst stale.
+/// - a **delta** op (`.text`, `.append`) is a write against a node another
+///   producer owns — the streaming spans, which `FragmentUpdate.text` rewrites on
+///   every token. It goes to the wire verbatim, transition flag included;
+///   re-deriving it would fight that writer.
+///
+/// Structure ships first, deltas second: a delta targets a node the structural
+/// frame may have re-mounted, and the client would log "Element not found" for a
+/// delta that beat its own container.
+final class PushEdge: Sendable {
 
-    init(app: AppState, server: WebUIServer, deduper: PushDeduper) {
-        self.app = app
-        self.server = server
-        self.deduper = deduper
+    /// The diff arc's page is served from.
+    ///
+    /// `elementID` identity is the only one that is a real address: the engine
+    /// resolves a frame with `getElementById`, and the shell is full of elements
+    /// that carry a component attribute but no `id`. `.finest` coverage is what
+    /// keeps a chrome change from dragging `#app` onto the wire; `.nearestTrackedAncestor`
+    /// makes an appeared node a parent replace instead of a whole page; the two
+    /// excluded spans are the token-owned ones, whose bytes must not make their
+    /// ancestors look changed. `transition: false` is a stated policy, not a `nil`
+    /// delegation — the diff is not a navigation and must not animate as one.
+    static let livePolicy = RegionPolicy(
+        identity: .elementID,
+        coverage: .finest,
+        escalation: .nearestTrackedAncestor,
+        excluded: ["live-turn-text", "live-turn-thinking"],
+        transition: false
+    )
+
+    private let differ: PageDiffer
+    /// the markup a fresh `app.appShell()` answers — the root element's own
+    /// bytes, never a document (a document's diff is scoped to `<body>`, and the
+    /// frames would then name a different root than every later render).
+    private let render: @Sendable () async -> String
+    /// the wire. A closure, not a `WebUIServer`: the door's whole job is to decide
+    /// what crosses, and a test that has to conjure a live server to observe that
+    /// decision is a test that will not be written.
+    private let broadcast: @Sendable ([FragmentUpdate]) async -> Void
+
+    init(
+        differ: PageDiffer,
+        render: @escaping @Sendable () async -> String,
+        broadcast: @escaping @Sendable ([FragmentUpdate]) async -> Void
+    ) {
+        self.differ = differ
+        self.render = render
+        self.broadcast = broadcast
     }
 
+    /// The door `Controller.push` is wired to.
+    ///
+    /// Partition, never assume: a batch is homogeneous today — all `.text` from
+    /// the token stream, all `.replace` from a handler — but a door that assumed
+    /// it would silently drop a delta the day a producer mixed the two, and the
+    /// failure would look like a dropped keystroke rather than a dropped batch.
     func push(_ updates: [FragmentUpdate]) async {
-        let previous = tail
-        let task = Task {
-            await previous?.value
-            await self.perform(updates)
+        let deltas = updates.filter { $0.op == .text || $0.op == .append }
+        // an empty batch is a producer saying "look at the page": the whole point of
+        // the nudge. it costs one render and ships nothing unless bytes moved.
+        let hasStructure = updates.isEmpty || updates.contains { $0.op == nil || $0.op == .replace }
+
+        if hasStructure {
+            let frames = differ.messages(forMarkup: await render(), root: "app")
+            // empty means "nothing moved" — the render that triggered this push
+            // produced the bytes the client already holds, so there is no frame and
+            // no reason to wake the wire.
+            if !frames.isEmpty { await broadcast(frames) }
         }
-        tail = task
-        await task.value
+        if !deltas.isEmpty { await broadcast(deltas) }
     }
 
-    private func perform(_ updates: [FragmentUpdate]) async {
-        // The DOM-apply guard + ordering for the live turn: `#live-turn`,
-        // `#live-turn-text` and `#live-turn-thinking` only exist in the client
-        // while the chat that owns the running turn is on screen. Batches
-        // carrying a chat-region render are stamped so live ops wait a beat
-        // for the re-mount; ops whose view is genuinely gone are dropped (the
-        // pure emission stays untouched — the contract tests pin it).
-        if updates.contains(where: { $0.id == "main" || $0.id == "chat-inner" }) {
-            await gate.markChatRender()
-        }
-        let liveTurnShown = await app.liveTurnShown()
-        var kept: [FragmentUpdate] = []
-        for u in updates {
-            let isLiveTurnOp = u.id == "live-turn" || u.id.hasPrefix("live-turn-")
-            if !isLiveTurnOp { kept.append(u); continue }
-            if await gate.allows(u.id, liveVisible: liveTurnShown) { kept.append(u) }
-        }
-        await server.broadcast(await deduper.filter(kept))
-    }
+    /// Declare what the client already holds — the page the host just served — so
+    /// the first patch is a region instead of a whole-root replace.
+    func seed(_ markup: String) { differ.seed(withMarkup: markup) }
 }
 
 /// The Web UI host: boots the app state, serves the page through no-webui's
@@ -151,6 +139,35 @@ public struct WebUIHost: Service {
     /// approval-aware headless tool path).
     public func runScheduledJob(_ job: CronJob) async -> String {
         await app.runScheduledJob(job)
+    }
+
+    /// the config the server is built with.
+    ///
+    /// exposed as one value so a test observes what arc actually runs instead of
+    /// restating the literal: every field below is a default arc relies on
+    /// (capacity headroom, render tokens off, the root page path), and a
+    /// restated literal keeps passing after the real one moves.
+    public var serverConfig: WebUIServerConfig { Self.serverConfig(host: host, port: port) }
+
+    /// the config shape arc runs, independent of an instance.
+    ///
+    /// static because constructing a host resolves storage and a config file: a
+    /// test that pins the server's capacity defaults must not need either.
+    public static func serverConfig(host: String, port: Int) -> WebUIServerConfig {
+        WebUIServerConfig(
+            host: host,
+            port: port,
+            pagePath: "/",
+            // registered at the bare path — the server strips a request's query
+            // before the asset lookup, so a stamped url resolves to the same
+            // bytes. the `?v=` is the *client's* cache key: a rebuilt asset is a
+            // new url and cannot be served from a year-long cache under the old
+            // one.
+            assets: [
+                AppShell.Assets.sheet.registration,
+                AppShell.Assets.overlay.registration,
+            ]
+        )
     }
 
     public func run() async throws {
@@ -239,7 +256,6 @@ public struct WebUIHost: Service {
             if let store = await app.storeRef() {
                 let s = Session()
                 try? await store.create(s)
-                await app.pinSessionWorkspace(s.id)
                 await app.reloadSessions(selecting: s.id)
             }
         }
@@ -272,7 +288,7 @@ public struct WebUIHost: Service {
             }
             await app.armScrollToBottom()
             let shell = await app.appShell()
-            return makeDocument(shell, AppShell.themeAttrs(await app.themeDefaults()))
+            return makeDocument(shell.markup, AppShell.themeAttrs(await app.themeDefaults()))
         }
 
         // "/" is the page. "/index.html" was its alias before the router existed
@@ -294,35 +310,42 @@ public struct WebUIHost: Service {
         let server = WebUIServer(
             router: pageRouter,
             eventRouter: router,
-            config: WebUIServerConfig(
-                host: host,
-                port: port,
-                pagePath: "/",
-                // Registered at the bare path — the server strips a request's query before
-                // the asset lookup, so a stamped url resolves to the same bytes. The `?v=`
-                // is the *client's* cache key: a rebuilt asset is a new url and cannot be
-                // served from a year-long cache under the old one.
-                assets: [
-                    sheet.registration,
-                    overlay.registration,
-                ]
-            ),
+            config: serverConfig,
             logger: logger
         )
 
-        let deduper = PushDeduper()
-        let pipeline = PushPipeline(app: app, server: server, deduper: deduper)
-        let controller = Controller(app: app, push: { updates in
-            await pipeline.push(updates)
-        })
-        await controller.wireAll(router)
-
-        // the boot page is rendered here, once the stamped asset urls exist, purely
-        // so the log line reports a real byte count.
+        // The one push edge. Every producer's batch crosses this door — handlers
+        // through `Controller.changed()`, the turn loop through the pusher it is
+        // handed — and the frame that reaches the wire is derived from a fresh
+        // render rather than trusted from the producer.
+        //
+        // Three producers do NOT cross it, by design: the log and workspace
+        // streamers broadcast their fragments straight to `server.broadcast`
+        // (they are not page regions the client patches from a page render), and
+        // the token stream's `FragmentUpdate.text` deltas target nodes another
+        // producer owns.
+        //
+        // The boot shell is captured once and serves twice: the log line's byte
+        // count, and the differ's seed. The seed is the shell's ELEMENT markup
+        // (`#app`), not the document — every later `render()` answers `#app`, and
+        // a document's diff is scoped to `<body>`. Seeding a document would diff
+        // two different roots on the first push and ship the whole page.
+        let bootShell = await app.appShell().markup
         let bootPageBytes = makeDocument(
-            await app.appShell(),
+            bootShell,
             AppShell.themeAttrs(await app.themeDefaults())
         ).markup.html.utf8.count
+
+        let edge = PushEdge(
+            differ: PageDiffer(policy: PushEdge.livePolicy),
+            render: { [app] in await app.appShell().markup.html },
+            broadcast: { [server] updates in await server.broadcast(updates) }
+        )
+        edge.seed(bootShell.html)
+        let controller = Controller(app: app, push: { updates in
+            await edge.push(updates)
+        })
+        await controller.wireAll(router)
         logger.info("serving http://\(host):\(port) (page \(bootPageBytes) bytes)")
         // no cron engine here: the daemon owns the one scheduler and calls
         // back into this host's `runScheduledJob` for job execution.
@@ -394,5 +417,16 @@ public struct WebUIHost: Service {
         // of rethrowing, so this is the single cleanup site for both.
         app.crumb("host: teardown — releasing app state")
         await app.shutdown()
+    }
+
+    /// Record sidecar startup outcomes on the app state, called by the daemon
+    /// after discovery so the plugin row can render a failure badge (UX-25).
+    public func setPluginStartupOutcomes(_ outcomes: [String: SidecarPluginManager.PluginStartupOutcome]) {
+        for (name, outcome) in outcomes {
+            switch outcome {
+            case .running: Task { await self.app.setPluginStartupOutcome(name, nil) }
+            case .failed(let reason): Task { await self.app.setPluginStartupOutcome(name, reason) }
+            }
+        }
     }
 }

@@ -5,7 +5,7 @@ import Foundation
 /// Minimal MCP (JSON-RPC 2.0) client over stdio for `cua-driver mcp`
 /// (reference `tools/computer_use/cua_backend.py`): one long-lived
 /// subprocess, sequential id correlation, no hand-rolled threads (First Law:
-/// the reader is a Task; the process owns its own pipes).
+/// the reader is a Task; the child is a ``SubprocessSession``).
 public actor CuaDriverClient {
 
     public enum CuaError: Error, CustomStringConvertible {
@@ -24,10 +24,8 @@ public actor CuaDriverClient {
         }
     }
 
-    private var process: Process?
-    private var stdinPipe: Pipe?
-    private var stdoutPipe: Pipe?
-    private var stderrPipe: Pipe?
+    private var session: SubprocessSession?
+    private var readers: [Task<Void, Never>] = []
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<[String: Any], Error>] = [:]
 
@@ -69,26 +67,22 @@ public actor CuaDriverClient {
                 "Install: /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh)\""
             )
         }
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: executable)
-        proc.arguments = ["mcp"]
-        let stdin = Pipe()
-        let stdout = Pipe()
-        let stderr = Pipe()
-        proc.standardInput = stdin
-        proc.standardOutput = stdout
-        proc.standardError = stderr
         // Telemetry gate (reference: cua-driver reads this env var).
         var env = ProcessInfo.processInfo.environment
         env["CUA_DRIVER_TELEMETRY"] = "off"
-        proc.environment = env
 
-        try proc.run()
-        process = proc
-        stdinPipe = stdin
-        stdoutPipe = stdout
-        stderrPipe = stderr
-        startReader(handle: stdout.fileHandleForReading, stderrHandle: stderr.fileHandleForReading)
+        // One session type for every long-lived child arc owns: `.own` placement,
+        // byte channels, one reap task. The Foundation form this replaced joined
+        // arc's own process group, so the driver and anything it started were
+        // unreachable by a per-client teardown.
+        let session = SubprocessSession(
+            executable: executable,
+            arguments: ["mcp"],
+            environment: env)
+        self.session = session
+        _ = try await session.start()
+
+        startReaders(session)
 
         // MCP initialize handshake.
         _ = try await request(method: "initialize", params: [
@@ -99,15 +93,47 @@ public actor CuaDriverClient {
         _ = try await request(method: "notifications/initialized", params: [:], isNotification: true)
     }
 
-    public func disconnect() {
-        try? stdinPipe?.fileHandleForWriting.close()
-        stdoutPipe?.fileHandleForReading.readabilityHandler = nil
-        stderrPipe?.fileHandleForReading.readabilityHandler = nil
-        process?.terminate()
-        process = nil
-        stdinPipe = nil
-        stdoutPipe = nil
-        stderrPipe = nil
+    /// Attach the three readers: stdout frames, stderr diagnostics, and the exit
+    /// watcher that fails in-flight requests instead of leaving them suspended.
+    private func startReaders(_ session: SubprocessSession) {
+        // The output is newline-framed JSON-RPC. The accumulator is the same one
+        // the old `readabilityHandler` fed, now fed by the session's byte pump —
+        // one consumer per stream, no Foundation I/O queue involved.
+        let outAccumulator = LineAccumulator { [weak self] line in
+            Task { await self?.dispatch(line: line) }
+        }
+        let errAccumulator = LineAccumulator { line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                print("[cua-driver] \(trimmed)")
+            }
+        }
+        readers = [
+            Task { for await bytes in session.stdout { outAccumulator.feed(Data(bytes)) } },
+            Task { for await bytes in session.stderr { errAccumulator.feed(Data(bytes)) } },
+            // Without this, a request already awaiting a reply would suspend
+            // forever on a driver that died mid-call.
+            Task { [weak self] in
+                _ = await session.waitForExit()
+                await self?.connectionLost()
+            },
+        ]
+    }
+
+    /// Resume every in-flight request once the child is gone.
+    private func connectionLost() {
+        session = nil
+        for (_, cont) in pending {
+            cont.resume(throwing: CuaError.notConnected)
+        }
+        pending.removeAll()
+    }
+
+    public func disconnect() async {
+        if let session { await session.shutdown() }
+        session = nil
+        for reader in readers { await reader.value }
+        readers = []
         for (_, cont) in pending {
             cont.resume(throwing: CuaError.notConnected)
         }
@@ -149,43 +175,6 @@ public actor CuaDriverClient {
 
     // MARK: - JSON-RPC plumbing
 
-    private func startReader(handle: FileHandle, stderrHandle: FileHandle) {
-        // FILE.IO EXCEPTION (documented on `LineAccumulator`, mirrors CDP
-        // internals): AsyncFileHandle (.bytes/.lines) is unreliable on this
-        // toolchain — lines stop after the first re-arm race.
-        // readabilityHandler runs on Foundation's internal queue; each
-        // handle's handler is single-threaded, so LineAccumulator needs no
-        // lock. Lines hop to the actor for JSON-RPC dispatch.
-        let channel = self
-
-        let outAccumulator = LineAccumulator { line in
-            Task { await channel.dispatch(line: line) }
-        }
-        handle.readabilityHandler = { h in
-            let data = h.availableData
-            if data.isEmpty {
-                h.readabilityHandler = nil
-                return
-            }
-            outAccumulator.feed(data)
-        }
-
-        let errAccumulator = LineAccumulator { line in
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                print("[cua-driver] \(trimmed)")
-            }
-        }
-        stderrHandle.readabilityHandler = { h in
-            let data = h.availableData
-            if data.isEmpty {
-                h.readabilityHandler = nil
-                return
-            }
-            errAccumulator.feed(data)
-        }
-    }
-
     private func dispatch(line: String) async {
         guard let data = line.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -202,7 +191,7 @@ public actor CuaDriverClient {
     }
 
     private func request(method: String, params: [String: Any], isNotification: Bool = false) async throws -> [String: Any] {
-        guard let stdin = stdinPipe, let process, process.isRunning else {
+        guard let session, await session.isRunning() else {
             throw CuaError.notConnected
         }
         let id = nextID
@@ -215,8 +204,11 @@ public actor CuaDriverClient {
             payload["params"] = params
         }
         let data = try JSONSerialization.data(withJSONObject: payload)
-        stdin.fileHandleForWriting.write(data)
-        stdin.fileHandleForWriting.write(Data("\n".utf8))
+        // one frame, terminator included: two writes could interleave with a
+        // notification and split a line on the wire
+        var frame = Array(data)
+        frame.append(0x0A)
+        try await session.write(frame)
         if isNotification { return [:] }
         return try await withCheckedThrowingContinuation { cont in
             pending[id] = cont
@@ -294,12 +286,13 @@ public enum ComputerUseTool {
             let client = CuaDriverClient()
             do {
                 try await client.connect()
-                defer {
-                    let c = client
-                    Task { await c.disconnect() }
-                }
-                return try await client.callTool(action, arguments: params)
+                let result = try await client.callTool(action, arguments: params)
+                // Explicit teardown instead of a `defer` holding an unstructured
+                // Task: the cleanup is an await, so it can be structured.
+                await client.disconnect()
+                return result
             } catch {
+                await client.disconnect()
                 return "Error: \(error)"
             }
         },

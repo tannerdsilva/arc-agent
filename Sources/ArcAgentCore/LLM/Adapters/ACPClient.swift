@@ -48,7 +48,22 @@ public actor ACPClient {
     // MARK: - Lifecycle (reference initialize / session/new)
 
     /// Start the ACP process and run `initialize`; returns the server info.
+    ///
+    /// The child is spawned with `.own` placement: arc owns the process group
+    /// of everything it spawns, so one teardown signal reaches the ACP server
+    /// and its tree. See `docs/process-placement.md`.
     public func start() async throws -> [String: Any] {
+        // A command that is not an absolute, executable path makes the spawn fail,
+        // and a failed SwiftSlash spawn traps the process rather than throwing — so
+        // a mistyped config would take the whole daemon down. Fail as a value
+        // instead; this is the only reason the guard lives here rather than in a
+        // caller.
+        guard config.command.hasPrefix("/"),
+              FileManager.default.isExecutableFile(atPath: config.command)
+        else {
+            throw LLMError.networkError(
+                "ACP server is not an executable absolute path: \(config.command)")
+        }
         if child == nil {
             var command = Command(
                 absolutePath: Path(config.command),
@@ -57,7 +72,11 @@ public actor ACPClient {
             if let cwd = config.workingDirectory {
                 command.workingDirectory = Path(cwd)
             }
-            let acp = ChildProcess(command, dataChannels: [
+            // `.own`, for the same reason as `SubprocessRunner`: arc owns the
+            // process group of everything it spawns, so one teardown signal
+            // reaches the ACP server and its tree. arc never requests
+            // `.detached` — a detached child is unreachable by design.
+            let acp = ChildProcess(command, processGroup: .own, dataChannels: [
                 STDOUT_FILENO: .write(.toParentProcess(stream: .init(), separator: [0x0A])),
                 STDERR_FILENO: .write(.toNull),  // stderr is never protocol data
                 STDIN_FILENO: .read(.fromParentProcess(stream: .init())),

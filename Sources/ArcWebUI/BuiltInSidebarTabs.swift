@@ -23,7 +23,7 @@ struct BuiltInSidebarTab: SidebarTab {
     var icon: SidebarTabIcon { .named(kind.symbolName) }
 
     func panelHTML() async -> String {
-        await state.renderPanel(for: kind)
+        (await state.renderPanel(for: kind)).markup.html
     }
 
     func mainHTML() async -> String {

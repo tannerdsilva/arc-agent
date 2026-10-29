@@ -68,6 +68,8 @@ extension ArcCoreTestRoot {
         @Test("pipe tables render header + body")
         func tables() {
             let html = markdownToHTML("| a | b |\n|---|---|\n| 1 | 2 |")
+            #expect(html.contains("<div class=\"msg-table-wrap\"><table>"))
+            #expect(html.contains("</tbody>\n</table></div>"))
             #expect(html.contains("<table>"))
             #expect(html.contains("<thead>"))
             #expect(html.contains("<tr><th>a</th><th>b</th></tr>"))
