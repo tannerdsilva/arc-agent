@@ -2,6 +2,29 @@ import Foundation
 import ServiceLifecycle
 import Logging
 
+// MARK: - BotPeerSessions
+
+/// What ``BotMessagingService`` needs from the session layer.
+///
+/// ``SessionRegistry`` is the production conformer: ``deliver(_:profile:)``
+/// opens (or reuses) the recipient's canonical session, and the reply methods
+/// forward to the registry's ``BotReplyBus``. The test target supplies an
+/// in-memory directory of peers that answer deterministically — that is the
+/// only way to prove correlation without a model call, since a real
+/// ``SessionAgent`` builds its client inside `run()`.
+///
+/// Registration is a separate call from delivery on purpose: the waiter must
+/// exist **before** the message lands, or a peer that answers during the
+/// delivery call publishes into nothing.
+protocol BotPeerSessions: Sendable {
+    /// Register a waiter for the message id `id`; the reply arrives on it.
+    func registerReplyWaiter(id: String) async -> AsyncStream<String>
+    /// Put `incoming` into `profile`'s canonical session.
+    func deliver(_ incoming: IncomingMessage, profile: String) async
+    /// Drop a waiter that will not be answered (timeout, cancellation).
+    func cancelReplyWaiter(id: String) async
+}
+
 // MARK: - BotMessagingService
 
 /// The inter-agent messaging service that handles bot-to-bot communication.
@@ -89,8 +112,8 @@ public actor BotMessagingService: Service {
 
     /// Reference to the profile manager for profile lookups.
     private let profileManager: ProfileManager
-    /// Reference to the session registry for message delivery.
-    private var sessionRegistry: SessionRegistry?
+    /// The session layer, once a host has wired one: delivery in, replies out.
+    private var peers: (any BotPeerSessions)?
     /// Activity stream for the roster's "active now" strip.
     private let activityContinuation: AsyncStream<ActivityEvent>.Continuation
     /// Public activity stream.
@@ -107,9 +130,27 @@ public actor BotMessagingService: Service {
         self.activityContinuation = continuation
     }
 
-    /// Set the session registry reference (called during session-host wiring).
+    /// A service bound to a session layer the caller supplies.
+    ///
+    /// The daemon does not use this — it wires the real ``SessionRegistry``
+    /// through ``SessionRegistry/setMessagingService(_:)`` — but a test can hand
+    /// over in-memory peers and prove the reply path without a model call.
+    init(profileManager: ProfileManager, peers: any BotPeerSessions) {
+        self.profileManager = profileManager
+        self.peers = peers
+        self.logger = Logger(label: "com.arc-agent.bot-messaging")
+
+        var continuation: AsyncStream<ActivityEvent>.Continuation!
+        self.activityStream = AsyncStream { continuation = $0 }
+        self.activityContinuation = continuation
+    }
+
+    /// Set the session layer (called during session-host wiring).
+    ///
+    /// ``SessionRegistry/setMessagingService(_:)`` calls this itself, so the
+    /// delivery path and the reply channel are installed together.
     func setSessionRegistry(_ registry: SessionRegistry) {
-        self.sessionRegistry = registry
+        self.peers = registry
     }
 
     // MARK: - Service
@@ -156,9 +197,9 @@ public actor BotMessagingService: Service {
 
         logger.info("Bot message: \(message.from) -> \(message.to): \(message.body.prefix(60))")
 
-        // If we have a session registry, deliver directly into the recipient's session.
-        // The recipient bot will see the message on its next turn.
-        if let registry = sessionRegistry {
+        // If a session layer is wired, deliver directly into the recipient's
+        // session. The recipient bot will see the message on its next turn.
+        if let peers {
             let canonicalChatID = try await profileManager.getOrCreateCanonicalChat(profile: message.to)
             let incoming = IncomingMessage(
                 id: message.id,
@@ -166,32 +207,87 @@ public actor BotMessagingService: Service {
                 text: message.formattedText,
                 senderID: message.from
             )
-            let handle = await registry.getOrCreate(sessionID: canonicalChatID, profile: message.to)
-            handle.inputContinuation.yield(incoming)
+            await peers.deliver(incoming, profile: message.to)
         }
     }
 
-    /// Send a message and wait for a reply.
+    /// How long ``sendMessageAndWait(_:)`` waits for the peer's turn to finish.
     ///
-    /// This is a synchronous-style API: the caller awaits the reply inline.
-    /// The message is delivered to the recipient, and the caller receives
-    /// the response via an ``AsyncThrowingStream``.
+    /// A peer that never answers must not hold the caller open: past this bound
+    /// the stream ends without a value, and the tool renders its honest timeout
+    /// sentence. The tool bounds its *own* wait too (injectable, for tests);
+    /// whichever fires first, the answer is the same sentence.
+    public static let replyTimeout: Duration = .seconds(60)
+
+    /// Send a message and wait for the peer's reply.
+    ///
+    /// The reply is correlated to **this** message: a waiter is registered under
+    /// `message.id` before delivery, and the recipient's turn publishes its
+    /// final text under the id of the message that started that turn. Two
+    /// concurrent senders to the same peer therefore each collect their own
+    /// answer — ``SessionHandle/responses``, a single-consumer stream, is never
+    /// read here.
     ///
     /// - Parameters:
     ///   - message: The message to send.
-    /// - Returns: An async stream of reply tokens.
+    /// - Returns: A stream carrying the peer's reply text, or no value when the
+    ///   peer did not answer inside ``replyTimeout``.
     public func sendMessageAndWait(_ message: BotMessage) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
-            Task {
-                do {
-                    try await sendMessage(message)
-                    // In a full implementation, this would subscribe to the
-                    // recipient's response stream. For now, we deliver and return.
+            let wait = Task {
+                guard let peers = self.peers else {
+                    // No session layer is wired: nothing can carry an answer.
                     continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
+                    return
                 }
+                // Register BEFORE delivering: a peer that answers inside
+                // `sendMessage` must not outrun its waiter.
+                let replies = await peers.registerReplyWaiter(id: message.id)
+                guard !Task.isCancelled else {
+                    await peers.cancelReplyWaiter(id: message.id)
+                    continuation.finish()
+                    return
+                }
+                do {
+                    try await self.sendMessage(message)
+                } catch {
+                    await peers.cancelReplyWaiter(id: message.id)
+                    continuation.finish(throwing: error)
+                    return
+                }
+                let reply = await Self.firstReply(replies, timeout: Self.replyTimeout)
+                // Answered: `publish` already removed the waiter. Timed out or
+                // cancelled: drop it, so a waiter never outlives its question.
+                await peers.cancelReplyWaiter(id: message.id)
+                if let reply, !reply.isEmpty {
+                    continuation.yield(reply)
+                }
+                continuation.finish()
             }
+            // A caller that stopped reading (its own bound expired) takes the
+            // waiter with it instead of leaving it to this stream's deadline.
+            continuation.onTermination = { _ in wait.cancel() }
+        }
+    }
+
+    /// The first value the peer publishes, or `nil` when the bound expires
+    /// first.
+    ///
+    /// Whichever task finishes first wins; the other is cancelled, so a peer
+    /// that never answers costs the caller the bound and nothing more.
+    private static func firstReply(_ stream: AsyncStream<String>, timeout: Duration) async -> String? {
+        await withTaskGroup(of: String?.self) { group in
+            group.addTask {
+                for await reply in stream { return reply }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
         }
     }
 

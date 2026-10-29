@@ -141,6 +141,10 @@ public actor SessionRegistry {
     private var agents: [String: SessionAgent] = [:]
     private var handles: [String: SessionHandle] = [:]
     private var tasks: [String: Task<Void, Never>] = [:]
+    /// The correlated reply channel: `(id of the message that asked) -> the
+    /// caller waiting on it`. ``SessionHandle/responses`` stays single-consumer;
+    /// this bus is what lets `send_bot_message` await *its own* answer.
+    private let replies = BotReplyBus()
     /// Consecutive crash count per session (used by auto-restart supervision).
     private var crashCounts: [String: Int] = [:]
     /// The profile each session's agents run under (needed to respawn).
@@ -221,8 +225,44 @@ public actor SessionRegistry {
     }
 
     /// Set the messaging service reference.
-    func setMessagingService(_ service: BotMessagingService) {
+    ///
+    /// This also hands the registry back to the service: the service needs it to
+    /// deliver a bot message *and* to await the correlated reply. Wiring one
+    /// without the other is the half-path `send_bot_message` lived on — it
+    /// validated both profiles, delivered nothing, and answered every call with
+    /// a cheerful "no reply" — so the two are set together here and a host has
+    /// no way to install only one.
+    func setMessagingService(_ service: BotMessagingService) async {
+        // Wire the service *before* publishing it: a session that can see the
+        // messaging service at all (that is what registers `send_bot_message`)
+        // must also see a fully wired one.
+        await service.setSessionRegistry(self)
         self.messagingService = service
+    }
+
+    // MARK: - Correlated Replies
+
+    /// Register a waiter for `id` and return the stream the reply arrives on.
+    ///
+    /// Called by ``BotMessagingService`` **before** it delivers the message, so
+    /// a peer that answers immediately cannot outrun the registration.
+    func registerReplyWaiter(id: String) async -> AsyncStream<String> {
+        await replies.register(id: id)
+    }
+
+    /// Publish a turn's final text under the id of the message that started it.
+    ///
+    /// A reply with no waiter is dropped by ``BotReplyBus`` — it belongs to a
+    /// human-facing turn, whose text travels on ``SessionHandle/responses``.
+    @discardableResult
+    func publishReply(id: String, text: String) async -> Bool {
+        await replies.publish(id: id, text: text)
+    }
+
+    /// Drop the waiter for `id` without a reply: the caller timed out, or its
+    /// reader was cancelled. Idempotent, so the two paths can race.
+    func cancelReplyWaiter(id: String) async {
+        await replies.cancel(id: id)
     }
 
     /// Set the group-chat manager reference.
@@ -432,4 +472,25 @@ public actor SessionRegistry {
 
     /// The number of active session agents.
     var activeCount: Int { agents.count }
+
+    /// The message ids a caller is still waiting on. Must be empty for a
+    /// question that timed out: a leaked waiter is a leak.
+    func waitingReplyIDs() async -> [String] {
+        await replies.waitingIDs
+    }
+}
+
+// MARK: - BotPeerSessions
+
+/// The registry is the production session layer `send_bot_message` speaks to:
+/// it opens (or reuses) the recipient's canonical session to deliver a message,
+/// and it owns the correlated reply channel the recipient's turn publishes into.
+extension SessionRegistry: BotPeerSessions {
+
+    func deliver(_ incoming: IncomingMessage, profile: String) async {
+        // The canonical chat id travels on the message; the session exists
+        // under that id or is created for it.
+        let handle = await getOrCreate(sessionID: incoming.chat.chatID, profile: profile)
+        handle.inputContinuation.yield(incoming)
+    }
 }

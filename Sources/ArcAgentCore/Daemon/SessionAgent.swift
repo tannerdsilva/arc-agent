@@ -391,6 +391,14 @@ public actor SessionAgent: Service {
                 // 1. Response continuation (for HTTP API callers awaiting the result)
                 responseContinuation.yield(finalText)
                 // 2. Delivery manager (for platform adapters like Telegram)
+                //
+                // And the correlated channel: a caller that asked THIS message a
+                // question (send_bot_message) is waiting on its id, not on the
+                // single-consumer `responses` stream. Publishing under the id of
+                // the message that started the turn is what keeps two concurrent
+                // askers' answers apart. A reply nobody waits for is dropped by
+                // the registry.
+                await registry.publishReply(id: message.id, text: finalText)
 
                 // Report activity for the "active now" strip
                 if let messaging = await registry.messagingService {

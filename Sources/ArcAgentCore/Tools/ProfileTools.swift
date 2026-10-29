@@ -117,7 +117,6 @@ public enum SendBotMessageTool {
     /// What the bounded wait produced.
     private enum Delivery: Sendable {
         case reply(String)
-        case deliveredNoReply
         case timedOut
         case failed(String)
     }
@@ -169,8 +168,6 @@ public enum SendBotMessageTool {
                 switch outcome {
                 case .reply(let text):
                     return "Reply from '\(target)': \(text)"
-                case .deliveredNoReply:
-                    return "Message delivered to '\(target)'; no reply came back."
                 case .timedOut:
                     return "Timed out after \(render(replyTimeout)) waiting for a reply from '\(target)'. The message may have been delivered — check their Bot Chat."
                 case .failed(let reason):
@@ -210,7 +207,10 @@ public enum SendBotMessageTool {
                 } catch {
                     return .failed(String(describing: error))
                 }
-                return text.isEmpty ? .deliveredNoReply : .reply(text)
+                // An empty stream means no reply arrived inside the bound: the
+                // service now ends the stream with a value only when the peer's
+                // turn actually published one.
+                return text.isEmpty ? .timedOut : .reply(text)
             }
             group.addTask {
                 try? await Task.sleep(for: timeout)
