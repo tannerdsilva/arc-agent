@@ -2397,15 +2397,11 @@ public actor ArcAgent: Service {
         timeout: Int = 120,
         reasoningEffort: String? = nil
     ) async throws -> LLMResponse {
-        // Check circuit breaker — if open, reject immediately
-        let cbState = await circuitBreaker.currentState()
-        if case .open(let resetAt) = cbState {
-            throw CircuitBreakerError.open(
-                label: circuitBreaker.label,
-                resetAt: resetAt,
-                lastFailureReason: "Circuit breaker is open"
-            )
-        }
+        // Admission, not a state read: `admit()` performs the open → half-open
+        // transition once the reset window elapses. Gating on `currentState()`
+        // left a tripped breaker rejecting every call until the process
+        // restarted — a 30-second outage disabled the agent for good.
+        try await circuitBreaker.admit()
 
         var lastError: Error? = nil
         /// Client rebuilt by PRIMARY transport recovery (used only after a
@@ -2549,14 +2545,8 @@ public actor ArcAgent: Service {
         reasoningEffort: String? = nil,
         emit: (@Sendable (AgentTurnEvent) -> Void)? = nil
     ) async throws -> any AsyncSequence<LLMDelta, Error> {
-        let cbState = await circuitBreaker.currentState()
-        if case .open(let resetAt) = cbState {
-            throw CircuitBreakerError.open(
-                label: circuitBreaker.label,
-                resetAt: resetAt,
-                lastFailureReason: "Circuit breaker is open"
-            )
-        }
+        // Admission, not a state read — see `callWithRetry`.
+        try await circuitBreaker.admit()
 
         var lastError: Error? = nil
         /// Client rebuilt by PRIMARY transport recovery (used only after a
