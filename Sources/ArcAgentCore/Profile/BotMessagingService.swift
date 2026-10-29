@@ -270,6 +270,64 @@ public actor BotMessagingService: Service {
         }
     }
 
+    /// Ask one participant a question and wait for its answer.
+    ///
+    /// This is the group-room half of the correlated reply primitive. It is
+    /// deliberately **not** ``sendMessage(_:)``: that path derives the sender's
+    /// identity from `message.from` and validates it against the roster, but a
+    /// room turn originates from the user or the room itself — never from a
+    /// profile — so there is no profile id to validate. Here the sender is
+    /// synthetic: `group:<room>`.
+    ///
+    /// The prompt is delivered into `profile`'s **per-room** session
+    /// (`group-<room>`), not its canonical bot chat, so a member's room context
+    /// stays separate from its one-to-one conversations.
+    ///
+    /// - Parameters:
+    ///   - prompt: The room turn prompt, delivered verbatim.
+    ///   - profile: The member's profile name.
+    ///   - room: The room the turn belongs to; names the synthetic sender and
+    ///     keys the member's per-room session.
+    /// - Returns: The member's final text, or `nil` when nothing came back —
+    ///   no session layer wired, no such profile, the bound expired, or the
+    ///   turn produced no text. The waiter is cancelled on every one of those
+    ///   paths, so a silent member never leaves one registered.
+    func ask(prompt: String, profile: String, room: String) async -> String? {
+        guard let peers else { return nil }
+        guard ((try? await profileManager.get(name: profile)) ?? nil) != nil else {
+            logger.debug("Group turn skipped: no profile named '\(profile)'")
+            return nil
+        }
+
+        let id = "group-turn-\(UUID().uuidString)"
+        // Register BEFORE delivering: a member that answers immediately must
+        // not outrun its waiter.
+        let replies = await peers.registerReplyWaiter(id: id)
+        guard !Task.isCancelled else {
+            await peers.cancelReplyWaiter(id: id)
+            return nil
+        }
+
+        await peers.deliver(
+            IncomingMessage(
+                id: id,
+                chat: ChatTarget(platform: "group", chatID: "group-\(room)"),
+                text: prompt,
+                senderID: "group:\(room)",
+                senderName: room
+            ),
+            profile: profile
+        )
+
+        let reply = await Self.firstReply(replies, timeout: Self.replyTimeout)
+        // Answered: `publish` already removed the waiter. Timed out or
+        // cancelled: drop it here, so it never outlives the question.
+        await peers.cancelReplyWaiter(id: id)
+
+        guard let reply, !reply.isEmpty else { return nil }
+        return reply
+    }
+
     /// The first value the peer publishes, or `nil` when the bound expires
     /// first.
     ///

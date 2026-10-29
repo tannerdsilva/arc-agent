@@ -99,7 +99,13 @@ public actor GroupChatRoom {
     /// The group name.
     public let name: String
     /// The members of this group.
-    public let members: [Member]
+    ///
+    /// Grows, never shrinks: a profile assigned to the group after the room was
+    /// created joins on the next round (``refreshMembersFromRoster()``), and an
+    /// existing member is never dropped — the roster is not the only source a
+    /// room can be created with, so a rebuild would evict explicitly-seated
+    /// members whenever the roster read came back empty.
+    public private(set) var members: [Member]
     /// The room log (persisted).
     private var log: [Entry] = []
     /// Per-member watermark: index into `log` that each member has seen.
@@ -148,6 +154,10 @@ public actor GroupChatRoom {
 
         needsUserAttention = false
         appendEntry(Sender.user(name: "You"), text: trimmed)
+
+        // A profile assigned to this group after the room existed is a member
+        // of the next round, not of a room that never knew it.
+        await refreshMembersFromRoster()
 
         // Bump epoch to supersede any running loop
         epoch += 1
@@ -315,15 +325,59 @@ public actor GroupChatRoom {
         """
     }
 
-    /// Execute one member's turn by submitting the prompt to their per-group session.
+    /// Execute one member's turn by asking the member through the correlated
+    /// reply primitive.
+    ///
+    /// A room turn originates from the user, not from a profile, so it cannot
+    /// travel as a ``BotMessagingService/BotMessage`` — that path validates
+    /// `from` against the roster. ``BotMessagingService/ask(prompt:profile:room:)``
+    /// is the room-shaped entry point: it delivers the prompt with the
+    /// synthetic sender `group:<room>`, waits for the correlated answer, and
+    /// bounds the wait exactly as the bot path does.
+    ///
+    /// - Returns: The member's text, or `nil` for `(pass)` and for anything
+    ///   that produced no answer (no service wired, timeout, empty turn).
     private func executeMemberTurn(_ member: Member, prompt: String) async -> String? {
-        // In a full implementation, this would route the prompt to the member's
-        // per-group session via the SessionRegistry and wait for the response.
-        //
-        // For now, we return nil (pass) since the full session routing integration
-        // requires the daemon to be running.
-        logger.info("Member turn: \(member.name) in group '\(name)'")
-        return nil
+        guard let messagingService else {
+            // No session layer is wired: the room is a log, not a conversation.
+            logger.debug("Member turn skipped for \(member.name): no messaging service in group '\(name)'")
+            return nil
+        }
+
+        let reply = await messagingService.ask(prompt: prompt, profile: member.name, room: name)
+        guard let reply, !isPass(reply) else {
+            logger.info("Member turn: \(member.name) passed in group '\(name)'")
+            return nil
+        }
+        logger.info("Member turn: \(member.name) answered in group '\(name)' (\(reply.count) chars)")
+        return reply
+    }
+
+    /// Seat any profile the roster has assigned to this group since the room's
+    /// last round.
+    ///
+    /// Membership used to be fixed at creation (``GroupChatManager/getOrCreate(name:members:)``),
+    /// so a profile assigned to the group afterwards never joined and never
+    /// received a turn. The refresh is a **union**: profiles whose
+    /// ``Profile/group`` matches the room's name are appended; nobody is
+    /// removed. A rebuild from the roster would empty a room created with
+    /// explicit members whenever the roster read failed or held none.
+    ///
+    /// A failing roster read is not an error here — the room keeps the members
+    /// it has and the round proceeds.
+    private func refreshMembersFromRoster() async {
+        guard let roster = try? await profileManager.list() else { return }
+
+        var known = Set(members.map(\.name))
+        // Sorted so two rosters with equal timestamps still seat members in the
+        // same order (the roster lists newest-first).
+        let assigned = roster.filter { $0.group == name }.sorted { $0.name < $1.name }
+
+        for profile in assigned where !known.contains(profile.name) {
+            members.append(Member(name: profile.name, displayName: profile.displayName))
+            known.insert(profile.name)
+            logger.info("Group '\(name)': \(profile.name) joined from the roster's group assignment")
+        }
     }
 
     /// Check if a reply text is a pass (silence).
@@ -368,8 +422,17 @@ public actor GroupChatManager {
     }
 
     /// Set the messaging service reference.
-    func setMessagingService(_ service: BotMessagingService) {
+    ///
+    /// Propagates to **existing** rooms as well as future ones. Storing the
+    /// service for rooms created afterwards only left every room that already
+    /// existed without one — mute for the life of the process, because
+    /// ``getOrCreate(name:members:)`` returns the existing room and never
+    /// re-seats it.
+    func setMessagingService(_ service: BotMessagingService) async {
         self.messagingService = service
+        for room in rooms.values {
+            await room.setMessagingService(service)
+        }
     }
 
     /// Get or create a group chat room.

@@ -409,7 +409,7 @@ public enum SendGroupChatTool {
                 // room's rounds before returning, so by here the message has
                 // actually landed where members read it.
                 await room.sendUserMessage(message)
-                let count = room.members.count
+                let count = await room.members.count
                 let sender = context.profile.rawValue
                 return "Message from '@\(sender)' posted to group chat '\(group)' (\(count) member\(count == 1 ? "" : "s"))."
             },
