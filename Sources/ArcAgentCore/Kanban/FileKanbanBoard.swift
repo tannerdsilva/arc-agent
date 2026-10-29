@@ -28,7 +28,10 @@ public actor FileKanbanBoard: KanbanBoard {
     // MARK: - KanbanBoard
 
     public func create(_ task: KanbanTask) async throws {
-        guard cache[task.id] == nil else {
+        // Duplicate detection consults the directory, not just `cache`: a fresh
+        // instance starts empty, so an id another instance already wrote would
+        // be silently overwritten — its result, parents and children lost.
+        guard (cache[task.id] ?? load(id: task.id)) == nil else {
             throw KanbanError.duplicateId(task.id)
         }
         cache[task.id] = task
@@ -48,9 +51,14 @@ public actor FileKanbanBoard: KanbanBoard {
     }
 
     public func delete(id: String) async throws {
-        cache[id] = nil
         let url = fileURL(for: id)
-        try? FileManager.default.removeItem(at: url)
+        // A swallowed removal error is worse than a noisy one: the file
+        // survives, the caller is told the task is gone, and the next hydration
+        // resurrects it. A task with no file at all is still evicted from cache.
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
+        cache[id] = nil
     }
 
     public func list(
