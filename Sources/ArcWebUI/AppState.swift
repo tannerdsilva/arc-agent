@@ -876,6 +876,17 @@ actor AppState {
     var memoryEdit = false
     var skillEdit = false
     var memoryContent = ""
+    /// The refusal the panel's last write received — the store's budget
+    /// sentence, the threat scanner's, or a profile-store failure. Rendered
+    /// beside the editor and cleared when it opens, closes, or a write lands:
+    /// a human edit that breaks a memory rule is refused, never truncated.
+    var memoryError: String? = nil
+    /// Test seam for the one-time legacy Memory-panel seed: where the dead
+    /// panel's files and their marker live. `nil` (production) means the real
+    /// paths — `~/.arc-agent-webui` and `~/.arc/.webui-memory-migration-v1` —
+    /// which on a real machine hold the human's own memory, so a fixture must
+    /// point both into its temp tree.
+    var memoryPanelLegacyPaths: (legacy: URL, marker: URL)? = nil
 
     /// Kanban UI mode (phase: kanban).
     var addingColumn = false
@@ -1155,6 +1166,12 @@ actor AppState {
         var memoryDoc: String? = nil
         var memoryEdit = false
         var memoryContent = ""
+        /// the refusal the panel's last write received (`memoryError`).
+        var memoryError: String? = nil
+        /// the one-time legacy panel seed's source directory + marker — a
+        /// fixture points both into its temp tree so it never reads or writes
+        /// the operator's `~/.arc-agent-webui`
+        var memoryPanelLegacy: (legacy: URL, marker: URL)? = nil
         // phase 7: right-hand workspace panel state. the dock, the panel and the
         // preview are all state-driven, so a fixture that cannot set this state
         // can only ever capture the closed panel.
@@ -1225,6 +1242,8 @@ actor AppState {
         self.memoryDoc = fixture.memoryDoc
         self.memoryEdit = fixture.memoryEdit
         self.memoryContent = fixture.memoryContent
+        self.memoryError = fixture.memoryError
+        self.memoryPanelLegacyPaths = fixture.memoryPanelLegacy
         self.workspaceOpen = fixture.workspaceOpen
         self.wsNewMode = fixture.wsNewMode
         self.showHiddenFiles = fixture.showHiddenFiles

@@ -1,4 +1,5 @@
 import ArcAgentCore
+import ArcToolKit
 import Foundation
 import WebUI
 
@@ -21,7 +22,12 @@ extension AppState {
         case .tools:
             if selectedTool == nil { selectedTool = registry.allTools.first?.name }
         case .memory:
-            if memoryDoc == nil { openMemoryDoc("memory") }
+            if memoryDoc == nil { await openMemoryDoc("memory") }
+            // The panel is per-chat: landing on it re-reads the open document
+            // from the active chat's profile, so an editor never holds one
+            // profile's text while a save resolves another's. A no-op when no
+            // document is open.
+            await reloadMemoryPanelDocument()
         case .tasks:
             // the panel renders from the store-backed cache; refresh on open.
             await refreshScheduledJobs()
@@ -154,6 +160,12 @@ extension AppState {
             // Lazy design: fetch this chat's messages on open (and evict
             // least-recently-opened bodies beyond the cache cap).
             await ensureSessionMessages(id)
+        }
+        // A chat switch changes which profile the Memory panel addresses, so
+        // the open document is re-read here: the editor must never keep one
+        // profile's text while a save would resolve another's.
+        if activeTabID == "memory" {
+            await reloadMemoryPanelDocument()
         }
         evictOverloadedCache()
     }
@@ -864,39 +876,174 @@ extension AppState {
 
     // MARK: Memory panel
 
-    func openMemoryDoc(_ key: String) {
+    /// The profile the Memory panel edits.
+    ///
+    /// The panel is a per-chat surface, so it edits the *chat's* profile — the
+    /// one `turnMemoryProvider(for:)` hands a turn and the one `profile_edit`
+    /// addresses. A chat bound to no profile (no binding, or a binding that is
+    /// not a valid profile name) edits `default`, which is the profile
+    /// `toolContext(for:)` constructs an unbound chat's agent under — so even
+    /// then the human and the agent meet on one document.
+    func memoryPanelProfile() -> ProfileName {
+        profileName(for: activeSessionID).flatMap { ProfileName($0) } ?? .default
+    }
+
+    /// The active profile's `MEMORY.md` / `USER.md`, bound to one root.
+    ///
+    /// `ProfileDocuments` is the same write path `profile_edit` uses, so the
+    /// panel cannot address a document the agent's tools cannot see.
+    ///
+    /// The grant is a **full** one on purpose. `AgentPowers.grant(profile:)` is
+    /// the *agent's* authority: the lockdown in Settings → Agent powers exists
+    /// to stop the agent from rewriting its own memory, not to stop the person
+    /// who set it. Gating this surface with the agent's grant would leave an
+    /// operator unable to fix their own memory without unlocking the agent
+    /// first — the exact inversion the lock exists to prevent.
+    func memoryPanelDocuments() -> ProfileDocuments? {
+        let profile = memoryPanelProfile()
+        guard let root = ProfileManager.memoryURL(for: profile.rawValue) else { return nil }
+        return ProfileDocuments(root: root, grant: ToolGrant(profile: profile))
+    }
+
+    func openMemoryDoc(_ key: String) async {
         memoryEdit = false
+        memoryError = nil
         memoryDoc = key
-        memoryContent = key == "context" ? "" : loadMemoryText(key)
+        if key == "memory" || key == "user" {
+            // One-time: the panel used to write `~/.arc-agent-webui/{MEMORY,
+            // USER}.md`, documents no agent reads. Carry that text into the
+            // profile the first time a human opens the panel. Cheap afterwards
+            // (the marker short-circuits it) and the legacy file is never
+            // deleted. See `MemoryMigration.seedWebUIPanelDocuments(into:)`.
+            let paths = memoryPanelLegacyPaths
+            MemoryMigration.seedWebUIPanelDocuments(
+                into: memoryPanelProfile(),
+                legacy: paths?.legacy,
+                marker: paths?.marker
+            )
+        }
+        memoryContent = key == "context" ? "" : await loadMemoryText(key)
     }
 
-    func startMemoryEdit() { memoryEdit = true }
+    func startMemoryEdit() {
+        memoryError = nil
+        memoryEdit = true
+    }
 
-    func cancelMemoryEdit() { memoryEdit = false }
-
-    func saveMemoryDoc(_ key: String, content: String) {
-        guard key != "context" else { return }
-        let ok = writeMemoryText(key, content: content)
-        memoryContent = content
+    /// Re-read the open document from the profile the panel now addresses.
+    ///
+    /// The panel's document belongs to the *chat's* profile, so both a chat
+    /// switch and landing on the tab re-read it: an editor left holding profile
+    /// A's text while `saveMemoryDoc` resolves profile B would write one
+    /// profile's memory into another's.
+    func reloadMemoryPanelDocument() async {
+        guard let key = memoryDoc, key != "context" else { return }
         memoryEdit = false
-        _ = hint(ok ? "Saved \(memoryFileURL(key)?.lastPathComponent ?? "file")." : "Could not write \(memoryFileURL(key)?.lastPathComponent ?? "file").", kind: ok ? "" : "error")
+        memoryError = nil
+        memoryContent = await loadMemoryText(key)
     }
 
-    func loadMemoryText(_ key: String) -> String {
-        guard let url = memoryFileURL(key), let s = try? String(contentsOf: url, encoding: .utf8) else { return "" }
-        return s
+    /// Close the editor without saving, and re-read the document so the view
+    /// shows what is on disk — a refused save leaves the draft in
+    /// `memoryContent`, and cancelling must not present it as saved.
+    func cancelMemoryEdit() async {
+        memoryEdit = false
+        memoryError = nil
+        if let key = memoryDoc, key != "context" {
+            memoryContent = await loadMemoryText(key)
+        }
     }
 
-    @discardableResult
-    func writeMemoryText(_ key: String, content: String) -> Bool {
-        guard let url = memoryFileURL(key) else { return false }
-        let fm = FileManager.default
-        try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    /// Write one document from the panel.
+    ///
+    /// `memory` and `user` go through ``ProfileDocuments`` — the profile's real
+    /// document, not a file beside the settings JSON — and are refused by the
+    /// same two rules the agent's `memory` tool meets: the char budget
+    /// (2,200 / 1,375, from ``MemoryStore``) and ``MemoryContentScanner``. A
+    /// refusal is reported in the panel and the document is left exactly as it
+    /// was: saving a truncated memory would be memory loss with a success
+    /// toast.
+    ///
+    /// `soul` is not a file at all: it is the profile record's `soulMD`, so it
+    /// goes through the roster writer (`TesseraProfileStore.shared`, the store
+    /// `ProfileManager` delegates to), which is what the prompt is built from.
+    /// `context` is read-only (the workspace's `AGENTS.md`) and never reaches
+    /// this function.
+    func saveMemoryDoc(_ key: String, content: String) async {
+        guard key != "context" else { return }
+        memoryError = nil
+        guard let document = ProfileFile(rawValue: key), document != .agents else {
+            memoryError = "Unknown memory document '\(key)'."
+            _ = hint(memoryError ?? "", kind: "error")
+            return
+        }
+        if document == .soul {
+            await saveSoulDocument(content)
+            return
+        }
+
+        if let refusal = MemoryStore.documentWriteRefusal(key, content: content) {
+            refuseMemoryPanelWrite(document, content: content, reason: refusal)
+            return
+        }
+        guard let documents = memoryPanelDocuments() else {
+            refuseMemoryPanelWrite(
+                document, content: content,
+                reason: "no profile document directory is available")
+            return
+        }
         do {
-            try content.write(to: url, atomically: true, encoding: .utf8)
-            return true
+            try documents.write(document, content)
+            memoryContent = content
+            memoryEdit = false
+            _ = hint("Saved \(document.fileName).")
         } catch {
-            return false
+            let reason = (error as? ProfileDocuments.Failure)?.description
+                ?? error.localizedDescription
+            refuseMemoryPanelWrite(document, content: content, reason: reason)
+        }
+    }
+
+    func loadMemoryText(_ key: String) async -> String {
+        guard let document = ProfileFile(rawValue: key), document != .agents else { return "" }
+        if document == .soul {
+            let profile = memoryPanelProfile()
+            guard let record = try? await TesseraProfileStore.shared.get(profile) else { return "" }
+            return record.soulMD ?? ""
+        }
+        guard let documents = memoryPanelDocuments() else { return "" }
+        return (try? documents.read(document)) ?? ""
+    }
+
+    /// Keep a refused edit in the editor and say why. Nothing on disk changed,
+    /// so the human's text is not thrown away and the editor stays open.
+    private func refuseMemoryPanelWrite(
+        _ document: ProfileFile, content: String, reason: String
+    ) {
+        memoryError = reason
+        memoryContent = content
+        memoryEdit = true
+        _ = hint("Could not save \(document.fileName): \(reason)", kind: "error")
+    }
+
+    private func saveSoulDocument(_ content: String) async {
+        let profile = memoryPanelProfile()
+        let store = TesseraProfileStore.shared
+        do {
+            guard var record = try await store.get(profile) else {
+                refuseMemoryPanelWrite(
+                    .soul, content: content,
+                    reason: "profile '\(profile.rawValue)' has no record, so it has no SOUL to edit")
+                return
+            }
+            record.soulMD = content
+            record.updatedAt = Date()
+            try await store.put(record)
+            memoryContent = content
+            memoryEdit = false
+            _ = hint("Saved SOUL.md.")
+        } catch {
+            refuseMemoryPanelWrite(.soul, content: content, reason: error.localizedDescription)
         }
     }
 

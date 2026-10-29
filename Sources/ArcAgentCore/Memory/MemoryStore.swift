@@ -38,6 +38,29 @@ public struct MemoryStore: Sendable {
         Self.charLimit(for: target)
     }
 
+    /// The refusal for writing `content` as the *whole* `target` document, or
+    /// `nil` when it fits the budget and scans clean.
+    ///
+    /// `add`/`replace` cannot serve a caller that already holds the finished
+    /// document — the web UI's Memory panel edits raw markdown, not entries —
+    /// but the two rules behind them still apply: the same char budget
+    /// (2,200 / 1,375) and the same threat scanner. The sentence keeps the
+    /// store's shape ("over the limit", with the live count and the limit), so
+    /// a human editing the panel is refused in the same words as the agent
+    /// whose memory it is. Nothing here truncates: the caller reports the
+    /// refusal and leaves the document alone.
+    public static func documentWriteRefusal(_ target: String, content: String) -> String? {
+        if let scanError = MemoryContentScanner.firstThreatMessage(content) {
+            return scanError
+        }
+        let limit = charLimit(for: target)
+        let count = content.count
+        guard count > limit else { return nil }
+        let label = target == "user" ? "User profile" : "Memory"
+        return "\(label) at \(count.formatted())/\(limit.formatted()) chars — over the limit. "
+            + "Shorten this document, then save again."
+    }
+
     // MARK: - Operations (reference semantics)
 
     /// Append a new entry. Returns an error dict if it would exceed the char limit.
