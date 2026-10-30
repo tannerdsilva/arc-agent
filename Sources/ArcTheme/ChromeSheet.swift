@@ -2872,7 +2872,12 @@ public static let css: String = """
       background: var(--bg);
       transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.28s ease;
     }
-    .ws-panel.ws-closing { transform: translateX(70px); opacity: 0; }
+    /* The panel stays mounted (opacity 0, translated off-edge) until the
+       server's close patch lands, which is a frame or two after the 280ms
+       exit. An invisible element that still hit-tests swallows clicks over
+       the right edge — including the dock button that reopens it — so the
+       closing state must not be clickable. */
+    .ws-panel.ws-closing { transform: translateX(70px); opacity: 0; pointer-events: none; }
     .ws-panel.ws-enter { animation: wsSlideIn 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
     @keyframes wsSlideIn {
       from { transform: translateX(70px); opacity: 0; }

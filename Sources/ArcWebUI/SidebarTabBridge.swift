@@ -254,7 +254,7 @@ enum SidebarTabIconRenderer {
             case .custom(let name, let body):
                 WebUIIconCustom(name: name, body: body, size: size)
             case .emoji(let glyph):
-                Span(class: "rail-emoji") { Text(glyph) }
+                Span(class: .railEmoji) { Text(glyph) }
                     .attribute("role", "img")
                     .aria(.hidden(.yes))
             }

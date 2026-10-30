@@ -388,10 +388,10 @@ extension AppState {
     func todosTabsHTML() -> some WebUI.View {
         let tasksCls = todosTab == .tasks ? " todo-tab-active" : ""
         let queueCls = todosTab == .queue ? " todo-tab-active" : ""
-        return Div(class: "todo-tabs") {
+        return Div(class: .todoTabs) {
             ArcButton("Tasks", id: "queue-tab-tasks", component: nil, class: "todo-tab\(tasksCls)")
             ArcButton("Run queue", id: "queue-tab-queue", component: nil, class: "todo-tab\(queueCls)")
-            Span(class: "todo-tabs-count") { Text("\(settings.queuePlan.count) queued") }
+            Span(class: .todoTabsCount) { Text("\(settings.queuePlan.count) queued") }
         }
         .wire("queue")
     }
@@ -406,24 +406,24 @@ extension AppState {
         let statusText = status.isEmpty ? "" : (status == "done" ? "done" : status == "failed" ? "failed" : status)
         return Group {
             Div(class: "queue-row\(missing)\(statusCls)") {
-                Span(class: "queue-grip") { WebUIIcon(.moreVertical, size: .small) }
+                Span(class: .queueGrip) { WebUIIcon(.moreVertical, size: .small) }
                     .title("Drag to reorder")
-                Span(class: "queue-idx") { Text("\(index + 1)") }
-                Div(class: "queue-main") {
-                    Div(class: "queue-text") { Text(todo?.text ?? "⚠︎ todo no longer exists") }
-                    Div(class: "queue-meta") {
+                Span(class: .queueIdx) { Text("\(index + 1)") }
+                Div(class: .queueMain) {
+                    Div(class: .queueText) { Text(todo?.text ?? "⚠︎ todo no longer exists") }
+                    Div(class: .queueMeta) {
                         // the chat label and the separator are one text node; the feed
                         // chips follow it as their own views.
                         Text(queueChatLabel(e.chatID) + " · ")
                         queueFeedSummary(e)
                     }
                 }
-                ArcButton(id: "queue-inputs-\(e.id)", component: nil, class: "icon-mini queue-link-btn") {
+                ArcButton(id: "queue-inputs-\(e.id)", component: nil, class: ClassName(.iconMini, .queueLinkBtn)) {
                     WebUIIcon(.link, size: .small)
                 }
                 .title("Feed earlier task output into this task")
                 Span(class: "queue-status\(statusCls)") { Text(statusText) }
-                ArcButton(id: "queue-del-\(e.id)", component: nil, class: "icon-mini danger") {
+                ArcButton(id: "queue-del-\(e.id)", component: nil, class: ClassName(.iconMini, .danger)) {
                     WebUIIcon(.x, size: .small)
                 }
                 .title("Remove from queue")
@@ -443,19 +443,19 @@ extension AppState {
             guard let i = plan.firstIndex(where: { $0.id == id }) else { return nil }
             let todo = queueTodo(plan[i])
             let label = trunc(todo?.text ?? "…", 60)
-            return Span(class: "queue-feed-chip") {
-                Span(class: "queue-feed-accent") {}
-                Span(class: "queue-feed-label") { Text("Task \(i + 1): \(label)") }
+            return Span(class: .queueFeedChip) {
+                Span(class: .queueFeedAccent) {}
+                Span(class: .queueFeedLabel) { Text("Task \(i + 1): \(label)") }
             }
             .title(todo?.text ?? "")
         }
         return Group {
             if e.inputs.isEmpty {
-                Span(class: "queue-in") { Text("no feed") }
+                Span(class: .queueIn) { Text("no feed") }
             } else {
-                Span(class: "queue-in") {
+                Span(class: .queueIn) {
                     Text("feeds: ")
-                    Span(class: "queue-feed-chips") { chips }
+                    Span(class: .queueFeedChips) { chips }
                 }
             }
         }
@@ -473,33 +473,33 @@ extension AppState {
             let checked = queueLinkSel.contains(prev.id)
             let full = queueTodo(prev)?.text ?? ""
             rows.append(
-                FieldLabel(class: "queue-link-row") {
+                FieldLabel(class: .queueLinkRow) {
                     Input(id: "qlink-\(prev.id)", type: .checkbox, value: prev.id)
                         .wire("qlink", on: .change)
                         .flag(.checked, when: checked)
-                    Span(class: "queue-link-num") { Text("Task \(i + 1)") }
-                    Span(class: "queue-link-title") { Text(trunc(full.isEmpty ? "…" : full, 80)) }
+                    Span(class: .queueLinkNum) { Text("Task \(i + 1)") }
+                    Span(class: .queueLinkTitle) { Text(trunc(full.isEmpty ? "…" : full, 80)) }
                         .title(full)
                     if later {
-                        Span(class: "queue-link-loop") { Text("loops back") }
+                        Span(class: .queueLinkLoop) { Text("loops back") }
                     }
                 }
             )
         }
         let head = loopOn ? "Feed output of other tasks into this task" : "Feed output of earlier tasks into this task"
-        return Div(class: "queue-link") {
-            Div(class: "queue-link-head") { Text(head) }
+        return Div(class: .queueLink) {
+            Div(class: .queueLinkHead) { Text(head) }
             if rows.isEmpty {
-                Div(class: "queue-link-empty") { Text("No other tasks to feed from.") }
+                Div(class: .queueLinkEmpty) { Text("No other tasks to feed from.") }
             } else {
                 rows
             }
             if loopOn {
-                Div(class: "queue-link-note") { Text("Loop is on: later tasks feed back on the next pass.") }
+                Div(class: .queueLinkNote) { Text("Loop is on: later tasks feed back on the next pass.") }
             }
-            Div(class: "queue-link-actions") {
-                ArcButton("Apply", id: "queue-link-apply", component: nil, class: "primary-btn")
-                ArcButton("Clear", id: "queue-link-clear", component: nil, class: "ghost-btn")
+            Div(class: .queueLinkActions) {
+                ArcButton("Apply", id: "queue-link-apply", component: nil, class: .primaryBtn)
+                ArcButton("Clear", id: "queue-link-clear", component: nil, class: .ghostBtn)
             }
         }
     }
@@ -510,20 +510,20 @@ extension AppState {
         let count = queueCandidates.count
         return Group {
             if queuePickerOpen {
-                Div(class: "queue-picker") {
-                    Div(class: "queue-picker-head") {
+                Div(class: .queuePicker) {
+                    Div(class: .queuePickerHead) {
                         Span { Text("Add todos from your chats") }
-                        ArcButton(id: "queue-picker-close", component: nil, class: "icon-mini") {
+                        ArcButton(id: "queue-picker-close", component: nil, class: .iconMini) {
                             WebUIIcon(.x, size: .small)
                         }
                     }
                     if sections.isEmpty {
-                        Div(class: "queue-pick-empty") { Text("No open todos in any chat.") }
+                        Div(class: .queuePickEmpty) { Text("No open todos in any chat.") }
                     } else {
                         sections
                     }
-                    Div(class: "queue-picker-foot") {
-                        ArcButton("Add \(count) selected", id: "queue-picker-add", component: nil, class: "primary-btn")
+                    Div(class: .queuePickerFoot) {
+                        ArcButton("Add \(count) selected", id: "queue-picker-add", component: nil, class: .primaryBtn)
                     }
                 }
             }
@@ -542,16 +542,16 @@ extension AppState {
             guard !list.isEmpty else { continue }
             let cbs: [any WebUI.View] = list.map { t in
                 let checked = queueCandidates.contains(t.id)
-                return FieldLabel(class: "queue-pick-row") {
+                return FieldLabel(class: .queuePickRow) {
                     Input(id: "qpick-\(t.id)", type: .checkbox, value: t.id)
                         .wire("qpick", on: .change)
                         .flag(.checked, when: checked)
-                    Span(class: "queue-pick-text") { Text(t.text) }
+                    Span(class: .queuePickText) { Text(t.text) }
                 }
             }
             sections.append(
-                Div(class: "queue-pick-chat") {
-                    Div(class: "queue-pick-title") { Text(queueChatLabel(s.id)) }
+                Div(class: .queuePickChat) {
+                    Div(class: .queuePickTitle) { Text(queueChatLabel(s.id)) }
                     cbs
                 }
             )
@@ -567,18 +567,18 @@ extension AppState {
         // the rows are materialized up front: a builder cannot take `[some View]`
         let rows: [any WebUI.View] = plan.enumerated().map { i, e in queueRowHTML(e, index: i, plan: plan) }
         return Div(class: "todo-card queue-card") {
-            Div(class: "todo-head") {
+            Div(class: .todoHead) {
                 Div {
-                    Element(.h2, class: "todo-title") { Text("Run queue") }
-                    Div(class: "todo-sub") {
+                    Element(.h2, class: .todoTitle) { Text("Run queue") }
+                    Div(class: .todoSub) {
                         Text("Tasks run in the order shown. Sequential feeds linked output; parallel runs each chat at once.")
                     }
                 }
-                Div(class: "todo-head-actions") {
-                    Div(class: "queue-ctrl") {
+                Div(class: .todoHeadActions) {
+                    Div(class: .queueCtrl) {
                         if running {
                             queueRunningStatus()
-                            ArcButton("Stop", id: "queue-stop", component: nil, class: "queue-stop-btn")
+                            ArcButton("Stop", id: "queue-stop", component: nil, class: .queueStopBtn)
                                 .title("Stop the queue run; prompts already running in chats keep going")
                         } else {
                             queueRunControls()
@@ -587,7 +587,7 @@ extension AppState {
                     }
                 }
             }
-            Div(class: "queue-list") {
+            Div(class: .queueList) {
                 if plan.isEmpty { queueEmptyState() }
                 rows
             }
@@ -609,26 +609,26 @@ extension AppState {
         if queueLoopPass > 0 {
             passText = " · pass \(queueLoopPass)/\(max(1, settings.queueLoopCount))"
         }
-        return Span(class: "queue-running") {
-            Span(class: "queue-running-dot") {}
+        return Span(class: .queueRunning) {
+            Span(class: .queueRunningDot) {}
             Text("Running…" + passText)
         }
     }
 
     /// the three buttons that start a run or open the picker, idle state only.
     private func queueRunControls() -> some WebUI.View {
-        Div(class: "queue-ctrl-btns") {
-            ArcButton(id: "queue-run-sync", component: nil, class: "queue-run-btn") {
-                Span(class: "queue-run-ico") { WebUIIcon(.play, size: .small) }
+        Div(class: .queueCtrlBtns) {
+            ArcButton(id: "queue-run-sync", component: nil, class: .queueRunBtn) {
+                Span(class: .queueRunIco) { WebUIIcon(.play, size: .small) }
                 Text("Run sequential")
             }
             .title("Run tasks in the shown order; linked tasks receive earlier output as context")
-            ArcButton(id: "queue-run-async", component: nil, class: "queue-run-btn") {
-                Span(class: "queue-run-ico") { WebUIIcon(.fastForward, size: .small) }
+            ArcButton(id: "queue-run-async", component: nil, class: .queueRunBtn) {
+                Span(class: .queueRunIco) { WebUIIcon(.fastForward, size: .small) }
                 Text("Run parallel")
             }
             .title("Run each chat at the same time; same-chat tasks are combined")
-            ArcButton(id: "queue-picker-toggle", component: nil, class: "queue-add-btn") {
+            ArcButton(id: "queue-picker-toggle", component: nil, class: .queueAddBtn) {
                 WebUIIcon(.plus, size: .small)
                 Text(" Add tasks")
             }
@@ -637,20 +637,20 @@ extension AppState {
 
     /// the loop switch, plus the pass-count field when the loop is on.
     private func queueLoopRow(loopOn: Bool) -> some WebUI.View {
-        Div(class: "queue-loop-row") {
-            FieldLabel(class: "queue-loop-toggle") {
-                Span(class: "switch") {
+        Div(class: .queueLoopRow) {
+            FieldLabel(class: .queueLoopToggle) {
+                Span(class: .switch) {
                     Input(id: "queue-loop-toggle", type: .checkbox, value: "1")
                         .wire("queue-loop-toggle", on: .change)
                         .flag(.checked, when: loopOn)
-                    Span(class: "track") {}
-                    Span(class: "knob") {}
+                    Span(class: .track) {}
+                    Span(class: .knob) {}
                 }
-                Span(class: "queue-loop-label") { Text("Loop sequential") }
+                Span(class: .queueLoopLabel) { Text("Loop sequential") }
             }
             .title("Repeat the sequential run; linked later tasks feed back on the next pass")
             if loopOn {
-                FieldLabel(class: "queue-loop-count") {
+                FieldLabel(class: .queueLoopCount) {
                     Span(class: "queue-loop-count-label") { Text("Loops") }
                     Input(
                         id: "queue-loop-count",
@@ -667,8 +667,8 @@ extension AppState {
 
     /// the empty-queue placeholder.
     private func queueEmptyState() -> some WebUI.View {
-        Div(class: "todo-empty") {
-            Div(class: "todo-empty-ico") { WebUIIcon(.fastForward, size: .extraLarge) }
+        Div(class: .todoEmpty) {
+            Div(class: .todoEmptyIco) { WebUIIcon(.fastForward, size: .extraLarge) }
             Div { Text("Nothing queued yet") }
             Small("Add todos from any chat below, drag to reorder, then run them.")
         }

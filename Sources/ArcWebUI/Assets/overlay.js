@@ -811,7 +811,7 @@
     // same `#w-close` (falling back to the collapse-tab `#w-dock`) click the
     // ✕ uses, so the exit transition and the server-side close both run.
     var wsPanel = document.getElementById('ws-panel');
-    if (wsPanel && !wsPanel.classList.contains('hidden') && !wsPanel.classList.contains('ws-closing') && !wsAnimBusy) {
+    if (wsPanel && !wsPanel.classList.contains('hidden') && !wsPanel.classList.contains('ws-closing')) {
       var wsClose = document.getElementById('w-close') || document.getElementById('w-dock');
       if (wsClose) wsClose.click();
     }
@@ -1698,26 +1698,21 @@
     setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 2600);
   }
 
-  // ---- Workspace panel: slide-out before the ✕/arrow close lands.
-  // The runtime performs the real close (replacing the panel with the
-  // closed fragment); we intercept the first click, play the exit
-  // transition, then re-click so the server state stays in sync.
-  var wsAnimBusy = false;
+  // ---- Workspace panel: start the exit visual, then let the click through.
+  // The runtime performs the real close by replacing the panel with the closed
+  // fragment. This used to withhold the click for 300ms and re-dispatch it so
+  // the slide finished first — but that put the server's close ~580ms out, and
+  // a click landing in that window toggled against a state the server had not
+  // applied yet: the handle did nothing right after closing. Adding the class
+  // and letting the click continue keeps the slide (a 280ms transition outlives
+  // the patch in the common case) and settles the control in one round trip.
   document.addEventListener('click', function (e) {
     var b = e.target && e.target.closest ? e.target.closest('#w-close, #w-dock') : null;
     if (!b) return;
     var p = document.getElementById('ws-panel');
-    if (!p || p.classList.contains('hidden') || p.classList.contains('ws-closing') || wsAnimBusy) return;
-    wsAnimBusy = true;
-    e.preventDefault();
-    e.stopImmediatePropagation();
+    if (!p || p.classList.contains('hidden') || p.classList.contains('ws-closing')) return;
     void p.offsetWidth; // force reflow so the transition actually runs
     p.classList.add('ws-closing');
-    setTimeout(function () {
-      wsAnimBusy = false;
-      var btn = document.getElementById('w-close') || document.getElementById('w-dock');
-      if (btn) btn.click();
-    }, 300);
   }, true);
 
   // ── Workspace panel: uploads (button picker + drag & drop) ────────

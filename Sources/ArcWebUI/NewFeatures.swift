@@ -441,7 +441,7 @@ extension AppState {
     /// sites address it by that id.
     func todosPanelHTML() -> some WebUI.View {
         migrateLegacyTodosIfNeeded()
-        return Div(id: "main", class: "todo-panel") {
+        return Div(id: "main", class: .todoPanel) {
             todosTabsHTML()
             if todosTab == .tasks {
                 todosTasksHTML()
@@ -463,18 +463,18 @@ extension AppState {
         for t in items {
             rows.append(
                 Div(class: t.done ? "todo-row done" : "todo-row") {
-                    ArcButton(id: "todo-toggle-\(t.id)", component: nil, class: "todo-check") {
+                    ArcButton(id: "todo-toggle-\(t.id)", component: nil, class: .todoCheck) {
                         WebUIIcon(.check, size: .small)
                     }
                     .title(t.done ? "Mark not done" : "Mark done")
                     .aria(.label("Toggle"))
-                    Span(class: "todo-text") { Text(t.text) }
-                    ArcButton(id: "todo-run-\(t.id)", component: nil, class: "todo-run") {
+                    Span(class: .todoText) { Text(t.text) }
+                    ArcButton(id: "todo-run-\(t.id)", component: nil, class: .todoRun) {
                         WebUIIcon(.play, size: .small)
                     }
                     .title("Run in chat")
                     .aria(.label("Run in chat"))
-                    ArcButton(id: "todo-del-\(t.id)", component: nil, class: "todo-x") {
+                    ArcButton(id: "todo-del-\(t.id)", component: nil, class: .todoX) {
                         WebUIIcon(.x, size: .small)
                     }
                     .title("Remove")
@@ -493,46 +493,46 @@ extension AppState {
             chatLabel = "for this chat"
         }
 
-        return Div(class: "todo-card") {
-            Div(class: "todo-head") {
+        return Div(class: .todoCard) {
+            Div(class: .todoHead) {
                 Div {
-                    Element(.h2, class: "todo-title") { Text("Todos") }
-                    Div(class: "todo-sub") { Text(chatLabel) }
+                    Element(.h2, class: .todoTitle) { Text("Todos") }
+                    Div(class: .todoSub) { Text(chatLabel) }
                 }
-                Div(class: "todo-head-actions") {
+                Div(class: .todoHeadActions) {
                     if done > 0 {
                         ArcButton("Clear done (\(done))", id: "todo-clear-done",
-                                  component: nil, class: "ghost-btn")
+                                  component: nil, class: .ghostBtn)
                             .title("Remove completed todos")
                     }
-                    ArcButton(id: "todo-run-all", component: nil, class: "todo-runall") {
-                        Span(class: "todo-runall-ico") { WebUIIcon(.fastForward, size: .small) }
+                    ArcButton(id: "todo-run-all", component: nil, class: .todoRunall) {
+                        Span(class: .todoRunallIco) { WebUIIcon(.fastForward, size: .small) }
                         Text("Run all")
                     }
                     .title("Run all open todos in chat")
                     .aria(.label("Run all open todos in chat"))
-                    Span(class: "todo-pill") { Text("\(pending) open") }
+                    Span(class: .todoPill) { Text("\(pending) open") }
                 }
             }
             Div(class: "todo-list") {
                 if items.isEmpty {
-                    Div(class: "todo-empty") {
-                        Div(class: "todo-empty-ico") { WebUIIcon(.check, size: .extraLarge) }
+                    Div(class: .todoEmpty) {
+                        Div(class: .todoEmptyIco) { WebUIIcon(.check, size: .extraLarge) }
                         Div { Text(chat.isEmpty ? "Select a chat to see its todos" : "No todos for this chat yet") }
                         Small("Add one below — it stays with this chat.")
                     }
                 }
                 rows
             }
-            Div(class: "todo-foot") {
+            Div(class: .todoFoot) {
                 // the add form declares the boundary; its field keeps only ids
                 // (the engine reports the target, so the submit round-trips).
-                Form(action: "", method: nil, id: "todo-add-form", class: "todo-add") {
+                Form(action: "", method: nil, id: "todo-add-form", class: .todoAdd) {
                     Input(id: "todo-add-text", name: "todo-text",
                           placeholder: "Add a todo for this chat…", type: .text,
                           attributes: [("autocomplete", "off")])
                         .data("no-restore", "")
-                    ArcButton("Add", class: "primary-btn", type: .submit)
+                    ArcButton("Add", class: .primaryBtn, type: .submit)
                 }
                 .data("component-id", "todos")
             }
@@ -547,23 +547,23 @@ extension AppState {
         // is a dead control — the click identity contract).
         let rows: [any WebUI.View] = settings.scheduledJobs.map { taskRowHTML($0) }
         return Group {
-            Div(class: "panel-head") {
-                Span(class: "panel-title") { Text("Scheduled Tasks") }
-                Div(class: "panel-actions") {
-                    ArcButton(id: "task-new", component: nil, class: "plus-btn") {
+            Div(class: .panelHead) {
+                Span(class: .panelTitle) { Text("Scheduled Tasks") }
+                Div(class: .panelActions) {
+                    ArcButton(id: "task-new", component: nil, class: .plusBtn) {
                         WebUIIcon(.plus, size: .medium)
                     }
                     .title("New scheduled task")
                 }
             }
             .wire("tasks")
-            Div(class: "panel-body") {
+            Div(class: .panelBody) {
                 if rows.isEmpty {
                     Div(class: "panel-note") {
                         Text("No scheduled tasks yet. Create one to run a prompt on a schedule — each task gets its own chat (kept out of the main chat list).")
                     }
                 } else {
-                    Div(class: "task-list") { rows }
+                    Div(class: .taskList) { rows }
                         .wire("tasks")
                 }
             }
@@ -579,9 +579,9 @@ extension AppState {
         let runs = j.runCount > 0 ? " · \(j.runCount) run\(j.runCount == 1 ? "" : "s")" : ""
         return ArcButton(id: "task-open-\(j.id)", component: nil, class: "task-row\(active)") {
             Span(class: "task-dot\(dot)") { Text("●") }
-            Span(class: "task-ri") {
-                Span(class: "task-rname") { Text(j.name) }
-                Span(class: "task-rmeta") { Text("\(j.schedule) · next \(next)\(runs)") }
+            Span(class: .taskRi) {
+                Span(class: .taskRname) { Text(j.name) }
+                Span(class: .taskRmeta) { Text("\(j.schedule) · next \(next)\(runs)") }
             }
         }
     }
@@ -610,48 +610,48 @@ extension AppState {
         let last = job.lastRunAt.map { fmtRel($0) } ?? "never"
         let out = job.lastOutput.map { trunc($0, 160) } ?? "—"
         let toggleLabel = job.isActive ? "Stop" : "Start"
-        let ctrl = Div(class: "detail-card task-ctrl-card") {
-            Div(class: "task-ctrl-head") {
+        let ctrl = Div(class: ClassName(.detailCard, .taskCtrlCard)) {
+            Div(class: .taskCtrlHead) {
                 Div(class: "task-ctrl-main") {
-                    Div(class: "task-ctrl-name") {
+                    Div(class: .taskCtrlName) {
                         Text("\(job.name) ")
                         Span(class: "task-status \(statusCls)") { Text(status) }
                     }
-                    Div(class: "task-ctrl-meta") {
+                    Div(class: .taskCtrlMeta) {
                         Text("\(job.schedule) · next \(next) · last \(last) · \(job.runCount) run\(job.runCount == 1 ? "" : "s")")
                     }
                 }
-                Div(class: "row-actions-main") {
-                    ArcButton(toggleLabel, id: "task-toggle-\(job.id)", component: nil, class: "ghost-btn")
-                    ArcButton("Run now", id: "task-now-\(job.id)", component: nil, class: "ghost-btn")
-                    ArcButton(id: "task-del-\(job.id)", component: nil, class: "icon-mini danger") {
+                Div(class: .rowActionsMain) {
+                    ArcButton(toggleLabel, id: "task-toggle-\(job.id)", component: nil, class: .ghostBtn)
+                    ArcButton("Run now", id: "task-now-\(job.id)", component: nil, class: .ghostBtn)
+                    ArcButton(id: "task-del-\(job.id)", component: nil, class: ClassName(.iconMini, .danger)) {
                         WebUIIcon(.x, size: .small)
                     }
                     .title("Delete task and its chat")
                 }
-                .attribute("style", "margin:0")
+                .margin(0)
                 .wire("tasks")
             }
-            Div(class: "task-ctrl-line") {
-                Span(class: "task-ctrl-key") { Text("Prompt") }
-                Span(class: "task-ctrl-val") { Text(job.prompt) }
+            Div(class: .taskCtrlLine) {
+                Span(class: .taskCtrlKey) { Text("Prompt") }
+                Span(class: .taskCtrlVal) { Text(job.prompt) }
             }
-            Div(class: "task-ctrl-line") {
-                Span(class: "task-ctrl-key") { Text("Last output") }
-                Span(class: "task-ctrl-val") { Text(out) }
+            Div(class: .taskCtrlLine) {
+                Span(class: .taskCtrlKey) { Text("Last output") }
+                Span(class: .taskCtrlVal) { Text(out) }
             }
         }
-        let thread = Div(class: "task-thread") {
-            Div(class: "chat-scroll") {
-                Div(class: "chat-inner") { messagesHTML(msgs) }
+        let thread = Div(class: .taskThread) {
+            Div(class: .chatScroll) {
+                Div(class: .chatInner) { messagesHTML(msgs) }
                     .id("task-chat-inner")
             }
             .id("task-chat-scroll")
             .data("scroll-key", "tasks-thread")
         }
         return Group {
-            Div(class: "main-view tasks-main-view") {
-                Div(class: "tasks-main-wrap") {
+            Div(class: ClassName(.mainView, .tasksMainView)) {
+                Div(class: .tasksMainWrap) {
                     ctrl
                     thread
                 }
@@ -660,10 +660,10 @@ extension AppState {
     }
 
     func taskMainEmpty() -> some WebUI.View {
-        Div(class: "main-view") {
-            Div(class: "main-scroll") {
-                Element(.h2, class: "todo-title") { Text("Scheduled tasks") }
-                Element(.p, class: "todo-sub") {
+        Div(class: .mainView) {
+            Div(class: .mainScroll) {
+                Element(.h2, class: .todoTitle) { Text("Scheduled tasks") }
+                Element(.p, class: .todoSub) {
                     Text("Pick a task on the left to see its controls and chat, or create a new one below.")
                 }
                 taskFormHTML()
@@ -673,27 +673,27 @@ extension AppState {
     }
 
     func taskFormHTML() -> some WebUI.View {
-        Div(class: "detail-card") {
+        Div(class: .detailCard) {
             Element(.h3) { Text("New scheduled task") }
                 .attribute("style", "margin:0 0 10px")
             // a real form: Enter in any field submits, and the boundary on the
             // form is what routes that submit to the cron handler. the field
             // basis layout (`task-add-row` / `task-field`) is a css pin.
-            Form(action: "", method: nil, id: "task-add-form", class: "task-add") {
-                FieldLabel(class: "task-field") {
+            Form(action: "", method: nil, id: "task-add-form", class: .taskAdd) {
+                FieldLabel(class: .taskField) {
                     Text("Title")
                     Input(field: "task-title", placeholder: "e.g. Morning digest",
                           attributes: [("autocomplete", "off")])
                 }
-                Div(class: "task-add-row") {
-                    FieldLabel(class: "task-field") {
+                Div(class: .taskAddRow) {
+                    FieldLabel(class: .taskField) {
                         Text("Start")
-                        Span(class: "task-opt") { Text("optional — empty starts now") }
+                        Span(class: .taskOpt) { Text("optional — empty starts now") }
                         Input(field: "task-start", type: .datetimeLocal)
                     }
-                    FieldLabel(class: "task-field") {
+                    FieldLabel(class: .taskField) {
                         Text("Every")
-                        Span(class: "task-every") {
+                        Span(class: .taskEvery) {
                             Input(field: "task-every", type: .number, value: "15",
                                   attributes: [("min", "1"), ("step", "1")])
                             Select(field: "task-unit", options: [
@@ -704,13 +704,13 @@ extension AppState {
                         }
                     }
                 }
-                FieldLabel(class: "task-field") {
+                FieldLabel(class: .taskField) {
                     Text("Prompt")
                     TextArea(field: "task-prompt",
                              placeholder: "What should the agent run?", rows: 4)
                 }
-                ArcButton("Schedule task", class: "primary-btn", type: .submit)
-                Element(.p, class: "task-preview") {
+                ArcButton("Schedule task", class: .primaryBtn, type: .submit)
+                Element(.p, class: .taskPreview) {
                     Text("Runs on the interval you pick, starting immediately unless a Start time is set. Each run gets its own chat, kept out of the main list.")
                 }
             }

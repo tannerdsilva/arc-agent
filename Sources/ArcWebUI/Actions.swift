@@ -3309,27 +3309,10 @@ extension Controller {
 
 // The settings surface is split across two extensions because the file's first
 // settings block is already long; two extensions need two group names, and both
-// registrars are called from `wireSettings`. Without the annotation these 30
+// registrars are called from `wireSettings`. Without the annotation these 28
 // `@Wired` markers expand to nothing and the handlers are never registered.
 @WireGroup("settings_admin")
 extension Controller {
-
-    @Wired("storage-edit", events: [.click])
-    func handleStorageEdit(_ event: EventData) async -> [FragmentUpdate] {
-        guard let tid = event.string("targetId"),
-              let cid = dec(String(tid.dropFirst("storage-edit-".count))) else { return [] }
-        await self.app.beginStorageEdit(id: cid)
-        return await self.changed()
-    }
-
-    @Wired("storage-del", events: [.click])
-    func handleStorageDel(_ event: EventData) async -> [FragmentUpdate] {
-        guard let tid = event.string("targetId"),
-              let cid = dec(String(tid.dropFirst("storage-del-".count))) else { return [] }
-        await self.app.removeStorageConnection(id: cid)
-        _ = await self.app.hint("Tessera storage removed.", kind: "success")
-        return await self.changed()
-    }
 
     @Wired("storage-cancel-edit", events: [.click])
     func handleStorageCancelEdit(_ event: EventData) async -> [FragmentUpdate] {
@@ -3610,6 +3593,21 @@ extension Controller {
     private func wireSettings(_ router: EventRouter) {
         wireGroup_settings(router)
         wireGroup_settings_admin(router)
+        // the storage row family: one typed registration stands where the two
+        // string handlers (`storage-edit`, `storage-del`) read their row from
+        // `targetId`. the payload is decoded before this body runs, so the id is
+        // already the connection id here.
+        router.on(StorageAction.self) { action, _ in
+            switch action {
+            case .edit(let id):
+                await self.app.beginStorageEdit(id: id)
+                return await self.changed()
+            case .delete(let id):
+                await self.app.removeStorageConnection(id: id)
+                _ = await self.app.hint("Tessera storage removed.", kind: "success")
+                return await self.changed()
+            }
+        }
     }
 
     /// Kanban chip/row/board actions.

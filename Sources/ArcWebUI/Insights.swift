@@ -144,13 +144,13 @@ extension AppState {
     func insightsPanel() -> some WebUI.View {
         let days = [7, 30, 90, 365]
         return Group {
-            Div(class: "panel-head") {
-                Span(class: "panel-title") { Text("Insights") }
+            Div(class: .panelHead) {
+                Span(class: .panelTitle) { Text("Insights") }
             }
-            Div(class: "detail-sub") { Text("Usage analytics") }
+            Div(class: .detailSub) { Text("Usage analytics") }
                 .attribute("style", "padding:4px 2px 10px")
-            Div(class: "ins-range-wrap") {
-                Label("Daily token range", for: "ins-range", class: "ins-range-label")
+            Div(class: .insRangeWrap) {
+                Label("Daily token range", for: "ins-range", class: .insRangeLabel)
                 Select(
                     id: "ins-range",
                     options: days.map { SelectOption(value: "\($0)", label: "Last \($0) days") },
@@ -168,18 +168,18 @@ extension AppState {
     /// pre-rendered glyph: the helper emits the svg itself, so no call site
     /// hands it markup.
     private func statBubble(label: String, value: String, icon: IconName) -> some WebUI.View {
-        Div(class: "ins-bubble") {
-            Div(class: "ins-bubble-icon") { WebUIIcon(icon, size: .large) }
-            Div(class: "ins-bubble-value") { Text(value) }
-            Div(class: "ins-bubble-label") { Text(label) }
+        Div(class: .insBubble) {
+            Div(class: .insBubbleIcon) { WebUIIcon(icon, size: .large) }
+            Div(class: .insBubbleValue) { Text(value) }
+            Div(class: .insBubbleLabel) { Text(label) }
         }
     }
 
     private func statBox(label: String, value: String, icon: IconName) -> some WebUI.View {
-        Div(class: "ins-stat-box") {
-            Div(class: "ins-stat-icon") { WebUIIcon(icon, size: .large) }
-            Div(class: "ins-stat-value") { Text(value) }
-            Div(class: "ins-stat-label") { Text(label) }
+        Div(class: .insStatBox) {
+            Div(class: .insStatIcon) { WebUIIcon(icon, size: .large) }
+            Div(class: .insStatValue) { Text(value) }
+            Div(class: .insStatLabel) { Text(label) }
         }
     }
 
@@ -235,31 +235,31 @@ extension AppState {
             .values.reduce(0, +)
 
         return Div(class: "main-scroll insights-main") {
-            Div(class: "detail-card") {
+            Div(class: .detailCard) {
                 El("h3", [("style", "margin:0 0 12px")], [
                     Text("Skill Usage "),
-                    Span(class: "ins-range-hint") { Text("(top \(min(10, ranked.count)) by uses)") },
+                    Span(class: .insRangeHint) { Text("(top \(min(10, ranked.count)) by uses)") },
                 ])
-                Div(class: "ins-bubbles") {
+                Div(class: .insBubbles) {
                     statBubble(label: "Total Invocations", value: Self.fmtCount(totalUses), icon: .star)
                     statBubble(label: "Skills Used", value: "\(used)/\(skillNames.count)", icon: .book)
                 }
                 table
             }
-            .attribute("style", "margin-bottom:16px")
-            Div(class: "detail-card") {
+            .margin(.bottom, .four)
+            Div(class: .detailCard) {
                 El("h3", [("style", "margin:0 0 12px")], [Text("Agent Activity")])
-                Div(class: "ins-stats") {
+                Div(class: .insStats) {
                     statBox(label: "Chat Sessions", value: Self.fmtCount(sessions.count), icon: .messageSquare)
                     statBox(label: "Total Messages", value: Self.fmtCount(totalMessages), icon: .fileText)
                     statBox(label: "Tokens Burned", value: Self.fmtCount(rangeTokens), icon: .chartBar)
                 }
             }
-            .attribute("style", "margin-bottom:16px")
-            Div(class: "detail-card") {
+            .margin(.bottom, .four)
+            Div(class: .detailCard) {
                 El("h3", [("style", "margin:0 0 12px")], [
                     Text("Daily Tokens "),
-                    Span(class: "ins-range-hint") { Text("(last \(insightsRangeDays) days)") },
+                    Span(class: .insRangeHint) { Text("(last \(insightsRangeDays) days)") },
                 ])
                 dailyTokensGraph()
             }
@@ -302,7 +302,7 @@ extension AppState {
         let step = insightsRangeDays > 90 ? 15 : (insightsRangeDays >= 30 ? 5 : 1)
         let labels: [any View] = days.enumerated().map { idx, day -> any View in
             let dense = idx % step == 0
-            return Div(class: "ins-xlabel") { Text(dense ? Self.dayLabel(day) : "") }
+            return Div(class: .insXlabel) { Text(dense ? Self.dayLabel(day) : "") }
                 .data("sparse", dense ? "0" : "1")
         }
 
@@ -314,23 +314,23 @@ extension AppState {
         let yTicks: [any View] = [0.0, 0.25, 0.5, 0.75, 1.0].map { frac -> any View in
             let v = Int(Double(maxVal) * frac)
             let label = frac >= 1.0 ? "" : Self.fmtCount(v)
-            return Div(class: "ins-ytick-row") {
+            return Div(class: .insYtickRow) {
                 if !label.isEmpty {
-                    Span(class: "ins-ylabel") { Text(label) }
+                    Span(class: .insYlabel) { Text(label) }
                 }
-                Span(class: "ins-ytick") {}
+                Span(class: .insYtick) {}
             }
             .attribute("style", "bottom:\(frac * 100)%")
         }
 
-        return Div(class: "ins-chart-wrap") {
-            Div(class: "ins-scale") { Text("peak \(Self.fmtCount(maxVal))") }
-            Div(class: "ins-chart-row") {
-                Div(class: "ins-yaxis") { yTicks }
+        return Div(class: .insChartWrap) {
+            Div(class: .insScale) { Text("peak \(Self.fmtCount(maxVal))") }
+            Div(class: .insChartRow) {
+                Div(class: .insYaxis) { yTicks }
                     .aria(.hidden(.yes))
-                Div(class: "ins-chart") { bars }
+                Div(class: .insChart) { bars }
             }
-            Div(class: "ins-xaxis") { labels }
+            Div(class: .insXaxis) { labels }
         }
     }
 }

@@ -15,16 +15,19 @@ import Foundation
 /// The behaviour is pinned where it now lives:
 /// `PushDiffTests.toastsChangeCarriesTheContainer` (a toasts change ships the
 /// region, and the region's html is the container, appearing AND dismissing).
-@Suite("toasts region contract")
-struct ToastsRegionContractTests {
 
-    @Test("the empty shell still renders the patch target")
-    func shellAlwaysPresent() async {
-        let app = AppState(renderFixture: AppState.RenderFixture())
-        let html = await app.toastsShell().markup.html
-        #expect(html.contains("id=\"toasts\""),
-                "the shell must emit the patch target even with nothing to show")
-        #expect(html.contains("data-component-id=\"toast-dismiss\""),
-                "the shell must keep its routing anchor across a replacement")
-    }
+extension ArcWebUITestRoot {
+	@Suite("toasts region contract", .serialized)
+	struct ToastsRegionContractTests {
+
+	    @Test("the empty shell still renders the patch target")
+	    func shellAlwaysPresent() async {
+	        let app = AppState(renderFixture: AppState.RenderFixture())
+	        let html = await app.toastsShell().markup.html
+	        #expect(html.contains("id=\"toasts\""),
+	                "the shell must emit the patch target even with nothing to show")
+	        #expect(html.contains("data-component-id=\"toast-dismiss\""),
+	                "the shell must keep its routing anchor across a replacement")
+	    }
+	}
 }

@@ -16,7 +16,19 @@
 
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => Array.from(document.querySelectorAll(s));
-  const shown = (el) => !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0 && !(el.closest('[hidden]') && el.closest('[hidden]').hidden === true);
+  // "Shown" means a person can see it: laid out, painted, and not faded out.
+  // The workspace panel unmounts only when the server's close patch lands, but
+  // its 280ms exit already leaves it at opacity 0 and translated past the edge
+  // — counting that as open reports the panel as stuck open when the user has
+  // watched it leave. `visibility`/`opacity` are part of visibility, not layout.
+  const shown = (el) => {
+    if (!el) return false;
+    const cs = getComputedStyle(el);
+    if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) <= 0.05) return false;
+    if (el.getBoundingClientRect().width <= 0) return false;
+    const hid = el.closest('[hidden]');
+    return !(hid && hid.hidden === true);
+  };
   const text = (el) => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : '');
   const activeEl = () => {
     const el = document.activeElement;
@@ -36,9 +48,20 @@
   const POP_SEL = {
     file: '#file-pop',
     workspace: '.dd-pop-ws',
-    profile: '.dd-pop-profile',
     model: '.dd-pop-model',
-    think: '.dd-pop-think',
+  };
+  // profile and think never carried an identifying class: their popover is the
+  // `.dd-pop` inside the trigger's own `.dd` container. Resolve it structurally
+  // rather than minting an unstyled class token — the stylesheet census pins
+  // those as ARC-3 debt and calls growing that list a regression. This is a
+  // selector fix, not a weakened assertion: open/escape/outside-click are
+  // still checked for all four triggers.
+  const POP_TRIGGER = { profile: '#cb-profile-toggle', think: '#cb-think-toggle' };
+  const popEl = (name) => {
+    if (POP_SEL[name]) return $(POP_SEL[name]);
+    const t = POP_TRIGGER[name] ? $(POP_TRIGGER[name]) : null;
+    const dd = t ? t.closest('.dd') : null;
+    return dd ? dd.querySelector('.dd-pop') : null;
   };
   const TRIGGER = {
     file: '#cb-file',
@@ -52,7 +75,7 @@
     const out = {};
     for (const name of POPOVERS) {
       if (name === 'checkout') continue;
-      const el = $(POP_SEL[name]);
+      const el = popEl(name);
       out[name] = { present: !!el, open: shown(el) };
     }
     const menu = $$('.chat-menu').find((m) => m.classList.contains('open'));
@@ -81,6 +104,14 @@
       bodyBg: getComputedStyle(document.body).backgroundColor,
     }),
     popovers: popoverState,
+    // rect of a named composer popover (the driver needs one point that is
+    // provably outside it for the outside-click assertion)
+    popoverRect: (name) => {
+      const el = popEl(name);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+    },
     slash: () => {
       const dd = $('#cmd-dropdown');
       if (!dd) return { present: false };

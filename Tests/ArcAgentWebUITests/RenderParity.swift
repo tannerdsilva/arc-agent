@@ -420,662 +420,664 @@ enum Parity {
 
 // MARK: - canaries
 
-@Suite("Render parity", .serialized)
-struct RenderParityTests {
+extension ArcWebUITestRoot {
+	@Suite("Render parity", .serialized)
+	struct RenderParityTests {
 
-    @Test("topbar matches golden")
-    func topbarMatchesGolden() async {
-        let app = AppState(renderFixture: .init())
-        let html = await app.topbarHTML().markup.html
-        Parity.capture(html, as: "topbar")
-        Parity.expect(html, matches: "topbar")
-    }
+	    @Test("topbar matches golden")
+	    func topbarMatchesGolden() async {
+	        let app = AppState(renderFixture: .init())
+	        let html = await app.topbarHTML().markup.html
+	        Parity.capture(html, as: "topbar")
+	        Parity.expect(html, matches: "topbar")
+	    }
 
-    @Test("session group matches golden")
-    func sessionGroupMatchesGolden() async {
-        let app = AppState(renderFixture: .init(sessions: [
-            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    title: "Session A", messages: []),
-            Session(id: "sess-b", createdAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600),
-                    title: "Session B", messages: []),
-        ]))
-        let html = await app.groupHTML(key: "recent", title: "Recent", sessions: await app.sessions).markup.html
-        Parity.capture(html, as: "sessionGroup")
-        Parity.expect(html, matches: "sessionGroup")
-    }
+	    @Test("session group matches golden")
+	    func sessionGroupMatchesGolden() async {
+	        let app = AppState(renderFixture: .init(sessions: [
+	            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    title: "Session A", messages: []),
+	            Session(id: "sess-b", createdAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600),
+	                    title: "Session B", messages: []),
+	        ]))
+	        let html = await app.groupHTML(key: "recent", title: "Recent", sessions: await app.sessions).markup.html
+	        Parity.capture(html, as: "sessionGroup")
+	        Parity.expect(html, matches: "sessionGroup")
+	    }
 
-    // MARK: - phase 3 message-tree fixtures
+	    // MARK: - phase 3 message-tree fixtures
 
-    private static func phase3Thread() -> [Message] {
-        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
-        let usage = Usage(promptTokens: 1200, completionTokens: 340, totalTokens: 1540)
-        return [
-            Message(role: .user, content: "hello **there**", createdAt: t0),
-            Message(role: .assistant, content: nil,
-                    toolCalls: [ToolCall(id: "call_1",
-                                         function: ToolCallFunction(name: "read_file",
-                                                                    arguments: "{\"path\":\"README.md\"}"))],
-                    createdAt: t0),
-            Message(role: .tool, content: "file contents", name: "read_file",
-                    toolCallID: "call_1", createdAt: t0),
-            Message(role: .assistant, content: "All done.", createdAt: t0,
-                    usage: usage, tps: 42.5, turnDuration: 3.2),
-        ]
-    }
+	    private static func phase3Thread() -> [Message] {
+	        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+	        let usage = Usage(promptTokens: 1200, completionTokens: 340, totalTokens: 1540)
+	        return [
+	            Message(role: .user, content: "hello **there**", createdAt: t0),
+	            Message(role: .assistant, content: nil,
+	                    toolCalls: [ToolCall(id: "call_1",
+	                                         function: ToolCallFunction(name: "read_file",
+	                                                                    arguments: "{\"path\":\"README.md\"}"))],
+	                    createdAt: t0),
+	            Message(role: .tool, content: "file contents", name: "read_file",
+	                    toolCallID: "call_1", createdAt: t0),
+	            Message(role: .assistant, content: "All done.", createdAt: t0,
+	                    usage: usage, tps: 42.5, turnDuration: 3.2),
+	        ]
+	    }
 
-    @Test("phase 3: user message matches golden")
-    func phase3UserMessage() async {
-        let app = AppState(renderFixture: .init())
-        let html = await app.messageHTML(Self.phase3Thread()[0], rawIdx: 0).markup.html
-        Parity.capture(html, as: "message-user")
-        Parity.expect(html, matches: "message-user")
-    }
+	    @Test("phase 3: user message matches golden")
+	    func phase3UserMessage() async {
+	        let app = AppState(renderFixture: .init())
+	        let html = await app.messageHTML(Self.phase3Thread()[0], rawIdx: 0).markup.html
+	        Parity.capture(html, as: "message-user")
+	        Parity.expect(html, matches: "message-user")
+	    }
 
-    @Test("phase 3: assistant message with tool calls matches golden")
-    func phase3AssistantMessage() async {
-        let app = AppState(renderFixture: .init())
-        let html = await app.messageHTML(Self.phase3Thread()[1], rawIdx: 1).markup.html
-        Parity.capture(html, as: "message-assistant-tools")
-        Parity.expect(html, matches: "message-assistant-tools")
-    }
+	    @Test("phase 3: assistant message with tool calls matches golden")
+	    func phase3AssistantMessage() async {
+	        let app = AppState(renderFixture: .init())
+	        let html = await app.messageHTML(Self.phase3Thread()[1], rawIdx: 1).markup.html
+	        Parity.capture(html, as: "message-assistant-tools")
+	        Parity.expect(html, matches: "message-assistant-tools")
+	    }
 
-    @Test("phase 3: assistant message with usage matches golden")
-    func phase3AssistantUsage() async {
-        let app = AppState(renderFixture: .init())
-        let html = await app.messageHTML(Self.phase3Thread()[3], rawIdx: 3).markup.html
-        Parity.capture(html, as: "message-assistant-usage")
-        Parity.expect(html, matches: "message-assistant-usage")
-    }
+	    @Test("phase 3: assistant message with usage matches golden")
+	    func phase3AssistantUsage() async {
+	        let app = AppState(renderFixture: .init())
+	        let html = await app.messageHTML(Self.phase3Thread()[3], rawIdx: 3).markup.html
+	        Parity.capture(html, as: "message-assistant-usage")
+	        Parity.expect(html, matches: "message-assistant-usage")
+	    }
 
-    @Test("phase 3: tool result message matches golden")
-    func phase3ToolMessage() async {
-        let app = AppState(renderFixture: .init())
-        let html = await app.messageHTML(Self.phase3Thread()[2], rawIdx: 2).markup.html
-        Parity.capture(html, as: "message-tool")
-        Parity.expect(html, matches: "message-tool")
-    }
+	    @Test("phase 3: tool result message matches golden")
+	    func phase3ToolMessage() async {
+	        let app = AppState(renderFixture: .init())
+	        let html = await app.messageHTML(Self.phase3Thread()[2], rawIdx: 2).markup.html
+	        Parity.capture(html, as: "message-tool")
+	        Parity.expect(html, matches: "message-tool")
+	    }
 
-    @Test("phase 3: turn block matches golden")
-    func phase3TurnBlock() async {
-        let app = AppState(renderFixture: .init())
-        let seg = Array(Self.phase3Thread()[1...3])
-        let html = await app.turnBlockHTML(seg, mode: "compact_worklog", turnIndex: 1).map { render($0) } ?? ""
-        Parity.capture(html, as: "turn-block")
-        Parity.expect(html, matches: "turn-block")
-    }
+	    @Test("phase 3: turn block matches golden")
+	    func phase3TurnBlock() async {
+	        let app = AppState(renderFixture: .init())
+	        let seg = Array(Self.phase3Thread()[1...3])
+	        let html = await app.turnBlockHTML(seg, mode: "compact_worklog", turnIndex: 1).map { render($0) } ?? ""
+	        Parity.capture(html, as: "turn-block")
+	        Parity.expect(html, matches: "turn-block")
+	    }
 
-    @Test("phase 3: composer matches golden")
-    func phase3Composer() async {
-        var fixture = AppState.RenderFixture()
-        fixture.activeSessionID = "sess-a"
-        fixture.sessions = [Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Chat",
-                                    messageCount: 1, messages: [Message(role: .user, content: "hi")])]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.composerHTML().markup.html
-        Parity.capture(html, as: "composer")
-        Parity.expect(html, matches: "composer")
-    }
+	    @Test("phase 3: composer matches golden")
+	    func phase3Composer() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.activeSessionID = "sess-a"
+	        fixture.sessions = [Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Chat",
+	                                    messageCount: 1, messages: [Message(role: .user, content: "hi")])]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.composerHTML().markup.html
+	        Parity.capture(html, as: "composer")
+	        Parity.expect(html, matches: "composer")
+	    }
 
-    @Test("phase 3: chat main matches golden")
-    func phase3ChatMain() async {
-        var fixture = AppState.RenderFixture()
-        fixture.activeSessionID = "sess-a"
-        fixture.sessions = [Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Chat",
-                                    messageCount: 4, messages: Self.phase3Thread())]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.chatMain().markup.html
-        Parity.capture(html, as: "chat-main")
-        Parity.expect(html, matches: "chat-main")
-    }
+	    @Test("phase 3: chat main matches golden")
+	    func phase3ChatMain() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.activeSessionID = "sess-a"
+	        fixture.sessions = [Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Chat",
+	                                    messageCount: 4, messages: Self.phase3Thread())]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.chatMain().markup.html
+	        Parity.capture(html, as: "chat-main")
+	        Parity.expect(html, matches: "chat-main")
+	    }
 
-    @Test("phase 3: chat main empty state matches golden")
-    func phase3ChatMainEmpty() async {
-        let app = AppState(renderFixture: .init())
-        let html = await app.chatMain().markup.html
-        Parity.capture(html, as: "chat-main-empty")
-        Parity.expect(html, matches: "chat-main-empty")
-    }
+	    @Test("phase 3: chat main empty state matches golden")
+	    func phase3ChatMainEmpty() async {
+	        let app = AppState(renderFixture: .init())
+	        let html = await app.chatMain().markup.html
+	        Parity.capture(html, as: "chat-main-empty")
+	        Parity.expect(html, matches: "chat-main-empty")
+	    }
 
-    @Test("phase 4: empty flyout matches golden")
-    func phase4FlyoutEmpty() async {
-        var fixture = AppState.RenderFixture()
-        fixture.activeSessionID = "sess-a"
-        let app = AppState(renderFixture: fixture)
-        let html = await app.composerFlyoutHTML().markup.html
-        Parity.capture(html, as: "flyout-empty")
-        Parity.expect(html, matches: "flyout-empty")
-    }
+	    @Test("phase 4: empty flyout matches golden")
+	    func phase4FlyoutEmpty() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.activeSessionID = "sess-a"
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.composerFlyoutHTML().markup.html
+	        Parity.capture(html, as: "flyout-empty")
+	        Parity.expect(html, matches: "flyout-empty")
+	    }
 
-    @Test("phase 4: approval flyout matches golden")
-    func phase4FlyoutApproval() async {
-        var fixture = AppState.RenderFixture()
-        fixture.activeSessionID = "sess-a"
-        fixture.pendingApproval = PendingApproval(
-            command: "rm -rf /tmp/build", description: "Delete the build directory",
-            sessionID: "sess-a", continuation: AsyncStream<Bool>.makeStream().continuation)
-        let app = AppState(renderFixture: fixture)
-        let html = await app.composerFlyoutHTML().markup.html
-        Parity.capture(html, as: "flyout-approval")
-        Parity.expect(html, matches: "flyout-approval")
-    }
+	    @Test("phase 4: approval flyout matches golden")
+	    func phase4FlyoutApproval() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.activeSessionID = "sess-a"
+	        fixture.pendingApproval = PendingApproval(
+	            command: "rm -rf /tmp/build", description: "Delete the build directory",
+	            sessionID: "sess-a", continuation: AsyncStream<Bool>.makeStream().continuation)
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.composerFlyoutHTML().markup.html
+	        Parity.capture(html, as: "flyout-approval")
+	        Parity.expect(html, matches: "flyout-approval")
+	    }
 
-    @Test("phase 4: clarify flyout matches golden")
-    func phase4FlyoutClarify() async {
-        var fixture = AppState.RenderFixture()
-        fixture.activeSessionID = "sess-a"
-        // a FIXED past expiry: the countdown then floors at "1s" and
-        // `data-expires` is a constant, so the golden cannot drift with the clock.
-        fixture.pendingClarify = PendingClarify(
-            question: "Which environment should I deploy to?",
-            choices: ["staging", "production"],
-            sessionID: "sess-a",
-            continuation: AsyncStream<String>.makeStream().continuation,
-            expiresAt: Date(timeIntervalSince1970: 1_700_000_000))
-        let app = AppState(renderFixture: fixture)
-        let html = await app.composerFlyoutHTML().markup.html
-        Parity.capture(html, as: "flyout-clarify")
-        Parity.expect(html, matches: "flyout-clarify")
-    }
+	    @Test("phase 4: clarify flyout matches golden")
+	    func phase4FlyoutClarify() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.activeSessionID = "sess-a"
+	        // a FIXED past expiry: the countdown then floors at "1s" and
+	        // `data-expires` is a constant, so the golden cannot drift with the clock.
+	        fixture.pendingClarify = PendingClarify(
+	            question: "Which environment should I deploy to?",
+	            choices: ["staging", "production"],
+	            sessionID: "sess-a",
+	            continuation: AsyncStream<String>.makeStream().continuation,
+	            expiresAt: Date(timeIntervalSince1970: 1_700_000_000))
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.composerFlyoutHTML().markup.html
+	        Parity.capture(html, as: "flyout-clarify")
+	        Parity.expect(html, matches: "flyout-clarify")
+	    }
 
-    @Test("phase 4: yolo flyout matches golden")
-    func phase4FlyoutYolo() async {
-        var fixture = AppState.RenderFixture()
-        fixture.activeSessionID = "sess-a"
-        fixture.settings.yoloSessions = ["sess-a"]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.composerFlyoutHTML().markup.html
-        Parity.capture(html, as: "flyout-yolo")
-        Parity.expect(html, matches: "flyout-yolo")
-    }
+	    @Test("phase 4: yolo flyout matches golden")
+	    func phase4FlyoutYolo() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.activeSessionID = "sess-a"
+	        fixture.settings.yoloSessions = ["sess-a"]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.composerFlyoutHTML().markup.html
+	        Parity.capture(html, as: "flyout-yolo")
+	        Parity.expect(html, matches: "flyout-yolo")
+	    }
 
-    @Test("chat header matches golden")
-    func chatHeaderMatchesGolden() async {
-        var fixture = AppState.RenderFixture()
-        fixture.activeSessionID = "sess-a"
-        fixture.sessions = [
-            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Active Session",
-                    messageCount: 2, messages: [
-                        Message(role: .user, content: "hello"),
-                        Message(role: .assistant, content: "hi there"),
-                    ]),
-        ]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.chatHeaderHTML().markup.html
-        Parity.capture(html, as: "chat-header")
-        Parity.expect(html, matches: "chat-header")
-    }
+	    @Test("chat header matches golden")
+	    func chatHeaderMatchesGolden() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.activeSessionID = "sess-a"
+	        fixture.sessions = [
+	            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Active Session",
+	                    messageCount: 2, messages: [
+	                        Message(role: .user, content: "hello"),
+	                        Message(role: .assistant, content: "hi there"),
+	                    ]),
+	        ]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.chatHeaderHTML().markup.html
+	        Parity.capture(html, as: "chat-header")
+	        Parity.expect(html, matches: "chat-header")
+	    }
 
-    @Test("chat header without messages hides the count")
-    func chatHeaderFreshChatHidesCount() async {
-        var fixture = AppState.RenderFixture()
-        fixture.activeSessionID = "sess-a"
-        fixture.sessions = [
-            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Fresh",
-                    messageCount: 0, messages: []),
-        ]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.chatHeaderHTML().markup.html
-        Parity.capture(html, as: "chat-header-empty")
-        Parity.expect(html, matches: "chat-header-empty")
-    }
+	    @Test("chat header without messages hides the count")
+	    func chatHeaderFreshChatHidesCount() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.activeSessionID = "sess-a"
+	        fixture.sessions = [
+	            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Fresh",
+	                    messageCount: 0, messages: []),
+	        ]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.chatHeaderHTML().markup.html
+	        Parity.capture(html, as: "chat-header-empty")
+	        Parity.expect(html, matches: "chat-header-empty")
+	    }
 
-    @Test("assistant message matches golden")
-    func assistantMessageMatchesGolden() async {
-        let app = AppState(renderFixture: .init())
-        let m = Message(role: .assistant, content: "Hello, world")
-        let html = await app.messageHTML(m).markup.html
-        Parity.capture(html, as: "assistantMessage")
-        Parity.expect(html, matches: "assistantMessage")
-    }
+	    @Test("assistant message matches golden")
+	    func assistantMessageMatchesGolden() async {
+	        let app = AppState(renderFixture: .init())
+	        let m = Message(role: .assistant, content: "Hello, world")
+	        let html = await app.messageHTML(m).markup.html
+	        Parity.capture(html, as: "assistantMessage")
+	        Parity.expect(html, matches: "assistantMessage")
+	    }
 
-    @Test("normalizer is pinned")
-    func normalizerIsPinned() {
-        // escaped entities decode to their character
-        #expect(ParityNormalize.normalize("&#9776;") == "☰")
-        #expect(ParityNormalize.normalize("&#8595;") == "↓")
-        #expect(ParityNormalize.normalize("a&<>\"'") == "a&<>\"'")
-        // boolean attribute normalization
-        #expect(ParityNormalize.normalize("<div hidden>") == "<div hidden=\"\">")
-        #expect(ParityNormalize.normalize("<input checked disabled>")
-            == "<input checked=\"\" disabled=\"\">")
-        // empty class / style dropped
-        #expect(ParityNormalize.normalize("<div class=\"\">x</div>") == "<div>x</div>")
-        #expect(ParityNormalize.normalize("<div style=\"\">x</div>") == "<div>x</div>")
-        // attribute sorting
-        #expect(ParityNormalize.normalize("<div b=\"1\" a=\"2\">") == "<div a=\"2\" b=\"1\">")
-        // whitespace collapse, whitespace-only text nodes dropped
-        #expect(ParityNormalize.normalize("<div>  a   b  </div>") == "<div>a b</div>")
-        #expect(ParityNormalize.normalize("<div>\n  </div><span>x</span>") == "<div></div><span>x</span>")
-        // boolean: data-no-restore normalizes to name=""
-        #expect(ParityNormalize.normalize("<div data-no-restore>") == "<div data-no-restore=\"\">")
-        // attribute values containing > are kept intact (not cut at the >)
-        #expect(ParityNormalize.normalize("<div title=\"a>b\">x</div>") == "<div title=\"a>b\">x</div>")
-        // pre content is literal (whitespace preserved)
-        #expect(ParityNormalize.normalize("<pre>  a   b\n</pre>") == "<pre>  a   b\n</pre>")
-        // code content is literal
-        #expect(ParityNormalize.normalize("<code>x  y</code>") == "<code>x  y</code>")
-    }
+	    @Test("normalizer is pinned")
+	    func normalizerIsPinned() {
+	        // escaped entities decode to their character
+	        #expect(ParityNormalize.normalize("&#9776;") == "☰")
+	        #expect(ParityNormalize.normalize("&#8595;") == "↓")
+	        #expect(ParityNormalize.normalize("a&<>\"'") == "a&<>\"'")
+	        // boolean attribute normalization
+	        #expect(ParityNormalize.normalize("<div hidden>") == "<div hidden=\"\">")
+	        #expect(ParityNormalize.normalize("<input checked disabled>")
+	            == "<input checked=\"\" disabled=\"\">")
+	        // empty class / style dropped
+	        #expect(ParityNormalize.normalize("<div class=\"\">x</div>") == "<div>x</div>")
+	        #expect(ParityNormalize.normalize("<div style=\"\">x</div>") == "<div>x</div>")
+	        // attribute sorting
+	        #expect(ParityNormalize.normalize("<div b=\"1\" a=\"2\">") == "<div a=\"2\" b=\"1\">")
+	        // whitespace collapse, whitespace-only text nodes dropped
+	        #expect(ParityNormalize.normalize("<div>  a   b  </div>") == "<div>a b</div>")
+	        #expect(ParityNormalize.normalize("<div>\n  </div><span>x</span>") == "<div></div><span>x</span>")
+	        // boolean: data-no-restore normalizes to name=""
+	        #expect(ParityNormalize.normalize("<div data-no-restore>") == "<div data-no-restore=\"\">")
+	        // attribute values containing > are kept intact (not cut at the >)
+	        #expect(ParityNormalize.normalize("<div title=\"a>b\">x</div>") == "<div title=\"a>b\">x</div>")
+	        // pre content is literal (whitespace preserved)
+	        #expect(ParityNormalize.normalize("<pre>  a   b\n</pre>") == "<pre>  a   b\n</pre>")
+	        // code content is literal
+	        #expect(ParityNormalize.normalize("<code>x  y</code>") == "<code>x  y</code>")
+	    }
 
-    @Test("shell default matches golden")
-    func shellDefaultMatchesGolden() async {
-        let app = AppState(renderFixture: .init(activeTabID: "chat"))
-        let shell = await app.appShell()
-        Parity.capture(shell.markup.html, as: "shell-default")
-        Parity.expect(shell.markup.html, matches: "shell-default")
-    }
+	    @Test("shell default matches golden")
+	    func shellDefaultMatchesGolden() async {
+	        let app = AppState(renderFixture: .init(activeTabID: "chat"))
+	        let shell = await app.appShell()
+	        Parity.capture(shell.markup.html, as: "shell-default")
+	        Parity.expect(shell.markup.html, matches: "shell-default")
+	    }
 
-    @Test("shell drawer matches golden")
-    func shellDrawerMatchesGolden() async {
-        let app = AppState(renderFixture: .init(activeTabID: "chat"))
-        let shell = await app.appShell()
-        Parity.capture(shell.markup.html, as: "shell-drawer")
-        Parity.expect(shell.markup.html, matches: "shell-drawer")
-    }
+	    @Test("shell drawer matches golden")
+	    func shellDrawerMatchesGolden() async {
+	        let app = AppState(renderFixture: .init(activeTabID: "chat"))
+	        let shell = await app.appShell()
+	        Parity.capture(shell.markup.html, as: "shell-drawer")
+	        Parity.expect(shell.markup.html, matches: "shell-drawer")
+	    }
 
-    @Test("iconbar chat matches golden")
-    func iconbarChatMatchesGolden() async {
-        var fixture = AppState.RenderFixture()
-        fixture.settings.sidebarTabs = ["skills", "profiles", "tools", "workspaces", "kanban"]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.iconbarHTML().markup.html
-        Parity.capture(html, as: "iconbar-chat")
-        Parity.expect(html, matches: "iconbar-chat")
-    }
+	    @Test("iconbar chat matches golden")
+	    func iconbarChatMatchesGolden() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.settings.sidebarTabs = ["skills", "profiles", "tools", "workspaces", "kanban"]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.iconbarHTML().markup.html
+	        Parity.capture(html, as: "iconbar-chat")
+	        Parity.expect(html, matches: "iconbar-chat")
+	    }
 
-    @Test("iconbar settings matches golden")
-    func iconbarSettingsMatchesGolden() async {
-        var fixture = AppState.RenderFixture()
-        fixture.settings.sidebarTabs = ["skills", "profiles", "tools", "workspaces", "kanban"]
-        fixture.activeTabID = "settings"
-        let app = AppState(renderFixture: fixture)
-        let html = await app.iconbarHTML().markup.html
-        Parity.capture(html, as: "iconbar-settings")
-        Parity.expect(html, matches: "iconbar-settings")
-    }
+	    @Test("iconbar settings matches golden")
+	    func iconbarSettingsMatchesGolden() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.settings.sidebarTabs = ["skills", "profiles", "tools", "workspaces", "kanban"]
+	        fixture.activeTabID = "settings"
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.iconbarHTML().markup.html
+	        Parity.capture(html, as: "iconbar-settings")
+	        Parity.expect(html, matches: "iconbar-settings")
+	    }
 
-    @Test("toasts empty matches golden")
-    func toastsEmptyMatchesGolden() async {
-        let app = AppState(renderFixture: .init(toasts: []))
-        let html = await app.toastsShell().markup.html
-        Parity.capture(html, as: "toasts-empty")
-        Parity.expect(html, matches: "toasts-empty")
-    }
+	    @Test("toasts empty matches golden")
+	    func toastsEmptyMatchesGolden() async {
+	        let app = AppState(renderFixture: .init(toasts: []))
+	        let html = await app.toastsShell().markup.html
+	        Parity.capture(html, as: "toasts-empty")
+	        Parity.expect(html, matches: "toasts-empty")
+	    }
 
-    @Test("toasts three matches golden")
-    func toastsThreeMatchesGolden() async {
-        let app = AppState(renderFixture: .init(toasts: [
-            Toast(id: 1, text: "Processing", kind: "info"),
-            Toast(id: 2, text: "Saved", kind: "success", action: ToastAction(id: "undo", label: "Undo")),
-            Toast(id: 3, text: "Failed", kind: "error"),
-        ]))
-        let html = await app.toastsShell().markup.html
-        Parity.capture(html, as: "toasts-three")
-        Parity.expect(html, matches: "toasts-three")
-    }
+	    @Test("toasts three matches golden")
+	    func toastsThreeMatchesGolden() async {
+	        let app = AppState(renderFixture: .init(toasts: [
+	            Toast(id: 1, text: "Processing", kind: "info"),
+	            Toast(id: 2, text: "Saved", kind: "success", action: ToastAction(id: "undo", label: "Undo")),
+	            Toast(id: 3, text: "Failed", kind: "error"),
+	        ]))
+	        let html = await app.toastsShell().markup.html
+	        Parity.capture(html, as: "toasts-three")
+	        Parity.expect(html, matches: "toasts-three")
+	    }
 
-    @Test("toasts overflow matches golden")
-    func toastsOverflowMatchesGolden() async {
-        let app = AppState(renderFixture: .init(toasts: [
-            Toast(id: 1, text: "One", kind: "info"),
-            Toast(id: 2, text: "Two", kind: "info"),
-            Toast(id: 3, text: "Three", kind: "info"),
-            Toast(id: 4, text: "Four", kind: "info"),
-            Toast(id: 5, text: "Five", kind: "info"),
-        ]))
-        let html = await app.toastsShell().markup.html
-        Parity.capture(html, as: "toasts-overflow")
-        Parity.expect(html, matches: "toasts-overflow")
-    }
+	    @Test("toasts overflow matches golden")
+	    func toastsOverflowMatchesGolden() async {
+	        let app = AppState(renderFixture: .init(toasts: [
+	            Toast(id: 1, text: "One", kind: "info"),
+	            Toast(id: 2, text: "Two", kind: "info"),
+	            Toast(id: 3, text: "Three", kind: "info"),
+	            Toast(id: 4, text: "Four", kind: "info"),
+	            Toast(id: 5, text: "Five", kind: "info"),
+	        ]))
+	        let html = await app.toastsShell().markup.html
+	        Parity.capture(html, as: "toasts-overflow")
+	        Parity.expect(html, matches: "toasts-overflow")
+	    }
 
-    @Test("toasts pending copy matches golden")
-    func toastsPendingCopyMatchesGolden() async {
-        let app = AppState(renderFixture: .init(toasts: [], pendingCopyURL: "https://example.com/x"))
-        let html = await app.toastsShell().markup.html
-        Parity.capture(html, as: "toasts-pending-copy")
-        Parity.expect(html, matches: "toasts-pending-copy")
-    }
+	    @Test("toasts pending copy matches golden")
+	    func toastsPendingCopyMatchesGolden() async {
+	        let app = AppState(renderFixture: .init(toasts: [], pendingCopyURL: "https://example.com/x"))
+	        let html = await app.toastsShell().markup.html
+	        Parity.capture(html, as: "toasts-pending-copy")
+	        Parity.expect(html, matches: "toasts-pending-copy")
+	    }
 
-    @Test("modal armed matches golden")
-    func modalArmedMatchesGolden() async {
-        let app = AppState(renderFixture: .init(
-            pendingConfirm: ConfirmRequest(
-                kind: "chat", id: "sess-a",
-                title: "Delete conversation?",
-                body: "The chat “A” will be deleted. You can undo this for 10 seconds."
-            )
-        ))
-        let html = await app.modalHTML().markup.html
-        Parity.capture(html, as: "modal-armed")
-        Parity.expect(html, matches: "modal-armed")
-    }
+	    @Test("modal armed matches golden")
+	    func modalArmedMatchesGolden() async {
+	        let app = AppState(renderFixture: .init(
+	            pendingConfirm: ConfirmRequest(
+	                kind: "chat", id: "sess-a",
+	                title: "Delete conversation?",
+	                body: "The chat “A” will be deleted. You can undo this for 10 seconds."
+	            )
+	        ))
+	        let html = await app.modalHTML().markup.html
+	        Parity.capture(html, as: "modal-armed")
+	        Parity.expect(html, matches: "modal-armed")
+	    }
 
-    @Test("modal empty matches golden")
-    func modalEmptyMatchesGolden() async {
-        let app = AppState(renderFixture: .init())
-        let html = await app.modalHTML().markup.html
-        Parity.capture(html, as: "modal-empty")
-        Parity.expect(html, matches: "modal-empty")
-    }
+	    @Test("modal empty matches golden")
+	    func modalEmptyMatchesGolden() async {
+	        let app = AppState(renderFixture: .init())
+	        let html = await app.modalHTML().markup.html
+	        Parity.capture(html, as: "modal-empty")
+	        Parity.expect(html, matches: "modal-empty")
+	    }
 
-    @Test("category menu matches golden")
-    func categoryMenuMatchesGolden() async {
-        var fixture = AppState.RenderFixture()
-        fixture.categoryMenu = CategoryMenu(categoryID: "c1", x: 40, y: 60)
-        fixture.settings.chatCategories = [ChatCategory(id: "c1", name: "C1", color: "#B8860B")]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.categoryMenuHTML().markup.html
-        Parity.capture(html, as: "category-menu")
-        Parity.expect(html, matches: "category-menu")
-    }
+	    @Test("category menu matches golden")
+	    func categoryMenuMatchesGolden() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.categoryMenu = CategoryMenu(categoryID: "c1", x: 40, y: 60)
+	        fixture.settings.chatCategories = [ChatCategory(id: "c1", name: "C1", color: "#B8860B")]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.categoryMenuHTML().markup.html
+	        Parity.capture(html, as: "category-menu")
+	        Parity.expect(html, matches: "category-menu")
+	    }
 
-    @Test("category menu clamped matches golden")
-    func categoryMenuClampedMatchesGolden() async {
-        var fixture = AppState.RenderFixture()
-        fixture.categoryMenu = CategoryMenu(categoryID: "c1", x: 2000, y: 900)
-        fixture.settings.chatCategories = [ChatCategory(id: "c1", name: "C1", color: "#B8860B")]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.categoryMenuHTML().markup.html
-        Parity.capture(html, as: "category-menu-clamped")
-        Parity.expect(html, matches: "category-menu-clamped")
-    }
+	    @Test("category menu clamped matches golden")
+	    func categoryMenuClampedMatchesGolden() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.categoryMenu = CategoryMenu(categoryID: "c1", x: 2000, y: 900)
+	        fixture.settings.chatCategories = [ChatCategory(id: "c1", name: "C1", color: "#B8860B")]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.categoryMenuHTML().markup.html
+	        Parity.capture(html, as: "category-menu-clamped")
+	        Parity.expect(html, matches: "category-menu-clamped")
+	    }
 
-    @Test("category menu rename matches golden")
-    func categoryMenuRenameMatchesGolden() async {
-        var fixture = AppState.RenderFixture()
-        fixture.categoryMenu = CategoryMenu(categoryID: "c1", x: 40, y: 60)
-        fixture.categoryMenuRename = true
-        fixture.settings.chatCategories = [ChatCategory(id: "c1", name: "C1", color: "#B8860B")]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.categoryMenuHTML().markup.html
-        Parity.capture(html, as: "category-menu-rename")
-        Parity.expect(html, matches: "category-menu-rename")
-    }
+	    @Test("category menu rename matches golden")
+	    func categoryMenuRenameMatchesGolden() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.categoryMenu = CategoryMenu(categoryID: "c1", x: 40, y: 60)
+	        fixture.categoryMenuRename = true
+	        fixture.settings.chatCategories = [ChatCategory(id: "c1", name: "C1", color: "#B8860B")]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.categoryMenuHTML().markup.html
+	        Parity.capture(html, as: "category-menu-rename")
+	        Parity.expect(html, matches: "category-menu-rename")
+	    }
 
-    // MARK: Task 2.1 — chat-panel goldens (captured from legacy builders)
+	    // MARK: Task 2.1 — chat-panel goldens (captured from legacy builders)
 
-    @Test("panel chat matches golden")
-    func panelChatMatchesGolden() async {
-        let app = AppState(renderFixture: .init(activeTabID: "chat"))
-        let html = await app.panelHTML().markup.html
-        Parity.capture(html, as: "panel-chat")
-        Parity.expect(html, matches: "panel-chat")
-    }
+	    @Test("panel chat matches golden")
+	    func panelChatMatchesGolden() async {
+	        let app = AppState(renderFixture: .init(activeTabID: "chat"))
+	        let html = await app.panelHTML().markup.html
+	        Parity.capture(html, as: "panel-chat")
+	        Parity.expect(html, matches: "panel-chat")
+	    }
 
-    @Test("chat panel empty matches golden")
-    func chatPanelEmptyMatchesGolden() async {
-        let app = AppState(renderFixture: .init())
-        let html = await app.chatPanel().markup.html
-        Parity.capture(html, as: "chat-panel-empty")
-        Parity.expect(html, matches: "chat-panel-empty")
-    }
+	    @Test("chat panel empty matches golden")
+	    func chatPanelEmptyMatchesGolden() async {
+	        let app = AppState(renderFixture: .init())
+	        let html = await app.chatPanel().markup.html
+	        Parity.capture(html, as: "chat-panel-empty")
+	        Parity.expect(html, matches: "chat-panel-empty")
+	    }
 
-    @Test("chat panel three matches golden")
-    func chatPanelThreeMatchesGolden() async {
-        let m1 = Message(role: .user, content: "Hello")
-        let m2 = Message(role: .assistant, content: "Hi")
-        var fixture = AppState.RenderFixture()
-        fixture.activeSessionID = "sess-a"
-        fixture.sessions = [
-            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Session A",
-                    messageCount: 2, messages: [m1, m2]),
-            Session(id: "sess-b", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Session B",
-                    messageCount: 0, messages: []),
-            Session(id: "sess-c", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Session C",
-                    messageCount: 0, messages: []),
-        ]
-        fixture.settings.archivedSessions = ["sess-b"]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.chatPanel().markup.html
-        Parity.capture(html, as: "chat-panel-three")
-        Parity.expect(html, matches: "chat-panel-three")
-    }
+	    @Test("chat panel three matches golden")
+	    func chatPanelThreeMatchesGolden() async {
+	        let m1 = Message(role: .user, content: "Hello")
+	        let m2 = Message(role: .assistant, content: "Hi")
+	        var fixture = AppState.RenderFixture()
+	        fixture.activeSessionID = "sess-a"
+	        fixture.sessions = [
+	            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Session A",
+	                    messageCount: 2, messages: [m1, m2]),
+	            Session(id: "sess-b", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Session B",
+	                    messageCount: 0, messages: []),
+	            Session(id: "sess-c", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Session C",
+	                    messageCount: 0, messages: []),
+	        ]
+	        fixture.settings.archivedSessions = ["sess-b"]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.chatPanel().markup.html
+	        Parity.capture(html, as: "chat-panel-three")
+	        Parity.expect(html, matches: "chat-panel-three")
+	    }
 
-    @Test("chat panel filtered empty matches golden")
-    func chatPanelFilteredEmptyMatchesGolden() async {
-        var fixture = AppState.RenderFixture()
-        fixture.chatFilter = "zzz"
-        fixture.sessions = [
-            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Alpha"),
-            Session(id: "sess-b", createdAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600), title: "Beta"),
-        ]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.chatPanel().markup.html
-        Parity.capture(html, as: "chat-panel-filtered-empty")
-        Parity.expect(html, matches: "chat-panel-filtered-empty")
-    }
+	    @Test("chat panel filtered empty matches golden")
+	    func chatPanelFilteredEmptyMatchesGolden() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.chatFilter = "zzz"
+	        fixture.sessions = [
+	            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Alpha"),
+	            Session(id: "sess-b", createdAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600), title: "Beta"),
+	        ]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.chatPanel().markup.html
+	        Parity.capture(html, as: "chat-panel-filtered-empty")
+	        Parity.expect(html, matches: "chat-panel-filtered-empty")
+	    }
 
-    @Test("chat panel archived matches golden")
-    func chatPanelArchivedMatchesGolden() async {
-        var fixture = AppState.RenderFixture()
-        fixture.showArchived = true
-        fixture.sessions = [
-            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Session A"),
-            Session(id: "sess-b", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Session B",
-                    messageCount: 0, messages: []),
-        ]
-        fixture.settings.archivedSessions = ["sess-b"]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.chatPanel().markup.html
-        Parity.capture(html, as: "chat-panel-archived")
-        Parity.expect(html, matches: "chat-panel-archived")
-    }
+	    @Test("chat panel archived matches golden")
+	    func chatPanelArchivedMatchesGolden() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.showArchived = true
+	        fixture.sessions = [
+	            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Session A"),
+	            Session(id: "sess-b", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Session B",
+	                    messageCount: 0, messages: []),
+	        ]
+	        fixture.settings.archivedSessions = ["sess-b"]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.chatPanel().markup.html
+	        Parity.capture(html, as: "chat-panel-archived")
+	        Parity.expect(html, matches: "chat-panel-archived")
+	    }
 
-    @Test("chat panel todos matches golden")
-    func chatPanelTodosMatchesGolden() async {
-        var fixture = AppState.RenderFixture()
-        fixture.sessions = [
-            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Session A"),
-            Session(id: "sess-b", createdAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600), title: "Session B"),
-        ]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.chatPanel(todos: true).markup.html
-        Parity.capture(html, as: "chat-panel-todos")
-        Parity.expect(html, matches: "chat-panel-todos")
-    }
+	    @Test("chat panel todos matches golden")
+	    func chatPanelTodosMatchesGolden() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.sessions = [
+	            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Session A"),
+	            Session(id: "sess-b", createdAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600), title: "Session B"),
+	        ]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.chatPanel(todos: true).markup.html
+	        Parity.capture(html, as: "chat-panel-todos")
+	        Parity.expect(html, matches: "chat-panel-todos")
+	    }
 
-    @Test("chat panel clearable matches golden")
-    func chatPanelClearableMatchesGolden() async {
-        var fixture = AppState.RenderFixture()
-        fixture.sessions = [
-            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Draft A",
-                    messageCount: 0, messages: []),
-            Session(id: "sess-b", createdAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600), title: "Draft B",
-                    messageCount: 0, messages: []),
-            Session(id: "sess-c", createdAt: Date(timeIntervalSince1970: 1_700_000_000 + 7200),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000 + 7200), title: "Draft C",
-                    messageCount: 0, messages: []),
-        ]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.chatPanel().markup.html
-        Parity.capture(html, as: "chat-panel-clearable")
-        Parity.expect(html, matches: "chat-panel-clearable")
-    }
+	    @Test("chat panel clearable matches golden")
+	    func chatPanelClearableMatchesGolden() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.sessions = [
+	            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Draft A",
+	                    messageCount: 0, messages: []),
+	            Session(id: "sess-b", createdAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600), title: "Draft B",
+	                    messageCount: 0, messages: []),
+	            Session(id: "sess-c", createdAt: Date(timeIntervalSince1970: 1_700_000_000 + 7200),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000 + 7200), title: "Draft C",
+	                    messageCount: 0, messages: []),
+	        ]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.chatPanel().markup.html
+	        Parity.capture(html, as: "chat-panel-clearable")
+	        Parity.expect(html, matches: "chat-panel-clearable")
+	    }
 
-    @Test("session group matches golden")
-    func sessionGroupTask21MatchesGolden() async {
-        var fixture = AppState.RenderFixture()
-        fixture.sessions = [
-            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Session A"),
-            Session(id: "sess-b", createdAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600), title: "Session B"),
-        ]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.groupHTML(key: "today", title: "Today", sessions: fixture.sessions).markup.html
-        Parity.capture(html, as: "sess-group")
-        Parity.expect(html, matches: "sess-group")
-    }
+	    @Test("session group matches golden")
+	    func sessionGroupTask21MatchesGolden() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.sessions = [
+	            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Session A"),
+	            Session(id: "sess-b", createdAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000 + 3600), title: "Session B"),
+	        ]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.groupHTML(key: "today", title: "Today", sessions: fixture.sessions).markup.html
+	        Parity.capture(html, as: "sess-group")
+	        Parity.expect(html, matches: "sess-group")
+	    }
 
-    @Test("session row active matches golden")
-    func sessionRowActiveMatchesGolden() async {
-        let msgs = (0..<4).map { Message(role: .user, content: "msg \($0)") }
-        var fixture = AppState.RenderFixture()
-        fixture.activeSessionID = "sess-a"
-        fixture.sessions = [
-            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Active Session",
-                    messageCount: 4, messages: msgs),
-        ]
-        fixture.settings.bookmarkedSessions = ["sess-a"]
-        fixture.settings.chatCategories = [ChatCategory(id: "c1", name: "Work", color: "#E5484D")]
-        fixture.settings.sessionCategories = ["sess-a": "c1"]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.sessionRow(fixture.sessions[0]).markup.html
-        Parity.capture(html, as: "sess-row-active")
-        Parity.expect(html, matches: "sess-row-active")
-    }
+	    @Test("session row active matches golden")
+	    func sessionRowActiveMatchesGolden() async {
+	        let msgs = (0..<4).map { Message(role: .user, content: "msg \($0)") }
+	        var fixture = AppState.RenderFixture()
+	        fixture.activeSessionID = "sess-a"
+	        fixture.sessions = [
+	            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Active Session",
+	                    messageCount: 4, messages: msgs),
+	        ]
+	        fixture.settings.bookmarkedSessions = ["sess-a"]
+	        fixture.settings.chatCategories = [ChatCategory(id: "c1", name: "Work", color: "#E5484D")]
+	        fixture.settings.sessionCategories = ["sess-a": "c1"]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.sessionRow(fixture.sessions[0]).markup.html
+	        Parity.capture(html, as: "sess-row-active")
+	        Parity.expect(html, matches: "sess-row-active")
+	    }
 
-    @Test("session row idle matches golden")
-    func sessionRowIdleMatchesGolden() async {
-        var fixture = AppState.RenderFixture()
-        fixture.sessions = [
-            Session(id: "sess-b", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Idle Session",
-                    messageCount: 0, messages: []),
-        ]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.sessionRow(fixture.sessions[0]).markup.html
-        Parity.capture(html, as: "sess-row-idle")
-        Parity.expect(html, matches: "sess-row-idle")
-    }
+	    @Test("session row idle matches golden")
+	    func sessionRowIdleMatchesGolden() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.sessions = [
+	            Session(id: "sess-b", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Idle Session",
+	                    messageCount: 0, messages: []),
+	        ]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.sessionRow(fixture.sessions[0]).markup.html
+	        Parity.capture(html, as: "sess-row-idle")
+	        Parity.expect(html, matches: "sess-row-idle")
+	    }
 
-    @Test("session row archived matches golden")
-    func sessionRowArchivedMatchesGolden() async {
-        var fixture = AppState.RenderFixture()
-        fixture.sessions = [
-            Session(id: "sess-c", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Archived Session",
-                    messageCount: 0, messages: []),
-        ]
-        fixture.settings.archivedSessions = ["sess-c"]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.sessionRow(fixture.sessions[0]).markup.html
-        Parity.capture(html, as: "sess-row-archived")
-        Parity.expect(html, matches: "sess-row-archived")
-    }
+	    @Test("session row archived matches golden")
+	    func sessionRowArchivedMatchesGolden() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.sessions = [
+	            Session(id: "sess-c", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Archived Session",
+	                    messageCount: 0, messages: []),
+	        ]
+	        fixture.settings.archivedSessions = ["sess-c"]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.sessionRow(fixture.sessions[0]).markup.html
+	        Parity.capture(html, as: "sess-row-archived")
+	        Parity.expect(html, matches: "sess-row-archived")
+	    }
 
-    @Test("an unarchived row beside an archived one still offers Archive")
-    func sessionRowArchivedMenuMatchesGolden() async {
-        // the plan asked for a "showArchived" variant, but showArchived never reaches
-        // sessionRow — it rendered byte-identical to sess-row-archived and pinned
-        // nothing. this case instead proves the menu wording is per-session: with an
-        // archived session PRESENT in state, a non-archived row must still say
-        // "Archive conversation". a list-derived label (the bug this guards) would
-        // say "Unarchive" for every row as soon as one session is archived.
-        var fixture = AppState.RenderFixture()
-        fixture.showArchived = true
-        fixture.activeSessionID = "sess-a"
-        fixture.sessions = [
-            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Live Session",
-                    messageCount: 0, messages: []),
-            Session(id: "sess-c", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Archived Session",
-                    messageCount: 0, messages: []),
-        ]
-        fixture.settings.archivedSessions = ["sess-c"]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.sessionRow(fixture.sessions[0]).markup.html
-        #expect(html.contains("Archive conversation"),
-                "an unarchived row offered Unarchive — the menu label is reading the archived LIST, not this session")
-        #expect(!html.contains("Unarchive conversation"),
-                "an unarchived row must not offer Unarchive just because another session is archived")
-        Parity.capture(html, as: "sess-row-unarchived-beside-archived")
-        Parity.expect(html, matches: "sess-row-unarchived-beside-archived")
-    }
+	    @Test("an unarchived row beside an archived one still offers Archive")
+	    func sessionRowArchivedMenuMatchesGolden() async {
+	        // the plan asked for a "showArchived" variant, but showArchived never reaches
+	        // sessionRow — it rendered byte-identical to sess-row-archived and pinned
+	        // nothing. this case instead proves the menu wording is per-session: with an
+	        // archived session PRESENT in state, a non-archived row must still say
+	        // "Archive conversation". a list-derived label (the bug this guards) would
+	        // say "Unarchive" for every row as soon as one session is archived.
+	        var fixture = AppState.RenderFixture()
+	        fixture.showArchived = true
+	        fixture.activeSessionID = "sess-a"
+	        fixture.sessions = [
+	            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Live Session",
+	                    messageCount: 0, messages: []),
+	            Session(id: "sess-c", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Archived Session",
+	                    messageCount: 0, messages: []),
+	        ]
+	        fixture.settings.archivedSessions = ["sess-c"]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.sessionRow(fixture.sessions[0]).markup.html
+	        #expect(html.contains("Archive conversation"),
+	                "an unarchived row offered Unarchive — the menu label is reading the archived LIST, not this session")
+	        #expect(!html.contains("Unarchive conversation"),
+	                "an unarchived row must not offer Unarchive just because another session is archived")
+	        Parity.capture(html, as: "sess-row-unarchived-beside-archived")
+	        Parity.expect(html, matches: "sess-row-unarchived-beside-archived")
+	    }
 
-    @Test("session row live matches golden")
-    func sessionRowLiveMatchesGolden() async {
-        var fixture = AppState.RenderFixture()
-        fixture.activeSessionID = "sess-a"
-        fixture.activeTurns = ["sess-a": LiveTurn(sessionID: "sess-a", userText: "", attachments: [])]
-        fixture.sessions = [
-            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Live Session",
-                    messageCount: 1, messages: [Message(role: .user, content: "hi")]),
-        ]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.sessionRow(fixture.sessions[0]).markup.html
-        Parity.capture(html, as: "sess-row-live")
-        Parity.expect(html, matches: "sess-row-live")
-    }
+	    @Test("session row live matches golden")
+	    func sessionRowLiveMatchesGolden() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.activeSessionID = "sess-a"
+	        fixture.activeTurns = ["sess-a": LiveTurn(sessionID: "sess-a", userText: "", attachments: [])]
+	        fixture.sessions = [
+	            Session(id: "sess-a", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Live Session",
+	                    messageCount: 1, messages: [Message(role: .user, content: "hi")]),
+	        ]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.sessionRow(fixture.sessions[0]).markup.html
+	        Parity.capture(html, as: "sess-row-live")
+	        Parity.expect(html, matches: "sess-row-live")
+	    }
 
-    @Test("session row todos matches golden")
-    func sessionRowTodosMatchesGolden() async {
-        var fixture = AppState.RenderFixture()
-        fixture.sessions = [
-            Session(id: "sess-d", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Todo Session",
-                    messageCount: 0, messages: []),
-        ]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.sessionRow(fixture.sessions[0], todos: true).markup.html
-        Parity.capture(html, as: "sess-row-todos")
-        Parity.expect(html, matches: "sess-row-todos")
-    }
+	    @Test("session row todos matches golden")
+	    func sessionRowTodosMatchesGolden() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.sessions = [
+	            Session(id: "sess-d", createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+	                    updatedAt: Date(timeIntervalSince1970: 1_700_000_000), title: "Todo Session",
+	                    messageCount: 0, messages: []),
+	        ]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.sessionRow(fixture.sessions[0], todos: true).markup.html
+	        Parity.capture(html, as: "sess-row-todos")
+	        Parity.expect(html, matches: "sess-row-todos")
+	    }
 
-    @Test("category cloud matches golden")
-    func categoryCloudMatchesGolden() async {
-        var fixture = AppState.RenderFixture()
-        fixture.activeCategory = "all"
-        fixture.settings.chatCategories = [
-            ChatCategory(id: "c1", name: "Work", color: "#E5484D"),
-            ChatCategory(id: "c2", name: "Personal", color: "#2F9EB7"),
-            ChatCategory(id: "c3", name: "Admin", color: "#9D5CD0"),
-        ]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.categoryCloudHTML().markup.html
-        Parity.capture(html, as: "cat-cloud")
-        Parity.expect(html, matches: "cat-cloud")
-    }
+	    @Test("category cloud matches golden")
+	    func categoryCloudMatchesGolden() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.activeCategory = "all"
+	        fixture.settings.chatCategories = [
+	            ChatCategory(id: "c1", name: "Work", color: "#E5484D"),
+	            ChatCategory(id: "c2", name: "Personal", color: "#2F9EB7"),
+	            ChatCategory(id: "c3", name: "Admin", color: "#9D5CD0"),
+	        ]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.categoryCloudHTML().markup.html
+	        Parity.capture(html, as: "cat-cloud")
+	        Parity.expect(html, matches: "cat-cloud")
+	    }
 
-    @Test("category cloud creating matches golden")
-    func categoryCloudCreatingMatchesGolden() async {
-        var fixture = AppState.RenderFixture()
-        fixture.addingCategory = true
-        fixture.activeCategory = "c1"
-        fixture.settings.chatCategories = [
-            ChatCategory(id: "c1", name: "Work", color: "#E5484D"),
-            ChatCategory(id: "c2", name: "Personal", color: "#2F9EB7"),
-        ]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.categoryCloudHTML().markup.html
-        Parity.capture(html, as: "cat-cloud-creating")
-        Parity.expect(html, matches: "cat-cloud-creating")
-    }
+	    @Test("category cloud creating matches golden")
+	    func categoryCloudCreatingMatchesGolden() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.addingCategory = true
+	        fixture.activeCategory = "c1"
+	        fixture.settings.chatCategories = [
+	            ChatCategory(id: "c1", name: "Work", color: "#E5484D"),
+	            ChatCategory(id: "c2", name: "Personal", color: "#2F9EB7"),
+	        ]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.categoryCloudHTML().markup.html
+	        Parity.capture(html, as: "cat-cloud-creating")
+	        Parity.expect(html, matches: "cat-cloud-creating")
+	    }
 
-    @Test("status pill live matches golden")
-    func statusPillLiveMatchesGolden() async {
-        var fixture = AppState.RenderFixture()
-        fixture.activeTurns = ["sess-a": LiveTurn(sessionID: "sess-a", userText: "", attachments: [])]
-        let app = AppState(renderFixture: fixture)
-        let html = await app.liveStatusPill("sess-a").markup.html
-        Parity.capture(html, as: "status-pill-live")
-        Parity.expect(html, matches: "status-pill-live")
-    }
+	    @Test("status pill live matches golden")
+	    func statusPillLiveMatchesGolden() async {
+	        var fixture = AppState.RenderFixture()
+	        fixture.activeTurns = ["sess-a": LiveTurn(sessionID: "sess-a", userText: "", attachments: [])]
+	        let app = AppState(renderFixture: fixture)
+	        let html = await app.liveStatusPill("sess-a").markup.html
+	        Parity.capture(html, as: "status-pill-live")
+	        Parity.expect(html, matches: "status-pill-live")
+	    }
 
-    @Test("status pill idle matches golden")
-    func statusPillIdleMatchesGolden() async {
-        let app = AppState(renderFixture: .init())
-        let html = await app.liveStatusPill("sess-a").markup.html
-        Parity.capture(html, as: "status-pill-idle")
-        Parity.expect(html, matches: "status-pill-idle")
-    }
+	    @Test("status pill idle matches golden")
+	    func statusPillIdleMatchesGolden() async {
+	        let app = AppState(renderFixture: .init())
+	        let html = await app.liveStatusPill("sess-a").markup.html
+	        Parity.capture(html, as: "status-pill-idle")
+	        Parity.expect(html, matches: "status-pill-idle")
+	    }
+	}
 }

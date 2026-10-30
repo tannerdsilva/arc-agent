@@ -175,32 +175,65 @@ async function currentTheme() {
 /** Create (or return the existing) throwaway probe session. */
 let probeSid = null;
 async function ensureProbeSession(text = `UXGATE probe ${Date.now() % 100000}`) {
+  // A turn still in flight turns the composer into a queue: a probe message
+  // sent into it lands behind the running reply, so the session is never
+  // created under the probe title and this helper times out waiting for a row
+  // that will not exist. Settle the previous gate's turn first.
+  await waitStreamEnd(180000).catch(() => false);
   const existing = await ev(`(() => {
     const rows = [...document.querySelectorAll('.sess-row')];
     return rows.find(r => (r.textContent || '').includes('${PROBE}'))?.getAttribute('data-sid') || null;
   })()`);
   if (existing) { probeSid = existing; return existing; }
-  await chatView();
-  await ev(`document.getElementById('chat-new')?.click()`);
-  await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000, label: 'new chat composer' });
-  await settle(300);
-  await driver.js(`(() => {
-    const t = document.getElementById('composer-input');
-    const set = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-    set.call(t, ${JSON.stringify(text + ' — reply with the single word: ok. Do not call any tools.')});
-    t.dispatchEvent(new Event('input', { bubbles: true }));
-    t.focus();
-    return true;
-  })()`);
-  await settle(150);
-  await driver.pressEnter();
-  // The user message lands immediately: wait for the probe-named row (the
-  // session is created server-side, it does not need the model to answer).
-  probeSid = await driver.waitFor(`(() => {
-    const rows = [...document.querySelectorAll('.sess-row')];
-    const r = rows.find(r => (r.textContent || '').includes('${PROBE}'));
-    return r ? r.getAttribute('data-sid') : null;
-  })()`, { timeoutMs: 20000, label: 'probe session created' });
+  // The daemon runs ONE turn at a time across sessions. A message sent while
+  // another session streams is accepted as a queued follow-up (the composer
+  // reads "Send another message — queued after this reply") and the session is
+  // never created under the probe title, so a single send is not enough: the
+  // previous gate's turn still owns the model. Detect that state and retry.
+  const prompt = text + ' — reply with the single word: ok. Do not call any tools.';
+  let created = null;
+  for (let attempt = 0; attempt < 3 && !created; attempt++) {
+    await chatView();
+    await ev(`document.getElementById('chat-new')?.click()`);
+    await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000, label: 'new chat composer' });
+    await settle(300);
+    const queued = await ev(`(() => {
+      const t = document.getElementById('composer-input');
+      return t ? /queued after this reply/i.test(t.getAttribute('placeholder') || '') : false;
+    })()`);
+    if (queued) {
+      await waitStreamEnd(180000).catch(() => false);
+      await settle(500);
+      continue;
+    }
+    await driver.js(`(() => {
+      const t = document.getElementById('composer-input');
+      const set = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+      set.call(t, ${JSON.stringify(prompt)});
+      t.dispatchEvent(new Event('input', { bubbles: true }));
+      t.focus();
+      return true;
+    })()`);
+    await settle(150);
+    await driver.pressEnter();
+    // The user message lands immediately: wait for the probe-named row (the
+    // session is created server-side, it does not need the model to answer).
+    created = await driver.waitFor(`(() => {
+      const rows = [...document.querySelectorAll('.sess-row')];
+      const r = rows.find(r => (r.textContent || '').includes('${PROBE}'));
+      return r ? r.getAttribute('data-sid') : null;
+    })()`, { timeoutMs: 12000, label: 'probe session created' }).catch(() => null);
+  }
+  if (!created) {
+    throw new Error('probe session was not created in 3 attempts — the composer kept queueing behind an in-flight turn');
+  }
+  probeSid = created;
+  // The row appears on the *user* message, so the model's reply is still
+  // streaming. Every caller then asserts composer/delete/dock state, and a
+  // live turn suppresses the slash menu and turns the composer into a queue —
+  // a serial local model made those assertions measure the queue instead of
+  // the surface. Hand back a settled session.
+  await waitStreamEnd(180000).catch(() => false);
   return probeSid;
 }
 
@@ -589,8 +622,7 @@ async function runInteractions() {
     if (o2) {
       const pt = await ev(`(() => {
         const cs = document.getElementById('chat-scroll');
-        const pop = ${name === 'file' ? `document.getElementById('file-pop')` : `document.querySelector('.dd-pop-${name}')`};
-        const pr = pop ? pop.getBoundingClientRect() : null;
+        const pr = uxGates.popoverRect('${name}');
         const r = cs.getBoundingClientRect();
         let x = r.left + 120, y = r.top + 140;
         // nudge clear of the popover's own rect
@@ -694,6 +726,12 @@ async function runInteractions() {
   // ---- 4. slash menu -------------------------------------------------------
   const slash = {};
   await chatView();
+  // The slash menu is suppressed while a turn is in flight (the composer turns
+  // into a queue: "Send another message — queued after this reply"). The
+  // delete sub-test above runs a real probe turn against a serial local model,
+  // so wait for it to drain before asserting the menu opens; otherwise this
+  // gate measures the queue, not the slash surface.
+  await waitStreamEnd(120000).catch(() => false);
   await ev(`document.getElementById('chat-new')?.click()`);
   await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000 });
   await settle(300);
@@ -733,7 +771,15 @@ async function runInteractions() {
   await settle(900);
   del.restored = await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some(r => r.getAttribute('data-sid') === '${probeSid}'); })()`);
   const afterCount = await ev(`uxGates.sessions().count`);
-  del.countConsistent = afterCount === beforeCount;
+  // The point of this check is "undo restored the row once, not twice" — a
+  // global row count also moves with every session an earlier sub-test creates
+  // (the slash sub-test opens a fresh chat), so it reported a mismatch that had
+  // nothing to do with undo. Count the probe row itself.
+  const restoredRows = await ev(`(() => [...document.querySelectorAll('.sess-row')].filter(r => r.getAttribute('data-sid') === '${probeSid}').length)()`);
+  del.restoredRows = restoredRows;
+  del.beforeCount = beforeCount;
+  del.afterCount = afterCount;
+  del.countConsistent = restoredRows === 1;
   // clean up: delete again (no undo)
   if (del.restored) {
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -757,6 +803,12 @@ async function runInteractions() {
   // ---- 6. dock 5x cycle ------------------------------------------------------
   const dock = {};
   await chatView();
+  // Known start state. An earlier sub-test (or the Escape-close family in the
+  // popover matrix, which routes to #w-close) can leave the panel open, and
+  // then cycle 0 measures a close instead of an open — the cycle list
+  // alternating is the panel's own state carrying over, not a broken toggle.
+  await ev(`(() => { const p = document.getElementById('ws-panel'); if (p && !p.classList.contains('hidden')) document.getElementById('w-close')?.click(); })()`);
+  await settle(900);
   dock.cycles = [];
   for (let i = 0; i < 5; i++) {
     await ev(`document.getElementById('w-dock')?.click()`);

@@ -240,233 +240,235 @@ enum MarkupAllowlist {
 	]
 }
 
-@Suite("No markup strings")
-struct NoMarkupStringsTests {
+extension ArcWebUITestRoot {
+	@Suite("No markup strings", .serialized)
+	struct NoMarkupStringsTests {
 
-	/// the roots the guard covers: arc's own chrome, and the sheet (which has no
-	/// markup in it at all, so a hit there is a mistake).
-	static let roots = ["Sources/ArcWebUI", "Sources/ArcTheme"]
+		/// the roots the guard covers: arc's own chrome, and the sheet (which has no
+		/// markup in it at all, so a hit there is a mistake).
+		static let roots = ["Sources/ArcWebUI", "Sources/ArcTheme"]
 
-	static var repoRoot: URL {
-		URL(fileURLWithPath: #filePath)
-			.deletingLastPathComponent()   // ArcAgentWebUITests
-			.deletingLastPathComponent()   // Tests
-			.deletingLastPathComponent()   // repo
-	}
+		static var repoRoot: URL {
+			URL(fileURLWithPath: #filePath)
+				.deletingLastPathComponent()   // ArcAgentWebUITests
+				.deletingLastPathComponent()   // Tests
+				.deletingLastPathComponent()   // repo
+		}
 
-	/// every `.swift` file under the roots, repo-relative.
-	static func sourceFiles() throws -> [URL] {
-		var files: [URL] = []
-		for root in roots {
-			let dir = repoRoot.appendingPathComponent(root)
-			let walker = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil)
-			while let url = walker?.nextObject() as? URL {
-				if url.pathExtension == "swift" { files.append(url) }
+		/// every `.swift` file under the roots, repo-relative.
+		static func sourceFiles() throws -> [URL] {
+			var files: [URL] = []
+			for root in roots {
+				let dir = repoRoot.appendingPathComponent(root)
+				let walker = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil)
+				while let url = walker?.nextObject() as? URL {
+					if url.pathExtension == "swift" { files.append(url) }
+				}
 			}
+			return files.sorted { $0.path < $1.path }
 		}
-		return files.sorted { $0.path < $1.path }
-	}
 
-	static func repoRelative(_ url: URL) -> String {
-		let base = repoRoot.standardizedFileURL.path + "/"
-		let path = url.standardizedFileURL.path
-		return path.hasPrefix(base) ? String(path.dropFirst(base.count)) : path
-	}
-
-	static func scanned() throws -> [ScannedLiteral] {
-		var literals: [ScannedLiteral] = []
-		for url in try sourceFiles() {
-			let text = try String(contentsOf: url, encoding: .utf8)
-			literals += SwiftSourceScanner.literals(in: text, file: repoRelative(url))
+		static func repoRelative(_ url: URL) -> String {
+			let base = repoRoot.standardizedFileURL.path + "/"
+			let path = url.standardizedFileURL.path
+			return path.hasPrefix(base) ? String(path.dropFirst(base.count)) : path
 		}
-		return literals
-	}
 
-	/// the element names that make `<word` markup.
-	///
-	/// a placeholder is prose: the help legend writes `<name>`, the clarify prompt
-	/// delimits its question with `<question>`, a validation message quotes
-	/// `-y <server>`. none is a tag, and allowlisting a 900-character prompt
-	/// literal to say so would make the allowlist unmaintainable — so the matcher
-	/// asks whether the word names an html element at all.
-	static let elementNames: Set<String> = [
-		"a", "abbr", "article", "aside", "audio", "b", "blockquote", "body", "br",
-		"button", "canvas", "caption", "circle", "code", "col", "colgroup", "dd",
-		"del", "details", "dfn", "dialog", "div", "dl", "dt", "em", "fieldset",
-		"figcaption", "figure", "footer", "form", "g", "h1", "h2", "h3", "h4", "h5",
-		"h6", "head", "header", "hr", "html", "i", "iframe", "img", "input", "ins",
-		"kbd", "label", "legend", "li", "line", "link", "main", "mark", "math",
-		"meta", "meter", "nav", "ol", "optgroup", "option", "output", "p", "path",
-		"picture", "pre", "progress", "q", "s", "samp", "script", "section",
-		"select", "small", "source", "span", "strong", "style", "sub", "summary",
-		"sup", "svg", "table", "tbody", "td", "template", "textarea", "tfoot",
-		"th", "thead", "time", "tr", "track", "u", "ul", "var", "video",
-	]
-
-	/// a `/* … */` span inside a literal is prose as well: `ChromeSheet` is css in
-	/// a string, and its rules are documented in css comments.
-	static func stripBlockComments(_ text: String) -> String {
-		var out = ""
-		var rest = Substring(text)
-		while let open = rest.range(of: "/*") {
-			out += rest[..<open.lowerBound]
-			guard let close = rest.range(of: "*/", range: open.upperBound..<rest.endIndex) else {
-				rest = Substring("")
-				break
+		static func scanned() throws -> [ScannedLiteral] {
+			var literals: [ScannedLiteral] = []
+			for url in try sourceFiles() {
+				let text = try String(contentsOf: url, encoding: .utf8)
+				literals += SwiftSourceScanner.literals(in: text, file: repoRelative(url))
 			}
-			rest = rest[close.upperBound...]
+			return literals
 		}
-		out += rest
-		return out
-	}
 
-	/// `<element` anywhere in the literal's text.
-	static func hasMarkup(_ chunk: String) -> Bool {
-		let text = stripBlockComments(chunk)
-		var search = Substring(text)
-		while let lt = search.firstIndex(of: "<") {
-			let after = search[search.index(after: lt)...]
-			var name = ""
-			for character in after {
-				if character.isLetter || character.isNumber {
-					name.append(character)
-				} else {
+		/// the element names that make `<word` markup.
+		///
+		/// a placeholder is prose: the help legend writes `<name>`, the clarify prompt
+		/// delimits its question with `<question>`, a validation message quotes
+		/// `-y <server>`. none is a tag, and allowlisting a 900-character prompt
+		/// literal to say so would make the allowlist unmaintainable — so the matcher
+		/// asks whether the word names an html element at all.
+		static let elementNames: Set<String> = [
+			"a", "abbr", "article", "aside", "audio", "b", "blockquote", "body", "br",
+			"button", "canvas", "caption", "circle", "code", "col", "colgroup", "dd",
+			"del", "details", "dfn", "dialog", "div", "dl", "dt", "em", "fieldset",
+			"figcaption", "figure", "footer", "form", "g", "h1", "h2", "h3", "h4", "h5",
+			"h6", "head", "header", "hr", "html", "i", "iframe", "img", "input", "ins",
+			"kbd", "label", "legend", "li", "line", "link", "main", "mark", "math",
+			"meta", "meter", "nav", "ol", "optgroup", "option", "output", "p", "path",
+			"picture", "pre", "progress", "q", "s", "samp", "script", "section",
+			"select", "small", "source", "span", "strong", "style", "sub", "summary",
+			"sup", "svg", "table", "tbody", "td", "template", "textarea", "tfoot",
+			"th", "thead", "time", "tr", "track", "u", "ul", "var", "video",
+		]
+
+		/// a `/* … */` span inside a literal is prose as well: `ChromeSheet` is css in
+		/// a string, and its rules are documented in css comments.
+		static func stripBlockComments(_ text: String) -> String {
+			var out = ""
+			var rest = Substring(text)
+			while let open = rest.range(of: "/*") {
+				out += rest[..<open.lowerBound]
+				guard let close = rest.range(of: "*/", range: open.upperBound..<rest.endIndex) else {
+					rest = Substring("")
+					break
+				}
+				rest = rest[close.upperBound...]
+			}
+			out += rest
+			return out
+		}
+
+		/// `<element` anywhere in the literal's text.
+		static func hasMarkup(_ chunk: String) -> Bool {
+			let text = stripBlockComments(chunk)
+			var search = Substring(text)
+			while let lt = search.firstIndex(of: "<") {
+				let after = search[search.index(after: lt)...]
+				var name = ""
+				for character in after {
+					if character.isLetter || character.isNumber {
+						name.append(character)
+					} else {
+						break
+					}
+				}
+				if elementNames.contains(name.lowercased()) { return true }
+				search = after
+			}
+			return false
+		}
+
+		/// `<tag` inside literal text — the tag name only, so the message names the
+		/// offender without pretending to know where its attributes end.
+		static func tagOffenders() throws -> [String] {
+			let allowed = MarkupAllowlist.entries
+			var offenders: [String] = []
+			for literal in try scanned() {
+				let permitted = allowed[literal.file] ?? []
+				if permitted.contains(literal.canonical) { continue }
+				guard literal.chunks.contains(where: hasMarkup) else { continue }
+				offenders.append("\(literal.file):\(literal.line) — \(literal.canonical.prefix(160))")
+			}
+			return offenders
+		}
+
+		@Test("arc's own sources carry no html tags in string literals")
+		func sourcesCarryNoMarkup() throws {
+			let literals = try Self.scanned()
+			// a floor, so a scanner that finds nothing fails instead of passing:
+			// this tree has thousands of literals, and "0 offenders" is only news
+			// if the scanner read them.
+			#expect(
+				literals.count > 500,
+				"the scanner found \(literals.count) string literals — it is broken, not the code"
+			)
+
+			let offenders = try Self.tagOffenders()
+			#expect(
+				offenders.isEmpty,
+				"""
+				\(offenders.count) string literal(s) carry html tags:
+				\(offenders.joined(separator: "\n"))
+				"""
+			)
+		}
+
+		@Test("no string literal carries a style attribute")
+		func sourcesCarryNoInlineStyleAttribute() throws {
+			let literals = try Self.scanned()
+			#expect(literals.count > 500, "the scanner found \(literals.count) literals — it is broken")
+
+			var offenders: [String] = []
+			for literal in literals {
+				let permitted = MarkupAllowlist.entries[literal.file] ?? []
+				if permitted.contains(literal.canonical) { continue }
+				for chunk in literal.chunks {
+					// `style="` — and its escaped spelling inside a swift literal.
+					let pattern = #"style=\\?""#
+					guard chunk.range(of: pattern, options: .regularExpression) != nil else { continue }
+					offenders.append("\(literal.file):\(literal.line) — \(literal.canonical.prefix(160))")
 					break
 				}
 			}
-			if elementNames.contains(name.lowercased()) { return true }
-			search = after
+			#expect(
+				offenders.isEmpty,
+				"""
+				\(offenders.count) literal(s) carry an inline style attribute; \
+				use `.style(property, value)` or a sheet class:
+				\(offenders.joined(separator: "\n"))
+				"""
+			)
 		}
-		return false
-	}
 
-	/// `<tag` inside literal text — the tag name only, so the message names the
-	/// offender without pretending to know where its attributes end.
-	static func tagOffenders() throws -> [String] {
-		let allowed = MarkupAllowlist.entries
-		var offenders: [String] = []
-		for literal in try scanned() {
-			let permitted = allowed[literal.file] ?? []
-			if permitted.contains(literal.canonical) { continue }
-			guard literal.chunks.contains(where: hasMarkup) else { continue }
-			offenders.append("\(literal.file):\(literal.line) — \(literal.canonical.prefix(160))")
-		}
-		return offenders
-	}
-
-	@Test("arc's own sources carry no html tags in string literals")
-	func sourcesCarryNoMarkup() throws {
-		let literals = try Self.scanned()
-		// a floor, so a scanner that finds nothing fails instead of passing:
-		// this tree has thousands of literals, and "0 offenders" is only news
-		// if the scanner read them.
-		#expect(
-			literals.count > 500,
-			"the scanner found \(literals.count) string literals — it is broken, not the code"
-		)
-
-		let offenders = try Self.tagOffenders()
-		#expect(
-			offenders.isEmpty,
-			"""
-			\(offenders.count) string literal(s) carry html tags:
-			\(offenders.joined(separator: "\n"))
-			"""
-		)
-	}
-
-	@Test("no string literal carries a style attribute")
-	func sourcesCarryNoInlineStyleAttribute() throws {
-		let literals = try Self.scanned()
-		#expect(literals.count > 500, "the scanner found \(literals.count) literals — it is broken")
-
-		var offenders: [String] = []
-		for literal in literals {
-			let permitted = MarkupAllowlist.entries[literal.file] ?? []
-			if permitted.contains(literal.canonical) { continue }
-			for chunk in literal.chunks {
-				// `style="` — and its escaped spelling inside a swift literal.
-				let pattern = #"style=\\?""#
-				guard chunk.range(of: pattern, options: .regularExpression) != nil else { continue }
-				offenders.append("\(literal.file):\(literal.line) — \(literal.canonical.prefix(160))")
-				break
+		/// the allowlist must not rot: a renamed file leaves a dead exemption, and a
+		/// dead exemption is how a guard quietly widens.
+		@Test("every allowlisted file exists")
+		func allowlistFilesExist() {
+			for file in MarkupAllowlist.entries.keys {
+				#expect(
+					FileManager.default.fileExists(atPath: Self.repoRoot.appendingPathComponent(file).path),
+					"\(file) is allowlisted but does not exist"
+				)
 			}
 		}
-		#expect(
-			offenders.isEmpty,
+
+		/// the scanner's own fixture. every case below is a shape this tree really
+		/// contains, and each one is a way a naive scanner goes wrong: a doc comment
+		/// that reads like code, a block comment spanning lines, an escaped quote, a
+		/// raw string, a raw multi-line string, and an interpolation whose *own*
+		/// literal carries the tag.
+		@Test("the scanner strips comments and reads raw strings")
+		func scannerSelfCheck() {
+			let sample = ##"""
+			// a line comment with <div class="no">
+			/// a doc comment with <span> in it
+			/* a block
+			   comment with <table> across lines */
+			let a = "plain"
+			let b = "<div class=\"real\">"
+			let c = #"<section> and "quoted" inside"#
+			let d = """
+			multi <b>line</b>
 			"""
-			\(offenders.count) literal(s) carry an inline style attribute; \
-			use `.style(property, value)` or a sheet class:
-			\(offenders.joined(separator: "\n"))
-			"""
-		)
-	}
+			let e = #"""
+			raw <i>multi</i>
+			"""#
+			let f = "escaped \" quote keeps the literal open"
+			let g = "\(inner("<em>"))"
+			let h = "no tag here > just text"
+			// a placeholder is prose, not markup: `<name>` is not an element.
+			let i = "Switch workspace <name>"
+			"""##
 
-	/// the allowlist must not rot: a renamed file leaves a dead exemption, and a
-	/// dead exemption is how a guard quietly widens.
-	@Test("every allowlisted file exists")
-	func allowlistFilesExist() {
-		for file in MarkupAllowlist.entries.keys {
-			#expect(
-				FileManager.default.fileExists(atPath: Self.repoRoot.appendingPathComponent(file).path),
-				"\(file) is allowlisted but does not exist"
-			)
+			let literals = SwiftSourceScanner.literals(in: sample, file: "sample.swift")
+			// a, b, c, d, e, f, g, h, i, and the `"<em>"` inside g's interpolation.
+			#expect(literals.count == 10, "found \(literals.count) literals, expected 10")
+			#expect(literals.allSatisfy { !$0.file.isEmpty })
+
+			let tagged = literals.filter { literal in
+				literal.chunks.contains(where: Self.hasMarkup)
+			}
+			// b, c, d, e, and the inner `"<em>"` — never the comments, never `a`, and
+			// not the `<name>` placeholder in `i`.
+			#expect(tagged.count == 5, "tagged literals: \(tagged.map(\.canonical))")
+
+			for literal in tagged {
+				#expect(
+					!literal.canonical.hasPrefix("//") && !literal.canonical.hasPrefix("/*"),
+					"a comment was scanned as a literal: \(literal.canonical)"
+				)
+			}
+
+			let canonicals = tagged.map(\.canonical)
+			#expect(canonicals.contains("<div class=\"real\">"))
+			#expect(canonicals.contains(#"<section> and "quoted" inside"#))
+			#expect(canonicals.contains("<em>"))
+			#expect(Self.hasMarkup("a div in prose: <div class=x>"))
+			#expect(!Self.hasMarkup("a placeholder: <name>, a prompt tag: <question>"))
+			#expect(!Self.hasMarkup("a css comment: /* <small> is a clamp */"))
 		}
-	}
-
-	/// the scanner's own fixture. every case below is a shape this tree really
-	/// contains, and each one is a way a naive scanner goes wrong: a doc comment
-	/// that reads like code, a block comment spanning lines, an escaped quote, a
-	/// raw string, a raw multi-line string, and an interpolation whose *own*
-	/// literal carries the tag.
-	@Test("the scanner strips comments and reads raw strings")
-	func scannerSelfCheck() {
-		let sample = ##"""
-		// a line comment with <div class="no">
-		/// a doc comment with <span> in it
-		/* a block
-		   comment with <table> across lines */
-		let a = "plain"
-		let b = "<div class=\"real\">"
-		let c = #"<section> and "quoted" inside"#
-		let d = """
-		multi <b>line</b>
-		"""
-		let e = #"""
-		raw <i>multi</i>
-		"""#
-		let f = "escaped \" quote keeps the literal open"
-		let g = "\(inner("<em>"))"
-		let h = "no tag here > just text"
-		// a placeholder is prose, not markup: `<name>` is not an element.
-		let i = "Switch workspace <name>"
-		"""##
-
-		let literals = SwiftSourceScanner.literals(in: sample, file: "sample.swift")
-		// a, b, c, d, e, f, g, h, i, and the `"<em>"` inside g's interpolation.
-		#expect(literals.count == 10, "found \(literals.count) literals, expected 10")
-		#expect(literals.allSatisfy { !$0.file.isEmpty })
-
-		let tagged = literals.filter { literal in
-			literal.chunks.contains(where: Self.hasMarkup)
-		}
-		// b, c, d, e, and the inner `"<em>"` — never the comments, never `a`, and
-		// not the `<name>` placeholder in `i`.
-		#expect(tagged.count == 5, "tagged literals: \(tagged.map(\.canonical))")
-
-		for literal in tagged {
-			#expect(
-				!literal.canonical.hasPrefix("//") && !literal.canonical.hasPrefix("/*"),
-				"a comment was scanned as a literal: \(literal.canonical)"
-			)
-		}
-
-		let canonicals = tagged.map(\.canonical)
-		#expect(canonicals.contains("<div class=\"real\">"))
-		#expect(canonicals.contains(#"<section> and "quoted" inside"#))
-		#expect(canonicals.contains("<em>"))
-		#expect(Self.hasMarkup("a div in prose: <div class=x>"))
-		#expect(!Self.hasMarkup("a placeholder: <name>, a prompt tag: <question>"))
-		#expect(!Self.hasMarkup("a css comment: /* <small> is a clamp */"))
 	}
 }
