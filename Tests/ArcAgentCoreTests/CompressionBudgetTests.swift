@@ -12,7 +12,8 @@ extension ArcCoreTestRoot {
         private func makeConfig(
             compressionBudget: Int?,
             contextLength: Int?,
-            maxContextTokens: Int = 64_000
+            maxContextTokens: Int = 64_000,
+            maxOutputTokens: Int? = nil
         ) -> ArcAgent.Configuration {
             ArcAgent.Configuration(
                 model: "test-model",
@@ -23,7 +24,8 @@ extension ArcCoreTestRoot {
                 skills: [],
                 maxContextTokens: maxContextTokens,
                 contextLength: contextLength,
-                compressionBudget: compressionBudget
+                compressionBudget: compressionBudget,
+                maxOutputTokens: maxOutputTokens
             )
         }
 
@@ -43,6 +45,51 @@ extension ArcCoreTestRoot {
         func fallbackUsesMaxContextTokens() async {
             let agent = ArcAgent(config: makeConfig(compressionBudget: nil, contextLength: nil, maxContextTokens: 21_000))
             #expect(await agent.effectiveContextLimit() == 21_000)
+        }
+
+        @Test("maxOutputTokens reservation leaves an under-window budget untouched")
+        func reservationUnderBudgetUntouched() async {
+            // 599k window, 130k budget, 32k reserved for output: the budget
+            // sits well below the usable window, so it passes through.
+            let agent = ArcAgent(config: makeConfig(
+                compressionBudget: 130_000, contextLength: 599_040, maxOutputTokens: 32_000))
+            #expect(await agent.effectiveContextLimit() == 130_000)
+        }
+
+        @Test("large maxOutputTokens clamps the threshold to 85% of the usable window")
+        func reservationClampsTo85Percent() async {
+            // 100k window with 90k reserved: only 10k of input budget remains,
+            // so a 50%-of-window threshold (50k) could never be reached — the
+            // provider would reject the request first. Clamp to 85% of 10k.
+            let agent = ArcAgent(config: makeConfig(
+                compressionBudget: nil, contextLength: 100_000, maxOutputTokens: 90_000))
+            #expect(await agent.effectiveContextLimit() == 8_500)
+        }
+
+        @Test("explicit budget at or over the usable window clamps the same way")
+        func explicitBudgetClamped() async {
+            let agent = ArcAgent(config: makeConfig(
+                compressionBudget: 95_000, contextLength: 100_000, maxOutputTokens: 20_000))
+            #expect(await agent.effectiveContextLimit() == 68_000) // 85% of 80k
+        }
+
+        @Test("reservation larger than the window halves the base as a last resort")
+        func oversizedReservationHalves() async {
+            // Window fully consumed by the reservation (usable <= 0): no
+            // meaningful input budget exists, so halve the base as a last
+            // resort rather than returning an unreachable threshold.
+            let agent = ArcAgent(config: makeConfig(
+                compressionBudget: nil, contextLength: 10_000, maxOutputTokens: 20_000))
+            #expect(await agent.effectiveContextLimit() == 2_500)
+        }
+
+        @Test("scaffold estimate is positive and stable (cached system prompt)")
+        func scaffoldEstimateStable() async {
+            let agent = ArcAgent(config: makeConfig(compressionBudget: nil, contextLength: 100_000))
+            let first = await agent.estimateScaffoldTokens()
+            #expect(first > 0)
+            let second = await agent.estimateScaffoldTokens()
+            #expect(first == second)
         }
 
         @Test("forced compression emits a .compressing turn event")

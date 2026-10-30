@@ -2742,6 +2742,65 @@ actor AppState {
         return (agent, config)
     }
 
+    // MARK: Scaffold token estimate (context meter fallback)
+
+    /// Per-session scaffold estimate (system prompt + tool schemas), used by
+    /// the context meter's no-usage fallback. Warmed off the render path
+    /// because building it reads memory + skills + context files.
+    private var scaffoldTokenCache: [String: (tokens: Int, warmedAt: Date)] = [:]
+    private var scaffoldWarmInFlight: Set<String> = []
+    private static let scaffoldCacheTTL: TimeInterval = 600
+
+    /// Cached scaffold estimate for a session (0 until first warm completes).
+    func cachedScaffoldTokens(for sessionID: String) -> Int {
+        guard let entry = scaffoldTokenCache[sessionID] else { return 0 }
+        guard Date().timeIntervalSince(entry.warmedAt) < Self.scaffoldCacheTTL else { return 0 }
+        return entry.tokens
+    }
+
+    /// Whether the scaffold cache for a session is missing or stale.
+    func scaffoldNeedsWarm(for sessionID: String) -> Bool {
+        if scaffoldWarmInFlight.contains(sessionID) { return false }
+        guard let entry = scaffoldTokenCache[sessionID] else { return true }
+        return Date().timeIntervalSince(entry.warmedAt) >= Self.scaffoldCacheTTL
+    }
+
+    /// Warm the scaffold estimate off the render path: mint a throwaway turn
+    /// agent exactly like a real turn would (same preset/profile/thinking) and
+    /// ask it for the scaffold estimate. The agent is discarded; the estimate
+    /// is cached per session.
+    func warmScaffoldTokens(
+        preset: ModelConfigPreset,
+        profileContext: ProfileContextConfig?,
+        sessionID: String
+    ) {
+        guard scaffoldNeedsWarm(for: sessionID) else { return }
+        scaffoldWarmInFlight.insert(sessionID)
+        Task { [weak self] in
+            await self?.runScaffoldWarm(
+                preset: preset, profileContext: profileContext, sessionID: sessionID)
+        }
+    }
+
+    private func runScaffoldWarm(
+        preset: ModelConfigPreset,
+        profileContext: ProfileContextConfig?,
+        sessionID: String
+    ) async {
+        defer { scaffoldWarmInFlight.remove(sessionID) }
+        let thinking = thinkingLevel(for: sessionID)
+        let minted = await makeTurnAgent(
+            preset: preset,
+            profileContext: profileContext,
+            thinking: thinking,
+            headless: true,
+            sessionID: sessionID,
+            initialHistory: nil
+        )
+        let tokens = await minted.agent.estimateScaffoldTokens()
+        scaffoldTokenCache[sessionID] = (tokens, Date())
+    }
+
     // MARK: Approval gating (reference smart command approval)
 
     /// The MoA block a UI turn hands to the core.

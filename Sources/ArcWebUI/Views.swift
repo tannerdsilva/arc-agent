@@ -2188,7 +2188,19 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             ?? presetForChat?.contextLength
             ?? 1_048_576
         let last = s.messages.reversed().compactMap { $0.usage }.first
-        let used = last?.promptTokens ?? estimateTokenCount(s.messages)
+        if last == nil {
+            // No provider usage recorded yet: warm the scaffold estimate off
+            // the render path (system prompt + tool schemas), converging the
+            // fallback estimate within a render or two.
+            if let preset = settings.modelConfig(named: configName(for: s.id)) {
+                warmScaffoldTokens(
+                    preset: preset,
+                    profileContext: profileContext(for: s.id),
+                    sessionID: s.id)
+            }
+        }
+        let used = (last?.promptTokens ?? estimateTokenCount(s.messages))
+            + (last == nil ? cachedScaffoldTokens(for: s.id) : 0)
         let budget = compressionBudget(for: s.id)
         var read = 0
         var total = 0

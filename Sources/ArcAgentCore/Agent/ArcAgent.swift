@@ -1447,17 +1447,46 @@ public actor ArcAgent: Service {
         return total
     }
 
+    /// Token estimate for the request *scaffold* — system prompt (cached or
+    /// built) plus tool schemas — without any message history. This is the
+    /// complement of a messages-only estimate: UIs that fall back to a
+    /// heuristic when no provider usage has been recorded yet can add this so
+    /// the meter reflects everything the model will actually receive.
+    public func estimateScaffoldTokens() async -> Int {
+        var total = toolSchemaTokens()
+        if let prompt = cachedSystemPrompt {
+            total += tokenCounter.count(prompt, model: config.model)
+        } else if let prompt = try? await buildSystemPrompt() {
+            total += tokenCounter.count(prompt, model: config.model)
+        }
+        return total
+    }
+
     /// Effective compression threshold. Order: explicit ``Configuration/compressionBudget``
     /// (per-profile budget — the same value the UI meter shows), else 50% of
     /// the model context length when known (arc parity), else ``maxContextTokens``.
+    ///
+    /// The provider reserves ``Configuration/maxOutputTokens`` of the same
+    /// window for the completion, so the usable *input* budget is the window
+    /// minus that reservation; a threshold computed against the raw window can
+    /// never be reached when the reservation is large (the request hits the
+    /// provider limit first). When the base threshold meets or exceeds the
+    /// usable window it is clamped to 85% of it, so compaction always fires
+    /// before the provider rejects the request.
     nonisolated func effectiveContextLimit() -> Int {
+        let base: Int
         if let budget = config.compressionBudget, budget > 0 {
-            return budget
+            base = budget
+        } else if let ctx = config.contextLength, ctx > 0 {
+            base = ctx / 2
+        } else {
+            base = config.maxContextTokens
         }
-        if let ctx = config.contextLength, ctx > 0 {
-            return ctx / 2
-        }
-        return config.maxContextTokens
+        let window = config.contextLength ?? config.maxContextTokens
+        guard let reserved = config.maxOutputTokens, reserved > 0 else { return base }
+        let usable = window - reserved
+        guard usable > 0 else { return max(1, base / 2) }
+        return base >= usable ? max(1, usable * 85 / 100) : base
     }
 
     /// Token estimate for the tool schemas, cached (schema set is static).
