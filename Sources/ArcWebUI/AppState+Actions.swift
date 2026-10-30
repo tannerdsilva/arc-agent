@@ -1419,9 +1419,14 @@ extension AppState {
     }
 
     /// The context overrides of the profile bound to a chat, if any.
+    ///
+    /// An unbound chat runs as the `default` profile (that is what the
+    /// composer displays), so its context parameters are inherited too —
+    /// otherwise a budget set on the default profile record would silently
+    /// resolve to the 32k env/default ladder for every new chat.
     func profileContext(for sessionID: String?) -> ProfileContextConfig? {
-        guard let pname = profileName(for: sessionID),
-              let p = profiles.first(where: { $0.name == pname }),
+        let pname = profileName(for: sessionID) ?? "default"
+        guard let p = profiles.first(where: { $0.name == pname }),
               let ctx = p.context, !ctx.isEmpty
         else { return nil }
         return ctx

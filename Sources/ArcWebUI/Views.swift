@@ -3115,7 +3115,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         Input(field: "profile-ctx-budget",
                               placeholder: "e.g. 32000", type: .number,
                               value: ectx?.compressionBudget.map(String.init) ?? "",
-                              attributes: [("min", "1024"), ("step", "1024")])
+                              attributes: [("min", "1024"), ("step", "1")])
                     }
                 }
                 Heading("Context skills", level: .h3, class: .detailH3)

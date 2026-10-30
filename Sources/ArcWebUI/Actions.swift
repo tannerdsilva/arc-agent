@@ -2818,6 +2818,19 @@ extension Controller {
                 p.context = cleaned
                 p.contextSkills = contextSkills
                 try await pm.update(p)
+                // Verify-after-write: re-read from the store so a dropped or
+                // rejected write cannot present as success. The store overlays
+                // `profiles/<name>/config.json`, so the re-read is the same
+                // view the compression ladder resolves against.
+                if let reread = try await pm.get(name: editName) {
+                    let saved = reread.context?.compressionBudget
+                    let wanted = cleaned?.compressionBudget
+                    if saved != wanted {
+                        app.crumb("profile save: \(editName) budget mismatch after write (saved \(saved.map(String.init) ?? "nil"), wanted \(wanted.map(String.init) ?? "nil"))")
+                        _ = await app.hint("Profile saved, but the compression budget did not stick — check the Logs panel.", kind: "error")
+                    }
+                }
+                app.crumb("profile save: \(editName) updated (budget \(p.context?.compressionBudget.map(String.init) ?? "inherit"))")
                 await self.app.setEditingProfile(nil)
                 await app.reloadProfiles()
                 await app.selectProfile(p.name)
@@ -2839,6 +2852,7 @@ extension Controller {
                 _ = await app.hint("Profile '\(name)' created.")
             }
         } catch {
+            app.crumb("profile save failed: \(error)")
             _ = await app.hint("Failed to save profile: \(error)", kind: "error")
             return await self.changed()
         }
