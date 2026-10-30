@@ -87,40 +87,106 @@ public enum AuxiliaryTask: String, Codable, CaseIterable, Sendable, Identifiable
     }
 }
 
+/// A minimal, Sendable JSON tree for auxiliary request extras.
+///
+/// `[String: Any]` cannot cross an actor boundary in Swift 6 strict
+/// concurrency, so the `extra_body` config rides this tree and is converted
+/// to JSONSerialization-compatible values at request-build time.
+public enum AuxJSONValue: Sendable, Equatable {
+    case string(String)
+    case int(Int)
+    case double(Double)
+    case bool(Bool)
+    case array([AuxJSONValue])
+    case object([String: AuxJSONValue])
+    case null
+
+    /// The JSONSerialization-compatible representation of this value.
+    public var any: Any {
+        switch self {
+        case .string(let s): return s
+        case .int(let i): return i
+        case .double(let d): return d
+        case .bool(let b): return b
+        case .array(let a): return a.map { $0.any }
+        case .object(let o):
+            var out: [String: Any] = [:]
+            for (k, v) in o { out[k] = v.any }
+            return out
+        case .null: return NSNull()
+        }
+    }
+}
+
+extension AuxJSONValue: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { self = .null }
+        else if let b = try? c.decode(Bool.self) { self = .bool(b) }
+        else if let i = try? c.decode(Int.self) { self = .int(i) }
+        else if let d = try? c.decode(Double.self) { self = .double(d) }
+        else if let s = try? c.decode(String.self) { self = .string(s) }
+        else if let a = try? c.decode([AuxJSONValue].self) { self = .array(a) }
+        else if let o = try? c.decode([String: AuxJSONValue].self) { self = .object(o) }
+        else { throw DecodingError.dataCorruptedError(in: c, debugDescription: "unsupported JSON value") }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .string(let s): try c.encode(s)
+        case .int(let i): try c.encode(i)
+        case .double(let d): try c.encode(d)
+        case .bool(let b): try c.encode(b)
+        case .array(let a): try c.encode(a)
+        case .object(let o): try c.encode(o)
+        case .null: try c.encodeNil()
+        }
+    }
+}
+
 /// An optional per-task model override (value of `auxiliary.<task>`).
 ///
-/// Fields match reference (`provider`, `model`, `base_url`, `api_key`). Empty
-/// fields mean "inherit the main model configuration"; a task with no override
-/// at all resolves to the main model. A `provider` of `"auto"` (reference
-/// default) also means inherit the main provider.
+/// Fields match reference (`provider`, `model`, `base_url`, `api_key`) plus
+/// arc's `extra_body`: an arbitrary JSON object merged at the top level of
+/// every chat-completions request this task sends (e.g. a thinking model's
+/// `{"chat_template_kwargs": {"enable_thinking": false}}`). Empty fields mean
+/// "inherit the main model configuration"; a task with no override at all
+/// resolves to the main model. A `provider` of `"auto"` (reference default)
+/// also means inherit the main provider.
 public struct AuxiliaryOverride: Codable, Equatable, Sendable {
     public var provider: String
     public var model: String
     public var baseURL: String
     public var apiKey: String
+    public var extraBody: [String: AuxJSONValue]?
 
     public init(
         provider: String = "",
         model: String = "",
         baseURL: String = "",
-        apiKey: String = ""
+        apiKey: String = "",
+        extraBody: [String: AuxJSONValue]? = nil
     ) {
         self.provider = provider
         self.model = model
         self.baseURL = baseURL
         self.apiKey = apiKey
+        self.extraBody = extraBody
     }
 
     /// True when at least one field is set, i.e. this override would route
     /// the task away from the main model.
     public var isSet: Bool {
         !provider.isEmpty || !model.isEmpty || !baseURL.isEmpty || !apiKey.isEmpty
+            || !(extraBody ?? [:]).isEmpty
     }
 
     private enum CodingKeys: String, CodingKey {
         case provider, model
         case baseURL = "base_url"
         case apiKey = "api_key"
+        case extraBody = "extra_body"
     }
 
     /// Tolerant decode: any absent field defaults to "" (inherit main), and
@@ -138,6 +204,24 @@ public struct AuxiliaryOverride: Codable, Equatable, Sendable {
         self.model = take("model")
         self.baseURL = take("base_url", "baseURL")
         self.apiKey = take("api_key", "apiKey")
+        if let eb = try? c.decodeIfPresent([String: AuxJSONValue].self, forKey: FlexibleCodingKey("extra_body")) {
+            self.extraBody = eb
+        } else if let eb = try? c.decodeIfPresent([String: AuxJSONValue].self, forKey: FlexibleCodingKey("extraBody")) {
+            self.extraBody = eb
+        } else {
+            self.extraBody = nil
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: FlexibleCodingKey.self)
+        if !provider.isEmpty { try c.encode(provider, forKey: FlexibleCodingKey("provider")) }
+        if !model.isEmpty { try c.encode(model, forKey: FlexibleCodingKey("model")) }
+        if !baseURL.isEmpty { try c.encode(baseURL, forKey: FlexibleCodingKey("base_url")) }
+        if !apiKey.isEmpty { try c.encode(apiKey, forKey: FlexibleCodingKey("api_key")) }
+        if let eb = extraBody, !eb.isEmpty {
+            try c.encode(eb, forKey: FlexibleCodingKey("extra_body"))
+        }
     }
 }
 
@@ -148,12 +232,14 @@ public struct AuxResolvedModel: Equatable, Sendable {
     public let provider: String
     public let baseURL: String?
     public let apiKey: String
+    public let extraBody: [String: AuxJSONValue]
 
-    public init(model: String, provider: String, baseURL: String?, apiKey: String) {
+    public init(model: String, provider: String, baseURL: String?, apiKey: String, extraBody: [String: AuxJSONValue] = [:]) {
         self.model = model
         self.provider = provider
         self.baseURL = baseURL
         self.apiKey = apiKey
+        self.extraBody = extraBody
     }
 }
 
@@ -180,7 +266,8 @@ public struct AuxiliaryModelSet: Codable, Equatable, Sendable {
         let provider = (ov.isEmpty || ov == "auto" ? main.provider : ov)
         let baseURL = (o?.baseURL.isEmpty == false ? o!.baseURL : nil) ?? main.baseURL
         let key = (o?.apiKey.isEmpty == false ? o!.apiKey : nil) ?? apiKey
-        return AuxResolvedModel(model: model, provider: provider, baseURL: baseURL, apiKey: key)
+        return AuxResolvedModel(model: model, provider: provider, baseURL: baseURL, apiKey: key,
+                                extraBody: o?.extraBody ?? [:])
     }
 
     /// Tolerant decode: missing block/tasks/fields all fall back to defaults.
@@ -245,7 +332,8 @@ public struct AuxiliaryModelRouter: Sendable {
             baseURL: url,
             apiKey: r.apiKey,
             model: r.model,
-            httpClient: httpClient
+            httpClient: httpClient,
+            extraBody: r.extraBody
         )
     }
 }

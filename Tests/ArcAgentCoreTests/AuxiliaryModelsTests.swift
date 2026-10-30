@@ -99,6 +99,46 @@ extension ArcCoreTestRoot {
             #expect(router.makeClient(task: .titleGeneration, httpClient: hc) != nil)
         }
 
+        @Test("extra_body decodes nested JSON, rides resolved(), and merges top-level into the request body")
+        func extraBodyPassthrough() throws {
+            // nested object + bool decodes (the Nemotron thinking-mode shape)
+            let json = #"{"compression":{"model":"nemo","extra_body":{"chat_template_kwargs":{"enable_thinking":false}}}}"#
+            let set = try JSONDecoder().decode(AuxiliaryModelSet.self, from: Data(json.utf8))
+            let ov = try #require(set.byTask[.compression])
+            #expect(ov.isSet)   // extra_body alone routes the task
+            #expect(ov.extraBody?["chat_template_kwargs"] == .object(["enable_thinking": .bool(false)]))
+
+            let main = ModelConfig(defaultModel: "gpt-4o", provider: "openai", baseURL: "https://api.openai.com/v1")
+            let r = set.resolved(for: .compression, over: main, apiKey: "k")
+            let kwargs = try #require(r.extraBody["chat_template_kwargs"])
+            #expect(kwargs == .object(["enable_thinking": .bool(false)]))
+            #expect(kwargs.any as? [String: Bool] == ["enable_thinking": false])
+            // no extra_body on an unconfigured task
+            #expect(set.resolved(for: .titleGeneration, over: main).extraBody.isEmpty)
+
+            // round-trips through encode
+            let back = try JSONDecoder().decode(AuxiliaryModelSet.self, from: JSONEncoder().encode(set))
+            #expect(back == set)
+        }
+
+        @Test("OpenAICompatibleClient merges extra_body keys at the top level of the request body")
+        func extraBodyMergedIntoRequest() throws {
+            let hc = HTTPClient(eventLoopGroupProvider: .singleton)
+            defer { _ = hc.shutdown() }
+            let client = OpenAICompatibleClient(
+                baseURL: URL(string: "https://api.example.com/v1")!,
+                apiKey: "test",
+                model: "m",
+                httpClient: hc,
+                extraBody: ["chat_template_kwargs": .object(["enable_thinking": .bool(false)])]
+            )
+            let body = try client.requestBodyForTesting(messages: [Message(role: .user, content: "hi")], tools: nil, stream: false)
+            let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            let kwargs = try #require(json["chat_template_kwargs"] as? [String: Any])
+            #expect(kwargs["enable_thinking"] as? Bool == false)
+            #expect(json["model"] as? String == "m")   // base fields intact
+        }
+
         @Test("decodes a reference-shaped auxiliary block tolerantly and round-trips")
         func tolerantDecode() throws {
             let json = """

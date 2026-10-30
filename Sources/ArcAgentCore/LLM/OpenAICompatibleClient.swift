@@ -53,6 +53,12 @@ public struct OpenAICompatibleClient: LLMClient {
     /// Additional HTTP headers sent with every request.
     public var additionalHeaders: [String: String]
 
+    /// Extra top-level request-body keys merged into every completion request
+    /// (auxiliary `extra_body`). Empty by default; used to reach
+    /// server-specific fields such as a thinking model's
+    /// `chat_template_kwargs.enable_thinking`.
+    public var extraBody: [String: AuxJSONValue]
+
     /// The HTTP client used for all requests.
     ///
     /// Not owned by this type — lifecycle is managed by the caller.
@@ -67,13 +73,16 @@ public struct OpenAICompatibleClient: LLMClient {
     ///   - httpClient: The HTTP client to use. Lifecycle managed by the caller.
     ///   - defaultParameters: Optional default request parameters.
     ///   - additionalHeaders: Optional additional HTTP headers.
+    ///   - extraBody: Optional top-level request-body extras merged into
+    ///     every request.
     public init(
         baseURL: URL,
         apiKey: String,
         model: String,
         httpClient: HTTPClient,
         defaultParameters: RequestParameters = RequestParameters(),
-        additionalHeaders: [String: String] = [:]
+        additionalHeaders: [String: String] = [:],
+        extraBody: [String: AuxJSONValue] = [:]
     ) {
         self.baseURL = baseURL
         self.apiKey = apiKey
@@ -81,6 +90,7 @@ public struct OpenAICompatibleClient: LLMClient {
         self.httpClient = httpClient
         self.defaultParameters = defaultParameters
         self.additionalHeaders = additionalHeaders
+        self.extraBody = extraBody
     }
 
     // MARK: - LLMClient
@@ -158,6 +168,15 @@ public struct OpenAICompatibleClient: LLMClient {
 
     // MARK: - Request Building
 
+    /// Test hook: the exact request body `complete`/`stream` would send.
+    func requestBodyForTesting(
+        messages: [Message],
+        tools: [[String: Any]]?,
+        stream: Bool
+    ) throws -> Data {
+        try buildRequestBody(messages: messages, tools: tools, stream: stream)
+    }
+
     private func buildRequestBody(
         messages: [Message],
         tools: [[String: Any]]?,
@@ -192,6 +211,13 @@ public struct OpenAICompatibleClient: LLMClient {
         if let tools, !tools.isEmpty {
             body["tools"] = tools
             body["tool_choice"] = "auto"
+        }
+
+        // Auxiliary extra_body: server-specific top-level keys (aux parity
+        // with the reference agent's `extra_body` on auxiliary models). Set
+        // last so an override can shadow the defaults above deliberately.
+        for (key, value) in extraBody {
+            body[key] = value.any
         }
 
         return try JSONSerialization.data(withJSONObject: body)

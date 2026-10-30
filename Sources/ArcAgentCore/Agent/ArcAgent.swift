@@ -1708,7 +1708,18 @@ public actor ArcAgent: Service {
                 reasoningEffort: nil
             )
             let text = (resp.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            return text.isEmpty ? nil : text
+            if text.isEmpty {
+                if (resp.reasoning ?? "").isEmpty {
+                    logger.warning("compression: aux model returned an empty summary (no content, no reasoning)")
+                } else {
+                    // Thinking models answer in `reasoning_content` with an
+                    // empty `content` unless thinking is disabled — name the
+                    // cause instead of the generic "unavailable" fallback.
+                    logger.warning("compression: aux model returned reasoning-only output (empty content with reasoning); configure extra_body for this task, e.g. {\"chat_template_kwargs\": {\"enable_thinking\": false}}")
+                }
+                return nil
+            }
+            return text
         } catch {
             if case LLMError.rateLimited = error {
                 compressionCooldownUntil = Date().addingTimeInterval(60)
