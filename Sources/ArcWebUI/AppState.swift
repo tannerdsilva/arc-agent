@@ -2276,6 +2276,7 @@ actor AppState {
     /// defaults: the failure is returned so the caller can surface it, and the
     /// settings store refuses every write until the file is fixed.
     static func loadSettings() -> (settings: AppSettings, failure: ConfigError?) {
+
         do {
             return (try SettingsStore.read(Self.settingsURL), nil)
         } catch let error as ConfigError {
