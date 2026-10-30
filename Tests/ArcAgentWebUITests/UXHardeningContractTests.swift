@@ -1721,6 +1721,56 @@ extension ArcWebUITestRoot {
                     "the drawer must open below the rail strip so the rail stays tappable (UX-07)")
         }
 
+        // MARK: - Full mobile: the session list navigates, it does not manage
+
+        /// In the phone layout the rail is a top strip and the session list is a
+        /// full-screen drawer. Deleting or archiving from there is irreversible
+        /// with a thumb, so those two verbs are not offered: the row menu's
+        /// Delete and Archive, the chat header's trash, and the bulk
+        /// empty-draft sweep are hidden at the SAME breakpoint that stacks the
+        /// rail. The controls still render — desktop keeps every verb; what
+        /// changes is whether the layout offers them. The drawer must also hand
+        /// the row menu its own taps, or the tap that opens the menu closes the
+        /// panel under it and leaves the menu armed off-canvas.
+        @Test("full mobile offers no delete or archive for a session")
+        func fullMobileHasNoDestructiveSessionVerbs() async {
+            let css = Self.sheetSource
+            guard let start = css.range(of: "@media (max-width: 599.98px) {") else {
+                Issue.record("the full-mobile breakpoint is gone")
+                return
+            }
+            let block = String(css[start.upperBound...].prefix(3000))
+            #expect(block.contains("#app-body { flex-direction: column; }"),
+                    "the gate must live in the block whose layout puts the rail on top — otherwise \"full mobile\" and \"no delete\" can drift apart")
+            #expect(block.contains("#chat-del,"),
+                    "the chat header's trash must be hidden in full mobile")
+            #expect(block.contains("#chat-clear-empty,"),
+                    "the bulk empty-draft delete is a delete verb and goes with the others")
+            #expect(block.contains(".chat-menu button.danger,"),
+                    "the session row menu's Delete must be hidden in full mobile")
+            #expect(block.contains(".chat-menu button[id^=\"sm-arc-\"] { display: none; }"),
+                    "the session row menu's Archive must be hidden in full mobile")
+
+            // the verbs still exist for the widths that keep them: this is a
+            // layout gate, not a removal of the capability
+            let panel = await RenderedMarkup.panelWithRows()
+            #expect(panel.contains("sm-del-"), "Delete must still render — the desktop menu owns that verb")
+            #expect(panel.contains("sm-arc-"), "Archive must still render for the desktop menu")
+            let header = await RenderedMarkup.chatHeader()
+            #expect(header.contains("id=\"chat-del\""), "the chat header's trash must still render for desktop")
+
+            let overlay = Self.overlay
+            #expect(overlay.contains("if (t.closest('.menu-dots') || t.closest('.chat-menu')) return;"),
+                    "the drawer must exempt the row menu from its row-tap dismissal")
+            guard let exempt = overlay.range(of: "t.closest('.menu-dots')"),
+                  let rowClose = overlay.range(of: "t.closest('.sess-row') || t.closest('#chat-new')") else {
+                Issue.record("the drawer's row-close rule or the menu exemption is missing")
+                return
+            }
+            #expect(exempt.lowerBound < rowClose.lowerBound,
+                    "the exemption must run BEFORE the row-close rule, or tapping ⋮ still closes the drawer")
+        }
+
         @Test("the filter fields carry accessible names")
         func filterFieldsAreNamed() async {
             let chatsPanel = await AppState(renderFixture: AppState.RenderFixture())

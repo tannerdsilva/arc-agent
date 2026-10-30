@@ -3167,6 +3167,22 @@ public static let css: String = """
          stays tappable while the drawer is open (UX-61 principle) */
       #panel { top: 82px; left: 0; width: 100vw; }
       .drawer-scrim { top: 82px; left: 0; }
+      /* Full mobile: the session list navigates, it does not manage. Once the
+         rail is a top strip the row menu is a tap-only popover over a
+         full-screen drawer, and a mis-tap on it is permanent, so the two
+         irreversible verbs are not offered at all: the row menu keeps its
+         quiet actions (copy / rename / pin / duplicate / category) and loses
+         Delete and Archive, the chat header loses its trash, and the bulk
+         empty-draft sweep goes with them. This is deliberately the SAME
+         breakpoint that stacks the rail (#app-body becomes a column), so
+         "sidebar at the top" and "no destructive session verbs" are one
+         layout rather than two rules that can drift apart. Hiding the
+         controls (rather than disabling them) keeps a dead button out of the
+         tap path, the tab order and the a11y tree. */
+      #chat-del,
+      #chat-clear-empty,
+      .chat-menu button.danger,
+      .chat-menu button[id^="sm-arc-"] { display: none; }
     }
     /* ── Insights daily tokens chart y-axis (UX-14) ────────────────── */
     /* UX-14: a real vertical axis. The tick rows are absolutely positioned in a

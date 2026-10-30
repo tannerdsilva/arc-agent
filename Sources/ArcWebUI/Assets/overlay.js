@@ -888,6 +888,12 @@
     // Outside click: the scrim covers everything below the topbar but the
     // panel itself, so a click landing on it means "dismiss".
     if (t.closest('#drawer-scrim')) { closeDrawer(true); return; }
+    // The row's ⋮ and the menu it opens are panel chrome, not a navigation
+    // choice. Closing the drawer here meant the tap that opened the menu also
+    // took the menu off-canvas with the panel — an open, still-armed menu at
+    // x=-279 that nobody could see or dismiss. Let the menu own its taps; the
+    // row underneath still closes the drawer.
+    if (t.closest('.menu-dots') || t.closest('.chat-menu')) return;
     // Picking a conversation (or minting a new one) closes the drawer so the
     // chat has the full canvas for the turn it just opened.
     if (t.closest('.sess-row') || t.closest('#chat-new')) { closeDrawer(true); return; }
