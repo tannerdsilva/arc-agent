@@ -2975,6 +2975,8 @@ public static let css: String = """
     .ws-ic { flex: 0 0 auto; font-size: 0.95em; }
     .ws-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .ws-panel.drag { box-shadow: inset 0 0 0 2px var(--accent-strong); }
+    #ws-dock.drag { box-shadow: inset 0 0 0 2px var(--accent-strong); border-radius: var(--radius-sm); }
+    .composer-bar.drag { box-shadow: inset 0 0 0 2px var(--accent-strong); }
     .inline-edit {
       background: var(--surface); border: 1px solid var(--accent-border);
       border-radius: var(--radius-sm); color: var(--text);

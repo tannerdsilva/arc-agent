@@ -281,24 +281,79 @@
     closeSlashMenu();
   });
 
-  // ---- Image paste (arc parity): pasting an image (or image file)
-  // into the composer uploads it and attaches it via the existing
-  // attach wire, so it flows through describeImage on send. Text
+  // ---- Composer drag & drop + image paste: dropped or pasted files
+  // upload into the active chat's workspace under attachments/ and are
+  // attached to the next message server-side (the composer-attach wire
+  // writes the file and appends the absolute path to the attachment
+  // list, so the chips re-render with no client round-trip). Text
   // pastes are untouched.
-  function attachUploadedPath(p) {
-    var inp = document.getElementById('file-path-input');
-    if (!inp) return;
-    var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-    setter.call(inp, p);
-    inp.dispatchEvent(new Event('input', { bubbles: true }));
-    // The runtime debounces input events (~80ms); wait for the path to
-    // reach the server before clicking Attach, or the click wins the
-    // race and the server sees an empty path.
-    setTimeout(function () {
-      var btn = document.getElementById('file-attach');
-      if (btn) btn.click();
-    }, 350);
+  function composerUploadForm() {
+    var f = document.getElementById('composer-upload-form');
+    if (!f) {
+      f = document.createElement('form');
+      f.id = 'composer-upload-form';
+      f.style.display = 'none';
+      f.setAttribute('data-component-id', 'composer-attach');
+      f.innerHTML = '<input type="hidden" name="upl-name"><input type="hidden" name="upl-rel"><input type="hidden" name="upl-b64">';
+      document.body.appendChild(f);
+    }
+    return f;
   }
+
+  function sendComposerUpload(file, relPath) {
+    var LIMIT = 10 * 1024 * 1024;
+    if (file.size > LIMIT) {
+      flashToast('"' + file.name + '" is larger than 10 MB', 'error');
+      return;
+    }
+    readFileAsB64(file, function (b64) {
+      if (b64 === null) return;
+      var f = composerUploadForm();
+      f.querySelector('[name="upl-name"]').value = file.name;
+      f.querySelector('[name="upl-rel"]').value = relPath || ('attachments/' + file.name);
+      f.querySelector('[name="upl-b64"]').value = b64;
+      try { f.requestSubmit(); } catch (err) { f.submit(); }
+    });
+  }
+
+  document.addEventListener('dragover', function (e) {
+    var c = e.target && e.target.closest ? e.target.closest('#composer-form') : null;
+    if (!c) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    c.classList.add('drag');
+  });
+  document.addEventListener('dragleave', function (e) {
+    var c = e.target && e.target.closest ? e.target.closest('#composer-form') : null;
+    if (!c) return;
+    var to = e.relatedTarget;
+    if (to && to.closest && to.closest('#composer-form')) return;
+    c.classList.remove('drag');
+  });
+  document.addEventListener('drop', function (e) {
+    var c = e.target && e.target.closest ? e.target.closest('#composer-form') : null;
+    if (!c) return;
+    e.preventDefault();
+    c.classList.remove('drag');
+    var items = e.dataTransfer && e.dataTransfer.items;
+    if (items && items.length) {
+      for (var i = 0; i < items.length; i++) {
+        var entry = items[i].webkitGetAsEntry ? items[i].webkitGetAsEntry() : null;
+        if (entry) {
+          collectEntry(entry, 'attachments/', function (file, path) {
+            if (file) sendComposerUpload(file, path);
+          });
+        } else if (items[i].kind === 'file') {
+          var f = items[i].getAsFile ? items[i].getAsFile() : null;
+          if (f) sendComposerUpload(f);
+        }
+      }
+    } else if (e.dataTransfer && e.dataTransfer.files) {
+      for (var j = 0; j < e.dataTransfer.files.length; j++) {
+        sendComposerUpload(e.dataTransfer.files[j]);
+      }
+    }
+  });
   document.addEventListener('paste', function (e) {
     if (!e.target || e.target.id !== 'composer-input') return;
     var cd = e.clipboardData;
@@ -333,17 +388,7 @@
         t.dispatchEvent(new Event('input', { bubbles: true }));
       }
     }
-    imgs.forEach(function (f) {
-      var ext = (f.type.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '').toLowerCase();
-      if (!ext || ext.length > 8) ext = 'img';
-      fetch('/api/upload?ext=' + encodeURIComponent(ext), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream' },
-        body: f
-      }).then(function (r) { return r.json(); }).then(function (j) {
-        if (j && j.ok && j.path) attachUploadedPath(j.path);
-      }).catch(function (err) { console.warn('image upload failed', err); });
-    });
+    imgs.forEach(function (f) { sendComposerUpload(f); });
   });
 
   // ---- Composer autogrow (arc parity): the textarea expands with
@@ -1831,29 +1876,34 @@
     // Drag & drop is delegated at DOCUMENT level: fragment re-renders
     // replace the #ws-panel element, and a listener bound to an old
     // node would be silently lost. The current panel is looked up on
-    // every event instead.
-    function currentPanel() {
-      var p = document.getElementById('ws-panel');
-      return (p && !p.classList.contains('hidden')) ? p : null;
+    // every event instead. The collapsed #ws-dock is a drop target
+    // too — dropping on it uploads into the active chat's workspace
+    // without opening the panel.
+    function wsDropTarget(t) {
+      return (t && t.closest) ? t.closest('#ws-panel, #ws-dock') : null;
     }
     document.addEventListener('dragover', function (e) {
-      var p = currentPanel();
-      if (!p || !e.target.closest || !e.target.closest('#ws-panel')) return;
+      var t = wsDropTarget(e.target);
+      if (!t) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
-      p.classList.add('drag');
+      t.classList.add('drag');
     });
     document.addEventListener('dragleave', function (e) {
-      var p = document.getElementById('ws-panel');
-      if (!p) return;
-      if (e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('#ws-panel')) return;
-      p.classList.remove('drag');
+      var t = wsDropTarget(e.target);
+      if (!t) return;
+      if (e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('#ws-panel, #ws-dock')) return;
+      document.querySelectorAll('#ws-panel.drag, #ws-dock.drag').forEach(function (el) {
+        el.classList.remove('drag');
+      });
     });
     document.addEventListener('drop', function (e) {
-      var p = currentPanel();
-      if (!p || !e.target.closest || !e.target.closest('#ws-panel')) return;
+      var t = wsDropTarget(e.target);
+      if (!t) return;
       e.preventDefault();
-      p.classList.remove('drag');
+      document.querySelectorAll('#ws-panel.drag, #ws-dock.drag').forEach(function (el) {
+        el.classList.remove('drag');
+      });
       var items = e.dataTransfer && e.dataTransfer.items;
       if (items && items.length) {
         for (var i = 0; i < items.length; i++) {

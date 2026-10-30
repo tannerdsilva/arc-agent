@@ -1129,6 +1129,57 @@ extension AppState {
         }
     }
 
+    /// Write a composer-dropped or pasted file into the active chat's
+    /// workspace under `attachments/` and attach its absolute path to the
+    /// next message. Unlike ``uploadWorkspaceFile`` this never overwrites:
+    /// an existing name gets a numeric suffix before the extension.
+    func composerAttachUpload(name: String, relPath: String, b64: String) {
+        var rel = relPath
+        while rel.hasPrefix("/") { rel.removeFirst() }
+        guard !rel.isEmpty, !rel.components(separatedBy: "/").contains("..") else {
+            _ = hint("Attach rejected: invalid path.", kind: "error")
+            return
+        }
+        guard let data = Data(base64Encoded: b64) else {
+            _ = hint("Attach failed: could not decode \(name).", kind: "error")
+            return
+        }
+        guard data.count <= 10 * 1024 * 1024 else {
+            _ = hint("\"\(name)\" is larger than 10 MB", kind: "error")
+            return
+        }
+        let fm = FileManager.default
+        let baseDir = workspaceRootURL().appendingPathComponent("attachments")
+        let dest = baseDir.appendingPathComponent(rel)
+        guard dest.standardizedFileURL.path.hasPrefix(baseDir.standardizedFileURL.path) else {
+            _ = hint("Attach rejected: invalid path.", kind: "error")
+            return
+        }
+        let final: URL
+        if fm.fileExists(atPath: dest.path) {
+            let ext = dest.pathExtension
+            let stem = dest.deletingPathExtension().lastPathComponent
+            var n = 2
+            var candidate = baseDir.appendingPathComponent("\(stem)-\(n).\(ext)")
+            while fm.fileExists(atPath: candidate.path) {
+                n += 1
+                candidate = baseDir.appendingPathComponent("\(stem)-\(n).\(ext)")
+            }
+            final = candidate
+        } else {
+            final = dest
+        }
+        do {
+            try fm.createDirectory(at: final.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: final)
+            clearWorkspaceTreeCache()
+            addAttachment(final.path)
+            _ = hint("Attached \(final.lastPathComponent).")
+        } catch {
+            _ = hint("Attach failed for \(name): \(error.localizedDescription)", kind: "error")
+        }
+    }
+
     /// Open a workspace file in the panel's preview pane. Resolves `relPath`
     /// under `root` (default: the active chat's workspace path), guards path
     /// traversal, and reads best-effort UTF-8 text (binary / oversized files

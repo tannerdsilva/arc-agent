@@ -3537,6 +3537,16 @@ extension Controller {
         return await self.changed()
     }
 
+    @Wired("composer-attach", events: [.submit])
+    func handleComposerAttach(_ event: EventData) async -> [FragmentUpdate] {
+        let name = event.string("upl-name") ?? ""
+        let rel = event.string("upl-rel") ?? ""
+        let b64 = event.string("upl-b64") ?? ""
+        guard !rel.isEmpty, !b64.isEmpty else { return [] }
+        await self.app.composerAttachUpload(name: name, relPath: rel, b64: b64)
+        return await self.changed()
+    }
+
     @Wired("ws-new-form", events: [.submit, .click])
     func handleWsNewForm(_ event: EventData) async -> [FragmentUpdate] {
         if event.event == "submit" {
