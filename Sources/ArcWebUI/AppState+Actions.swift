@@ -636,7 +636,15 @@ extension AppState {
         return doomed.count
     }
 
-    func toggleOutline() { outlineOpen.toggle() }
+    /// One right-hand auxiliary panel at a time: the outline floats at
+    /// `right: 20px` and the workspace panel occupies that same strip, so
+    /// both open at once drew the outline on top of the file tree. The outline
+    /// could not be opened at all until `.flag(.hidden, when:)` was wired, so
+    /// this collision only became reachable with that fix.
+    func toggleOutline() {
+        outlineOpen.toggle()
+        if outlineOpen { workspaceOpen = false }
+    }
 
     func closeOutline() { outlineOpen = false }
 
@@ -1051,6 +1059,9 @@ extension AppState {
 
     func toggleWorkspace() {
         workspaceOpen.toggle()
+        // Mutual exclusion with the outline (see `toggleOutline`): both float
+        // over the same right-hand strip.
+        if workspaceOpen { outlineOpen = false }
         wsNewMode = ""
         // One-shot slide-in for the open transition (consumed by the render).
         if workspaceOpen { wsEnterAnim = true }

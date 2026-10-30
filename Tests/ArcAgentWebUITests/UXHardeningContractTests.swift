@@ -1351,12 +1351,12 @@ extension ArcWebUITestRoot {
                     "rail glyphs get smaller at the compact breakpoint")
             #expect(!css.contains(".icon-btn { width: 40px; height: 40px; font-size: 17px;"),
                     "the 40px icon-btn hit target must survive the compact breakpoint untouched")
-            #expect(css.contains("#main .chat-scroll { padding: 0 48px 0 12px !important; }"),
-                    "the transcript gutter narrows with the rail, keeping a lane for the floats")
-            #expect(css.contains("#outline-toggle { right: 8px; }"),
-                    "the outline circle re-anchors flush to the edge inside the lane")
-            #expect(css.contains(".scroll-to-bottom-btn { right: 8px; }"),
-                    "the jump circle re-anchors flush to the edge inside the lane")
+            #expect(css.contains("#main .chat-scroll { padding: 0 16px !important; }"),
+                    "the transcript gutter tightens symmetrically at the compact breakpoint")
+            #expect(!css.contains("#outline-toggle { right:"),
+                    "the outline is a header action now — it must not re-anchor as a float")
+            #expect(!css.contains(".scroll-to-bottom-btn { right:"),
+                    "jump-to-latest is centred above the composer, not parked in a right lane")
         }
 
         @Test("the overlay owns drawer open/close: Escape, outside click, session pick, breakpoint reset")

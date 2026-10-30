@@ -1187,12 +1187,30 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
             }
             Div(class: .rowActionsMain) {
+                // The outline is a per-conversation action, so it sits with the
+                // other two. It used to float as a circle in the transcript's
+                // right gutter, which forced a 56px reserve and left the reading
+                // column 36px off centre with no shared edge with the composer.
+                if settings.showConversationOutline {
+                    ArcButton(id: "outline-toggle", component: "outline-toggle",
+                              class: .outlineToggleBtn) {
+                        Text("☰")
+                    }
+                    .data("event", "click")
+                    .data("tip", "Conversation outline")
+                    .aria(.label("Toggle conversation outline"))
+                }
                 ArcButton(id: "regen-btn", component: nil, class: .iconMini) {
                     WebUIIcon(.refreshCw, size: .small)
                 }
                 .data("tip", "Regenerate last reply")
                 .aria(.label("Regenerate last reply"))
                 .title("Regenerate last reply")
+                // The wire rides the button, not the row. On the row it claimed
+                // every click in the cluster, and `handleRegen` drops the ones
+                // whose id lacks the `regen-` prefix — which is exactly how the
+                // outline toggle beside it silently died.
+                .wire("regen")
                 ArcButton(id: "chat-del", component: "chat-del", class: delClass) {
                     if pendingDelete {
                         Text("Confirm?")
@@ -1204,7 +1222,6 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 .aria(.label("Delete chat"))
             }
             .margin(0)
-            .wire("regen")
         }
         .id("chat-header")
     }
@@ -1249,7 +1266,6 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             .title("Jump to latest")
             .aria(.label("Jump to latest"))
             .flag(.hidden)
-            outlineToggleHTML
             outlinePanelHTML
         }
         return Group {
@@ -1271,22 +1287,6 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
                 .attribute("style", "justify-content:center")
-            }
-        }
-    }
-
-    /// Floating "Conversation outline" button (reference #2124 parity); hidden
-    /// entirely when the appearance setting is off.
-    var outlineToggleHTML: some WebUI.View {
-        Group {
-            if settings.showConversationOutline {
-                ArcButton(id: "outline-toggle", component: "outline-toggle",
-                          class: .outlineToggleBtn) {
-                    Text("☰")
-                }
-                .data("event", "click")
-                .data("tip", "Conversation outline")
-                .aria(.label("Toggle conversation outline"))
             }
         }
     }
@@ -1314,7 +1314,11 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 .id("outline-panel")
                 .attribute("role", "navigation")
                 .aria(.label("Conversation outline"))
-                .flag(.hidden)
+                // The doc comment above and `AppState.outlineOpen` promised a
+                // server-owned open state, but nothing ever read it: the panel was
+                // emitted hidden unconditionally, so the (wired) toggle flipped a
+                // flag no renderer consumed and the outline could never appear.
+                .flag(.hidden, when: !outlineOpen)
             }
         }
     }

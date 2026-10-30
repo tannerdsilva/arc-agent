@@ -1257,17 +1257,24 @@ public static let css: String = """
     .chat-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
     .chat-scroll-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
-    .chat-scroll { flex: 1; height: 100%; overflow-y: auto; padding: 0 56px 0 20px; scrollbar-gutter: stable both-edges; }
+    /* Symmetric gutters. This used to be `0 56px 0 20px`: the extra 36px on the
+       right was a lane reserved for two floating circles, which pushed the
+       reading column 36px left of centre and left it sharing no edge with the
+       composer below it. Both circles are gone (the outline is a header action,
+       jump-to-latest is centred), so the reserve is gone with them. */
+    .chat-scroll { flex: 1; height: 100%; overflow-y: auto; padding: 0 28px; scrollbar-gutter: stable both-edges; }
     /* Streaming turns re-render #main per token; the gutter must never be
-       overridden or lost mid-response (padding is only ever set here). The
-       56px right reserve is the lane for the floating circles (jump-to-latest
-       + conversation outline) so they never sit on the text column. */
-    #main .chat-scroll { padding: 0 56px 0 20px !important; }
+       overridden or lost mid-response (padding is only ever set here). */
+    #main .chat-scroll { padding: 0 28px !important; }
     .chat-scroll::-webkit-scrollbar { width: 8px; }
     .chat-scroll::-webkit-scrollbar-track { background: transparent; }
     .chat-scroll::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 4px; }
 
-    /* Conversation column: same centered width as the composer box */
+    /* Conversation column. This max-width is deliberately the same clamp
+       `.composer-bar` uses, and both sit in a container with the same 28px
+       inset, so the transcript and the composer share their left and right
+       edges. Assistant prose still caps at 46rem inside it — a reading measure,
+       not the column edge. */
     .chat-inner {
       margin: 0 auto; width: 100%;
       max-width: clamp(780px, 60vw, 1100px);
@@ -1368,27 +1375,31 @@ public static let css: String = """
       font-variant-numeric: tabular-nums;
     }
     /* ── Conversation outline (reference #2124 parity) ───────────── */
-    /* Second circle of the bottom-right lane, stacked above the jump button.
-       The transcript reserves a 56px right gutter (`.chat-scroll`), so neither
-       circle ever sits on the text column. One source of truth for the toggle:
-       this id rule — the markup's class is intentionally unstyled. */
+    /* A header action now, sitting beside regenerate/delete. It used to be the
+       second circle of a bottom-right float lane, which forced the transcript
+       to reserve a 56px right gutter — that reserve is what made the reading
+       column sit 36px left of centre. Geometry only; the `.outline-toggle-btn`
+       class is still emitted so the shared [data-tip] pill rule keeps applying. */
     #outline-toggle {
-      position: absolute; bottom: 56px; right: 12px; z-index: 12;
-      width: 32px; height: 32px; box-sizing: border-box; padding: 0;
-      border-radius: 50%;
-      background: var(--surface); border: 1px solid var(--border-strong);
-      color: var(--text); cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+      position: static; display: flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; box-sizing: border-box; padding: 0;
+      border-radius: 8px;
+      background: transparent; border: none;
+      color: var(--muted); cursor: pointer;
       font-size: 14px; line-height: 1;
-      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+      transition: background 0.15s ease, color 0.15s ease;
     }
     #outline-toggle:hover,
     #outline-toggle:focus-visible {
-      background: var(--accent-soft);
-      border-color: var(--accent-border);
-      color: var(--accent-strong);
+      background: var(--surface);
+      color: var(--text);
     }
+    /* One size for the header cluster. `.icon-mini` is 24px everywhere else
+       (workspace tools, row actions); the chat header's three controls are the
+       most-used buttons in the app, so they get 28px — and they must match each
+       other, or the outline sits a pixel off the baseline of its neighbours. */
+    .chat-header .icon-mini,
+    .chat-header #outline-toggle { width: 28px; height: 28px; }
     #outline-panel {
       position: fixed; right: 20px; bottom: 170px;
       width: 320px; max-height: 50vh; z-index: 9998;
@@ -1404,8 +1415,12 @@ public static let css: String = """
        are needed to outrank the `#main .chat-scroll { padding: … !important }`
        rule that pins the transcript's gutters. */
     .chat-scroll-wrap:has(#outline-panel:not([hidden])) .chat-scroll { padding-right: 348px !important; }
+    /* The composer follows the same shift, or the two columns would stop
+       sharing their edges the moment the outline opens. */
+    .chat-main:has(#outline-panel:not([hidden])) .composer-wrap { padding-right: 348px; }
     @media (max-width: 1200px) {
-      .chat-scroll-wrap:has(#outline-panel:not([hidden])) .chat-scroll { padding-right: 20px !important; }
+      .chat-scroll-wrap:has(#outline-panel:not([hidden])) .chat-scroll { padding-right: 28px !important; }
+      .chat-main:has(#outline-panel:not([hidden])) .composer-wrap { padding-right: 28px; }
     }
     .outline-header {
       display: flex; align-items: center; justify-content: space-between;
@@ -1704,7 +1719,8 @@ public static let css: String = """
     }
     /* Jump-to-latest circle button (reference .scroll-to-bottom-btn mirror). */
     .scroll-to-bottom-btn {
-      position: absolute; right: 12px; bottom: 14px;
+      position: absolute; left: 50%; right: auto; bottom: 14px;
+      transform: translateX(-50%);
       width: 32px; height: 32px;
       box-sizing: border-box; padding: 0;
       border-radius: 50%;
@@ -1722,7 +1738,7 @@ public static let css: String = """
       color: var(--text);
       border-color: var(--border-strong);
       background: var(--surface-2);
-      transform: translateY(-1px);
+      transform: translate(-50%, -1px);
     }
     .scroll-to-bottom-btn[hidden] { display: none; }
 
@@ -2155,9 +2171,12 @@ public static let css: String = """
     .limit-v { color: var(--text); }
 
     /* ─── Composer (reference composer-box sizing) ────────────────── */
-    .composer-wrap { padding: 12px 12px 16px; }
+    /* Same inset as `.chat-scroll`, and `.composer-bar` below carries the same
+       max-width as `.chat-inner`, so the transcript and the composer share
+       their left and right edges instead of drifting apart. */
+    .composer-wrap { padding: 12px 28px 16px; }
     .queued-sends { display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-      max-width: 720px; margin: 0 auto 8px; padding: 0 4px; }
+      max-width: clamp(780px, 60vw, 1100px); margin: 0 auto 8px; padding: 0 4px; }
     .queued-count { font-size: 0.78em; font-weight: 700; text-transform: uppercase;
       letter-spacing: .05em; color: var(--accent); flex: 0 0 auto; }
     .queued-chip {
@@ -2172,7 +2191,7 @@ public static let css: String = """
     .queued-chip-x { flex: 0 0 auto; color: var(--muted); font-size: 11px; opacity: .8; }
     .queued-chip:hover .queued-chip-x { color: var(--text); opacity: 1; }
     .composer-bar {
-      max-width: 100%;
+      max-width: clamp(780px, 60vw, 1100px);
       margin: 0 auto;
       background: var(--input-bg);
       border: 1px solid var(--border-strong);
@@ -2845,17 +2864,21 @@ public static let css: String = """
     /* ─── Workspace panel (right side) ───────────────────────── */
     /* The handle is a persistent affordance (the collapse tab must be
        discoverable while the panel is open): muted at rest, full strength on
-       hover/keyboard focus and while the panel is open. */
-    #ws-dock { position: fixed; right: 0; top: 50%; transform: translateY(-50%); z-index: 60; padding: 10px 6px; }
+       hover/keyboard focus and while the panel is open.
+       It is a flush drawer pull, not a floating circle: a circle parked in the
+       reading gutter read as an orphaned control with no home. Flush to the
+       viewport edge it occupies the outer margin, so the transcript needs no
+       reserved lane for it. */
+    #ws-dock { position: fixed; right: 0; top: 50%; transform: translateY(-50%); z-index: 60; padding: 0; }
     .ws-dock-btn {
-      width: 38px; height: 38px; border-radius: 50%;
+      width: 22px; height: 56px; border-radius: 10px 0 0 10px;
       display: flex; align-items: center; justify-content: center;
       font-size: 1.05em; cursor: pointer;
       background: var(--surface-2); color: var(--text);
-      border: 1px solid var(--border-strong);
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+      border: 1px solid var(--border-strong); border-right: none;
+      box-shadow: -2px 0 10px rgba(0, 0, 0, 0.18);
       opacity: 0.55;
-      transition: opacity .15s ease, background .12s, color .12s, border-color .12s;
+      transition: opacity .15s ease, background .12s, color .12s, border-color .12s, width .12s ease;
     }
     #ws-dock:hover .ws-dock-btn,
     .ws-dock-btn:focus-visible,
@@ -3099,14 +3122,14 @@ public static let css: String = """
       .icon-btn { font-size: 17px; border-radius: 10px; }
       .icon-btn svg { width: 19px; height: 19px; }
       .rail-emoji { font-size: 18px; }
-      .composer-wrap { padding: 10px 8px 14px; }
+      .composer-wrap { padding: 10px 16px 14px; }
       .composer-bar { padding: 8px 10px 8px; border-radius: 14px; }
       .composer-toolbar .dd-trigger { padding: 6px; }
-      #main .chat-scroll { padding: 0 48px 0 12px !important; }
-      #outline-toggle { right: 8px; }
-      .scroll-to-bottom-btn { right: 8px; }
-      #ws-dock { padding: 8px 4px; }
-      .ws-dock-btn { width: 36px; height: 36px; }
+      /* Symmetric here too, and tighter: the floats that used to need a
+         one-sided lane are gone (outline is a header action, jump-to-latest is
+         centred), so the column can use the full width. */
+      #main .chat-scroll { padding: 0 16px !important; }
+      .ws-dock-btn { width: 20px; height: 48px; }
     }
     /* Below 600px the vertical 12-icon rail eats the whole left column and a
        third of a 480px window. Collapse it into a single 44px horizontal
