@@ -265,6 +265,27 @@ extension ArcWebUITestRoot {
                     "the overflow marker must report the collapsed count")
         }
 
+        // MARK: - Appearance follows the applied theme
+
+        /// Defect: the engine applies the device-local theme before the
+        /// settings panel exists, then the panel arrives carrying the server's
+        /// saved mode. When the two differ, the page is dark and the Appearance
+        /// section still marks Light selected — the panel lies about the state
+        /// of the switch it owns.
+        @Test("the appearance panel describes the applied theme, not a stale saved mode")
+        func themePickersFollowAppliedTheme() {
+            let js = Self.overlay
+            #expect(js.contains("function syncThemePickers"),
+                    "the panel needs a reconciler: the engine applies the stored theme before the panel renders")
+            #expect(js.contains("getAttribute('data-theme')"),
+                    "the applied mode is the source of truth, not the server's saved mode")
+            #expect(js.contains("addEventListener('webui:theme', syncThemePickers)"),
+                    "a theme change while the panel is open must update the checked card")
+            let calls = js.components(separatedBy: "syncThemePickers();").count - 1
+            #expect(calls >= 2,
+                    "both the initial pass and every patch must reconcile the cards")
+        }
+
         // MARK: - B1/F52 Enter sends
 
         @Test("Enter sends from the composer; Shift+Enter keeps the newline")

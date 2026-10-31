@@ -969,6 +969,24 @@
     nu.focus({ preventScroll: true });
   }
 
+  // the theme switch is two sources of truth by design: the engine keeps the
+  // device-local choice in localStorage, while the settings panel is rendered
+  // from the server's saved mode. when they differ, the panel opened later and
+  // marked the server's mode selected even though the engine had already
+  // applied the stored one — the visible page and the checked card disagreed.
+  // reconcile after every render/patch and whenever the engine announces a
+  // change, so the panel always describes the theme the page is actually using.
+  function syncThemePickers() {
+    var mode = document.documentElement.getAttribute('data-theme');
+    var picks = document.querySelectorAll('[data-theme-choice]');
+    for (var i = 0; i < picks.length; i++) {
+      var on = picks[i].getAttribute('data-theme-choice') === mode;
+      picks[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+      if (on) picks[i].classList.add('active');
+      else picks[i].classList.remove('active');
+    }
+  }
+
   function enhanceAll() {
     resizeComposerIfNew();
     enhanceMarkdownTables(document);
@@ -978,6 +996,7 @@
     syncSkipLink();
     syncModalFocus();
     syncOutline();
+    syncThemePickers();
     bootSettingsSpy();
     copyFromServerMarker();
   }
@@ -998,6 +1017,7 @@
     syncSkipLink();
     syncModalFocus();
     syncOutline();
+    syncThemePickers();
     bootSettingsSpy();
     copyFromServerMarker();
     // T26: a fragment patch may have just replaced the control the user
@@ -1088,6 +1108,7 @@
       WebUIEngine.on.afterPatch(enhancePatched);
       WebUIEngine.on.ready(enhanceAll);
     }
+    document.addEventListener('webui:theme', syncThemePickers);
     // Number inputs declare their range with min/max; a typed value outside
     // it used to sit in the field until a reload (the server clamped its copy
     // silently, the engine's input preservation kept the user's value on top).
