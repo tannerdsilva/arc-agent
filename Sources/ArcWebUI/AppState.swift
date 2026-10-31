@@ -271,8 +271,6 @@ struct AppSettings: Codable, Equatable {
     /// active medium is `activeStorage` ("file" | "config" | connection id).
     var storageConnections: [TesseraStorageConnection] = []
     var activeStorage: String = "config"
-    /// Mixture-of-Agents advisory passes, when reference models are configured.
-    var moaEnabled: Bool = false
     /// Smart pick-a-path: when on, a clarify request that times out after
     /// the 120 s pick-a-path panel is resolved by the `clarify` auxiliary
     /// model choosing the best offered answer, instead of the unguided
@@ -287,6 +285,15 @@ struct AppSettings: Codable, Equatable {
     /// encoder omits a nil optional. Keep the declaration so an old
     /// `settings.json` can still be read and lifted; nothing may set it.
     var smartApproval: Bool?
+    /// **Legacy, decode-only.** The retired "Mixture of Agents" toggle.
+    ///
+    /// MoA enablement is policy, not view state: it lives in
+    /// `~/.arc/config.json` as `moa.enabled` (`MoAConfig.enabled`). This key is
+    /// read once at boot (`AppState.liftLegacyMoA`) and cleared, so it is nil
+    /// for every settings document written since — and the synthesised
+    /// encoder omits a nil optional. Keep the declaration so an old
+    /// `settings.json` can still be read and lifted; nothing may set it.
+    var moaEnabled: Bool?
 
     var recentFiles: [String] = []
 
@@ -392,7 +399,7 @@ struct AppSettings: Codable, Equatable {
         case modelConfigs, activeConfig
         case auxiliaryModels
         case disabledToolsets, disabledSkills, bookmarkedSessions
-        case workspaces, activeWorkspace, sessionWorkspaces, tesseraOff, moaEnabled
+        case workspaces, activeWorkspace, sessionWorkspaces, tesseraOff
         case storageConnections, activeStorage
         case recentFiles
         case sessionConfig, sessionProfile, sessionThinking, sessionTitles, sessionCompressions, archivedSessions
@@ -412,6 +419,9 @@ struct AppSettings: Codable, Equatable {
         case showConversationOutline
         case sidebarTabs, hiddenSidebarTabs, yoloSessions
         case smartApproval, smartPickAPath
+        // legacy, decode-only: `moaEnabled` is lifted into `moa.enabled` once
+        // at boot; the case stays so an old settings.json still decodes.
+        case moaEnabled
     }
 
     /// Tolerant decode: any missing (or mistyped) key falls back to the field's
@@ -441,7 +451,7 @@ struct AppSettings: Codable, Equatable {
         tesseraOff = try c.decodeIfPresent(Bool.self, forKey: .tesseraOff) ?? false
         storageConnections = try c.decodeIfPresent([TesseraStorageConnection].self, forKey: .storageConnections) ?? []
         activeStorage = try c.decodeIfPresent(String.self, forKey: .activeStorage) ?? "config"
-        moaEnabled = try c.decodeIfPresent(Bool.self, forKey: .moaEnabled) ?? false
+        moaEnabled = try c.decodeIfPresent(Bool.self, forKey: .moaEnabled)
         recentFiles = try c.decodeIfPresent([String].self, forKey: .recentFiles) ?? []
         sessionConfig = try c.decodeIfPresent([String: String].self, forKey: .sessionConfig) ?? [:]
         sessionProfile = try c.decodeIfPresent([String: String].self, forKey: .sessionProfile) ?? [:]
@@ -1449,6 +1459,21 @@ actor AppState {
         if approvalLift.clearedLegacyKey {
             Self.persist(self.settings)
         }
+        // Settings backbone, slice 2: MoA enablement is policy. The retired
+        // `moaEnabled` toggle is lifted once into `moa.enabled` (through the
+        // store; a render fixture owns none) and then cleared, so the UI and
+        // the daemon read one MoA switch from the first turn on.
+        let moaLift = await Self.liftLegacyMoA(
+            self.settings,
+            configStore: self.configurationStore
+        )
+        self.settings = moaLift.settings
+        if let lifted = moaLift.declared {
+            self.arcConfig = lifted
+        }
+        if moaLift.clearedLegacyKey {
+            Self.persist(self.settings)
+        }
         self.selectedWorkspace = self.settings.activeWorkspace
         for w in pluginWarnings {
             crumb(w)
@@ -1612,6 +1637,21 @@ actor AppState {
         return ApprovalMode(configValue: raw)
     }
 
+    /// The one Mixture-of-Agents policy this process runs with.
+    ///
+    /// `moa` resolved through the configuration store, so the UI turn agent
+    /// reads exactly the block the CLI and the daemon read (declared copy when
+    /// a render fixture owns no store). `moa` has no environment surface
+    /// today; going through the store keeps that decision in one place if it
+    /// ever gets one, and keeps every policy read on the same path.
+    ///
+    /// Nothing else may decide whether MoA runs — there is no second MoA
+    /// setting (the old `settings.moaEnabled` toggle is migrated once at boot).
+    func resolvedMoA() async -> MoAConfig {
+        guard let configurationStore else { return arcConfig.moa }
+        return await configurationStore.resolved().moa
+    }
+
     /// arc parity: migrate the legacy default workspace (home folder) to
     /// `~/workspace`. Returns true when the persisted "main" entry was
     /// repointed (or restored to the new default path).
@@ -1713,6 +1753,67 @@ actor AppState {
         var cleared = settings
         cleared.smartApproval = nil
         return LegacyApprovalLift(settings: cleared, clearedLegacyKey: true)
+    }
+
+    /// What one pass of ``AppState/liftLegacyMoA(_:configStore:)`` changed.
+    struct LegacyMoALift: Equatable {
+        /// The settings document after the pass (the legacy key cleared when
+        /// it was present).
+        var settings: AppSettings
+        /// The declaration now on disk, when the config file was written.
+        var declared: ArcConfig? = nil
+        /// The legacy key was present and has been cleared: persist `settings`.
+        var clearedLegacyKey = false
+    }
+
+    /// One-shot lift of the retired `settings.moaEnabled` toggle into
+    /// `moa.enabled` — the one MoA policy.
+    ///
+    /// The decision table (settings backbone, slice 2):
+    /// - no legacy key → nothing to do;
+    /// - legacy `true` while the file still says the default `false` → MoA is
+    ///   switched on, written through the configuration store;
+    /// - legacy `false` → the file's default `false` already means exactly
+    ///   that, and the store refuses a no-op write, so nothing is written;
+    /// - a config that already says `enabled: true` → it wins; a leftover
+    ///   boolean is not a more recent decision than a named policy, so it is
+    ///   discarded and MoA stays on.
+    ///
+    /// The legacy key is cleared in every case except a failed config write
+    /// (a read-only `config.json` keeps the intent for the next boot).
+    /// Clearing it is what makes the lift idempotent: a second pass finds
+    /// nothing and writes nothing.
+    ///
+    /// A render fixture owns no store, so it neither reads nor writes a file.
+    ///
+    /// Takes the document by value (an actor-isolated property cannot be
+    /// passed `inout` to an `async` call) and returns the cleared copy.
+    @discardableResult
+    static func liftLegacyMoA(
+        _ settings: AppSettings,
+        configStore: ConfigurationStore?
+    ) async -> LegacyMoALift {
+        guard let configStore, let legacy = settings.moaEnabled else {
+            return LegacyMoALift(settings: settings)
+        }
+        let declared = await configStore.declared()
+        if legacy, declared.moa.enabled == MoAConfig().enabled {
+            guard let snapshot = try? await configStore.mutate({
+                $0.moa.enabled = true
+            }) else {
+                // config.json is unreadable (the store refuses writes): keep
+                // the legacy key so this can be retried once it is fixed.
+                return LegacyMoALift(settings: settings)
+            }
+            var cleared = settings
+            cleared.moaEnabled = nil
+            return LegacyMoALift(settings: cleared, declared: snapshot.declared,
+                                 clearedLegacyKey: true)
+        }
+        // the file already says enabled, or `false` already means off: drop the key.
+        var cleared = settings
+        cleared.moaEnabled = nil
+        return LegacyMoALift(settings: cleared, clearedLegacyKey: true)
     }
 
     /// Seed the default kanban columns on first run (no stored board yet).
@@ -2086,6 +2187,11 @@ actor AppState {
         // approval mode: the one policy, resolved (config + environment).
         let approvalMode = await resolvedApprovalMode()
 
+        // MoA: the one policy, resolved (config, the store's snapshot). The
+        // reference-model guard lives in `turnMoAConfig` — an enabled block
+        // with nothing to fan out stays off.
+        let moaConfig = Self.turnMoAConfig(await resolvedMoA())
+
         // background review settings from config.
         let backgroundReview = BackgroundReview.Settings(
             afterToolCalls: arcConfig.agent.backgroundReviewAfter,
@@ -2160,7 +2266,7 @@ actor AppState {
             workspaceRoot: root,
             platformHint: "webui",
             initialHistory: initialHistory,
-            moa: Self.turnMoAConfig(arcConfig.moa, enabledBySwitch: settings.moaEnabled),
+            moa: moaConfig,
             toolSearch: arcConfig.toolSearch,
             backgroundReview: backgroundReview,
             verifyOnStop: arcConfig.agent.verifyOnStop,
@@ -2209,15 +2315,14 @@ actor AppState {
 
     /// The MoA block a UI turn hands to the core.
     ///
-    /// The UI's switch is ``AppSettings/moaEnabled`` (Settings → Preferences) and
-    /// the core reads `config.moa.enabled`; the legacy loop ran the advisory only
-    /// when the switch was on, whatever `~/.arc/config.json` said. Carrying the
-    /// switch's value keeps that behaviour now that the core runs the advisory
-    /// (CONVERGE A7). No reference models means nothing to fan out, so the block
-    /// stays off.
-    static func turnMoAConfig(_ config: MoAConfig, enabledBySwitch: Bool) -> MoAConfig {
+    /// The policy is `moa.enabled` in `~/.arc/config.json` — the same block a
+    /// daemon session gets, so the two surfaces cannot disagree (settings
+    /// backbone, slice 2; the retired `settings.moaEnabled` toggle is lifted
+    /// once at boot). No reference models means nothing to fan out, so the
+    /// block stays off whatever the file says.
+    static func turnMoAConfig(_ config: MoAConfig) -> MoAConfig {
         var moa = config
-        moa.enabled = enabledBySwitch && !moa.referenceModels.isEmpty
+        moa.enabled = config.enabled && !moa.referenceModels.isEmpty
         return moa
     }
 

@@ -1814,9 +1814,14 @@ extension AppState {
         return true
     }
 
-    func setMoaEnabled(_ on: Bool) {
-        settings.moaEnabled = on
-        saveSettings()
+    /// Settings → Storage → "Mixture of Agents". The switch is a view of the
+    /// one MoA policy: on writes `moa.enabled = true`, off writes `false`,
+    /// through the configuration store (the only write path) so the daemon
+    /// and the CLI read the same switch on their next start. A config with no
+    /// reference models still does nothing — the guard is in `turnMoAConfig`.
+    func setMoaEnabled(_ on: Bool) async {
+        guard await resolvedMoA().enabled != on else { return }
+        await updateConfig { $0.moa.enabled = on }
     }
 
     /// Settings → Auxiliary models: open one task's picker at a time (tapping

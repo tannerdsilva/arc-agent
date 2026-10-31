@@ -102,6 +102,12 @@ public enum ArcDaemon {
             apiKey: ProcessInfo.processInfo.environment["ARC_API_KEY"] ?? "",
             tessera: arc.tessera,
             persistSessions: arc.agent.persistSessions,
+            // MoA is policy, not a UI preference: every hosted session agent
+            // gets the block the process config declares. Before slice 2 of
+            // the settings backbone nothing passed it, so daemon sessions ran
+            // with the compiled default (disabled, no reference models)
+            // whatever config.json said.
+            moa: arc.moa,
             maxIterations: arc.effectiveMaxTurns(),
             toolLoopCap: arc.toolCallLimit(),
             maxTurnDuration: arc.effectiveMaxTurnDuration() ?? 0,

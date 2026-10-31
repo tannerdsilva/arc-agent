@@ -4140,7 +4140,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         Text(" block of ~/.arc/config.json; without them this does nothing.")
                     }
                 } control: {
-                    ArcSwitch(id: "set-moa", on: settings.moaEnabled,
+                    ArcSwitch(id: "set-moa", on: arcConfig.moa.enabled,
                               component: "set-moa", event: "change")
                 }
             }

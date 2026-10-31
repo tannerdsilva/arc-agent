@@ -717,16 +717,22 @@ extension ArcWebUITestRoot {
             #expect(stored.messages.last?.content == "done")
         }
 
-        @Test("the MoA switch is what decides whether the core runs the advisory")
+        @Test("the MoA policy is what decides whether the core runs the advisory")
         func moaSwitchMapsToTheCoreConfiguration() {
             var config = MoAConfig()
-            #expect(AppState.turnMoAConfig(config, enabledBySwitch: true).enabled == false,
+            #expect(AppState.turnMoAConfig(config).enabled == false,
+                    "off in the file means off")
+            #expect(config.referenceModels.isEmpty)
+
+            config.enabled = true
+            #expect(AppState.turnMoAConfig(config).enabled == false,
                     "no reference models means nothing to fan out")
 
             config.referenceModels = [MoAConfig.Role(model: "reference-1")]
-            #expect(AppState.turnMoAConfig(config, enabledBySwitch: true).enabled)
-            #expect(AppState.turnMoAConfig(config, enabledBySwitch: false).enabled == false,
-                    "the UI switch stays authoritative, as it was in the legacy loop")
+            #expect(AppState.turnMoAConfig(config).enabled)
+            config.enabled = false
+            #expect(AppState.turnMoAConfig(config).enabled == false,
+                    "moa.enabled stays authoritative — there is no second switch")
         }
     }
 }
