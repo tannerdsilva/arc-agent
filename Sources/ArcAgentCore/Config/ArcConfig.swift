@@ -75,6 +75,12 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// a web-UI preference — the CLI, the daemon and the web UI all read it.
     public var tools: ToolsConfig
 
+    /// The storage medium this install runs on. Policy: the CLI, the daemon
+    /// and the web UI all resolve it through ``StoreSelection``, so the
+    /// backend the picker chooses is the backend the daemon uses. See
+    /// ``StorageConfig``.
+    public var storage: StorageConfig
+
     /// arc-parity auxiliary-model overrides (`auxiliary.<task>`), routing
     /// secondary tasks (vision, web extract, compression, approval, titles, …)
     /// to dedicated model configurations. Tasks without an override use the
@@ -165,6 +171,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         case tessera
         case moa
         case tools
+        case storage
         case auxiliary
         case plugins
         case profileRouting
@@ -194,6 +201,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         tessera: TesseraConfig? = nil,
         moa: MoAConfig = MoAConfig(),
         tools: ToolsConfig = ToolsConfig(),
+        storage: StorageConfig = StorageConfig(),
         auxiliary: AuxiliaryModelSet = AuxiliaryModelSet(),
         plugins: PluginsConfig = PluginsConfig(),
         profileRouting: ProfileRoutingConfig = ProfileRoutingConfig(),
@@ -219,6 +227,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.tessera = tessera
         self.moa = moa
         self.tools = tools
+        self.storage = storage
         self.auxiliary = auxiliary
         self.plugins = plugins
         self.profileRouting = profileRouting
@@ -249,6 +258,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.tessera = try container.decodeIfPresent(TesseraConfig.self, forKey: .tessera)
         self.moa = try container.decodeIfPresent(MoAConfig.self, forKey: .moa) ?? MoAConfig()
         self.tools = try container.decodeIfPresent(ToolsConfig.self, forKey: .tools) ?? ToolsConfig()
+        self.storage = try container.decodeIfPresent(StorageConfig.self, forKey: .storage) ?? StorageConfig()
         self.auxiliary = try container.decodeIfPresent(AuxiliaryModelSet.self, forKey: .auxiliary) ?? AuxiliaryModelSet()
         self.plugins = try container.decodeIfPresent(PluginsConfig.self, forKey: .plugins) ?? PluginsConfig()
         self.profileRouting = try container.decodeIfPresent(ProfileRoutingConfig.self, forKey: .profileRouting) ?? ProfileRoutingConfig()
@@ -356,6 +366,43 @@ public struct ToolsConfig: Codable, Sendable, Equatable {
                               profileOverride: [String]? = nil) -> [Skill] {
         let disabled = Set(profileOverride ?? disabledSkills)
         return discovered.filter { !disabled.contains($0.name) }
+    }
+}
+
+// MARK: - Storage medium (policy: the backend every surface runs on)
+
+/// The storage-medium policy (settings backbone, slice 4).
+///
+/// `active` names the backend the CLI, the daemon and the web UI must agree
+/// on — the one question that used to have two answers (`config.tessera`
+/// presence for the daemon, `settings.activeStorage` for the UI).
+///
+/// - `"file"` — local files under `~/.arc`, even when a `tessera` block
+///   exists: the block is a *credential*, not a switch, so switching to files
+///   keeps it for a later switch back.
+/// - `"tessera"` — the relay named by the `tessera` block. A config that
+///   names Tessera without a block falls back to files and logs it; a policy
+///   that cannot be honoured must never reach for a relay it cannot describe.
+/// - `nil` (key absent) — the legacy inference that shipped before this key
+///   existed: a `tessera` block means Tessera, no block means files. Every
+///   config written before this slice therefore keeps its medium unchanged.
+public struct StorageConfig: Codable, Sendable, Equatable {
+
+    /// The declared medium: `"file"` | `"tessera"`; `nil` = legacy inference.
+    public var active: String?
+
+    public init(active: String? = nil) {
+        self.active = active
+    }
+
+    /// Decode `active`, defaulting to `nil` (legacy inference) when absent.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.active = try container.decodeIfPresent(String.self, forKey: .active)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case active
     }
 }
 

@@ -3969,14 +3969,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             if medium == "config" { return "Default (config.json)" }
             return settings.storageConnections.first(where: { $0.id == medium })?.name ?? "Unknown storage"
         }
-        // The effective medium = what the RUNTIME is actually using. A hosted
-        // daemon always boots config.json's tessera (or file), so while the
-        // AppState is attached to the daemon's pair the truth is "config",
-        // NOT the persisted picker choice (which may be stale after the user
-        // saved a connection the daemon never applied). Once the picker has
-        // actually connected (attach detached), the choice is the truth.
-        let effectiveFile = runtimeBackend == "file"
-        let effectiveMedium = effectiveFile ? "file" : (attachedStorage != nil ? "config" : settings.activeStorage)
+        // The effective medium = what the RUNTIME resolved. `ensureRuntime`
+        // builds it from `storage.active` (the policy every surface reads), so
+        // this is the store's resolved medium — not the staged pick, and not a
+        // retired settings key. A relay that failed its probe still shows as
+        // files, which is what the user is really on.
+        let effectiveMedium = effectiveStorageMedium
+        let effectiveFile = effectiveMedium == StorageMedium.file.rawValue
         let canConnect = stagedStorage != nil && stagedStorage != effectiveMedium
 
         func badges(active: Bool, staged: Bool) -> [any WebUI.View] {

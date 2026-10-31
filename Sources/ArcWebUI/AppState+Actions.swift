@@ -652,10 +652,6 @@ extension AppState {
 
     func isOutlineOpen() -> Bool { outlineOpen }
 
-    /// Storage backend, for the Settings segmented control (the old switch read
-    /// its own state backwards).
-    func currentTesseraOff() -> Bool { settings.tesseraOff }
-
     // MARK: Rename / archive / duplicate
 
     func renameSession(_ id: String, to name: String) {
@@ -1662,21 +1658,15 @@ extension AppState {
         saveSettings()
     }
 
-    func setTesseraOff(_ off: Bool) {
-        settings.tesseraOff = off
-        // An explicit user toggle is authoritative: clear the transient
-        // boot-time fallback flag (forceTesseraOff) so a relay outage can
-        // never silently keep the runtime stuck on file storage after the
-        // user switches back to Tessera in-process.
-        runtimeTesseraOff = false
-        saveSettings()
-    }
-
-
-    /// Display label for a storage medium id (matches the picker rows).
-    func storageMediumDisplay(_ medium: String) -> String {
-        if medium == "file" { return "Local file storage" }
-        if medium == "config" { return "Default (config.json)" }
+    /// Display label for a storage medium. Accepts the picker's ids ("file",
+    /// "config", a connection id), the policy's spellings ("tessera") and nil
+    /// (no policy: the legacy inference).
+    func storageMediumDisplay(_ medium: String?) -> String {
+        guard let medium else { return "the previous medium" }
+        if medium == StorageMedium.file.rawValue { return "Local file storage" }
+        if medium == StorageMedium.tessera.rawValue || medium == "config" {
+            return "Default (config.json)"
+        }
         return settings.storageConnections.first(where: { $0.id == medium })?.name ?? "Unknown storage"
     }
 
@@ -1723,13 +1713,21 @@ extension AppState {
         return true
     }
 
-    /// Remove a configured connection. If it was the active medium, file
-    /// storage becomes the active selection and the runtime rebuilds so the
-    /// session list reflects the change immediately.
+    /// Remove a configured connection. If the policy points at it, file
+    /// storage becomes the medium — written through the store, so the daemon
+    /// agrees on its next start — and the runtime rebuilds so the session list
+    /// reflects the change immediately.
     func removeStorageConnection(id: String) async {
+        let selection = await resolvedStorageSelection()
+        let removed = settings.storageConnections.first(where: { $0.id == id })
+        let wasActive: Bool = {
+            guard selection.backend == .tessera, let tunnel = selection.tessera,
+                  let expected = removed?.tesseraConfig else { return false }
+            return tunnel.endpointIdentity == expected.endpointIdentity
+        }()
         settings.storageConnections.removeAll { $0.id == id }
-        if settings.activeStorage == id {
-            settings.activeStorage = "file"
+        if wasActive {
+            await updateConfig { $0.storage.active = StorageMedium.file.rawValue }
             runtimeTesseraOff = false
             await ensureRuntime()
             await reloadAll()
@@ -1758,59 +1756,79 @@ extension AppState {
         }
     }
 
-    /// "Save and Connect": persist the staged medium and rebuild the runtime
+    /// "Save and Connect": write the staged medium into `config.json` — the
+    /// file the daemon and the CLI actually read — then rebuild the runtime
     /// against it. Returns true when the switch happened.
+    ///
+    /// Before this slice the handler only set `settings.activeStorage`, so the
+    /// picker never reached the daemon: a user who chose file storage kept
+    /// getting Tessera sessions from Telegram until they hand-edited
+    /// `config.json`. The policy write is `StoragePolicy.write` — one
+    /// `mutate`, the same single write path the rest of the settings backbone
+    /// uses.
     func connectStagedStorage() async -> Bool {
         guard let staged = stagedStorage else { return false }
-        if staged == "config", loadConfig().tessera == nil {
-            hint("Default (config.json) has no tessera section - add one there or use a connection below.")
+
+        // Held for the revert path: the policy the file says today, and the
+        // daemon's pair when this UI was attached to one.
+        let previousMedium = await declaredStorageMedium()
+        let previousAttached = attachedStorage
+
+        do {
+            if let configurationStore {
+                let snapshot = try await StoragePolicy.write(
+                    medium: staged,
+                    connections: settings.storageConnections,
+                    to: configurationStore
+                )
+                arcConfig = snapshot.resolved
+            } else {
+                // a render fixture owns no file: the same rules, in memory.
+                try StoragePolicy.apply(&arcConfig, medium: staged,
+                                        connections: settings.storageConnections)
+            }
+        } catch {
+            // The store refused or the pick cannot be expressed: nothing was
+            // written, so the selection and the runtime stay where they were.
+            hint(String(describing: error))
             stagedStorage = nil
             return false
         }
-        if staged != "file", staged != "config" {
-            guard let conn = settings.storageConnections.first(where: { $0.id == staged }),
-                  conn.tesseraConfig != nil else {
-                hint("That Tessera storage connection is incomplete (server IP, port, public key and client private key are required).")
-                stagedStorage = nil
-                return false
-            }
+
+        // The policy now says everything the retired pair used to: drop it so a
+        // later boot cannot lift a stale selection over the new policy.
+        if settings.tesseraOff != nil || settings.activeStorage != nil {
+            settings.tesseraOff = nil
+            settings.activeStorage = nil
+            saveSettings()
         }
-        // Effective-medium rule shared with the Views picker (see
-        // storageSettingsHTML): while hosted the daemon's pair is config/file.
-        let previousEffective: String = runtimeBackend == "file"
-            ? "file"
-            : (attachedStorage != nil ? "config" : settings.activeStorage)
-        settings.activeStorage = staged
-        // The picker is authoritative over the legacy toggle and any
-        // transient boot-time fallback.
-        settings.tesseraOff = false
-        runtimeTesseraOff = false
         stagedStorage = nil
-        saveSettings()
+        // The picker is authoritative over any transient boot-time fallback.
+        runtimeTesseraOff = false
         // In a hosted daemon the UI was handed the daemon's boot-time pair;
-        // detach it so the rebuild below picks the newly selected medium (the
+        // detach it so the rebuild below picks the newly written policy (the
         // hosted/bot agents keep their boot-time pair until the
         // daemon restarts - same as the pre-daemon architecture).
         let wasHosted = attachedStorage != nil
         attachedStorage = nil
         await ensureRuntime()
-        crumb("storage: switching to \(settings.activeStorage) (backend=\(runtimeBackend))")
+        crumb("storage: switching to \(staged) (backend=\(runtimeBackend))")
         // Bounded reload: a federated relay that never answers end-of-history
         // would otherwise freeze the wire (and the settings view) for a
         // minute. If the relay does not respond in time, revert the switch so
-        // the UI state and the persisted selection stay consistent and the
-        // user gets immediate feedback instead of a hang.
+        // the UI state, the persisted policy and the file stay consistent and
+        // the user gets immediate feedback instead of a hang.
         let ok = await reloadAllBounded(seconds: 10)
         if !ok {
-            crumb("storage: \(settings.activeStorage) unresponsive; reverting to \(previousEffective)")
-            hint("That Tessera storage didn't answer within 10s — stayed on \(storageMediumDisplay(previousEffective)).")
-            settings.activeStorage = previousEffective
-            saveSettings()
+            crumb("storage: \(staged) unresponsive; reverting to \(previousMedium ?? "legacy inference")")
+            hint("That Tessera storage didn't answer within 10s — stayed on \(storageMediumDisplay(previousMedium)).")
+            await restoreStorageMedium(previousMedium)
+            if let previousAttached { attachRuntime(previousAttached) }
             await ensureRuntime()
             await reloadAll()
             return false
         }
-        crumb("storage: connected to \(settings.activeStorage) (backend=\(runtimeBackend))")
+        crumb("storage: connected to \(staged) (backend=\(runtimeBackend))")
         await reloadAll()
         if wasHosted {
             hint("Storage connected. Bot services keep their boot-time backend until the daemon restarts.", kind: "success")
@@ -1818,6 +1836,25 @@ extension AppState {
             hint("Storage connected.", kind: "success")
         }
         return true
+    }
+
+    /// Put `medium` back through the single write path (the timeout revert).
+    /// `nil` restores "no policy", i.e. the legacy inference.
+    private func restoreStorageMedium(_ medium: String?) async {
+        guard let configurationStore else {
+            arcConfig.storage.active = medium
+            return
+        }
+        if let snapshot = try? await configurationStore.mutate({ $0.storage.active = medium }) {
+            arcConfig = snapshot.resolved
+        }
+    }
+
+    /// The declared medium policy (`storage.active` as the file says it) —
+    /// what a revert must restore, not what the runtime happened to resolve.
+    private func declaredStorageMedium() async -> String? {
+        guard let configurationStore else { return arcConfig.storage.active }
+        return await configurationStore.declared().storage.active
     }
 
     /// Settings → Storage → "Mixture of Agents". The switch is a view of the
@@ -1909,19 +1946,19 @@ extension AppState {
         crumb("boot: scheduled jobs loaded (\(settings.scheduledJobs.count))")
     }
 
-    /// Force file storage for THIS process only (does not persist), used by
-    /// the `--tessera-off` CLI flag so a flag pass doesn't rewrite the stored
-    /// default, and by the boot-time timeout so a transient Tessera outage
-    /// never permanently overrides the user's tessera-on setting. A later
-    /// boot with the relay reachable retries Tessera automatically.
+    /// Force file storage for THIS process only (never persisted), used by
+    /// the `webui --tessera-off` flag and by the boot-time timeout. The flag
+    /// is a per-process override of the resolved medium: it must not rewrite
+    /// the stored `storage.active`, and a later boot without it reads the
+    /// policy again.
     func overrideTesseraOff(_ off: Bool) {
-        settings.tesseraOff = off
+        runtimeTesseraOff = off
     }
 
-    /// Boot-time storage fallback: in-memory only, never persisted. The disk
-    /// flag (`settings.tesseraOff`) is the user's preference and must survive
-    /// an outage unscathed — otherwise one dead relay permanently disables
-    /// Tessera in settings.json (observed live Sep 2026).
+    /// Boot-time storage fallback: in-memory only, never persisted. The file's
+    /// policy (`storage.active`) is the user's preference and must survive an
+    /// outage unscathed — otherwise one dead relay permanently switches the
+    /// install to files (observed live Sep 2026).
     func forceTesseraOff() {
         runtimeTesseraOff = true
     }

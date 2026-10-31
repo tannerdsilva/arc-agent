@@ -99,89 +99,95 @@ public struct TesseraStorageConnection: Codable, Equatable, Identifiable, Sendab
     }
 }
 
-/// Resolved storage selection — what ``ensureRuntime`` actually builds.
-public struct StorageResolution: Equatable, Sendable {
-    /// "file" | "tessera"
-    public var backend: String
-    /// The WireGuard config to connect (nil in file mode or when the
-    /// selection could not be resolved).
-    public var config: TesseraConfig?
-    /// Human-readable medium label.
-    public var label: String
-}
-
-/// Resolution rules for the storage-medium picker:
+/// The storage policy behind "Save and Connect".
 ///
-/// - "file"           → file store, always.
-/// - "config"         → the `tessera` block of `~/.arc/config.json` if
-///                      present, else file (bounded by `runtimeTesseraOff`).
-/// - a connection id  → that connection's WireGuard config; an unknown or
-///                      invalid id falls back to file (resilient, never nil).
-public func resolveStorage(
-    active: String,
-    connections: [TesseraStorageConnection],
-    cliTessera: TesseraConfig?
-) -> StorageResolution {
-    if active == "file" {
-        return StorageResolution(backend: "file", config: nil, label: "Local file storage")
-    }
-    if active == "config" {
-        if let t = cliTessera {
-            return StorageResolution(
-                backend: "tessera",
-                config: t,
-                label: "Tessera @ \(t.serverIP):\(t.serverPort) (config.json)"
-            )
+/// Before this slice the handler only set an in-UI key, so the picker never
+/// reached the daemon: a user who chose file storage kept getting Tessera
+/// sessions from Telegram until they hand-edited `config.json`. Every pick now
+/// becomes `storage.active` (and, for a saved connection, that connection's
+/// `tessera` block) in **one** `ConfigurationStore.mutate`, which is the same
+/// write path the CLI and the daemon read.
+public enum StoragePolicy {
+
+    /// Why a pick cannot be written. Every case leaves the previous policy in
+    /// force: a failed write never half-applies a medium.
+    public enum Failure: Error, Equatable, CustomStringConvertible {
+        /// "Default (config.json)" picked while the file has no `tessera` block.
+        case noTesseraBlock
+        /// A connection whose fields cannot form a tunnel.
+        case incompleteConnection
+
+        public var description: String {
+            switch self {
+            case .noTesseraBlock:
+                return "Default (config.json) has no tessera section — add one there or pick a connection."
+            case .incompleteConnection:
+                return "That Tessera storage connection is incomplete (server IP, port, public key and client private key are required)."
+            }
         }
-        return StorageResolution(backend: "file", config: nil, label: "Local file storage")
     }
-    if let conn = connections.first(where: { $0.id == active }), let cfg = conn.tesseraConfig {
-        return StorageResolution(
-            backend: "tessera",
-            config: cfg,
-            label: "Tessera @ \(conn.endpointLabel) (\(conn.name))"
-        )
+
+    /// Apply `medium` to `config` in memory.
+    ///
+    /// Shared by the store path and a render fixture (which owns no file), so
+    /// both apply exactly the same rules.
+    ///
+    /// - `"file"` → `storage.active = "file"`, keeping the `tessera` block: it
+    ///   is a credential, not a switch.
+    /// - `"config"` → `storage.active = "tessera"` for the block already in
+    ///   `config.json`; an absent block is an error, not a silent file switch.
+    /// - a connection id → that connection's tunnel **and** `storage.active`
+    ///   together. `saveConfig` splits the private key into `.env`.
+    public static func apply(
+        _ config: inout ArcConfig,
+        medium: String,
+        connections: [TesseraStorageConnection]
+    ) throws {
+        switch medium {
+        case StorageMedium.file.rawValue:
+            config.storage.active = StorageMedium.file.rawValue
+        case "config":
+            guard config.tessera != nil else { throw Failure.noTesseraBlock }
+            config.storage.active = StorageMedium.tessera.rawValue
+        default:
+            guard let connection = connections.first(where: { $0.id == medium }),
+                  let tessera = connection.tesseraConfig else {
+                throw Failure.incompleteConnection
+            }
+            config.tessera = tessera
+            config.storage.active = StorageMedium.tessera.rawValue
+        }
     }
-    return StorageResolution(backend: "file", config: nil, label: "Local file storage")
+
+    /// Persist `medium` through the store. Throws before the file is touched
+    /// when the pick cannot be expressed, leaving the previous policy in force.
+    @discardableResult
+    public static func write(
+        medium: String,
+        connections: [TesseraStorageConnection],
+        to store: ConfigurationStore
+    ) async throws -> ConfigurationStore.Snapshot {
+        try await store.mutate { config in
+            try apply(&config, medium: medium, connections: connections)
+        }
+    }
 }
 
-
-// MARK: - Daemon-side storage selection
-
-/// The storage selection persisted by the web UI's Settings → Storage picker
-/// (`activeStorage` + `storageConnections` in `~/.arc-agent-webui/settings.json`).
-/// `ArcDaemon` consults it at boot so a connection saved in the UI is the
-/// storage the whole process (daemon + web UI) actually uses on the next
-/// start — the selection is not just cosmetic until a manual switch.
-public struct WebUIStorageSelection: Sendable {
-    public var activeStorage: String
-    public var connections: [TesseraStorageConnection]
-
-    public init(activeStorage: String, connections: [TesseraStorageConnection]) {
-        self.activeStorage = activeStorage
-        self.connections = connections
+/// The picker row that names a resolved medium: `"file"`, `"config"` (the
+/// `tessera` block of `config.json`) or a saved connection id.
+///
+/// Matching is by endpoint identity — the client private key lives in `.env`,
+/// so an exact `TesseraConfig` comparison would fail on the file's copy.
+public func storageMediumID(
+    for selection: StoreSelection,
+    connections: [TesseraStorageConnection]
+) -> String {
+    guard selection.backend == .tessera, let tessera = selection.tessera else {
+        return StorageMedium.file.rawValue
     }
-
-    /// Tolerant read of the picker's keys from the web UI settings file.
-    /// Missing file or missing keys returns nil (caller falls back to the
-    /// CLI config defaults).
-    public static func loadFromDisk() -> WebUIStorageSelection? {
-        let url = ArcHome.webUISettings
-        return load(from: url)
-    }
-
-    /// Tolerant decode of the picker's keys from a settings file (the daemon
-    /// reads `~/.arc-agent-webui/settings.json`; tests read temp files).
-    public static func load(from url: URL) -> WebUIStorageSelection? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        struct Box: Codable {
-            var activeStorage: String?
-            var storageConnections: [TesseraStorageConnection]?
-        }
-        guard let box = try? JSONDecoder().decode(Box.self, from: data) else { return nil }
-        guard let active = box.activeStorage else { return nil }
-        return WebUIStorageSelection(activeStorage: active, connections: box.storageConnections ?? [])
-    }
+    return connections.first {
+        $0.tesseraConfig?.endpointIdentity == tessera.endpointIdentity
+    }?.id ?? "config"
 }
 
 

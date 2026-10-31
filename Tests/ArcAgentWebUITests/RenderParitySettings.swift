@@ -79,7 +79,8 @@ extension ArcWebUITestRoot {
 
 	    @Test("file storage matches golden")
 	    func storageFileGolden() async {
-	        let html = await app { $0.settings.activeStorage = "file" }.storageSettingsHTML().markup.html
+	        let html = await app { $0.runtimeBackend = StorageMedium.file.rawValue }
+	            .storageSettingsHTML().markup.html
 	        Parity.capture(html, as: "storage-file")
 	        Parity.expect(html, matches: "storage-file")
 	    }
@@ -92,7 +93,10 @@ extension ArcWebUITestRoot {
 	            myPrivateKey: "nsec1exampleprivatekey")
 	        let html = await app {
 	            $0.settings.storageConnections = [conn]
-	            $0.settings.activeStorage = "conn-1"
+	            // the picker renders the medium the RUNTIME resolved, so the
+	            // fixture pins the runtime the connection selects.
+	            $0.arcConfig.tessera = conn.tesseraConfig
+	            $0.runtimeBackend = StorageMedium.tessera.rawValue
 	        }.storageSettingsHTML().markup.html
 	        Parity.capture(html, as: "storage-tessera")
 	        Parity.expect(html, matches: "storage-tessera")
@@ -105,7 +109,9 @@ extension ArcWebUITestRoot {
 	            application: 1, serverPublicKey: "", myPrivateKey: "")
 	        let html = await app {
 	            $0.settings.storageConnections = [conn]
-	            $0.settings.activeStorage = "conn-2"
+	            // a connection that cannot form a tunnel resolves to no relay,
+	            // so the runtime stays on files and the note is what shows.
+	            $0.runtimeBackend = StorageMedium.file.rawValue
 	        }.storageSettingsHTML().markup.html
 	        Parity.capture(html, as: "storage-incomplete")
 	        Parity.expect(html, matches: "storage-incomplete")

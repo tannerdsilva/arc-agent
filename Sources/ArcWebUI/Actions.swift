@@ -3152,15 +3152,6 @@ extension Controller {
         return await self.changed()
     }
 
-    @Wired("set-tessera", events: [.change])
-    func handleSetTessera(_ event: EventData) async -> [FragmentUpdate] {
-        let off = event.checked == true
-        await self.app.setTesseraOff(off)
-        await self.app.rebuildAndReload()
-        _ = await self.app.hint(off ? "Switched to file storage." : "Switched to Tessera storage.", kind: off ? "" : "success")
-        return await self.changed()
-    }
-
     @Wired("set-moa", events: [.change])
     func handleSetMoa(_ event: EventData) async -> [FragmentUpdate] {
         let on = event.checked == true

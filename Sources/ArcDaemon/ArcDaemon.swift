@@ -66,23 +66,21 @@ public enum ArcDaemon {
         // ONE storage decision for the whole process: the session host's
         // agents and the web UI share this exact pair (no second env on the
         // same store directories).
-        // Storage decision: the web UI's Settings → Storage picker is the
-        // highest-priority selection when it has one (persisted in
-        // ~/.arc-agent-webui/settings.json). Falling back to the CLI config's
-        // tessera block when the picker has no selection, or when the user
-        // explicitly forced file mode on the command line.
-        var effectiveTessera = arc.tessera
-        var effectiveOff = plan.tesseraOff
-        if !plan.tesseraOff, let selection = WebUIStorageSelection.loadFromDisk() {
-            let resolution = resolveStorage(
-                active: selection.activeStorage,
-                connections: selection.connections,
-                cliTessera: arc.tessera
-            )
-            effectiveTessera = resolution.config
-            effectiveOff = resolution.backend == "file"
-        }
-        let storage = await StorageRuntime.resolve(tessera: effectiveTessera, tesseraOff: effectiveOff)
+        //
+        // The medium is policy — `storage.active` in config.json, resolved by
+        // the one resolver the CLI and the web UI also use. Before settings
+        // backbone slice 4 the daemon read the web UI's
+        // `~/.arc-agent-webui/settings.json` instead, so the picker and the
+        // daemon could disagree and a user who chose files kept getting
+        // Tessera sessions from Telegram.
+        //
+        // `--tessera-off` is a per-process override of the resolved medium: it
+        // forces files here and never rewrites `storage.active`.
+        let selection = plan.tesseraOff ? StoreSelection.file : StoreSelection.resolve(arc)
+        let storage = await StorageRuntime.resolve(
+            tessera: selection.tessera,
+            tesseraOff: selection.backend == .file
+        )
 
         // ONE kanban board for the whole process (GROUNDZERO2 slice 1, D22).
         // The board is real and the daemon has always dispatched against one;

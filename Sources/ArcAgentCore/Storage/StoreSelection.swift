@@ -1,4 +1,93 @@
 import Foundation
+import Logging
+
+/// The storage mediums a configuration can select.
+public enum StorageMedium: String, Sendable, Equatable, CaseIterable {
+    /// Local files under `~/.arc` (sessions, memories, profiles).
+    case file
+    /// The Tessera relay named by the config's `tessera` block.
+    case tessera
+}
+
+/// The one storage-medium decision, resolved from a configuration.
+///
+/// Before this type the same question had two answers: `config.tessera`
+/// *presence* decided what the daemon and the CLI used, while the web UI's
+/// `settings.activeStorage` decided what the UI used — so a user who picked
+/// file storage in Settings kept getting Tessera sessions from Telegram.
+/// Every surface now resolves through here, from `storage.active`.
+public struct StoreSelection: Sendable, Equatable {
+
+    /// The medium this configuration selects.
+    public let backend: StorageMedium
+
+    /// The tunnel to configure in ``StorageMedium/tessera`` mode; nil for files.
+    public let tessera: TesseraConfig?
+
+    /// A policy that named Tessera but no `tessera` block exists in the file:
+    /// the decision fell back to files, and said so in the log.
+    public let fellBackFromPolicy: Bool
+
+    public init(
+        backend: StorageMedium,
+        tessera: TesseraConfig? = nil,
+        fellBackFromPolicy: Bool = false
+    ) {
+        self.backend = backend
+        self.tessera = tessera
+        self.fellBackFromPolicy = fellBackFromPolicy
+    }
+
+    /// Local files, whatever the config carries (the `--tessera-off` override).
+    public static let file = StoreSelection(backend: .file)
+
+    /// Resolve one configuration into the process's storage decision.
+    ///
+    /// Decision table:
+    /// - `storage.active == "file"` → files, even when a `tessera` block exists;
+    /// - `storage.active == "tessera"` → that block, else files + a log;
+    /// - key absent → the legacy inference (a `tessera` block means Tessera);
+    /// - any other spelling → files + a log, never a guess at a remote backend.
+    public static func resolve(_ config: ArcConfig) -> StoreSelection {
+        let declared = config.storage.active?.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch declared?.lowercased() {
+        case StorageMedium.file.rawValue?:
+            return .file
+
+        case StorageMedium.tessera.rawValue?:
+            guard let tessera = config.tessera else {
+                Logger(label: "com.arc-agent.storage").warning(
+                    "storage.active is \"tessera\" but config.json has no tessera block; using file storage")
+                return StoreSelection(backend: .file, fellBackFromPolicy: true)
+            }
+            return StoreSelection(backend: .tessera, tessera: tessera)
+
+        case nil:
+            // Legacy inference: the `tessera` block was the switch before
+            // `storage.active` existed, so an unwritten config keeps its medium.
+            guard let tessera = config.tessera else { return .file }
+            return StoreSelection(backend: .tessera, tessera: tessera)
+
+        default:
+            Logger(label: "com.arc-agent.storage").warning(
+                "storage.active \"\(declared ?? "")\" is not \"file\" or \"tessera\"; using file storage")
+            return StoreSelection(backend: .file, fellBackFromPolicy: true)
+        }
+    }
+}
+
+extension TesseraConfig {
+    /// The endpoint this block names — everything a storage picker row shows.
+    ///
+    /// The client private key is deliberately absent: `saveConfig` splits it
+    /// into `.env`, so the block in `config.json` and an equivalent saved
+    /// connection differ on that field alone. Matching a resolved medium back
+    /// to the connection that names it must not depend on a secret that may
+    /// or may not be in the file.
+    public var endpointIdentity: String {
+        "\(serverIP):\(serverPort)|\(application)|\(serverPublicKey)"
+    }
+}
 
 /// Process-wide Tessera availability decision.
 ///
@@ -22,20 +111,25 @@ public actor TesseraAvailability {
     }
 
     /// Whether Tessera storage should be used for this process. Returns the
-    /// forced/cached decision when made; otherwise configures + health-checks.
+    /// forced/cached decision when made; otherwise resolves the medium from
+    /// config and health-checks the relay.
     public func isTesseraActive() async -> Bool {
         if let forced { return forced }
         if let cached { return cached }
+        // The policy decides first: a process that selected files must not
+        // hand a live tunnel to the cron/goal stores just because a previous
+        // runtime left `TesseraConnection` started.
+        let selection = StoreSelection.resolve(loadConfig())
+        guard selection.backend == .tessera, let tessera = selection.tessera else {
+            cached = false
+            return false
+        }
         let conn = TesseraConnection.shared
         // Already proven and live in this process (e.g. by session store
         // selection at startup) — no destructive re-probe.
         if await conn.isStartedNow {
             cached = true
             return true
-        }
-        guard let tessera = loadConfig().tessera else {
-            cached = false
-            return false
         }
         await conn.configure(tessera)
         let ok = await conn.healthCheck()

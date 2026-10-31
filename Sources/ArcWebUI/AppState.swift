@@ -3,6 +3,7 @@ import ArcToolKit
 import AsyncHTTPClient
 import ArcSidebarTabs
 import Foundation
+import Logging
 import WebUI
 
 // MARK: - Enums & value types
@@ -279,11 +280,27 @@ struct AppSettings: Codable, Equatable {
     /// Per-chat workspace selection (session id → workspace name). Chats
     /// without an entry fall back to `activeWorkspace`.
     var sessionWorkspaces: [String: String] = [:]
-    var tesseraOff: Bool = false
-    /// Tessera storage connections managed in Settings → Storage. The
-    /// active medium is `activeStorage` ("file" | "config" | connection id).
+    /// **Legacy, decode-only.** The retired "Tessera off" toggle.
+    ///
+    /// The storage medium is policy, not view state: it lives in
+    /// `~/.arc/config.json` as `storage.active`. This key is read once at boot
+    /// (`AppState.liftLegacyStoragePolicy`) and cleared, so it is nil for every
+    /// settings document written since — and the synthesised encoder omits a
+    /// nil optional. Keep the declaration so an old `settings.json` can still
+    /// be read and lifted; nothing may set it.
+    var tesseraOff: Bool?
+    /// Tessera storage connections managed in Settings → Storage. This is a
+    /// **library**, not a switch: it holds the client private keys, so it stays
+    /// in the UI-owned settings file. Which one is in use is
+    /// `storage.active` (+ `config.tessera`) in `~/.arc/config.json`.
     var storageConnections: [TesseraStorageConnection] = []
-    var activeStorage: String = "config"
+    /// **Legacy, decode-only.** The retired active-medium picker key
+    /// ("file" | "config" | a connection id).
+    ///
+    /// The medium is policy, not view state: it lives in
+    /// `~/.arc/config.json` as `storage.active`. Read once at boot
+    /// (`AppState.liftLegacyStoragePolicy`) and cleared, like the toggle above.
+    var activeStorage: String?
     /// Smart pick-a-path: when on, a clarify request that times out after
     /// the 120 s pick-a-path panel is resolved by the `clarify` auxiliary
     /// model choosing the best offered answer, instead of the unguided
@@ -462,9 +479,9 @@ struct AppSettings: Codable, Equatable {
         ]
         activeWorkspace = try c.decodeIfPresent(String.self, forKey: .activeWorkspace) ?? "main"
         sessionWorkspaces = try c.decodeIfPresent([String: String].self, forKey: .sessionWorkspaces) ?? [:]
-        tesseraOff = try c.decodeIfPresent(Bool.self, forKey: .tesseraOff) ?? false
+        tesseraOff = try c.decodeIfPresent(Bool.self, forKey: .tesseraOff)
         storageConnections = try c.decodeIfPresent([TesseraStorageConnection].self, forKey: .storageConnections) ?? []
-        activeStorage = try c.decodeIfPresent(String.self, forKey: .activeStorage) ?? "config"
+        activeStorage = try c.decodeIfPresent(String.self, forKey: .activeStorage)
         moaEnabled = try c.decodeIfPresent(Bool.self, forKey: .moaEnabled)
         recentFiles = try c.decodeIfPresent([String].self, forKey: .recentFiles) ?? []
         sessionConfig = try c.decodeIfPresent([String: String].self, forKey: .sessionConfig) ?? [:]
@@ -1137,8 +1154,8 @@ actor AppState {
     /// actually uses sets it, the same shape as `turnClientOverride`.
     var turnMemoryOverride: (any MemoryProvider)?
     /// The storage backend this process actually constructed: "tessera" or
-    /// "file". Honest label vs `settings.tesseraOff` because the boot-time
-    /// fallback can differ from the persisted setting within a process.
+    /// "file". Honest label vs the resolved policy because the relay probe can
+    /// fall back within a process.
     var runtimeBackend: String = "file"
     var memory: (any MemoryProvider)?
     /// The kanban board this UI's tool surface acts on (GROUNDZERO2 slice 1).
@@ -1148,9 +1165,10 @@ actor AppState {
     var kanban: (any KanbanBoard)?
     var runtimeKey: String?
     /// In-memory storage fallback flag (never persisted): set by
-    /// ``forceTesseraOff()`` when the boot-time Tessera probe times out.
-    /// Kept separate from `settings.tesseraOff` so a relay outage can never
-    /// permanently flip the user's persisted preference.
+    /// ``forceTesseraOff()`` when the boot-time Tessera probe times out, and by
+    /// ``overrideTesseraOff(_:)`` for the `--tessera-off` flag. Kept separate
+    /// from the file's `storage.active` so a relay outage or a one-off flag can
+    /// never permanently flip the user's policy.
     var runtimeTesseraOff = false
 
     /// Storage prebuilt by the daemon: one pair shared by every consumer in
@@ -1278,12 +1296,17 @@ actor AppState {
         // phase 7.6b: the scheduled-tasks page reads its selection from here, so
         // a fixture that cannot set it can only ever capture the empty main.
         var tasksSelectedID: String? = nil
+        /// The backend the runtime resolved ("file" | "tessera"). The storage
+        /// picker renders the medium in use from this, so a fixture that cannot
+        /// set it can only ever capture file mode.
+        var runtimeBackend: String = StorageMedium.file.rawValue
     }
 
     init(renderFixture fixture: RenderFixture) {
         self.settings = fixture.settings
         self.sessions = fixture.sessions
         self.arcConfig = fixture.arcConfig
+        self.runtimeBackend = fixture.runtimeBackend
         self.activeSessionID = fixture.activeSessionID
         self.activeTabID = fixture.activeTabID
         self.toasts = fixture.toasts
@@ -1504,6 +1527,21 @@ actor AppState {
         if toolLift.clearedLegacyKeys {
             Self.persist(self.settings)
         }
+        // Settings backbone, slice 4: the storage medium is policy. The retired
+        // `tesseraOff` / `activeStorage` pair is lifted once into
+        // `storage.active` (through the store; a render fixture owns none) and
+        // then cleared, so the daemon, the CLI and this UI resolve one medium.
+        let storageLift = await Self.liftLegacyStoragePolicy(
+            self.settings,
+            configStore: self.configurationStore
+        )
+        self.settings = storageLift.settings
+        if let lifted = storageLift.declared {
+            self.arcConfig = lifted
+        }
+        if storageLift.clearedLegacyKeys {
+            Self.persist(self.settings)
+        }
         self.selectedWorkspace = self.settings.activeWorkspace
         for w in pluginWarnings {
             crumb(w)
@@ -1696,6 +1734,39 @@ actor AppState {
     func resolvedTools() async -> ToolsConfig {
         guard let configurationStore else { return arcConfig.tools }
         return await configurationStore.resolved().tools
+    }
+
+    /// The one storage-medium policy this process runs with.
+    ///
+    /// `storage.active` resolved through the configuration store, so an
+    /// environment-supplied `tessera` block applies to this UI exactly as it
+    /// applies to the CLI and the daemon (declared copy when a render fixture
+    /// owns no store).
+    ///
+    /// Nothing else may decide the medium — the retired `settings.tesseraOff`
+    /// / `settings.activeStorage` pair is migrated once at boot, and the
+    /// in-memory `runtimeTesseraOff` override is applied by `ensureRuntime`,
+    /// never written to the file.
+    func resolvedStorageSelection() async -> StoreSelection {
+        guard let configurationStore else { return StoreSelection.resolve(arcConfig) }
+        return StoreSelection.resolve(await configurationStore.resolved())
+    }
+
+    /// The picker row that names the medium this process is actually on.
+    ///
+    /// Read from `runtimeBackend` — what `ensureRuntime` built from the
+    /// resolved policy — not from the staged pick or a retired settings key.
+    /// Sync because the settings builder is sync; the connection match uses
+    /// `arcConfig`, which holds the published resolved snapshot after every
+    /// `updateConfig` / `refreshConfig`.
+    var effectiveStorageMedium: String {
+        guard runtimeBackend == StorageMedium.tessera.rawValue,
+              let tessera = arcConfig.tessera else {
+            return StorageMedium.file.rawValue
+        }
+        return settings.storageConnections.first {
+            $0.tesseraConfig?.endpointIdentity == tessera.endpointIdentity
+        }?.id ?? "config"
     }
 
     /// arc parity: migrate the legacy default workspace (home folder) to
@@ -1947,6 +2018,121 @@ actor AppState {
         return LegacyToolSurfaceLift(settings: cleared, clearedLegacyKeys: true)
     }
 
+    /// What one pass of ``AppState/liftLegacyStoragePolicy(_:configStore:)``
+    /// changed.
+    struct LegacyStorageLift: Equatable {
+        /// The settings document after the pass (the legacy keys cleared when
+        /// they were lifted).
+        var settings: AppSettings
+        /// The declaration now on disk, when the config file was written.
+        var declared: ArcConfig? = nil
+        /// The legacy keys were present and have been cleared: persist
+        /// `settings`.
+        var clearedLegacyKeys = false
+        /// A saved-connection selection that could not be expressed as policy
+        /// yet (its `tessera` block is not in `config.json`). The keys stay put
+        /// so the next boot retries; pressing Save and Connect in the picker
+        /// writes the block and clears them.
+        var unmigratedSelection: String? = nil
+    }
+
+    /// One-shot lift of the retired `settings.tesseraOff` /
+    /// `settings.activeStorage` pair into `storage.active` — the one storage
+    /// policy every surface resolves.
+    ///
+    /// The decision table (settings backbone, slice 4):
+    /// - `tesseraOff == true` → `"file"` (it was a hard switch to files);
+    /// - `activeStorage == "file"` → `"file"`;
+    /// - `activeStorage == "config"` → `"tessera"` (the `tessera` block of
+    ///   `config.json`; the resolver falls back to files, logged, if the block
+    ///   has since disappeared);
+    /// - `activeStorage == <connection id>` → `"tessera"` only when that
+    ///   connection's `tessera` block is already in `config.json`. A saved
+    ///   connection whose credential never reached the file leaves both keys
+    ///   in place and logs, because guessing would switch a user onto a relay
+    ///   the file does not describe.
+    /// - no legacy value at all → nothing to lift.
+    ///
+    /// An explicit `storage.active` already in the file wins: a policy written
+    /// by a later UI is newer than a stale settings key (the same rule slices
+    /// 1-3 apply). Clearing the keys is what makes the lift idempotent.
+    ///
+    /// A render fixture owns no store, so it neither reads nor writes a file.
+    ///
+    /// Takes the document by value (an actor-isolated property cannot be
+    /// passed `inout` to an `async` call) and returns the cleared copy.
+    @discardableResult
+    static func liftLegacyStoragePolicy(
+        _ settings: AppSettings,
+        configStore: ConfigurationStore?
+    ) async -> LegacyStorageLift {
+        guard let configStore,
+              settings.tesseraOff != nil || settings.activeStorage != nil
+        else {
+            return LegacyStorageLift(settings: settings)
+        }
+        let declared = await configStore.declared()
+
+        // The retired pair, in the precedence the picker had: `tesseraOff` was
+        // a hard switch to files, `activeStorage` named the medium otherwise.
+        var target: String?
+        var blocked: String?
+        if settings.tesseraOff == true {
+            target = StorageMedium.file.rawValue
+        } else if let active = settings.activeStorage?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            switch active {
+            case StorageMedium.file.rawValue:
+                target = StorageMedium.file.rawValue
+            case "config":
+                target = StorageMedium.tessera.rawValue
+            default:
+                if let connection = settings.storageConnections.first(where: { $0.id == active }),
+                   let expected = connection.tesseraConfig,
+                   declared.tessera?.endpointIdentity == expected.endpointIdentity {
+                    target = StorageMedium.tessera.rawValue
+                } else {
+                    blocked = active
+                }
+            }
+        }
+
+        func cleared() -> LegacyStorageLift {
+            var next = settings
+            next.tesseraOff = nil
+            next.activeStorage = nil
+            return LegacyStorageLift(settings: next, clearedLegacyKeys: true)
+        }
+
+        guard let target else {
+            if let blocked {
+                Logger(label: "com.arc-agent.webui").warning(
+                    "storage: legacy selection \"\(blocked)\" has no tessera block in config.json; leaving it for the picker")
+                return LegacyStorageLift(settings: settings, unmigratedSelection: blocked)
+            }
+            // `tesseraOff: false` alone: nothing to write, the key just goes.
+            return cleared()
+        }
+
+        // An explicit policy (or one already equal to the target) means the
+        // file is the newer truth: drop the keys and write nothing.
+        if let existing = declared.storage.active {
+            if existing != target {
+                Logger(label: "com.arc-agent.webui").info(
+                    "storage: keeping the file's policy \"\(existing)\" over the retired settings selection \"\(target)\"")
+            }
+            return cleared()
+        }
+
+        guard let snapshot = try? await configStore.mutate({ $0.storage.active = target }) else {
+            // config.json is unreadable (the store refuses writes): keep the
+            // legacy keys so this can be retried once it is fixed.
+            return LegacyStorageLift(settings: settings)
+        }
+        var lifted = cleared()
+        lifted.declared = snapshot.declared
+        return lifted
+    }
+
     /// Seed the default kanban columns on first run (no stored board yet).
     static func seedKanban(into s: AppSettings) -> AppSettings {
         var s = s
@@ -2102,14 +2288,23 @@ actor AppState {
     /// Workspaces are per-chat working directories and no longer isolate the
     /// session store — all chats share one session pool.
     func ensureRuntime() async {
-        // The revision covers connection CONTENT: completing an edit (e.g.
-        // adding a missing client private key) must invalidate a previously
-        // built file/tessera runtime even when the selected medium id (and
-        // the toggles) did not change.
+        // The storage medium is policy. Resolve it once, through the store
+        // (declared + environment), and key the rebuild on the decision — not
+        // on the retired settings pair.
+        //
+        // The revision also covers connection CONTENT: completing an edit
+        // (e.g. adding a missing client private key) bumps it.
         // The attach state is part of the key: a hosted daemon hands the UI
         // its boot-time pair (store/memory set by `attachRuntime`), and a
         // switch DETACHES so the rebuild must not reuse the hosted build.
-        let key = "\(attachedStorage != nil ? "hosted" : "own")-\(settings.tesseraOff)-\(runtimeTesseraOff)-\(settings.activeStorage)-\(connectionsRevision)"
+        let selection = await resolvedStorageSelection()
+        let key = [
+            attachedStorage != nil ? "hosted" : "own",
+            String(runtimeTesseraOff),
+            selection.backend.rawValue,
+            selection.tessera?.endpointIdentity ?? "",
+            String(connectionsRevision),
+        ].joined(separator: "-")
 
         if httpClient == nil {
             httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
@@ -2152,33 +2347,20 @@ actor AppState {
             memory = attachedStorage.memory
             return
         }
-        let tesseraOff = settings.tesseraOff || runtimeTesseraOff
+        let tesseraOff = runtimeTesseraOff || selection.backend == .file
 
-        if tesseraOff {
-            runtimeBackend = "file"
+        if tesseraOff || selection.tessera == nil {
+            runtimeBackend = StorageMedium.file.rawValue
             store = FileSessionStore()
             memory = FileMemoryProvider()
-        } else {
-            // The picker is authoritative: "file", "config" (the tessera block
-            // of ~/.arc/config.json) or a saved connection id. An unknown or
-            // incomplete selection resolves resiliently to file.
-            let resolution = resolveStorage(
-                active: settings.activeStorage,
-                connections: settings.storageConnections,
-                cliTessera: loadConfig().tessera
-            )
-            crumb("ensureRuntime: active=\(settings.activeStorage) conns=\(settings.storageConnections.count) complete=\(settings.storageConnections.first { $0.id == settings.activeStorage }?.isComplete ?? false) -> \(resolution.backend)")
-            if resolution.backend == "tessera", let cfg = resolution.config {
-                runtimeBackend = "tessera"
-                await TesseraConnection.shared.configure(cfg)
-                store = TesseraSessionStore()
-                memory = TesseraMemoryProvider()
-            } else {
-                runtimeBackend = "file"
-                store = FileSessionStore()
-                memory = FileMemoryProvider()
-            }
+        } else if let tessera = selection.tessera {
+            // The policy named Tessera and the config describes the tunnel.
+            runtimeBackend = StorageMedium.tessera.rawValue
+            await TesseraConnection.shared.configure(tessera)
+            store = TesseraSessionStore()
+            memory = TesseraMemoryProvider()
         }
+        crumb("ensureRuntime: medium=\(selection.backend.rawValue) endpoint=\(selection.tessera?.endpointIdentity ?? "-") fellBack=\(selection.fellBackFromPolicy) -> \(runtimeBackend)")
     }
 
     /// Attach daemon-prebuilt storage. Called before `boot()` by a hosted
@@ -2215,16 +2397,11 @@ actor AppState {
     /// Human-readable description of the storage backend actually in use,
     /// including the Tessera endpoint when connected.
     func storageDescription() -> String {
-        if runtimeBackend == "tessera" {
-            // Mirrors the picker's effective-medium rule: a hosted daemon runs
-            // config.json's tessera, so describe THAT while attached.
-            let basis = attachedStorage == nil ? settings.activeStorage : "config"
-            let resolution = resolveStorage(
-                active: basis,
-                connections: settings.storageConnections,
-                cliTessera: loadConfig().tessera
-            )
-            if let t = resolution.config {
+        if runtimeBackend == StorageMedium.tessera.rawValue {
+            // `arcConfig` holds the published resolved snapshot after every
+            // `updateConfig` / `refreshConfig`, so the endpoint named here is
+            // the one the runtime was built from.
+            if let t = arcConfig.tessera {
                 return "Tessera @ \(t.serverIP):\(t.serverPort) (signed NOSTR events)"
             }
             return "Tessera storage (signed NOSTR events)"
