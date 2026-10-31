@@ -130,10 +130,12 @@ extension ArcWebUITestRoot {
             _ = agent
 
             // the session + the transcript contract (§3.3: the UI is the only
-            // writer, so the agent must not persist and must not compress).
+            // writer, so the agent must not persist — but compression IS the
+            // engine's job now: the full-request budget is re-checked every
+            // round with the real/estimate dual gate.
             #expect(config.sessionID == "s-alpha")
             #expect(config.persistSessions == false)
-            #expect(config.autoCompression == false)
+            #expect(config.autoCompression == true)
 
             // the per-session workspace is both the tool root and the
             // project-context directory.
@@ -146,7 +148,8 @@ extension ArcWebUITestRoot {
             // the turn's own identity and budget.
             #expect(config.platformHint == "webui")
             #expect(config.maxIterations == AppState.effectiveMaxTurns())
-            #expect(config.maxTurnDuration == 120)
+            #expect(config.maxTurnDuration == 0,
+                    "unlimited by default (agent.max_turn_duration unset → 0)")
             #expect(config.disabledToolsets == Set(["browser", "cron"]))
             let turnBudget = await app.compressionBudget(for: "s-alpha")
             #expect(turnBudget == 12_000, "the profile's compression budget")

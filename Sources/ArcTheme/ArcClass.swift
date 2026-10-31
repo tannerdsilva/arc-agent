@@ -341,6 +341,7 @@ public enum ArcClass: String, CaseIterable, Sendable {
 	case memGlyph = "mem-glyph"
 	case memHead = "mem-head"
 	case memHeadTitle = "mem-head-title"
+	case memSep = "mem-sep"
 	case memSub = "mem-sub"
 	case memTextarea = "mem-textarea"
 	case memTitle = "mem-title"

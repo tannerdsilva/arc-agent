@@ -2860,6 +2860,10 @@ public static let css: String = """
       resize: vertical; outline: none;
     }
     .mem-textarea:focus { border-color: var(--accent-border); }
+    /* §-entry separator (memory docs): the web UI renders each `§` delimiter
+       line as a subtle 1px rule between entry sections — view and editor
+       alike. Display-only; the stored file keeps its literal § bytes. */
+    .mem-sep { height: 0; border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 
     /* ─── Workspace panel (right side) ───────────────────────── */
     /* The handle is a persistent affordance (the collapse tab must be

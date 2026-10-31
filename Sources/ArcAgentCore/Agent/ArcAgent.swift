@@ -59,7 +59,8 @@ public actor ArcAgent: Service {
         /// Per-tool call cap override (nil = default 25; 0/negative =
         /// unlimited). Mirrors `guardrails.toolLoopCap` in `~/.arc/config.json`.
         public var toolLoopCap: Int?
-        /// Maximum duration per turn in seconds.
+        /// Maximum duration per turn in seconds. `0` (or negative) = unlimited —
+        /// the default; set a positive value to bound each turn's wall clock.
         public var maxTurnDuration: Int
         /// Whether to persist sessions.
         public var persistSessions: Bool
@@ -215,7 +216,7 @@ public actor ArcAgent: Service {
             skills: [Skill] = [],
             maxIterations: Int = 25,
             toolLoopCap: Int? = nil,
-            maxTurnDuration: Int = 120,
+            maxTurnDuration: Int = 0,
             persistSessions: Bool = true,
             approvalMode: ApprovalMode = .manual,
             approvalManager: ApprovalManager? = nil,
@@ -2504,11 +2505,13 @@ public actor ArcAgent: Service {
                         )
                     }
 
-                    group.addTask {
-                        try await Task.sleep(
-                            nanoseconds: UInt64(timeout) * 1_000_000_000
-                        )
-                        throw LLMError.timeout(TimeInterval(timeout))
+                    if timeout > 0 {
+                        group.addTask {
+                            try await Task.sleep(
+                                nanoseconds: UInt64(timeout) * 1_000_000_000
+                            )
+                            throw LLMError.timeout(TimeInterval(timeout))
+                        }
                     }
 
                     let result = try await group.next()

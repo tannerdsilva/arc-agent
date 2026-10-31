@@ -987,6 +987,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                       attributes: [("data-component-id", "tool-search-input"),
                                    ("aria-label", "Filter tools")])
             }
+            // UX-41 panel scroll memory: the id + scroll-key preserve the
+            // list's scroll position when a tool click refreshes fragments.
             Div(class: .panelBody) {
                 if noMatch {
                     Div(class: .emptyHint) { Text("No tools match “\(toolFilter)”.") }
@@ -1042,6 +1044,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
             }
+            .id("tool-list-body")
+            .data("scroll-key", "tools")
         }
     }
 
@@ -3124,22 +3128,23 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
     }
 
-    /// Per-profile context parameters summary (kv rows; "inherit" when unset)
-    /// plus the pinned context skills, if any.
+    /// Per-profile context parameters summary (kv rows; "Inherit Default" when
+    /// unset) plus the pinned context skills, if any. Keys carry the trailing
+    /// ": " the settings copy uses between label and value.
     func profileContextHTML(_ p: Profile) -> some WebUI.View {
         Group {
             if let ctx = p.context, !ctx.isEmpty {
-                AkvRow(key: "Context window",
-                       value: ctx.contextLength.map { "\($0) tokens" } ?? "inherit")
-                AkvRow(key: "Max output",
-                       value: ctx.maxOutputTokens.map { "\($0) tokens" } ?? "inherit")
-                AkvRow(key: "Reasoning effort", value: ctx.reasoningEffort ?? "inherit")
-                AkvRow(key: "Temperature", value: ctx.temperature.map { String($0) } ?? "inherit")
-                AkvRow(key: "Top P", value: ctx.topP.map { String($0) } ?? "inherit")
-                AkvRow(key: "Compress at",
-                       value: ctx.compressionBudget.map { "\($0) tokens" } ?? "inherit")
+                AkvRow(key: "Context window:",
+                       value: ctx.contextLength.map { "\($0) tokens" } ?? "Inherit Default")
+                AkvRow(key: "Max output:",
+                       value: ctx.maxOutputTokens.map { "\($0) tokens" } ?? "Inherit Default")
+                AkvRow(key: "Reasoning effort:", value: ctx.reasoningEffort ?? "Inherit Default")
+                AkvRow(key: "Temperature:", value: ctx.temperature.map { String($0) } ?? "Inherit Default")
+                AkvRow(key: "Top P:", value: ctx.topP.map { String($0) } ?? "Inherit Default")
+                AkvRow(key: "Compress at:",
+                       value: ctx.compressionBudget.map { "\($0) tokens" } ?? "Inherit Default")
             } else {
-                AkvRow(key: "Context", value: "inherit (no overrides)")
+                AkvRow(key: "Context:", value: "Inherit Default (no overrides)")
             }
             if let pinned = p.contextSkills, !pinned.isEmpty {
                 AkvRow(key: "Context skills", value: pinned.joined(separator: ", "))
@@ -3775,6 +3780,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         let loopUnlimited = (rawLoop ?? 1) <= 0
         let effLoop = arcConfig.effectiveToolLoopCap()
         let loopValue = effLoop == Int.max ? 25 : effLoop
+        let turnUnlimited = arcConfig.effectiveMaxTurnDuration() == nil
+        let turnValue = arcConfig.effectiveMaxTurnDuration() ?? 120
 
         // `disabled` is presence-only and `.attribute` takes a non-optional
         // String, so the two shapes are built rather than passed a nil.
@@ -3838,6 +3845,28 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                     .id("al-tool-cap-unl-wrap")
                     .wire("al-tool-cap-unlimited", on: .change)
+                }
+                .attribute("style", "margin-top:14px")
+                SettingRow {
+                    Text("Max turn duration (seconds)")
+                    Small("Wall-clock cap on each turn; the turn is interrupted when the budget runs out. Leave Unlimited on for long tasks.")
+                } control: {
+                    Div {
+                        numField("al-turn-duration", turnValue, disabled: turnUnlimited)
+                    }
+                    .id("al-turn-duration-wrap")
+                    .wire("al-turn-duration", on: .change)
+                }
+                .attribute("style", "margin-top:14px")
+                SettingRow {
+                    Text("Unlimited turn duration")
+                    Small("No time cap: a turn runs until the agent finishes (the default).")
+                } control: {
+                    Div {
+                        ArcSwitch(id: "al-turn-duration-unlimited", on: turnUnlimited)
+                    }
+                    .id("al-turn-duration-unl-wrap")
+                    .wire("al-turn-duration-unlimited", on: .change)
                 }
             }
         }
@@ -5085,12 +5114,26 @@ extension AppState {
                                 .margin(0)
                             Div(class: .detailSub) { Text(meta.note) }
                             Input(name: "mem-key", type: .hidden, attributes: [("value", doc)])
-                            // the raw markdown, escaped by `TextArea` — the editor
-                            // edits what the file holds, not its rendered form.
-                            TextArea(field: "mem-content", value: memoryContent, rows: 3)
-                                .addClass(.memTextarea)
-                                .data("component-id", "mem-content")
-                                .attribute("spellcheck", "false")
+                            // one textarea per §-delimited entry section, with a
+                            // visible separator between them; the save handler
+                            // rejoins in index order with the canonical "\n§\n"
+                            // so the stored file keeps the exact entry shape.
+                            Group {
+                                let sections = MemorySections.splitSections(memoryContent)
+                                let editors: [any WebUI.View] = sections.enumerated().flatMap { (idx, section) in
+                                    var out: [any WebUI.View] = []
+                                    if idx > 0 {
+                                        out.append(Div(class: .memSep) {})
+                                    }
+                                    out.append(TextArea(field: FieldID("mem-content-\(idx)"),
+                                                        value: section, rows: 3)
+                                        .addClass(.memTextarea)
+                                        .data("component-id", "mem-content-\(idx)")
+                                        .attribute("spellcheck", "false"))
+                                    return out
+                                }
+                                ErasedViews(editors)
+                            }
                             // A refused save (char budget, threat scan, store
                             // failure) is shown here, beside the editor, and the
                             // editor keeps the text: the panel never truncates
@@ -5107,7 +5150,16 @@ extension AppState {
                         .data("component-id", "mem-save-form")
                     }
                 } else {
-                    let contentHTML = mdBox(memoryContent)
+                    // §-delimited entries render as sections separated by a
+                    // real typed rule (view-layer only — the file keeps its
+                    // bytes). Each entry's markdown is rendered server-side.
+                    let sections = MemorySections.splitSections(memoryContent)
+                    let sectionViews: [any WebUI.View] = sections.enumerated().flatMap { (idx, section) in
+                        var out: [any WebUI.View] = []
+                        if idx > 0 { out.append(Div(class: .memSep) {}) }
+                        out.append(TrustedMarkup(mdBox(section), from: .markdown))
+                        return out
+                    }
                     let empty = memoryContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     mainScroll {
                         Div(class: .detailCard) {
@@ -5130,7 +5182,7 @@ extension AppState {
                                         Text(" to start writing.")
                                     }
                                 } else {
-                                    TrustedMarkup(contentHTML, from: .markdown)
+                                    ErasedViews(sectionViews)
                                 }
                             }
                             .attribute("style", "margin-top:14px")

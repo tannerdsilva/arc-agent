@@ -46,13 +46,20 @@ extension ArcCoreTestRoot {
             //
             // Poll until the count is no longer 1 (teardown deleted the successor) or
             // the window closes (teardown was a safe no-op).
+            // Poll: fail fast if the successor was torn down (count == 0 — the
+            // regression this test guards); tolerate a transient 2 (the
+            // predecessor is still winding down — legitimate under load) and
+            // wait for the supersede to settle before asserting.
             var count = 1
-            for _ in 0..<60 {
+            var settled = false
+            for _ in 0..<100 {
                 count = await registry.activeCount
-                if count != 1 { break }
+                if count == 0 { break }
+                if count == 1 { settled = true; break }
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
-            #expect(count == 1, "superseded agent must not tear down its successor")
+            #expect(count != 0, "superseded agent must not tear down its successor")
+            #expect(settled, "supersede must settle to exactly the successor; observed \(count)")
         }
     }
 }

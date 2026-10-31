@@ -1446,6 +1446,16 @@ actor AppState {
         try? saveConfig(raw)
     }
 
+    /// Persist the per-turn wall-clock budget (`agent.max_turn_duration`) into
+    /// `~/.arc/config.json` and refresh the in-memory copy. `nil` means
+    /// unlimited (the default); a positive value bounds each turn in seconds.
+    func setTurnDuration(_ seconds: Int?) {
+        var raw = Self.rawArcConfig()
+        raw.agent.max_turn_duration = seconds
+        self.arcConfig = raw
+        try? saveConfig(raw)
+    }
+
     /// Persist an "Always allow" command into `~/.arc/config.json` so the CLI
     /// and daemon honor the same allowlist (reference approval patterns parity).
     func persistAlwaysAllowed(_ command: String) async {
@@ -1918,7 +1928,7 @@ actor AppState {
             skills: allowedSkills,
             maxIterations: maxIterations,
             toolLoopCap: arcConfig.effectiveToolLoopCap(),
-            maxTurnDuration: 120,
+            maxTurnDuration: arcConfig.effectiveMaxTurnDuration() ?? 0,
             persistSessions: false,
             approvalMode: approvalMode,
             query: nil,
@@ -1926,6 +1936,10 @@ actor AppState {
             auxiliary: arcConfig.auxiliary,
             sessionID: sessionID,
             contextLength: effectivePreset.contextLength,
+            // the engine's compressor owns the decision: explicit per-profile
+            // budget first, else contextLength/2, else maxContextTokens — the
+            // same value the context ring shows as its threshold marker.
+            compressionBudget: compressionBudget(for: sessionID),
             injectProjectContext: true,
             contextDirectory: URL(fileURLWithPath: root),
             workspaceRoot: root,
@@ -1935,7 +1949,7 @@ actor AppState {
             toolSearch: arcConfig.toolSearch,
             backgroundReview: backgroundReview,
             verifyOnStop: arcConfig.agent.verifyOnStop,
-            autoCompression: false,
+            autoCompression: true,
             reasoningEffort: reasoningEffort,
             temperature: effectivePreset.temperature,
             topP: effectivePreset.topP,

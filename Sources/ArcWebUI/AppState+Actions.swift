@@ -1428,8 +1428,19 @@ extension AppState {
     /// Effective auto-compress threshold for a chat: the bound profile's
     /// compression budget, else the ARC_COMPRESSION_BUDGET env, else 32k.
     func compressionBudget(for sessionID: String?) -> Int {
+        // An explicit per-profile budget is a deliberate override — honor it
+        // as-is. Otherwise resolve the model's context length (same ladder as
+        // the context ring) and clamp the env/default budget to half the
+        // window, so compression can never be scheduled AFTER the model's
+        // hard limit (the old absolute 32k would never fire on small-window
+        // models and was needlessly aggressive on huge ones).
         if let b = profileContext(for: sessionID)?.compressionBudget, b > 0 { return b }
-        return Int(ProcessInfo.processInfo.environment["ARC_COMPRESSION_BUDGET"] ?? "") ?? 32_000
+        let envOrDefault = Int(ProcessInfo.processInfo.environment["ARC_COMPRESSION_BUDGET"] ?? "") ?? 32_000
+        let ctx = profileContext(for: sessionID)?.contextLength
+            ?? settings.modelConfig(named: configName(for: sessionID))?.contextLength
+            ?? arcConfig.model.contextLength
+        guard let ctx, ctx > 0 else { return envOrDefault }
+        return min(envOrDefault, ctx / 2)
     }
 
     /// Parse an optional Int from a form value (empty string → nil).

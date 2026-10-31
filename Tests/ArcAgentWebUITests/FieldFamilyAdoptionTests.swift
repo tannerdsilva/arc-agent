@@ -47,7 +47,7 @@ extension ArcWebUITestRoot {
 		private static let unadopted = [
 			"cat-rename-input", "cat-name-input", "cat-color-input",
 			"kb-addcol-name", "kb-addcard-name", "clarify-input",
-			"composer-input", "storage-edit-id", "mem-content", "ws-new-name",
+			"composer-input", "storage-edit-id", "ws-new-name",
 			"skill-name-input", "skill-desc-input",
 			"profile-ctx-effort",
 		]

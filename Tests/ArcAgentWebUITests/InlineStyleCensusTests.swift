@@ -50,7 +50,12 @@ extension ArcWebUITestRoot {
 			"record it here only if the value is genuinely outside the design system's scale; otherwise use the typed modifier"
 
 		/// the exact number of raw margin sites that remain.
-		static let expectedCount = 15
+		///
+		/// 17, not the 15 this was pinned at before the tessera merge: that line
+		/// added two `margin-top:14px` sites, and a top-only margin has no door —
+		/// `.margin(_:)` takes one uniform length. they are the next slice's work,
+		/// not a new allowance.
+		static let expectedCount = 17
 
 		/// every px length those sites spell. `0` and `4` are on the design system's 4px
 		/// grid, so a future slice can still move them; `2`, `6`, `10` and `14` have no
@@ -148,7 +153,7 @@ extension ArcWebUITestRoot {
 
 		// MARK: - the pins
 
-		@Test("fifteen raw margin sites remain, and no more")
+		@Test("seventeen raw margin sites remain, and no more")
 		func rawMarginCountIsPinned() throws {
 			let found = Self.sites(in: try Self.webUISources())
 			#expect(found.count == Self.expectedCount,

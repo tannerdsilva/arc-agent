@@ -383,6 +383,13 @@ extension ArcConfig {
         }
         return cap > 0 ? cap : Int.max
     }
+
+    /// Effective per-turn wall-clock budget in seconds. `agent.max_turn_duration`
+    /// when present and positive; `nil` (unlimited) otherwise — the default.
+    public func effectiveMaxTurnDuration() -> Int? {
+        guard let n = agent.max_turn_duration, n > 0 else { return nil }
+        return n
+    }
 }
 
 /// Agent behavior configuration.
@@ -392,6 +399,10 @@ public struct AgentConfig: Codable, Sendable, Equatable {
     /// reference `agent.max_turns` — tool-iteration budget override. Takes
     /// precedence over `maxIterations`; `0`/negative = unlimited.
     public var max_turns: Int?
+    /// Maximum wall-clock duration per turn in seconds (reference
+    /// `agent.max_turn_duration`). `nil` or `0`/negative = unlimited — the
+    /// default; the user opts into a bound from the web UI settings.
+    public var max_turn_duration: Int?
     /// Whether to persist sessions.
     public var persistSessions: Bool
     /// Whether to load skills on startup.
@@ -447,6 +458,7 @@ public struct AgentConfig: Codable, Sendable, Equatable {
     public init(
         maxIterations: Int = 25,
         max_turns: Int? = nil,
+        max_turn_duration: Int? = nil,
         persistSessions: Bool = true,
         loadSkills: Bool = true,
         reasoningEffort: String? = nil,
@@ -466,6 +478,7 @@ public struct AgentConfig: Codable, Sendable, Equatable {
     ) {
         self.maxIterations = maxIterations
         self.max_turns = max_turns
+        self.max_turn_duration = max_turn_duration
         self.persistSessions = persistSessions
         self.loadSkills = loadSkills
         self.reasoningEffort = reasoningEffort
@@ -489,6 +502,7 @@ public struct AgentConfig: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.maxIterations = try container.decodeIfPresent(Int.self, forKey: .maxIterations) ?? AgentConfig().maxIterations
         self.max_turns = try container.decodeIfPresent(Int.self, forKey: .max_turns)
+        self.max_turn_duration = try container.decodeIfPresent(Int.self, forKey: .max_turn_duration)
         self.persistSessions = try container.decodeIfPresent(Bool.self, forKey: .persistSessions) ?? AgentConfig().persistSessions
         self.loadSkills = try container.decodeIfPresent(Bool.self, forKey: .loadSkills) ?? AgentConfig().loadSkills
         self.reasoningEffort = try container.decodeIfPresent(String.self, forKey: .reasoningEffort)

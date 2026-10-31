@@ -408,6 +408,7 @@ public actor BatchRunner {
                 sessions: FileSessionStore()
             )) ?? CompileTimeToolRegistry(),
             maxIterations: ctx.options.maxTurns,
+            maxTurnDuration: loadConfig().effectiveMaxTurnDuration() ?? 0,
             injectProjectContext: false,
             disabledToolsets: disabled
         )
