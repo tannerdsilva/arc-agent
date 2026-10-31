@@ -45,7 +45,11 @@ struct ApprovalsSuggest: AsyncParsableCommand {
             }
         }
 
-        let config = loadConfig()
+        let configStore = ConfigurationStore(url: ArcHome.config)
+        // A file this process cannot read makes `--apply` pointless: fail with
+        // the parse error instead of analysing against compiled defaults.
+        if apply, let failure = await configStore.failure() { throw failure }
+        let config = await configStore.declared()
         let alwaysAllowed = Set(
             config.security.alwaysAllowedCommands.map {
                 $0.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -63,15 +67,20 @@ struct ApprovalsSuggest: AsyncParsableCommand {
 
         guard apply, !proposals.isEmpty else { return }
 
-        var raw = config
-        var list = raw.security.alwaysAllowedCommands
-        var added = 0
-        for p in proposals where !list.contains(p.command) {
-            list.append(p.command)
-            added += 1
+        // read-modify-write inside the store: the append sees the file as it is
+        // now, and a file the store cannot decode is refused, not replaced.
+        let commands = proposals.map { $0.command }
+        let snapshot = try await configStore.mutate { config in
+            var list = config.security.alwaysAllowedCommands
+            for command in commands where !list.contains(command) {
+                list.append(command)
+            }
+            if list != config.security.alwaysAllowedCommands {
+                config.security.alwaysAllowedCommands = list
+            }
         }
-        raw.security.alwaysAllowedCommands = list
-        try saveConfig(raw)
+        let added = snapshot.declared.security.alwaysAllowedCommands.count
+            - config.security.alwaysAllowedCommands.count
         print("Applied \(added) command(s) to security.alwaysAllowedCommands in ~/.arc/config.json.")
     }
 }

@@ -47,11 +47,15 @@ struct PersonalitySet: AsyncParsableCommand {
     var name: String
 
     func run() async throws {
-        var config = loadConfig()
+        let store = ConfigurationStore(url: ArcHome.config)
+        // A file this process cannot read would make every branch below a
+        // guess ("unknown personality, available: none"): report the parse
+        // error instead.
+        if let failure = await store.failure() { throw failure }
+        let config = await store.declared()
         let normalized = name.lowercased()
         if ["none", "default", "neutral"].contains(normalized) {
-            config.agent.systemPrompt = ""
-            try saveConfig(config)
+            try await store.mutate { $0.agent.systemPrompt = "" }
             print("(^_^)b Personality cleared (saved to config).")
             print("  No personality overlay — using base agent behavior.")
             return
@@ -62,9 +66,10 @@ struct PersonalitySet: AsyncParsableCommand {
             print("  Available: none\(available.isEmpty ? "" : ", \(available)")")
             return
         }
-        config.agent.systemPrompt = overlay.resolve()
-        try saveConfig(config)
-        let preview = overlay.resolve()
+        let resolved = overlay.resolve()
+        // the write is the edit, applied to the declaration through the store.
+        try await store.mutate { $0.agent.systemPrompt = resolved }
+        let preview = resolved
         print("(^_^)b Personality set to '\(name)' (saved to config).")
         print("  \"\(String(preview.prefix(60)))\(preview.count > 60 ? "…" : "")\"")
     }
@@ -76,9 +81,8 @@ struct PersonalityClear: AsyncParsableCommand {
     )
 
     func run() async throws {
-        var config = loadConfig()
-        config.agent.systemPrompt = ""
-        try saveConfig(config)
+        let store = ConfigurationStore(url: ArcHome.config)
+        try await store.mutate { $0.agent.systemPrompt = "" }
         print("(^_^)b Personality cleared (saved to config).")
     }
 }

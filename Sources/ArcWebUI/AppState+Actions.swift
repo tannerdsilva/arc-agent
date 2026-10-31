@@ -2028,12 +2028,12 @@ extension AppState {
 
     /// Apply a model configuration as an auxiliary task's override: copies
     /// provider/model/base URL (and the config's own API key, when present).
-    func setAuxOverrideFromConfig(task: AuxiliaryTask, configName: String) {
+    func setAuxOverrideFromConfig(task: AuxiliaryTask, configName: String) async {
         guard let preset = settings.modelConfigs.first(where: { $0.name == configName }) else {
             _ = hint("Model configuration “\(configName)” was not found.", kind: "error")
             return
         }
-        setAuxOverride(
+        await setAuxOverride(
             task: task,
             provider: preset.provider,
             model: preset.model,
@@ -2043,45 +2043,42 @@ extension AppState {
     }
 
     /// Persist one auxiliary task's override to `~/.arc/config.json`
-    /// (reference `auxiliary.<task>` shape). All-empty fields (or a bare "auto"
-    /// provider) remove the override and route the task back to the main model.
+    /// (reference `auxiliary.<task>` shape), through the configuration store.
+    /// All-empty fields (or a bare "auto" provider) remove the override and
+    /// route the task back to the main model.
     func setAuxOverride(
         task: AuxiliaryTask,
         provider: String,
         model: String,
         baseURL: String,
         apiKey: String
-    ) {
+    ) async {
         let p = provider.trimmingCharacters(in: .whitespacesAndNewlines)
         let m = model.trimmingCharacters(in: .whitespacesAndNewlines)
         let b = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let k = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        var cfg = arcConfig
-        if m.isEmpty && b.isEmpty && k.isEmpty && (p.isEmpty || p == "auto") {
-            cfg.auxiliary.byTask.removeValue(forKey: task)
-        } else {
-            cfg.auxiliary.byTask[task] = AuxiliaryOverride(provider: p, model: m, baseURL: b, apiKey: k)
+        let removes = m.isEmpty && b.isEmpty && k.isEmpty && (p.isEmpty || p == "auto")
+        let override = AuxiliaryOverride(provider: p, model: m, baseURL: b, apiKey: k)
+        // One write path: the edit is applied to the *declaration* inside the
+        // store, which backs the file up, refuses one it cannot decode, and
+        // publishes the snapshot `arcConfig` adopts. A refusal changes nothing
+        // and is surfaced by `updateConfig`.
+        let saved = await updateConfig { config in
+            if removes {
+                config.auxiliary.byTask[task] = nil
+            } else {
+                config.auxiliary.byTask[task] = override
+            }
         }
-        do {
-            try saveConfig(cfg)
-            arcConfig = cfg
-            _ = hint("Auxiliary model “\(task.displayName)” saved to ~/.arc/config.json.")
-        } catch {
-            _ = hint("Could not save ~/.arc/config.json: \(error.localizedDescription)", kind: "error")
-        }
+        guard saved else { return }
+        _ = hint("Auxiliary model “\(task.displayName)” saved to ~/.arc/config.json.")
     }
 
     /// Remove an auxiliary task's override (route back to the main model).
-    func clearAuxOverride(task: AuxiliaryTask) {
-        var cfg = arcConfig
-        cfg.auxiliary.byTask.removeValue(forKey: task)
-        do {
-            try saveConfig(cfg)
-            arcConfig = cfg
-            _ = hint("Auxiliary model “\(task.displayName)” reset to the main model.")
-        } catch {
-            _ = hint("Could not save ~/.arc/config.json: \(error.localizedDescription)", kind: "error")
-        }
+    func clearAuxOverride(task: AuxiliaryTask) async {
+        let saved = await updateConfig { $0.auxiliary.byTask[task] = nil }
+        guard saved else { return }
+        _ = hint("Auxiliary model “\(task.displayName)” reset to the main model.")
     }
 
     /// Best-effort chat-title generation via the title_gen auxiliary model.

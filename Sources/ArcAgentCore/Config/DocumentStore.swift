@@ -26,7 +26,7 @@ extension ArcConfig: ConfigurationDocument {
 ///
 /// Every process that reads or writes the document goes through one store. The
 /// store owns the guarantees that were previously spread across `loadConfig()`
-/// and `saveConfig()` call sites — and, for `settings.json`, were missing:
+/// and `saveConfig` call sites — and, for `settings.json`, were missing:
 ///
 /// 1. **One write path.** ``mutate(_:)`` is the only way the document changes.
 ///    It takes the declared document, applies the edit, writes atomically,

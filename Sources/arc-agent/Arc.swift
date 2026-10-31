@@ -455,7 +455,12 @@ struct Setup: AsyncParsableCommand {
         }
         let instanceHome = ArcHome.root.path
 
-        var config = ArcConfig()
+        // Read through the store so the prompts default to what this instance
+        // already has, and every section the prompts never touch survives the
+        // write. Writing a fresh `ArcConfig()` here would replace an existing
+        // install's tools/moa/storage blocks with compiled defaults.
+        let store = ConfigurationStore(url: ArcHome.config)
+        var config = await store.declared()
 
         // Provider
         print("Available providers:")
@@ -491,8 +496,14 @@ struct Setup: AsyncParsableCommand {
             config.security.approvalMode = input
         }
 
-        // Save config
-        try saveConfig(config)
+        // Save config: exactly the values this command asked for, applied to the
+        // declaration through the store's one write path.
+        let model = config.model
+        let approvalMode = config.security.approvalMode
+        try await store.mutate {
+            $0.model = model
+            $0.security.approvalMode = approvalMode
+        }
         print("")
         print("✅ Configuration saved to \(instanceHome)/config.json")
         print("")

@@ -1302,7 +1302,13 @@ actor AppState {
         var runtimeBackend: String = StorageMedium.file.rawValue
     }
 
-    init(renderFixture fixture: RenderFixture) {
+    /// - Parameter configurationStore: the store this app writes through.
+    ///   `nil` (the default) is the render-fixture rule: a fixture owns no file,
+    ///   so edits stay in memory and the operator's real `config.json` is never
+    ///   read or written. A test that exercises a write path injects a
+    ///   **scratch** store here.
+    init(renderFixture fixture: RenderFixture,
+         configurationStore: ConfigurationStore? = nil) {
         self.settings = fixture.settings
         self.sessions = fixture.sessions
         self.arcConfig = fixture.arcConfig
@@ -1377,9 +1383,10 @@ actor AppState {
         }
         self.sidebarPlugins = []
         self.pluginTabs = [:]
-        // a render fixture owns no configuration file: edits stay in memory and
-        // the real `~/.arc/config.json` is never read or written.
-        self.configurationStore = nil
+        // a render fixture owns no configuration file by default: edits stay in
+        // memory and the real `~/.arc/config.json` is never read or written.
+        // A test may inject a scratch store through the init parameter.
+        self.configurationStore = configurationStore
         // same rule for `settings.json`: a fixture never reads or writes the
         // operator's real UI state.
         self.settingsStore = nil
@@ -1788,14 +1795,23 @@ actor AppState {
     /// One-time migration: the earlier Preferences stored per-task preset
     /// names in settings.json; move them into `auxiliary.<task>` overrides in
     /// ~/.arc/config.json and clear the legacy store.
+    ///
+    /// This is the **one boot-time exception** to `DocumentStore.mutate`: the
+    /// migration runs inside a nonisolated init, cannot await, and owns a
+    /// single one-shot write, so it calls the store's synchronous write
+    /// primitive directly. It is still guarded — that primitive refuses a file
+    /// it cannot decode and takes a one-generation `.bak` before replacing —
+    /// and a refusal is logged rather than swallowed, so the legacy intent is
+    /// kept for the next boot instead of being dropped.
     static func migrateLegacyAuxModels(into settings: inout AppSettings, arc: inout ArcConfig) -> Bool {
         guard !settings.auxiliaryModels.isEmpty else { return false }
         let presets = settings.modelConfigs
+        var migrated = arc
         var changed = false
         for (key, name) in settings.auxiliaryModels where !name.isEmpty {
             if let task = AuxiliaryTask(configKey: key),
                let preset = presets.first(where: { $0.name == name }) {
-                arc.auxiliary.byTask[task] = AuxiliaryOverride(
+                migrated.auxiliary.byTask[task] = AuxiliaryOverride(
                     provider: preset.provider,
                     model: preset.model,
                     baseURL: preset.baseURL,
@@ -1804,10 +1820,20 @@ actor AppState {
                 changed = true
             }
         }
-        settings.auxiliaryModels = [:]
         if changed {
-            try? saveConfig(arc)
+            do {
+                try ConfigurationStore.write(migrated, to: ArcHome.config)
+            } catch {
+                // never silent: the settings file keeps the legacy keys, so the
+                // next boot can retry once the config file is readable again.
+                FileHandle.standardError.write(Data((
+                    "arc: could not migrate auxiliary model overrides to "
+                    + "\(ArcHome.config.path): \(error)\n").utf8))
+                return false
+            }
+            arc = migrated
         }
+        settings.auxiliaryModels = [:]
         return true
     }
 
