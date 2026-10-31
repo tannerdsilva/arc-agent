@@ -83,5 +83,21 @@ extension ArcWebUITestRoot {
                 .attributesOfItem(atPath: realURL.path)[.modificationDate] as? Date
             #expect(before == after)
         }
+
+        @Test("a boot-failure toast outlives the TTL, a normal one does not")
+        func persistentToastSurvivesExpiry() async throws {
+            // regression: the corrupt-settings warning was an ordinary error
+            // toast, so it expired after 10s and anyone who opened the
+            // dashboard later saw a silently reset UI.
+            let app = AppState(renderFixture: .init())
+            let persistent = await app.surfaceToast(
+                "settings.json could not be read", kind: "error", persistent: true)
+            _ = await app.surfaceToast("transient error", kind: "error")
+
+            _ = await app.expireToasts(now: Date().addingTimeInterval(3600))
+
+            let remaining = await app.toasts.map(\.text)
+            #expect(remaining == [persistent.text])
+        }
     }
 }

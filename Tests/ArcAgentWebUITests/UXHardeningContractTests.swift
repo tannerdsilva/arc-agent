@@ -492,7 +492,7 @@ extension ArcWebUITestRoot {
         @Test("deleting a chat surfaces an Undo toast and the wire can restore it")
         func deleteHasUndoToast() async {
             let appState = Self.appState
-            #expect(appState.contains("func surfaceToast(_ text: String, kind: String = \"info\", action: ToastAction? = nil)"),
+            #expect(appState.contains("func surfaceToast(_ text: String, kind: String = \"info\", action: ToastAction? = nil,"),
                     "routine toasts stay quiet by preference — feedback toasts must be surfaced explicitly")
             #expect(appState.contains("let action: ToastAction?"), "Toast must be able to carry an action")
             let appStateActions = Self.appStateActions

@@ -565,12 +565,18 @@ struct Toast: Identifiable {
     /// page it is reporting on (the old behaviour kept an error over a card
     /// title until the user clicked ✕).
     let createdAt: Date = Date()
+    /// A condition that outlives the TTL — an unreadable settings file stays
+    /// broken until a human fixes it. Persistent toasts ignore `expireToasts`
+    /// and are cleared only when the condition does.
+    let persistent: Bool
 
-    init(id: Int, text: String, kind: String = "info", action: ToastAction? = nil) {
+    init(id: Int, text: String, kind: String = "info", action: ToastAction? = nil,
+         persistent: Bool = false) {
         self.id = id
         self.text = text
         self.kind = kind
         self.action = action
+        self.persistent = persistent
     }
 }
 
@@ -1433,7 +1439,11 @@ actor AppState {
         if let failure = settingsLoadFailure {
             surfaceToast(
                 "settings.json could not be read — changes will not be saved until it is fixed: \(failure)",
-                kind: "error"
+                kind: "error",
+                // the file stays broken until someone fixes it, so the warning
+                // must outlive the 10s bubble: it is the only surface a user
+                // who opens the dashboard hours later will ever see.
+                persistent: true
             )
         }
         // Bind the MCP client manager to the configured servers before the
@@ -1704,11 +1714,16 @@ actor AppState {
     /// which stays error-only by user preference. Used where feedback IS the
     /// feature (UX-06: "Conversation deleted" + Undo must appear, not vanish).
     @discardableResult
-    func surfaceToast(_ text: String, kind: String = "info", action: ToastAction? = nil) -> Toast {
+    func surfaceToast(_ text: String, kind: String = "info", action: ToastAction? = nil,
+                      persistent: Bool = false) -> Toast {
         toastSeq += 1
-        let t = Toast(id: toastSeq, text: text, kind: kind, action: action)
+        let t = Toast(id: toastSeq, text: text, kind: kind, action: action, persistent: persistent)
         toasts.append(t)
-        if toasts.count > 4 { toasts.removeFirst(toasts.count - 4) }
+        // the bubble cap never evicts a persistent condition: it keeps its slot
+        // until the thing it reports on is fixed.
+        while toasts.count > 4, let victim = toasts.firstIndex(where: { !$0.persistent }) {
+            toasts.remove(at: victim)
+        }
         return t
     }
 
@@ -1734,7 +1749,7 @@ actor AppState {
     /// silent on every other tick.
     func expireToasts(now: Date = Date(), ttl: TimeInterval = AppState.toastTTL) -> Bool {
         let before = toasts.count
-        toasts.removeAll { now.timeIntervalSince($0.createdAt) > ttl }
+        toasts.removeAll { !$0.persistent && now.timeIntervalSince($0.createdAt) > ttl }
         return toasts.count != before
     }
 
