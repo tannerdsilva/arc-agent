@@ -997,7 +997,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         let toolset = entry.name
                         let tools = entry.tools
                         let encTS = enc(toolset)
-                        let disabled = settings.disabledToolsets.contains(toolset)
+                        // enablement is policy: the same `tools` block the CLI
+                        // and the daemon read (`tools.disabledToolsets`).
+                        let disabled = arcConfig.tools.disabledToolsets.contains(toolset)
                         // UX-15: filter tools by name so the catalog is searchable.
                         let filtered = toolFilter.isEmpty
                             ? tools
@@ -2635,8 +2637,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         for p in profiles {
             let on = !activeProfileName.isEmpty && p.name == activeProfileName
             let model = p.model ?? settings.modelConfig(named: settings.activeConfig)?.model ?? "inherit"
-            // Skills are active by default; the runtime gates on
-            // settings.disabledSkills (see Actions.swift), not profileSkills.
+            // Skills are active by default; the runtime gates on the `tools`
+            // policy (`tools.disabledSkills`) or a profile's own override —
+            // see `disabledSkills(for:)`.
             let onCount = enabledSkillCount(for: p.name)
             let titleSuffix = p.title.isEmpty || p.title == p.name ? "" : " (\(p.title))"
             rows.append(ddRow(id: "pp-\(enc(p.name))", extraClass: "dd-profile-row") {

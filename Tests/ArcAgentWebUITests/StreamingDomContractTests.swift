@@ -181,7 +181,7 @@ extension ArcWebUITestRoot {
             f.settings.activeConfig = Self.preset.name
             f.settings.workspaces = [WorkspaceEntry(name: "main", path: workspace.path)]
             f.settings.activeWorkspace = "main"
-            f.settings.disabledToolsets = []
+            f.arcConfig.tools.disabledToolsets = []
             f.sessions = [session()]
             f.activeSessionID = Self.sessionID
             f.activeTabID = "chat"

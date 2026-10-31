@@ -220,7 +220,7 @@ extension ArcWebUITestRoot {
             var f = AppState.RenderFixture()
             f.settings.workspaces = [WorkspaceEntry(name: "main", path: workspace.path)]
             f.settings.activeWorkspace = "main"
-            f.settings.disabledToolsets = []
+            f.arcConfig.tools.disabledToolsets = []
             f.registryTools = [terminal, probe, ClarifyTool.entry]
             f.approvalManager = ApprovalManager(mode: approvalMode)
             if liveTurn {

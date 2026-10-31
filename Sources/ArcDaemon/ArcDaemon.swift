@@ -95,6 +95,12 @@ public enum ArcDaemon {
         // instance over `~/.arc/kanban` would not see the first one's tasks.
         let kanbanBoard = FileKanbanBoard()
 
+        // The tool/skill surface is policy: one `tools` block in config.json,
+        // read by the daemon exactly as the CLI and the web UI read it. Before
+        // settings-backbone slice 3 every hosted session ran with every toolset
+        // enabled and no skills at all, whatever the file said.
+        let toolSurface = arc.tools
+
         let agentConfig = SessionRegistry.AgentConfig(
             model: arc.model.defaultModel,
             provider: arc.model.provider,
@@ -108,6 +114,10 @@ public enum ArcDaemon {
             // with the compiled default (disabled, no reference models)
             // whatever config.json said.
             moa: arc.moa,
+            // Tool and skill enablement, from the same `tools` block the other
+            // surfaces read.
+            disabledToolsets: toolSurface.disabledToolsetSet,
+            skills: toolSurface.allowedSkills(from: discoverSkills()),
             maxIterations: arc.effectiveMaxTurns(),
             toolLoopCap: arc.toolCallLimit(),
             maxTurnDuration: arc.effectiveMaxTurnDuration() ?? 0,

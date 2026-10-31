@@ -253,9 +253,10 @@ struct Chat: AsyncParsableCommand {
             enabledPlugins: pluginAllowList()
         )
 
-        // Toolset selection: `--toolsets` (reference semantics: disables the
-        // listed toolsets) + profile enabled/disabled sets.
-        var disabledToolsets: Set<String> = []
+        // Toolset selection: `tools.disabledToolsets` (policy every surface
+        // reads) + `--toolsets` (reference semantics: disables the listed
+        // toolsets) + profile enabled/disabled sets.
+        var disabledToolsets: Set<String> = arcConfig.tools.disabledToolsetSet
         if let t = toolsets {
             disabledToolsets.formUnion(Self.parseList(t))
         }
@@ -274,9 +275,12 @@ struct Chat: AsyncParsableCommand {
         } else {
             discoveredSkills = arcConfig.agent.loadSkills ? discoverSkills() : []
         }
+        // `tools.disabledSkills` is policy: the same deny list the daemon and
+        // the web UI honour, applied before an explicit `--skills` subset.
+        let enabledByPolicy = arcConfig.tools.allowedSkills(from: discoveredSkills)
         let skills: [Skill] = skillNames.map { filter in
-            discoveredSkills.filter { filter.contains($0.name) }
-        } ?? discoveredSkills
+            enabledByPolicy.filter { filter.contains($0.name) }
+        } ?? enabledByPolicy
 
         let approvalMode: ApprovalMode = yolo ? .off
             : ApprovalMode(configValue: arcConfig.security.approvalMode)

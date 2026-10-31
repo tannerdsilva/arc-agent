@@ -1233,20 +1233,24 @@ extension AppState {
         }
     }
 
-    func toggleSkill(_ name: String, enable: Bool? = nil) {
+    func toggleSkill(_ name: String, enable: Bool? = nil) async {
         // Skill toggles edit the profile bound to the ACTIVE chat when there
         // is one (per-profile unique skill sets); otherwise they edit the
-        // global list, which profiles inherit until overridden.
+        // global policy list (`tools.disabledSkills`), which profiles inherit
+        // until overridden.
         let context = activeSkillContext()
         if context.isEmpty {
-            let shouldEnable = enable ?? !settings.disabledSkills.contains(name)
+            var disabled = arcConfig.tools.disabledSkills
+            let shouldEnable = enable ?? !disabled.contains(name)
             if shouldEnable {
-                settings.disabledSkills.removeAll { $0 == name }
-            } else if !settings.disabledSkills.contains(name) {
-                settings.disabledSkills.append(name)
+                disabled.removeAll { $0 == name }
+            } else if !disabled.contains(name) {
+                disabled.append(name)
             }
+            let next = disabled
+            await updateConfig { $0.tools.disabledSkills = next }
         } else {
-            var disabled = settings.profileSkills[context] ?? settings.disabledSkills
+            var disabled = settings.profileSkills[context] ?? arcConfig.tools.disabledSkills
             let shouldEnable = enable ?? !disabled.contains(name)
             if shouldEnable {
                 disabled.removeAll { $0 == name }
@@ -1254,8 +1258,8 @@ extension AppState {
                 disabled.append(name)
             }
             settings.profileSkills[context] = disabled
+            saveSettings()
         }
-        saveSettings()
     }
 
     // MARK: Sidebar tabs
@@ -1309,10 +1313,10 @@ extension AppState {
     }
 
     /// Disabled skills in effect for a profile: the profile's own override, or
-    /// the global list when the profile has none (inheritance).
+    /// the global policy list when the profile has none (inheritance).
     func disabledSkills(for profile: String) -> [String] {
-        guard !profile.isEmpty else { return settings.disabledSkills }
-        return settings.profileSkills[profile] ?? settings.disabledSkills
+        guard !profile.isEmpty else { return arcConfig.tools.disabledSkills }
+        return settings.profileSkills[profile] ?? arcConfig.tools.disabledSkills
     }
 
     /// Disabled skills shown in the skill list for the current context.
@@ -1458,9 +1462,9 @@ extension AppState {
     }
 
     func toggleProfileSkill(profile p: String, skill s: String, on: Bool) {
-        // Per-profile DISABLED override (seeded from the global list on the
-        // first edit so the profile starts inheriting and then diverges).
-        var disabled = settings.profileSkills[p] ?? settings.disabledSkills
+        // Per-profile DISABLED override (seeded from the global policy list on
+        // the first edit so the profile starts inheriting and then diverges).
+        var disabled = settings.profileSkills[p] ?? arcConfig.tools.disabledSkills
         if on {
             disabled.removeAll { $0 == s }
         } else if !disabled.contains(s) {
@@ -1495,13 +1499,15 @@ extension AppState {
         selectedTool = name
     }
 
-    func setToolset(_ name: String, enabled: Bool) {
+    func setToolset(_ name: String, enabled: Bool) async {
+        var disabled = arcConfig.tools.disabledToolsets
         if enabled {
-            settings.disabledToolsets.removeAll { $0 == name }
-        } else if !settings.disabledToolsets.contains(name) {
-            settings.disabledToolsets.append(name)
+            disabled.removeAll { $0 == name }
+        } else if !disabled.contains(name) {
+            disabled.append(name)
         }
-        saveSettings()
+        let next = disabled
+        await updateConfig { $0.tools.disabledToolsets = next }
     }
 
     // MARK: Workspaces

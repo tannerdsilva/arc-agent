@@ -66,7 +66,7 @@ extension ArcWebUITestRoot {
 					self.skill("rollback", "Undo the last deploy", category: "ops"),
 					self.skill("migrate", "Run pending database migrations", category: "data"),
 				]
-				$0.settings.disabledSkills = ["rollback"]
+				$0.arcConfig.tools.disabledSkills = ["rollback"]
 				$0.selectedSkill = "migrate"
 			}.skillsPanel().markup.html
 			Parity.capture(html, as: "skills-panel-grouped")
@@ -108,7 +108,7 @@ extension ArcWebUITestRoot {
 						StubTool(name: "run_command", toolset: "terminal", emoji: "⌨️", available: false),
 					]),
 				]
-				$0.settings.disabledToolsets = ["terminal"]
+				$0.arcConfig.tools.disabledToolsets = ["terminal"]
 				$0.selectedTool = "read_file"
 			}.toolsPanel().markup.html
 			Parity.capture(html, as: "tools-panel")

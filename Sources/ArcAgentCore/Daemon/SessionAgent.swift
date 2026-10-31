@@ -38,6 +38,72 @@ public actor SessionAgent: Service {
         self.responseContinuation = responseContinuation
     }
 
+    // MARK: - Engine configuration
+
+    /// The `ArcAgent.Configuration` one hosted session runs with.
+    ///
+    /// `run()` is the production caller; the settings-backbone agreement
+    /// test calls it too, so "what a daemon session runs" is exactly this
+    /// value instead of a test's re-assembly of it. The tool/skill surface
+    /// is `agentConfig`'s — never a hardcoded empty skill list (before
+    /// slice 3 a daemon session carried no skills at all whatever
+    /// `config.json` said, and every toolset was enabled).
+    static func agentConfiguration(
+        agentConfig: SessionRegistry.AgentConfig,
+        sessionID: String,
+        registry: any ToolRegistry,
+        sessionStore: any SessionStore,
+        memoryProvider: any MemoryProvider,
+        resolvedModel: String,
+        resolvedProvider: String,
+        resolvedBaseURL: URL,
+        resolvedContext: ProfileContextConfig?,
+        resolvedRecipe: ResolvedContextRecipe,
+        profile: String
+    ) -> ArcAgent.Configuration {
+        ArcAgent.Configuration(
+            model: resolvedModel,
+            provider: resolvedProvider,
+            baseURL: resolvedBaseURL,
+            apiKey: agentConfig.apiKey,
+            registry: registry,
+            sessionStore: sessionStore,
+            memoryProvider: memoryProvider,
+            skills: agentConfig.skills,
+            maxIterations: agentConfig.maxIterations ?? 25,
+            toolLoopCap: agentConfig.toolLoopCap,
+            maxTurnDuration: agentConfig.maxTurnDuration ?? 0,
+            persistSessions: agentConfig.tessera != nil ? agentConfig.persistSessions : false,
+            approvalMode: agentConfig.approvalMode,
+            // Session agents are long-lived, but seed the persisted
+            // "Always allow" list so allowlist entries span restarts.
+            alwaysAllowedCommands: loadConfig().security.alwaysAllowedCommands,
+            query: nil,
+            maxContextTokens: 64_000,
+            sessionID: sessionID,
+            contextLength: resolvedContext?.contextLength,
+            compressionBudget: resolvedContext?.compressionBudget,
+            platformHint: "daemon",
+            moa: agentConfig.moa,
+            skillInlineCommands: agentConfig.skillInlineCommands,
+            backgroundReview: BackgroundReview.Settings(
+                afterToolCalls: agentConfig.backgroundReviewAfter,
+                window: agentConfig.backgroundReviewWindow
+            ),
+            verifyOnStop: agentConfig.verifyOnStop,
+            reasoningEffort: resolvedContext?.reasoningEffort,
+            temperature: resolvedContext?.temperature,
+            topP: resolvedContext?.topP,
+            maxOutputTokens: resolvedContext?.maxOutputTokens,
+            mcpServers: agentConfig.mcpServers,
+            disabledToolsets: agentConfig.disabledToolsets,
+            contextRecipe: resolvedRecipe,
+            // The prompt's "Active ARC profile" line and `profile_edit`'s
+            // SOUL default both read this; it had no caller before slice 4.
+            profileName: profile
+        )
+    }
+
     // MARK: - Service
 
     public func run() async throws {
@@ -197,45 +263,18 @@ public actor SessionAgent: Service {
             }
 
             logger.info("step: creating ArcAgent")
-            let agent = ArcAgent(config: ArcAgent.Configuration(
-                model: resolvedModel,
-                provider: resolvedProvider,
-                baseURL: resolvedBaseURL,
-                apiKey: agentConfig.apiKey,
+            let agent = ArcAgent(config: Self.agentConfiguration(
+                agentConfig: agentConfig,
+                sessionID: sessionID,
                 registry: toolRegistry,
                 sessionStore: sessionStore,
                 memoryProvider: memoryProvider,
-                skills: [],
-                maxIterations: agentConfig.maxIterations ?? 25,
-                toolLoopCap: agentConfig.toolLoopCap,
-                maxTurnDuration: agentConfig.maxTurnDuration ?? 0,
-                persistSessions: agentConfig.tessera != nil ? agentConfig.persistSessions : false,
-                approvalMode: agentConfig.approvalMode,
-                // Session agents are long-lived, but seed the persisted
-                // "Always allow" list so allowlist entries span restarts.
-                alwaysAllowedCommands: loadConfig().security.alwaysAllowedCommands,
-                query: nil,
-                maxContextTokens: 64_000,
-                sessionID: sessionID,
-                contextLength: resolvedContext?.contextLength,
-                compressionBudget: resolvedContext?.compressionBudget,
-                platformHint: "daemon",
-                moa: agentConfig.moa,
-                skillInlineCommands: agentConfig.skillInlineCommands,
-                backgroundReview: BackgroundReview.Settings(
-                    afterToolCalls: agentConfig.backgroundReviewAfter,
-                    window: agentConfig.backgroundReviewWindow
-                ),
-                verifyOnStop: agentConfig.verifyOnStop,
-                reasoningEffort: resolvedContext?.reasoningEffort,
-                temperature: resolvedContext?.temperature,
-                topP: resolvedContext?.topP,
-                maxOutputTokens: resolvedContext?.maxOutputTokens,
-                mcpServers: agentConfig.mcpServers,
-                contextRecipe: resolvedRecipe,
-                // The prompt's "Active ARC profile" line and `profile_edit`'s
-                // SOUL default both read this; it had no caller before slice 4.
-                profileName: profile
+                resolvedModel: resolvedModel,
+                resolvedProvider: resolvedProvider,
+                resolvedBaseURL: resolvedBaseURL,
+                resolvedContext: resolvedContext,
+                resolvedRecipe: resolvedRecipe,
+                profile: profile
             ))
             logger.info("step: setting up client")
             await agent.setupClient(httpClient: httpClient)

@@ -114,7 +114,7 @@ extension ArcWebUITestRoot {
             f.settings.workspaces = [WorkspaceEntry(name: "a8", path: workspace.path)]
             f.settings.activeWorkspace = "a8"
             f.settings.sessionProfile[sessionID] = "a8-parity"
-            f.settings.disabledSkills = ["disabled-skill"]
+            f.arcConfig.tools.disabledSkills = ["disabled-skill"]
             f.profiles = [
                 Profile(
                     name: "a8-parity",

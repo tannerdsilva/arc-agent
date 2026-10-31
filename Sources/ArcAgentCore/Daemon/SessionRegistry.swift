@@ -73,6 +73,15 @@ public actor SessionRegistry {
         public let approvalMode: ApprovalMode
         /// Mixture-of-Agents configuration (reference `moa` config block).
         public let moa: MoAConfig
+        /// Toolsets disabled for every hosted session (`tools.disabledToolsets`
+        /// in `config.json`). Before settings-backbone slice 3 the daemon never
+        /// passed any, so every session saw every toolset whatever the config
+        /// said.
+        public let disabledToolsets: Set<String>
+        /// Skills a hosted session may carry: the discovered skills minus
+        /// `tools.disabledSkills` (`tools.allowedSkills(from:)`). Before slice 3
+        /// this was hardcoded to `[]`, so daemon sessions had no skills at all.
+        public let skills: [Skill]
         /// Verify work at turn end (reference `verify_on_stop`).
         public let verifyOnStop: Bool
         /// Run inline `!`cmd`` blocks in skills at load time (reference
@@ -112,6 +121,8 @@ public actor SessionRegistry {
             tessera: TesseraConfig? = nil,
             persistSessions: Bool = true,
             moa: MoAConfig = MoAConfig(),
+            disabledToolsets: Set<String> = [],
+            skills: [Skill] = [],
             maxIterations: Int? = nil,
             toolLoopCap: Limit? = nil,
             maxTurnDuration: Int? = nil,
@@ -133,6 +144,8 @@ public actor SessionRegistry {
             self.tessera = tessera
             self.persistSessions = persistSessions
             self.moa = moa
+            self.disabledToolsets = disabledToolsets
+            self.skills = skills
             self.verifyOnStop = verifyOnStop
             self.skillInlineCommands = skillInlineCommands
             self.backgroundReviewAfter = backgroundReviewAfter

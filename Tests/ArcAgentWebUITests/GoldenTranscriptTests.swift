@@ -187,7 +187,7 @@ extension ArcWebUITestRoot {
             f.settings.activeConfig = Self.preset.name
             f.settings.workspaces = [WorkspaceEntry(name: "main", path: workspace.path)]
             f.settings.activeWorkspace = "main"
-            f.settings.disabledToolsets = []
+            f.arcConfig.tools.disabledToolsets = []
             f.registryTools = [echo]
             f.sessions = [session]
             f.activeSessionID = sessionID
@@ -554,7 +554,7 @@ extension ArcWebUITestRoot {
             f.settings.activeConfig = Self.preset.name
             f.settings.workspaces = [WorkspaceEntry(name: "main", path: workspace.path)]
             f.settings.activeWorkspace = "main"
-            f.settings.disabledToolsets = []
+            f.arcConfig.tools.disabledToolsets = []
             f.registryTools = [probe]
             f.sessions = [Session(id: sessionID, title: "Stop turn")]
             f.activeSessionID = sessionID
@@ -612,7 +612,7 @@ extension ArcWebUITestRoot {
             f.settings.activeConfig = Self.preset.name
             f.settings.workspaces = [WorkspaceEntry(name: "main", path: workspace.path)]
             f.settings.activeWorkspace = "main"
-            f.settings.disabledToolsets = []
+            f.arcConfig.tools.disabledToolsets = []
             f.registryTools = [terminal]
             f.sessions = [Session(id: sessionID, title: "Approval turn")]
             f.activeSessionID = sessionID

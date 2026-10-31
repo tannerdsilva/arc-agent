@@ -71,6 +71,10 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     /// Mixture-of-Agents configuration (reference `moa` config block).
     public var moa: MoAConfig
 
+    /// Tool and skill enablement: the surface a session may use. Policy, not
+    /// a web-UI preference — the CLI, the daemon and the web UI all read it.
+    public var tools: ToolsConfig
+
     /// arc-parity auxiliary-model overrides (`auxiliary.<task>`), routing
     /// secondary tasks (vision, web extract, compression, approval, titles, …)
     /// to dedicated model configurations. Tasks without an override use the
@@ -160,6 +164,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         case security
         case tessera
         case moa
+        case tools
         case auxiliary
         case plugins
         case profileRouting
@@ -188,6 +193,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         security: SecurityConfig = SecurityConfig(),
         tessera: TesseraConfig? = nil,
         moa: MoAConfig = MoAConfig(),
+        tools: ToolsConfig = ToolsConfig(),
         auxiliary: AuxiliaryModelSet = AuxiliaryModelSet(),
         plugins: PluginsConfig = PluginsConfig(),
         profileRouting: ProfileRoutingConfig = ProfileRoutingConfig(),
@@ -212,6 +218,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.security = security
         self.tessera = tessera
         self.moa = moa
+        self.tools = tools
         self.auxiliary = auxiliary
         self.plugins = plugins
         self.profileRouting = profileRouting
@@ -241,6 +248,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.security = try container.decodeIfPresent(SecurityConfig.self, forKey: .security) ?? SecurityConfig()
         self.tessera = try container.decodeIfPresent(TesseraConfig.self, forKey: .tessera)
         self.moa = try container.decodeIfPresent(MoAConfig.self, forKey: .moa) ?? MoAConfig()
+        self.tools = try container.decodeIfPresent(ToolsConfig.self, forKey: .tools) ?? ToolsConfig()
         self.auxiliary = try container.decodeIfPresent(AuxiliaryModelSet.self, forKey: .auxiliary) ?? AuxiliaryModelSet()
         self.plugins = try container.decodeIfPresent(PluginsConfig.self, forKey: .plugins) ?? PluginsConfig()
         self.profileRouting = try container.decodeIfPresent(ProfileRoutingConfig.self, forKey: .profileRouting) ?? ProfileRoutingConfig()
@@ -301,6 +309,53 @@ public struct PluginsConfig: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.enabled = try container.decodeIfPresent([String].self, forKey: .enabled)
+    }
+}
+
+// MARK: - Tools and skills (policy: the surface a session may use)
+
+/// Tool and skill enablement (settings backbone, slice 3).
+///
+/// The surface a session gets is policy, not a web-UI preference: both lists
+/// live in `~/.arc/config.json` so the CLI, the daemon and the web UI read the
+/// same answer. Both are deny lists — a name that appears is removed from the
+/// surface — and an absent or empty list disables nothing (the default).
+public struct ToolsConfig: Codable, Sendable, Equatable {
+    /// Toolsets removed from every session (`--toolsets` parity; the CLI also
+    /// adds its flag and the bound profile's own sets to this list).
+    public var disabledToolsets: [String]
+    /// Skills removed from every session, by name.
+    public var disabledSkills: [String]
+
+    public init(disabledToolsets: [String] = [], disabledSkills: [String] = []) {
+        self.disabledToolsets = disabledToolsets
+        self.disabledSkills = disabledSkills
+    }
+
+    /// Decode each field independently, defaulting any that are absent.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.disabledToolsets = try container.decodeIfPresent([String].self, forKey: .disabledToolsets) ?? []
+        self.disabledSkills = try container.decodeIfPresent([String].self, forKey: .disabledSkills) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case disabledToolsets
+        case disabledSkills
+    }
+
+    /// The disabled toolsets as the `Set` every surface hands `ArcAgent`.
+    public var disabledToolsetSet: Set<String> { Set(disabledToolsets) }
+
+    /// The skills a session may carry: `discovered` minus the disabled names.
+    ///
+    /// `profileOverride` is a bound profile's own deny list. When present it
+    /// *replaces* the global list — the precedence the UI has always had — it
+    /// does not add to it.
+    public func allowedSkills(from discovered: [Skill],
+                              profileOverride: [String]? = nil) -> [Skill] {
+        let disabled = Set(profileOverride ?? disabledSkills)
+        return discovered.filter { !disabled.contains($0.name) }
     }
 }
 

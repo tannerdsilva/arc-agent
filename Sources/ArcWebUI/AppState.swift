@@ -255,8 +255,21 @@ struct AppSettings: Codable, Equatable {
     /// Auxiliary-model routing: task key → model-config name ("" = main model).
     var auxiliaryModels: [String: String] = [:]
 
-    var disabledToolsets: [String] = []
-    var disabledSkills: [String] = []
+    /// **Legacy, decode-only.** The retired global "disabled toolsets" list.
+    ///
+    /// Tool enablement is policy, not view state: it lives in
+    /// `~/.arc/config.json` as `tools.disabledToolsets`. This key is read once
+    /// at boot (`AppState.liftLegacyToolSurface`) and cleared, so it is nil for
+    /// every settings document written since — and the synthesised encoder
+    /// omits a nil optional. Keep the declaration so an old `settings.json`
+    /// can still be read and lifted; nothing may set it.
+    var disabledToolsets: [String]?
+    /// **Legacy, decode-only.** The retired global "disabled skills" list.
+    ///
+    /// Skill enablement is policy, not view state: it lives in
+    /// `~/.arc/config.json` as `tools.disabledSkills`. Read once at boot
+    /// (`AppState.liftLegacyToolSurface`) and cleared, like the list above.
+    var disabledSkills: [String]?
     var bookmarkedSessions: [String] = []
 
     var workspaces: [WorkspaceEntry] = [
@@ -440,8 +453,9 @@ struct AppSettings: Codable, Equatable {
         modelConfigs = try c.decodeIfPresent([ModelConfigPreset].self, forKey: .modelConfigs) ?? []
         activeConfig = try c.decodeIfPresent(String.self, forKey: .activeConfig) ?? ""
         auxiliaryModels = try c.decodeIfPresent([String: String].self, forKey: .auxiliaryModels) ?? [:]
-        disabledToolsets = try c.decodeIfPresent([String].self, forKey: .disabledToolsets) ?? []
-        disabledSkills = try c.decodeIfPresent([String].self, forKey: .disabledSkills) ?? []
+        // legacy, decode-only: lifted into `tools.*` once at boot.
+        disabledToolsets = try c.decodeIfPresent([String].self, forKey: .disabledToolsets)
+        disabledSkills = try c.decodeIfPresent([String].self, forKey: .disabledSkills)
         bookmarkedSessions = try c.decodeIfPresent([String].self, forKey: .bookmarkedSessions) ?? []
         workspaces = try c.decodeIfPresent([WorkspaceEntry].self, forKey: .workspaces) ?? [
             WorkspaceEntry(name: "main", path: WorkspaceEntry.defaultPath(for: "main"))
@@ -1474,6 +1488,22 @@ actor AppState {
         if moaLift.clearedLegacyKey {
             Self.persist(self.settings)
         }
+        // Settings backbone, slice 3: the tool/skill surface is policy. The
+        // retired `disabledToolsets` / `disabledSkills` lists are lifted once
+        // into `tools` (through the store; a render fixture owns none) and then
+        // cleared, so the UI turn agent and every daemon session read one
+        // surface from the first turn on.
+        let toolLift = await Self.liftLegacyToolSurface(
+            self.settings,
+            configStore: self.configurationStore
+        )
+        self.settings = toolLift.settings
+        if let lifted = toolLift.declared {
+            self.arcConfig = lifted
+        }
+        if toolLift.clearedLegacyKeys {
+            Self.persist(self.settings)
+        }
         self.selectedWorkspace = self.settings.activeWorkspace
         for w in pluginWarnings {
             crumb(w)
@@ -1652,6 +1682,22 @@ actor AppState {
         return await configurationStore.resolved().moa
     }
 
+    /// The one tool and skill enablement policy this process runs with.
+    ///
+    /// `tools` resolved through the configuration store, so the UI turn agent
+    /// reads exactly the block the CLI and the daemon read (declared copy when
+    /// a render fixture owns no store). `tools` has no environment surface
+    /// today; going through the store keeps every policy read on one path if it
+    /// ever gets one.
+    ///
+    /// Nothing else may decide which toolsets or skills a session may use —
+    /// there is no second surface setting (the old `settings.disabledToolsets`
+    /// / `settings.disabledSkills` keys are migrated once at boot).
+    func resolvedTools() async -> ToolsConfig {
+        guard let configurationStore else { return arcConfig.tools }
+        return await configurationStore.resolved().tools
+    }
+
     /// arc parity: migrate the legacy default workspace (home folder) to
     /// `~/workspace`. Returns true when the persisted "main" entry was
     /// repointed (or restored to the new default path).
@@ -1814,6 +1860,91 @@ actor AppState {
         var cleared = settings
         cleared.moaEnabled = nil
         return LegacyMoALift(settings: cleared, clearedLegacyKey: true)
+    }
+
+    /// What one pass of ``AppState/liftLegacyToolSurface(_:configStore:)`` changed.
+    struct LegacyToolSurfaceLift: Equatable {
+        /// The settings document after the pass (the legacy keys cleared when
+        /// they were present).
+        var settings: AppSettings
+        /// The declaration now on disk, when the config file was written.
+        var declared: ArcConfig? = nil
+        /// A legacy key was present and has been cleared: persist `settings`.
+        var clearedLegacyKeys = false
+    }
+
+    /// One-shot lift of the retired `settings.disabledToolsets` /
+    /// `settings.disabledSkills` lists into `tools.*` — the one tool/skill
+    /// surface policy.
+    ///
+    /// The decision table (settings backbone, slice 3):
+    /// - no legacy key → nothing to do;
+    /// - a legacy list while the file disables nothing → the list is written
+    ///   through the configuration store;
+    /// - the file already disables part of it → the legacy names are *added*
+    ///   (a deny list cannot tell "absent" from "empty", so a name the user
+    ///   disabled is never silently re-enabled);
+    /// - the file already says exactly the same thing → the store refuses a
+    ///   no-op write, so nothing is written and nothing is backed up.
+    ///
+    /// The legacy keys are cleared in every case except a failed config write
+    /// (a read-only `config.json` keeps the intent for the next boot). Clearing
+    /// them is what makes the lift idempotent: a second pass finds nothing and
+    /// writes nothing.
+    ///
+    /// A render fixture owns no store, so it neither reads nor writes a file.
+    ///
+    /// Takes the document by value (an actor-isolated property cannot be
+    /// passed `inout` to an `async` call) and returns the cleared copy.
+    @discardableResult
+    static func liftLegacyToolSurface(
+        _ settings: AppSettings,
+        configStore: ConfigurationStore?
+    ) async -> LegacyToolSurfaceLift {
+        guard let configStore,
+              settings.disabledToolsets != nil || settings.disabledSkills != nil
+        else {
+            return LegacyToolSurfaceLift(settings: settings)
+        }
+        let legacyToolsets = settings.disabledToolsets ?? []
+        let legacySkills = settings.disabledSkills ?? []
+        let declared = await configStore.declared()
+
+        // append the legacy names to the file's order, so a lift never reorders
+        // what the user sees — and a file that already carries them is a no-op.
+        var mergedToolsets = declared.tools.disabledToolsets
+        for name in legacyToolsets where !mergedToolsets.contains(name) {
+            mergedToolsets.append(name)
+        }
+        var mergedSkills = declared.tools.disabledSkills
+        for name in legacySkills where !mergedSkills.contains(name) {
+            mergedSkills.append(name)
+        }
+        let needsWrite = mergedToolsets != declared.tools.disabledToolsets
+            || mergedSkills != declared.tools.disabledSkills
+
+        if needsWrite {
+            let nextToolsets = mergedToolsets
+            let nextSkills = mergedSkills
+            guard let snapshot = try? await configStore.mutate({
+                $0.tools.disabledToolsets = nextToolsets
+                $0.tools.disabledSkills = nextSkills
+            }) else {
+                // config.json is unreadable (the store refuses writes): keep
+                // the legacy keys so this can be retried once it is fixed.
+                return LegacyToolSurfaceLift(settings: settings)
+            }
+            var cleared = settings
+            cleared.disabledToolsets = nil
+            cleared.disabledSkills = nil
+            return LegacyToolSurfaceLift(settings: cleared, declared: snapshot.declared,
+                                         clearedLegacyKeys: true)
+        }
+        // the file already says it: drop the keys, write nothing.
+        var cleared = settings
+        cleared.disabledToolsets = nil
+        cleared.disabledSkills = nil
+        return LegacyToolSurfaceLift(settings: cleared, clearedLegacyKeys: true)
     }
 
     /// Seed the default kanban columns on first run (no stored board yet).
@@ -2179,10 +2310,13 @@ actor AppState {
         let root = workspacePath(for: sessionID)
 
         // allowed skills: the shared list minus the bound profile's disabled
-        // override, falling back to the global disabled list.
+        // override, falling back to the global deny list in `tools` policy.
         let pname = profileName(for: sessionID)
-        let disabled = pname.flatMap { settings.profileSkills[$0] } ?? settings.disabledSkills
-        let allowedSkills = skills.filter { !disabled.contains($0.name) }
+        let toolPolicy = await resolvedTools()
+        let allowedSkills = toolPolicy.allowedSkills(
+            from: skills,
+            profileOverride: pname.flatMap { settings.profileSkills[$0] }
+        )
 
         // approval mode: the one policy, resolved (config + environment).
         let approvalMode = await resolvedApprovalMode()
@@ -2276,7 +2410,7 @@ actor AppState {
             topP: effectivePreset.topP,
             maxOutputTokens: effectivePreset.maxOutputTokens,
             agentPowers: arcConfig.agentPowers,
-            disabledToolsets: Set(settings.disabledToolsets),
+            disabledToolsets: toolPolicy.disabledToolsetSet,
             // the scripted-client seam (nil in production) — see
             // `turnClientOverride`.
             llmClient: turnClientOverride,

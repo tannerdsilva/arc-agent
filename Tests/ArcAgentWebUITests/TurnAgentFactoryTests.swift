@@ -75,9 +75,9 @@ extension ArcWebUITestRoot {
             f.settings.activeWorkspace = "main"
             f.settings.sessionWorkspaces["s-alpha"] = "a5"
             f.settings.sessionProfile["s-alpha"] = "alpha"
-            f.settings.disabledSkills = ["alpha-off", "global-off"]
+            f.arcConfig.tools.disabledSkills = ["alpha-off", "global-off"]
             f.settings.profileSkills["alpha"] = ["alpha-off"]
-            f.settings.disabledToolsets = ["browser", "cron"]
+            f.arcConfig.tools.disabledToolsets = ["browser", "cron"]
             f.skills = [
                 Self.skill("alpha-off"),
                 Self.skill("global-off"),
@@ -107,8 +107,8 @@ extension ArcWebUITestRoot {
             var f = AppState.RenderFixture()
             f.settings.workspaces = [WorkspaceEntry(name: "main", path: workspacePath)]
             f.settings.activeWorkspace = "main"
-            f.settings.disabledSkills = ["global-off"]
-            f.settings.disabledToolsets = ["browser"]
+            f.arcConfig.tools.disabledSkills = ["global-off"]
+            f.arcConfig.tools.disabledToolsets = ["browser"]
             f.skills = [Self.skill("global-off"), Self.skill("kept")]
             return AppState(renderFixture: f)
         }

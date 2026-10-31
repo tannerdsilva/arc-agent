@@ -115,7 +115,7 @@ extension ArcWebUITestRoot {
             f.settings.activeConfig = preset.name
             f.settings.workspaces = [WorkspaceEntry(name: "main", path: workspace.path)]
             f.settings.activeWorkspace = "main"
-            f.settings.disabledToolsets = []
+            f.arcConfig.tools.disabledToolsets = []
             f.registryTools = [echo, StubTool(name: "skill_view", toolset: "skills")]
             f.activeTabID = "logs"
             let app = AppState(renderFixture: f)
