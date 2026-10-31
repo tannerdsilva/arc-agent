@@ -212,6 +212,36 @@ extension ArcCoreTestRoot {
             #expect(missing.contains("not found"))
         }
 
+        @Test("skill_manage patch reports a write it could not perform")
+        func patchSkillReportsWriteFailure() async throws {
+            let (skills, _) = try await install()
+            defer { restore() }
+            _ = try await SkillManageTool.entry.handler([
+                "action": "create", "name": "demo-skill",
+                "content": fullSkill("demo-skill", desc: "d", body: "old text here"),
+            ])
+            let dir = skills.appendingPathComponent("demo-skill")
+            // a read-only directory is the exact shape of the failure the old
+            // code swallowed: the atomic write cannot create its temp file, so
+            // nothing reaches disk.
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o555], ofItemAtPath: dir.path)
+            defer {
+                try? FileManager.default.setAttributes(
+                    [.posixPermissions: 0o755], ofItemAtPath: dir.path)
+            }
+            let result = try await SkillManageTool.entry.handler([
+                "action": "patch", "name": "demo-skill",
+                "old_string": "old text", "new_string": "new text",
+            ])
+            #expect(result.hasPrefix("Error:"),
+                    "a failed write must not be reported as a patch: \(result)")
+            let after = try String(
+                contentsOf: dir.appendingPathComponent("SKILL.md"), encoding: .utf8)
+            #expect(after.contains("old text here"))
+            #expect(!after.contains("new text here"))
+        }
+
         @Test("skill_manage edit rewrites the whole SKILL.md")
         func editSkill() async throws {
             try await install()

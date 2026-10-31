@@ -100,18 +100,26 @@ public enum SkillManageTool {
         }
         let replaceAll = (args["replace_all"] as? Bool) ?? false
         let count: Int
+        let patched: String
         if replaceAll {
             count = existing.components(separatedBy: old).count - 1
             guard count > 0 else { return "Error: 'old_string' not found in '\(name)'." }
-            let patched = existing.replacingOccurrences(of: old, with: new)
-            try? patched.write(to: url, atomically: true, encoding: .utf8)
+            patched = existing.replacingOccurrences(of: old, with: new)
         } else {
             guard let range = existing.range(of: old) else {
                 return "Error: 'old_string' not found in '\(name)'."
             }
             count = 1
-            let patched = existing.replacingCharacters(in: range, with: new)
-            try? patched.write(to: url, atomically: true, encoding: .utf8)
+            patched = existing.replacingCharacters(in: range, with: new)
+        }
+        // the write is the operation. reporting success after a discarded
+        // error left the tool claiming a patch that never reached disk — the
+        // caller's only signal that its fix landed. a read-only file, a full
+        // disk, or a missing directory must be an error, not a success string.
+        do {
+            try patched.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            return "Error: could not update skill '\(name)': \(error.localizedDescription)"
         }
         return "Patched skill '\(name)' (1 occurrence\(count > 1 ? ", \(count) total" : ""))."
     }
