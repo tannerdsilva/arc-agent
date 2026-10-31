@@ -405,16 +405,45 @@ func CronNext(expression: String, from date: Date) -> Date? {
         if let interval = parseInterval(String(rest)) { return date.addingTimeInterval(interval) }
     }
     if let interval = parseInterval(expr) { return date.addingTimeInterval(interval) }
-    // Cron 5-field: "m h dom mon dow"
+    // Cron 5-field: "m h dom mon dow".
+    //
+    // only a number or `*` is understood. a field this parser cannot read —
+    // `*/15`, `1-5`, `0,30` — is refused rather than left nil: a nil component
+    // means "any value" to Calendar, so accepting the field would silently
+    // widen the schedule (a 15-minute step became every minute).
     let fields = expr.split(separator: " ").map(String.init)
-    guard fields.count == 5 else { return nil }
+    guard fields.count == 5,
+          let minute = cronField(fields[0], in: 0...59),
+          let hour = cronField(fields[1], in: 0...23),
+          let day = cronField(fields[2], in: 1...31),
+          let month = cronField(fields[3], in: 1...12),
+          let weekday = cronField(fields[4], in: 0...7)
+    else { return nil }
+    // cron's day-of-month and day-of-week are ORed when both are restricted;
+    // Calendar ANDs components, so an expression that sets both would fire on
+    // the wrong days. refuse the shape instead of answering with a lie.
+    if case .value(_) = day, case .value(_) = weekday { return nil }
     var comps = DateComponents()
-    comps.minute = Int(fields[0])
-    comps.hour = Int(fields[1])
-    comps.day = Int(fields[2])
-    comps.month = Int(fields[3])
-    comps.weekday = Int(fields[4])
+    if case .value(let v) = minute { comps.minute = v }
+    if case .value(let v) = hour { comps.hour = v }
+    if case .value(let v) = day { comps.day = v }
+    if case .value(let v) = month { comps.month = v }
+    // cron numbers weekdays 0/7 = Sunday … 6 = Saturday; Calendar numbers
+    // 1 = Sunday … 7 = Saturday.
+    if case .value(let v) = weekday { comps.weekday = v % 7 + 1 }
     return cal.nextDate(after: date, matching: comps, matchingPolicy: .nextTime)
+}
+
+/// one 5-field cron field: `*` (unconstrained) or a number in range.
+private enum CronField {
+    case wildcard
+    case value(Int)
+}
+
+private func cronField(_ raw: String, in allowed: ClosedRange<Int>) -> CronField? {
+    if raw == "*" { return .wildcard }
+    guard let value = Int(raw), allowed.contains(value) else { return nil }
+    return .value(value)
 }
 
 func parseInterval(_ s: String) -> TimeInterval? {
