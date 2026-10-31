@@ -686,16 +686,18 @@ public static let css: String = """
     .cat-panel-title {
       font-size: 0.84em; font-weight: 700; text-transform: uppercase;
       letter-spacing: 0.05em; color: var(--muted);
+      white-space: nowrap;
     }
     .cat-panel-back {
       display: inline-flex; align-items: center; justify-content: center;
+      flex: 0 0 22px;
       width: 22px; height: 22px; border-radius: 6px;
       background: transparent; border: none; color: var(--muted);
       cursor: pointer; padding: 0;
     }
     .cat-panel-back:hover { background: var(--surface-2); color: var(--text); }
     .cat-panel-list { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; }
-    .chat-menu-panel button {
+    .chat-menu-panel .cat-panel-list > button {
       width: 100%; text-align: left;
       display: flex; align-items: center; gap: 7px;
     }
@@ -2620,6 +2622,15 @@ public static let css: String = """
       text-align: left; font-size: 0.87em;
       padding: 8px 10px; border-radius: 8px;
       cursor: pointer; white-space: nowrap;
+    }
+    /* Only SELECTABLE rows fill the menu: a hover / focus pill that stops at the
+       end of its label reads as a floating tag rather than a menu selection.
+       Buttons are intrinsically content-sized, so the width must be asked for.
+       The one button that is chrome rather than a row is the category panel's
+       22px back chevron — stretching it pushes the panel title into a two-line
+       wrap, so it is excluded here rather than widened. */
+    .chat-menu button:not(.cat-panel-back) {
+      width: 100%; box-sizing: border-box;
     }
 
     /* The submenu is positioned and shown by runtime.js (fixed coordinates so

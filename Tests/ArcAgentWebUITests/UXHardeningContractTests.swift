@@ -1927,5 +1927,53 @@ extension ArcWebUITestRoot {
                     "the skip link must hide when no composer exists")
         }
 
+        // MARK: - Session menu rows: a selection spans the menu
+
+        /// The ⋮ menu's rows are `<button>`s, and a button is intrinsically
+        /// content-sized: without an explicit width the hover / focus pill stops
+        /// at the end of its label, so "Pin conversation" highlights a floating
+        /// 117px tag inside a 220px menu instead of a selection. The width is
+        /// asked for on every menu button EXCEPT the category panel's back
+        /// chevron — chrome, not a row: widening it stretched it to 96px and
+        /// wrapped the panel title onto two lines.
+        @Test("conversation-menu rows span the menu, and panel chrome keeps its box")
+        func chatMenuRowsFillTheMenu() {
+            let css = Self.sheetSource
+
+            guard let rowsStart = css.range(of: ".chat-menu button:not(.cat-panel-back) {") else {
+                Issue.record("the full-width row rule is gone: menu highlights will hug their labels again")
+                return
+            }
+            let rowsBlock = css[rowsStart.upperBound...].prefix(200)
+            #expect(rowsBlock.contains("width: 100%"),
+                    "menu rows must fill the menu — otherwise every label paints a different-sized pill")
+            #expect(rowsBlock.contains("box-sizing: border-box"),
+                    "a 100% row plus its padding must not overflow the menu frame")
+
+            guard let baseStart = css.range(of: ".chat-menu button {") else {
+                Issue.record("the base .chat-menu button rule is gone")
+                return
+            }
+            let baseRest = css[baseStart.upperBound...]
+            guard let baseEnd = baseRest.firstIndex(of: "}") else { return }
+            #expect(!String(baseRest[..<baseEnd]).contains("width"),
+                    "no width on `.chat-menu button`: it also matches the panel's back chevron")
+
+            #expect(!css.contains(".chat-menu-panel button {"),
+                    "a generic `.chat-menu-panel button` width rule stretches the back chevron (it did: 96px)")
+
+            guard let backStart = css.range(of: ".cat-panel-back {") else {
+                Issue.record("the category panel's back button is gone")
+                return
+            }
+            let backRest = css[backStart.upperBound...]
+            guard let backEnd = backRest.firstIndex(of: "}") else { return }
+            let backRule = String(backRest[..<backEnd])
+            #expect(backRule.contains("width: 22px"),
+                    "the back chevron keeps its 22px box")
+            #expect(backRule.contains("flex: 0 0 22px"),
+                    "the panel head is a flex row: the chevron must not grow or shrink")
+        }
+
     }
 }
