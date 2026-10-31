@@ -2004,11 +2004,16 @@ actor AppState {
     /// overwrite a file that cannot be decoded. Returns that failure instead of
     /// swallowing it — `try?` here is what let a corrupt file be replaced.
     ///
+    /// `private`: it writes the *process* settings path, so nothing outside
+    /// this file may call it. A test that did so once overwrote the operator's
+    /// real `settings.json` with a fixture; scratch writers use
+    /// `SettingsStore.write(_:to:)` with their own URL.
+    ///
     /// `nonisolated` because the body reads no actor state, so an actor
     /// initializer can persist migrated settings before the actor is entered
     /// (swift 6 rejects an isolated call from a nonisolated init).
     @discardableResult
-    nonisolated static func persist(_ settings: AppSettings) -> ConfigError? {
+    private nonisolated static func persist(_ settings: AppSettings) -> ConfigError? {
         do {
             try SettingsStore.write(settings, to: Self.settingsURL)
             return nil
