@@ -606,6 +606,34 @@ struct QueuedSend: Equatable, Sendable {
 
 // MARK: - AppState
 
+// MARK: The settings document
+
+/// `settings.json` behind the shared document store: atomic write, decode-back
+/// verification, refuse-to-clobber on an unreadable file, one-generation
+/// `.bak`, published snapshots — the same guarantees `config.json` has.
+typealias SettingsStore = DocumentStore<AppSettings>
+
+extension AppSettings: ConfigurationDocument {
+    static var defaultURL: URL { ArcHome.webUISettings }
+    static var defaultValue: AppSettings { AppSettings() }
+}
+
+/// The process-wide settings store, built once per process (a static stored
+/// property cannot live in a constrained extension).
+private enum SettingsStoreShared {
+    static let instance = SettingsStore(
+        url: ArcHome.webUISettings,
+        environment: [:],
+        // settings have no environment surface: the file is the whole story.
+        resolve: { document, _ in document }
+    )
+}
+
+extension DocumentStore where Document == AppSettings {
+    /// The process-wide settings store.
+    static var shared: SettingsStore { SettingsStoreShared.instance }
+}
+
 /// The single source of truth for the web UI. All mutable state is guarded by
 /// this actor (First Law). Views are built from snapshots taken via async
 /// accessors so renderers stay pure and synchronous.
@@ -961,6 +989,13 @@ actor AppState {
     /// render fixture, which owns no file — its edits stay in memory and never
     /// touch the operator's `~/.arc/config.json`.
     var configurationStore: ConfigurationStore? = .shared
+    /// The `settings.json` store: the same guarantees `config.json` has. `nil`
+    /// for a render fixture, which owns no file — its edits stay in memory and
+    /// never touch the operator's `~/.arc-agent-webui/settings.json`.
+    var settingsStore: SettingsStore? = .shared
+    /// Set when `settings.json` exists but cannot be decoded. Surfaced as a
+    /// toast at boot; the store refuses writes until the file is fixed.
+    var settingsLoadFailure: ConfigError? = nil
     /// Per-turn tool guardrails (rebuilt from config at turn start).
     var guardrails = ToolGuardrails()
     /// Which auxiliary task is currently being edited in Preferences.
@@ -1287,6 +1322,9 @@ actor AppState {
         // a render fixture owns no configuration file: edits stay in memory and
         // the real `~/.arc/config.json` is never read or written.
         self.configurationStore = nil
+        // same rule for `settings.json`: a fixture never reads or writes the
+        // operator's real UI state.
+        self.settingsStore = nil
     }
 
     init(
@@ -1326,7 +1364,9 @@ actor AppState {
         ))
         let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolset })
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
-        self.settings = Self.loadSettings()
+        let loadedSettings = Self.loadSettings()
+        self.settings = loadedSettings.settings
+        self.settingsLoadFailure = loadedSettings.failure
         let rawConfig = Self.declaredConfig()
         self.arcConfig = rawConfig
         // Sidebar tab plugins: validate ids, reject collisions with
@@ -1386,6 +1426,15 @@ actor AppState {
         self.selectedWorkspace = self.settings.activeWorkspace
         for w in pluginWarnings {
             crumb(w)
+        }
+        // A settings file that exists but does not decode is not silently
+        // replaced by defaults any more: say so, and the store stays read-only
+        // until the file is fixed (or restored from its `.bak`).
+        if let failure = settingsLoadFailure {
+            surfaceToast(
+                "settings.json could not be read — changes will not be saved until it is fixed: \(failure)",
+                kind: "error"
+            )
         }
         // Bind the MCP client manager to the configured servers before the
         // first turn: the webui turn loop dispatches tools straight through the
@@ -1579,35 +1628,57 @@ actor AppState {
 
     // MARK: Settings persistence
 
-    static var settingsURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc-agent-webui/settings.json")
-    }
+    static var settingsURL: URL { ArcHome.webUISettings }
 
-    static func loadSettings() -> AppSettings {
-        let url = settingsURL
-        guard let data = try? Data(contentsOf: url) else { return AppSettings() }
+    /// Load settings synchronously.
+    ///
+    /// Called from an actor init, which cannot await the store. A *missing*
+    /// file is `AppSettings()` (the defaults a first run starts from). A file
+    /// that exists but cannot be decoded is not silently replaced by those
+    /// defaults: the failure is returned so the caller can surface it, and the
+    /// settings store refuses every write until the file is fixed.
+    static func loadSettings() -> (settings: AppSettings, failure: ConfigError?) {
         do {
-            return try JSONDecoder().decode(AppSettings.self, from: data)
-        } catch {
+            return (try SettingsStore.read(Self.settingsURL), nil)
+        } catch let error as ConfigError {
             FileHandle.standardError.write("ws-settings-decode-error: \(error)\n".data(using: .utf8)!)
-            return AppSettings()
+            return (AppSettings(), error)
+        } catch {
+            let failure = ConfigError.parseError(String(describing: error))
+            FileHandle.standardError.write("ws-settings-decode-error: \(failure)\n".data(using: .utf8)!)
+            return (AppSettings(), failure)
         }
     }
 
     func saveSettings() {
-        Self.persist(settings)
+        // a render fixture owns no file: its edits stay in memory.
+        guard settingsStore != nil else { return }
+        if let failure = Self.persist(settings) {
+            _ = surfaceToast("Settings were not saved: \(failure)", kind: "error")
+        }
     }
 
-    /// write settings to disk. `nonisolated` because the body reads no actor
-    /// state, so an actor initializer can persist migrated settings before the
-    /// actor is entered (swift 6 rejects an isolated call from a nonisolated init).
-    nonisolated static func persist(_ settings: AppSettings) {
-        let url = Self.settingsURL
-        try? FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard let data = try? JSONEncoder().encode(settings) else { return }
-        try? data.write(to: url, options: .atomic)
+    /// Write settings through the shared document guarantees: atomic replace,
+    /// decode-back verification, one-generation `.bak`, and a refusal to
+    /// overwrite a file that cannot be decoded. Returns that failure instead of
+    /// swallowing it — `try?` here is what let a corrupt file be replaced.
+    ///
+    /// `nonisolated` because the body reads no actor state, so an actor
+    /// initializer can persist migrated settings before the actor is entered
+    /// (swift 6 rejects an isolated call from a nonisolated init).
+    @discardableResult
+    nonisolated static func persist(_ settings: AppSettings) -> ConfigError? {
+        do {
+            try SettingsStore.write(settings, to: Self.settingsURL)
+            return nil
+        } catch let error as ConfigError {
+            FileHandle.standardError.write("ws-settings-save-error: \(error)\n".data(using: .utf8)!)
+            return error
+        } catch {
+            let failure = ConfigError.parseError(String(describing: error))
+            FileHandle.standardError.write("ws-settings-save-error: \(failure)\n".data(using: .utf8)!)
+            return failure
+        }
     }
 
     func tapSetting<T>(_ mutate: (inout AppSettings) -> T) -> T {
