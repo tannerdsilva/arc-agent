@@ -57,24 +57,19 @@ test:
 	$(SWIFT) test 2>&1
 
 # ── Dependency pin ────────────────────────────────────────
-# the manifest currently uses a LOCAL path pin (../pins/no-webui), so there is no
-# revision in Package.swift to compare. the recorded sha below is what that
-# checkout must be at; a revision pin replaces both it and the manifest entry.
-LOCAL_PIN_SHA := 67d5b6fdb8a382d78b0273d48fd0fef121bde806
-LOCAL_PIN_PATH := ../pins/no-webui
+# no-webui is pinned by ORIGIN URL at a BRANCH (master), so the revision lives in
+# Package.resolved and not in the manifest. the check is that resolution is
+# current: the resolved revision must equal the checkout's HEAD.
 
 check-pin:
-	@rev=$$(grep -A2 'tannerdsilva/no-webui' Package.swift | grep -o '[0-9a-f]\{40\}' | head -1); \
-	if [ -n "$$rev" ]; then \
-	  have=$$(grep -A4 '"identity" : "no-webui"' Package.resolved | grep -o '[0-9a-f]\{40\}' | head -1); \
-	  if [ "$$rev" = "$$have" ]; then echo "  no-webui pinned at $$have"; \
-	  else echo "  ✗ Package.swift ($$rev) != Package.resolved ($$have) — run: swift package resolve"; exit 1; fi; \
-	else \
-	  have=$$(git -C $(LOCAL_PIN_PATH) rev-parse HEAD 2>/dev/null || echo missing); \
-	  if [ "$$have" = "$(LOCAL_PIN_SHA)" ]; then echo "  no-webui local pin at $$have"; \
-	  elif [ "$$have" = "missing" ]; then echo "  ✗ local pin checkout $(LOCAL_PIN_PATH) is missing"; exit 1; \
-	  else echo "  ✗ local checkout $$have != recorded $(LOCAL_PIN_SHA)"; exit 1; fi; \
-	fi
+	@entry=$$(grep -A6 '"identity" : "no-webui"' Package.resolved); \
+	rev=$$(printf '%s\n' "$$entry" | grep -o '[0-9a-f]\{40\}' | head -1); \
+	br=$$(printf '%s\n' "$$entry" | sed -n 's/.*"branch" : "\([^"]*\)".*/\1/p' | head -1); \
+	if [ -z "$$rev" ]; then echo "  ✗ Package.resolved records no no-webui revision — run: swift package resolve"; exit 1; fi; \
+	have=$$(git -C .build/checkouts/no-webui rev-parse HEAD 2>/dev/null || echo missing); \
+	if [ "$$have" = "$$rev" ]; then echo "  no-webui at $${br:-resolved revision} ($$rev)"; \
+	elif [ "$$have" = "missing" ]; then echo "  ✗ no no-webui checkout under .build — run: swift package resolve"; exit 1; \
+	else echo "  ✗ checkout $$have != resolved $$rev — run: swift package resolve"; exit 1; fi
 	@if [ -d ../no-webui ]; then echo "  ℹ sibling at $$(git -C ../no-webui rev-parse --short HEAD) (advisory; the pin is authoritative)"; fi
 
 # ── Clean ─────────────────────────────────────────────────

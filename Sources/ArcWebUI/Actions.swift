@@ -3234,6 +3234,27 @@ extension Controller {
 @WireGroup("settings_admin")
 extension Controller {
 
+    /// the storage row's edit control. the row carries `storage-edit-<base64url id>`
+    /// as its id, so the handler reads the connection id off `targetId` — the shape
+    /// the typed action family replaced, restored when no-webui removed the family.
+    @Wired("storage-edit", events: [.click])
+    func handleStorageEdit(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId"),
+              let cid = dec(String(tid.dropFirst("storage-edit-".count))) else { return [] }
+        await self.app.beginStorageEdit(id: cid)
+        return await self.changed()
+    }
+
+    /// the storage row's remove control; the confirmation is the row's own hint.
+    @Wired("storage-del", events: [.click])
+    func handleStorageDel(_ event: EventData) async -> [FragmentUpdate] {
+        guard let tid = event.string("targetId"),
+              let cid = dec(String(tid.dropFirst("storage-del-".count))) else { return [] }
+        await self.app.removeStorageConnection(id: cid)
+        _ = await self.app.hint("Tessera storage removed.", kind: "success")
+        return await self.changed()
+    }
+
     @Wired("storage-cancel-edit", events: [.click])
     func handleStorageCancelEdit(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.cancelStorageEdit()
@@ -3543,21 +3564,6 @@ extension Controller {
     private func wireSettings(_ router: EventRouter) {
         wireGroup_settings(router)
         wireGroup_settings_admin(router)
-        // the storage row family: one typed registration stands where the two
-        // string handlers (`storage-edit`, `storage-del`) read their row from
-        // `targetId`. the payload is decoded before this body runs, so the id is
-        // already the connection id here.
-        router.on(StorageAction.self) { action, _ in
-            switch action {
-            case .edit(let id):
-                await self.app.beginStorageEdit(id: id)
-                return await self.changed()
-            case .delete(let id):
-                await self.app.removeStorageConnection(id: id)
-                _ = await self.app.hint("Tessera storage removed.", kind: "success")
-                return await self.changed()
-            }
-        }
     }
 
     /// Kanban chip/row/board actions.

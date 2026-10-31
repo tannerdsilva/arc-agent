@@ -63,7 +63,10 @@ let package = Package(
             url: "https://github.com/apple/swift-crypto.git",
             from: "3.0.0"
         ),
-		.package(path: "../pins/no-webui"),
+        .package(
+            url: "https://github.com/tannerdsilva/no-webui.git",
+            branch: "master"
+        ),
 		.package(path: "Plugins/ArcSidebarTabs"),
 	],
 

@@ -19,9 +19,8 @@ extension ArcWebUITestRoot {
     /// migrated group drive the group's own `wireGroup_<g>(router)` into a
     /// fresh router and assert the exact handler count. Deleting a `@Wired`
     /// annotation drops exactly one group's count, so this pin turns only one
-    /// way. `wireAll` must register exactly 179: 164 generated + 1 typed action
-    /// family (`StorageAction`) + 12 `nav-\(id)` + `sidebar-plugin-toggle` +
-    /// `cat-pick`.
+    /// way. `wireAll` must register exactly 180: 166 generated + 12 `nav-\(id)` +
+    /// `sidebar-plugin-toggle` + `cat-pick`.
     @Suite("wiring invariant", .serialized)
     struct WiringInvariantTests {
 
@@ -64,7 +63,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_settings_admin(router)
-            #expect(router.handlerCount(in: .default) == 30, "settings_admin group registration drifted")
+            #expect(router.handlerCount(in: .default) == 32, "settings_admin group registration drifted")
         }
 
         @Test("every skills handler is registered after wireGroup_skills")
@@ -179,16 +178,16 @@ extension ArcWebUITestRoot {
             #expect(router.handlerCount(in: .default) == 1, "regen group registration drifted")
         }
 
-        @Test("wireAll registers exactly 179 handlers (164 generated + 1 action family + 12 nav ids + sidebar-plugin-toggle + cat-pick)")
-        func wireAllRegistersExactly179() async throws {
+        @Test("wireAll registers exactly 180 handlers (166 generated + 12 nav ids + sidebar-plugin-toggle + cat-pick)")
+        func wireAllRegistersExactly180() async throws {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             await controller.wireAll(router)
 
             let count = router.handlerCount(in: .default)
             #expect(
-                count == 179,
-                "wireAll must register exactly 179 handlers: 164 @Wired-generated + 1 typed action family + 12 nav-(id) + sidebar-plugin-toggle + cat-pick, got \(count)"
+                count == 180,
+                "wireAll must register exactly 180 handlers: 166 @Wired-generated + 12 nav-(id) + sidebar-plugin-toggle + cat-pick, got \(count)"
             )
         }
 

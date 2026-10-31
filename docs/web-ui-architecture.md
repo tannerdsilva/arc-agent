@@ -21,16 +21,17 @@ of `daemon.json` (on by default).
 
 ## dependency pin
 
-**temporary, 2026-10-28:** `.package(path: "../pins/no-webui")` — a worktree of the
-no-webui repository checked out at `67d5b6f`. the basename must stay `no-webui`:
-a path dependency's identity is its directory name, and every
-`.product(…, package: "no-webui")` keys on it. it is **not** the sibling
-`../no-webui`, which carries unrelated uncommitted work.
+`.package(url: "https://github.com/tannerdsilva/no-webui.git", branch: "master")`
+— arc tracks no-webui's `master`, and `Package.resolved` records the revision
+that resolves to (`ae911f44` when the pin moved). the identity is the repository
+name `no-webui`, which is what every `.product(…, package: "no-webui")` keys on.
 
-while the manifest is a path pin there is no revision to compare, so
-`make check-pin` holds that checkout to `LOCAL_PIN_SHA` in the `Makefile`
-instead of comparing `Package.resolved`. a revision pin replaces both, and
-`Package.resolved` then records it again.
+a branch pin moves: `swift package resolve` re-reads `master`, so the next build
+compiles whatever landed there. `make check-pin` therefore proves resolution is
+CURRENT rather than frozen — the resolved revision must equal the checkout's
+HEAD — and `swift package resolve` is the fix when it does not.
+
+this replaced the `path:` pin to `../pins/no-webui` on 2026-10-30.
 
 ## the co-development rule
 

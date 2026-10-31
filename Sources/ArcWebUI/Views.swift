@@ -4096,9 +4096,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Div(class: .emptyHint) { Text("No tessera storages configured.") }
                 } else {
                     for conn in connections {
-                        // the row's type holds opaque `some View` modifiers
-                        // (`.action`), which `buildArray` rejects — one erased
-                        // value is the documented shape for this loop.
+                        // the two button wrappers carry different modifier
+                        // types, and this function's builder is already wide;
+                        // one erased value is the documented shape here.
                         ErasedViews([Div(class: .mcRow) {
                             Span(class: .mcName) {
                                 Text("\(conn.name) ")
@@ -4115,15 +4115,15 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             }
                             Div(class: .storageRowActions) {
                                 Div {
-                                    ArcButton("Edit",
+                                    ArcButton("Edit", id: "storage-edit-\(enc(conn.id))",
                                               class: ClassName(.ghostBtn, .btnSm))
                                 }
-                                .action(StorageAction.edit(conn.id))
+                                .wire("storage-edit")
                                 Div {
-                                    ArcButton("Remove",
+                                    ArcButton("Remove", id: "storage-del-\(enc(conn.id))",
                                               class: ClassName(.dangerBtn, .btnSm))
                                 }
-                                .action(StorageAction.delete(conn.id))
+                                .wire("storage-del")
                             }
                         }])
                     }
