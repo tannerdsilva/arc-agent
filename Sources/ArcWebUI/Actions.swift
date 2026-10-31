@@ -2863,7 +2863,7 @@ extension Controller {
         if tid.hasPrefix("mcp-del-"), let name = dec(String(tid.dropFirst("mcp-del-".count))) {
             await app.requestConfirm(ConfirmRequest(
                 kind: "mcp", id: name, title: "Delete MCP server?",
-                body: "“\(name)” will be removed from ~/.arc/config.json. Its process stops and the agent loses whatever tools it exposed; nothing inside the server's own directory is touched."))
+                body: "“\(name)” will be removed from the server list. Its process stops and the agent loses whatever tools it exposed; nothing inside the server's own directory is touched."))
             return await self.changed()
         }
         return []
@@ -3157,7 +3157,7 @@ extension Controller {
         let on = event.checked == true
         await self.app.setMoaEnabled(on)
         _ = await self.app.hint(on
-            ? "Mixture of Agents enabled — reference models must be configured in ~/.arc/config.json."
+            ? "Mixture of Agents enabled — reference models must be configured in the model routing table."
             : "Mixture of Agents disabled.")
         return await self.changed()
     }

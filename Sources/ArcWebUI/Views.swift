@@ -3514,11 +3514,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             InlineCode("mcp_tool")
                             Text(" with ")
                             InlineCode("action: \"list\"")
-                            Text(" to see every server and tool. ")
-                            InlineCode("mcp_servers")
-                            Text(" in ")
-                            InlineCode("~/.arc/config.json")
-                            Text(" is the source of truth, and this panel edits exactly that block. Arguments reach the process verbatim; nothing is run through a shell.")
+                            Text(" to see every server and tool. The server list on this page is the source of truth, and this panel edits exactly that list. Arguments reach the process verbatim; nothing is run through a shell.")
                         }
                         ArcButton("Add server", id: "mcp-add", component: "mcp-add", class: "btn")
                     }
@@ -3529,11 +3525,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     Div(class: .setRow) {
                         Div(class: .setLabel) {
                             Text("Add a server")
-                            Small {
-                                Text("Written to ")
-                                InlineCode("~/.arc/config.json")
-                                Text("; the running agent is re-pointed immediately.")
-                            }
+                            Small("Saved as policy; the running agent is re-pointed immediately.")
                         }
                         ArcButton("Add server", id: "mcp-add", component: "mcp-add", class: "btn")
                     }
@@ -4048,7 +4040,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                                 }
                                             }
                                             Span(class: .ddRowSub) {
-                                                Text("Tessera from the tessera block of ~/.arc/config.json")
+                                                Text("Tessera using your saved connection")
                                             }
                                         }
                                         for conn in connections {
@@ -4137,9 +4129,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 SettingRow {
                     Text("Mixture of Agents")
                     Small {
-                        Text("Fan out reference-model advice before the main call. Reference models come from the ")
-                        InlineCode("moa")
-                        Text(" block of ~/.arc/config.json; without them this does nothing.")
+                        Text("Fan out reference-model advice before the main call. Reference models come from the model routing table; without them this does nothing.")
                     }
                 } control: {
                     ArcSwitch(id: "set-moa", on: arcConfig.moa.enabled,
@@ -4210,9 +4200,31 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         .data("component-id", "storage-conn-form")
     }
 
+    /// One line at the top of Settings naming the policy values the environment
+    /// supplied, so a control that edits the configuration file does not look
+    /// broken when the environment keeps winning.
+    ///
+    /// A conditional **inside** the settings view. It must never become a
+    /// conditional child of `appShell()`'s top-level `Div`: that shape crashes
+    /// the daemon at first render inside `AttributeContribution.decorate`
+    /// (no-webui 2.0.0, plan §8.0) while the same tree renders fine in tests.
+    /// The list is stored state, refreshed at boot and by `refreshConfig()`, so
+    /// this builder stays synchronous like the rest of the settings sections.
+    private func environmentOverrideNote() -> some WebUI.View {
+        Group {
+            if !environmentOverrides.isEmpty {
+                Div(class: ClassName(.setHint, .setWarn)) {
+                    Text("Set by the environment — change the environment to change these: \(Self.listedNames(environmentOverrides)).")
+                }
+                .margin(.bottom, .three)
+            }
+        }
+    }
+
     func settingsMain() -> some WebUI.View {
         Div(class: .mainView) {
             Div(id: "main-scroll", class: ClassName(.mainScroll, .settingsWrap)) {
+                environmentOverrideNote()
                 settingsAppearanceSection()
                 settingsPreferencesSection()
                 settingsAssistanceSection()
@@ -4483,9 +4495,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             DetailCard(extraClass: "card-stack") {
                 Heading("Auxiliary models", level: .h3, class: .cardH3)
                 Div(class: ClassName(.detailSub, .cardSub)) {
-                    Text("Auxiliary tasks (vision, compression, approval, titles, …) use a dedicated model from the ")
-                    InlineCode("auxiliary")
-                    Text(" block of ~/.arc/config.json. Empty overrides fall back to the chat's main model.")
+                    Text("Auxiliary tasks (vision, compression, approval, titles, …) use a dedicated model chosen below. Empty overrides fall back to the chat's main model.")
                 }
                 Div(class: .auxList) {
                     for task in AuxiliaryTask.allCases {
@@ -4713,8 +4723,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         Text("Flagged commands are assessed by the ")
                         InlineCode("approval")
                         Text(" auxiliary model (reference smart mode): low risk auto-approves, high risk is denied, uncertainty still prompts. Off = classic prompt for every flagged command. ")
-                        InlineCode("approvals: off")
-                        Text(" in ~/.arc/config.json always wins.")
+                        Text("Turning approvals off entirely always takes precedence over this switch.")
                     }
                 } control: {
                     ArcSwitch(id: "set-smart-approval", on: arcConfig.security.approvalMode == ApprovalMode.smart.rawValue,
@@ -4745,11 +4754,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         Small {
                             Text("Tools written as Python scripts or Swift executables, discovered from ")
                             InlineCode("~/.arc/plugins/")
-                            Text(" (arc plugin parity). Enablement is stored in the ")
-                            InlineCode("plugins.enabled")
-                            Text(" allow-list of ")
-                            InlineCode("~/.arc/config.json")
-                            Text(".")
+                            Text(" (arc plugin parity). Only the plugins enabled here are visible to the agent.")
                         }
                     }
                 }
@@ -4768,11 +4773,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         Small {
                             Text("Child processes speaking the Model Context Protocol over stdio. The agent reaches every one of their tools through the single ")
                             InlineCode("mcp_tool")
-                            Text(" bridge; this panel owns the ")
-                            InlineCode("mcp_servers")
-                            Text(" block of ")
-                            InlineCode("~/.arc/config.json")
-                            Text(".")
+                            Text(" bridge; the server list below is the whole of what this panel owns.")
                         }
                     }
                 }

@@ -1034,6 +1034,14 @@ actor AppState {
     /// Set when `settings.json` exists but cannot be decoded. Surfaced as a
     /// toast at boot; the store refuses writes until the file is fixed.
     var settingsLoadFailure: ConfigError? = nil
+    /// The policy values this process did **not** take from the configuration
+    /// file, in the words the settings page uses for them.
+    ///
+    /// Recomputed at boot and on every ``refreshConfig()``; empty when the file
+    /// is the whole story. The settings page renders one line from this, because
+    /// a control that writes the file cannot explain itself when the environment
+    /// keeps winning.
+    private(set) var environmentOverrides: [String] = []
     /// Per-turn tool guardrails (rebuilt from config at turn start).
     var guardrails = ToolGuardrails()
     /// Which auxiliary task is currently being edited in Preferences.
@@ -1536,6 +1544,16 @@ actor AppState {
             Self.persist(self.settings)
         }
         self.selectedWorkspace = self.settings.activeWorkspace
+        // Settings backbone, slice 7: say which policy the environment is
+        // supplying. Computed here (after the legacy lifts, so the declaration
+        // compared against is the one this process booted with) and refreshed by
+        // `refreshConfig()` on every later re-read.
+        if let store = configurationStore {
+            let snapshot = await store.snapshot()
+            self.environmentOverrides = Self.environmentOverrideNames(
+                declared: snapshot.declared,
+                resolved: snapshot.resolved)
+        }
         for w in pluginWarnings {
             crumb(w)
         }
@@ -1671,6 +1689,74 @@ actor AppState {
         }
     }
 
+    /// The policy blocks the environment can reach, declared against resolved.
+    ///
+    /// A block is listed when the value this process runs with differs from the
+    /// one the file declares — exactly the set a settings control cannot change,
+    /// because the environment would win again on the next resolve. Only the
+    /// five blocks an environment variable actually reaches are compared
+    /// (`ARC_MODEL`, `ARC_PROVIDER`, `ARC_BASE_URL`, `ARC_APPROVAL_MODE` /
+    /// `ARC_YOLO`, the `ARC_TESSERA_*` family); a wider comparison would report
+    /// differences the environment had nothing to do with.
+    ///
+    /// The tessera comparison deliberately ignores the client private key: a key
+    /// the UI saved is blanked in `config.json` and round-trips through `.env`,
+    /// so counting it would mark every saved connection as environment-set on
+    /// every boot. The relay fields are what an environment override changes.
+    ///
+    /// Approval modes are compared after parsing, so `""` and `"manual"` are one
+    /// policy (both run as manual) and an unknown spelling that resolves to
+    /// manual is not reported as an override.
+    nonisolated static func environmentOverrideNames(
+        declared: ArcConfig,
+        resolved: ArcConfig
+    ) -> [String] {
+        var names: [String] = []
+        if declared.model.defaultModel != resolved.model.defaultModel {
+            names.append("the main model")
+        }
+        if declared.model.provider != resolved.model.provider {
+            names.append("the model provider")
+        }
+        if declared.model.baseURL != resolved.model.baseURL {
+            names.append("the model base URL")
+        }
+        if ApprovalMode(configValue: declared.security.approvalMode)
+            != ApprovalMode(configValue: resolved.security.approvalMode) {
+            names.append("the approval mode")
+        }
+        if !sameTesseraConnection(declared.tessera, resolved.tessera) {
+            names.append("the Tessera connection")
+        }
+        return names
+    }
+
+    /// Whether two declarations name the same Tessera relay, ignoring the client
+    /// key (see ``environmentOverrideNames(declared:resolved:)``).
+    nonisolated static func sameTesseraConnection(
+        _ a: TesseraConfig?,
+        _ b: TesseraConfig?
+    ) -> Bool {
+        switch (a, b) {
+        case (nil, nil):
+            return true
+        case let (a?, b?):
+            return a.serverIP == b.serverIP
+                && a.serverPort == b.serverPort
+                && a.serverPublicKey == b.serverPublicKey
+                && a.application == b.application
+        default:
+            return false
+        }
+    }
+
+    /// Names in a sentence: `a`, `a and b`, `a, b and c`.
+    nonisolated static func listedNames(_ names: [String]) -> String {
+        guard let last = names.last else { return "" }
+        guard names.count > 1 else { return last }
+        return names.dropLast().joined(separator: ", ") + " and " + last
+    }
+
     /// Re-read the file so an external edit (`arc config`, a hand edit) applies
     /// to the next turn without restarting the web UI. A render fixture has no
     /// file to re-read.
@@ -1678,6 +1764,9 @@ actor AppState {
         guard let configurationStore else { return }
         let snapshot = await configurationStore.reload()
         arcConfig = snapshot.resolved
+        environmentOverrides = Self.environmentOverrideNames(
+            declared: snapshot.declared,
+            resolved: snapshot.resolved)
     }
 
     /// The one approval policy this process runs with.
