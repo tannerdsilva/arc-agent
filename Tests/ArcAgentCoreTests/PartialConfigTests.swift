@@ -69,7 +69,7 @@ extension ArcCoreTestRoot {
             #expect(config.delegation.maxConcurrentChildren == 12)
             #expect(config.delegation.maxSpawnDepth == 3)
             #expect(config.memory.enabled == true)
-            #expect(config.security.yoloMode == false)
+            #expect(config.security.approvalMode == "manual")
         }
 
         @Test("partial section within config decodes with per-field defaults")
@@ -110,7 +110,7 @@ extension ArcCoreTestRoot {
             let original = ArcConfig(
                 model: ModelConfig(defaultModel: "gpt-5", provider: "anthropic", baseURL: "https://x.example/v1"),
                 agent: AgentConfig(maxIterations: 50, persistSessions: false, loadSkills: true),
-                security: SecurityConfig(approvalMode: "off", yoloMode: true)
+                security: SecurityConfig(approvalMode: "off")
             )
             try saveConfig(original, to: url)
 

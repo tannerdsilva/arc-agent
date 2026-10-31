@@ -273,16 +273,20 @@ struct AppSettings: Codable, Equatable {
     var activeStorage: String = "config"
     /// Mixture-of-Agents advisory passes, when reference models are configured.
     var moaEnabled: Bool = false
-    /// Smart approval: when on, flagged commands are assessed by the
-    /// `approval` auxiliary model (reference `approvals.mode: smart` default):
-    /// low risk auto-approves, high risk is denied, uncertainty prompts.
-    /// When off, the classic manual gate prompts for every flagged command.
-    var smartApproval: Bool = true
     /// Smart pick-a-path: when on, a clarify request that times out after
     /// the 120 s pick-a-path panel is resolved by the `clarify` auxiliary
     /// model choosing the best offered answer, instead of the unguided
     /// "use your best judgement" notice to the main model.
     var smartPickAPath: Bool = true
+    /// **Legacy, decode-only.** The retired "smart approval" toggle.
+    ///
+    /// Approval is policy, not view state: it lives in
+    /// `~/.arc/config.json` as `security.approvalMode`. This key is read once
+    /// at boot (`AppState.liftLegacySmartApproval`) and cleared, so it is nil
+    /// for every settings document written since — and the synthesised
+    /// encoder omits a nil optional. Keep the declaration so an old
+    /// `settings.json` can still be read and lifted; nothing may set it.
+    var smartApproval: Bool?
 
     var recentFiles: [String] = []
 
@@ -475,7 +479,8 @@ struct AppSettings: Codable, Equatable {
         sidebarTabs = try c.decodeIfPresent([String].self, forKey: .sidebarTabs) ?? AppSettings.defaultSidebarTabs
         hiddenSidebarTabs = try c.decodeIfPresent([String].self, forKey: .hiddenSidebarTabs) ?? []
         yoloSessions = try c.decodeIfPresent([String].self, forKey: .yoloSessions) ?? []
-        smartApproval = try c.decodeIfPresent(Bool.self, forKey: .smartApproval) ?? true
+        // legacy, decode-only: lifted into `security.approvalMode` once at boot.
+        smartApproval = try c.decodeIfPresent(Bool.self, forKey: .smartApproval)
         smartPickAPath = try c.decodeIfPresent(Bool.self, forKey: .smartPickAPath) ?? true
         // Rebuild the canonical order from the stored list (relative order
         // preserved; keys missing because they are NEW defaults are
@@ -1429,6 +1434,21 @@ actor AppState {
         if Self.migrateWorkspaceDefaults(into: &self.settings) {
             Self.persist(self.settings)
         }
+        // Settings backbone, slice 1: approval is policy. The retired
+        // `smartApproval` toggle is lifted once into `security.approvalMode`
+        // (through the store; a render fixture owns none) and then cleared, so
+        // there is one approval setting from the first turn on.
+        let approvalLift = await Self.liftLegacySmartApproval(
+            self.settings,
+            configStore: self.configurationStore
+        )
+        self.settings = approvalLift.settings
+        if let lifted = approvalLift.declared {
+            self.arcConfig = lifted
+        }
+        if approvalLift.clearedLegacyKey {
+            Self.persist(self.settings)
+        }
         self.selectedWorkspace = self.settings.activeWorkspace
         for w in pluginWarnings {
             crumb(w)
@@ -1574,6 +1594,24 @@ actor AppState {
         arcConfig = snapshot.resolved
     }
 
+    /// The one approval policy this process runs with.
+    ///
+    /// `security.approvalMode` (manual | smart | off) resolved through the
+    /// configuration store, so `ARC_APPROVAL_MODE` / `ARC_YOLO` apply to the
+    /// web UI exactly as they do to the CLI and the daemon. A render fixture
+    /// owns no store: its in-memory declaration is the whole story.
+    ///
+    /// Nothing else may decide the mode — there is no second approval setting
+    /// (the old `settings.smartApproval` toggle is migrated once at boot).
+    func resolvedApprovalMode() async -> ApprovalMode {
+        var raw = arcConfig.security.approvalMode
+        if let configurationStore {
+            let snapshot = await configurationStore.resolved()
+            raw = snapshot.security.approvalMode
+        }
+        return ApprovalMode(configValue: raw)
+    }
+
     /// arc parity: migrate the legacy default workspace (home folder) to
     /// `~/workspace`. Returns true when the persisted "main" entry was
     /// repointed (or restored to the new default path).
@@ -1614,6 +1652,67 @@ actor AppState {
             try? saveConfig(arc)
         }
         return true
+    }
+
+    /// What one pass of ``AppState/liftLegacySmartApproval(_:configStore:)``
+    /// changed.
+    struct LegacyApprovalLift: Equatable {
+        /// The settings document after the pass (the legacy key cleared when
+        /// it was present).
+        var settings: AppSettings
+        /// The declaration now on disk, when the config file was written.
+        var declared: ArcConfig? = nil
+        /// The legacy key was present and has been cleared: persist `settings`.
+        var clearedLegacyKey = false
+    }
+
+    /// One-shot lift of the retired `settings.smartApproval` toggle into
+    /// `security.approvalMode` — the one approval policy.
+    ///
+    /// The decision table (settings backbone, slice 1):
+    /// - no legacy key → nothing to do;
+    /// - legacy `true` while the file still says the default `manual` → the
+    ///   mode becomes `smart`, written through the configuration store;
+    /// - legacy `false` → the file's `manual` already means exactly that, and
+    ///   the store refuses a no-op write, so nothing is written;
+    /// - any explicit mode (`smart` or `off`) → it wins; a leftover boolean is
+    ///   not a more recent decision than a named policy, so it is discarded.
+    ///
+    /// The legacy key is cleared in every case except a failed config write
+    /// (a read-only `config.json` keeps the intent for the next boot).
+    /// Clearing it is what makes the lift idempotent: a second pass finds
+    /// nothing and writes nothing.
+    ///
+    /// A render fixture owns no store, so it neither reads nor writes a file.
+    ///
+    /// Takes the document by value (an actor-isolated property cannot be
+    /// passed `inout` to an `async` call) and returns the cleared copy.
+    @discardableResult
+    static func liftLegacySmartApproval(
+        _ settings: AppSettings,
+        configStore: ConfigurationStore?
+    ) async -> LegacyApprovalLift {
+        guard let configStore, let legacy = settings.smartApproval else {
+            return LegacyApprovalLift(settings: settings)
+        }
+        let declared = await configStore.declared()
+        if legacy, declared.security.approvalMode == SecurityConfig().approvalMode {
+            guard let snapshot = try? await configStore.mutate({
+                $0.security.approvalMode = ApprovalMode.smart.rawValue
+            }) else {
+                // config.json is unreadable (the store refuses writes): keep
+                // the legacy key so this can be retried once it is fixed.
+                return LegacyApprovalLift(settings: settings)
+            }
+            var cleared = settings
+            cleared.smartApproval = nil
+            return LegacyApprovalLift(settings: cleared, declared: snapshot.declared,
+                                      clearedLegacyKey: true)
+        }
+        // an explicit mode wins, or `false` already means manual: drop the key.
+        var cleared = settings
+        cleared.smartApproval = nil
+        return LegacyApprovalLift(settings: cleared, clearedLegacyKey: true)
     }
 
     /// Seed the default kanban columns on first run (no stored board yet).
@@ -1779,20 +1878,15 @@ actor AppState {
             httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
         }
 
-        // Approval gate (reference smart approval): the effective mode follows
-        // ~/.arc/config.json (off | manual | smart) combined with the webui
-        // "smart approval" toggle — config `off` always wins (YOLO), the
-        // toggle picks smart (aux-LLM guardian for flagged commands) vs
-        // manual (always prompt). Rebuilt whenever the manager is nil so
-        // flipping the toggle takes effect on the next turn without a
-        // storage rebuild. In smart mode the `approval` auxiliary model
-        // classifies risk when configured; the built-in regex detector
+        // Approval gate: one policy, `security.approvalMode` (manual | smart |
+        // off). The retired `settings.smartApproval` toggle is migrated once
+        // at boot and never consulted again. Rebuilt whenever the manager is
+        // nil so flipping the Settings switch takes effect on the next turn
+        // without a storage rebuild. In smart mode the `approval` auxiliary
+        // model classifies risk when configured; the built-in regex detector
         // stands in otherwise.
         if approvalManager == nil {
-            let mode = SmartGate.effectiveApprovalMode(
-                configMode: loadConfig().security.approvalMode,
-                smartApproval: settings.smartApproval
-            )
+            let mode = await resolvedApprovalMode()
             let manager = ApprovalManager(
                 mode: mode,
                 alwaysAllowedCommands: loadConfig().security.alwaysAllowedCommands
@@ -1989,8 +2083,8 @@ actor AppState {
         let disabled = pname.flatMap { settings.profileSkills[$0] } ?? settings.disabledSkills
         let allowedSkills = skills.filter { !disabled.contains($0.name) }
 
-        // approval mode from config.
-        let approvalMode = ApprovalMode(rawValue: arcConfig.security.approvalMode) ?? .manual
+        // approval mode: the one policy, resolved (config + environment).
+        let approvalMode = await resolvedApprovalMode()
 
         // background review settings from config.
         let backgroundReview = BackgroundReview.Settings(

@@ -279,7 +279,7 @@ struct Chat: AsyncParsableCommand {
         } ?? discoveredSkills
 
         let approvalMode: ApprovalMode = yolo ? .off
-            : ApprovalMode(rawValue: arcConfig.security.approvalMode) ?? .manual
+            : ApprovalMode(configValue: arcConfig.security.approvalMode)
 
         let agentConfig = ArcAgent.Configuration(
             model: resolvedModel,

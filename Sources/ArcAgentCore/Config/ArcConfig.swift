@@ -691,10 +691,11 @@ public struct MemoryConfig: Codable, Sendable, Equatable {
 
 /// Security/approval configuration.
 public struct SecurityConfig: Codable, Sendable, Equatable {
-    /// The approval mode.
+    /// The approval mode: `manual` | `smart` | `off` (see ``ApprovalMode``).
+    ///
+    /// This is the **only** approval setting. `off` is the YOLO policy — no
+    /// prompts at all — and is frozen at process start.
     public var approvalMode: String
-    /// Whether YOLO mode is enabled (frozen at start).
-    public var yoloMode: Bool
     /// Commands pre-exempted from approval ("Always allow" choices).
     /// Matched by exact, trimmed command string.
     public var alwaysAllowedCommands: [String]
@@ -702,19 +703,21 @@ public struct SecurityConfig: Codable, Sendable, Equatable {
     /// before dispatch.
     public var toolPolicy: ToolPolicyConfig
 
-    public init(approvalMode: String = "manual", yoloMode: Bool = false,
+    public init(approvalMode: String = "manual",
                 alwaysAllowedCommands: [String] = [], toolPolicy: ToolPolicyConfig = ToolPolicyConfig()) {
         self.approvalMode = approvalMode
-        self.yoloMode = yoloMode
         self.alwaysAllowedCommands = alwaysAllowedCommands
         self.toolPolicy = toolPolicy
     }
 
     /// Decode each field independently, defaulting any that are absent.
+    ///
+    /// The retired `yoloMode` boolean is ignored: `JSONDecoder` skips unknown
+    /// keys, so an old config still decodes and simply carries no effect —
+    /// `ARC_YOLO` is now the environment spelling of `approvalMode = "off"`.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.approvalMode = try container.decodeIfPresent(String.self, forKey: .approvalMode) ?? SecurityConfig().approvalMode
-        self.yoloMode = try container.decodeIfPresent(Bool.self, forKey: .yoloMode) ?? SecurityConfig().yoloMode
         self.alwaysAllowedCommands = try container.decodeIfPresent([String].self, forKey: .alwaysAllowedCommands) ?? SecurityConfig().alwaysAllowedCommands
         self.toolPolicy = try container.decodeIfPresent(ToolPolicyConfig.self, forKey: .toolPolicy) ?? ToolPolicyConfig()
     }
@@ -832,11 +835,17 @@ func applyEnvironmentOverrides(
     if let baseURL = environment["ARC_BASE_URL"] {
         config.model.baseURL = baseURL
     }
+    // Approval policy. One key, two spellings: `ARC_APPROVAL_MODE` names a
+    // mode, `ARC_YOLO` is the legacy boolean whose only meaning was "off".
+    // Precedence: the variable that NAMES a mode wins — an explicit
+    // `ARC_APPROVAL_MODE=manual` is a more specific instruction than a stale
+    // `ARC_YOLO` in a shell profile, and must not be overridden by it.
     if let approvalMode = environment["ARC_APPROVAL_MODE"] {
         config.security.approvalMode = approvalMode
-    }
-    if environment["ARC_YOLO"] != nil {
-        config.security.yoloMode = true
+    } else if environment["ARC_YOLO"] != nil {
+        // presence, not truthiness — `ARC_YOLO=0` still exported means the
+        // operator opted in, exactly as the old boolean read it.
+        config.security.approvalMode = ApprovalMode.off.rawValue
     }
 
     // Tessera storage overrides. Any ARC_TESSERA_* variable activates the

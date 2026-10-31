@@ -66,6 +66,11 @@ public actor SessionRegistry {
         /// Max turn wall-clock seconds for hosted sessions (nil/0/negative =
         /// unlimited — the default).
         public let maxTurnDuration: Int?
+        /// The process's approval policy (`security.approvalMode`). Session
+        /// agents are built with this mode; before settings-backbone slice 1
+        /// every hosted agent was hardcoded to `.manual`, so `smart` and `off`
+        /// never reached the daemon.
+        public let approvalMode: ApprovalMode
         /// Mixture-of-Agents configuration (reference `moa` config block).
         public let moa: MoAConfig
         /// Verify work at turn end (reference `verify_on_stop`).
@@ -110,6 +115,7 @@ public actor SessionRegistry {
             maxIterations: Int? = nil,
             toolLoopCap: Limit? = nil,
             maxTurnDuration: Int? = nil,
+            approvalMode: ApprovalMode = .manual,
             mcpServers: [String: MCPServerConfig] = [:],
             contextDefaults: ContextRecipe? = nil,
             verifyOnStop: Bool = false,
@@ -134,6 +140,7 @@ public actor SessionRegistry {
             self.maxIterations = maxIterations
             self.toolLoopCap = toolLoopCap
             self.maxTurnDuration = maxTurnDuration
+            self.approvalMode = approvalMode
             self.mcpServers = mcpServers
             self.contextDefaults = contextDefaults
             self.storage = storage

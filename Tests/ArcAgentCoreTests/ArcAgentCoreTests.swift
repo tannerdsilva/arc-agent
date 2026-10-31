@@ -825,7 +825,6 @@ extension ArcCoreTestRoot {
             #expect(config.agent.maxIterations == 25)
             #expect(config.agent.persistSessions == true)
             #expect(config.security.approvalMode == "manual")
-            #expect(config.security.yoloMode == false)
             #expect(config.memory.enabled == true)
         }
 
@@ -834,7 +833,7 @@ extension ArcCoreTestRoot {
             let original = ArcConfig(
                 model: ModelConfig(defaultModel: "gpt-5", provider: "anthropic"),
                 agent: AgentConfig(maxIterations: 50, persistSessions: false),
-                security: SecurityConfig(approvalMode: "off", yoloMode: true)
+                security: SecurityConfig(approvalMode: "off")
             )
             let data = try JSONEncoder().encode(original)
             let decoded = try JSONDecoder().decode(ArcConfig.self, from: data)
@@ -843,7 +842,6 @@ extension ArcCoreTestRoot {
             #expect(decoded.agent.maxIterations == 50)
             #expect(decoded.agent.persistSessions == false)
             #expect(decoded.security.approvalMode == "off")
-            #expect(decoded.security.yoloMode == true)
         }
 
         @Test("config save and load round-trip")

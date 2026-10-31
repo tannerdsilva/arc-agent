@@ -4,32 +4,20 @@ import Foundation
 /// agent harness.
 ///
 /// reference decides smart behaviors from configuration and a gate (the
-/// auxiliary-LLM "guardian"). arc-agent mirrors that with two toggles:
+/// auxiliary-LLM "guardian"). arc-agent mirrors that with one approval policy
+/// plus one independent toggle:
 ///
-/// - **Smart approval** (`settings.smartApproval`): when on, flagged
-///   dangerous commands are assessed by the `approval` auxiliary model
-///   (auto-approve low risk, deny high risk, prompt when uncertain) —
-///   the exact semantics of reference `approvals.mode: smart`
-///   (default). When off, the classic manual gate prompts for every
-///   flagged command.
+/// - **Approval mode** (`security.approvalMode` in `~/.arc/config.json`):
+///   `manual` prompts for every flagged command, `smart` has the `approval`
+///   auxiliary model assess flagged commands (auto-approve low risk, deny high
+///   risk, prompt when uncertain — the exact semantics of reference
+///   `approvals.mode: smart`), and `off` approves them all (YOLO). This is the
+///   single approval setting; the web UI's switch is a view of it.
 /// - **Smart pick-a-path** (`settings.smartPickAPath`): when on, a clarify
 ///   request that times out (the 120 s pick-a-path panel) is resolved by
 ///   the auxiliary model choosing among the offered answers instead of
 ///   the turn proceeding on the main model's unguided judgement.
 public enum SmartGate {
-
-    /// Resolve the effective ``ApprovalMode`` from the persisted security
-    /// config plus the webui "smart approval" toggle.
-    ///
-    /// - `configMode == "off"` always wins (YOLO semantics: no approval
-    ///   prompts at all, frozen at process start).
-    /// - Otherwise the toggle picks smart (aux-LLM guardian) vs manual
-    ///   (always prompt). This mirrors the reference client: `approvals.mode: smart`
-    ///   is the default runtime choice, and turning it off means manual.
-    public static func effectiveApprovalMode(configMode: String, smartApproval: Bool) -> ApprovalMode {
-        if configMode == "off" { return .off }
-        return smartApproval ? .smart : .manual
-    }
 
     /// Match an auxiliary model's clarify response to one of the offered
     /// pick-a-path choices.

@@ -73,6 +73,11 @@ public enum ApprovalResult: Sendable {
 }
 
 /// The approval mode for the security system.
+///
+/// This is the value of `security.approvalMode` in `config.json` — the one
+/// approval policy. There is no second toggle: the web UI's "smart approval"
+/// switch is a view of this value, and the daemon reads it from the same
+/// config.
 public enum ApprovalMode: String, Sendable, Codable {
     /// Every dangerous command prompts the user.
     case manual
@@ -81,6 +86,15 @@ public enum ApprovalMode: String, Sendable, Codable {
     case smart
     /// All commands are auto-approved (frozen at process start).
     case off
+
+    /// Parse a `security.approvalMode` value.
+    ///
+    /// Anything unrecognised resolves to ``manual``: an unknown mode must
+    /// never silently disable approvals. This is the only place the fallback
+    /// lives, so every surface (CLI, daemon, web UI) fails the same way.
+    public init(configValue: String) {
+        self = ApprovalMode(rawValue: configValue) ?? .manual
+    }
 }
 
 /// A pending approval request handed to an injected ``ApprovalPresenter``.

@@ -3055,7 +3055,10 @@ extension Controller {
 
     @Wired("set-smart-approval", events: [.change])
     func handleSetSmartApproval(_ event: EventData) async -> [FragmentUpdate] {
-        await self.app.setSmartApproval(event.checked == true)
+        // the switch is a view of `security.approvalMode`: on = smart, off =
+        // manual. `off` (YOLO) renders as off too; flipping it on is an
+        // explicit request for the smart gate.
+        await self.app.setApprovalMode(event.checked == true ? .smart : .manual)
         return await self.changed()
     }
 

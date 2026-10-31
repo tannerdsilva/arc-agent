@@ -407,13 +407,15 @@ extension AppState {
         saveSettings()
     }
 
-    /// Smart approval toggle. On: flagged commands go through the `approval`
-    /// auxiliary guardian (reference smart mode). Off: classic manual gate.
-    /// The manager is rebuilt so the change applies to the next turn.
-    func setSmartApproval(_ on: Bool) async {
-        guard settings.smartApproval != on else { return }
-        settings.smartApproval = on
-        saveSettings()
+    /// Settings → Assistance → "Smart approval". The switch is a view of the
+    /// one approval policy: on writes `security.approvalMode = "smart"`, off
+    /// writes `"manual"`. The write goes through the configuration store (the
+    /// only write path), and the manager is rebuilt so the change applies to
+    /// the next turn.
+    func setApprovalMode(_ mode: ApprovalMode) async {
+        guard await resolvedApprovalMode() != mode else { return }
+        guard await updateConfig({ $0.security.approvalMode = mode.rawValue }) else { return }
+        // rebuild: `ensureRuntime` constructs the manager only when it is nil.
         approvalManager = nil
         await ensureRuntime()
     }

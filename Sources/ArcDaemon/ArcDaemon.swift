@@ -105,6 +105,9 @@ public enum ArcDaemon {
             maxIterations: arc.effectiveMaxTurns(),
             toolLoopCap: arc.toolCallLimit(),
             maxTurnDuration: arc.effectiveMaxTurnDuration() ?? 0,
+            // The process's approval policy, resolved through config + env
+            // (`ARC_YOLO` → off). Every hosted session agent gets this mode.
+            approvalMode: ApprovalMode(configValue: arc.security.approvalMode),
             mcpServers: arc.mcpServers,
             contextDefaults: WebUIContextDefaults.loadFromDisk() ?? arc.contextDefaults,
             storage: storage,

@@ -210,7 +210,7 @@ public actor SessionAgent: Service {
                 toolLoopCap: agentConfig.toolLoopCap,
                 maxTurnDuration: agentConfig.maxTurnDuration ?? 0,
                 persistSessions: agentConfig.tessera != nil ? agentConfig.persistSessions : false,
-                approvalMode: .manual,
+                approvalMode: agentConfig.approvalMode,
                 // Session agents are long-lived, but seed the persisted
                 // "Always allow" list so allowlist entries span restarts.
                 alwaysAllowedCommands: loadConfig().security.alwaysAllowedCommands,

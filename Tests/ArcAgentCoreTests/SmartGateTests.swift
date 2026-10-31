@@ -3,33 +3,11 @@ import Testing
 @testable import ArcAgentCore
 
 extension ArcCoreTestRoot {
-    /// Smart-gate settings (arc parity): the "smart approval" toggle drives
-    /// the effective approval mode, and the "smart pick-a-path" toggle drives
+    /// Smart-gate settings (arc parity): the approval mode is policy
+    /// (`security.approvalMode`), and the "smart pick-a-path" toggle drives
     /// the timeout resolution of clarify requests.
     @Suite("Smart gate settings", .serialized)
     struct SmartGateTests {
-
-        // MARK: Effective approval mode
-
-        @Test("config off always wins regardless of the smart toggle")
-        func offModeWins() {
-            #expect(SmartGate.effectiveApprovalMode(configMode: "off", smartApproval: true) == .off)
-            #expect(SmartGate.effectiveApprovalMode(configMode: "off", smartApproval: false) == .off)
-        }
-
-        @Test("toggle on resolves to smart, off resolves to manual")
-        func toggleMapsToModes() {
-            #expect(SmartGate.effectiveApprovalMode(configMode: "manual", smartApproval: true) == .smart)
-            #expect(SmartGate.effectiveApprovalMode(configMode: "smart", smartApproval: true) == .smart)
-            #expect(SmartGate.effectiveApprovalMode(configMode: "manual", smartApproval: false) == .manual)
-            #expect(SmartGate.effectiveApprovalMode(configMode: "smart", smartApproval: false) == .manual)
-        }
-
-        @Test("unknown config mode behaves like manual before the toggle")
-        func unknownConfigMode() {
-            #expect(SmartGate.effectiveApprovalMode(configMode: "bogus", smartApproval: false) == .manual)
-            #expect(SmartGate.effectiveApprovalMode(configMode: "bogus", smartApproval: true) == .smart)
-        }
 
         // MARK: Clarify choice matching
 

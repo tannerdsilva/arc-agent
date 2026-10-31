@@ -4715,7 +4715,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         Text(" in ~/.arc/config.json always wins.")
                     }
                 } control: {
-                    ArcSwitch(id: "set-smart-approval", on: settings.smartApproval,
+                    ArcSwitch(id: "set-smart-approval", on: arcConfig.security.approvalMode == ApprovalMode.smart.rawValue,
                               component: "set-smart-approval", event: "change")
                 }
                 SettingRow {
