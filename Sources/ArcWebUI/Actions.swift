@@ -1013,7 +1013,22 @@ extension AppState {
                     await persistMessage(message, sessionID: sessionID, store: store, healWith: history)
                 }
             }
-            finalError = "\(error)"
+            // a stopped turn is the outcome the user asked for, not a failure:
+            // whatever the cancelled transport threw, the interruption branch
+            // below writes the transcript notice.
+            if activeTurns[sessionID]?.stopped != true {
+                finalError = "\(error)"
+            }
+        }
+        // A cancelled stream can end without a terminal event; a tool round
+        // that already executed is real work and must land in the transcript
+        // before the turn is finalized. On the normal path the round was
+        // already taken by the event above, so this is a no-op.
+        for message in takeToolRoundMessages() {
+            history.append(message)
+            if let store {
+                await persistMessage(message, sessionID: sessionID, store: store, healWith: history)
+            }
         }
         await agent.shutdownHTTPClient()
         turnAgents[sessionID] = nil
@@ -1085,14 +1100,15 @@ extension AppState {
     }
 
     /// Called by the red stop button: the live turn is flagged at once (the UI's
-    /// own guard) and the turn's agent is asked to interrupt. The core honours
-    /// the interrupt at its next iteration boundary — an in-flight call finishes
-    /// first, exactly the semantics ``ArcAgent/interruptTurn()`` documents.
+    /// own guard) and its agent cancels the stream's producer, which cancels the
+    /// in-flight HTTP read instead of waiting for the next iteration boundary.
+    /// The cooperative flag remains as a fallback for a stop that lands before
+    /// the producer is attached.
     /// Scoped to the owning session so stopping one chat never affects another's.
     func requestStopTurn(sessionID: String) async {
         activeTurns[sessionID]?.stopped = true
         // the turn's own agent, minted for this session by `runTurn` (A7).
-        await turnAgents[sessionID]?.interruptTurn()
+        await turnAgents[sessionID]?.cancelTurn()
         // Resolve any pending approval so a waiting turn can finish promptly.
         if let pa = pendingApproval, pa.sessionID == sessionID {
             pendingApproval = nil

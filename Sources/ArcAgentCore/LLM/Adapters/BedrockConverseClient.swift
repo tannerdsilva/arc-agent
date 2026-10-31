@@ -71,7 +71,7 @@ public struct BedrockConverseClient: LLMClient {
             return AsyncThrowingStream { $0.finish(throwing: error) }
         }
         return AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     let url = try self.endpoint(stream: true)
                     let signed = self.signer.signedHeaders(method: "POST", url: url, payload: body)
@@ -89,6 +89,10 @@ public struct BedrockConverseClient: LLMClient {
                     continuation.finish(throwing: error)
                 }
             }
+            // a consumer that stops iterating (a cancelled turn, a closed page)
+            // must cancel the work, not leave the HTTP request running to
+            // completion in the background.
+            continuation.onTermination = { @Sendable _ in task.cancel() }
         }
     }
 

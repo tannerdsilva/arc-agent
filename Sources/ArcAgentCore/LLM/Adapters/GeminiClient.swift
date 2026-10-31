@@ -53,7 +53,7 @@ public struct GeminiClient: LLMClient, @unchecked Sendable {
             return AsyncThrowingStream { $0.finish(throwing: error) }
         }
         return AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     var headers = Self.headers(apiKey: self.apiKey)
                     headers["Accept"] = "text/event-stream"
@@ -68,6 +68,10 @@ public struct GeminiClient: LLMClient, @unchecked Sendable {
                     continuation.finish(throwing: error)
                 }
             }
+            // a consumer that stops iterating (a cancelled turn, a closed page)
+            // must cancel the work, not leave the HTTP request running to
+            // completion in the background.
+            continuation.onTermination = { @Sendable _ in task.cancel() }
         }
     }
 

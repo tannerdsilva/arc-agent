@@ -235,7 +235,7 @@ public struct ACPChatAdapter: LLMClient {
         // Read-only box: the tools payload is consumed by exactly one task.
         let toolsBox = NonSendableBox(tools ?? [])
         return AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     let response = try await complete(
                         messages: messages,
@@ -250,6 +250,10 @@ public struct ACPChatAdapter: LLMClient {
                     continuation.finish(throwing: error)
                 }
             }
+            // a consumer that stops iterating (a cancelled turn, a closed page)
+            // must cancel the work, not leave the HTTP request running to
+            // completion in the background.
+            continuation.onTermination = { @Sendable _ in task.cancel() }
         }
     }
 

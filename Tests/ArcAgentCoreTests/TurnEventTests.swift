@@ -80,6 +80,48 @@ final class EventScriptClient: LLMClient {
     }
 }
 
+/// A streaming client that stays live long enough to observe cancellation.
+///
+/// One tick every 25 ms for 200 ticks (~5 s). Without a cancellation path the
+/// turn runs to the end of that script, which is exactly the "stop only at the
+/// next boundary" behaviour the cancel test pins.
+final class SlowStreamingClient: LLMClient {
+    private let produced = Mutex(0)
+    private let exited = Mutex(false)
+
+    var producedCount: Int { produced.withLock { $0 } }
+    var producerExited: Bool { exited.withLock { $0 } }
+
+    func complete(messages: [Message], tools: [[String: Any]]?) async throws -> LLMResponse {
+        throw LLMError.apiError(statusCode: 500, message: "scripted client is streaming-only")
+    }
+
+    func stream(messages: [Message], tools: [[String: Any]]?) -> AsyncThrowingStream<LLMDelta, Error> {
+        stream(messages: messages, tools: tools, reasoningEffort: nil)
+    }
+
+    func stream(
+        messages: [Message],
+        tools: [[String: Any]]?,
+        reasoningEffort: String?
+    ) -> AsyncThrowingStream<LLMDelta, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                defer { exited.withLock { $0 = true } }
+                for i in 0..<200 {
+                    if Task.isCancelled { continuation.finish(); return }
+                    produced.withLock { $0 += 1 }
+                    continuation.yield(LLMDelta(content: "tick\(i) "))
+                    try? await Task.sleep(for: .milliseconds(25))
+                }
+                continuation.yield(LLMDelta(content: nil, finishReason: "stop"))
+                continuation.finish()
+            }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+        }
+    }
+}
+
 // =========================================================================
 // MARK: - Turn event surface
 
@@ -194,6 +236,62 @@ extension ArcCoreTestRoot {
             let agent2 = await makeAgent(registry: registry, httpClient: httpClient, client: client)
             let projected = try await stringStream(agent2)
             #expect(projected == "Hello, world")
+        }
+
+        @Test("cancelTurn ends a live stream immediately, not at the next iteration")
+        func cancelStopsLiveStreamPromptly() async throws {
+            let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+            defer { _ = httpClient.shutdown() }
+            let client = SlowStreamingClient()
+            let registry = try ArcAgentCore.testRegistry()
+            let agent = await makeAgent(registry: registry, httpClient: httpClient, client: client)
+
+            let stream = agent.streamTurn(message: "go")
+            let collector = Task { () -> [AgentTurnEvent] in
+                var events: [AgentTurnEvent] = []
+                do {
+                    for try await event in stream { events.append(event) }
+                } catch {}
+                return events
+            }
+            // Wait until the model stream is actually live.
+            var waited = 0
+            while client.producedCount == 0 && waited < 300 {
+                try await Task.sleep(for: .milliseconds(10))
+                waited += 1
+            }
+            #expect(client.producedCount > 0, "the scripted stream never started")
+
+            let cancelAt = ContinuousClock.now
+            await agent.cancelTurn()
+            let finishedInTime = await withTaskGroup(of: Bool.self) { group in
+                group.addTask { _ = await collector.value; return true }
+                group.addTask { try? await Task.sleep(for: .seconds(2)); return false }
+                let first = await group.next() ?? false
+                group.cancelAll()
+                return first
+            }
+            let elapsed = ContinuousClock.now - cancelAt
+            #expect(finishedInTime,
+                    "cancel must end the stream within 2s; it was still running")
+            #expect(elapsed < .milliseconds(800),
+                    "stop took \(elapsed) — cancellation did not reach the stream")
+            let events = await collector.value
+            let completed = events.contains { event in
+                if case .completed = event { return true }
+                return false
+            }
+            #expect(!completed, "a cancelled turn must not report completion")
+
+            // the client's producer is the task that holds the HTTP read in the
+            // real adapters; it must be cancelled, not left running.
+            var waitedForExit = 0
+            while !client.producerExited && waitedForExit < 100 {
+                try await Task.sleep(for: .milliseconds(10))
+                waitedForExit += 1
+            }
+            #expect(client.producerExited,
+                    "cancellation did not reach the client's stream producer")
         }
 
         @Test("tool round emits started and finished, and the text projection re-synthesises the historic tool line")

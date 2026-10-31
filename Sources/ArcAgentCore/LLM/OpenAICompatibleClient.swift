@@ -133,7 +133,7 @@ public struct OpenAICompatibleClient: LLMClient {
         }
 
         return AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     let body: Data
                     if let toolsData {
@@ -149,6 +149,10 @@ public struct OpenAICompatibleClient: LLMClient {
                     continuation.finish(throwing: error)
                 }
             }
+            // a consumer that stops iterating (a cancelled turn, a closed page)
+            // must cancel the work, not leave the HTTP request running to
+            // completion in the background.
+            continuation.onTermination = { @Sendable _ in task.cancel() }
         }
     }
 

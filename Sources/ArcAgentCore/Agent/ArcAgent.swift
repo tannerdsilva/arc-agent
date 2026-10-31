@@ -455,6 +455,9 @@ public actor ArcAgent: Service {
     private var pendingInitialHistory: [Message]?
     /// Cooperative interrupt flag, honored at iteration boundaries.
     private var turnInterrupted = false
+    /// The live stream's producer, so a stop can cancel the in-flight request
+    /// instead of waiting for the next iteration boundary.
+    private var turnTask: Task<Void, Never>?
 
     // MARK: - Init
 
@@ -1147,6 +1150,18 @@ public actor ArcAgent: Service {
     /// next iteration boundary — in-flight API calls finish first.
     public func interruptTurn() {
         turnInterrupted = true
+    }
+
+    /// Cancel the live turn immediately.
+    ///
+    /// ``interruptTurn()`` is cooperative and only observed at an iteration
+    /// boundary; this cancels the stream's producer task, which propagates
+    /// through the client stream to the in-flight HTTP read (AsyncHTTPClient
+    /// cancels its request on task cancellation). The sticky flag still covers
+    /// a stop that arrives before the producer is attached.
+    public func cancelTurn() {
+        turnInterrupted = true
+        turnTask?.cancel()
     }
 
     /// Drain pending steering messages into the history.
@@ -2012,7 +2027,7 @@ public actor ArcAgent: Service {
     /// execution, so both surfaces observe identical turns.
     nonisolated public func streamTurn(message: String) -> AsyncThrowingStream<AgentTurnEvent, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     try await withSkillContext {
                         try await prime()
@@ -2024,10 +2039,28 @@ public actor ArcAgent: Service {
                     }
                     continuation.finish()
                 } catch {
-                    continuation.finish(throwing: error)
+                    // a stopped turn ends without an error: the caller asked for
+                    // it and writes its own interruption notice. `Task.isCancelled`
+                    // covers transport errors that surface as a provider failure
+                    // rather than CancellationError.
+                    if Task.isCancelled || error is CancellationError {
+                        continuation.finish()
+                    } else {
+                        continuation.finish(throwing: error)
+                    }
                 }
             }
+            // the producer is a separate task: a consumer that stops iterating
+            // (cancelled turn, closed page) must cancel it, or the HTTP request
+            // keeps running to completion in the background.
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+            Task { await self.attachTurnTask(task) }
         }
+    }
+
+    /// Remember the live stream's producer so ``cancelTurn()`` can reach it.
+    private func attachTurnTask(_ task: Task<Void, Never>) {
+        turnTask = task
     }
 
     /// Run the agent loop with streaming responses, yielding plain text.
@@ -2040,7 +2073,7 @@ public actor ArcAgent: Service {
     nonisolated public func streamConversation(message: String) -> AsyncThrowingStream<String, Error> {
         let events = streamTurn(message: message)
         return AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     for try await event in events {
                         switch event {
@@ -2054,9 +2087,14 @@ public actor ArcAgent: Service {
                     }
                     continuation.finish()
                 } catch {
-                    continuation.finish(throwing: error)
+                    if Task.isCancelled || error is CancellationError {
+                        continuation.finish()
+                    } else {
+                        continuation.finish(throwing: error)
+                    }
                 }
             }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
         }
     }
 
@@ -2094,6 +2132,10 @@ public actor ArcAgent: Service {
             "message": .string(String(startSummary)),
         ])
         for iteration in 0..<maxIters {
+            if Task.isCancelled {
+                turnInterrupted = false
+                return
+            }
             if turnInterrupted {
                 turnInterrupted = false
                 emit(.textDelta("Interrupted by user."))
@@ -2216,6 +2258,14 @@ public actor ArcAgent: Service {
                         break
                     }
                 }
+                // a cancelled turn's stream may end normally (AsyncSequence
+                // cancellation surfaces as end-of-sequence in some paths), so
+                // check before the partial is classified and reported as a
+                // completed answer.
+                if Task.isCancelled {
+                    turnInterrupted = false
+                    return
+                }
                 // End of stream: flush any held-back partial-tag prose that
                 // turned out not to be a real tag (reference flush()). If
                 // still inside an unterminated block, flush() discards it.
@@ -2225,6 +2275,10 @@ public actor ArcAgent: Service {
                     emit(.textDelta(tail))
                 }
             } catch {
+                if Task.isCancelled || error is CancellationError {
+                    turnInterrupted = false
+                    return
+                }
                 let errorClass = classifyError(error)
 
                 // Wall-clock budget exceeded (maxTurnDuration): the stream
@@ -2416,6 +2470,8 @@ public actor ArcAgent: Service {
 
         for attempt in 0..<retryHandler.maxRetries {
             do {
+                // a stopped turn must not start (or retry) a model request.
+                try Task.checkCancellation()
                 let activeClient = recoveredClient ?? client
                 let toolsArg: [[String: Any]]?
                 if let toolsData {
@@ -2474,6 +2530,9 @@ public actor ArcAgent: Service {
                 await recordUsage(result.usage)
                 return result
             } catch {
+                if Task.isCancelled || error is CancellationError {
+                    throw CancellationError()
+                }
                 lastError = error
                 let errorClass = classifyError(error)
                 await Metrics.shared.recordError("\(errorClass)")
@@ -2564,6 +2623,8 @@ public actor ArcAgent: Service {
 
         for attempt in 0..<retryHandler.maxRetries {
             do {
+                // a stopped turn must not start (or retry) a model request.
+                try Task.checkCancellation()
                 let activeClient = recoveredClient ?? client
                 let toolsArg: [[String: Any]]?
                 if let toolsData {
@@ -2591,6 +2652,9 @@ public actor ArcAgent: Service {
                     totalSeconds: timeout > 0 ? Double(timeout) : nil
                 )
             } catch {
+                if Task.isCancelled || error is CancellationError {
+                    throw CancellationError()
+                }
                 lastError = error
                 let errorClass = classifyError(error)
                 let failure = ErrorClassifier.classify(error)

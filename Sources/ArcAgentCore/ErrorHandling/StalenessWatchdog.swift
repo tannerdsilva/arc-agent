@@ -138,7 +138,7 @@ public struct IdleTimeoutStream<Base: AsyncSequence>: AsyncSequence where Base: 
             let idle = idleSeconds
             let total = totalSeconds
             let start = Date()
-            Task {
+            let task = Task {
                 do {
                     while true {
                         var deadline = idle
@@ -165,6 +165,9 @@ public struct IdleTimeoutStream<Base: AsyncSequence>: AsyncSequence where Base: 
                     continuation.finish(throwing: error)
                 }
             }
+            // the watchdog's producer is a separate task: cancel it when the
+            // consumer goes away, or a stopped turn leaves the inner read alive.
+            continuation.onTermination = { @Sendable _ in task.cancel() }
         }
         return Iterator(inner: inner.makeAsyncIterator(), stream: inner)
     }
