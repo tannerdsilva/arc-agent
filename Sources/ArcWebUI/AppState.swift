@@ -360,12 +360,6 @@ struct AppSettings: Codable, Equatable {
     var kanbanColumns: [KBColumn] = []
     var kanbanCards: [KBCard] = []
 
-    /// Filesystem root for the right-hand workspace panel (default: launch dir).
-    /// Legacy single-workspace path (superseded by `workspaces`); kept for
-    /// settings-file compatibility. Default: `~/workspace` (arc parity).
-    var workspaceRoot: String = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("workspace").path
-
     /// Per-profile enabled skills (profile name -> list of skill names).
     var profileSkills: [String: [String]] = [:]
     /// Per-chat composer drafts keyed by session id (arc parity: each chat
@@ -440,7 +434,6 @@ struct AppSettings: Codable, Equatable {
         // phase 2; the legacy key is lifted once by `ScheduledJobsImport`.
         case queuePlan
         case queueLoopEnabled, queueLoopCount
-        case workspaceRoot
         case profileSkills
         case composerDrafts
         case lastTurnLimit, lastToolCallLimit, lastTurnDurationSeconds
@@ -506,7 +499,6 @@ struct AppSettings: Codable, Equatable {
         queueLoopCount = try c.decodeIfPresent(Int.self, forKey: .queueLoopCount) ?? 2
         kanbanColumns = try c.decodeIfPresent([KBColumn].self, forKey: .kanbanColumns) ?? []
         kanbanCards = try c.decodeIfPresent([KBCard].self, forKey: .kanbanCards) ?? []
-        workspaceRoot = try c.decodeIfPresent(String.self, forKey: .workspaceRoot) ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("workspace").path
         profileSkills = try c.decodeIfPresent([String: [String]].self, forKey: .profileSkills) ?? [:]
         composerDrafts = try c.decodeIfPresent([String: String].self, forKey: .composerDrafts) ?? [:]
         lastTurnLimit = try c.decodeIfPresent(Int.self, forKey: .lastTurnLimit) ?? 25

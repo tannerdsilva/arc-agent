@@ -474,27 +474,21 @@ public struct CheckpointsConfig: Codable, Sendable, Equatable {
     public var enabled: Bool?
     /// Max checkpoints per project (default 20; enforced on snapshot).
     public var maxSnapshots: Int?
-    /// Skip any single file larger than this (MB, default 10). Hints only —
-    /// stash snapshots are whole-tree; the cap keeps the guard honest.
-    public var maxFileSizeMB: Int?
 
-    public init(enabled: Bool? = nil, maxSnapshots: Int? = nil, maxFileSizeMB: Int? = nil) {
+    public init(enabled: Bool? = nil, maxSnapshots: Int? = nil) {
         self.enabled = enabled
         self.maxSnapshots = maxSnapshots
-        self.maxFileSizeMB = maxFileSizeMB
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled)
         self.maxSnapshots = try container.decodeIfPresent(Int.self, forKey: .maxSnapshots)
-        self.maxFileSizeMB = try container.decodeIfPresent(Int.self, forKey: .maxFileSizeMB)
     }
 
     private enum CodingKeys: String, CodingKey {
         case enabled
         case maxSnapshots
-        case maxFileSizeMB
     }
 }
 
@@ -706,19 +700,15 @@ public struct GuardrailsConfig: Codable, Sendable, Equatable {
 public struct TerminalConfig: Codable, Sendable, Equatable {
     /// Default timeout in seconds.
     public var defaultTimeout: Int
-    /// Whether to allow background processes.
-    public var allowBackground: Bool
 
-    public init(defaultTimeout: Int = 180, allowBackground: Bool = true) {
+    public init(defaultTimeout: Int = 180) {
         self.defaultTimeout = defaultTimeout
-        self.allowBackground = allowBackground
     }
 
     /// Decode each field independently, defaulting any that are absent.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.defaultTimeout = try container.decodeIfPresent(Int.self, forKey: .defaultTimeout) ?? TerminalConfig().defaultTimeout
-        self.allowBackground = try container.decodeIfPresent(Bool.self, forKey: .allowBackground) ?? TerminalConfig().allowBackground
     }
 }
 
@@ -726,8 +716,6 @@ public struct TerminalConfig: Codable, Sendable, Equatable {
 public struct DelegationConfig: Codable, Sendable, Equatable {
     /// Maximum concurrent child agents.
     public var maxConcurrentChildren: Int
-    /// Maximum spawn depth.
-    public var maxSpawnDepth: Int
     /// Per-child turn-loop iteration budget (tool + LLM rounds).
     public var maxTurns: Int
     /// Wall-clock budget in seconds for a child before it is cancelled.
@@ -735,12 +723,10 @@ public struct DelegationConfig: Codable, Sendable, Equatable {
 
     public init(
         maxConcurrentChildren: Int = 12,
-        maxSpawnDepth: Int = 3,
         maxTurns: Int = 25,
         defaultTimeout: Int = 600
     ) {
         self.maxConcurrentChildren = maxConcurrentChildren
-        self.maxSpawnDepth = maxSpawnDepth
         self.maxTurns = maxTurns
         self.defaultTimeout = defaultTimeout
     }
@@ -749,7 +735,6 @@ public struct DelegationConfig: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.maxConcurrentChildren = try container.decodeIfPresent(Int.self, forKey: .maxConcurrentChildren) ?? DelegationConfig().maxConcurrentChildren
-        self.maxSpawnDepth = try container.decodeIfPresent(Int.self, forKey: .maxSpawnDepth) ?? DelegationConfig().maxSpawnDepth
         self.maxTurns = try container.decodeIfPresent(Int.self, forKey: .maxTurns) ?? DelegationConfig().maxTurns
         self.defaultTimeout = try container.decodeIfPresent(Int.self, forKey: .defaultTimeout) ?? DelegationConfig().defaultTimeout
     }
@@ -775,19 +760,15 @@ public struct GoalsConfig: Codable, Sendable, Equatable {
 public struct MemoryConfig: Codable, Sendable, Equatable {
     /// Whether memory is enabled.
     public var enabled: Bool
-    /// Maximum memory size in characters.
-    public var maxSize: Int
 
-    public init(enabled: Bool = true, maxSize: Int = 2200) {
+    public init(enabled: Bool = true) {
         self.enabled = enabled
-        self.maxSize = maxSize
     }
 
     /// Decode each field independently, defaulting any that are absent.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? MemoryConfig().enabled
-        self.maxSize = try container.decodeIfPresent(Int.self, forKey: .maxSize) ?? MemoryConfig().maxSize
     }
 }
 
@@ -1066,9 +1047,4 @@ public struct AgentPowersConfig: Codable, Sendable, Equatable {
         self.profileEdit = try container.decodeIfPresent(Bool.self, forKey: .profileEdit) ?? true
         self.lockedProfileFiles = try container.decodeIfPresent([String].self, forKey: .lockedProfileFiles) ?? []
     }
-
-    public var isMemoryLocked: Bool { lockedProfileFiles.contains("memory") }
-    public var isUserLocked: Bool { lockedProfileFiles.contains("user") }
-    public var isSoulLocked: Bool { lockedProfileFiles.contains("soul") }
-    public var isAgentsLocked: Bool { lockedProfileFiles.contains("agents") }
 }

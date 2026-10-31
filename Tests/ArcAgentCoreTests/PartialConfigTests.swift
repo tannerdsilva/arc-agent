@@ -65,9 +65,7 @@ extension ArcCoreTestRoot {
 
             // Missing sections must fall back to compiled-in defaults.
             #expect(config.terminal.defaultTimeout == 180)
-            #expect(config.terminal.allowBackground == true)
             #expect(config.delegation.maxConcurrentChildren == 12)
-            #expect(config.delegation.maxSpawnDepth == 3)
             #expect(config.memory.enabled == true)
             #expect(config.security.approvalMode == "manual")
         }
