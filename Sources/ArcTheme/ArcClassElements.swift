@@ -4,7 +4,7 @@ import WebUI
 // instead of its spelling: `Div(.setRow)` rather than `Div(class: "set-row")`.
 //
 // the parameter is `ArcClass`, a concrete type, and that is load-bearing:
-// leading-dot inference needs one, and a `some CSSClass` parameter cannot
+// leading-dot inference needs one, and a `ClassName` parameter cannot
 // provide it (measured, not a preference — the generic form fails to infer).
 //
 // every initializer delegates to the type's own `class:` initializer rather
@@ -120,12 +120,12 @@ extension View {
 	/// has two candidates — no call site in this tree writes that, and the
 	/// migration slice is where the literal form goes away.
 	public func classes(_ names: ArcClass...) -> ModifiedView<Self, HTMLAttribute> {
-		addClass(ClassName(names))
+		addClass(ClassName(names.map(\.token).joined(separator: " ")))
 	}
 
 	/// the singular reading: `.addClass(.detailTitle)`.
 	public func addClass(_ name: ArcClass) -> ModifiedView<Self, HTMLAttribute> {
-		addClass(ClassName(name))
+		addClass(ClassName(name.token))
 	}
 }
 
@@ -136,11 +136,10 @@ extension ClassName {
 	///
 	/// the first parameter is concrete for the same reason every initializer
 	/// above is: `.a, .b` at a call site needs a type to resolve the leading
-	/// dots against. the framework's `[any CSSClass]` initializer cannot do it —
-	/// an array literal's element type is the existential, and
-	/// `ClassName([.a, .b])` fails to infer.
+	/// dots against. an array literal's element type is fixed by the parameter,
+	/// so `ClassName([.a, .b])` would have no `ArcClass` to infer against.
 	public init(_ first: ArcClass, _ more: ArcClass...) {
-		self.init([first] + more)
+		self.init(([first] + more).map(\.token).joined(separator: " "))
 	}
 }
 

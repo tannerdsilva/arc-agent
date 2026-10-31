@@ -27,7 +27,16 @@ import WebUICore
 ///
 /// a class name a call site spells with `Div(.setRow)` is this enum's token;
 /// the string-literal spelling still compiles and is the next slice's work.
-public enum ArcClass: String, CSSClass, CaseIterable, Sendable {
+public enum ArcClass: String, CaseIterable, Sendable {
+	/// the class text a call site emits.
+	///
+	/// this is the enum's own door, not the framework's: the no-webui revision
+	/// arc pins predates its `CSSClass` protocol, so conformance would make the
+	/// package depend on a type the pinned dependency does not ship. keeping
+	/// `token` here means `ArcClass` is exactly the sheet vocabulary and nothing
+	/// more, and the delegating initializers still render the same bytes.
+	public var token: String { rawValue }
+
 	case active = "active"
 	case akv = "akv"
 	case akvK = "akv-k"
