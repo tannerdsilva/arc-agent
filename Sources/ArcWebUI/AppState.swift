@@ -244,7 +244,6 @@ struct WorkspaceEntry: Codable, Equatable {
 struct AppSettings: Codable, Equatable {
     var theme: String = "light"
     var textSize: String = "md"
-    var accent: String = "#B8860B"
     var colorScheme: String = "cappuccino"
     var thinkingLevel: String = "medium"
     /// How supporting activity (thinking, tool calls) is shown in chats.
@@ -333,9 +332,6 @@ struct AppSettings: Codable, Equatable {
     var sessionThinking: [String: String] = [:]
     /// Custom display names (keyed by session id); empty = auto title.
     var sessionTitles: [String: String] = [:]
-    /// Durable per-session context-compression summaries (arc parity). The
-    /// stored transcript stays intact; compression applies at request time.
-    var sessionCompressions: [String: String] = [:]
     /// Per-chat arc-parity todo list (keyed by session id; the "" key is
     /// a legacy bucket that is migrated into the active chat on first view).
     var todos: [String: [TodoItem]] = [:]
@@ -419,14 +415,14 @@ struct AppSettings: Codable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case theme, textSize, accent, colorScheme, thinkingLevel, activityDisplay
+        case theme, textSize, colorScheme, thinkingLevel, activityDisplay
         case modelConfigs, activeConfig
         case auxiliaryModels
         case disabledToolsets, disabledSkills, bookmarkedSessions
         case workspaces, activeWorkspace, sessionWorkspaces, tesseraOff
         case storageConnections, activeStorage
         case recentFiles
-        case sessionConfig, sessionProfile, sessionThinking, sessionTitles, sessionCompressions, archivedSessions
+        case sessionConfig, sessionProfile, sessionThinking, sessionTitles, archivedSessions
         case chatCategories, sessionCategories
         case kanbanColumns, kanbanCards
         case todos
@@ -454,7 +450,6 @@ struct AppSettings: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         theme = try c.decodeIfPresent(String.self, forKey: .theme) ?? "light"
         textSize = try c.decodeIfPresent(String.self, forKey: .textSize) ?? "md"
-        accent = try c.decodeIfPresent(String.self, forKey: .accent) ?? "#B8860B"
         colorScheme = try c.decodeIfPresent(String.self, forKey: .colorScheme) ?? "default"
         // Scheme migration: the old gold scheme id was renamed to reference' "default".
         if colorScheme == "cappuccino" { colorScheme = "default" }
@@ -481,7 +476,6 @@ struct AppSettings: Codable, Equatable {
         sessionProfile = try c.decodeIfPresent([String: String].self, forKey: .sessionProfile) ?? [:]
         sessionThinking = try c.decodeIfPresent([String: String].self, forKey: .sessionThinking) ?? [:]
         sessionTitles = try c.decodeIfPresent([String: String].self, forKey: .sessionTitles) ?? [:]
-        sessionCompressions = try c.decodeIfPresent([String: String].self, forKey: .sessionCompressions) ?? [:]
         archivedSessions = try c.decodeIfPresent([String].self, forKey: .archivedSessions) ?? []
         chatCategories = try c.decodeIfPresent([ChatCategory].self, forKey: .chatCategories) ?? []
         sessionCategories = try c.decodeIfPresent([String: String].self, forKey: .sessionCategories) ?? [:]

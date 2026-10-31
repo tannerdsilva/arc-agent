@@ -1638,11 +1638,6 @@ extension AppState {
         saveSettings()
     }
 
-    func setAccent(_ hex: String) {
-        settings.accent = hex
-        saveSettings()
-    }
-
     func setColorScheme(_ name: String) {
         settings.colorScheme = name
         saveSettings()

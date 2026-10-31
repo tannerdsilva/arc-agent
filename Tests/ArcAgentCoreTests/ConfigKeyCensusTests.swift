@@ -66,12 +66,7 @@ struct ConfigKeyCensusTests {
     /// nine). They are named with their measurement so the next pass can delete
     /// or wire them instead of re-deriving this. Nothing may be added here
     /// without the same measurement in the reason.
-    private static let measuredDeadRetained: [String: String] = [
-        "AppSettings.accent":
-            "write-only: declaration, decode, and an uncalled `setAccent`; the scheme picker renders `colorScheme`",
-        "AppSettings.sessionCompressions":
-            "decode-only: declaration, `CodingKeys`, decode; the compression budget is per profile, not per session",
-    ]
+    private static let measuredDeadRetained: [String: String] = [:]
 
     // MARK: - The gate
 
