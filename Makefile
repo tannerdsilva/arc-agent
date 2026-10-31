@@ -16,7 +16,7 @@
 SWIFT      := swift
 # the built executable is `arc-agent` (the target name); it installs as `arc`
 BINARY     := arc
-BUILT      := arc-agent
+BUILT      := arc
 BUILD_DIR  := .build
 
 INSTALL_DIR ?= $(HOME)/.local/bin
