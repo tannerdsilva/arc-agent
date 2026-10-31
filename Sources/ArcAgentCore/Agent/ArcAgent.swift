@@ -56,9 +56,9 @@ public actor ArcAgent: Service {
         public var skills: [Skill]
         /// Maximum iterations per conversation.
         public var maxIterations: Int
-        /// Per-tool call cap override (nil = default 25; 0/negative =
-        /// unlimited). Mirrors `guardrails.toolLoopCap` in `~/.arc/config.json`.
-        public var toolLoopCap: Int?
+        /// Per-tool call cap override (`nil` = default 25).
+        /// Mirrors `limits.perToolCalls` in `~/.arc/config.json`.
+        public var toolLoopCap: Limit?
         /// Maximum duration per turn in seconds. `0` (or negative) = unlimited —
         /// the default; set a positive value to bound each turn's wall clock.
         public var maxTurnDuration: Int
@@ -215,7 +215,7 @@ public actor ArcAgent: Service {
             memoryProvider: MemoryProvider? = FileMemoryProvider(),
             skills: [Skill] = [],
             maxIterations: Int = 25,
-            toolLoopCap: Int? = nil,
+            toolLoopCap: Limit? = nil,
             maxTurnDuration: Int = 0,
             persistSessions: Bool = true,
             approvalMode: ApprovalMode = .manual,

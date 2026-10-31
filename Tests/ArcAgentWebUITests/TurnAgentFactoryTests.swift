@@ -94,7 +94,7 @@ extension ArcWebUITestRoot {
                 )
             ]
             f.arcConfig.security.approvalMode = "smart"
-            f.arcConfig.guardrails.toolLoopCap = 7
+            f.arcConfig.limits.perToolCalls = .bounded(7)
             f.arcConfig.agent.verifyOnStop = true
             f.arcConfig.agent.backgroundReviewAfter = 5
             f.arcConfig.agent.backgroundReviewWindow = 3
@@ -147,9 +147,10 @@ extension ArcWebUITestRoot {
 
             // the turn's own identity and budget.
             #expect(config.platformHint == "webui")
-            #expect(config.maxIterations == AppState.effectiveMaxTurns())
+            let expectedMax = await app.arcConfig.effectiveMaxTurns()
+            #expect(config.maxIterations == expectedMax)
             #expect(config.maxTurnDuration == 0,
-                    "unlimited by default (agent.max_turn_duration unset → 0)")
+                    "unlimited by default (limits.turnDuration unset → 0)")
             #expect(config.disabledToolsets == Set(["browser", "cron"]))
             let turnBudget = await app.compressionBudget(for: "s-alpha")
             #expect(turnBudget == 12_000, "the profile's compression budget")
@@ -176,7 +177,7 @@ extension ArcWebUITestRoot {
             let memory = try await config.memoryProvider?.readMemory()
             #expect(memory == "stub-memory")
             #expect(config.approvalMode == .smart)
-            #expect(config.toolLoopCap == 7)
+            #expect(config.toolLoopCap == .bounded(7))
             #expect(config.verifyOnStop == true)
             #expect(config.backgroundReview.afterToolCalls == 5)
             #expect(config.backgroundReview.window == 3)

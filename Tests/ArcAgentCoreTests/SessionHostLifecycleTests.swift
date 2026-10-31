@@ -18,7 +18,7 @@ extension ArcCoreTestRoot {
                 tessera: nil,
                 persistSessions: false,
                 maxIterations: 2,
-                toolLoopCap: 2,
+                toolLoopCap: .bounded(2),
                 mcpServers: [:]
             )
         }

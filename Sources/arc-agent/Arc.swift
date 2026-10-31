@@ -291,7 +291,7 @@ struct Chat: AsyncParsableCommand {
             memoryProvider: memoryProvider,
             skills: skills,
             maxIterations: arcConfig.effectiveMaxTurns(),
-            toolLoopCap: arcConfig.effectiveToolLoopCap(),
+            toolLoopCap: arcConfig.toolCallLimit(),
             maxTurnDuration: arcConfig.effectiveMaxTurnDuration() ?? 0,
             persistSessions: arcConfig.agent.persistSessions,
             approvalMode: approvalMode,

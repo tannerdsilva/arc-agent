@@ -21,17 +21,33 @@ public actor ToolGuardrails {
         public var perToolCaps: [String: Int]
         public var maxWebSearches: Int
         public var maxSubagentSpawns: Int
-        /// Override for the default per-tool loop cap. nil = use
-        /// ``ToolGuardrails/defaultLoopCap`` (25); 0/negative = unlimited.
-        public var loopCap: Int?
+        /// Override for the default per-tool loop cap. `nil` = use
+        /// ``ToolGuardrails/defaultLoopCap`` (25). ``Limit/unlimited`` removes
+        /// the synthetic cap while keeping the identical-call floor.
+        public var loopCap: Limit?
+
         public init(perToolCaps: [String: Int] = [:],
                     maxWebSearches: Int = ToolGuardrails.maxWebSearchesPerTurn,
                     maxSubagentSpawns: Int = ToolGuardrails.maxSubagentSpawnsPerTurn,
-                    loopCap: Int? = nil) {
+                    loopCap: Limit? = nil) {
             self.perToolCaps = perToolCaps
             self.maxWebSearches = maxWebSearches
             self.maxSubagentSpawns = maxSubagentSpawns
             self.loopCap = loopCap
+        }
+
+        /// Integer spelling kept for callers that already hold a raw setting:
+        /// zero or negative means unlimited (the pre-`Limit` convention).
+        public init(perToolCaps: [String: Int] = [:],
+                    maxWebSearches: Int = ToolGuardrails.maxWebSearchesPerTurn,
+                    maxSubagentSpawns: Int = ToolGuardrails.maxSubagentSpawnsPerTurn,
+                    loopCap: Int?) {
+            self.init(
+                perToolCaps: perToolCaps,
+                maxWebSearches: maxWebSearches,
+                maxSubagentSpawns: maxSubagentSpawns,
+                loopCap: loopCap.map(Limit.init(raw:))
+            )
         }
     }
 
@@ -92,9 +108,10 @@ public actor ToolGuardrails {
         counts[toolName, default: 0] += 1
         let n = counts[toolName] ?? 0
 
-        let configuredCap = limits.loopCap ?? limits.perToolCaps[toolName] ?? ToolGuardrails.defaultLoopCap
-        let cap = configuredCap > 0 ? configuredCap : Int.max
-        if n > cap {
+        let configured = limits.loopCap
+            ?? limits.perToolCaps[toolName].map(Limit.init(raw:))
+            ?? .bounded(ToolGuardrails.defaultLoopCap)
+        if let cap = configured.bound, n > cap {
             return .synthetic("Tool call limit reached for \(toolName) after \(n) calls (cap \(cap)). Do not repeat this same call again; try a different approach or ask the user.")
         }
 
@@ -104,7 +121,7 @@ public actor ToolGuardrails {
         let sig = ToolSignature(tool: toolName, canonicalArgs: ToolGuardrails.canonicalArgs(params))
         signatures[sig, default: 0] += 1
         let repeats = signatures[sig] ?? 0
-        let repeatLimit = configuredCap > 0 ? max(2, cap / 3) : max(3, 10)
+        let repeatLimit = configured.bound.map { max(2, $0 / 3) } ?? max(3, 10)
         if repeats > repeatLimit {
             return .synthetic("Repeated identical call to \(toolName) detected (\(repeats)x). The result will not change. Reconsider your approach or gather new information first.")
         }

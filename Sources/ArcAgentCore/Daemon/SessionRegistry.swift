@@ -61,9 +61,8 @@ public actor SessionRegistry {
         /// Tool-iteration budget for hosted sessions (nil = default 25;
         /// 0/negative = unlimited).
         public let maxIterations: Int?
-        /// Per-tool call cap for hosted sessions (nil = default 25;
-        /// 0/negative = unlimited).
-        public let toolLoopCap: Int?
+        /// Per-tool call cap for hosted sessions (`nil` = default 25).
+        public let toolLoopCap: Limit?
         /// Max turn wall-clock seconds for hosted sessions (nil/0/negative =
         /// unlimited — the default).
         public let maxTurnDuration: Int?
@@ -109,7 +108,7 @@ public actor SessionRegistry {
             persistSessions: Bool = true,
             moa: MoAConfig = MoAConfig(),
             maxIterations: Int? = nil,
-            toolLoopCap: Int? = nil,
+            toolLoopCap: Limit? = nil,
             maxTurnDuration: Int? = nil,
             mcpServers: [String: MCPServerConfig] = [:],
             contextDefaults: ContextRecipe? = nil,

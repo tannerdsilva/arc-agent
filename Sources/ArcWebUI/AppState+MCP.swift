@@ -37,15 +37,13 @@ extension AppState {
     /// with the user's text so the edit is not lost.
     @discardableResult
     func updateMCPServers(_ mutate: (inout [String: MCPServerConfig]) -> Void) async -> Bool {
-        var raw = Self.rawArcConfig()
-        mutate(&raw.mcpServers)
-        do {
-            try saveConfig(raw)
-        } catch {
-            hint("Could not save MCP servers: \(error)", kind: "error")
+        var servers = arcConfig.mcpServers
+        mutate(&servers)
+        let next = servers
+        guard await updateConfig({ $0.mcpServers = next }) else {
+            hint("Could not save MCP servers — see the toast for the reason.", kind: "error")
             return false
         }
-        arcConfig = raw
         await configureMCPClients()
         return true
     }

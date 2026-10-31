@@ -52,7 +52,7 @@ extension ArcWebUITestRoot {
 
 	    @Test("agent limits with unlimited iterations matches golden")
 	    func agentLimitsUnlimitedGolden() async {
-	        let html = await app { $0.arcConfig.agent.max_turns = 0 }.agentLimitsSection().markup.html
+	        let html = await app { $0.arcConfig.limits.turns = .unlimited }.agentLimitsSection().markup.html
 	        Parity.capture(html, as: "agent-limits-unlimited")
 	        Parity.expect(html, matches: "agent-limits-unlimited")
 	    }

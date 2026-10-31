@@ -3768,20 +3768,20 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     /// the dedicated tools (skill_creation / skill_edit / profile_edit) refuse
     /// locked surfaces.
 
-    /// Settings: editable tool-iteration limit and per-tool call cap
-    /// (`agent.max_turns` + `guardrails.toolLoopCap`, arc parity). Values
-    /// of 0/negative mean unlimited; the UI writes -1 for that state.
+    /// Settings: the three turn budgets, read from the canonical `limits`
+    /// section. Each control shows a `Limit`: the bound when set, otherwise the
+    /// last number the user typed (so a disabled field never shows a made-up
+    /// value). Unlimited is a state of the limit, not a sentinel integer.
     func agentLimitsSection() -> some WebUI.View {
-        let rawMax: Int? = arcConfig.agent.max_turns ?? arcConfig.max_turns
-        let maxUnlimited = (rawMax ?? 1) <= 0
-        let effMax = arcConfig.effectiveMaxTurns()
-        let maxValue = effMax == Int.max ? 90 : effMax
-        let rawLoop: Int? = arcConfig.guardrails.toolLoopCap
-        let loopUnlimited = (rawLoop ?? 1) <= 0
-        let effLoop = arcConfig.effectiveToolLoopCap()
-        let loopValue = effLoop == Int.max ? 25 : effLoop
-        let turnUnlimited = arcConfig.effectiveMaxTurnDuration() == nil
-        let turnValue = arcConfig.effectiveMaxTurnDuration() ?? 120
+        let turnLimit = arcConfig.turnLimit()
+        let maxUnlimited = turnLimit.isUnlimited
+        let maxValue = turnLimit.bound ?? settings.lastTurnLimit
+        let callLimit = arcConfig.toolCallLimit()
+        let loopUnlimited = callLimit.isUnlimited
+        let loopValue = callLimit.bound ?? settings.lastToolCallLimit
+        let durationLimit = arcConfig.turnDurationLimit()
+        let turnUnlimited = durationLimit.isUnlimited
+        let turnValue = durationLimit.bound ?? settings.lastTurnDurationSeconds
 
         // `disabled` is presence-only and `.attribute` takes a non-optional
         // String, so the two shapes are built rather than passed a nil.
@@ -3807,7 +3807,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             DetailCard {
                 SettingRow {
                     Text("Tool iteration limit")
-                    Small("Tool-calling iterations allowed per turn before the agent is asked to wrap up (reference max_turns, default 90).")
+                    Small("Tool-calling iterations allowed per turn before the agent is asked to wrap up (default 25).")
                 } control: {
                     Div {
                         numField("al-max-turns", maxValue, disabled: maxUnlimited)

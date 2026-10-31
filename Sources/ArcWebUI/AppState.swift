@@ -330,6 +330,12 @@ struct AppSettings: Codable, Equatable {
     /// Per-chat composer drafts keyed by session id (arc parity: each chat
     /// keeps the text you typed but didn't send).
     var composerDrafts: [String: String] = [:]
+    /// The last bounded value typed for each turn limit. Configuration stores
+    /// the truth (`unlimited` or a bound); these keep the number the user
+    /// typed so turning "unlimited" off restores it instead of a default.
+    var lastTurnLimit: Int = 25
+    var lastToolCallLimit: Int = 25
+    var lastTurnDurationSeconds: Int = 120
     /// Daily-token graph range for the Insights view (7/30/90/365).
     var insightsRangeDays: Int = 30
 
@@ -396,6 +402,7 @@ struct AppSettings: Codable, Equatable {
         case workspaceRoot
         case profileSkills
         case composerDrafts
+        case lastTurnLimit, lastToolCallLimit, lastTurnDurationSeconds
         case insightsRangeDays
         case showTokenUsage, showTps, pinnedSessionsLimit
         case showConversationOutline
@@ -457,6 +464,9 @@ struct AppSettings: Codable, Equatable {
         workspaceRoot = try c.decodeIfPresent(String.self, forKey: .workspaceRoot) ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("workspace").path
         profileSkills = try c.decodeIfPresent([String: [String]].self, forKey: .profileSkills) ?? [:]
         composerDrafts = try c.decodeIfPresent([String: String].self, forKey: .composerDrafts) ?? [:]
+        lastTurnLimit = try c.decodeIfPresent(Int.self, forKey: .lastTurnLimit) ?? 25
+        lastToolCallLimit = try c.decodeIfPresent(Int.self, forKey: .lastToolCallLimit) ?? 25
+        lastTurnDurationSeconds = try c.decodeIfPresent(Int.self, forKey: .lastTurnDurationSeconds) ?? 120
         insightsRangeDays = try c.decodeIfPresent(Int.self, forKey: .insightsRangeDays) ?? 30
         showTokenUsage = try c.decodeIfPresent(Bool.self, forKey: .showTokenUsage) ?? false
         showTps = try c.decodeIfPresent(Bool.self, forKey: .showTps) ?? false
@@ -946,6 +956,11 @@ actor AppState {
     /// The `~/.arc/config.json` as loaded from disk (no env overrides), the
     /// canonical home of the `auxiliary` block edited from Preferences.
     var arcConfig: ArcConfig = ArcConfig()
+
+    /// The single configuration store: every write goes through it. `nil` for a
+    /// render fixture, which owns no file — its edits stay in memory and never
+    /// touch the operator's `~/.arc/config.json`.
+    var configurationStore: ConfigurationStore? = .shared
     /// Per-turn tool guardrails (rebuilt from config at turn start).
     var guardrails = ToolGuardrails()
     /// Which auxiliary task is currently being edited in Preferences.
@@ -1269,6 +1284,9 @@ actor AppState {
         }
         self.sidebarPlugins = []
         self.pluginTabs = [:]
+        // a render fixture owns no configuration file: edits stay in memory and
+        // the real `~/.arc/config.json` is never read or written.
+        self.configurationStore = nil
     }
 
     init(
@@ -1309,7 +1327,7 @@ actor AppState {
         let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolset })
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
         self.settings = Self.loadSettings()
-        let rawConfig = Self.rawArcConfig()
+        let rawConfig = Self.declaredConfig()
         self.arcConfig = rawConfig
         // Sidebar tab plugins: validate ids, reject collisions with
         // built-ins, and make new tabs visible by default.
@@ -1399,85 +1417,102 @@ actor AppState {
 
     /// Enable/disable a tool plugin (reference `plugins.enabled` parity). Writes
     /// `~/.arc/config.json` so the CLI/daemon honor the same allow-list.
-    func setPluginEnabled(_ name: String, enabled: Bool) {
-        var raw = Self.rawArcConfig()
-        var list = raw.plugins.enabled ?? self.pluginManifests.keys.sorted()
+    func setPluginEnabled(_ name: String, enabled: Bool) async {
+        var list = arcConfig.plugins.enabled ?? self.pluginManifests.keys.sorted()
         if enabled {
             if !list.contains(name) { list.append(name) }
         } else {
             list.removeAll { $0 == name }
         }
-        raw.plugins.enabled = list
-        self.arcConfig = raw
-        try? saveConfig(raw)
-        Task { await self.refreshPlugins() }
+        let allowList = list
+        guard await updateConfig({ $0.plugins.enabled = allowList }) else { return }
+        await self.refreshPlugins()
     }
 
-    /// Mutate the agent-powers lockdown block in `~/.arc/config.json` (the
-    /// file the CLI/daemon/tools read), then refresh the in-memory copy.
+    /// Mutate the agent-powers lockdown block through the configuration store,
+    /// then refresh the in-memory copy and the live gate.
     func updateAgentPowers(_ mutate: (inout AgentPowersConfig) -> Void) async {
-        var raw = Self.rawArcConfig()
-        mutate(&raw.agentPowers)
-        self.arcConfig = raw
-        try? saveConfig(raw)
-        AgentPowers.configure(raw.agentPowers)
+        var block = arcConfig.agentPowers
+        mutate(&block)
+        let next = block
+        guard await updateConfig({ $0.agentPowers = next }) else { return }
+        AgentPowers.configure(arcConfig.agentPowers)
     }
 
 
-    /// Persist the tool-iteration limit (`agent.max_turns`) into
-    /// `~/.arc/config.json` and refresh the in-memory copy. Values <= 0 mean
-    /// unlimited; the settings UI writes -1 for that state. The legacy root
-    /// `max_turns` key is cleared so `agent.max_turns` wins precedence.
-    func setToolIterationLimit(_ value: Int) {
-        var raw = Self.rawArcConfig()
-        raw.agent.max_turns = value
-        raw.max_turns = nil
-        self.arcConfig = raw
-        try? saveConfig(raw)
+    /// Persist the tool-iteration limit (`limits.turns`) through the
+    /// configuration store. `nil` fields in the snapshot leave the published
+    /// value intact; a failed write surfaces and changes nothing.
+    func setToolIterationLimit(_ limit: Limit) async {
+        if let bound = limit.bound { settings.lastTurnLimit = bound }
+        saveSettings()
+        await updateConfig { $0.limits.turns = limit }
     }
 
-    /// Persist the per-tool call cap (`guardrails.toolLoopCap`) into
-    /// `~/.arc/config.json` and refresh the in-memory copy. Values <= 0 mean
-    /// unlimited; the settings UI writes -1 for that state.
-    func setToolLoopCap(_ value: Int) {
-        var raw = Self.rawArcConfig()
-        raw.guardrails.toolLoopCap = value
-        self.arcConfig = raw
-        try? saveConfig(raw)
+    /// Persist the per-tool call cap (`limits.perToolCalls`).
+    func setToolLoopCap(_ limit: Limit) async {
+        if let bound = limit.bound { settings.lastToolCallLimit = bound }
+        saveSettings()
+        await updateConfig { $0.limits.perToolCalls = limit }
     }
 
-    /// Persist the per-turn wall-clock budget (`agent.max_turn_duration`) into
-    /// `~/.arc/config.json` and refresh the in-memory copy. `nil` means
-    /// unlimited (the default); a positive value bounds each turn in seconds.
-    func setTurnDuration(_ seconds: Int?) {
-        var raw = Self.rawArcConfig()
-        raw.agent.max_turn_duration = seconds
-        self.arcConfig = raw
-        try? saveConfig(raw)
+    /// Persist the per-turn wall-clock budget (`limits.turnDuration`).
+    func setTurnDuration(_ limit: Limit) async {
+        if let bound = limit.bound { settings.lastTurnDurationSeconds = bound }
+        saveSettings()
+        await updateConfig { $0.limits.turnDuration = limit }
     }
 
     /// Persist an "Always allow" command into `~/.arc/config.json` so the CLI
     /// and daemon honor the same allowlist (reference approval patterns parity).
     func persistAlwaysAllowed(_ command: String) async {
-        var raw = Self.rawArcConfig()
-        var list = raw.security.alwaysAllowedCommands
-        guard !list.contains(command) else { return }
-        list.append(command)
-        raw.security.alwaysAllowedCommands = list
-        self.arcConfig = raw
-        try? saveConfig(raw)
+        guard !arcConfig.security.alwaysAllowedCommands.contains(command) else { return }
+        await updateConfig { $0.security.alwaysAllowedCommands.append(command) }
     }
 
-    /// The raw `~/.arc/config.json` (no environment overrides applied) — the
-    /// file the aux editor reads and writes so env vars never get baked in.
-    static func rawArcConfig() -> ArcConfig {
-        let url = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".arc/config.json")
-        if let data = try? Data(contentsOf: url),
-           let cfg = try? JSONDecoder().decode(ArcConfig.self, from: data) {
-            return cfg
+    /// The declared configuration on disk (no environment overrides applied) —
+    /// a display read for callers that must not bake env values into a file.
+    ///
+    /// Writes never use this: changes go through ``updateConfig``, so a file
+    /// that fails to decode is never replaced by compiled defaults.
+    static func declaredConfig() -> ArcConfig {
+        (try? ConfigurationStore.readDeclared(ArcHome.config)) ?? ArcConfig()
+    }
+
+    // MARK: - Configuration backbone
+
+    /// Apply one configuration edit through the single store, then adopt the
+    /// published snapshot. A failed write leaves both the file and the
+    /// in-memory copy untouched and surfaces the reason.
+    @discardableResult
+    func updateConfig(_ body: @Sendable (inout ArcConfig) throws -> Void) async -> Bool {
+        guard let configurationStore else {
+            // a render fixture owns no file: apply the edit to its in-memory
+            // configuration only.
+            do {
+                try body(&arcConfig)
+                return true
+            } catch {
+                return false
+            }
         }
-        return ArcConfig()
+        do {
+            let snapshot = try await configurationStore.mutate(body)
+            arcConfig = snapshot.resolved
+            return true
+        } catch {
+            _ = toast("Settings were not saved: \(error)", kind: "error")
+            return false
+        }
+    }
+
+    /// Re-read the file so an external edit (`arc config`, a hand edit) applies
+    /// to the next turn without restarting the web UI. A render fixture has no
+    /// file to re-read.
+    func refreshConfig() async {
+        guard let configurationStore else { return }
+        let snapshot = await configurationStore.reload()
+        arcConfig = snapshot.resolved
     }
 
     /// arc parity: migrate the legacy default workspace (home folder) to
@@ -1882,7 +1917,7 @@ actor AppState {
         let reasoningEffort = profileContext?.reasoningEffort ?? (thinking == "off" ? nil : thinking)
 
         // max iterations mirrors the turn loop's clamp: at least one pass.
-        let maxIterations = max(1, iterationBudget ?? Self.effectiveMaxTurns())
+        let maxIterations = max(1, iterationBudget ?? effectiveMaxTurns())
 
         // The memory document this turn reads and writes: the session
         // profile's, for the file backend (see `turnMemoryProvider`).
@@ -1927,7 +1962,7 @@ actor AppState {
             memoryProvider: turnMemory,
             skills: allowedSkills,
             maxIterations: maxIterations,
-            toolLoopCap: arcConfig.effectiveToolLoopCap(),
+            toolLoopCap: arcConfig.toolCallLimit(),
             maxTurnDuration: arcConfig.effectiveMaxTurnDuration() ?? 0,
             persistSessions: false,
             approvalMode: approvalMode,

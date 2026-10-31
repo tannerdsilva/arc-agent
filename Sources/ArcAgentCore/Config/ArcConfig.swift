@@ -40,11 +40,17 @@ public struct ArcConfig: Codable, Sendable, Equatable {
     public var agent: AgentConfig
 
     /// Legacy root-level tool-iteration limit (reference `max_turns` in flat
-    /// configs). `agent.max_turns` takes precedence; `0`/negative = unlimited.
+    /// configs). Read once at decode and lifted into ``limits``; never written
+    /// back, so a rewritten file carries only the canonical section.
     public var max_turns: Int?
 
-    /// Guardrail loop limits (arc tool-loop caps).
-    public var guardrails: GuardrailsConfig
+    /// The turn budgets, in one section: model rounds, per-tool calls, and
+    /// wall-clock seconds. See ``Limits``.
+    public var limits: Limits
+
+    /// Legacy guardrail loop limits (the old `guardrails.toolLoopCap` key).
+    /// Read once at decode and lifted into ``limits``; never written back.
+    public var guardrails: GuardrailsConfig?
 
     /// Terminal tool configuration.
     public var terminal: TerminalConfig
@@ -146,6 +152,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         case model
         case agent
         case max_turns
+        case limits
         case guardrails
         case terminal
         case delegation
@@ -173,7 +180,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         model: ModelConfig = ModelConfig(),
         agent: AgentConfig = AgentConfig(),
         max_turns: Int? = nil,
-        guardrails: GuardrailsConfig = GuardrailsConfig(),
+        limits: Limits = Limits(),
+        guardrails: GuardrailsConfig? = nil,
         terminal: TerminalConfig = TerminalConfig(),
         delegation: DelegationConfig = DelegationConfig(),
         memory: MemoryConfig = MemoryConfig(),
@@ -196,6 +204,7 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.model = model
         self.agent = agent
         self.max_turns = max_turns
+        self.limits = limits
         self.guardrails = guardrails
         self.terminal = terminal
         self.delegation = delegation
@@ -224,7 +233,8 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.agent = try container.decodeIfPresent(AgentConfig.self, forKey: .agent) ?? AgentConfig()
         self.max_turns = try container.decodeIfPresent(Int.self, forKey: .max_turns)
         self.goals = try container.decodeIfPresent(GoalsConfig.self, forKey: .goals) ?? GoalsConfig()
-        self.guardrails = try container.decodeIfPresent(GuardrailsConfig.self, forKey: .guardrails) ?? GuardrailsConfig()
+        self.limits = try container.decodeIfPresent(Limits.self, forKey: .limits) ?? Limits()
+        self.guardrails = try container.decodeIfPresent(GuardrailsConfig.self, forKey: .guardrails)
         self.terminal = try container.decodeIfPresent(TerminalConfig.self, forKey: .terminal) ?? TerminalConfig()
         self.delegation = try container.decodeIfPresent(DelegationConfig.self, forKey: .delegation) ?? DelegationConfig()
         self.memory = try container.decodeIfPresent(MemoryConfig.self, forKey: .memory) ?? MemoryConfig()
@@ -244,6 +254,33 @@ public struct ArcConfig: Codable, Sendable, Equatable {
         self.contextDefaults = try container.decodeIfPresent(ContextRecipe.self, forKey: .contextDefaults)
         self.processWatch = try container.decodeIfPresent(ProcessWatchConfig.self, forKey: .processWatch)
             ?? ProcessWatchConfig()
+        liftLegacyLimits()
+    }
+
+    /// Fold the pre-`limits` keys into the canonical section, once, at decode.
+    ///
+    /// Precedence is the one the old accessors encoded:
+    /// `agent.max_turns` → root `max_turns` → `agent.maxIterations` for rounds,
+    /// and `guardrails.toolLoopCap` for per-tool calls. The legacy keys are
+    /// cleared afterwards so a rewrite emits only ``limits``.
+    private mutating func liftLegacyLimits() {
+        if limits.turns == nil {
+            if let raw = agent.max_turns {
+                limits.turns = Limit(raw: raw)
+            } else if let raw = max_turns {
+                limits.turns = Limit(raw: raw)
+            }
+        }
+        if limits.perToolCalls == nil, let raw = guardrails?.toolLoopCap {
+            limits.perToolCalls = Limit(raw: raw)
+        }
+        if limits.turnDuration == nil, let raw = agent.max_turn_duration {
+            limits.turnDuration = Limit(raw: raw)
+        }
+        agent.max_turns = nil
+        agent.max_turn_duration = nil
+        max_turns = nil
+        guardrails = nil
     }
 }
 
@@ -359,36 +396,57 @@ public struct CheckpointsConfig: Codable, Sendable, Equatable {
     }
 }
 
-// MARK: - Effective limits (reference `max_turns` precedence)
+// MARK: - Effective limits (one section, one meaning)
 
 extension ArcConfig {
 
-    /// Effective tool-iteration budget. Precedence (reference `api/streaming.py`):
-    /// `agent.max_turns` → legacy root `max_turns` → `agent.maxIterations` →
-    /// 90 (reference `AIAgent` default). A value of 0 or negative means
-    /// **unlimited** — the agent runs until the prompt finishes.
+    /// The tool-iteration budget for a turn.
+    ///
+    /// `limits.turns` when configured; otherwise the legacy keys an in-memory
+    /// config (or a config decoded before the lift) still carries, then the
+    /// agent's own `maxIterations` default. Unlimited stays representable.
+    public func turnLimit() -> Limit {
+        if let configured = limits.turns { return configured }
+        if let legacy = agent.max_turns { return Limit(raw: legacy) }
+        if let legacy = max_turns { return Limit(raw: legacy) }
+        return Limit(raw: agent.maxIterations)
+    }
+
+    /// The per-tool call cap.
+    ///
+    /// `limits.perToolCalls` when configured, else the legacy
+    /// `guardrails.toolLoopCap`, else the compiled default.
+    public func toolCallLimit() -> Limit {
+        if let configured = limits.perToolCalls { return configured }
+        if let legacy = guardrails?.toolLoopCap { return Limit(raw: legacy) }
+        return .bounded(ToolGuardrails.defaultLoopCap)
+    }
+
+    /// The per-turn wall-clock budget. Absent or zero/negative means no cap —
+    /// the default.
+    public func turnDurationLimit() -> Limit {
+        if let configured = limits.turnDuration { return configured }
+        if let legacy = agent.max_turn_duration { return Limit(raw: legacy) }
+        return .unlimited
+    }
+
+    /// The effective tool-iteration budget as an `Int` loop bound
+    /// (`Int.max` when unlimited).
     public func effectiveMaxTurns() -> Int {
-        if let n = agent.max_turns ?? max_turns {
-            return n > 0 ? n : Int.max
-        }
-        return agent.maxIterations > 0 ? agent.maxIterations : Int.max
+        turnLimit().effectiveValue
     }
 
-    /// Effective per-tool call cap: `guardrails.toolLoopCap` when present and
-    /// positive; `Int.max` (unlimited) when 0/negative; otherwise arc's
-    /// default loop cap (25).
+    /// The effective per-tool call cap as an `Int` (`Int.max` when unlimited).
+    ///
+    /// Prefer ``toolCallLimit()``: an `Int` cannot tell "unlimited" from "a
+    /// very large cap", which is how the anti-loop floor used to be disabled.
     public func effectiveToolLoopCap() -> Int {
-        guard let cap = guardrails.toolLoopCap else {
-            return ToolGuardrails.defaultLoopCap
-        }
-        return cap > 0 ? cap : Int.max
+        toolCallLimit().effectiveValue
     }
 
-    /// Effective per-turn wall-clock budget in seconds. `agent.max_turn_duration`
-    /// when present and positive; `nil` (unlimited) otherwise — the default.
+    /// The effective per-turn wall-clock budget in seconds; `nil` = unlimited.
     public func effectiveMaxTurnDuration() -> Int? {
-        guard let n = agent.max_turn_duration, n > 0 else { return nil }
-        return n
+        turnDurationLimit().bound
     }
 }
 
@@ -734,55 +792,59 @@ func setDotEnvKey(_ url: URL, key: String, value: String) throws {
 }
 
 public func loadConfig(from configURL: URL? = nil) -> ArcConfig {
-    var config = ArcConfig()
-
-    // Determine the config file URL
     let resolvedURL = configURL ?? ArcHome.config
-
-    // Secrets live in ~/.arc/.env; the process environment wins over the file.
-    // Only the tessera private key is sourced here today — the other tessera
-    // fields (ip/port/public-key/application) are non-secret and stay in config.json.
-    let dotenv = loadDotEnv(resolvedURL.deletingLastPathComponent().appendingPathComponent(".env"))
-
-    if FileManager.default.fileExists(atPath: resolvedURL.path) {
-        do {
-            let data = try Data(contentsOf: resolvedURL)
-            let decoded = try JSONDecoder().decode(ArcConfig.self, from: data)
-            config = decoded
-        } catch {
-            // Fall back to defaults on parse error. This must be visible:
-            // a silent discard here means the user's model/provider/baseURL
-            // choices are ignored and the agent dials a default endpoint
-            // with no key — a 401 on every turn with no clue why.
-            Logger(label: "com.arc-agent.config").error(
-                "Failed to parse \(resolvedURL.path); using default configuration: \(error)"
-            )
-        }
+    let declared: ArcConfig
+    do {
+        declared = try ConfigurationStore.readDeclared(resolvedURL)
+    } catch {
+        // one-shot CLI commands stay tolerant of a corrupt file — but the
+        // failure is loud, because every model/provider choice is ignored.
+        Logger(label: "com.arc-agent.config").error(
+            "Failed to parse \(resolvedURL.path); using default configuration: \(error)"
+        )
+        declared = ArcConfig()
     }
+    return ConfigurationStore.resolve(
+        declared,
+        environment: ProcessInfo.processInfo.environment,
+        url: resolvedURL
+    )
+}
 
-    // Environment variable overrides
-    if let model = ProcessInfo.processInfo.environment["ARC_MODEL"] {
+/// Apply environment overrides to a declared configuration.
+///
+/// This is the one resolution implementation: ``loadConfig`` and
+/// ``ConfigurationStore`` both call it, so a one-shot command and the web UI
+/// can never disagree about what an environment variable means.
+func applyEnvironmentOverrides(
+    _ config: ArcConfig,
+    environment: [String: String],
+    dotenv: [String: String]
+) -> ArcConfig {
+    var config = config
+
+    if let model = environment["ARC_MODEL"] {
         config.model.defaultModel = model
     }
-    if let provider = ProcessInfo.processInfo.environment["ARC_PROVIDER"] {
+    if let provider = environment["ARC_PROVIDER"] {
         config.model.provider = provider
     }
-    if let baseURL = ProcessInfo.processInfo.environment["ARC_BASE_URL"] {
+    if let baseURL = environment["ARC_BASE_URL"] {
         config.model.baseURL = baseURL
     }
-    if let approvalMode = ProcessInfo.processInfo.environment["ARC_APPROVAL_MODE"] {
+    if let approvalMode = environment["ARC_APPROVAL_MODE"] {
         config.security.approvalMode = approvalMode
     }
-    if ProcessInfo.processInfo.environment["ARC_YOLO"] != nil {
+    if environment["ARC_YOLO"] != nil {
         config.security.yoloMode = true
     }
 
     // Tessera storage overrides. Any ARC_TESSERA_* variable activates the
     // tessera backend; unset fields keep whatever config.json declared.
-    let tesseraIP = ProcessInfo.processInfo.environment["ARC_TESSERA_SERVER_IP"]
-    let tesseraPort = ProcessInfo.processInfo.environment["ARC_TESSERA_SERVER_PORT"]
-    let tesseraServerPub = ProcessInfo.processInfo.environment["ARC_TESSERA_SERVER_PUBLIC_KEY"]
-    let tesseraClientPriv = ProcessInfo.processInfo.environment["ARC_TESSERA_PRIVATE_KEY"]
+    let tesseraIP = environment["ARC_TESSERA_SERVER_IP"]
+    let tesseraPort = environment["ARC_TESSERA_SERVER_PORT"]
+    let tesseraServerPub = environment["ARC_TESSERA_SERVER_PUBLIC_KEY"]
+    let tesseraClientPriv = environment["ARC_TESSERA_PRIVATE_KEY"]
         ?? dotenv["ARC_TESSERA_PRIVATE_KEY"]
     if tesseraIP != nil || tesseraPort != nil || tesseraServerPub != nil || tesseraClientPriv != nil {
         var t = config.tessera ?? TesseraConfig(
@@ -793,7 +855,7 @@ public func loadConfig(from configURL: URL? = nil) -> ArcConfig {
         if let tesseraPort, let p = Int(tesseraPort) { t.serverPort = p }
         if let tesseraServerPub { t.serverPublicKey = tesseraServerPub }
         if let tesseraClientPriv { t.myPrivateKey = tesseraClientPriv }
-        if let app = ProcessInfo.processInfo.environment["ARC_TESSERA_APPLICATION"], let a = UInt16(app) {
+        if let app = environment["ARC_TESSERA_APPLICATION"], let a = UInt16(app) {
             t.application = a
         }
         config.tessera = t
@@ -812,6 +874,13 @@ public func loadConfig(from configURL: URL? = nil) -> ArcConfig {
 public func saveConfig(_ config: ArcConfig, to configURL: URL? = nil) throws {
     let resolvedURL = configURL ?? ArcHome.config
     let configDir = resolvedURL.deletingLastPathComponent()
+
+    // never overwrite a file that cannot be decoded: a caller that read the
+    // file tolerantly (`loadConfig` on a corrupt file returns defaults) would
+    // otherwise replace the user's whole configuration with compiled values.
+    if FileManager.default.fileExists(atPath: resolvedURL.path) {
+        _ = try ConfigurationStore.readDeclared(resolvedURL)
+    }
 
     try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
     let enc = JSONEncoder()

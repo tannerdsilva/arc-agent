@@ -408,11 +408,12 @@ extension AppState {
 
     // MARK: - Core-service integrations (arc parity)
 
-    /// Per-turn tool guardrails, rebuilt from `~/.arc/config.json` at the
-    /// start of every turn so `guardrails.toolLoopCap` edits apply without a
-    /// restart (reference reads config per request too).
-    private static func freshGuardrails() -> ToolGuardrails {
-        ToolGuardrails(limits: .init(loopCap: Self.rawArcConfig().effectiveToolLoopCap()))
+    /// Per-turn tool guardrails, rebuilt from the in-memory configuration at
+    /// the start of every turn. The value comes from the same snapshot the
+    /// turn agent is minted from, so the guardrails and the agent can never
+    /// disagree about the cap.
+    private func freshGuardrails() -> ToolGuardrails {
+        ToolGuardrails(limits: .init(loopCap: arcConfig.toolCallLimit()))
     }
 
     // MARK: - Tool-iteration budget (reference `max_turns` parity)
@@ -420,15 +421,10 @@ extension AppState {
     /// reference `AIAgent` default tool-calling iterations (agent_init.py:470).
     static let defaultMaxTurns = 90
 
-    /// The tool-iteration budget for a turn, read per-turn from
-    /// `~/.arc/config.json` so edits apply without a restart (reference reads the
-    /// config per request too). Key precedence matches reference
-    /// (`api/streaming.py`): `agent.max_turns` → legacy root `max_turns` →
-    /// `agent.maxIterations` (arc-agent's own key) → default 90. A value of
-    /// `0`/negative means **unlimited** (the turn runs until the prompt
-    /// finishes); the settings UI writes `-1` for that state.
-    static func effectiveMaxTurns() -> Int {
-        Self.rawArcConfig().effectiveMaxTurns()
+    /// The tool-iteration budget for a turn, from the in-memory configuration
+    /// (refreshed through the store at the start of every turn).
+    func effectiveMaxTurns() -> Int {
+        arcConfig.effectiveMaxTurns()
     }
 
     /// arc parity: when the tool-iteration budget is exhausted, append the
@@ -728,9 +724,10 @@ extension AppState {
         // model-facing history the UI built minus the message stored above.
         let seed = Array(history.dropLast())
 
+        await refreshConfig()
         // the ambient `execute_code` path still consults the shared guardrails;
         // the turn's own budget lives on the agent's configuration.
-        guardrails = Self.freshGuardrails()
+        guardrails = freshGuardrails()
         await guardrails.resetTurn()
 
         // A6's overload: the minted agent carries this turn's approval, clarify
@@ -3317,54 +3314,66 @@ extension Controller {
     @Wired("al-max-turns", events: [.change])
     func handleAlMaxTurns(_ event: EventData) async -> [FragmentUpdate] {
         guard let v = Int(event.string("value") ?? ""), v > 0 else { return [] }
-        await self.app.setToolIterationLimit(v)
-        _ = await self.app.hint("Tool iteration limit set to \(v) (agent.max_turns).", kind: "success")
+        await self.app.setToolIterationLimit(.bounded(v))
+        _ = await self.app.hint("Tool iterations per turn set to \(v).", kind: "success")
         return await self.changed()
     }
 
     @Wired("al-max-turns-unlimited", events: [.change])
     func handleAlMaxTurnsUnlimited(_ event: EventData) async -> [FragmentUpdate] {
         let on = event.checked == true
-        await self.app.setToolIterationLimit(on ? -1 : 90)
-        _ = await self.app.hint(
-            on ? "Tool iteration limit disabled — turns run until the prompt finishes." : "Tool iteration limit restored to 90.",
-            kind: "success")
+        if on {
+            await self.app.setToolIterationLimit(.unlimited)
+            _ = await self.app.hint("Tool iterations are unlimited — a turn runs until the agent finishes.", kind: "success")
+        } else {
+            let restore = await self.app.settings.lastTurnLimit
+            await self.app.setToolIterationLimit(.bounded(restore))
+            _ = await self.app.hint("Tool iterations limited to \(restore) per turn.", kind: "success")
+        }
         return await self.changed()
     }
 
     @Wired("al-tool-cap", events: [.change])
     func handleAlToolCap(_ event: EventData) async -> [FragmentUpdate] {
         guard let v = Int(event.string("value") ?? ""), v > 0 else { return [] }
-        await self.app.setToolLoopCap(v)
-        _ = await self.app.hint("Per-tool call cap set to \(v) (guardrails.toolLoopCap).", kind: "success")
+        await self.app.setToolLoopCap(.bounded(v))
+        _ = await self.app.hint("Each tool may run \(v) times per turn.", kind: "success")
         return await self.changed()
     }
 
     @Wired("al-tool-cap-unlimited", events: [.change])
     func handleAlToolCapUnlimited(_ event: EventData) async -> [FragmentUpdate] {
         let on = event.checked == true
-        await self.app.setToolLoopCap(on ? -1 : 25)
-        _ = await self.app.hint(
-            on ? "Per-tool call cap disabled." : "Per-tool call cap restored to 25.",
-            kind: "success")
+        if on {
+            await self.app.setToolLoopCap(.unlimited)
+            _ = await self.app.hint("No per-tool call cap; identical repeats are still caught.", kind: "success")
+        } else {
+            let restore = await self.app.settings.lastToolCallLimit
+            await self.app.setToolLoopCap(.bounded(restore))
+            _ = await self.app.hint("Each tool may run \(restore) times per turn.", kind: "success")
+        }
         return await self.changed()
     }
 
     @Wired("al-turn-duration", events: [.change])
     func handleAlTurnDuration(_ event: EventData) async -> [FragmentUpdate] {
         guard let v = Int(event.string("value") ?? ""), v > 0 else { return [] }
-        await self.app.setTurnDuration(v)
-        _ = await self.app.hint("Max turn duration set to \(v)s (agent.max_turn_duration).", kind: "success")
+        await self.app.setTurnDuration(.bounded(v))
+        _ = await self.app.hint("Turns are capped at \(v) seconds.", kind: "success")
         return await self.changed()
     }
 
     @Wired("al-turn-duration-unlimited", events: [.change])
     func handleAlTurnDurationUnlimited(_ event: EventData) async -> [FragmentUpdate] {
         let on = event.checked == true
-        await self.app.setTurnDuration(on ? nil : 120)
-        _ = await self.app.hint(
-            on ? "Turn duration unlimited (the default)." : "Max turn duration restored to 120s.",
-            kind: "success")
+        if on {
+            await self.app.setTurnDuration(.unlimited)
+            _ = await self.app.hint("No wall-clock cap on a turn (the default).", kind: "success")
+        } else {
+            let restore = await self.app.settings.lastTurnDurationSeconds
+            await self.app.setTurnDuration(.bounded(restore))
+            _ = await self.app.hint("Turns are capped at \(restore) seconds.", kind: "success")
+        }
         return await self.changed()
     }
 

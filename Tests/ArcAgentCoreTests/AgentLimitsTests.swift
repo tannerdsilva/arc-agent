@@ -68,8 +68,43 @@ extension ArcCoreTestRoot {
         func missingKeysSafe() throws {
             let cfg = try decode(#"{"agent": {"maxIterations": 25, "persistSessions": true}}"#)
             #expect(cfg.agent.max_turns == nil)
-            #expect(cfg.guardrails.toolLoopCap == nil)
+            #expect(cfg.guardrails == nil)
+            #expect(cfg.limits.perToolCalls == nil)
             #expect(cfg.effectiveMaxTurns() == 25)
+        }
+
+        @Test("legacy limit keys lift into the canonical section")
+        func legacyLift() throws {
+            let cfg = try decode(#"{"max_turns": 50, "agent": {"max_turn_duration": 90}, "guardrails": {"toolLoopCap": 3}}"#)
+            #expect(cfg.limits.turns == .bounded(50))
+            #expect(cfg.limits.turnDuration == .bounded(90))
+            #expect(cfg.limits.perToolCalls == .bounded(3))
+            // the legacy keys are read once and do not survive a rewrite.
+            #expect(cfg.agent.max_turns == nil)
+            #expect(cfg.max_turns == nil)
+            #expect(cfg.guardrails == nil)
+        }
+
+        @Test("a rewritten config carries only the canonical limits keys")
+        func rewriteEmitsCanonicalKeys() throws {
+            let cfg = try decode(#"{"agent": {"max_turns": 40}, "guardrails": {"toolLoopCap": 5}}"#)
+            let data = try JSONEncoder().encode(cfg)
+            let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(json["limits"] != nil)
+            #expect(json["max_turns"] == nil)
+            #expect(json["guardrails"] == nil)
+            let agent = try #require(json["agent"] as? [String: Any])
+            #expect(agent["max_turns"] == nil)
+            #expect(agent["max_turn_duration"] == nil)
+        }
+
+        @Test("Limit encodes unlimited canonically and decodes the old sentinels")
+        func limitCodec() throws {
+            #expect(try JSONEncoder().encode(Limit.unlimited) == Data("0".utf8))
+            #expect(try JSONEncoder().encode(Limit.bounded(7)) == Data("7".utf8))
+            #expect(try JSONDecoder().decode(Limit.self, from: Data("-1".utf8)) == .unlimited)
+            #expect(try JSONDecoder().decode(Limit.self, from: Data("0".utf8)) == .unlimited)
+            #expect(try JSONDecoder().decode(Limit.self, from: Data("7".utf8)) == .bounded(7))
         }
     }
 }
@@ -126,6 +161,25 @@ extension ArcCoreTestRoot {
                 }
             }
             #expect(synthetics == 0)
+        }
+
+        @Test("an unlimited config cap keeps the identical-call floor")
+        func configUnlimitedKeepsFloor() async {
+            // regression: the config used to hand `Int.max` to the guardrails,
+            // which read it as a bounded cap (Int.max > 0) and set the repeat
+            // floor to Int.max / 3 — disabling loop protection entirely.
+            let cfg = try! JSONDecoder().decode(
+                ArcConfig.self, from: Data(#"{"limits": {"perToolCalls": 0}}"#.utf8))
+            #expect(cfg.toolCallLimit() == .unlimited)
+            let g = ToolGuardrails(limits: .init(loopCap: cfg.toolCallLimit()))
+            var syntheticAt: Int?
+            for i in 1...14 {
+                if case .synthetic = await g.decide(toolName: "terminal", args: ["cmd": "same"]),
+                   syntheticAt == nil {
+                    syntheticAt = i
+                }
+            }
+            #expect(syntheticAt == 11)
         }
     }
 }

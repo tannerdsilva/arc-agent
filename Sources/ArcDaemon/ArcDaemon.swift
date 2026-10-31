@@ -103,7 +103,7 @@ public enum ArcDaemon {
             tessera: arc.tessera,
             persistSessions: arc.agent.persistSessions,
             maxIterations: arc.effectiveMaxTurns(),
-            toolLoopCap: arc.effectiveToolLoopCap(),
+            toolLoopCap: arc.toolCallLimit(),
             maxTurnDuration: arc.effectiveMaxTurnDuration() ?? 0,
             mcpServers: arc.mcpServers,
             contextDefaults: WebUIContextDefaults.loadFromDisk() ?? arc.contextDefaults,
