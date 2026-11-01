@@ -238,7 +238,7 @@ extension AppState {
             DetailCard {
                 El("h3", [("style", "margin:0 0 12px")], [
                     Text("Skill Usage "),
-                    Span(class: .insRangeHint) { Text("(top \(min(10, ranked.count)) by uses)") },
+                    InsRangeHint { Text("(top \(min(10, ranked.count)) by uses)") },
                 ])
                 Div(class: .insBubbles) {
                     statBubble(label: "Total Invocations", value: Self.fmtCount(totalUses), icon: .star)
@@ -259,7 +259,7 @@ extension AppState {
             DetailCard {
                 El("h3", [("style", "margin:0 0 12px")], [
                     Text("Daily Tokens "),
-                    Span(class: .insRangeHint) { Text("(last \(insightsRangeDays) days)") },
+                    InsRangeHint { Text("(last \(insightsRangeDays) days)") },
                 ])
                 dailyTokensGraph()
             }

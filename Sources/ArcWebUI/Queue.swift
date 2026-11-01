@@ -451,9 +451,9 @@ extension AppState {
         }
         return Group {
             if e.inputs.isEmpty {
-                Span(class: .queueIn) { Text("no feed") }
+                QueueIn { Text("no feed") }
             } else {
-                Span(class: .queueIn) {
+                QueueIn {
                     Text("feeds: ")
                     Span(class: .queueFeedChips) { chips }
                 }
@@ -567,14 +567,14 @@ extension AppState {
         // the rows are materialized up front: a builder cannot take `[some View]`
         let rows: [any WebUI.View] = plan.enumerated().map { i, e in queueRowHTML(e, index: i, plan: plan) }
         return Div(class: "todo-card queue-card") {
-            Div(class: .todoHead) {
+            TodoHead {
                 Div {
                     Element(.h2, class: .todoTitle) { Text("Run queue") }
-                    Div(class: .todoSub) {
+                    TodoSub {
                         Text("Tasks run in the order shown. Sequential feeds linked output; parallel runs each chat at once.")
                     }
                 }
-                Div(class: .todoHeadActions) {
+                TodoHeadActions {
                     Div(class: .queueCtrl) {
                         if running {
                             queueRunningStatus()
@@ -619,12 +619,12 @@ extension AppState {
     private func queueRunControls() -> some WebUI.View {
         Div(class: .queueCtrlBtns) {
             ArcButton(id: "queue-run-sync", component: nil, class: .queueRunBtn) {
-                Span(class: .queueRunIco) { WebUIIcon(.play, size: .small) }
+                QueueRunIco { WebUIIcon(.play, size: .small) }
                 Text("Run sequential")
             }
             .title("Run tasks in the shown order; linked tasks receive earlier output as context")
             ArcButton(id: "queue-run-async", component: nil, class: .queueRunBtn) {
-                Span(class: .queueRunIco) { WebUIIcon(.fastForward, size: .small) }
+                QueueRunIco { WebUIIcon(.fastForward, size: .small) }
                 Text("Run parallel")
             }
             .title("Run each chat at the same time; same-chat tasks are combined")
@@ -667,8 +667,8 @@ extension AppState {
 
     /// the empty-queue placeholder.
     private func queueEmptyState() -> some WebUI.View {
-        Div(class: .todoEmpty) {
-            Div(class: .todoEmptyIco) { WebUIIcon(.fastForward, size: .extraLarge) }
+        TodoEmpty {
+            TodoEmptyIco { WebUIIcon(.fastForward, size: .extraLarge) }
             Div { Text("Nothing queued yet") }
             Small("Add todos from any chat below, drag to reorder, then run them.")
         }

@@ -523,12 +523,12 @@ extension AppState {
         }
 
         return Div(class: .todoCard) {
-            Div(class: .todoHead) {
+            TodoHead {
                 Div {
                     Element(.h2, class: .todoTitle) { Text("Todos") }
-                    Div(class: .todoSub) { Text(chatLabel) }
+                    TodoSub { Text(chatLabel) }
                 }
-                Div(class: .todoHeadActions) {
+                TodoHeadActions {
                     if done > 0 {
                         ArcButton("Clear done (\(done))", id: "todo-clear-done",
                                   component: nil, class: .ghostBtn)
@@ -545,8 +545,8 @@ extension AppState {
             }
             Div(class: "todo-list") {
                 if items.isEmpty {
-                    Div(class: .todoEmpty) {
-                        Div(class: .todoEmptyIco) { WebUIIcon(.check, size: .extraLarge) }
+                    TodoEmpty {
+                        TodoEmptyIco { WebUIIcon(.check, size: .extraLarge) }
                         Div { Text(chat.isEmpty ? "Select a chat to see its todos" : "No todos for this chat yet") }
                         Small("Add one below — it stays with this chat.")
                     }
@@ -661,18 +661,18 @@ extension AppState {
                 .margin(0)
                 .wire("tasks")
             }
-            Div(class: .taskCtrlLine) {
-                Span(class: .taskCtrlKey) { Text("Prompt") }
-                Span(class: .taskCtrlVal) { Text(job.prompt) }
+            TaskCtrlLine {
+                TaskCtrlKey { Text("Prompt") }
+                TaskCtrlVal { Text(job.prompt) }
             }
-            Div(class: .taskCtrlLine) {
-                Span(class: .taskCtrlKey) { Text("Last output") }
-                Span(class: .taskCtrlVal) { Text(out) }
+            TaskCtrlLine {
+                TaskCtrlKey { Text("Last output") }
+                TaskCtrlVal { Text(out) }
             }
         }
         let thread = Div(class: .taskThread) {
-            Div(class: .chatScroll) {
-                Div(class: .chatInner) { messagesHTML(msgs) }
+            ChatScroll {
+                ChatInner { messagesHTML(msgs) }
                     .id("task-chat-inner")
             }
             .id("task-chat-scroll")
@@ -690,7 +690,7 @@ extension AppState {
 
     func taskMainEmpty() -> some WebUI.View {
         MainView {
-            Div(class: .mainScroll) {
+            MainScroll {
                 Element(.h2, class: .todoTitle) { Text("Scheduled tasks") }
                 Element(.p, class: .todoSub) {
                     Text("Pick a task on the left to see its controls and chat, or create a new one below.")

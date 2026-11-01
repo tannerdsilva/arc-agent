@@ -2011,7 +2011,7 @@ extension AppState {
     func liveWorkspaceFragments() async -> [FragmentUpdate] {
         let path = panelWorkspacePath()
         let body = Div {
-            Div(class: .wsPath) { Text(path) }
+            WsPath { Text(path) }
                 .title(path)
             // the listing is the bytes the scan just rendered: walking the
             // directory again here would be a second synchronous scan of the
