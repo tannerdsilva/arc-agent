@@ -1,45 +1,28 @@
+import ArcTheme
 import WebUI
+import WebUIDesignSystem
 
-/// A detail card: `.detail-card` with a `.detail-title` heading and a
+// MARK: - Detail card
+
+/// a detail card: `.detail-card` with a `.detail-title` heading and a
 /// `.detail-sub` sub-line, plus body children.
-public struct DetailCard<Body: WebUI.View>: WebUI.View {
-	public let title: String
-	public let sub: String
-	public let body: Body
-	/// an additional class on the card itself (e.g. a spacing modifier)
-	public let extraClass: String
-
-	public init(
-		title: String = "",
-		sub: String = "",
-		extraClass: String = "",
-		@ElementBuilder body: () -> Body = { EmptyView() }
-	) {
-		self.title = title
-		self.sub = sub
-		self.extraClass = extraClass
-		self.body = body()
-	}
-
-	public func render(into buffer: inout HTMLBuffer) {
-		buffer.beginElement("div", extraClass.isEmpty ? "class=\"detail-card\"" : "class=\"detail-card \(htmlEscape(extraClass))\"")
-		buffer.endOpenTag()
-		// a line that does not exist in the source must not exist in the output:
-		// the sheet gives both `.detail-title` and `.detail-sub` their own
-		// margins, so an empty node renders a visible gap.
-		if !title.isEmpty {
-			buffer.beginElement("h1", "class=\"detail-title\"")
-			buffer.endOpenTag()
-			Text(title).render(into: &buffer)
-			buffer.endElement()
-		}
-		if !sub.isEmpty {
-			buffer.beginElement("div", "class=\"detail-sub\"")
-			buffer.endOpenTag()
-			Text(sub).render(into: &buffer)
-			buffer.endElement()
-		}
-		body.render(into: &buffer)
-		buffer.endElement()
-	}
+///
+/// the base class derives from the type name, so `detail-card` is written
+/// nowhere; the two optional lines above the body are declared as parts and the
+/// shared renderer emits them in declaration order, with no renderer here.
+///
+/// a line that does not exist in the source must not exist in the output: the
+/// sheet gives both `.detail-title` and `.detail-sub` their own margins, so an
+/// empty part is omitted entirely rather than rendered as an empty node.
+///
+/// the part tokens are named through `ArcClass` rather than spelled as strings,
+/// so the enum stays the only place a token is written. they cannot go through a
+/// `ClassName` static yet: `Div(class:)` still carries both an `ArcClass` and a
+/// `ClassName` overload, and a static would make every bare `.detailSub` call
+/// site ambiguous — the statics and the removal of those overloads move together
+/// in Slice B.
+@StyledElement(.div)
+public struct DetailCard<Content: WebUI.View> {
+	@Part(.h1, class: ClassName(ArcClass.detailTitle)) public var title: String = ""
+	@Part(.div, class: ClassName(ArcClass.detailSub)) public var sub: String = ""
 }
