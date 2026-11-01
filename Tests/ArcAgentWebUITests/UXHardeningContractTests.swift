@@ -222,6 +222,38 @@ extension ArcWebUITestRoot {
                     "the tick must broadcast only when a toast actually dropped")
         }
 
+        // MARK: - streamer frames opt out of view transitions (2026-11-01 audit, UX-A)
+
+        /// The audit found a toast removal frame that arrived but never applied:
+        /// the engine wraps every un-flagged fragment batch in
+        /// `document.startViewTransition`, whose update callback starves in a
+        /// compositor-starved tab — `callbackPending` sticks and the patcher
+        /// refuses all later frames until real compositing resumes (minutes).
+        /// The streamers bypass the differ, which stamps `transition: false` on
+        /// its own frames ("the diff is not a navigation and must not animate"),
+        /// so bare broadcast frames must carry the opt-out themselves. Pinned
+        /// where the frames are BUILT, not where they are sent — the producers
+        /// are the contract.
+        @Test("streamer frames opt out of the engine's view transition (never wedge the patcher)")
+        func streamerFramesNeverTransition() async {
+            // The flag lives on the wire type (the engine reads `f.transition === false`
+            // off the parsed frame), so every pin reads the produced FragmentUpdate.
+            let toastApp = AppState(renderFixture: AppState.RenderFixture())
+            let toastFrames = await toastApp.toastFragments()
+            #expect(!toastFrames.isEmpty && toastFrames.allSatisfy { $0.transition == false },
+                    "toast frames are bare shell bytes the client already has — no animation, ever")
+
+            let logApp = AppState(renderFixture: AppState.RenderFixture())
+            let logFrame = await logApp.liveLogFragments()
+            #expect(!logFrame.isEmpty && logFrame.allSatisfy { $0.transition == false },
+                    "the log streamer must opt out: its tick can land mid-anything")
+
+            let wsApp = AppState(renderFixture: AppState.RenderFixture())
+            let wsFrame = await wsApp.liveWorkspaceFragments()
+            #expect(!wsFrame.isEmpty && wsFrame.allSatisfy { $0.transition == false },
+                    "the workspace streamer must opt out of the transition machinery")
+        }
+
         // MARK: - UX-27 toast kinds, anchor and stack cap
 
         @Test("toasts are kind-aware: red only for failures, anchored clear of the header, capped")

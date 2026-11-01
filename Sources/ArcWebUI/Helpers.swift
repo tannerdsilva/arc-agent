@@ -85,9 +85,18 @@ func fmtTps(_ v: Double) -> String {
 ///
 /// Deltas (`FragmentUpdate.text`) are the other sanctioned explicit shape: they
 /// target a node another producer owns, and the edge forwards them untouched.
+///
+/// Every frame this helper builds carries `transition: false` — the differ that
+/// serves the push door stamps the same flag on its own frames ("the diff is not
+/// a navigation and must not animate", `PushEdge.livePolicy`), and these frames
+/// bypass that door. An un-flagged broadcast frame opts INTO the engine's
+/// `startViewTransition` wrapper, whose update callback starves in a
+/// compositor-starved tab: `callbackPending` sticks and the engine refuses every
+/// later fragment batch until real compositing resumes (the 2026-11-01 audit's
+/// toast-expiry defect). Streamer ticks land mid-anything — they never animate.
 @inlinable
 func fragment(_ id: String, _ view: some WebUI.View) -> FragmentUpdate {
-    FragmentUpdate(id: id, html: view.markup.html)
+    FragmentUpdate(id: id, html: view.markup.html, transition: false)
 }
 
 /// render a typed view where a `-> String` signature must survive one more phase.

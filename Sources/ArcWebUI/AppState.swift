@@ -2380,7 +2380,10 @@ actor AppState {
     /// by id, so the wrapper (id + routing attributes) must be re-emitted
     /// verbatim — same shape as `toastsShell()` in the page.
     func toastFragments() -> [FragmentUpdate] {
-        [FragmentUpdate(id: "toasts", html: toastsShell().markup.html)]
+        // `transition: false` — same contract as `fragment()` (see Helpers.swift):
+        // this broadcast bypasses the differ's stamp, and an un-flagged frame
+        // wedges the engine's patcher when the transition callback starves.
+        [FragmentUpdate(id: "toasts", html: toastsShell().markup.html, transition: false)]
     }
 
     // MARK: Runtime construction
