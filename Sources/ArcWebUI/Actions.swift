@@ -2237,27 +2237,6 @@ extension Controller {
     @Wired("toast-dismiss", events: [.click])
     func handleToastDismiss(_ event: EventData) async -> [FragmentUpdate] {
         guard let tid = event.string("targetId") else { return [] }
-        if tid.hasPrefix("ta-") {
-            // Toast action button: `ta-<actionId>-<toastId>`. The action id
-            // may itself contain dashes, so split at the LAST dash.
-            let rest = String(tid.dropFirst("ta-".count))
-            guard let lastDash = rest.lastIndex(of: "-"),
-                  Int(rest[rest.index(after: lastDash)...]) != nil else { return [] }
-            let actionID = String(rest[..<lastDash])
-            if actionID == "undo-delete" {
-                let ok = await self.app.undoDeleteChat()
-                if !ok {
-                    _ = await self.app.surfaceToast("Could not restore the conversation.", kind: "error")
-                } else if let toastID = Int(rest[rest.index(after: lastDash)...]) {
-                    // The Undo was consumed — retire its own toast so it
-                    // cannot offer a second, dead undo (the nudge below
-                    // re-derives #toasts from the shorter list).
-                    await self.app.dismissToast(id: toastID)
-                }
-                return await self.changed()
-            }
-            return []
-        }
         guard tid.hasPrefix("t-"),
               let id = Int(tid.dropFirst("t-".count)) else { return [] }
         await self.app.dismissToast(id: id)
@@ -2337,6 +2316,7 @@ extension Controller {
         // UX-10: do not persist an untouched new chat. Create a client-side
         // draft instead — it only hits the store on the first send.
         let session = Session()
+        await app.bindDefaultWorkspace(session.id)
         await app.setDraftSession(session)
         await app.setActiveSession(session.id)
         _ = await app.hint("New chat.")
@@ -2512,8 +2492,8 @@ extension Controller {
                 _ = await app.hint("No workspace named '\(args)'.", kind: "error")
                 return await self.changed()
             }
-            await app.setWorkspace(active: args)
-            _ = await app.hint("Workspace '\(args)'.")
+            await app.setChatWorkspace(args)
+            _ = await app.hint("Chat workspace is now '\(args)'.")
             return await self.changed()
         }
         if name == "model" {
@@ -2930,9 +2910,6 @@ extension Controller {
     }
 
     private func workspaceListAction(_ tid: String) async -> [FragmentUpdate] {
-        if tid.hasPrefix("ws-open-"), let name = dec(String(tid.dropFirst("ws-open-".count))) {
-            return await self.switchWorkspace(name)
-        }
         if tid.hasPrefix("ws-del-"), let name = dec(String(tid.dropFirst("ws-del-".count))) {
             // Confirmed like every other named-thing delete (profiles, chats):
             // the row's ✕ arms the dialog instead of removing the workspace.
@@ -2978,15 +2955,6 @@ extension Controller {
         await app.clearWorkspaceCreateFields()
         let effect = bindToChat ? "this chat now uses it" : "it is now the default"
         _ = await app.hint("Workspace '\(entry.name)' created at \(entry.path) — \(effect).")
-        return await self.changed()
-    }
-
-    private func switchWorkspace(_ name: String) async -> [FragmentUpdate] {
-        let active = await app.activeWorkspaceName()
-        if name == active { return [] }
-        await app.setWorkspace(active: name)
-        await app.rebuildAndReload()
-        _ = await app.hint("Default workspace is now '\(name)'. Chats without their own workspace use it.")
         return await self.changed()
     }
 

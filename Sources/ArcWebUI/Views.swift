@@ -270,7 +270,7 @@ extension AppState {
             let title = trunc(sessionTitle(s), 48)
             return ConfirmRequest(
                 kind: "chat", id: mid, title: "Delete conversation?",
-                body: "The chat “\(title)” will be deleted. You can undo this for 10 seconds.")
+                body: "The chat “\(title)” will be permanently deleted.")
         }
         return pendingConfirm
     }
@@ -1069,10 +1069,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 for entry in settings.workspaces {
                     let encWS = enc(entry.name)
                     let isMain = entry.name == "main"
-                    ErasedViews([Div(class: ClassName("list-row\(entry.name == settings.activeWorkspace ? " active" : "")")) {
-                        ArcButton(id: "ws-open-\(encWS)", class: ClassName(.sessOpen, .sessOpenFlush), type: .button) {
-                            LrName { Text(entry.name) }
-                            Span(class: ClassName(.lrSub, .lrSubPath)) {
+                    // Workspace rows are informational: the workspace tab
+                    // exists to create/delete workspaces (user request) —
+                    // a chat's workspace is chosen in the chat itself, and
+                    // the file tree mirrors the active chat's workspace.
+                    ErasedViews([Div(class: ClassName(.sessOpen, .sessOpenFlush)) {
+                        LrName { Text(entry.name) }
+                        Span(class: ClassName(.lrSub, .lrSubPath)) {
                                 Text(entry.path == WorkspaceEntry.defaultPath(for: "main")
                                      ? "home folder (default)"
                                      : trunc(entry.path, 58))
@@ -5141,7 +5144,10 @@ extension AppState {
                                 let editors: [any WebUI.View] = sections.enumerated().flatMap { (idx, section) in
                                     var out: [any WebUI.View] = []
                                     if idx > 0 {
-                                        out.append(MemSep {})
+                                        // The § delimiter stays visible in the editor, on
+                                        // its own line with air above and below (the stored
+                                        // file keeps "\n§\n" — this is display-only).
+                                        out.append(MemSep { Text("§") })
                                     }
                                     out.append(TextArea(field: FieldID("mem-content-\(idx)"),
                                                         value: section, rows: 3)

@@ -2490,6 +2490,18 @@ public static let css: String = """
     .pn-draft-desc { font-size: 0.78em; color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .pn-draft-empty { font-size: 0.78em; color: var(--muted); padding: 2px 2px 4px; }
     .pn-picker { max-width: 320px; margin-bottom: 4px; }
+    /* The skill picker opens from the left edge of the profile form. The
+       design-system panel anchors to the trigger's RIGHT edge (`right: 0`)
+       and grows leftward — off screen here. Anchor left instead and give it
+       the same popover frame as the other arc pickers (.dd-pop). */
+    .pn-picker .dropdown__panel {
+      left: 0; right: auto; top: calc(100% + 6px);
+      min-width: 320px; max-width: 380px;
+      max-height: min(60vh, 420px); overflow: hidden;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+      padding: 8px; z-index: 60;
+    }
     .pl-eyebrow { font-size: 0.76em; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
     .pl-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--border); }
     .pl-row:first-of-type { border-top: none; }
@@ -2891,7 +2903,7 @@ public static let css: String = """
     /* §-entry separator (memory docs): the web UI renders each `§` delimiter
        line as a subtle 1px rule between entry sections — view and editor
        alike. Display-only; the stored file keeps its literal § bytes. */
-    .mem-sep { height: 0; border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
+    .mem-sep { border: 0; border-top: 1px solid var(--border); margin: 14px 0; padding: 10px 0; text-align: center; color: var(--muted); font-size: 0.95em; user-select: none; }
 
     /* ─── Workspace panel (right side) ───────────────────────── */
     /* The handle is a persistent affordance (the collapse tab must be

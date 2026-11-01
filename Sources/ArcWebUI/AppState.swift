@@ -617,23 +617,6 @@ struct ToastAction: Equatable {
     let label: String
 }
 
-/// A deleted chat held for Undo (UX-06): the full session plus every per-chat
-/// settings key the delete path strips, so "Undo" can resurrect the row with
-/// its context intact. Cleared on the next navigation (session open / tab
-/// switch) or when a newer delete supersedes it.
-struct UndoableDelete {
-    let session: Session
-    let workspace: String?
-    let category: String?
-    let profile: String?
-    let thinking: String?
-    let bookmarked: Bool
-    let todos: [TodoItem]?
-    let draft: String?
-    let title: String?
-    let capturedAt: Date = Date()
-}
-
 /// One mid-stream send held in the honest queue (UX-04): the message is
 /// visible ("Queued · N" chip above the composer, removable) and runs as its
 /// own turn after the current reply finishes, in order.
@@ -1062,10 +1045,6 @@ actor AppState {
     /// Daily-token graph range selected in the Insights panel (7/30/90/365).
     var insightsRangeDays = 30
     var toasts: [Toast] = []
-    /// The last chat deleted from the UI, held so its Undo toast can resurrect
-    /// it. Lives until the next navigation (session open / tab switch) or a
-    /// newer delete replaces it (UX-06).
-    var undoableDelete: UndoableDelete?
     /// URL fragment the server hands the client for the shared-link clipboard
     /// write (UX-06). Clicks inside the wired chat-menu boundary never reach
     /// client JS — the engine routes them away — so the copy rides this
@@ -2346,7 +2325,7 @@ actor AppState {
 
     /// Surface a toast regardless of kind — the routed counterpart to `toast`,
     /// which stays error-only by user preference. Used where feedback IS the
-    /// feature (UX-06: "Conversation deleted" + Undo must appear, not vanish).
+    /// feature and must appear, not vanish.
     @discardableResult
     func surfaceToast(_ text: String, kind: String = "info", action: ToastAction? = nil,
                       persistent: Bool = false) -> Toast {
@@ -2374,8 +2353,6 @@ actor AppState {
 
     /// How long a surfaced error stays on screen before it clears itself. Long
     /// enough to read and act on, short enough that it never becomes furniture.
-    /// The delete-undo toast advertises "Undo for 10 seconds", so this must
-    /// match that window exactly.
     static let toastTTL: TimeInterval = 10
 
     /// Drop toasts past their TTL. Returns true only when the set actually

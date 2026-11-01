@@ -38,9 +38,6 @@ extension AppState {
         // The tab switch runs last: it owns the shared-reset inventory and the
         // task-chat materialization, now that the selection above is in place.
         await switchTab(v.rawValue)
-        // Navigation leaves the delete-undo window: the Undo toast belongs to
-        // the chat surface right after a delete, not to the page you land on.
-        undoableDelete = nil
     }
 
     func setLogFilter(_ f: String) {
@@ -134,15 +131,10 @@ extension AppState {
         formValues["ws-path-input"] = ""
     }
 
-    func setActiveSession(_ id: String, preserveUndo: Bool = false) async {
+    func setActiveSession(_ id: String) async {
         activeSessionID = id
         pendingDelete = false
         filePopOpen = false
-        // Opening a different chat is the "next navigation" that closes the
-        // delete-undo window (UX-06). The delete path's own auto-select
-        // (falling back to the newest chat) passes preserveUndo so the Undo
-        // toast survives the very moment that raised it.
-        if !preserveUndo { undoableDelete = nil }
         // UX-10: leaving an untouched draft drops it — the client-side draft
         // created by `+` never reaches the store unless a message is sent.
         if let draft = draftSessionID, draft != id {
@@ -484,24 +476,6 @@ extension AppState {
     func confirmDeleteSession(_ id: String?) async {
         guard let store, let id else { return }
         confirmDeleteID = nil
-        // UX-06: snapshot the chat for Undo BEFORE it is destroyed. The
-        // cached row may be a summary; materialize its messages first so a
-        // restored chat comes back with its full transcript.
-        await ensureSessionMessages(id)
-        if let idx = sessions.firstIndex(where: { $0.id == id }) {
-            let s = sessions[idx]
-            undoableDelete = UndoableDelete(
-                session: s,
-                workspace: settings.sessionWorkspaces[id],
-                category: settings.sessionCategories[id],
-                profile: settings.sessionProfile[id],
-                thinking: settings.sessionThinking[id],
-                bookmarked: settings.bookmarkedSessions.contains(id),
-                todos: settings.todos[id],
-                draft: settings.composerDrafts[id],
-                title: settings.sessionTitles[id]
-            )
-        }
         do {
             try await store.delete(id: id)
         } catch {
@@ -523,47 +497,9 @@ extension AppState {
            let newest = sessions
                .filter({ !$0.id.hasPrefix("Cron-") })
                .max(by: { $0.updatedAt < $1.updatedAt }) {
-            await setActiveSession(newest.id, preserveUndo: true)
+            await setActiveSession(newest.id)
         }
-        _ = surfaceToast("Conversation deleted. Undo for 10 seconds.", action: ToastAction(id: "undo-delete", label: "Undo"))
-    }
-
-    /// Resurrect the chat the Undo toast points at (UX-06): re-create the
-    /// session in the store, restore its per-chat settings keys, and navigate
-    /// back to it. Returns false when there is nothing to restore or the
-    /// store refuses the create (a loud "could not" toast is then the honest
-    /// outcome).
-    @discardableResult
-    func undoDeleteChat() async -> Bool {
-        guard let store, let saved = undoableDelete else { return false }
-        let id = saved.session.id
-        undoableDelete = nil
-        // The delete may never have landed (store error on delete): if the
-        // session is already alive there is nothing to re-create — just
-        // navigate back to it.
-        if (try? await store.get(id: id)) != nil {
-            await reloadSessions(selecting: id)
-            await setActiveSession(id, preserveUndo: true)
-            return true
-        }
-        do {
-            try await store.create(saved.session)
-        } catch {
-            LogCollector.shared.append(level: .error, text: "[store] failed to restore deleted session \(String(id.prefix(8))): \(error)")
-            return false
-        }
-        if let w = saved.workspace { settings.sessionWorkspaces[id] = w }
-        if let c = saved.category { settings.sessionCategories[id] = c }
-        if let p = saved.profile { settings.sessionProfile[id] = p }
-        if let t = saved.thinking { settings.sessionThinking[id] = t }
-        if saved.bookmarked, !settings.bookmarkedSessions.contains(id) { settings.bookmarkedSessions.append(id) }
-        if let todos = saved.todos { settings.todos[id] = todos }
-        if let d = saved.draft { settings.composerDrafts[id] = d }
-        if let t = saved.title { settings.sessionTitles[id] = t }
-        saveSettings()
-        await reloadSessions(selecting: id)
-        await setActiveSession(id, preserveUndo: true)
-        return true
+        _ = surfaceToast("Conversation deleted.")
     }
 
     /// How many never-messaged drafts the cleanup would actually remove
@@ -591,9 +527,6 @@ extension AppState {
     @discardableResult
     func clearEmptyDrafts() async -> Int {
         guard let store else { return 0 }
-        // A bulk delete cannot ride the single-slot undo; retire any pending
-        // one so an Undo toast can never resurrect some other chat.
-        undoableDelete = nil
         let keep = activeSessionID
         var doomed: [String] = []
         for s in sessions
@@ -625,13 +558,14 @@ extension AppState {
             if let newest = sessions
                 .filter({ !$0.id.hasPrefix("Cron-") })
                 .max(by: { $0.updatedAt < $1.updatedAt }) {
-                await setActiveSession(newest.id, preserveUndo: true)
+                await setActiveSession(newest.id)
             } else {
                 await ensureRuntime()
                 let fresh = Session()
+                bindDefaultWorkspace(fresh.id)
                 try? await store.create(fresh)
                 await reloadSessions(selecting: fresh.id)
-                await setActiveSession(fresh.id, preserveUndo: true)
+                await setActiveSession(fresh.id)
             }
         }
         _ = surfaceToast(doomed.count == 1 ? "Empty chat cleared." : "\(doomed.count) empty chats cleared.")
@@ -1624,6 +1558,18 @@ extension AppState {
             selectedWorkspace = name
         }
         saveSettings()
+    }
+
+    /// Bind a brand-new chat to the main workspace explicitly (user request:
+    /// the workspace tab must never rebind chats, so the default is stamped
+    /// at creation instead of falling through the mutable global default).
+    /// The user can still pick a different one per chat afterwards.
+    func bindDefaultWorkspace(_ sessionID: String) {
+        if settings.sessionWorkspaces[sessionID] == nil {
+            settings.sessionWorkspaces[sessionID] = "main"
+            selectedWorkspace = "main"
+            saveSettings()
+        }
     }
 
     func removeWorkspace(_ name: String) {

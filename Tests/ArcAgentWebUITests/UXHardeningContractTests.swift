@@ -519,22 +519,14 @@ extension ArcWebUITestRoot {
                     "the shell the door renders must carry the strip, or the derived change has no region to name")
         }
 
-        // MARK: - UX-06 feedback + undo for copy / delete
+        // MARK: - UX-06 feedback for copy / delete
 
-        @Test("deleting a chat surfaces an Undo toast and the wire can restore it")
+        @Test("feedback toasts must be surfaceable; toasts may carry actions")
         func deleteHasUndoToast() async {
             let appState = Self.appState
             #expect(appState.contains("func surfaceToast(_ text: String, kind: String = \"info\", action: ToastAction? = nil,"),
                     "routine toasts stay quiet by preference — feedback toasts must be surfaced explicitly")
             #expect(appState.contains("let action: ToastAction?"), "Toast must be able to carry an action")
-            let appStateActions = Self.appStateActions
-            #expect(appStateActions.contains("ToastAction(id: \"undo-delete\", label: \"Undo\")"),
-                    "deleting a chat must offer Undo")
-            #expect(appStateActions.contains("func undoDeleteChat()"), "the restore path must exist")
-            #expect(appStateActions.contains("try await store.create(saved.session)"),
-                    "Undo must re-create the session in the store with its messages")
-            #expect(appStateActions.contains("preserveUndo: true"),
-                    "the delete path's auto-select must not clear the undo slot")
             // Re-based onto rendered output: the typed builder emits
             // `id="ta-<action.id>-<toast.id>"` on the action button. Render it
             // once and assert the wireable id is present in the bytes.
@@ -548,8 +540,6 @@ extension ArcWebUITestRoot {
             let rendered = await undoApp.toastsHTML().markup.html
             #expect(rendered.contains("id=\"ta-undo-delete-2\""),
                     "the toast action button must be rendered with a wireable id")
-            #expect(Self.actions.contains("if actionID == \"undo-delete\""),
-                    "the toast wire must dispatch the undo action")
             #expect(Self.overlay.contains("if (kind === 'quiet') return"),
                     "copy-link feedback toasts must surface (only explicit quiet stays silent)")
             // The copy side effect is server-owned (single owner for toast+URL),
@@ -575,7 +565,86 @@ extension ArcWebUITestRoot {
             #expect(Self.overlay.contains("copyFromServerMarker();"),
                     "the clipboard handoff must run out of the post-patch seam")
         }
-        // MARK: - UX-24 regression guard: the copy-link fragment must interpolate
+        @Test("deleting a chat surfaces a plain notification with NO undo button")
+        func deleteHasNoUndoToast() async {
+            // 2026-10-30 user request: the delete notification must not offer
+            // Undo — the whole UX-06 single-slot resurrect machinery is gone.
+            let appStateActions = Self.appStateActions
+            #expect(appStateActions.contains("surfaceToast(\"Conversation deleted.\")"),
+                    "the delete must still surface its feedback notification")
+            #expect(!appStateActions.contains("ToastAction(id: \"undo-delete\""),
+                    "the delete toast must not carry an Undo action")
+            #expect(!appStateActions.contains("func undoDeleteChat()"),
+                    "the restore path is removed with the button")
+            #expect(!appStateActions.contains("undoableDelete"),
+                    "no snapshot slot may survive the button's removal")
+            #expect(!Self.actions.contains("undo-delete"),
+                    "no toast wire may dispatch an undo action")
+            #expect(!Self.appState.contains("struct UndoableDelete"),
+                    "the held-delete struct is removed with the machinery")
+            // The confirm dialog must not promise an undo window anymore.
+            let views = Self.source("Sources/ArcWebUI/Views.swift")
+            #expect(views.contains("will be permanently deleted."),
+                    "the delete confirm states the deletion is final")
+            #expect(!views.contains("You can undo this for 10 seconds."),
+                    "the old undo-window promise must be gone")
+            // The generic toast-action rendering survives (other actions may
+            // return); only the delete usage is banned.
+            var plainFixture = AppState.RenderFixture()
+            plainFixture.toasts = [Toast(id: 3, text: "Conversation deleted.", kind: "info")]
+            let plain = await AppState(renderFixture: plainFixture).toastsHTML().markup.html
+            #expect(plain.contains("Conversation deleted."))
+            #expect(!plain.contains("ta-undo-delete"),
+                    "a plain delete toast renders no action button")
+        }
+        // MARK: - 2026-10-30 bug batch: § visible in the memory editor, the
+        // workspace tab decoupled from chats, the skill picker un-clipped.
+
+        /// Bug 2: the memory editor renders the § delimiter itself between
+        /// entry textareas (on its own line), not a blank rule.
+        @Test("memory editor shows the § delimiter between entry sections")
+        func memoryEditorShowsDelimiter() async {
+            #expect(Self.views.contains("Div(class: \"mem-sep\") { Text(\"§\") }"),
+                    "the editor's separator must carry the visible § character")
+            #expect(!Self.views.contains("Div(class: \"mem-sep\") {}\n"),
+                    "the old blank separator is gone")
+        }
+
+        /// Bug 3: workspace rows are informational — no ws-open switch, no
+        /// default-workspace mutation, no active-row highlight; new chats
+        /// bind to main explicitly at creation.
+        @Test("the workspace tab cannot rebind chats; new chats default to main")
+        func workspaceTabDoesNotRebindChats() async {
+            #expect(!Self.actions.contains("ws-open-"),
+                    "the row click that moved the default workspace is removed")
+            #expect(!Self.actions.contains("func switchWorkspace"),
+                    "the default-workspace switch path is removed")
+            #expect(!Self.views.contains("ws-open-"),
+                    "workspace rows render as plain rows, not buttons")
+            #expect(Self.appStateActions.contains("func bindDefaultWorkspace"),
+                    "new chats get an explicit main binding at creation")
+            #expect(Self.actions.contains("bindDefaultWorkspace(session.id)"),
+                    "the new-chat flow stamps the binding before first use")
+            #expect(Self.appStateActions.contains("bindDefaultWorkspace(fresh.id)"),
+                    "the empty-draft-cleanup fresh chat gets the same binding")
+            // /workspace <name> binds the active chat, not the global default.
+            #expect(Self.actions.contains("await app.setChatWorkspace(args)"),
+                    "the slash command binds the current chat")
+            #expect(!Self.actions.contains("setWorkspace(active: args)"),
+                    "the slash command must not move the global default")
+        }
+
+        /// Bug 4: the skill picker opens left-anchored so it cannot run off
+        /// the left edge of the main section.
+        @Test("the profile skill picker panel is left-anchored")
+        func skillPickerNotClipped() async {
+            #expect(Self.sheetSource.contains(".pn-picker .dropdown__panel"),
+                    "the picker's panel must be re-anchored for the left-edge trigger")
+            #expect(Self.sheetSource.contains("left: 0; right: auto;"),
+                    "the design-system right-anchoring is overridden")
+        }
+
+        /// UX-24 regression guard: the copy-link fragment must interpolate
 
         /// The copy-link branch builds its `#toasts` fragment by hand. A
         /// double-escaped interpolation compiles clean and ships the literal
@@ -1523,8 +1592,6 @@ extension ArcWebUITestRoot {
                     "each candidate must be materialized before it is judged empty")
             #expect(app.contains("if sessions[i].messages.isEmpty { doomed.append(s.id) }"),
                     "a summary's empty `messages` alone must never be enough to delete")
-            #expect(app.contains("undoableDelete = nil"),
-                    "a bulk delete must not ride the single-slot undo")
         }
 
         /// UX-61 — the rail must survive the drawer. The scrim is offset by the
