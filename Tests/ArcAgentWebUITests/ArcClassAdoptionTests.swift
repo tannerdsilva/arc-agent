@@ -10,17 +10,22 @@ import WebUIDesignSystem
 // class value was a plain literal now name a case. what is left is debt of two
 // shapes, and this suite pins both so it may only shrink:
 //
-//   1. **concatenated values** — `class: "approval-card" + (cond ? " open" : "")`.
+//   1. **concatenated values** — `class: ClassName("approval-card" + (cond ? " open" : ""))`.
 //      the first half is a token, the second is a state suffix; expressing it as
 //      a case list needs the conditional to move onto a `.classes(...)` chain
 //      *after* the call, which a text migration cannot place reliably.
-//   2. **interpolated values** — `"queue-status\(statusCls)"`, where the whole
-//      token is computed from state. these want a component-level variant axis,
-//      not a vocabulary entry (the `SpacingAxis` lesson: same concept, one name).
+//   2. **interpolated values** — `class: ClassName("queue-status\(statusCls)")`,
+//      where the whole token is computed from state. these want a
+//      component-level variant axis, not a vocabulary entry (the `SpacingAxis`
+//      lesson: same concept, one name).
 //   3. **mixed values** — `"approval-card visible"`, where one token is a real
 //      case and its sibling is undeclared. the whole value has to stay a string:
 //      naming half of it would change the call shape, and the undeclared half
 //      would still render unstyled.
+//
+// both scans below accept either reading of a class value — the bare literal
+// and the `ClassName(...)` wrapper the typed `class:` parameter made necessary —
+// because the debt is the string, not the call shape that carries it.
 //
 // and one shape that is not debt at all: the tokens `approval-title`, `btn`,
 // `insights-main`, `visible` and their siblings are declared by **no sheet**, so
@@ -70,7 +75,7 @@ extension ArcWebUITestRoot {
 		func residualStaticTokensOnly() {
 			var found = Set<String>()
 			for (_, text) in Self.sources() {
-				for match in text.matches(of: /class:\s*"((?:[^"\\]|\\.)*)"/) {
+				for match in text.matches(of: /class:\s*(?:ClassName\()?"((?:[^"\\]|\\.)*)"/) {
 					let body = String(match.1)
 					if body.contains("\\(") { continue }
 					for token in body.split(separator: " ") { found.insert(String(token)) }
@@ -92,7 +97,7 @@ extension ArcWebUITestRoot {
 		func interpolatedClassValuesArePinned() {
 			var count = 0
 			for (_, text) in Self.sources() {
-				for match in text.matches(of: /class:\s*"((?:[^"\\]|\\.)*)"/) where String(match.1).contains("\\(") {
+				for match in text.matches(of: /class:\s*(?:ClassName\()?"((?:[^"\\]|\\.)*)"/) where String(match.1).contains("\\(") {
 					count += 1
 				}
 			}

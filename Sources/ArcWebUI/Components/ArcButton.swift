@@ -29,7 +29,7 @@ public struct ArcButton<Views: WebUI.View>: WebUI.View {
 	public var id: String? = nil
 	public var component: String? = nil
 	public var routing: ComponentID? = nil
-	public var `class`: String
+	public var `class`: ClassName
 	public var type: ButtonType = .button
 	public var tabIndex: Int? = nil
 	public var disabled: Bool = false
@@ -42,8 +42,8 @@ public struct ArcButton<Views: WebUI.View>: WebUI.View {
 		if let componentId, !componentId.isEmpty {
 			attributes += " data-component-id=\"\(htmlEscape(componentId))\""
 		}
-		if !self.class.isEmpty {
-			attributes += " class=\"\(htmlEscape(self.class))\""
+		if !self.class.value.isEmpty {
+			attributes += " class=\"\(htmlEscape(self.class.value))\""
 		}
 		attributes += " type=\"\(type.rawValue)\""
 		if let tabIndex { attributes += " tabindex=\"\(tabIndex)\"" }

@@ -174,7 +174,7 @@ extension AppState {
         let base = ArcButton(
             id: "nav-\(tab.id)",
             component: "nav-\(tab.id)",
-            class: active ? "icon-btn active" : "icon-btn",
+            class: ClassName(active ? "icon-btn active" : "icon-btn"),
             tabIndex: active ? 0 : -1
         ) {
             SidebarTabIconRenderer.view(tab.icon)
@@ -208,7 +208,7 @@ extension AppState {
         pendingCopyURL = nil
         return Group {
             for t in visible {
-                Div(class: "toast \(t.kind)") {
+                Div(class: ClassName("toast \(t.kind)")) {
                     Span(class: .toastDot) { }
                     Span { Text(t.text) }
                     if let a = t.action {
@@ -308,7 +308,7 @@ extension AppState {
                             ForEach(AppState.palette) { c in
                                 let sel = c == catColor ? " sel" : ""
                                 let hex = c.hasPrefix("#") ? String(c.dropFirst()) : c
-                                ArcButton("", id: "cm-color-\(hex)", component: nil, class: "menu-swatch\(sel)")
+                                ArcButton("", id: "cm-color-\(hex)", component: nil, class: ClassName("menu-swatch\(sel)"))
                                     .data("color", c)
                                     .aria(.label(c))
                                     .attribute("style", "background:\(c)")
@@ -533,11 +533,11 @@ extension AppState {
         let plusIcon = addingCategory ? WebUIIcon(.x, size: .small) : WebUIIcon(.plus, size: .small)
         return Group {
             Div(class: .catBar) {
-                ArcButton(id: "cat-all", component: nil, class: "cat-chip\(allActive)", tabIndex: -1) {
+                ArcButton(id: "cat-all", component: nil, class: ClassName("cat-chip\(allActive)"), tabIndex: -1) {
                     Text("All")
                 }
                 .aria(.pressed(activeCategory == "all" ? .yes : .no))
-                ArcButton(id: "cat-unassigned", component: nil, class: "cat-chip\(unActive)", tabIndex: -1) {
+                ArcButton(id: "cat-unassigned", component: nil, class: ClassName("cat-chip\(unActive)"), tabIndex: -1) {
                     Text("Unassigned")
                 }
                 .aria(.pressed(activeCategory == "unassigned" ? .yes : .no))
@@ -548,7 +548,7 @@ extension AppState {
                         // Manage mode: container chip with a filter button + delete ✕ as
                         // SIBLINGS (nested <button> elements would be split by the HTML
                         // parser and break the layout).
-                        Div(class: "cat-chip\(active)") {
+                        Div(class: ClassName("cat-chip\(active)")) {
                             ArcButton(id: "cat-\(cid)", component: nil, class: .catChipBtn) {
                                 CatDot {}
                                     .attribute("style", "background:\(cat.color)")
@@ -560,7 +560,7 @@ extension AppState {
                             .title("Delete category")
                         }
                     } else {
-                        ArcButton(id: "cat-\(cid)", component: nil, class: "cat-chip\(active)") {
+                        ArcButton(id: "cat-\(cid)", component: nil, class: ClassName("cat-chip\(active)")) {
                             CatDot {}
                                 .attribute("style", "background:\(cat.color)")
                             Span { Text(cat.name) }
@@ -586,7 +586,7 @@ extension AppState {
                         .value(AppState.palette[0])
                     CatSwatches {
                         for (i, c) in AppState.palette.enumerated() {
-                            ErasedViews([ArcButton(id: nil, component: nil, class: "cat-swatch\(i == 0 ? " sel" : "")") {}
+                            ErasedViews([ArcButton(id: nil, component: nil, class: ClassName("cat-swatch\(i == 0 ? " sel" : "")")) {}
                                 .data("color", c)
                                 .attribute("style", "background:\(c)")
                                 .aria(.label(c))])
@@ -710,7 +710,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         if todos {
             // Minimal variant for the Todos page: chat title only — no meta,
             // no ⋮ menu, no category dot, no pin badge.
-            let row = Div(class: rowClass) {
+            let row = Div(class: ClassName(rowClass)) {
                 ArcButton(id: "s-open-\(encID)", component: nil, class: .sessOpen, tabIndex: -1) {
                     SessTitle { Text(title) }
                 }
@@ -740,7 +740,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             let catID = categoryID(for: s.id)
             let catColor = categoryColor(for: catID)
             let catName = categoryName(for: catID)
-            let row = Div(class: rowClass) {
+            let row = Div(class: ClassName(rowClass)) {
                 ArcButton(id: "s-open-\(encID)", component: nil, class: .sessOpen, tabIndex: -1) {
                     SessTitle {
                         if booked {
@@ -813,12 +813,12 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                     Span(class: .catPanelTitle) { Text("Move to Category") }
                                 }
                                 Div(class: .catPanelList) {
-                                    ArcButton(id: "sm-uncat-\(encID)", component: nil, class: catID == nil ? "menu-sel" : "") {
+                                    ArcButton(id: "sm-uncat-\(encID)", component: nil, class: ClassName(catID == nil ? "menu-sel" : "")) {
                                         Text("No Project")
                                         if catID == nil { WebUIIcon(.check, size: .small) }
                                     }
                                     for c in settings.chatCategories {
-                                        ErasedViews([ArcButton(id: "sm-cat-\(enc(c.id)).\(encID)", component: nil, class: c.id == catID ? "menu-sel" : "") {
+                                        ErasedViews([ArcButton(id: "sm-cat-\(enc(c.id)).\(encID)", component: nil, class: ClassName(c.id == catID ? "menu-sel" : "")) {
                                             CatDot {}
                                                 .attribute("style", "background:\(c.color)")
                                             Span {
@@ -920,7 +920,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         let active = skill.name == selectedSkill
         let enabled = !skillContextDisabled().contains(skill.name)
         let name = enabled ? "Included in this chat" : "Excluded from this chat"
-        return Div(class: "skill-row\(active ? " active" : "")\(enabled ? "" : " disabled")") {
+        return Div(class: ClassName("skill-row\(active ? " active" : "")\(enabled ? "" : " disabled")")) {
             ArcButton(id: "sk-open-\(encName)", class: ClassName(.sessOpen, .skillOpen), type: .button) {
                 Span(class: .skName) { Text(skill.name) }
                 Span(class: .skDesc) { Text(trunc(skill.description, 64)) }
@@ -949,7 +949,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 } else {
                     for p in profiles {
                         let encName = enc(p.name)
-                        ErasedViews([Div(class: "list-row\(p.name == selectedProfile ? " active" : "")") {
+                        ErasedViews([Div(class: ClassName("list-row\(p.name == selectedProfile ? " active" : "")")) {
                             ArcButton(id: "pr-open-\(encName)", class: ClassName(.sessOpen, .sessOpenFlush), type: .button) {
                                 LrName { Text(p.title.isEmpty ? p.name : p.title) }
                                 LrSub { Text(p.model ?? "") }
@@ -1028,7 +1028,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 let encT = enc(t.name)
                                 let active = t.name == selectedTool
                                 let avail = (t.checkFn?() ?? true)
-                                ErasedViews([Div(class: "list-row\(active ? " active" : "")") {
+                                ErasedViews([Div(class: ClassName("list-row\(active ? " active" : "")")) {
                                     ArcButton(id: "tl-open-\(encT)", class: ClassName(.sessOpen, .sessOpenFlush), type: .button) {
                                         LrName {
                                             toolIcon(t.emoji)
@@ -1068,7 +1068,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 for entry in settings.workspaces {
                     let encWS = enc(entry.name)
                     let isMain = entry.name == "main"
-                    ErasedViews([Div(class: "list-row\(entry.name == settings.activeWorkspace ? " active" : "")") {
+                    ErasedViews([Div(class: ClassName("list-row\(entry.name == settings.activeWorkspace ? " active" : "")")) {
                         ArcButton(id: "ws-open-\(encWS)", class: ClassName(.sessOpen, .sessOpenFlush), type: .button) {
                             LrName { Text(entry.name) }
                             Span(class: ClassName(.lrSub, .lrSubPath)) {
@@ -1132,7 +1132,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         } else {
             inner = render(chatMain())
         }
-        return Div(id: "main", class: activeTabID == "chat" ? "chat-main" : nil) {
+        return Div(id: "main", class: activeTabID == "chat" ? ClassName("chat-main") : nil) {
             TrustedMarkup(inner, from: .plugin("tab-main"))
         }
     }
@@ -1217,7 +1217,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 // whose id lacks the `regen-` prefix — which is exactly how the
                 // outline toggle beside it silently died.
                 .wire("regen")
-                ArcButton(id: "chat-del", component: "chat-del", class: delClass) {
+                ArcButton(id: "chat-del", component: "chat-del", class: ClassName(delClass)) {
                     if pendingDelete {
                         Text("Confirm?")
                     } else {
@@ -2223,7 +2223,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         return Group {
             if !s.messages.isEmpty {
                 Div(class: .ctxIndicatorWrap) {
-                    ArcButton(id: nil, component: nil, class: "ctx-indicator\(level)") {
+                    ArcButton(id: nil, component: nil, class: ClassName("ctx-indicator\(level)")) {
                         Span(class: .ctxRing) {
                             // the ring geometry lives in ArcRing: one typed view
                             // instead of an inline <svg> string.
@@ -2349,7 +2349,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             queuedSendsHTML()
             selectionChipsHTML()
             Form(action: "", method: nil, id: "composer-form",
-                 class: "composer-bar" + (selOpen ? " sel-open" : "")) {
+                 class: ClassName("composer-bar" + (selOpen ? " sel-open" : ""))) {
                 Div(class: .attachChips) {
                     for (i, path) in attachments.enumerated() {
                         Span(class: .chip) {
@@ -2372,7 +2372,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     .attribute("style", "min-height:24px")
                 Div(class: .composerToolbar) {
                     ArcButton(id: "cb-file", component: "cb-file",
-                              class: "tool-btn" + (filePopOpen ? " on" : "")) {
+                              class: ClassName("tool-btn" + (filePopOpen ? " on" : ""))) {
                         WebUIIcon(.paperclip, size: .medium)
                     }
                     .data("tip", "Attach a file")
@@ -2380,7 +2380,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     // the star is the same glyph whether or not the chat is
                     // bookmarked — `.on` is what shows state (legacy parity).
                     ArcButton(id: "cb-bookmark", component: "cb-bookmark",
-                              class: "tool-btn" + (isBooked ? " on" : "")) {
+                              class: ClassName("tool-btn" + (isBooked ? " on" : ""))) {
                         WebUIIcon(.star, size: .small)
                     }
                     .data("tip", "Bookmark this chat")
@@ -2411,7 +2411,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 .id("dd-dismiss")
                 .wire("dd-dismiss")
                 .flag(.hidden)
-            Div(class: "file-pop" + (filePopOpen ? "" : " hidden")) {
+            Div(class: ClassName("file-pop" + (filePopOpen ? "" : " hidden"))) {
                 Div(class: .fpRow) {
                     Input(id: "file-path-input", placeholder: "/absolute/path/to/file", type: .text)
                         .data("component-id", "file-path-input")
@@ -2513,7 +2513,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     private func ddRow<Content: WebUI.View>(id: String, extraClass: String = "",
                        @ElementBuilder body: () -> Content) -> some WebUI.View {
         let cls = extraClass.isEmpty ? "dd-row" : "dd-row \(extraClass)"
-        return ArcButton(id: id, component: nil, class: cls) { body() }
+        return ArcButton(id: id, component: nil, class: ClassName(cls)) { body() }
     }
 
     /// The model configuration whose values match an auxiliary override
@@ -2588,7 +2588,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
         return Dd {
             trigger
-            Div(class: "dd-pop dd-pop-ws" + (wsSelectOpen ? "" : " hidden")) {
+            Div(class: ClassName("dd-pop dd-pop-ws" + (wsSelectOpen ? "" : " hidden"))) {
                 DdSearch {
                     Input(id: "ws-search-input", placeholder: "Search workspaces…", type: .text)
                         .wire("ws-search-input", on: .input)
@@ -2643,7 +2643,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             let onCount = enabledSkillCount(for: p.name)
             let titleSuffix = p.title.isEmpty || p.title == p.name ? "" : " (\(p.title))"
             rows.append(ddRow(id: "pp-\(enc(p.name))", extraClass: "dd-profile-row") {
-                Span(class: "dd-dot" + (on ? " on" : "")) {}
+                Span(class: ClassName("dd-dot" + (on ? " on" : ""))) {}
                 Span(class: .ddProfileMain) {
                     DdRowTitle {
                         Text(p.name + titleSuffix)
@@ -2656,7 +2656,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
         return Dd {
             trigger
-            Div(class: "dd-pop" + (profileSelectOpen ? "" : " hidden")) {
+            Div(class: ClassName("dd-pop" + (profileSelectOpen ? "" : " hidden"))) {
                 Div(class: "dd-list dd-list-profile") {
                     rows
                 }
@@ -2688,7 +2688,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             if !c.baseURL.isEmpty { meta.append(shortURL(c.baseURL)) }
             let sub = meta.joined(separator: " · ")
             rows.append(ddRow(id: "mc-\(enc(c.name))", extraClass: "dd-model-row") {
-                Span(class: "dd-dot" + (sel ? " on" : "")) {}
+                Span(class: ClassName("dd-dot" + (sel ? " on" : ""))) {}
                 DdModelMain {
                     DdRowTitle {
                         Text(c.name)
@@ -2700,7 +2700,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
         return Dd {
             trigger
-            Div(class: "dd-pop dd-pop-model" + (modelSelectOpen ? "" : " hidden")) {
+            Div(class: ClassName("dd-pop dd-pop-model" + (modelSelectOpen ? "" : " hidden"))) {
                 DdNote { Text("Applies to this conversation from your next message.") }
                 DdSearch {
                     Input(id: "model-search-input", placeholder: "Search models…", type: .text)
@@ -2742,7 +2742,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
         return Dd {
             trigger
-            Div(class: "dd-pop" + (thinkSelectOpen ? "" : " hidden")) {
+            Div(class: ClassName("dd-pop" + (thinkSelectOpen ? "" : " hidden"))) {
                 DdList {
                     rows
                 }
@@ -4283,7 +4283,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             // UX-08: the card marks selection visually (.active) — the
                             // pressed state must reach assistive tech too.
                             ErasedViews([ArcButton(id: "thm-\(t.key)",
-                                      class: "theme-pick-btn\(active ? " active" : "")") {
+                                      class: ClassName("theme-pick-btn\(active ? " active" : "")")) {
                                 Span(class: .thmPreview) {
                                     Span(class: .thmIc) { WebUIIcon(t.icon, size: .medium) }
                                 }
@@ -4306,7 +4306,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         for s in ThemeSize.allCases {
                             let active = settings.textSize == s.rawValue
                             ArcButton(id: "fsz-\(s.rawValue)",
-                                      class: "font-size-pick-btn\(active ? " active" : "")") {
+                                      class: ClassName("font-size-pick-btn\(active ? " active" : "")")) {
                                 Span(class: .fszPreview) { Text("Aa") }
                                     .attribute("style", "font-size:\(s.previewPx)")
                                 Span(class: .fszLabel) { Text(s.label) }
@@ -4332,7 +4332,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             let active = settings.colorScheme == entry.id
                             let accent = entry.swatch.first ?? ""
                             ErasedViews([ArcButton(id: "scheme-\(enc(entry.id))",
-                                      class: "scheme-tile\(active ? " active" : "")") {
+                                      class: ClassName("scheme-tile\(active ? " active" : "")")) {
                                 Span(class: .schemeDots) {
                                     for d in entry.swatch.dropFirst() {
                                         Span(class: .schemeDot) {}
@@ -4364,7 +4364,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         for (mode, label) in actOpts {
                             let active = settings.activityDisplay == mode
                             ArcButton(label, id: "actdisp-\(mode)",
-                                      class: "bubble-opt\(active ? " active" : "")")
+                                      class: ClassName("bubble-opt\(active ? " active" : "")"))
                                 .aria(.pressed(active ? .yes : .no))
                         }
                     }
@@ -4379,7 +4379,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             // UX-13: real buttons (keyboard-operable) with a visible
                             // pressed state; the off chip is dimmed and labels itself "Hidden".
                             ErasedViews([ArcButton(id: "st-\(enc(key))",
-                                      class: "side-tab-chip\(on ? " on" : " off")") {
+                                      class: ClassName("side-tab-chip\(on ? " on" : " off")")) {
                                 Span { Text(label) }
                                 if !on {
                                     Emphasis("Hidden").addClass(.chipHint)
@@ -4862,7 +4862,7 @@ extension AppState {
                               ])
                         CatSwatches {
                             for (j, c) in AppState.palette.enumerated() {
-                                ErasedViews([ArcButton(id: nil, component: nil, class: "cat-swatch\(j == 0 ? " sel" : "")") {}
+                                ErasedViews([ArcButton(id: nil, component: nil, class: ClassName("cat-swatch\(j == 0 ? " sel" : "")")) {}
                                     .data("color", c)
                                     .attribute("style", "background:\(c)")])
                             }
@@ -4890,7 +4890,7 @@ extension AppState {
                             // column header), so one stray click never drops a
                             // column and its cards.
                             ArcButton(id: "kb-pdel-\(cid)", component: nil,
-                                      class: confirmColumn == col.id ? "sess-confirm" : "icon-mini danger") {
+                                      class: ClassName(confirmColumn == col.id ? "sess-confirm" : "icon-mini danger")) {
                                 if confirmColumn == col.id {
                                     Text(" Confirm?")
                                 } else {
@@ -4955,7 +4955,7 @@ extension AppState {
                     .title("Rename column")
                     .data("colid", col.id)
                     ArcButton(id: "kb-bdel-\(cid)", component: nil,
-                              class: armed ? "sess-confirm" : "icon-mini danger") {
+                              class: ClassName(armed ? "sess-confirm" : "icon-mini danger")) {
                         if armed {
                             Text("Confirm?")
                         } else {
@@ -5033,7 +5033,7 @@ extension AppState {
                     .title("Move right")
                 }
                 ArcButton(id: "kb-del-\(encc)", component: nil,
-                          class: armed ? "sess-confirm" : "icon-mini danger") {
+                          class: ClassName(armed ? "sess-confirm" : "icon-mini danger")) {
                     if armed {
                         Text("Confirm?")
                     } else {
@@ -5061,7 +5061,7 @@ extension AppState {
             PanelBody {
                 for it in items {
                     ArcButton(id: "mem-open-\(it.key)", component: nil,
-                              class: "mem-box\(memoryDoc == it.key ? " active" : "")") {
+                              class: ClassName("mem-box\(memoryDoc == it.key ? " active" : "")")) {
                         Span(class: .memGlyph) { WebUIIcon(it.icon, size: .large) }
                         Span(class: .memTxt) {
                             Span(class: .memTitle) { Text(it.title) }
@@ -5249,7 +5249,7 @@ extension AppState {
                 Div(class: .logChips) {
                     for (lvl, label) in [("all", "All"), ("info", "Info"), ("warn", "Warn"), ("error", "Error")] {
                         let active = logFilter == lvl
-                        ArcButton(label, id: "log-filter-\(lvl)", component: nil, class: "chip-btn\(active ? " active" : "")")
+                        ArcButton(label, id: "log-filter-\(lvl)", component: nil, class: ClassName("chip-btn\(active ? " active" : "")"))
                             .aria(.pressed(active ? .yes : .no))
                     }
                 }
@@ -5279,7 +5279,7 @@ extension AppState {
     }
 
     func logLineHTML(_ line: LogLine) -> some WebUI.View {
-        Div(class: "log-line \(logLevelClass(line.level))") {
+        Div(class: ClassName("log-line \(logLevelClass(line.level))")) {
             Span(class: .logTime) { Text(logTime(line.time)) }
             Span(class: .logLvl) { Text(line.level.rawValue) }
             Span(class: .logMsg) { Text(line.text) }
@@ -5351,7 +5351,7 @@ extension AppState {
         // states (UX-03); when closed the dock returns as the open handle.
         return Div(id: "ws-dock") {
             ArcButton(id: "w-dock", component: nil,
-                      class: open ? "ws-dock-btn ws-dock-open" : "ws-dock-btn",
+                      class: ClassName(open ? "ws-dock-btn ws-dock-open" : "ws-dock-btn"),
                       type: .button, hidden: open) {
                 if open {
                     WebUIIcon(.chevronRight, size: .medium)
@@ -5375,7 +5375,7 @@ extension AppState {
         // hides the panel with `.ws-panel.hidden`, which an attribute could not
         // win against (`.ws-panel` sets `display: flex`).
         let cls = "ws-panel" + (workspaceOpen ? "" : " hidden") + anim
-        return Div(id: "ws-panel", class: cls) {
+        return Div(id: "ws-panel", class: ClassName(cls)) {
             Div(class: "panel-head ws-head") {
                 PanelTitle { Text("Workspace") }
                 Div(class: .wsTools) {
@@ -5398,7 +5398,7 @@ extension AppState {
                         .title("Workspace options")
                         Div(id: "ws-menu", class: "chat-menu ws-menu") {
                             ArcButton(id: "w-hidden", component: nil,
-                                      class: showHiddenFiles ? "menu-sel" : "") {
+                                      class: ClassName(showHiddenFiles ? "menu-sel" : "")) {
                                 Span(class: .chk) {
                                     if showHiddenFiles {
                                         WebUIIcon(.checkSquare, size: .small)
@@ -5491,7 +5491,7 @@ extension AppState {
                                         TrustedMarkup(renderMarkdown(content), from: .markdown)
                                     }
                                 } else {
-                                    Element(.pre, class: .wsPreviewBody) { Text(content) }
+                                    Element(.pre, class: ArcClass.wsPreviewBody.token) { Text(content) }
                                 }
                             } else {
                                 // UX-12: an unreadable preview keeps its reason on screen —

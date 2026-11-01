@@ -1,4 +1,5 @@
 import ArcAgentCore
+import ArcTheme
 import Foundation
 import WebUI
 import WebUIDesignSystem
@@ -389,8 +390,8 @@ extension AppState {
         let tasksCls = todosTab == .tasks ? " todo-tab-active" : ""
         let queueCls = todosTab == .queue ? " todo-tab-active" : ""
         return Div(class: .todoTabs) {
-            ArcButton("Tasks", id: "queue-tab-tasks", component: nil, class: "todo-tab\(tasksCls)")
-            ArcButton("Run queue", id: "queue-tab-queue", component: nil, class: "todo-tab\(queueCls)")
+            ArcButton("Tasks", id: "queue-tab-tasks", component: nil, class: ClassName("todo-tab\(tasksCls)"))
+            ArcButton("Run queue", id: "queue-tab-queue", component: nil, class: ClassName("todo-tab\(queueCls)"))
             Span(class: .todoTabsCount) { Text("\(settings.queuePlan.count) queued") }
         }
         .wire("queue")
@@ -405,7 +406,7 @@ extension AppState {
         let statusCls = status.isEmpty ? "" : " qst-" + status
         let statusText = status.isEmpty ? "" : (status == "done" ? "done" : status == "failed" ? "failed" : status)
         return Group {
-            Div(class: "queue-row\(missing)\(statusCls)") {
+            Div(class: ClassName("queue-row\(missing)\(statusCls)")) {
                 Span(class: .queueGrip) { WebUIIcon(.moreVertical, size: .small) }
                     .title("Drag to reorder")
                 Span(class: .queueIdx) { Text("\(index + 1)") }
@@ -422,7 +423,7 @@ extension AppState {
                     WebUIIcon(.link, size: .small)
                 }
                 .title("Feed earlier task output into this task")
-                Span(class: "queue-status\(statusCls)") { Text(statusText) }
+                Span(class: ClassName("queue-status\(statusCls)")) { Text(statusText) }
                 ArcButton(id: "queue-del-\(e.id)", component: nil, class: ClassName(.iconMini, .danger)) {
                     WebUIIcon(.x, size: .small)
                 }
@@ -569,7 +570,7 @@ extension AppState {
         return Div(class: "todo-card queue-card") {
             TodoHead {
                 Div {
-                    Element(.h2, class: .todoTitle) { Text("Run queue") }
+                    Element(.h2, class: ArcClass.todoTitle.token) { Text("Run queue") }
                     TodoSub {
                         Text("Tasks run in the order shown. Sequential feeds linked output; parallel runs each chat at once.")
                     }

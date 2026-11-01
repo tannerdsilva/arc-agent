@@ -7,16 +7,16 @@ import WebUI
 public struct DetailTitle: WebUI.View {
 	public let text: String
 	public let icon: IconName?
-	public let extraClass: String
+	public let extraClass: ClassName
 
-	public init(_ text: String, icon: IconName? = nil, class extraClass: String = "") {
+	public init(_ text: String, icon: IconName? = nil, class extraClass: ClassName = "") {
 		self.text = text
 		self.icon = icon
 		self.extraClass = extraClass
 	}
 
 	public func render(into buffer: inout HTMLBuffer) {
-		let cls = extraClass.isEmpty ? "detail-title" : "detail-title \(htmlEscape(extraClass))"
+		let cls = extraClass.value.isEmpty ? "detail-title" : "detail-title \(htmlEscape(extraClass.value))"
 		buffer.beginElement("h1", "class=\"\(cls)\"")
 		buffer.endOpenTag()
 		if let icon {

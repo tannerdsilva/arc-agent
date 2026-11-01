@@ -15,14 +15,10 @@ import WebUIDesignSystem
 /// sheet gives both `.detail-title` and `.detail-sub` their own margins, so an
 /// empty part is omitted entirely rather than rendered as an empty node.
 ///
-/// the part tokens are named through `ArcClass` rather than spelled as strings,
-/// so the enum stays the only place a token is written. they cannot go through a
-/// `ClassName` static yet: `Div(class:)` still carries both an `ArcClass` and a
-/// `ClassName` overload, and a static would make every bare `.detailSub` call
-/// site ambiguous — the statics and the removal of those overloads move together
-/// in Slice B.
+/// the part tokens are named through `ClassName` statics, so the enum stays the
+/// only place a token is written and no call site spells a class string.
 @StyledElement(.div)
 public struct DetailCard<Content: WebUI.View> {
-	@Part(.h1, class: ClassName(ArcClass.detailTitle)) public var title: String = ""
-	@Part(.div, class: ClassName(ArcClass.detailSub)) public var sub: String = ""
+	@Part(.h1, class: .detailTitle) public var title: String = ""
+	@Part(.div, class: .detailSub) public var sub: String = ""
 }

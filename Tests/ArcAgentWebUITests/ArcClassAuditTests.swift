@@ -16,9 +16,10 @@ import WebUIDesignSystem
 // sheet test uses, `HTMLClassValidator.definedClasses(css:)`, run over the bytes
 // the server actually serves.
 //
-// the last test is the other half of the slice: the delegating initializers are
-// only worth having if they emit what the literal spelling emits, so each one is
-// rendered against its string twin and the markup compared.
+// the last test is the other half of the slice: a class spelled through a
+// `ClassName` static is only worth having if it emits what the literal spelling
+// emits, so each one is rendered against its string twin and the markup
+// compared.
 
 extension ArcWebUITestRoot {
 	@Suite("arc class audit", .serialized)
@@ -98,25 +99,26 @@ extension ArcWebUITestRoot {
 			}
 		}
 
-		// MARK: - the delegating initializers
+		// MARK: - the spelling doors
 
 		@Test("a declared class reads the same as its literal spelling")
 		func delegatingInitializersEmitTheSameBytes() {
 			// every pair below is the same render written twice: once through the
-			// `ArcClass` initializer, once through the `class:` string it delegates
-			// to. equality is the whole contract — the delegating initializer exists
-			// to change what a call site says, never what the page contains.
+			// `ClassName` a static or the multi-token initializer builds, once
+			// through the `class:` string it stands for. equality is the whole
+			// contract — a spelling door exists to change what a call site says,
+			// never what the page contains.
 			let pairs: [(String, String)] = [
 				(
-					Div(.setRow, id: "probe") { Text("x") }.markup.html,
-					Div(id: "probe", class: "set-row") { Text("x") }.markup.html
+					Div(id: "probe", class: ClassName(.setRow, .active)) { Text("x") }.markup.html,
+					Div(id: "probe", class: "set-row active") { Text("x") }.markup.html
 				),
 				(
 					Div(id: "probe", class: .setRow) { Text("x") }.markup.html,
 					Div(id: "probe", class: "set-row") { Text("x") }.markup.html
 				),
 				(
-					Span(.queueStatus) { Text("x") }.markup.html,
+					Span(class: .queueStatus) { Text("x") }.markup.html,
 					Span(class: "queue-status") { Text("x") }.markup.html
 				),
 				(
@@ -128,7 +130,7 @@ extension ArcWebUITestRoot {
 					Header(class: "set-row") { Text("x") }.markup.html
 				),
 				(
-					Element(.div, class: .setRow, id: "probe") { Text("x") }.markup.html,
+					Element(.div, class: ArcClass.setRow.token, id: "probe") { Text("x") }.markup.html,
 					Element(.div, class: "set-row", id: "probe") { Text("x") }.markup.html
 				),
 				(
@@ -156,7 +158,7 @@ extension ArcWebUITestRoot {
 					ArcButton(id: "probe", class: "icon-mini") { Text("x") }.markup.html
 				),
 				(
-					FieldLabel(.setRow) { Text("x") }.markup.html,
+					FieldLabel(class: .setRow) { Text("x") }.markup.html,
 					FieldLabel(class: "set-row") { Text("x") }.markup.html
 				),
 				(

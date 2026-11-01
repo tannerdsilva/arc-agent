@@ -290,10 +290,12 @@ extension AppState {
             // A zero day is a GAP, not a small bar: the old `3` stub made an
             // empty month look like a month of activity. Empty days now draw a
             // 2px baseline tick in a neutral tone (see `.ins-bar-empty`).
+            // the class is a joined two-token string, so it goes through
+            // `ClassName`'s own `String` initializer.
             let pct = v == 0 ? 0 : max(5, Int(Double(v) / Double(maxVal) * 100.0))
             let tip = "\(Self.dayLabel(day)) — \(Self.fmtCount(v)) tokens"
             let cls = v == 0 ? "ins-bar ins-bar-empty" : "ins-bar"
-            return Div(class: cls) {}
+            return Div(class: ClassName(cls)) {}
                 .attribute("style", "height:\(pct)%")
                 .title(tip)
         }

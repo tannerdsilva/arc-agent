@@ -1,4 +1,5 @@
 import ArcAgentCore
+import ArcTheme
 import AsyncHTTPClient
 import Foundation
 import Logging
@@ -491,7 +492,7 @@ extension AppState {
         var rows: [any WebUI.View] = []
         for t in items {
             rows.append(
-                Div(class: t.done ? "todo-row done" : "todo-row") {
+                Div(class: ClassName(t.done ? "todo-row done" : "todo-row")) {
                     ArcButton(id: "todo-toggle-\(t.id)", component: nil, class: .todoCheck) {
                         WebUIIcon(.check, size: .small)
                     }
@@ -525,7 +526,7 @@ extension AppState {
         return Div(class: .todoCard) {
             TodoHead {
                 Div {
-                    Element(.h2, class: .todoTitle) { Text("Todos") }
+                    Element(.h2, class: ArcClass.todoTitle.token) { Text("Todos") }
                     TodoSub { Text(chatLabel) }
                 }
                 TodoHeadActions {
@@ -606,8 +607,8 @@ extension AppState {
         let dot = j.isActive ? " on" : ""
         let next = j.nextRunAt.map { fmtRel($0) } ?? "—"
         let runs = j.runCount > 0 ? " · \(j.runCount) run\(j.runCount == 1 ? "" : "s")" : ""
-        return ArcButton(id: "task-open-\(j.id)", component: nil, class: "task-row\(active)") {
-            Span(class: "task-dot\(dot)") { Text("●") }
+        return ArcButton(id: "task-open-\(j.id)", component: nil, class: ClassName("task-row\(active)")) {
+            Span(class: ClassName("task-dot\(dot)")) { Text("●") }
             Span(class: .taskRi) {
                 Span(class: .taskRname) { Text(j.name) }
                 Span(class: .taskRmeta) { Text("\(j.schedule) · next \(next)\(runs)") }
@@ -644,7 +645,7 @@ extension AppState {
                 Div(class: "task-ctrl-main") {
                     Div(class: .taskCtrlName) {
                         Text("\(job.name) ")
-                        Span(class: "task-status \(statusCls)") { Text(status) }
+                        Span(class: ClassName("task-status \(statusCls)")) { Text(status) }
                     }
                     Div(class: .taskCtrlMeta) {
                         Text("\(job.schedule) · next \(next) · last \(last) · \(job.runCount) run\(job.runCount == 1 ? "" : "s")")
@@ -691,8 +692,8 @@ extension AppState {
     func taskMainEmpty() -> some WebUI.View {
         MainView {
             MainScroll {
-                Element(.h2, class: .todoTitle) { Text("Scheduled tasks") }
-                Element(.p, class: .todoSub) {
+                Element(.h2, class: ArcClass.todoTitle.token) { Text("Scheduled tasks") }
+                Element(.p, class: ArcClass.todoSub.token) {
                     Text("Pick a task on the left to see its controls and chat, or create a new one below.")
                 }
                 taskFormHTML()
@@ -739,7 +740,7 @@ extension AppState {
                              placeholder: "What should the agent run?", rows: 4)
                 }
                 ArcButton("Schedule task", class: .primaryBtn, type: .submit)
-                Element(.p, class: .taskPreview) {
+                Element(.p, class: ArcClass.taskPreview.token) {
                     Text("Runs on the interval you pick, starting immediately unless a Start time is set. Each run gets its own chat, kept out of the main list.")
                 }
             }
