@@ -25,16 +25,19 @@ import WebUICore
 /// the audit in `Tests/ArcAgentWebUITests/ArcClassAuditTests.swift` keeps this
 /// honest in both directions: no case without a rule, no rule without a case.
 ///
-/// a class name a call site spells with `Div(.setRow)` is this enum's token;
-/// the string-literal spelling still compiles and is the next slice's work.
+/// a call site spells a token through the generated `ClassName` statics
+/// (`Div(class: .setRow)`), so this enum remains the only place the token text is
+/// written. `token` is what a static returns, and what the residual string sites
+/// pinned in `ArcClassAdoptionTests` are counted against.
 public enum ArcClass: String, CaseIterable, Sendable {
 	/// the class text a call site emits.
 	///
-	/// this is the enum's own door, not the framework's: the no-webui revision
-	/// arc pins predates its `CSSClass` protocol, so conformance would make the
-	/// package depend on a type the pinned dependency does not ship. keeping
-	/// `token` here means `ArcClass` is exactly the sheet vocabulary and nothing
-	/// more, and the delegating initializers still render the same bytes.
+	/// this is the enum's own door, not the framework's. `ArcClass` could conform
+	/// to no-webui's `CSSClass` — the pinned revision ships it — and
+	/// `ClassName(ArcClass.x)` would then work everywhere; it deliberately does
+	/// not, because that conformance gives `.setRow` a second reading beside
+	/// `ClassName.setRow` and makes every bare call site ambiguous. the generated
+	/// statics carry the token instead, and this property is what they read.
 	public var token: String { rawValue }
 
 	case active = "active"

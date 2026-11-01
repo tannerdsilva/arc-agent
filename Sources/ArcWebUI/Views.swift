@@ -4410,7 +4410,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         let levels = ["off", "low", "medium", "high", "max"]
         return SetSection(id: "preferences") {
             Heading("Preferences", level: .h2)
-            DetailCard(class: ClassName(ArcClass.cardLead)) {
+            DetailCard(class: .cardLead) {
                 SettingRow {
                     Text("Default thinking level")
                     Small("Applied to new chats; per-chat override in the composer.")
@@ -4421,7 +4421,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         .wire("set-think", on: .change)
                 }
             }
-            DetailCard(class: ClassName(ArcClass.cardStack)) {
+            DetailCard(class: .cardStack) {
                 Heading("Chat", level: .h3, class: .cardH3)
                 SettingRow {
                     Text("Show token usage")
@@ -4483,7 +4483,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 .wire("modelcfg-list")
                 modelConfigAddForm()
             }
-            DetailCard(class: ClassName(ArcClass.cardStack)) {
+            DetailCard(class: .cardStack) {
                 Heading("Main model", level: .h3, class: .cardH3)
                 Div(class: ClassName(.detailSub, .cardSub)) {
                     Text("The model used for new chats by default. Picked from the Model configurations above.")
@@ -4492,7 +4492,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     mainModelDropdown()
                 }
             }
-            DetailCard(class: ClassName(ArcClass.cardStack)) {
+            DetailCard(class: .cardStack) {
                 Heading("Auxiliary models", level: .h3, class: .cardH3)
                 Div(class: ClassName(.detailSub, .cardSub)) {
                     Text("Auxiliary tasks (vision, compression, approval, titles, …) use a dedicated model chosen below. Empty overrides fall back to the chat's main model.")

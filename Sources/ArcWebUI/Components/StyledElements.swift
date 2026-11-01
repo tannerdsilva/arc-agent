@@ -264,11 +264,11 @@ public struct DdSearch<Content: WebUI.View> {}
 public struct DetailBody<Content: WebUI.View> {}
 
 /// `.form-grid-2` — a form grid laid out in two columns.
-@StyledElement(.div, class: ClassName(ArcClass.formGrid2))
+@StyledElement(.div, class: .formGrid2)
 public struct FormGrid2<Content: WebUI.View> {}
 
 /// `.form-grid-3` — a form grid laid out in three columns.
-@StyledElement(.div, class: ClassName(ArcClass.formGrid3))
+@StyledElement(.div, class: .formGrid3)
 public struct FormGrid3<Content: WebUI.View> {}
 
 /// `.limit-row` — a key and its value in an interruption card.
