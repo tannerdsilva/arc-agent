@@ -570,7 +570,7 @@ extension AppState {
         return Div(class: "todo-card queue-card") {
             TodoHead {
                 Div {
-                    Element(.h2, class: ArcClass.todoTitle.token) { Text("Run queue") }
+                    Element(.h2, class: .todoTitle) { Text("Run queue") }
                     TodoSub {
                         Text("Tasks run in the order shown. Sequential feeds linked output; parallel runs each chat at once.")
                     }

@@ -5491,7 +5491,7 @@ extension AppState {
                                         TrustedMarkup(renderMarkdown(content), from: .markdown)
                                     }
                                 } else {
-                                    Element(.pre, class: ArcClass.wsPreviewBody.token) { Text(content) }
+                                    Element(.pre, class: .wsPreviewBody) { Text(content) }
                                 }
                             } else {
                                 // UX-12: an unreadable preview keeps its reason on screen —

@@ -130,7 +130,7 @@ extension ArcWebUITestRoot {
 					Header(class: "set-row") { Text("x") }.markup.html
 				),
 				(
-					Element(.div, class: ArcClass.setRow.token, id: "probe") { Text("x") }.markup.html,
+					Element(.div, class: .setRow, id: "probe") { Text("x") }.markup.html,
 					Element(.div, class: "set-row", id: "probe") { Text("x") }.markup.html
 				),
 				(

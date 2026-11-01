@@ -526,7 +526,7 @@ extension AppState {
         return Div(class: .todoCard) {
             TodoHead {
                 Div {
-                    Element(.h2, class: ArcClass.todoTitle.token) { Text("Todos") }
+                    Element(.h2, class: .todoTitle) { Text("Todos") }
                     TodoSub { Text(chatLabel) }
                 }
                 TodoHeadActions {
@@ -692,8 +692,8 @@ extension AppState {
     func taskMainEmpty() -> some WebUI.View {
         MainView {
             MainScroll {
-                Element(.h2, class: ArcClass.todoTitle.token) { Text("Scheduled tasks") }
-                Element(.p, class: ArcClass.todoSub.token) {
+                Element(.h2, class: .todoTitle) { Text("Scheduled tasks") }
+                Element(.p, class: .todoSub) {
                     Text("Pick a task on the left to see its controls and chat, or create a new one below.")
                 }
                 taskFormHTML()
@@ -740,7 +740,7 @@ extension AppState {
                              placeholder: "What should the agent run?", rows: 4)
                 }
                 ArcButton("Schedule task", class: .primaryBtn, type: .submit)
-                Element(.p, class: ArcClass.taskPreview.token) {
+                Element(.p, class: .taskPreview) {
                     Text("Runs on the interval you pick, starting immediately unless a Start time is set. Each run gets its own chat, kept out of the main list.")
                 }
             }
