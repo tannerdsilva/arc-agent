@@ -233,6 +233,12 @@ extension AppState {
         let rangeTokens = insights.dailyTokens
             .filter { $0.key >= Self.dayString(graphStart()) && $0.key <= Self.dayString(Date()) }
             .values.reduce(0, +)
+        // UX-B: the token figure is scoped to the selector's range while the
+        // session/message totals beside it are all-time — the label must say
+        // which window the number belongs to, or it reads as a broken counter.
+        let tokenLabel = insightsRangeDays == 365
+            ? "Tokens Burned (last year)"
+            : "Tokens Burned (last \(insightsRangeDays)d)"
 
         return Div(class: "main-scroll insights-main") {
             DetailCard {
@@ -252,7 +258,7 @@ extension AppState {
                 Div(class: .insStats) {
                     statBox(label: "Chat Sessions", value: Self.fmtCount(sessions.count), icon: .messageSquare)
                     statBox(label: "Total Messages", value: Self.fmtCount(totalMessages), icon: .fileText)
-                    statBox(label: "Tokens Burned", value: Self.fmtCount(rangeTokens), icon: .chartBar)
+                    statBox(label: tokenLabel, value: Self.fmtCount(rangeTokens), icon: .chartBar)
                 }
             }
             .margin(.bottom, .four)
