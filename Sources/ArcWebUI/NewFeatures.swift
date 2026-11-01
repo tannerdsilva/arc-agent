@@ -576,9 +576,9 @@ extension AppState {
         // is a dead control — the click identity contract).
         let rows: [any WebUI.View] = settings.scheduledJobs.map { taskRowHTML($0) }
         return Group {
-            Div(class: .panelHead) {
-                Span(class: .panelTitle) { Text("Scheduled Tasks") }
-                Div(class: .panelActions) {
+            PanelHead {
+                PanelTitle { Text("Scheduled Tasks") }
+                PanelActions {
                     ArcButton(id: "task-new", component: nil, class: .plusBtn) {
                         WebUIIcon(.plus, size: .medium)
                     }
@@ -586,7 +586,7 @@ extension AppState {
                 }
             }
             .wire("tasks")
-            Div(class: .panelBody) {
+            PanelBody {
                 if rows.isEmpty {
                     Div(class: "panel-note") {
                         Text("No scheduled tasks yet. Create one to run a prompt on a schedule — each task gets its own chat (kept out of the main chat list).")
@@ -650,7 +650,7 @@ extension AppState {
                         Text("\(job.schedule) · next \(next) · last \(last) · \(job.runCount) run\(job.runCount == 1 ? "" : "s")")
                     }
                 }
-                Div(class: .rowActionsMain) {
+                RowActionsMain {
                     ArcButton(toggleLabel, id: "task-toggle-\(job.id)", component: nil, class: .ghostBtn)
                     ArcButton("Run now", id: "task-now-\(job.id)", component: nil, class: .ghostBtn)
                     ArcButton(id: "task-del-\(job.id)", component: nil, class: ClassName(.iconMini, .danger)) {
@@ -689,7 +689,7 @@ extension AppState {
     }
 
     func taskMainEmpty() -> some WebUI.View {
-        Div(class: .mainView) {
+        MainView {
             Div(class: .mainScroll) {
                 Element(.h2, class: .todoTitle) { Text("Scheduled tasks") }
                 Element(.p, class: .todoSub) {
@@ -702,7 +702,7 @@ extension AppState {
     }
 
     func taskFormHTML() -> some WebUI.View {
-        Div(class: .detailCard) {
+        DetailCard {
             Element(.h3) { Text("New scheduled task") }
                 .attribute("style", "margin:0 0 10px")
             // a real form: Enter in any field submits, and the boundary on the

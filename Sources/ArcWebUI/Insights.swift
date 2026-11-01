@@ -144,10 +144,10 @@ extension AppState {
     func insightsPanel() -> some WebUI.View {
         let days = [7, 30, 90, 365]
         return Group {
-            Div(class: .panelHead) {
-                Span(class: .panelTitle) { Text("Insights") }
+            PanelHead {
+                PanelTitle { Text("Insights") }
             }
-            Div(class: .detailSub) { Text("Usage analytics") }
+            DetailSub { Text("Usage analytics") }
                 .attribute("style", "padding:4px 2px 10px")
             Div(class: .insRangeWrap) {
                 Label("Daily token range", for: "ins-range", class: .insRangeLabel)
@@ -235,7 +235,7 @@ extension AppState {
             .values.reduce(0, +)
 
         return Div(class: "main-scroll insights-main") {
-            Div(class: .detailCard) {
+            DetailCard {
                 El("h3", [("style", "margin:0 0 12px")], [
                     Text("Skill Usage "),
                     Span(class: .insRangeHint) { Text("(top \(min(10, ranked.count)) by uses)") },
@@ -247,7 +247,7 @@ extension AppState {
                 table
             }
             .margin(.bottom, .four)
-            Div(class: .detailCard) {
+            DetailCard {
                 El("h3", [("style", "margin:0 0 12px")], [Text("Agent Activity")])
                 Div(class: .insStats) {
                     statBox(label: "Chat Sessions", value: Self.fmtCount(sessions.count), icon: .messageSquare)
@@ -256,7 +256,7 @@ extension AppState {
                 }
             }
             .margin(.bottom, .four)
-            Div(class: .detailCard) {
+            DetailCard {
                 El("h3", [("style", "margin:0 0 12px")], [
                     Text("Daily Tokens "),
                     Span(class: .insRangeHint) { Text("(last \(insightsRangeDays) days)") },
