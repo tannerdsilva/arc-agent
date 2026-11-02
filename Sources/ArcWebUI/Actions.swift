@@ -2404,6 +2404,13 @@ extension Controller {
         }
         if await app.isTurnActive(sessionID: sid) {
             await app.queueSend(withContexts, sessionID: sid)
+            // Consume the draft exactly like the direct path does inside
+            // `runTurn`: a queued message that leaves its text in the composer
+            // is one Enter away from a double send, and the ghost-draft guard
+            // needs the same note to keep a trailing input frame (the engine's
+            // debounce can land after this clear) from resurrecting it.
+            await app.noteSubmittedDraft(trimmed, sessionID: sid)
+            await app.storeComposerDraft("", sessionID: sid)
             return await self.changed()
         }
         let pusher = push
