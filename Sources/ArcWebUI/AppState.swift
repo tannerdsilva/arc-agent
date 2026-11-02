@@ -3041,8 +3041,10 @@ actor AppState {
             return custom
         }
         if let first = s.messages.first(where: { $0.role == .user }),
-           let c = first.content, !c.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return trunc(c, 90)
+           let c = first.content,
+           !c.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let seed = SessionTitle.displaySeed(from: first.displayText ?? c) {
+            return seed
         }
         // Unloaded summaries carry the title hint (first user message) in
         // `title`; fall back to "New chat" only when neither exists.

@@ -205,7 +205,12 @@ public actor TesseraSessionStore: SessionStore {
         // sidebar ordering is untouched — once, on the next open. Never on a
         // deleted session: the terminal record is the last word.
         let hinted = meta.titleHint
-            ?? pairs.first(where: { $0.message.role == .user })?.message.content.map { String($0.prefix(120)) }
+            ?? pairs.first(where: { $0.message.role == .user })
+                .flatMap { meta in
+                    guard let text = meta.message.content,
+                          !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+                    return SessionTitle.displaySeed(from: meta.message.displayText ?? text)
+                }
         if meta.deleted != true,
            pairs.count != meta.messageCount || hinted != meta.titleHint {
             let corrected = TesseraSessionMeta(
@@ -396,7 +401,7 @@ public actor TesseraSessionStore: SessionStore {
             var hint = latest.titleHint
             if hint == nil, message.role == .user,
                let c = message.content, !c.isEmpty {
-                hint = String(c.prefix(120))
+                hint = SessionTitle.displaySeed(from: message.displayText ?? c)
             }
             latest.seq = await conn.takeSequence()
             latest.updatedAt = Date()
@@ -507,15 +512,17 @@ public actor TesseraSessionStore: SessionStore {
     }
 
     /// Title hint for a session summary: the explicit title if set, otherwise
-    /// the first user message (truncated). Never empty.
+    /// a display seed derived from the first user message (scaffolding and
+    /// log walls never become a sidebar row — see `SessionTitle.displaySeed`).
     private func metaTitleHint(session: Session) -> String? {
         if let t = session.title, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return String(t.prefix(120))
         }
         guard let first = session.messages.first(where: { $0.role == .user }),
-              let c = first.content, !c.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+              let c = first.content,
+              !c.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return nil }
-        return String(c.prefix(120))
+        return SessionTitle.displaySeed(from: first.displayText ?? c)
     }
 
     private func publish(meta: TesseraSessionMeta) async throws {

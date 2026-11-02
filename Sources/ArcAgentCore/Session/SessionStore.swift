@@ -340,8 +340,9 @@ public struct FileSessionStore: SessionStore {
                 if (session.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                    let first = session.messages.first(where: { $0.role == .user }),
                    let text = first.content,
-                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    session.title = String(text.replacingOccurrences(of: "\n", with: " ").prefix(64))
+                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let seed = SessionTitle.displaySeed(from: first.displayText ?? text) {
+                    session.title = seed
                 }
                 session.messageCount = session.messages.count
                 session.messages = []

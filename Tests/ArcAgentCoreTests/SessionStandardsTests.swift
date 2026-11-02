@@ -19,6 +19,36 @@ extension ArcCoreTestRoot {
             #expect(SessionTitle.sanitized(String(repeating: "x", count: 150)).count <= 100)
         }
 
+        @Test("display seed: scaffolding markers and log walls never become a chat title")
+        func displaySeed() {
+            // Skill-invocation scaffolding is model-facing plumbing, not a name —
+            // the seed drops it entirely (2026-11-01 audit UX-C: sidebar rows
+            // reading "[IMPORTANT: The user has invoked the …").
+            #expect(SessionTitle.displaySeed(from: "[IMPORTANT: The user has invoked the \"hello-world\" skill, indicating they want you to follow its instructions.]") == nil)
+            #expect(SessionTitle.displaySeed(from: "[IMPORTANT: The user has invoked the \"a\" \"b\" stacked skill bundle, loading 2 skills together.]") == nil)
+            // A scaffolding message that carries a trailing user instruction
+            // surfaces the instruction instead of the marker.
+            #expect(
+                SessionTitle.displaySeed(
+                    from: "[IMPORTANT: The user has invoked the \"x\" skill.]\n\nUser instruction: fix the login bug"
+                ) == "fix the login bug"
+            )
+            // Log walls (``` fences, severity prefixes, timestamps) collapse to
+            // their first readable line.
+            #expect(SessionTitle.displaySeed(from: "```\n08:23:43 WARNING [ArcWebUI] sidecar plugin not loaded\n```") == "08:23:43 WARNING [ArcWebUI] sidecar plugin not loaded")
+            #expect(SessionTitle.displaySeed(from: "```error\nconnection refused\n```") == "connection refused")
+            // Markdown decoration peels off; the seed is the first prose line
+            // (a title is one row, not a paragraph).
+            #expect(SessionTitle.displaySeed(from: "## Fix the login flow\n\nsecond line") == "Fix the login flow")
+            #expect(SessionTitle.displaySeed(from: "- item one\n- item two") == "item one item two")
+            #expect(SessionTitle.displaySeed(from: "> quoted prompt text") == "quoted prompt text")
+            // Plain prose passes through; long prose clamps.
+            #expect(SessionTitle.displaySeed(from: "Count from 1 to 60") == "Count from 1 to 60")
+            #expect(SessionTitle.displaySeed(from: String(repeating: "word ", count: 80))!.count <= SessionTitle.maxLength)
+            // Whitespace-only and empty inputs yield nil (caller keeps its fallback).
+            #expect(SessionTitle.displaySeed(from: "   \n  ") == nil)
+        }
+
         @Test("lineage numbering: my project → my project #2 → #3")
         func lineage() {
             #expect(SessionTitle.lineageNext("my project", existing: []) == "my project")

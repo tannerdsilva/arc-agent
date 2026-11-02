@@ -33,6 +33,82 @@ public enum SessionTitle {
         while existing.contains("\(clean) #\(n)") { n += 1 }
         return "\(clean) #\(n)"
     }
+
+    /// Derive a human display seed for a chat title from raw message text.
+    ///
+    /// Stores and UIs name untitled sessions from the first user message; a
+    /// raw first message is often not prose — it can be skill-invocation
+    /// scaffolding ("[IMPORTANT: The user has invoked …", which the 2026-11-01
+    /// audit found verbatim in the sidebar), a fenced log dump, or decorated
+    /// markdown. This collapses such text to a single clean line:
+    ///
+    /// 1. Scaffolding-only messages (`SkillCommands.invocationPrefix` markers)
+    ///    yield `nil` — the caller keeps its own fallback ("New chat"). A
+    ///    trailing `User instruction:` block inside the scaffolding surfaces
+    ///    the human's words instead.
+    /// 2. Fenced code/log walls drop the fence decoration and take the first
+    ///    non-empty line.
+    /// 3. Remaining markdown row decoration (`#`, `>`, `-` bullets) is peeled
+    ///    off line by line; newlines collapse to spaces.
+    /// 4. The result runs through `sanitized` (control chars, bidi, clamp).
+    ///
+    /// Returns `nil` for empty/whitespace input — never invents a title.
+    public static func displaySeed(from raw: String) -> String? {
+        let lines = raw
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+
+        // Scaffolding detection: the whole message is a bracketed invocation
+        // marker (single or stacked bundle headers). Prefer an explicit
+        // `User instruction:` line inside it; otherwise the message has no
+        // human-authored words and produces no seed.
+        if let first = lines.first, first.hasPrefix("[IMPORTANT") {
+            if let idx = lines.firstIndex(where: { $0.hasPrefix("User instruction:") }) {
+                let tail = lines[idx].dropFirst("User instruction:".count)
+                let instruction = tail.trimmingCharacters(in: .whitespaces)
+                guard !instruction.isEmpty else { return nil }
+                return sanitized(instruction)
+            }
+            return nil
+        }
+
+        // Fenced code/log wall: drop the fence rows, keep the first payload
+        // line — the readable part of a pasted log or error block.
+        var candidateLines = lines
+        if let fenceIdx = candidateLines.firstIndex(where: { $0.hasPrefix("```") }) {
+            let after = candidateLines.index(after: fenceIdx)
+            let payload = candidateLines[after...].first { !$0.hasPrefix("```") }
+            candidateLines = payload.map { [$0] } ?? []
+        }
+        // Peel one leading markdown decoration rune per line (headers, quotes,
+        // bullets). A leading ATX heading reads as a *heading* — the seed is
+        // that line alone (a title is one row, not a paragraph). Plain
+        // multi-line prose (and bullet/quote lines) still joins.
+        var seedLines = candidateLines
+        if let first = seedLines.first, first.hasPrefix("#") {
+            seedLines = [first]
+        }
+        let joined = seedLines
+            .map { line -> String in
+                var l = Substring(line)
+                if l.first == "#" {                                  // ## h2, ### h3 …
+                    while l.first == "#" { l = l.dropFirst() }
+                    if l.first == " " { l = l.dropFirst() }
+                } else if l.first == ">" {                           // > quote
+                    l = l.dropFirst()
+                    if l.first == " " { l = l.dropFirst() }
+                } else if l.first == "-", l.dropFirst().first == " " { // - bullet
+                    l = l.dropFirst(2)
+                }
+                return l.trimmingCharacters(in: .whitespaces)
+            }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard !joined.isEmpty else { return nil }
+        return sanitized(joined)
+    }
 }
 
 /// Export formats (reference `sessions export`).
