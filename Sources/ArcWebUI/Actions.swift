@@ -562,7 +562,8 @@ extension AppState {
         sessionID: String,
         headless: Bool = false,
         selectAfter: Bool = true,
-        displayText: String? = nil
+        displayText: String? = nil,
+        consumesDraft: Bool = true
     ) async {
         // Bind to the session the message was typed into — the active session
         // may change while the Task is queued or while another chat runs.
@@ -623,8 +624,14 @@ extension AppState {
         // Remember what this submit consumed before clearing the draft: a
         // trailing input frame still carrying the sent text must not
         // resurrect it (the engine's debounce can land it after this clear).
-        noteSubmittedDraft(settings.composerDrafts[sessionID] ?? "", sessionID: sessionID)
-        storeComposerDraft("", sessionID: sessionID)
+        // Only a turn whose text came FROM the composer consumes the draft —
+        // the queue drain and headless queue tasks run text that came from
+        // the queue, so consuming the current draft there would delete the
+        // text the user is typing (wave 4).
+        if consumesDraft {
+            noteSubmittedDraft(settings.composerDrafts[sessionID] ?? "", sessionID: sessionID)
+            storeComposerDraft("", sessionID: sessionID)
+        }
 
         let userMsg = Message(role: .user, content: userContent, createdAt: Date(), displayText: displayText)
         session.messages.append(userMsg)
@@ -996,7 +1003,9 @@ extension AppState {
         // message runs now, and runTurn's own end drains the one after that,
         // so order matches the chips. A stopped turn does not drain.
         if !wasStopped, let next = self.popQueuedSend(sessionID) {
-            Task { await self.runTurn(userText: next.text, pusher: pusher, sessionID: sessionID) }
+            // The queued turn's text came from the queue, not the composer —
+            // it must not consume the draft the user is typing (wave 4).
+            Task { await self.runTurn(userText: next.text, pusher: pusher, sessionID: sessionID, consumesDraft: false) }
         }
     }
 

@@ -273,7 +273,7 @@ extension AppState {
             waited += 1
         }
         guard activeTurns[chatID] == nil else { return false }
-        await runTurn(userText: prompt, pusher: pusher, sessionID: chatID, headless: true, selectAfter: false)
+        await runTurn(userText: prompt, pusher: pusher, sessionID: chatID, headless: true, selectAfter: false, consumesDraft: false)
         return true
     }
 
