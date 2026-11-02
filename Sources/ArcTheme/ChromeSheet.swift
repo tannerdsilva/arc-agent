@@ -42,6 +42,7 @@ public static let css: String = """
       --muted: #7A7263;
       --accent: #B8860B;
       --accent-strong: #9A6F09;
+      --accent-strong-ink: #FFFFFF;
       --accent-soft: rgba(184, 134, 11, 0.10);
       --accent-border: rgba(184, 134, 11, 0.45);
       --link: #0288A8;
@@ -130,6 +131,7 @@ public static let css: String = """
         --muted: #9A9486;
         --accent: #D9A441;
         --accent-strong: #E3B45C;
+        --accent-strong-ink: #17171B;
         --accent-soft: rgba(217, 164, 65, 0.14);
         --accent-border: rgba(217, 164, 65, 0.5);
         --link: #58B7D6;
@@ -1344,7 +1346,7 @@ public static let css: String = """
       display: inline-flex; align-items: center; justify-content: center;
       flex-shrink: 0;
     }
-    .role-icon.assistant { background: var(--accent-strong); color: #fff; }
+    .role-icon.assistant { background: var(--accent-strong); color: var(--accent-strong-ink); }
     .role-icon svg { width: 11px; height: 11px; }
     /* arc-parity chips: TPS pill in the meta row, token usage right-aligned.
        Both numbers change per push, so they occupy fixed slots (tabular-nums +
@@ -2305,7 +2307,11 @@ public static let css: String = """
     .send-btn {
       width: 34px; height: 34px;
       display: flex; align-items: center; justify-content: center;
-      background: var(--accent); color: #fff;
+      /* Same contract as `.primary-btn` (see `--accent-fg` there): the icon
+         draws with currentColor on the accent fill, and a bare #fff fell to
+         2.25:1 on the gold accents — under the 3:1 non-text floor. Every
+         scheme x mode pair clears 4.5:1 (PrimaryButtonAccentContrastTests). */
+      background: var(--accent); color: var(--accent-fg);
       border: none; border-radius: 50%;
       cursor: pointer;
       transition: background 0.15s, transform 0.1s;
@@ -2754,7 +2760,7 @@ public static let css: String = """
     }
     .todo-check svg { width: 11px; height: 11px; }
     .todo-check:hover { border-color: var(--accent); }
-    .todo-row.done .todo-check { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .todo-row.done .todo-check { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
     .todo-row.done .todo-check:hover { background: var(--accent-strong); }
     .todo-text { flex: 1; min-width: 0; font-size: 13.5px; line-height: 1.5; }
     .todo-row.done .todo-text { opacity: .45; text-decoration: line-through; }

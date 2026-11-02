@@ -61,6 +61,43 @@ extension ArcWebUITestRoot {
             return (hi + 0.05) / (lo + 0.05)
         }
 
+        @Test("icon fills on --accent and --accent-strong clear WCAG AA with their ink tokens")
+        func iconInkCoversAccentStrong() {
+            // The audit (2026-11-01, UX-D) found icon-only buttons hardcoding
+            // `color: #fff` over accent fills; the sheet routes `--accent`
+            // fills through `--accent-fg`. The `--accent-strong` fill needs
+            // its own ink (`--accent-strong-ink`): in light modes the hover
+            // shade is a *darker* accent, where the dark `--accent-fg` falls
+            // to ~2.7:1 — no single static ink serves both fills. Both inks
+            // are pinned here across every scheme x mode (the assistant
+            // role-icon is the strong-fill consumer; the send button and the
+            // done-todo check sit on the plain accent).
+            let sheet = ArcThemeCatalog.stylesheet()
+            var failures: [String] = []
+            for entry in ArcThemeCatalog.entries {
+                for mode in ["light", "dark"] {
+                    let selector = ":root[data-scheme=\"\(entry.id)\"][data-theme=\"\(mode)\"]"
+                    guard let body = Self.blockBody(sheet, selector: selector),
+                        let strong = Self.declaration(body, property: "--color-primary-solid-hover"),
+                        let strongInk = Self.declaration(body, property: "--accent-strong-ink"),
+                        let accent = Self.declaration(body, property: "--color-primary-solid"),
+                        let fg = Self.declaration(body, property: "--accent-fg")
+                    else {
+                        failures.append("\(selector): missing accent/strong/ink declarations")
+                        continue
+                    }
+                    if let r = Self.contrast(strong, strongInk), r < 4.5 {
+                        failures.append("\(entry.id)/\(mode): strong-ink \(strongInk) on \(strong) = \(String(format: "%.2f", r)):1")
+                    }
+                    if let r = Self.contrast(accent, fg), r < 4.5 {
+                        failures.append("\(entry.id)/\(mode): fg \(fg) on \(accent) = \(String(format: "%.2f", r)):1")
+                    }
+                }
+            }
+            #expect(failures.isEmpty,
+                    "icon ink fails WCAG AA on accent-strong: \(failures.joined(separator: "; "))")
+        }
+
         @Test("every scheme x mode primary-button label clears WCAG AA 4.5:1")
         func primaryButtonLabelClearsAA() {
             let sheet = ArcThemeCatalog.stylesheet()
