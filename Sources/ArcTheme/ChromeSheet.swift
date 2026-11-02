@@ -11,6 +11,10 @@ public static let css: String = """
       --font-size: 14.5px;
       --iconbar-w: 56px;
       --panel-w: 280px;
+      /* The conversation column (transcript, queued chips, composer). It scales
+         with the viewport so wide data gets room; prose inside it keeps its
+         own 46rem measure and the column caps at 1200px. */
+      --chat-measure: clamp(860px, 72vw, 1200px);
       --radius-lg: 16px;
       --radius-md: 11px;
       --radius-sm: 8px;
@@ -1274,14 +1278,15 @@ public static let css: String = """
     .chat-scroll::-webkit-scrollbar-track { background: transparent; }
     .chat-scroll::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 4px; }
 
-    /* Conversation column. This max-width is deliberately the same clamp
-       `.composer-bar` uses, and both sit in a container with the same 28px
-       inset, so the transcript and the composer share their left and right
-       edges. Assistant prose still caps at 46rem inside it — a reading measure,
-       not the column edge. */
+    /* Conversation column. `--chat-measure` is shared by the transcript, the
+       queued-send chips and the composer, so all three share their left and
+       right edges. It scales with the viewport up to 1200px: wide enough for
+       data tables without stretching a sentence past a comfortable measure.
+       Assistant prose still caps at 46rem inside it — a reading measure, not
+       the column edge — while tables and fenced code may use the full column. */
     .chat-inner {
       margin: 0 auto; width: 100%;
-      max-width: clamp(780px, 60vw, 1100px);
+      max-width: var(--chat-measure);
       padding: 20px 0 32px;
       display: flex; flex-direction: column;
     }
@@ -1313,16 +1318,21 @@ public static let css: String = """
       padding: 12px 16px;
       white-space: pre-wrap;
     }
-    /* Reading measure: assistant prose caps at ~46rem for line length; code
-       blocks and tables keep the full body width and scroll horizontally
-       rather than wrapping inside the narrower measure. */
-    .msg.assistant .msg-body { text-align: left; max-width: 46rem; }
-    /* Markdown tables (UX-04): the renderer wraps tables in .msg-table-wrap,
-       which scrolls horizontally when the columns need more room than the
-       reading column offers. `table-layout: auto` + `min-width: 100%` size
-       columns to their content, so a long identifier or number forces the
-       whole table wider (and the wrapper to scroll) instead of breaking
-       mid-word; cells break only at word boundaries. */
+    /* The assistant body owns the full conversation column; the prose inside
+       it is capped to the 46rem reading measure below. This is what lets a
+       data table use the width beside a paragraph instead of being boxed into
+       a 736px scroll boundary. */
+    .msg.assistant .msg-body { text-align: left; max-width: none; width: 100%; }
+    /* Markdown prose keeps one readable measure. Data blocks are exempt: a
+       table or fenced code block may use the whole conversation column. */
+    .msg.assistant .md > * { max-width: 46rem; }
+    .msg.assistant .md > .msg-table-wrap,
+    .msg.assistant .md > pre { max-width: 100%; }
+    /* Markdown tables (UX-04): the renderer wraps tables in .msg-table-wrap.
+       `table-layout: auto` + `min-width: 100%` size columns to their content;
+       when a table's intrinsic width exceeds the full conversation column the
+       wrapper scrolls horizontally rather than breaking identifiers mid-word.
+       Cells break only at word boundaries. */
     .msg-table-wrap { overflow-x: auto; max-width: 100%; }
     .msg-table-wrap table { min-width: 100%; }
     .msg-body table th,
@@ -2175,12 +2185,13 @@ public static let css: String = """
     .limit-v { color: var(--text); }
 
     /* ─── Composer (reference composer-box sizing) ────────────────── */
-    /* Same inset as `.chat-scroll`, and `.composer-bar` below carries the same
-       max-width as `.chat-inner`, so the transcript and the composer share
-       their left and right edges instead of drifting apart. */
+    /* Same inset as `.chat-scroll`, and `.composer-bar` below carries the
+       shared `--chat-measure` max-width as `.chat-inner`, so the transcript
+       and the composer share their left and right edges instead of drifting
+       apart. */
     .composer-wrap { padding: 12px 28px 16px; }
     .queued-sends { display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-      max-width: clamp(780px, 60vw, 1100px); margin: 0 auto 8px; padding: 0 4px; }
+      max-width: var(--chat-measure); margin: 0 auto 8px; padding: 0 4px; }
     .queued-count { font-size: 0.78em; font-weight: 700; text-transform: uppercase;
       letter-spacing: .05em; color: var(--accent); flex: 0 0 auto; }
     .queued-chip {
@@ -2195,7 +2206,7 @@ public static let css: String = """
     .queued-chip-x { flex: 0 0 auto; color: var(--muted); font-size: 11px; opacity: .8; }
     .queued-chip:hover .queued-chip-x { color: var(--text); opacity: 1; }
     .composer-bar {
-      max-width: clamp(780px, 60vw, 1100px);
+      max-width: var(--chat-measure);
       margin: 0 auto;
       background: var(--input-bg);
       border: 1px solid var(--border-strong);

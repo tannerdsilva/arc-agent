@@ -1583,6 +1583,32 @@ extension ArcWebUITestRoot {
                     "the old display:block table rule is gone — with the wrapper it clipped the scroll path (UX-04)")
         }
 
+        /// A wide table used to be boxed into the assistant body's 46rem
+        /// reading measure, so it scrolled even when the conversation column
+        /// had empty width beside it. The body now owns the full
+        /// `--chat-measure` column and only prose is capped; tables and code
+        /// blocks may use the whole width.
+        @Test("assistant data blocks use the conversation column while prose keeps its reading measure")
+        func assistantDataUsesConversationColumn() {
+            let css = Self.sheetSource
+            #expect(css.contains("--chat-measure: clamp(860px, 72vw, 1200px);"),
+                    "the conversation column must scale with the viewport (860–1200px)")
+            #expect(css.contains(".chat-inner {\n      margin: 0 auto; width: 100%;\n      max-width: var(--chat-measure);"),
+                    "the transcript column must use the shared width variable")
+            #expect(css.contains(".composer-bar {\n      max-width: var(--chat-measure);"),
+                    "the composer must share the transcript's column width")
+            #expect(css.contains("max-width: var(--chat-measure); margin: 0 auto 8px;"),
+                    "the queued-send chips must share the column width too")
+            #expect(css.contains(".msg.assistant .msg-body { text-align: left; max-width: none; width: 100%; }"),
+                    "the assistant body must fill the conversation column")
+            #expect(css.contains(".msg.assistant .md > * { max-width: 46rem; }"),
+                    "prose must keep the 46rem reading measure inside the wider column")
+            #expect(css.contains(".msg.assistant .md > .msg-table-wrap,\n    .msg.assistant .md > pre { max-width: 100%; }"),
+                    "tables and fenced code must be exempt from the prose measure")
+            #expect(!css.contains(".msg.assistant .msg-body { text-align: left; max-width: 46rem; }"),
+                    "the old body cap must not return — it clipped every table at 736px")
+        }
+
         // MARK: - UX-06 (2026-10-18 wave 2) full session title on hover + accessible name
 
         /// Identical 40-char-truncated titles made conversations
