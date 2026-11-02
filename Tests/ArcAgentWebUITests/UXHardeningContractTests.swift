@@ -1752,9 +1752,11 @@ extension ArcWebUITestRoot {
         /// At 480×900 the 12-icon vertical rail persisted and ate a 46px column
         /// (rail 46 / main 434). Below 600px the rail must collapse into a
         /// horizontal strip under the topbar: window never scrolls horizontally
-        /// (the strip's own overflow owns that), Settings stays pinned at the
-        /// visible right edge, and the drawer clears the strip so every nav
-        /// destination stays reachable.
+        /// (the strip's own overflow owns that), Settings rides at the end of
+        /// the flow, and the drawer clears the strip. Below 520px twelve 40px
+        /// destinations cannot fit, so the strip wraps into a 6-column grid
+        /// instead of scrolling — and a hidden tooltip box must never be able
+        /// to inflate the strip or paint a horizontal scrollbar.
         @Test("below 600px the rail collapses to a horizontal strip without taxing the window width")
         func railCollapsesAtNarrowWidths() {
             let css = Self.sheetSource
@@ -1765,7 +1767,7 @@ extension ArcWebUITestRoot {
             let railBlock = "@media (max-width: 599.98px) {"
             guard let r0 = css.range(of: railBlock) else { return }
             let rest = css[r0.upperBound...]
-            let block = rest.prefix(1500)
+            let block = rest.prefix(4000)
             #expect(block.contains("flex: 0 0 auto; width: 100%; height: 44px;"),
                     "the rail must become a full-width horizontal strip (UX-07)")
             #expect(block.contains("flex-direction: row; align-items: center;"),
@@ -1776,6 +1778,40 @@ extension ArcWebUITestRoot {
                     "the Settings slot must stay in flow so it cannot cover Todos (round-3 UX-29)")
             #expect(block.contains("#panel { top: 82px; left: 0; width: 100vw; }"),
                     "the drawer must open below the rail strip so the rail stays tappable (UX-07)")
+
+            // The mobile strip must not paint a scrollbar: the themed 8px bar
+            // turned a few px of phantom overflow into a permanent-looking rule
+            // under the rail (the reported mobile bug).
+            #expect(block.contains("scrollbar-width: none;"),
+                    "the strip must suppress the native scrollbar")
+            #expect(block.contains("#iconbar::-webkit-scrollbar { display: none; width: 0; height: 0; }"),
+                    "the themed WebKit scrollbar must be hidden on the strip too")
+
+            // A hover pill is `position:absolute; left:100%+10px`; even at
+            // opacity 0 its box counts toward scrollWidth (73px + 10px on the
+            // last icon). Touch cannot hover, so the strip drops the pill and
+            // keeps the accessible name.
+            #expect(block.contains("#iconbar .icon-btn[data-tip]::after { display: none; }"),
+                    "the hover pill must not be laid out inside the horizontal strip")
+
+            // The two rail groups used to stay nested flex containers with
+            // their own 6px gap, so #iconbar's gap did not apply; 12 icons
+            // then needed 34px more than a 532px strip. Dissolving the groups
+            // lets space-between distribute all twelve buttons evenly.
+            #expect(block.contains("#iconbar .iconbar-top,\n      #iconbar .iconbar-bottom { display: contents; }"),
+                    "the rail groups must dissolve into the strip's flex row")
+
+            // 12 × 40px + 11 × 2px + 12px padding = 514px; the wrap breakpoint
+            // sits at 520px for a 6px comfort margin. Below that, wrap rather
+            // than scroll.
+            #expect(css.contains("@media (max-width: 519.98px) {"),
+                    "the two-row rail breakpoint must exist")
+            guard let w0 = css.range(of: "@media (max-width: 519.98px) {") else { return }
+            let wrapped = css[w0.upperBound...].prefix(800)
+            #expect(wrapped.contains("display: grid; grid-template-columns: repeat(6, 1fr);"),
+                    "below 520px the rail must wrap into a 6-column grid, not scroll")
+            #expect(wrapped.contains("#panel, .drawer-scrim { top: 129px; }"),
+                    "the drawer must clear the taller two-row rail")
         }
 
         // MARK: - Full mobile: the session list navigates, it does not manage
@@ -1796,7 +1832,7 @@ extension ArcWebUITestRoot {
                 Issue.record("the full-mobile breakpoint is gone")
                 return
             }
-            let block = String(css[start.upperBound...].prefix(3000))
+            let block = String(css[start.upperBound...].prefix(5000))
             #expect(block.contains("#app-body { flex-direction: column; }"),
                     "the gate must live in the block whose layout puts the rail on top — otherwise \"full mobile\" and \"no delete\" can drift apart")
             #expect(block.contains("#chat-del,"),

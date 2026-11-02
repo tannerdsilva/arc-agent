@@ -3153,24 +3153,39 @@ public static let css: String = """
       .ws-dock-btn { width: 20px; height: 48px; }
     }
     /* Below 600px the vertical 12-icon rail eats the whole left column and a
-       third of a 480px window. Collapse it into a single 44px horizontal
-       strip under the topbar: the app body becomes a column, the rail scrolls
-       sideways (its own overflow, so the WINDOW never does), and the Settings
-       slot rides at the END of that strip (in flow, not sticky: pinning it
-       over the strip covered Todos at 480px — round-3 UX-29), so every
-       destination stays reachable and the composer gets the full window. */
+       third of a 480px window. Collapse it into a horizontal strip under the
+       topbar: the app body becomes a column, the strip owns its own overflow
+       (the WINDOW never scrolls), and Settings rides at the END of the strip
+       in flow (not sticky: pinning it over the strip covered Todos at 480px —
+       round-3 UX-29). Twelve 40px destinations do not fit one phone row, so
+       below 520px the strip becomes a 6-column grid of two rows instead of a
+       sideways scroller — every destination stays visible and no scrollbar
+       (native or themed) is ever painted. */
     @media (max-width: 599.98px) {
       #app-body { flex-direction: column; }
       #iconbar {
         flex: 0 0 auto; width: 100%; height: 44px;
         flex-direction: row; align-items: center;
-        gap: 4px; padding: 2px 6px;
+        justify-content: space-between;
+        gap: 2px; padding: 2px 6px;
         overflow-x: auto; overflow-y: hidden;
         border-right: none; border-bottom: 1px solid var(--border);
+        scrollbar-width: none;
       }
-      #iconbar .iconbar-top { flex: 0 0 auto; min-height: 0; }
+      #iconbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
+      /* The two groups dissolve so all 12 buttons are the strip's own flex
+         items: space-between then distributes them evenly across the full
+         width. The old nested flex containers kept their own 6px gap (the
+         mobile rule only set #iconbar's gap), so the strip was wider than the
+         icons themselves and overflowed a 532px window. */
       #iconbar .iconbar-top,
-      #iconbar .iconbar-bottom { flex-direction: row; }
+      #iconbar .iconbar-bottom { display: contents; }
+      /* Hover pills are hover-only (touch never sees them) and their
+         absolutely positioned boxes still count toward the strip's scrollable
+         width — a 73px phantom tail on the last icon, which is exactly what
+         painted the horizontal scrollbar. The accessible name (aria-label)
+         stays for assistive tech. */
+      #iconbar .icon-btn[data-tip]::after { display: none; }
       /* The Settings slot used to be sticky, which parked the gear on top of
          whichever destination happened to be under it (round-3 UX-29: at 480
          it covered the Todos button). Keep it in flow at the END of the strip
@@ -3178,12 +3193,12 @@ public static let css: String = """
       #iconbar .iconbar-bottom {
         position: static; bottom: auto; left: auto; right: auto;
         flex: 0 0 auto; align-items: center;
-        background: transparent; padding-left: 0; padding-right: 4px;
+        background: transparent; padding-left: 0; padding-right: 0;
       }
-      #iconbar {
-        -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent 100%);
-        mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent 100%);
-      }
+      /* No right-edge fade: with the default tabs the strip fits, and below
+         520px it wraps rather than scrolls — a permanent fade would dim the
+         Settings gear itself. Extra plugin tabs still scroll inside the strip
+         (bar hidden); a cut glyph at the edge is the cue. */
       /* the drawer opens after the topbar AND the rail strip, so the rail
          stays tappable while the drawer is open (UX-61 principle) */
       #panel { top: 82px; left: 0; width: 100vw; }
@@ -3204,6 +3219,20 @@ public static let css: String = """
       #chat-clear-empty,
       .chat-menu button.danger,
       .chat-menu button[id^="sm-arc-"] { display: none; }
+    }
+    /* Twelve 40px destinations + 11 × 2px gaps + 12px padding = 514px; the
+       wrap breakpoint sits at 520px for a 6px comfort margin. Below that,
+       wrap into a fixed 6-column grid — two balanced rows, every destination
+       visible, no horizontal scrolling and therefore no scrollbar. The drawer
+       offsets track the taller rail (38px topbar + 91px rail). */
+    @media (max-width: 519.98px) {
+      #iconbar {
+        display: grid; grid-template-columns: repeat(6, 1fr);
+        justify-items: center; align-items: center;
+        height: auto; overflow: visible;
+        padding: 4px 6px; gap: 2px 0;
+      }
+      #panel, .drawer-scrim { top: 129px; }
     }
     /* ── Insights daily tokens chart y-axis (UX-14) ────────────────── */
     /* UX-14: a real vertical axis. The tick rows are absolutely positioned in a
