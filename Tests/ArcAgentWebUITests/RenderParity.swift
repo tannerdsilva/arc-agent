@@ -469,7 +469,9 @@ extension ArcWebUITestRoot {
 	    @Test("phase 3: user message matches golden")
 	    func phase3UserMessage() async {
 	        let app = AppState(renderFixture: .init())
-	        let html = await app.messageHTML(Self.phase3Thread()[0], rawIdx: 0).markup.html
+	        // a session id exercises the fork action: the golden must pin both
+	        // controls, not a copy-only footer.
+	        let html = await app.messageHTML(Self.phase3Thread()[0], rawIdx: 0, sessionID: "sess-a").markup.html
 	        Parity.capture(html, as: "message-user")
 	        Parity.expect(html, matches: "message-user")
 	    }

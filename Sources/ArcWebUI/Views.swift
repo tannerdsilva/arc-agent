@@ -1244,7 +1244,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         // otherwise `data-follow` lands on `.chat-scroll-wrap`.
         let scroller = ChatScroll {
             ChatInner {
-                messagesHTML(session?.messages ?? [])
+                messagesHTML(session?.messages ?? [], sessionID: session?.id)
             }
             .id("chat-inner")
         }
@@ -1329,13 +1329,19 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
     }
 
-    func messagesHTML(_ messages: [Message]) -> some WebUI.View {
+    /// The transcript rows.
+    ///
+    /// `sessionID` is the conversation the rows belong to; it is what the
+    /// fork-here action encodes. nil renders a read-only copy of a transcript
+    /// (a task thread): copy stays available, fork does not — see
+    /// `userMessageActions(for:rawIdx:sessionID:)`.
+    func messagesHTML(_ messages: [Message], sessionID: String? = nil) -> some WebUI.View {
         var blocks: [any WebUI.View] = []
         var i = 0
         let mode = settings.activityDisplay
         while i < messages.count {
             if messages[i].role == .user {
-                blocks.append(messageHTML(messages[i], rawIdx: i))
+                blocks.append(messageHTML(messages[i], rawIdx: i, sessionID: sessionID))
                 i += 1
                 continue
             }
@@ -1745,15 +1751,17 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
     }
 
-    func messageHTML(_ m: Message, rawIdx: Int = -1) -> some WebUI.View {
+    func messageHTML(_ m: Message, rawIdx: Int = -1, sessionID: String? = nil) -> some WebUI.View {
         return Group {
             switch m.role {
             case .user:
                 // Slash-command rewrites (skill invocation scaffolding) keep the
                 // typed line as the display text; the model sees `content`.
                 let content = m.displayText ?? m.content ?? ""
+                let actions = userMessageActions(for: m, rawIdx: rawIdx, sessionID: sessionID)
                 let bubble = Div(class: ClassName(.msg, .user)) {
                     Div(class: ClassName(.msgBody, .userBubble)) { TrustedMarkup(mdBox(content), from: .markdown) }
+                    userMessageActionsHTML(actions)
                 }
                 if rawIdx >= 0 {
                     bubble.id("msg-user-\(rawIdx)")

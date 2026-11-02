@@ -1291,6 +1291,7 @@ final class Controller: Sendable {
         await wireNav(router)
         wireChat(router)
         wireChatMenu(router)
+        wireMessageActions(router)
         wireSkills(router)
         wireProfiles(router)
         wireTools(router)
@@ -2071,6 +2072,27 @@ extension Controller {
     }
 }
 
+@WireGroup("message_actions")
+extension Controller {
+    /// The footer actions under a user message.
+    ///
+    /// copy never arrives here — the overlay owns `[data-copy]`, so a copy
+    /// click carries no `targetId` this wire can act on. fork does:
+    /// `fork-<session>.<index>` names the conversation and the cut point, and
+    /// the store is the only writer (see `AppState.forkSession`).
+    @Wired("msg-actions", events: [.click])
+    func handleMessageAction(_ event: EventData) async -> [FragmentUpdate] {
+        guard let targetID = event.string("targetId"),
+              let target = MessageAction.forkTarget(in: targetID) else { return [] }
+        guard await self.app.forkSession(target.sessionID,
+                                         throughUserMessageAt: target.messageIndex) != nil else {
+            _ = await self.app.hint("Couldn't fork from that message.", kind: "error")
+            return await self.changed()
+        }
+        return await self.changed()
+    }
+}
+
 @WireGroup("workspaces")
 extension Controller {
     @Wired("ws-new", events: [.click])
@@ -2321,6 +2343,12 @@ extension Controller {
     /// toggle.
     private func wireChatMenu(_ router: EventRouter) {
         wireGroup_chatmenu(router)
+    }
+
+    /// User-message footer actions (fork-here): a chat-panel wire, but not the
+    /// chat row menu's — keep the registrars one per surface.
+    private func wireMessageActions(_ router: EventRouter) {
+        wireGroup_message_actions(router)
     }
 
     private func newChat() async {

@@ -690,6 +690,8 @@ extension AppState {
         }
         let thread = Div(class: .taskThread) {
             ChatScroll {
+                // copy-only: a task thread has no session identity the chat
+                // panel could open, so the fork action is not offered here.
                 ChatInner { messagesHTML(msgs) }
                     .id("task-chat-inner")
             }

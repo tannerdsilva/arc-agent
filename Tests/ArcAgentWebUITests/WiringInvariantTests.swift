@@ -178,16 +178,24 @@ extension ArcWebUITestRoot {
             #expect(router.handlerCount(in: .default) == 1, "regen group registration drifted")
         }
 
-        @Test("wireAll registers exactly 179 handlers (165 generated + 12 nav ids + sidebar-plugin-toggle + cat-pick)")
-        func wireAllRegistersExactly179() async throws {
+        @Test("every message_actions handler is registered after wireGroup_message_actions")
+        func messageActionsGroupHasExactCount() async throws {
+            let router = EventRouter()
+            let controller = Controller(app: Self.app, push: Self.push)
+            controller.wireGroup_message_actions(router)
+            #expect(router.handlerCount(in: .default) == 1, "message_actions group registration drifted")
+        }
+
+        @Test("wireAll registers exactly 180 handlers (166 generated + 12 nav ids + sidebar-plugin-toggle + cat-pick)")
+        func wireAllRegistersExactly180() async throws {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             await controller.wireAll(router)
 
             let count = router.handlerCount(in: .default)
             #expect(
-                count == 179,
-                "wireAll must register exactly 179 handlers: 165 @Wired-generated + 12 nav-(id) + sidebar-plugin-toggle + cat-pick, got \(count)"
+                count == 180,
+                "wireAll must register exactly 180 handlers: 166 @Wired-generated + 12 nav-(id) + sidebar-plugin-toggle + cat-pick, got \(count)"
             )
         }
 

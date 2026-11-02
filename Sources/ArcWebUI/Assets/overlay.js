@@ -2003,9 +2003,19 @@
     var text = b.getAttribute('data-copy') || '';
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(function () {
-        var orig = b.innerHTML;
-        b.innerHTML = '✓';
-        setTimeout(function () { b.innerHTML = orig; }, 1500);
+        // A labelled action (message footer) keeps its icon and swaps only the
+        // label, so the pair beside it does not shift. An icon-only button
+        // (code block, assistant reply) swaps the whole glyph as before.
+        var label = b.querySelector('[data-copy-label]');
+        if (label) {
+          var origLabel = label.textContent;
+          label.textContent = 'Copied';
+          setTimeout(function () { label.textContent = origLabel; }, 1500);
+        } else {
+          var orig = b.innerHTML;
+          b.innerHTML = '✓';
+          setTimeout(function () { b.innerHTML = orig; }, 1500);
+        }
       }, function () { });
     }
   });

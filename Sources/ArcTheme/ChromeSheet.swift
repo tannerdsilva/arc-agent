@@ -1292,7 +1292,9 @@ public static let css: String = """
     }
 
     .msg { display: flex; padding: 10px 0; }
-    .msg.user { justify-content: flex-end; }
+    /* the user's row stacks the bubble over its hover actions; the actions
+       align to the bubble's right edge, not the reading column's. */
+    .msg.user { flex-direction: column; align-items: flex-end; }
     .msg.assistant { justify-content: flex-start; }
     /* Streaming live-turn: a quiet accent hairline marks the turn in flight
        (the avatar/timing state rides on .role-icon and data-streaming). */
@@ -1699,12 +1701,23 @@ public static let css: String = """
 
     /* ── Message hover footer: produced-at time + copy (arc parity) ── */
     .msg-foot { display: flex; align-items: center; gap: 8px; margin-top: 5px; opacity: 0; transition: opacity 0.15s; }
-    .msg:hover .msg-foot { opacity: 1; }
+    .msg:hover .msg-foot,
+    .msg:focus-within .msg-foot { opacity: 1; }
+    /* a keyboard reader reaches the actions before the footer is visible:
+       focus-within reveals them, and a touch surface has no hover to wait for. */
+    @media (hover: none) {
+      .msg-foot { opacity: 1; }
+    }
     .msg-time { font-size: 0.84em; color: var(--muted); }
     .msg-actions { display: inline-flex; align-items: center; gap: 2px; }
     .msg-action-btn { background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 5px; border-radius: 5px; display: inline-flex; align-items: center; transition: color 0.12s, background 0.12s; }
     .msg-action-btn:hover { color: var(--text); background: var(--surface-2); }
     .msg-action-btn svg { width: 12px; height: 12px; }
+    /* user-message actions are labelled ghost pills: "Fork here" is not a
+       discoverable icon, and the pair reads as one quiet row under the bubble. */
+    .msg.user .msg-foot { margin-top: 6px; }
+    .msg.user .msg-action-btn { gap: 5px; padding: 3px 8px; font-size: 12px; border: 1px solid transparent; }
+    .msg.user .msg-action-btn:hover { border-color: var(--border); }
     .tool-pills { display: flex; flex-direction: column; align-items: stretch; gap: 2px; margin: 6px 0 4px; }
     /* Each tool call expands independently; cards stack vertically. */
     /* arc parity: tool call rows are bubble-like pills. */
