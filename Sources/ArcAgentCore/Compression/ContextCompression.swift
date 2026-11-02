@@ -35,6 +35,175 @@ public enum ContextCompression {
         return (head, compressible, tail)
     }
 
+    // MARK: - Request budgeting (overhead-aware)
+
+    /// The compression budget split.
+    ///
+    /// `limit` is the FULL request budget the engine gates on — system prompt
+    /// plus tool schemas plus history. `overhead` is the part compression
+    /// cannot touch. Sizing the window off `limit` alone leaves no room for
+    /// the summary the middle is replaced with, so the request stays over
+    /// budget and the next turn iteration compresses again.
+    public struct RequestBudget: Sendable, Equatable {
+        public let limit: Int
+        public let overhead: Int
+
+        public init(limit: Int, overhead: Int) {
+            self.limit = limit
+            self.overhead = max(0, overhead)
+        }
+
+        /// Tokens available to the message history.
+        public var historyBudget: Int { max(0, limit - overhead) }
+    }
+
+    /// Tail and summary token budgets for a history budget, after protecting
+    /// the head.
+    ///
+    /// `compressibleTokens` is the size of the non-system history. It bounds
+    /// the tail as well: a tail budget larger than half the compressible
+    /// region swallows the whole middle, leaving nothing to summarize (the
+    /// pass then degenerates into the emergency drop). `head` is never
+    /// compressed, so it comes off the top of the budget; the tail never
+    /// takes more than half of what remains, which guarantees the summary
+    /// that replaces the middle always has room.
+    public static func budgets(
+        historyBudget: Int,
+        headTokens: Int,
+        compressibleTokens: Int,
+        maxTail: Int = 20_000,
+        maxSummary: Int = 6_000
+    ) -> (tail: Int, summary: Int) {
+        let available = max(0, historyBudget - max(0, headTokens))
+        let compressible = max(0, compressibleTokens - max(0, headTokens))
+        let tail = min(maxTail, available / 2, compressible / 2)
+        let summary = min(maxSummary, max(0, available - tail))
+        return (tail, summary)
+    }
+
+    /// Clamp `text` to `budget` tokens, keeping its head and tail around a
+    /// truncation marker. The summarizer is an external model: its output is
+    /// never trusted to respect the budget the prompt asks for.
+    public static func boundToTokenBudget(
+        _ text: String,
+        budget: Int,
+        countTokens: (String) -> Int
+    ) -> String {
+        guard budget > 0 else { return "" }
+        guard countTokens(text) > budget else { return text }
+        let marker = "\n...[summary truncated to fit the compression budget]...\n"
+        var head = String(text.prefix(text.count / 2))
+        var tail = String(text.suffix(text.count / 2))
+        var out = head + marker + tail
+        while countTokens(out) > budget, head.count > 64 || tail.count > 64 {
+            if head.count > 64 { head = String(head.prefix(head.count * 3 / 4)) }
+            if tail.count > 64 { tail = String(tail.suffix(tail.count * 3 / 4)) }
+            out = head + marker + tail
+        }
+        // Pathological budget (smaller than the marker + two 64-char ends):
+        // fall back to a hard prefix cut so the bound always holds.
+        if countTokens(out) > budget {
+            var chars = min(out.count, budget * 4)
+            while chars > 0 && countTokens(String(out.prefix(chars))) > budget {
+                chars = chars * 3 / 4
+            }
+            out = String(out.prefix(chars))
+        }
+        return out
+    }
+
+    /// Bounded extractive fallback used when no auxiliary summarizer is
+    /// configured or the call fails.
+    ///
+    /// Folds the previous summary with an excerpt of the newest material, kept
+    /// inside `budget`. Re-serializing the whole middle here (the old
+    /// behaviour) made compression a no-op: the "summary" was as large as the
+    /// messages it replaced, the request stayed over budget, and the loop
+    /// compressed on every iteration while the previous summary was lost.
+    public static func extractiveSummary(
+        previous: String,
+        material: [Message],
+        budget: Int,
+        countTokens: (String) -> Int
+    ) -> String {
+        guard budget > 0 else { return "" }
+        var sections: [String] = []
+        var remaining = budget
+
+        let prior = previous.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !prior.isEmpty {
+            let bounded = boundToTokenBudget(prior, budget: budget / 2, countTokens: countTokens)
+            if !bounded.isEmpty {
+                sections.append(bounded)
+                remaining -= countTokens(bounded) + 8
+            }
+        }
+
+        // Newest material first: it is closest to the live tail and the most
+        // useful to keep. Oversized lines are truncated, not skipped, so a
+        // single huge tool result cannot starve the whole excerpt.
+        var lines: [String] = []
+        var omitted = false
+        for msg in material.reversed() {
+            guard remaining > 32 else { omitted = true; break }
+            guard var line = recordLine(msg, maxChars: min(4_000, remaining * 4)) else { continue }
+            var cost = countTokens(line) + 2
+            if cost > remaining {
+                let capped = String(line.prefix(max(0, remaining * 4)))
+                guard !capped.isEmpty else { omitted = true; break }
+                line = capped + " …[truncated]"
+                cost = countTokens(line) + 2
+                guard cost <= remaining else { omitted = true; break }
+            }
+            lines.append(line)
+            remaining -= cost
+        }
+        if !lines.isEmpty {
+            sections.append(lines.reversed().joined(separator: "\n\n"))
+        }
+        if omitted {
+            sections.append("[older material omitted: extractive fallback budget]")
+        }
+        let joined = sections.joined(separator: "\n\n")
+        // Per-section accounting cannot see the join separators; the bound is
+        // the contract, so enforce it on the assembled text.
+        return countTokens(joined) <= budget
+            ? joined
+            : boundToTokenBudget(joined, budget: budget, countTokens: countTokens)
+    }
+
+    /// Drop the oldest tail messages until `messages` fits `budget`.
+    ///
+    /// The tail budget can overshoot by one large message, and the head is
+    /// unbounded; this is the final guarantee that a compression pass returns
+    /// a history the full request budget can hold. `protectedPrefix` counts
+    /// the messages that must survive (system messages, the summary, the
+    /// head); at least `minKeptTail` tail messages stay regardless.
+    public static func clampToBudget(
+        _ messages: [Message],
+        protectedPrefix: Int,
+        budget: Int,
+        minKeptTail: Int = 2,
+        countTokens: (String) -> Int
+    ) -> [Message] {
+        let protectedCount = max(0, min(protectedPrefix, messages.count))
+        var total = 0
+        for msg in messages { total += countTokens(msg.content ?? "") + 4 }
+        guard total > budget else { return messages }
+
+        var drop = 0
+        var kept = messages.count - protectedCount
+        while total > budget && kept > minKeptTail {
+            let idx = protectedCount + drop
+            guard idx < messages.count else { break }
+            total -= countTokens(messages[idx].content ?? "") + 4
+            drop += 1
+            kept -= 1
+        }
+        guard drop > 0 else { return messages }
+        return Array(messages[0..<protectedCount]) + Array(messages[(protectedCount + drop)...])
+    }
+
     // MARK: - Cheap pre-pass: prune old tool results (reference Phase 1)
 
     /// Replace very large tool-result contents in the compressible region
@@ -281,22 +450,32 @@ public enum ContextCompression {
 
     // MARK: - Record serialization
 
+    /// One message rendered as a role-labeled record line, optionally capped
+    /// at `maxChars` so a single huge tool result cannot dominate a bounded
+    /// extract. Returns nil for empty messages (they carry nothing).
+    public static func recordLine(_ msg: Message, maxChars: Int? = nil) -> String? {
+        guard let content = msg.content, !content.isEmpty else { return nil }
+        let body: String
+        if let maxChars, content.count > maxChars {
+            body = String(content.prefix(maxChars)) + " …[truncated]"
+        } else {
+            body = content
+        }
+        if msg.role == .tool, let name = msg.name {
+            return "[Tool \(name)]: \(body)"
+        }
+        let roleLabel: String
+        switch msg.role {
+        case .user: roleLabel = "User"
+        case .assistant: roleLabel = "Assistant"
+        case .system: roleLabel = "System"
+        case .tool: roleLabel = "Tool"
+        }
+        return "[\(roleLabel)]: \(body)"
+    }
+
     /// Render messages as the role-labeled record fed to the summarizer.
     public static func compressedRecord(_ messages: [Message]) -> String {
-        messages.compactMap { msg -> String? in
-            guard let content = msg.content, !content.isEmpty else { return nil }
-            let roleLabel: String
-            switch msg.role {
-            case .user: roleLabel = "User"
-            case .assistant: roleLabel = "Assistant"
-            case .system: roleLabel = "System"
-            case .tool: roleLabel = "Tool"
-            }
-            var line = "[\(roleLabel)]: \(content)"
-            if msg.role == .tool, let name = msg.name {
-                line = "[Tool \(name)]: \(content)"
-            }
-            return line
-        }.joined(separator: "\n\n---\n\n")
+        messages.compactMap { recordLine($0) }.joined(separator: "\n\n---\n\n")
     }
 }

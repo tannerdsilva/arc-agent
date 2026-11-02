@@ -1415,7 +1415,15 @@ public actor ArcAgent: Service {
     /// conversation history, and tool schemas. The old history-only estimate
     /// hid a whole scaffold of tokens and under-fired compression.
     private func estimateRequestTokens() async -> Int {
-        var total = tokenCounter.count(messages: messageHistory, model: config.model)
+        tokenCounter.count(messages: messageHistory, model: config.model)
+            + (await fixedOverheadTokens())
+    }
+
+    /// Tokens no compression pass can reclaim: the system prompt (cached) and
+    /// the tool schemas. Compression budgets the history against what is left
+    /// of the request limit once these are accounted for.
+    private func fixedOverheadTokens() async -> Int {
+        var total = 0
         if let prompt = cachedSystemPrompt {
             total += tokenCounter.count(prompt, model: config.model)
         } else if let prompt = try? await buildSystemPrompt() {
@@ -1510,16 +1518,39 @@ public actor ArcAgent: Service {
             return
         }
 
+        // Budget the history against what the FIXED part of the request
+        // leaves: the system prompt and tool schemas are never compressed, so
+        // a window sized off `limit` alone has no room for the summary and
+        // leaves the request over budget — which re-fires compression on
+        // every iteration. `fixedOverheadTokens` is the same quantity
+        // `estimateRequestTokens` adds, so the two always agree.
+        let overhead = await fixedOverheadTokens()
+        let historyBudget = ContextCompression.RequestBudget(limit: limit, overhead: overhead).historyBudget
         let systemMessages = messageHistory.filter { $0.role == .system }
         let nonSystem = messageHistory.filter { $0.role != .system }
+        let historyTokens = tokenCounter.count(messages: messageHistory, model: config.model)
+        let nonSystemTokens = tokenCounter.count(messages: nonSystem, model: config.model)
+        // An overage that is entirely fixed overhead cannot be summarized
+        // away; compressing then only destroys detail. A real provider count
+        // above the limit still gates (estimates can undershoot).
+        guard historyTokens > historyBudget || (lastRecordedPromptTokens ?? 0) > limit else { return }
 
-        // Head protection: never summarize the first exchange. Tail
-        // protection: token budget (~20K, at least the last 4 messages) —
-        // reference compress() steps 2-4, extracted for testability.
-        let tailBudget = min(20_000, limit / 3)
+        // Head protection: never summarize the first exchange. Tail and
+        // summary protection: both are carved out of the history budget so
+        // head + summary + tail always fit it (reference compress() steps
+        // 2-4, made overhead-aware).
+        let headTokens = tokenCounter.count(
+            messages: Array(nonSystem.prefix(min(2, nonSystem.count))),
+            model: config.model
+        )
+        let sizes = ContextCompression.budgets(
+            historyBudget: historyBudget,
+            headTokens: headTokens,
+            compressibleTokens: nonSystemTokens
+        )
         let window = ContextCompression.window(
             nonSystem,
-            tailBudget: tailBudget,
+            tailBudget: sizes.tail,
             countTokens: { [config] text in tokenCounter.count(text, model: config.model) }
         )
         let head = window.head
@@ -1550,28 +1581,54 @@ public actor ArcAgent: Service {
         let memoryContext = (try? await config.memoryProvider?.readMemory()) ?? ""
 
         let prompt: ContextCompression.SummaryPrompt?
+        let previousSummaryBody: String
+        // A summary may never exceed the material it replaces — that is the
+        // whole point of the pass.
+        let middleTokens = tokenCounter.count(messages: middle, model: config.model)
+        let summaryBudget = min(sizes.summary, max(0, middleTokens))
         if let existing = existingSummary {
             let body = String(existing.dropFirst(Self.compressionSummaryPrefix.count))
+            previousSummaryBody = body
             prompt = ContextCompression.updateSummaryPrompt(
                 previousSummary: body,
                 newTurns: middle,
                 focus: focus,
-                memoryContext: memoryContext
+                memoryContext: memoryContext,
+                summaryBudget: summaryBudget
             )
         } else {
+            previousSummaryBody = ""
             prompt = ContextCompression.firstSummaryPrompt(
                 material: middle,
                 focus: focus,
-                memoryContext: memoryContext
+                memoryContext: memoryContext,
+                summaryBudget: summaryBudget
             )
         }
 
         let summaryText: String
-        if let prompt, let summarized = await summarizeForCompression(prompt.userContent) {
-            summaryText = summarized
+        if let prompt,
+           let summarized = await summarizeForCompression(prompt.userContent),
+           !summarized.isEmpty {
+            // The prompt asks for ~`summaryBudget` tokens; the model is never
+            // trusted to obey it.
+            summaryText = ContextCompression.boundToTokenBudget(
+                summarized,
+                budget: summaryBudget,
+                countTokens: { [config] text in tokenCounter.count(text, model: config.model) }
+            )
         } else {
-            summaryText = ContextCompression.compressedRecord(middle)
-            logger.warning("compression: aux summary unavailable; using extractive record")
+            // Bounded extractive fallback that folds the previous summary.
+            // It must be SMALLER than the middle it replaces: an unbounded
+            // copy leaves the request over budget, re-fires compression on
+            // the next iteration, and drops the older summary on the floor.
+            summaryText = ContextCompression.extractiveSummary(
+                previous: previousSummaryBody,
+                material: middle,
+                budget: summaryBudget,
+                countTokens: { [config] text in tokenCounter.count(text, model: config.model) }
+            )
+            logger.warning("compression: aux summary unavailable; using bounded extractive record")
         }
 
         let newSystem = systemMessages.filter { !($0.content ?? "").hasPrefix(Self.compressionSummaryPrefix) }
@@ -1579,9 +1636,26 @@ public actor ArcAgent: Service {
             role: .system,
             content: "\(Self.compressionSummaryPrefix)\n\n\(summaryText)"
         )
-        messageHistory = ContextCompression.orphanCleanup(
+        let candidate = ContextCompression.orphanCleanup(
             newSystem + [summaryMessage] + head + tail
         )
+        // Hard guarantee: the pass returns a history the full request budget
+        // can hold, so the next iteration does not compress again. The tail
+        // budget can overshoot by one large message; this trims the oldest.
+        // Cleanup runs again afterwards: a trimmed assistant tool-call row
+        // would otherwise leave its tool result orphaned on the wire.
+        messageHistory = ContextCompression.orphanCleanup(
+            ContextCompression.clampToBudget(
+                candidate,
+                protectedPrefix: newSystem.count + 1 + head.count,
+                budget: historyBudget,
+                countTokens: { [config] text in tokenCounter.count(text, model: config.model) }
+            )
+        )
+        // The provider count measured the PRE-compression request; keeping it
+        // would re-fire compression on the next iteration no matter how small
+        // the new history is. The next successful request repopulates it.
+        lastRecordedPromptTokens = nil
 
         // Anti-thrash: two consecutive compressions that each saved less than
         // 10% of the limit suspend compression for the rest of the turn.
@@ -1602,7 +1676,7 @@ public actor ArcAgent: Service {
     /// Attempt an LLM summarization using the `compression` auxiliary model
     /// with the given reference-structured prompt. Returns nil when no override
     /// is configured, when the summary model is in cool-down, or when the
-    /// call fails — callers fall back to the extractive record.
+    /// call fails — callers fall back to the bounded extractive record.
     private func summarizeForCompression(_ userContent: String) async -> String? {
         // Cool-down after the summary model was rate-limited (arc parity).
         if let until = compressionCooldownUntil, Date() < until { return nil }
@@ -2580,7 +2654,9 @@ public actor ArcAgent: Service {
                         continue
                     }
                 case .contextOverflow:
-                    await autoCompressIfNeeded()
+                    // the provider just told us the request is too large —
+                    // no gate: an estimate that says otherwise is wrong.
+                    await autoCompressIfNeeded(force: true)
                     if retryHandler.shouldRetry(attempt) {
                         try await retryHandler.wait(for: attempt)
                         continue
@@ -2697,7 +2773,9 @@ public actor ArcAgent: Service {
                         continue
                     }
                 case .contextOverflow:
-                    await autoCompressIfNeeded(emit: emit)
+                    // the provider just told us the request is too large —
+                    // no gate: an estimate that says otherwise is wrong.
+                    await autoCompressIfNeeded(emit: emit, force: true)
                     if retryHandler.shouldRetry(attempt) {
                         try await retryHandler.wait(for: attempt)
                         continue

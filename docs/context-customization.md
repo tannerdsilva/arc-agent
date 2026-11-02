@@ -21,7 +21,7 @@ segment for that one chat.
 | Stable tier: identity, tool index, rules, guidance, environment, personality | `buildSystemPrompt` in `Agent/ArcAgent.swift` | guidance/personality only (global config) |
 | Context tier: project files (AGENTS.md, .arc.md, CLAUDE.md, .cursorrules) | `loadContextFiles` in `ArcAgent.swift`, gated by `config.injectProjectContext` | one global on/off |
 | Volatile tier: Skills index, Memory, User Profile, timestamp | `ArcAgent.swift` | no |
-| Conversation history: transcript + tail keeping + auto-compression | `messageHistory`, tail budget `min(20_000, limit/3)`, messages array at `:1654`/`:1951` | no |
+| Conversation history: transcript + tail keeping + auto-compression | `messageHistory`, tail budget `min(20_000, (historyBudget − head)/2)` where `historyBudget = limit − (system prompt + tool schemas)`, messages array at `:1654`/`:1951` | no |
 
 Today the only knobs are **global** (`config.*`) or **profile-level**
 (`Profile.contextSkills`, `personalityPrompt`). Nothing is per-session, and there is
