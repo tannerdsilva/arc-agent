@@ -343,8 +343,13 @@ public actor ArcAgent: Service {
     private var messageHistory: [Message]
     private let sessionID: String
     /// How many messages of `messageHistory` have been persisted to the
-    /// session store. Grows monotonically across turns.
+    /// session store. Reset by a compression rewrite (see
+    /// ``commitCompactedHistory(_:)``), otherwise grows across turns.
     private var persistedMessageCount = 0
+    /// Set when a compression rewrote the in-memory transcript but the store
+    /// rewrite failed: the positional append watermark no longer describes a
+    /// stored prefix, so the next persist must rewrite before appending.
+    private var pendingStoreRewrite = false
     /// Whether the session metadata event has been created in the store.
     private var sessionCreatedInStore = false
     /// Manual `/title` (reference: applied immediately; survives persistence).
@@ -885,6 +890,7 @@ public actor ArcAgent: Service {
                     if let lastUser = messageHistory.lastIndex(where: { $0.role == .user }) {
                         messageHistory.removeSubrange(lastUser...)
                     }
+                    invalidatePersistWatermark()
                 }
                 await persistConversationIfNeeded()
             }
@@ -975,6 +981,7 @@ public actor ArcAgent: Service {
         case "/retry":
             if let lastMsg = messageHistory.last, lastMsg.role == .assistant {
                 messageHistory.removeLast()
+                invalidatePersistWatermark()
             }
             if let lastUserIndex = messageHistory.lastIndex(where: { $0.role == .user }) {
                 let lastUserMessage = messageHistory[lastUserIndex].content ?? ""
@@ -1052,6 +1059,9 @@ public actor ArcAgent: Service {
 
         case "/clear":
             messageHistory.removeAll()
+            // The transcript is now shorter than the stored one: the next
+            // persist must rewrite the session, not append past a stale index.
+            invalidatePersistWatermark()
             print("Conversation history cleared.")
             print("")
             return true
@@ -1102,6 +1112,7 @@ public actor ArcAgent: Service {
             if let session = try await config.sessionStore.get(id: sid) {
                 messageHistory = Self.sanitizeMessages(session.messages)
                 persistedMessageCount = messageHistory.count
+                pendingStoreRewrite = false
                 sessionCreatedInStore = true
                 logger.info("restored \(session.messages.count) message(s) for session \(sid)")
             } else {
@@ -1357,16 +1368,19 @@ public actor ArcAgent: Service {
     /// the conversation must stay alive even if a server is briefly down.
     private func persistConversationIfNeeded() async {
         let store = config.sessionStore
-        guard config.persistSessions, messageHistory.count > persistedMessageCount else { return }
-        let history = messageHistory
-        // Guard against the history shrinking (extractive compression
-        // replaces older messages): never index out of range.
-        let newMessages: [Message]
-        if persistedMessageCount < history.count {
-            newMessages = Array(history[persistedMessageCount...])
-        } else {
-            newMessages = []
+        guard config.persistSessions else { return }
+        // A compression rewrote the transcript and its store write failed:
+        // the positional watermark no longer describes a stored prefix, so
+        // retry the full rewrite before appending anything.
+        if pendingStoreRewrite {
+            if await commitCompactedHistory(messageHistory) {
+                pendingStoreRewrite = false
+            }
+            return
         }
+        guard messageHistory.count > persistedMessageCount else { return }
+        let history = messageHistory
+        let newMessages = Array(history[persistedMessageCount...])
         guard !newMessages.isEmpty else { return }
 
         // The watermark advances only for messages that actually landed.
@@ -1565,6 +1579,7 @@ public actor ArcAgent: Service {
             // Even the protected window alone exceeds the budget.
             messageHistory = systemMessages + Array(nonSystem.suffix(min(8, nonSystem.count)))
             messageHistory = ContextCompression.orphanCleanup(messageHistory)
+            await applyCompactedHistory()
             return
         }
 
@@ -1656,6 +1671,9 @@ public actor ArcAgent: Service {
         // would re-fire compression on the next iteration no matter how small
         // the new history is. The next successful request repopulates it.
         lastRecordedPromptTokens = nil
+        // The transcript was rewritten: move the store and its append
+        // watermark with it, or every later append silently disappears.
+        await applyCompactedHistory()
 
         // Anti-thrash: two consecutive compressions that each saved less than
         // 10% of the limit suspend compression for the rest of the turn.
@@ -1740,7 +1758,7 @@ public actor ArcAgent: Service {
             if run.messages != messageHistory {
                 messageHistory = run.messages
                 invalidateSystemPrompt()
-                await persistCompactIfNeeded(run.messages)
+                await applyCompactedHistory()
             }
         }
         emitMicroTelemetry(run, limit: limit)
@@ -1782,28 +1800,67 @@ public actor ArcAgent: Service {
         }
     }
 
-    /// Rewrite the persisted session after a splice/defrag so a resume does
-    /// not double-load the summary AND the exchanges it replaced (reference
-    /// `archive_and_compact` equivalent). Mirror of the append-only flush:
-    /// soft failure only — the transcript stays consistent in memory and the
-    /// next batch compaction cleans up the double-load on resume.
-    private func persistCompactIfNeeded(_ messages: [Message]) async {
-        guard config.persistSessions, sessionCreatedInStore else { return }
-        do {
-            try await config.sessionStore.update(Session(
-                id: sessionID,
-                createdAt: Date(),
-                updatedAt: Date(),
-                model: config.model,
-                provider: config.provider,
-                title: sessionTitle.isEmpty ? nil : SessionTitle.sanitized(sessionTitle),
-                messages: messages
-            ))
-            persistedMessageCount = messages.count
-            logger.info("micro-compaction: session store rewritten (\(messages.count) messages)")
-        } catch {
-            logger.warning("micro-compaction: session store update failed: \(error)")
+    /// Record an in-memory transcript rewrite (compression splice or defrag)
+    /// in the session store and move the append watermark with it.
+    ///
+    /// Compression replaces a span of the history, so the positional
+    /// watermark no longer describes a stored prefix. Left alone it makes
+    /// every later append a no-op (the history never grows past it) or
+    /// slices the rewritten transcript at a meaningless index — silent
+    /// message loss for the rest of a long-lived session. Rewriting the
+    /// stored session restores the invariant.
+    ///
+    /// Metadata-preserving: the stored record is read back and only its
+    /// `messages` (and `updatedAt`) are replaced, so a rewrite never drops
+    /// `source`, `workspaceKey`, `owner`, or context overrides.
+    ///
+    /// - Returns: `false` only when the write itself failed; the caller then
+    ///   parks the rewrite (`pendingStoreRewrite`) so the next persist
+    ///   retries instead of appending against a stale watermark.
+    @discardableResult
+    private func commitCompactedHistory(_ messages: [Message]) async -> Bool {
+        guard config.persistSessions else { return true }
+        guard sessionCreatedInStore else {
+            // Nothing stored yet: the eventual create() writes this
+            // transcript, so the watermark must stay at the start.
+            persistedMessageCount = 0
+            return true
         }
+        do {
+            guard var stored = try await config.sessionStore.get(id: sessionID) else {
+                // Deleted underneath the turn: do not resurrect it with a write.
+                persistedMessageCount = messages.count
+                return true
+            }
+            stored.messages = messages
+            stored.updatedAt = Date()
+            if !sessionTitle.isEmpty {
+                // A manual `/title` is the newest intent; carry it through the
+                // rewrite the way the create path does.
+                stored.title = SessionTitle.sanitized(sessionTitle)
+            }
+            try await config.sessionStore.update(stored)
+            persistedMessageCount = messages.count
+            logger.info("compaction: session store rewritten (\(messages.count) messages)")
+            return true
+        } catch {
+            logger.warning("compaction: session store rewrite failed: \(error)")
+            return false
+        }
+    }
+
+    /// Apply the current `messageHistory` to the store after a compression
+    /// rewrite, parking a retry when the write fails.
+    private func applyCompactedHistory() async {
+        pendingStoreRewrite = !(await commitCompactedHistory(messageHistory))
+    }
+
+    /// Mark the in-memory transcript as no longer append-aligned with the
+    /// store (any edit that is not an append: retry, rollback, compaction).
+    /// The next persist rewrites the stored session from memory instead of
+    /// appending at an index that now points at the wrong message.
+    private func invalidatePersistWatermark() {
+        pendingStoreRewrite = true
     }
 
     /// One content-free telemetry JSON line, same shape as the batch path
