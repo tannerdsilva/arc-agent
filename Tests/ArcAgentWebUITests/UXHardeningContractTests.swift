@@ -1202,8 +1202,12 @@ extension ArcWebUITestRoot {
         @Test("unloaded session summaries carry a title hint")
         func summariesCarryATitleHint() {
             let store = Self.fileStore
-            #expect(store.contains("session.title = String(text.replacingOccurrences(of: \"\\n\", with: \" \").prefix(64))"),
-                    "the sidebar showed \"New chat\" for every row: the bodies are decoded here and then discarded")
+            // UX-C (2026-11-01): the hint is a display seed now — scaffolding
+            // markers and log walls never become a sidebar row.
+            #expect(store.contains("let seed = SessionTitle.displaySeed(from: first.displayText ?? text)"),
+                    "the hint derives from the first user message through the display-seed rule")
+            #expect(store.contains("session.title = seed"),
+                    "the decoded body still seeds the row name")
             #expect(store.contains("if (session.title ?? \"\").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty"),
                     "the hint must never overwrite a real title")
         }
