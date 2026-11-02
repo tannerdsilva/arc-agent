@@ -67,8 +67,14 @@ public actor CronScheduler: Service {
 
         for var job in activeJobs {
             guard let nextRun = job.nextRunAt ?? computeNextRun(for: job) else {
-                // First run — compute and store
+                // First run — compute and store.
                 job.nextRunAt = computeNextRun(for: job)
+                // A schedule that still yields no next run is a dead job:
+                // this guard is the only place that notices, so say so —
+                // every pass, the UI shows it a bare "—".
+                if job.nextRunAt == nil {
+                    logger.warning("Cron job '\(job.name)' (schedule: '\(job.schedule)') has no computable next run — it will never fire; fix or delete it")
+                }
                 try await store.save(job)
                 continue
             }

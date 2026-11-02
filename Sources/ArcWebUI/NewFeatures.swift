@@ -462,6 +462,23 @@ func parseInterval(_ s: String) -> TimeInterval? {
     return nil
 }
 
+/// The "next" label for a scheduled task's row and detail card.
+///
+/// A schedule the parser cannot read leaves `nextRunAt` nil forever — the
+/// scheduler never fires the job — but the UI rendered that exactly like a
+/// spent one-shot or a deliberately stopped task: a bare "—". The dead case
+/// now names itself. It is distinguishable without guessing: the job is
+/// active, has never run, and the parser refuses its schedule both here
+/// (`CronNext`) and in the daemon (`computeNextRun`).
+func cronNextLabel(for job: CronJob, format: (Date) -> String, now: Date = Date()) -> String {
+    if let next = job.nextRunAt { return format(next) }
+    guard job.isActive, job.lastRunAt == nil, job.runCount == 0 else { return "—" }
+    if CronNext(expression: job.schedule, from: now) == nil {
+        return "schedule can't be parsed"
+    }
+    return "—"
+}
+
 // MARK: - Views for todos + cron panels
 
 extension AppState {
@@ -605,7 +622,7 @@ extension AppState {
     func taskRowHTML(_ j: CronJob) -> some WebUI.View {
         let active = j.id == tasksSelectedID ? " active" : ""
         let dot = j.isActive ? " on" : ""
-        let next = j.nextRunAt.map { fmtRel($0) } ?? "—"
+        let next = cronNextLabel(for: j, format: fmtRel)
         let runs = j.runCount > 0 ? " · \(j.runCount) run\(j.runCount == 1 ? "" : "s")" : ""
         return ArcButton(id: "task-open-\(j.id)", component: nil, class: ClassName("task-row\(active)")) {
             Span(class: ClassName("task-dot\(dot)")) { Text("●") }
@@ -636,7 +653,7 @@ extension AppState {
         let msgs = sessions.first(where: { $0.id == sid })?.messages ?? []
         let status = job.isActive ? "Active" : "Stopped"
         let statusCls = job.isActive ? "on" : "off"
-        let next = job.nextRunAt.map { fmtRel($0) } ?? "—"
+        let next = cronNextLabel(for: job, format: fmtRel)
         let last = job.lastRunAt.map { fmtRel($0) } ?? "never"
         let out = job.lastOutput.map { trunc($0, 160) } ?? "—"
         let toggleLabel = job.isActive ? "Stop" : "Start"
@@ -823,7 +840,12 @@ extension Controller {
         if event.event == "submit" {
             let title = event.string("task-title") ?? ""
             let everyRaw = event.string("task-every") ?? ""
-            let unit = event.string("task-unit") ?? "m"
+            // `?? "m"` only covers an absent field; an empty-string unit (a
+            // client that submitted the form with no unit selected) sailed
+            // through and produced "every 60" — a schedule the parser
+            // refuses, i.e. a task that would never run.
+            let unitRaw = event.string("task-unit") ?? ""
+            let unit = unitRaw.isEmpty ? "m" : unitRaw
             let prompt = event.string("task-prompt") ?? ""
             let first = await self.app.taskStartDate(event.string("task-start") ?? "")
             let n = max(1, Int(everyRaw) ?? 15)

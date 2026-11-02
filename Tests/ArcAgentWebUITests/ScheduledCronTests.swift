@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import ArcWebUI
+import ArcAgentCore
 
 // the scheduled-task schedule parser is a pure function with a user-visible
 // contract: a 5-field expression names the day it fires on. two defects made
@@ -83,6 +84,65 @@ extension ArcWebUITestRoot {
             #expect(parts.hour == 9)
             #expect(parts.minute == 0)
             #expect(next > from)
+        }
+
+        // The task list's "next" label (audit 2026-11-01, wave 5): a schedule
+        // the parser cannot read renders the same em-dash as a spent one-shot
+        // or a deliberately stopped task, so a job that will never run is
+        // invisible among the ones that simply have no next run. The label
+        // names the dead case and only that case.
+        private let fixedNow = Date(timeIntervalSince1970: 1_800_000_000)
+
+        private func label(_ job: CronJob) -> String {
+            cronNextLabel(for: job, format: { _ in "FORMATTED" }, now: fixedNow)
+        }
+
+        @Test("an active job whose schedule can never fire says so")
+        func deadScheduleSaysSo() {
+            var job = CronJob(id: "j-dead", name: "dead", schedule: "every 60", prompt: "x")
+            job.isActive = true
+            job.nextRunAt = nil
+            job.lastRunAt = nil
+            job.runCount = 0
+            #expect(label(job) == "schedule can't be parsed")
+        }
+
+        @Test("a stopped job keeps the plain dash")
+        func stoppedJobKeepsDash() {
+            var job = CronJob(id: "j-stopped", name: "stopped", schedule: "nonsense", prompt: "x")
+            job.isActive = false
+            job.nextRunAt = nil
+            #expect(label(job) == "—")
+        }
+
+        @Test("a spent one-shot keeps the plain dash — it ran, it has no next")
+        func spentOneShotKeepsDash() {
+            var job = CronJob(id: "j-spent", name: "spent", schedule: "nonsense", prompt: "x")
+            job.isActive = true
+            job.nextRunAt = nil
+            job.lastRunAt = fixedNow
+            job.runCount = 1
+            #expect(label(job) == "—")
+        }
+
+        @Test("a populated next run renders through the formatter")
+        func populatedNextRenders() {
+            var job = CronJob(id: "j-ok", name: "ok", schedule: "every 15m", prompt: "x")
+            job.isActive = true
+            job.nextRunAt = fixedNow
+            #expect(label(job) == "FORMATTED")
+        }
+
+        @Test("an active never-run job with a valid but unstored schedule keeps the dash")
+        func validScheduleNeverLies() {
+            // The parity fixture's shape: nextRunAt simply not populated; the
+            // schedule itself is fine, so the label must NOT claim it's broken.
+            var job = CronJob(id: "j-valid", name: "valid", schedule: "every 15m", prompt: "x")
+            job.isActive = true
+            job.nextRunAt = nil
+            job.lastRunAt = nil
+            job.runCount = 0
+            #expect(label(job) == "—")
         }
     }
 }
