@@ -604,10 +604,8 @@ extension ArcWebUITestRoot {
         /// entry textareas (on its own line), not a blank rule.
         @Test("memory editor shows the § delimiter between entry sections")
         func memoryEditorShowsDelimiter() async {
-            #expect(Self.views.contains("Div(class: \"mem-sep\") { Text(\"§\") }"),
+            #expect(Self.views.contains("MemSep { Text(\"§\") }"),
                     "the editor's separator must carry the visible § character")
-            #expect(!Self.views.contains("Div(class: \"mem-sep\") {}\n"),
-                    "the old blank separator is gone")
         }
 
         /// Bug 3: workspace rows are informational — no ws-open switch, no

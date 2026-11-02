@@ -393,6 +393,7 @@ extension ClassName {
 	public static var pnDraftName: ClassName { ClassName(ArcClass.pnDraftName.token) }
 	public static var pnDraftRow: ClassName { ClassName(ArcClass.pnDraftRow.token) }
 	public static var pnPicker: ClassName { ClassName(ArcClass.pnPicker.token) }
+	public static var pnPickerDropdownPanel: ClassName { ClassName(ArcClass.pnPickerDropdownPanel.token) }
 	public static var primaryBtn: ClassName { ClassName(ArcClass.primaryBtn.token) }
 	public static var probeError: ClassName { ClassName(ArcClass.probeError.token) }
 	public static var profileForm: ClassName { ClassName(ArcClass.profileForm.token) }

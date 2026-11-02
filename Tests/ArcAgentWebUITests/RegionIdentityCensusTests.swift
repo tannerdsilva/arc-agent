@@ -65,7 +65,7 @@ extension ArcWebUITestRoot {
 			"tasks|panel-head",
 			"theme-pick|thm-grid",
 			"todos|todo-card",
-			"workspace-list|list-row active",
+			"workspace-list|sess-open sess-open-flush",
 			"workspace|ws-menu-wrap",
 			"workspace|ws-tools",
 		]

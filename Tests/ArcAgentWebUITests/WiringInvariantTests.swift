@@ -55,7 +55,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_settings(router)
-            #expect(router.handlerCount(in: .default) == 25, "settings group registration drifted")
+            #expect(router.handlerCount(in: .default) == 24, "settings group registration drifted")
         }
 
         @Test("every settings_admin handler is registered after wireGroup_settings_admin")
@@ -178,7 +178,7 @@ extension ArcWebUITestRoot {
             #expect(router.handlerCount(in: .default) == 1, "regen group registration drifted")
         }
 
-        @Test("wireAll registers exactly 181 handlers (167 generated + 12 nav ids + sidebar-plugin-toggle + cat-pick)")
+        @Test("wireAll registers exactly 180 handlers (165 generated + composer-attach + 12 nav ids + sidebar-plugin-toggle + cat-pick)")
         func wireAllRegistersExactly178() async throws {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
@@ -186,8 +186,8 @@ extension ArcWebUITestRoot {
 
             let count = router.handlerCount(in: .default)
             #expect(
-                count == 181,
-                "wireAll must register exactly 181 handlers: 167 @Wired-generated (incl. composer-attach) + 12 nav-(id) + sidebar-plugin-toggle + cat-pick, got \(count)"
+                count == 180,
+                "wireAll must register exactly 180 handlers: 165 @Wired-generated + composer-attach (drag-drop attachments) + 12 nav-(id) + sidebar-plugin-toggle + cat-pick, got \(count)"
             )
         }
 

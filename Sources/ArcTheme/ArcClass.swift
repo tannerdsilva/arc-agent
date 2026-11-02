@@ -414,6 +414,9 @@ public enum ArcClass: String, CaseIterable, Sendable {
 	case pnDraftName = "pn-draft-name"
 	case pnDraftRow = "pn-draft-row"
 	case pnPicker = "pn-picker"
+	/// The panel body of the `.pn-picker` dropdown. Declared in the sheet for
+	/// the picker's runtime styling; no Swift view emits it today.
+	case pnPickerDropdownPanel = "dropdown__panel"
 	case primaryBtn = "primary-btn"
 	case probeError = "probe-error"
 	case profileForm = "profile-form"

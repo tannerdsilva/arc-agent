@@ -1625,16 +1625,6 @@ actor AppState {
         await updateConfig { $0.limits.turnDuration = limit }
     }
 
-    /// Persist the per-turn wall-clock budget (`agent.max_turn_duration`) into
-    /// `~/.arc/config.json` and refresh the in-memory copy. `nil` means
-    /// unlimited (the default); a positive value bounds each turn in seconds.
-    func setTurnDuration(_ seconds: Int?) {
-        var raw = Self.rawArcConfig()
-        raw.agent.max_turn_duration = seconds
-        self.arcConfig = raw
-        try? saveConfig(raw)
-    }
-
     /// Persist an "Always allow" command into `~/.arc/config.json` so the CLI
     /// and daemon honor the same allowlist (reference approval patterns parity).
     func persistAlwaysAllowed(_ command: String) async {
@@ -2247,6 +2237,26 @@ actor AppState {
 
     static var settingsURL: URL { ArcHome.webUISettings }
 
+    /// One-time seed for relocated instances: when `ARC_HOME` is set and the
+    /// instance has no settings of its own yet, inherit the shared default
+    /// `~/.arc-agent-webui/settings.json` once, then diverge. The default
+    /// instance (`overridden == false`) stores in the same path it always
+    /// has, so nothing moves for it.
+    @discardableResult
+    static func seedSharedSettingsIfNeeded(
+        target: URL = ArcHome.webUISettings,
+        shared: URL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".arc-agent-webui/settings.json"),
+        relocated: Bool = ArcHome.overridden
+    ) -> Bool {
+        let fm = FileManager.default
+        guard relocated, !fm.fileExists(atPath: target.path),
+              fm.fileExists(atPath: shared.path) else { return false }
+        try? fm.createDirectory(
+            at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        return (try? fm.copyItem(at: shared, to: target)) != nil
+    }
+
     /// Load settings synchronously.
     ///
     /// Called from an actor init, which cannot await the store. A *missing*
@@ -2256,6 +2266,7 @@ actor AppState {
     /// settings store refuses every write until the file is fixed.
     static func loadSettings() -> (settings: AppSettings, failure: ConfigError?) {
 
+        seedSharedSettingsIfNeeded()
         do {
             return (try SettingsStore.read(Self.settingsURL), nil)
         } catch let error as ConfigError {

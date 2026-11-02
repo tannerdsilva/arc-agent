@@ -51,7 +51,7 @@ extension ArcWebUITestRoot {
 		]
 
 		/// sites whose class value is interpolated (`\\(` inside the literal).
-		static let residualInterpolatedSites = 28
+		static let residualInterpolatedSites = 27
 
 		static func sources() -> [(String, String)] {
 			let root = URL(fileURLWithPath: #filePath)

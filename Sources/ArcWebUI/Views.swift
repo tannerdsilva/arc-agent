@@ -1076,12 +1076,11 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     ErasedViews([Div(class: ClassName(.sessOpen, .sessOpenFlush)) {
                         LrName { Text(entry.name) }
                         Span(class: ClassName(.lrSub, .lrSubPath)) {
-                                Text(entry.path == WorkspaceEntry.defaultPath(for: "main")
-                                     ? "home folder (default)"
-                                     : trunc(entry.path, 58))
-                            }
-                            .title(entry.path)
+                            Text(entry.path == WorkspaceEntry.defaultPath(for: "main")
+                                 ? "home folder (default)"
+                                 : trunc(entry.path, 58))
                         }
+                        .title(entry.path)
                         RowActions {
                             // `main` has no delete control: the default workspace
                             // cannot be removed, and the absence is the contract.
