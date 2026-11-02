@@ -830,16 +830,32 @@ async function runInteractions() {
   // alternating is the panel's own state carrying over, not a broken toggle.
   await ev(`(() => { const p = document.getElementById('ws-panel'); if (p && !p.classList.contains('hidden')) document.getElementById('w-close')?.click(); })()`);
   await settle(900);
+  // The open/close reads POLL for the panel state instead of trusting one
+  // fixed-settle read: the panel patch is a server round-trip (~150-200ms
+  // measured, longer while the daemon is also flushing a prior sub-test's
+  // pushes), so a fixed 500ms read occasionally lands before the patch and
+  // files a working toggle as "never opened". The poll lives in the node
+  // loop (driver.js does not await promises by default); every assertion
+  // (opened/closed/anchor/warnings) stays intact and the measured latency
+  // rides the cycle record.
+  const pollState = async (wantOpen, timeoutMs = 4000) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+      if ((await ev(`uxGates.dock().panelOpen`)) === wantOpen) return Date.now() - t0;
+      await settle(100);
+    }
+    return -1;
+  };
   dock.cycles = [];
   for (let i = 0; i < 5; i++) {
     await ev(`document.getElementById('w-dock')?.click()`);
-    await settle(500);
-    const opened = await ev(`uxGates.dock().panelOpen`);
+    const openedAtMs = await pollState(true);
+    const opened = openedAtMs >= 0;
     const anchor = await ev(`uxGates.dock().anchorHasComponentId`);
     await ev(`document.getElementById('w-close')?.click()`);
-    await settle(500);
-    const closed = !(await ev(`uxGates.dock().panelOpen`));
-    dock.cycles.push({ i, opened, closed, anchor });
+    const closedAtMs = await pollState(false);
+    const closed = closedAtMs >= 0;
+    dock.cycles.push({ i, opened, openedAtMs, closed, closedAtMs, anchor });
   }
   dock.good = dock.cycles.every((c) => c.opened && c.closed && c.anchor);
   const dockWarnings = (await driver.consoleReport()).entries.filter((e) => /\[WebUIEngine\]/i.test(e.text) || e.level === 'warning' || e.level === 'error');
