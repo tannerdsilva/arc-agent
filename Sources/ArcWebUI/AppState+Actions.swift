@@ -1078,10 +1078,6 @@ extension AppState {
             _ = hint("Attach failed: could not decode \(name).", kind: "error")
             return
         }
-        guard data.count <= 10 * 1024 * 1024 else {
-            _ = hint("\"\(name)\" is larger than 10 MB", kind: "error")
-            return
-        }
         let fm = FileManager.default
         let baseDir = workspaceRootURL().appendingPathComponent("attachments")
         let dest = baseDir.appendingPathComponent(rel)

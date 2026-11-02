@@ -93,8 +93,8 @@ extension ArcWebUITestRoot {
                     "the absolute destination path must be attached, not the relative one")
             #expect(src.contains("clearWorkspaceTreeCache()"),
                     "the workspace tree must refresh after an upload")
-            #expect(src.contains("data.count <= 10 * 1024 * 1024"),
-                    "the 10 MB cap is enforced server-side, not just client-side")
+            #expect(!src.contains("data.count <= 10 * 1024 * 1024"),
+                    "uploads are uncapped — no server-side size guard (user request)")
         }
 
         @Test("the composer drag highlight is themed")

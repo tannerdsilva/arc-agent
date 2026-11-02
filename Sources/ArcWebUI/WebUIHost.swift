@@ -180,11 +180,10 @@ public struct WebUIHost: Service {
                 AppShell.Assets.sheet.registration,
                 AppShell.Assets.overlay.registration,
             ],
-            // Composer/workspace uploads ride a hidden form whose `upl-b64`
-            // field carries the file base64-encoded (~1.33x). The 10 MB
-            // attachment cap needs ~14 MB of body; 32 MB leaves headroom for
-            // form overhead.
-            maxBodyBytes: 32 << 20,
+            // Uploads ride a hidden form whose `upl-b64` field carries the
+            // file base64-encoded. No size cap on uploads (user request), so
+            // the body limit is off.
+            maxBodyBytes: .max,
         )
     }
 

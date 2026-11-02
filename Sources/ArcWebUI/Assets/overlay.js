@@ -301,11 +301,6 @@
   }
 
   function sendComposerUpload(file, relPath) {
-    var LIMIT = 10 * 1024 * 1024;
-    if (file.size > LIMIT) {
-      flashToast('"' + file.name + '" is larger than 10 MB', 'error');
-      return;
-    }
     readFileAsB64(file, function (b64) {
       if (b64 === null) return;
       var f = composerUploadForm();
@@ -1818,11 +1813,6 @@
   }
 
   function sendUpload(file, relPath) {
-    var LIMIT = 10 * 1024 * 1024;
-    if (file.size > LIMIT) {
-      flashToast('"' + file.name + '" is larger than 10 MB', 'error');
-      return;
-    }
     readFileAsB64(file, function (b64) {
       if (b64 === null) return;
       var f = wsUploadForm();
