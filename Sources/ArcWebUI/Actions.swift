@@ -707,8 +707,7 @@ extension AppState {
                 await pusher(ops)
             }
         }
-        let throttle: () async -> Void = { [weak self] in
-            guard let self else { return }
+        let throttle: () async -> Void = {
             let now = Date()
             if now.timeIntervalSince(lastPush.withLock { $0 }) > 0.09, await self.activeSessionID == sessionID {
                 lastPush.withLock { $0 = now }
