@@ -2497,11 +2497,14 @@ public static let css: String = """
     .pn-picker .dropdown__panel {
       left: 0; right: auto; top: calc(100% + 6px);
       min-width: 320px; max-width: 380px;
-      max-height: min(60vh, 420px); overflow: hidden;
+      max-height: min(60vh, 420px); overflow-y: auto; overscroll-behavior: contain;
       background: var(--surface); border: 1px solid var(--border);
       border-radius: 12px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
       padding: 8px; z-index: 60;
     }
+    .pn-picker .dropdown__panel::-webkit-scrollbar { width: 8px; }
+    .pn-picker .dropdown__panel::-webkit-scrollbar-track { background: transparent; }
+    .pn-picker .dropdown__panel::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 4px; }
     .pl-eyebrow { font-size: 0.76em; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
     .pl-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--border); }
     .pl-row:first-of-type { border-top: none; }
