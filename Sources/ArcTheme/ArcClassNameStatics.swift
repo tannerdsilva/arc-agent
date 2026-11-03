@@ -153,6 +153,7 @@ extension ClassName {
 	public static var ctxPaneRow: ClassName { ClassName(ArcClass.ctxPaneRow.token) }
 	public static var ctxPaneSection: ClassName { ClassName(ArcClass.ctxPaneSection.token) }
 	public static var ctxPaneSub: ClassName { ClassName(ArcClass.ctxPaneSub.token) }
+	public static var ctxPaneTotal: ClassName { ClassName(ArcClass.ctxPaneTotal.token) }
 	public static var ctxPaneTokens: ClassName { ClassName(ArcClass.ctxPaneTokens.token) }
 	public static var ctxRename: ClassName { ClassName(ArcClass.ctxRename.token) }
 	public static var ctxRing: ClassName { ClassName(ArcClass.ctxRing.token) }

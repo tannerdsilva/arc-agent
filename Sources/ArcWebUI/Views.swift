@@ -339,8 +339,9 @@ extension AppState {
     // MARK: Context breakdown pane
 
     /// One labeled row: label | proportional bar | tokens, with an optional
-    /// preview line under it.
-    private func ctxPaneRows(_ rows: [ContextPaneRow], total: Int) -> some WebUI.View {
+    /// preview line under it. `showTotal` appends a `Total` row summing the
+    /// section — used by the Fixed content and Message history sections.
+    private func ctxPaneRows(_ rows: [ContextPaneRow], total: Int, showTotal: Bool = false) -> some WebUI.View {
         Group {
             for r in rows {
                 let pct = total > 0 ? max(2, min(100, r.tokens * 100 / total)) : 0
@@ -353,6 +354,17 @@ extension AppState {
                 }
                 if let d = r.detail, !d.isEmpty {
                     Div(class: .ctxPaneDetail) { Text(d) }
+                }
+            }
+            if showTotal, !rows.isEmpty {
+                let sum = rows.reduce(0) { $0 + $1.tokens }
+                let pct = total > 0 ? max(2, min(100, sum * 100 / total)) : 0
+                Div(class: ClassName(.ctxPaneRow, .ctxPaneTotal)) {
+                    Span(class: .ctxPaneLabel) { Text("Total") }
+                    Div(class: .ctxPaneBar) {
+                        Div(class: .ctxPaneFill) {}.attribute("style", "width:\(pct)%")
+                    }
+                    Span(class: .ctxPaneTokens) { Text(fmtTokens(sum)) }
                 }
             }
         }
@@ -376,9 +388,9 @@ extension AppState {
                             Text("\(pane.sessionTitle) · ~\(fmtTokens(pane.totalTokens)) of \(fmtTokens(pane.contextLength))")
                         }
                         Div(class: .ctxPaneSection) { Text("Fixed — no compression can reclaim") }
-                        ctxPaneRows(pane.scaffold, total: pane.totalTokens)
+                        ctxPaneRows(pane.scaffold, total: pane.totalTokens, showTotal: true)
                         Div(class: .ctxPaneSection) { Text("Message history") }
-                        ctxPaneRows(pane.history, total: pane.totalTokens)
+                        ctxPaneRows(pane.history, total: pane.totalTokens, showTotal: true)
                         if !pane.largestMessages.isEmpty {
                             Div(class: .ctxPaneSection) { Text("Largest messages") }
                             ctxPaneRows(pane.largestMessages, total: pane.totalTokens)

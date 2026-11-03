@@ -2771,6 +2771,9 @@ public static let css: String = """
       color: var(--muted); border-bottom: 1px solid var(--border);
     }
     .ctx-pane-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+    .ctx-pane-total { border-top: 1px solid var(--border); margin-top: 2px; padding-top: 6px; }
+    .ctx-pane-total .ctx-pane-label { color: var(--muted); }
+    .ctx-pane-total .ctx-pane-tokens { color: var(--text); font-weight: 600; }
     .ctx-pane-label { flex: 0 0 148px; color: var(--text); font-size: 0.86em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ctx-pane-bar { flex: 1; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
     .ctx-pane-fill { height: 100%; border-radius: 2px; background: var(--accent); }

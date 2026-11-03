@@ -174,6 +174,7 @@ public enum ArcClass: String, CaseIterable, Sendable {
 	case ctxPaneRow = "ctx-pane-row"
 	case ctxPaneSection = "ctx-pane-section"
 	case ctxPaneSub = "ctx-pane-sub"
+	case ctxPaneTotal = "ctx-pane-total"
 	case ctxPaneTokens = "ctx-pane-tokens"
 	case ctxRename = "ctx-rename"
 	case ctxRing = "ctx-ring"
