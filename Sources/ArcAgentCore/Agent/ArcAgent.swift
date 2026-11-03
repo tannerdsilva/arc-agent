@@ -1470,6 +1470,112 @@ public actor ArcAgent: Service {
         return total
     }
 
+    // MARK: Context breakdown (web UI pane)
+
+    /// One row of the context-breakdown pane.
+    public struct ContextBreakdownPart: Sendable, Equatable {
+        public var label: String
+        public var tokens: Int
+        /// Short preview or note (e.g. the message text head).
+        public var detail: String?
+        public init(label: String, tokens: Int, detail: String? = nil) {
+            self.label = label
+            self.tokens = tokens
+            self.detail = detail
+        }
+    }
+
+    /// What the next request would look like, decomposed. `scaffold` lists
+    /// the fixed parts no compression can reclaim; `history` aggregates the
+    /// compressible message history by role; `largestMessages` names the top
+    /// individual contributors. Totals use the same estimator as
+    /// ``estimateRequestTokens`` (chars/4 + 60 per message) so the rows sum
+    /// to the number the compression gate acts on.
+    public struct ContextBreakdown: Sendable {
+        public var scaffold: [ContextBreakdownPart]
+        public var history: [ContextBreakdownPart]
+        public var largestMessages: [ContextBreakdownPart]
+        public var totalTokens: Int
+        public var contextLength: Int
+        public var threshold: Int
+    }
+
+    /// Decompose the pending request: scaffold (system prompt + tool
+    /// schemas), history by role, and the largest individual messages. Pure
+    /// accounting — no request is sent.
+    public func contextBreakdown() async -> ContextBreakdown {
+        let model = config.model
+        func count(_ text: String) -> Int { tokenCounter.count(text, model: model) }
+
+        var scaffold: [ContextBreakdownPart] = []
+        let prompt: String?
+        if let cached = cachedSystemPrompt {
+            prompt = cached
+        } else {
+            prompt = try? await buildSystemPrompt()
+        }
+        if let prompt {
+            scaffold.append(ContextBreakdownPart(label: "System prompt", tokens: count(prompt)))
+        }
+        let schemaTokens = toolSchemaTokens()
+        if schemaTokens > 0 {
+            scaffold.append(ContextBreakdownPart(label: "Tool schemas", tokens: schemaTokens))
+        }
+
+        // History aggregated by role. Reasoning is counted separately: it
+        // rides assistant messages but is its own lever (provider-side
+        // reasoning is not re-sent; this is the stored text we do send).
+        var byRole: [Message.Role: Int] = [:]
+        var reasoningTokens = 0
+        var perMessage: [(role: Message.Role, tokens: Int, preview: String)] = []
+        for m in messageHistory {
+            var tokens = 60 // per-message overhead, same as the estimator
+            if let content = m.content { tokens += count(content) }
+            if let reasoning = m.reasoning, !reasoning.isEmpty {
+                let r = count(reasoning)
+                tokens += r
+                reasoningTokens += r
+            }
+            byRole[m.role, default: 0] += tokens
+            let preview = (m.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            perMessage.append((m.role, tokens, String(preview.prefix(80))))
+        }
+
+        var history: [ContextBreakdownPart] = []
+        let roleLabels: [(Message.Role, String)] = [
+            (.system, "System messages"),
+            (.user, "User messages"),
+            (.assistant, "Assistant messages"),
+            (.tool, "Tool results"),
+        ]
+        for (role, label) in roleLabels where byRole[role] != nil {
+            history.append(ContextBreakdownPart(label: label, tokens: byRole[role]!))
+        }
+        if reasoningTokens > 0 {
+            history.append(ContextBreakdownPart(label: "Stored reasoning", tokens: reasoningTokens))
+        }
+
+        let largest = perMessage
+            .sorted { $0.tokens > $1.tokens }
+            .prefix(8)
+            .map { pm in
+                ContextBreakdownPart(
+                    label: roleLabels.first(where: { $0.0 == pm.role })?.1 ?? "message",
+                    tokens: pm.tokens,
+                    detail: pm.preview.isEmpty ? nil : pm.preview
+                )
+            }
+
+        return ContextBreakdown(
+            scaffold: scaffold,
+            history: history,
+            largestMessages: largest,
+            totalTokens: await estimateRequestTokens(),
+            contextLength: config.contextLength ?? config.maxContextTokens,
+            threshold: effectiveContextLimit()
+        )
+    }
+
     /// Effective compression threshold. Order: explicit ``Configuration/compressionBudget``
     /// (per-profile budget — the same value the UI meter shows), else 50% of
     /// the model context length when known (arc parity), else ``maxContextTokens``.

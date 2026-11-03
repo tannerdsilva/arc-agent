@@ -689,7 +689,8 @@
   // Escape to it, and keep Tab inside the card (no-webui's STABILITY.md lists a
   // framework modal focus trap as a known limitation, so arc owns its own).
   function modalCard() {
-    return document.querySelector('.modal-overlay .modal-card');
+    return document.querySelector('.modal-overlay .modal-card') ||
+      document.querySelector('.modal-overlay .ctx-pane-card');
   }
 
   // UX-08: remember the control whose activation opened the confirmation
@@ -796,7 +797,7 @@
     if (!card) return;
     if (e.key === 'Escape') {
       e.preventDefault();
-      var cancel = card.querySelector('#modal-cancel');
+      var cancel = card.querySelector('#modal-cancel') || card.querySelector('#ctx-pane-close');
       if (cancel) cancel.click();
       return;
     }

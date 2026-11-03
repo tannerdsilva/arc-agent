@@ -143,6 +143,17 @@ extension ClassName {
 	public static var ctxMenu: ClassName { ClassName(ArcClass.ctxMenu.token) }
 	public static var ctxMid: ClassName { ClassName(ArcClass.ctxMid.token) }
 	public static var ctxOpen: ClassName { ClassName(ArcClass.ctxOpen.token) }
+	public static var ctxPaneBar: ClassName { ClassName(ArcClass.ctxPaneBar.token) }
+	public static var ctxPaneCard: ClassName { ClassName(ArcClass.ctxPaneCard.token) }
+	public static var ctxPaneClose: ClassName { ClassName(ArcClass.ctxPaneClose.token) }
+	public static var ctxPaneDetail: ClassName { ClassName(ArcClass.ctxPaneDetail.token) }
+	public static var ctxPaneFill: ClassName { ClassName(ArcClass.ctxPaneFill.token) }
+	public static var ctxPaneFooter: ClassName { ClassName(ArcClass.ctxPaneFooter.token) }
+	public static var ctxPaneLabel: ClassName { ClassName(ArcClass.ctxPaneLabel.token) }
+	public static var ctxPaneRow: ClassName { ClassName(ArcClass.ctxPaneRow.token) }
+	public static var ctxPaneSection: ClassName { ClassName(ArcClass.ctxPaneSection.token) }
+	public static var ctxPaneSub: ClassName { ClassName(ArcClass.ctxPaneSub.token) }
+	public static var ctxPaneTokens: ClassName { ClassName(ArcClass.ctxPaneTokens.token) }
 	public static var ctxRename: ClassName { ClassName(ArcClass.ctxRename.token) }
 	public static var ctxRing: ClassName { ClassName(ArcClass.ctxRing.token) }
 	public static var ctxRingCenter: ClassName { ClassName(ArcClass.ctxRingCenter.token) }

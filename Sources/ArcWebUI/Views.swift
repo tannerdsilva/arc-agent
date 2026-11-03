@@ -331,7 +331,70 @@ extension AppState {
     func modalRootHTML() -> some WebUI.View {
         Div(id: "modal-root") {
             modalHTML()
+            contextPaneHTML()
             categoryMenuHTML()
+        }
+    }
+
+    // MARK: Context breakdown pane
+
+    /// One labeled row: label | proportional bar | tokens, with an optional
+    /// preview line under it.
+    private func ctxPaneRows(_ rows: [ContextPaneRow], total: Int) -> some WebUI.View {
+        Group {
+            for r in rows {
+                let pct = total > 0 ? max(2, min(100, r.tokens * 100 / total)) : 0
+                Div(class: .ctxPaneRow) {
+                    Span(class: .ctxPaneLabel) { Text(r.label) }
+                    Div(class: .ctxPaneBar) {
+                        Div(class: .ctxPaneFill) {}.attribute("style", "width:\(pct)%")
+                    }
+                    Span(class: .ctxPaneTokens) { Text(fmtTokens(r.tokens)) }
+                }
+                if let d = r.detail, !d.isEmpty {
+                    Div(class: .ctxPaneDetail) { Text(d) }
+                }
+            }
+        }
+    }
+
+    /// The context-breakdown pane: one centered card describing exactly what
+    /// the next request would contain and how many tokens each part carries.
+    /// Opened by clicking the context ring; dismissed by the close button,
+    /// the backdrop, or Escape (overlay.js routes it to `#ctx-pane-close`).
+    func contextPaneHTML() -> some WebUI.View {
+        Group {
+            if let pane = contextPane {
+                Div(id: "ctx-pane-overlay", class: .modalOverlay) {
+                    Div(class: .ctxPaneCard) {
+                        ArcButton(id: "ctx-pane-close", component: nil, class: ClassName(.ghostBtn, .ctxPaneClose)) {
+                            WebUIIcon(.x, size: .small)
+                        }
+                        Heading("Context breakdown", level: .h3)
+                            .id("ctx-pane-title")
+                        Div(class: .ctxPaneSub) {
+                            Text("\(pane.sessionTitle) · ~\(fmtTokens(pane.totalTokens)) of \(fmtTokens(pane.contextLength))")
+                        }
+                        Div(class: .ctxPaneSection) { Text("Fixed — no compression can reclaim") }
+                        ctxPaneRows(pane.scaffold, total: pane.totalTokens)
+                        Div(class: .ctxPaneSection) { Text("Message history") }
+                        ctxPaneRows(pane.history, total: pane.totalTokens)
+                        if !pane.largestMessages.isEmpty {
+                            Div(class: .ctxPaneSection) { Text("Largest messages") }
+                            ctxPaneRows(pane.largestMessages, total: pane.totalTokens)
+                        }
+                        Div(class: .ctxPaneFooter) {
+                            if let measured = pane.measuredTokens {
+                                Text("Last measured by the provider: \(fmtTokens(measured)) prompt tokens. ")
+                            }
+                            Text("Auto-compress at \(fmtTokens(pane.threshold)). Estimate: ~chars/4 + 60 per message; provider usage replaces it once a turn runs.")
+                        }
+                    }
+                    .attribute("role", "dialog")
+                    .aria(.modal(.yes))
+                    .aria(.labelledby("ctx-pane-title"))
+                }
+            }
         }
     }
 
@@ -2243,7 +2306,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         return Group {
             if !s.messages.isEmpty {
                 Div(class: .ctxIndicatorWrap) {
-                    ArcButton(id: nil, component: nil, class: ClassName("ctx-indicator\(level)")) {
+                    ArcButton(id: "ctx-ring", component: nil, class: ClassName("ctx-indicator\(level)")) {
                         Span(class: .ctxRing) {
                             // the ring geometry lives in ArcRing: one typed view
                             // instead of an inline <svg> string.
@@ -2253,8 +2316,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             }
                         }
                     }
-                    .title("Context window usage")
-                    .aria(.label("Context window usage"))
+                    .wire("ctxpane")
+                    .title("Context window usage — click for the breakdown")
+                    .aria(.label("Context window usage — click for the breakdown"))
                     Div(class: .ctxTooltip) {
                         Div(class: .ctxTooltipTitle) { Text("Context window") }
                         CtxTooltipLine { Text("\(pct)% used · \(100 - pct)% left") }

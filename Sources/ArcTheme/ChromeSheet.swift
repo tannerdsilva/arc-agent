@@ -2750,6 +2750,34 @@ public static let css: String = """
     .danger-btn { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
     .danger-btn:hover { background: var(--danger); color: var(--surface); }
 
+    /* ─── Context breakdown pane ─────────────────────────────── */
+    .ctx-pane-card {
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      width: min(580px, calc(100vw - 48px));
+      max-height: min(74vh, 660px);
+      overflow: auto;
+      padding: 20px 22px 16px;
+    }
+    .ctx-pane-card h3 { margin: 0 26px 2px 0; font-size: 1.06em; color: var(--text); }
+    .ctx-pane-sub { margin: 0 0 14px; color: var(--muted); font-size: 0.82em; line-height: 1.5; }
+    .ctx-pane-close { position: absolute; top: 14px; right: 14px; padding: 6px; line-height: 0; }
+    .ctx-pane-section {
+      margin: 14px 0 2px; padding-bottom: 4px;
+      font-size: 0.7em; letter-spacing: 0.07em; text-transform: uppercase;
+      color: var(--muted); border-bottom: 1px solid var(--border);
+    }
+    .ctx-pane-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+    .ctx-pane-label { flex: 0 0 148px; color: var(--text); font-size: 0.86em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ctx-pane-bar { flex: 1; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+    .ctx-pane-fill { height: 100%; border-radius: 2px; background: var(--accent); }
+    .ctx-pane-tokens { flex: 0 0 72px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 0.82em; }
+    .ctx-pane-detail { margin: 0 0 4px 158px; color: var(--muted); font-size: 0.78em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ctx-pane-footer { margin: 14px 0 0; padding-top: 8px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.8em; line-height: 1.5; }
+
     /* ─── Kanban ─────────────────────────────────────────────── */
     .kb-pcol { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .kanban-main { overflow: hidden; }

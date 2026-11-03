@@ -2800,6 +2800,69 @@ actor AppState {
         scaffoldTokenCache[sessionID] = (tokens, Date())
     }
 
+    // MARK: Context breakdown pane
+
+    /// One row of the context pane (mirrors ArcAgent.ContextBreakdownPart).
+    struct ContextPaneRow: Sendable, Equatable {
+        var label: String
+        var tokens: Int
+        var detail: String?
+    }
+
+    /// Snapshot rendered by `contextPaneHTML()`: the decomposed next request
+    /// for the session the pane was opened on, plus the meter's freshest
+    /// measured total (nil when no provider usage has been recorded).
+    struct ContextPaneSnapshot: Sendable {
+        var sessionID: String
+        var sessionTitle: String
+        var scaffold: [ContextPaneRow]
+        var history: [ContextPaneRow]
+        var largestMessages: [ContextPaneRow]
+        var totalTokens: Int
+        var contextLength: Int
+        var threshold: Int
+        var measuredTokens: Int?
+    }
+
+    private(set) var contextPane: ContextPaneSnapshot?
+
+    func closeContextPane() {
+        contextPane = nil
+    }
+
+    /// Mint a throwaway turn agent exactly like a real turn (same preset,
+    /// profile, thinking, and — unlike the scaffold warm — the session's
+    /// full history) and ask it to decompose the pending request. The agent
+    /// is discarded; nothing is sent to any provider.
+    func openContextPane() async {
+        guard let sid = activeSessionID,
+              let s = sessions.first(where: { $0.id == sid }),
+              !s.messages.isEmpty,
+              let preset = settings.modelConfig(named: configName(for: sid)) else { return }
+        let minted = await makeTurnAgent(
+            preset: preset,
+            profileContext: profileContext(for: sid),
+            thinking: thinkingLevel(for: sid),
+            headless: true,
+            sessionID: sid,
+            initialHistory: s.messages
+        )
+        let bd = await minted.agent.contextBreakdown()
+        let measured = liveTurnUsage[sid]
+            ?? s.messages.reversed().compactMap { $0.usage }.first
+        contextPane = ContextPaneSnapshot(
+            sessionID: sid,
+            sessionTitle: trunc(sessionTitle(s), 48),
+            scaffold: bd.scaffold.map { ContextPaneRow(label: $0.label, tokens: $0.tokens, detail: $0.detail) },
+            history: bd.history.map { ContextPaneRow(label: $0.label, tokens: $0.tokens, detail: $0.detail) },
+            largestMessages: bd.largestMessages.map { ContextPaneRow(label: $0.label, tokens: $0.tokens, detail: $0.detail) },
+            totalTokens: bd.totalTokens,
+            contextLength: bd.contextLength,
+            threshold: bd.threshold,
+            measuredTokens: measured?.promptTokens
+        )
+    }
+
     // MARK: Approval gating (reference smart command approval)
 
     /// The MoA block a UI turn hands to the core.

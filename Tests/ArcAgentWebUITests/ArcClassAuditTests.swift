@@ -45,7 +45,7 @@ extension ArcWebUITestRoot {
 		/// this literal is not the guard by itself: `sheetStillMatchesTheMeasurement`
 		/// re-counts the live sheet, so a sheet edit fails there with the difference
 		/// rather than quietly redefining what the enum was built from.
-		static let declaredTokenCount = 620
+		static let declaredTokenCount = 631
 
 		// MARK: - both directions
 

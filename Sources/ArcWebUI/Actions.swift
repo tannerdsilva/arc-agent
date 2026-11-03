@@ -1968,6 +1968,27 @@ extension Controller {
     }
 }
 
+@WireGroup("ctxpane")
+extension Controller {
+    /// Context breakdown pane: opened from the context ring, dismissed
+    /// from the close button or the backdrop. Clicks inside the card
+    /// content are inert (no id → no dispatch).
+    @Wired("ctxpane", events: [.click])
+    func handleContextPane(_ event: EventData) async -> [FragmentUpdate] {
+        let tid = event.string("targetId") ?? ""
+        switch tid {
+        case "ctx-ring":
+            await self.app.openContextPane()
+            return await self.changed()
+        case "ctx-pane-close", "ctx-pane-overlay":
+            await self.app.closeContextPane()
+            return await self.changed()
+        default:
+            return []
+        }
+    }
+}
+
 @WireGroup("chatmenu")
 extension Controller {
     @Wired("chat-menu", events: [.click, .submit])
