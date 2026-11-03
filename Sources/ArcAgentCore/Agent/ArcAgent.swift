@@ -438,6 +438,8 @@ public actor ArcAgent: Service {
     private var currentReasoningEffort: String?
     /// Cached token estimate for the tool schemas (static per agent).
     private var toolSchemaTokenEstimate: Int?
+    /// Cached ``(builtin, mcp)`` schema-token split for the breakdown pane.
+    private var toolSchemaSplitEstimate: (builtin: Int, mcp: Int)?
     /// Cached project context files (static per agent/working directory).
     private var contextFilesCache: [(name: String, content: String)]?
     /// Compression cool-down: summary-LLM rate limit parks us until this date.
@@ -1523,12 +1525,54 @@ public actor ArcAgent: Service {
         } else {
             prompt = try? await buildSystemPrompt()
         }
-        if let prompt {
-            scaffold.append(ContextBreakdownPart(label: "System prompt", tokens: count(prompt)))
+
+        // Hermes parity (`agent/context_breakdown.py`): pull the skills index,
+        // memory, and rules blocks out of the prompt so each gets its own row
+        // instead of hiding inside "System prompt". `_SKILLS_BLOCK_RE` is the
+        // reference pattern; here the sections are line-delimited `## ` blocks.
+        var remainder = prompt
+        var rulesTokens = 0, skillsTokens = 0, memoryTokens = 0
+        if var p = prompt {
+            let sections = Self.splitPromptSections(p, headers: [
+                "## Workspace & Project Context",
+                "## Skills (mandatory)",
+                "## Memory (Your Persistent Notes)",
+                "## User Profile",
+            ])
+            let rules = sections["## Workspace & Project Context"] ?? ""
+            let skills = sections["## Skills (mandatory)"] ?? ""
+            let memory = (sections["## Memory (Your Persistent Notes)"] ?? "")
+                + "\n\n" + (sections["## User Profile"] ?? "")
+            rulesTokens = rules.isEmpty ? 0 : count(rules)
+            skillsTokens = skills.isEmpty ? 0 : count(skills)
+            memoryTokens = memory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? 0 : count(memory)
+            p = sections["__remainder__"] ?? p
+            remainder = p
         }
-        let schemaTokens = toolSchemaTokens()
-        if schemaTokens > 0 {
-            scaffold.append(ContextBreakdownPart(label: "Tool schemas", tokens: schemaTokens))
+
+        // Tool schemas split by source (reference `_split_tools`): builtin
+        // toolsets vs MCP. MCP tools usually defer, so their wire cost is the
+        // manifest slice inside `tool_search` — attributed by manifest diff.
+        let split = toolSchemaTokensSplit()
+
+        if let remainder, !remainder.isEmpty {
+            scaffold.append(ContextBreakdownPart(label: "System prompt", tokens: count(remainder)))
+        }
+        if split.builtin > 0 {
+            scaffold.append(ContextBreakdownPart(label: "Tool schemas", tokens: split.builtin))
+        }
+        if rulesTokens > 0 {
+            scaffold.append(ContextBreakdownPart(label: "Rules (context files)", tokens: rulesTokens))
+        }
+        if skillsTokens > 0 {
+            scaffold.append(ContextBreakdownPart(label: "Skills index", tokens: skillsTokens))
+        }
+        if split.mcp > 0 {
+            scaffold.append(ContextBreakdownPart(label: "MCP tools", tokens: split.mcp))
+        }
+        if memoryTokens > 0 {
+            scaffold.append(ContextBreakdownPart(label: "Memory", tokens: memoryTokens))
         }
 
         // History aggregated by role. Reasoning is counted separately: it
@@ -1626,6 +1670,123 @@ public actor ArcAgent: Service {
         let estimate = tokenCounter.count(text, model: config.model)
         toolSchemaTokenEstimate = estimate
         return estimate
+    }
+
+    /// Split the wire tool-schema cost into builtin vs MCP (reference
+    /// `_split_tools` in `agent/context_breakdown.py`). Uses the same chars/4
+    /// heuristic as ``ProgressiveToolDisclosure/estimateTokens`` so the two
+    /// rows sum to approximately ``toolSchemaTokens``.
+    ///
+    /// Deferred tools cost nothing as schemas — their listing rides in the
+    /// `tool_search` description manifest. That manifest mixes deferred
+    /// toolsets, so the MCP slice is attributed by diffing the full manifest
+    /// against a manifest built without MCP tools.
+    func toolSchemaTokensSplit() -> (builtin: Int, mcp: Int) {
+        if let cached = toolSchemaSplitEstimate { return cached }
+        func est(_ schemas: [[String: Any]]) -> Int {
+            ProgressiveToolDisclosure.estimateTokens(schemas: schemas)
+        }
+        func schemaTokens(_ tool: any AgentTool) -> Int {
+            est([ProgressiveToolDisclosure.schema(for: tool)])
+        }
+
+        let candidates = config.registry.allTools
+            .filter { !config.disabledToolsets.contains($0.toolset) }
+            .map { $0.tool }
+        let (visible, deferred) = DeferredToolPolicy.plan(entries: candidates, config: config.toolSearch)
+
+        var builtin = 0
+        var mcp = 0
+        for tool in visible {
+            if tool.toolset == "mcp" { mcp += schemaTokens(tool) } else { builtin += schemaTokens(tool) }
+        }
+
+        if !deferred.isEmpty, config.toolSearch.enabled != "off" {
+            // Bridge trio envelope (tool_search without its manifest rides in
+            // builtin; the manifest is split by diff below).
+            builtin += est([
+                ProgressiveToolDisclosure.toolSearchSchema(manifest: nil),
+                ProgressiveToolDisclosure.toolDescribeSchema(),
+                ProgressiveToolDisclosure.toolCallSchema(),
+            ])
+            let nonMCP = deferred.filter { $0.toolset != "mcp" }
+            if let full = ProgressiveToolDisclosure.manifest(
+                deferred: deferred, config: config.toolSearch, contextLength: config.maxContextTokens
+            ) {
+                let fullTokens = est([["m": full]])
+                let restTokens: Int
+                if nonMCP.isEmpty {
+                    restTokens = 0
+                } else if let rest = ProgressiveToolDisclosure.manifest(
+                    deferred: nonMCP, config: config.toolSearch, contextLength: config.maxContextTokens
+                ) {
+                    restTokens = est([["m": rest]])
+                } else {
+                    // The shortened manifest dropped everything (budget too
+                    // small) — attribute nothing to the remainder.
+                    restTokens = 0
+                }
+                builtin += min(restTokens, fullTokens)
+                mcp += max(0, fullTokens - restTokens)
+            }
+        }
+
+        let result = (builtin, mcp)
+        toolSchemaSplitEstimate = result
+        return result
+    }
+
+    /// Pull `## Header`-delimited blocks out of the system prompt (reference
+    /// `_SKILLS_BLOCK_RE` extraction in `agent/context_breakdown.py`). A
+    /// section starts at a line whose trimmed text equals `header` and ends at
+    /// the next line starting with `## ` (two hashes, not three — `###`
+    /// subheaders inside a block belong to it). Returns each requested header's
+    /// block plus the remaining prompt under `"__remainder__"`.
+    nonisolated static func splitPromptSections(
+        _ prompt: String,
+        headers: [String]
+    ) -> [String: String] {
+        let target = Set(headers)
+        var found: [String: String] = [:]
+        var remainderLines: [String] = []
+        var currentHeader: String?
+        var currentBuffer: [String] = []
+        func close() {
+            guard let header = currentHeader else { return }
+            let block = currentBuffer.joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if target.contains(header) {
+                found[header] = block
+            } else if !block.isEmpty {
+                remainderLines.append(block)
+            }
+            currentHeader = nil
+            currentBuffer = []
+        }
+        for line in prompt.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed == "##" || (trimmed.hasPrefix("## ") && !trimmed.hasPrefix("### ")) {
+                // a top-level header — close whatever section was open
+                close()
+                if target.contains(trimmed) {
+                    currentHeader = trimmed
+                    continue
+                }
+                remainderLines.append(line)
+                continue
+            }
+            if currentHeader != nil {
+                currentBuffer.append(line)
+            } else {
+                remainderLines.append(line)
+            }
+        }
+        close()
+        let remainder = remainderLines.joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var result = found
+        result["__remainder__"] = remainder
+        return result
     }
 
     /// Auto-compress history if the FULL estimated request (system prompt +
