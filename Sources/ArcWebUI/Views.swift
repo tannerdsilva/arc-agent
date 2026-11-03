@@ -366,7 +366,7 @@ extension AppState {
         Group {
             if let pane = contextPane {
                 Div(id: "ctx-pane-overlay", class: .modalOverlay) {
-                    Div(class: .ctxPaneCard) {
+                    Div(id: "ctx-pane-card", class: .ctxPaneCard) {
                         ArcButton(id: "ctx-pane-close", component: nil, class: ClassName(.ghostBtn, .ctxPaneClose)) {
                             WebUIIcon(.x, size: .small)
                         }
@@ -393,6 +393,7 @@ extension AppState {
                     .attribute("role", "dialog")
                     .aria(.modal(.yes))
                     .aria(.labelledby("ctx-pane-title"))
+                    .wire("ctxpane")
                 }
             }
         }

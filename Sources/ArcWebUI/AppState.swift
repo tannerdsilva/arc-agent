@@ -2835,10 +2835,9 @@ actor AppState {
     /// full history) and ask it to decompose the pending request. The agent
     /// is discarded; nothing is sent to any provider.
     func openContextPane() async {
-        guard let sid = activeSessionID,
-              let s = sessions.first(where: { $0.id == sid }),
-              !s.messages.isEmpty,
-              let preset = settings.modelConfig(named: configName(for: sid)) else { return }
+        guard let sid = activeSessionID else { return }
+        guard let s = sessions.first(where: { $0.id == sid }), !s.messages.isEmpty else { return }
+        guard let preset = settings.modelConfig(named: configName(for: sid)) else { return }
         let minted = await makeTurnAgent(
             preset: preset,
             profileContext: profileContext(for: sid),
@@ -2847,6 +2846,7 @@ actor AppState {
             sessionID: sid,
             initialHistory: s.messages
         )
+        await minted.agent.seedHistory(s.messages)
         let bd = await minted.agent.contextBreakdown()
         let measured = liveTurnUsage[sid]
             ?? s.messages.reversed().compactMap { $0.usage }.first

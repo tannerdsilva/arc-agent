@@ -1155,6 +1155,15 @@ public actor ArcAgent: Service {
         messageHistory.append(contentsOf: initial)
     }
 
+    /// Seed the history of a headless minted agent (context-breakdown pane).
+    /// The ``Configuration/initialHistory`` seed only lands in `streamTurn`'s
+    /// prelude, which an agent that never turns never reaches. No-op when the
+    /// agent already has history — the seed is for empty agents only.
+    public func seedHistory(_ messages: [Message]) {
+        guard messageHistory.isEmpty, !messages.isEmpty else { return }
+        messageHistory.append(contentsOf: messages)
+    }
+
     private func appendUserMessage(_ message: Message) {
         messageHistory.append(message)
     }

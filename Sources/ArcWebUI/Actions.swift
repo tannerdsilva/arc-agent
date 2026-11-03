@@ -1971,20 +1971,26 @@ extension Controller {
 @WireGroup("ctxpane")
 extension Controller {
     /// Context breakdown pane: opened from the context ring, dismissed
-    /// from the close button or the backdrop. Clicks inside the card
-    /// content are inert (no id → no dispatch).
+    /// from the close button or the backdrop. The engine only sends
+    /// `targetId` for a nested id-bearing element (never for the wired
+    /// component itself), so: no targetId = ring click (pane closed) or
+    /// backdrop click (pane open); the card id itself is inert.
     @Wired("ctxpane", events: [.click])
     func handleContextPane(_ event: EventData) async -> [FragmentUpdate] {
-        let tid = event.string("targetId") ?? ""
-        switch tid {
-        case "ctx-ring":
-            await self.app.openContextPane()
-            return await self.changed()
-        case "ctx-pane-close", "ctx-pane-overlay":
+        switch event.string("targetId") {
+        case "ctx-pane-close":
             await self.app.closeContextPane()
             return await self.changed()
+        case "ctx-pane-card":
+            return [] // clicks inside the card content are inert
         default:
-            return []
+            // No nested id: the ring (open) or the backdrop (close).
+            if await self.app.contextPane != nil {
+                await self.app.closeContextPane()
+            } else {
+                await self.app.openContextPane()
+            }
+            return await self.changed()
         }
     }
 }
@@ -2336,9 +2342,11 @@ extension Controller {
 
     /// Chat row “⋮” menu (copy link / rename / pin / archive / duplicate /
     /// delete), the centered delete-confirmation modal, and the archived list
-    /// toggle.
+    /// toggle. Also mounts the context-breakdown pane (`ctx-ring` → open,
+    /// close button / backdrop → dismiss).
     private func wireChatMenu(_ router: EventRouter) {
         wireGroup_chatmenu(router)
+        wireGroup_ctxpane(router)
     }
 
     private func newChat() async {

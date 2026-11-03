@@ -19,7 +19,7 @@ extension ArcWebUITestRoot {
     /// migrated group drive the group's own `wireGroup_<g>(router)` into a
     /// fresh router and assert the exact handler count. Deleting a `@Wired`
     /// annotation drops exactly one group's count, so this pin turns only one
-    /// way. `wireAll` must register exactly 180: 166 generated + 12
+    /// way. `wireAll` must register exactly 181: 167 generated + 12
     /// `nav-\(id)` + `sidebar-plugin-toggle` + `cat-pick`.
     @Suite("wiring invariant", .serialized)
     struct WiringInvariantTests {
@@ -178,7 +178,7 @@ extension ArcWebUITestRoot {
             #expect(router.handlerCount(in: .default) == 1, "regen group registration drifted")
         }
 
-        @Test("wireAll registers exactly 180 handlers (165 generated + composer-attach + 12 nav ids + sidebar-plugin-toggle + cat-pick)")
+        @Test("wireAll registers exactly 181 handlers (166 generated + composer-attach + 12 nav ids + sidebar-plugin-toggle + cat-pick + ctxpane)")
         func wireAllRegistersExactly178() async throws {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
@@ -186,8 +186,8 @@ extension ArcWebUITestRoot {
 
             let count = router.handlerCount(in: .default)
             #expect(
-                count == 180,
-                "wireAll must register exactly 180 handlers: 165 @Wired-generated + composer-attach (drag-drop attachments) + 12 nav-(id) + sidebar-plugin-toggle + cat-pick, got \(count)"
+                count == 181,
+                "wireAll must register exactly 181 handlers: 166 @Wired-generated + composer-attach (drag-drop attachments) + 12 nav-(id) + sidebar-plugin-toggle + cat-pick + ctxpane, got \(count)"
             )
         }
 
