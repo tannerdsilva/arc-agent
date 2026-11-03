@@ -563,7 +563,8 @@ extension AppState {
         headless: Bool = false,
         selectAfter: Bool = true,
         displayText: String? = nil,
-        consumesDraft: Bool = true
+        consumesDraft: Bool = true,
+        usePendingAttachments: Bool = true
     ) async {
         // Bind to the session the message was typed into — the active session
         // may change while the Task is queued or while another chat runs.
@@ -576,7 +577,7 @@ extension AppState {
         await ensureSessionMessages(sessionID)
         var session = sessions[idx]
 
-        let atts = attachments
+        let atts = usePendingAttachments ? attachments : []
         var userContent = raw
         if !atts.isEmpty {
             // arc parity: image attachments are described by the active
@@ -620,7 +621,11 @@ extension AppState {
         let turn = LiveTurn(sessionID: sessionID, userText: raw, attachments: atts)
         activeTurns[sessionID] = turn
         pendingDelete = false
-        attachments = []
+        // A regenerate asks an old prompt: the composer's staged attachments
+        // are for the reader's NEXT message and must survive the turn.
+        if usePendingAttachments {
+            attachments = []
+        }
         // Remember what this submit consumed before clearing the draft: a
         // trailing input frame still carrying the sent text must not
         // resurrect it (the engine's debounce can land it after this clear).
@@ -2074,20 +2079,59 @@ extension Controller {
 
 @WireGroup("message_actions")
 extension Controller {
-    /// The footer actions under a user message.
+    /// The footer actions under a message.
     ///
     /// copy never arrives here — the overlay owns `[data-copy]`, so a copy
-    /// click carries no `targetId` this wire can act on. fork does:
-    /// `fork-<session>.<index>` names the conversation and the cut point, and
-    /// the store is the only writer (see `AppState.forkSession`).
+    /// click carries no `targetId` this wire can act on. the server actions do:
+    /// `fork-<session>.<index>` and `regen-<session>.<index>` name the
+    /// conversation and the cut point.
     @Wired("msg-actions", events: [.click])
     func handleMessageAction(_ event: EventData) async -> [FragmentUpdate] {
-        guard let targetID = event.string("targetId"),
-              let target = MessageAction.forkTarget(in: targetID) else { return [] }
-        guard await self.app.forkSession(target.sessionID,
-                                         throughUserMessageAt: target.messageIndex) != nil else {
+        guard let targetID = event.string("targetId") else { return [] }
+        if let target = MessageAction.forkTarget(in: targetID) {
+            return await forkAt(target.sessionID, messageIndex: target.messageIndex)
+        }
+        if let target = MessageAction.regenerateTarget(in: targetID) {
+            return await regenerateAt(target.sessionID, messageIndex: target.messageIndex)
+        }
+        return []
+    }
+
+    /// fork-here: open a new chat that keeps the transcript through the clicked
+    /// message. the source chat is never touched (see `AppState.forkSession`).
+    private func forkAt(_ sessionID: String, messageIndex: Int) async -> [FragmentUpdate] {
+        guard await self.app.forkSession(sessionID, throughMessageAt: messageIndex) != nil else {
             _ = await self.app.hint("Couldn't fork from that message.", kind: "error")
             return await self.changed()
+        }
+        return await self.changed()
+    }
+
+    /// regenerate: re-ask the prompt behind the clicked reply as a new turn.
+    ///
+    /// the checks run before the turn is spawned so a refusal can toast on this
+    /// response; the turn itself is fire-and-forget like a normal send, or the
+    /// click's response would wait for the whole streamed reply.
+    private func regenerateAt(_ sessionID: String, messageIndex: Int) async -> [FragmentUpdate] {
+        guard await self.app.activeSessionID == sessionID else {
+            _ = await self.app.hint("Open that chat to regenerate its reply.", kind: "error")
+            return await self.changed()
+        }
+        guard await !self.app.isTurnActive(sessionID: sessionID) else {
+            _ = await self.app.hint("Stop the current response before regenerating.", kind: "error")
+            return await self.changed()
+        }
+        guard let prompt = await self.app.regenerationPrompt(
+            sessionID: sessionID, assistantIndex: messageIndex
+        ) else {
+            _ = await self.app.hint("Couldn't find the prompt for that reply.", kind: "error")
+            return await self.changed()
+        }
+        let pusher = push
+        Task {
+            await self.app.startRegeneration(
+                sessionID: sessionID, prompt: prompt, pusher: pusher
+            )
         }
         return await self.changed()
     }

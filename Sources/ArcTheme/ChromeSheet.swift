@@ -1699,8 +1699,8 @@ public static let css: String = """
       font-size: 0.86em; user-select: none;
     }
 
-    /* ── Message hover footer: produced-at time + copy (arc parity) ── */
-    .msg-foot { display: flex; align-items: center; gap: 8px; margin-top: 5px; opacity: 0; transition: opacity 0.15s; }
+    /* ── Message hover footer: copy / regenerate / fork (arc parity) ── */
+    .msg-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; opacity: 0; transition: opacity 0.15s; }
     .msg:hover .msg-foot,
     .msg:focus-within .msg-foot { opacity: 1; }
     /* a keyboard reader reaches the actions before the footer is visible:
@@ -1710,14 +1710,11 @@ public static let css: String = """
     }
     .msg-time { font-size: 0.84em; color: var(--muted); }
     .msg-actions { display: inline-flex; align-items: center; gap: 2px; }
-    .msg-action-btn { background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 5px; border-radius: 5px; display: inline-flex; align-items: center; transition: color 0.12s, background 0.12s; }
-    .msg-action-btn:hover { color: var(--text); background: var(--surface-2); }
+    /* message actions are labelled ghost pills: "Regenerate" and "Fork here"
+       are not discoverable icons, and the row reads as one quiet line. */
+    .msg-action-btn { background: none; border: 1px solid transparent; color: var(--muted); cursor: pointer; padding: 3px 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; transition: color 0.12s, background 0.12s, border-color 0.12s; }
+    .msg-action-btn:hover { color: var(--text); background: var(--surface-2); border-color: var(--border); }
     .msg-action-btn svg { width: 12px; height: 12px; }
-    /* user-message actions are labelled ghost pills: "Fork here" is not a
-       discoverable icon, and the pair reads as one quiet row under the bubble. */
-    .msg.user .msg-foot { margin-top: 6px; }
-    .msg.user .msg-action-btn { gap: 5px; padding: 3px 8px; font-size: 12px; border: 1px solid transparent; }
-    .msg.user .msg-action-btn:hover { border-color: var(--border); }
     .tool-pills { display: flex; flex-direction: column; align-items: stretch; gap: 2px; margin: 6px 0 4px; }
     /* Each tool call expands independently; cards stack vertically. */
     /* arc parity: tool call rows are bubble-like pills. */

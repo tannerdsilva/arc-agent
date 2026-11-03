@@ -40,12 +40,12 @@ extension ArcWebUITestRoot {
 		static let residualStaticTokens: Set<String> = [
 			// concatenation first halves — a token plus a state suffix
 			"approval-card", "chat-menu", "clarify-card", "dd-dot", "dd-list", "dd-pop",
-			"dd-pop-model", "file-pop", "main-scroll", "msg-action-btn", "panel-head",
+			"dd-pop-model", "file-pop", "main-scroll", "panel-head",
 			"tc-detail", "todo-card", "tool-btn", "composer-bar", "clarify-pill",
 			// declared by no sheet — ArcClass cannot name them
 			"approval-title", "arch-ico", "btn", "chat-menu-items", "clarify-title",
 			"ctx-swatches", "dd-list-profile", "dd-pop-ws", "insights-main",
-			"msg-copy-btn", "panel-note", "pill-other", "queue-card",
+			"panel-note", "pill-other", "queue-card",
 			"queue-loop-count-label", "skill-cat-title", "task-ctrl-main",
 			"thinking-detail", "todo-list", "visible", "ws-head", "ws-menu", "yolo-text",
 		]

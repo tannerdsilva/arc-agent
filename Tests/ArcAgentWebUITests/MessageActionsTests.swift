@@ -76,13 +76,50 @@ extension ArcWebUITestRoot {
             #expect(!html.contains("fork-"))
         }
 
-        @Test("assistant replies do not grow user actions")
-        func assistantRepliesUnaffected() async {
+        @Test("an assistant reply offers copy, regenerate, and fork here")
+        func rendersAssistantActions() async {
+            let app = AppState(renderFixture: .init())
+            let message = Message(role: .assistant, content: "the answer", createdAt: Self.t0)
+            let html = await app.messageHTML(message, rawIdx: 4, sessionID: "sess-a").markup.html
+
+            #expect(html.contains(#"data-copy="the answer""#))
+            #expect(html.contains("id=\"regen-\(enc("sess-a")).4\""),
+                    "regenerate must name the reply it re-asks: \(html)")
+            #expect(html.contains("id=\"fork-\(enc("sess-a")).4\""),
+                    "fork must cut at this reply")
+            #expect(html.contains("Regenerate</span>"))
+            #expect(html.contains("Fork here"))
+            #expect(html.contains("data-component-id=\"msg-actions\""))
+        }
+
+        @Test("a tool-call row is not a reply: copy only")
+        func toolCallRowIsCopyOnly() async {
+            let app = AppState(renderFixture: .init())
+            let message = Message(
+                role: .assistant,
+                content: nil,
+                toolCalls: [ToolCall(id: "call_1",
+                                     function: ToolCallFunction(name: "read_file",
+                                                                arguments: #"{"path":"README.md"}"#))],
+                createdAt: Self.t0)
+            let html = await app.messageHTML(message, rawIdx: 1, sessionID: "sess-a").markup.html
+            #expect(html.contains("data-copy"))
+            #expect(!html.contains("regen-"),
+                    "an intermediate tool round must not offer regeneration")
+            #expect(!html.contains("fork-"),
+                    "a fork cut at a tool-call request would lose its results")
+            #expect(!html.contains("data-component-id=\"msg-actions\""),
+                    "copy-only means no server boundary")
+        }
+
+        @Test("an assistant reply without a session is copy-only")
+        func assistantWithoutSession() async {
             let app = AppState(renderFixture: .init())
             let message = Message(role: .assistant, content: "reply", createdAt: Self.t0)
-            let html = await app.messageHTML(message, rawIdx: 1, sessionID: "sess-a").markup.html
-            #expect(!html.contains("Fork here"))
-            #expect(!html.contains("data-component-id=\"msg-actions\""))
+            let html = await app.messageHTML(message, rawIdx: 1).markup.html
+            #expect(html.contains(#"data-copy="reply""#))
+            #expect(!html.contains("regen-"))
+            #expect(!html.contains("fork-"))
         }
 
         @Test("the fork wire id round-trips session and index")
@@ -101,6 +138,19 @@ extension ArcWebUITestRoot {
             #expect(MessageAction.forkTarget(in: "fork-\(enc("sess-a")).-1") == nil)
             #expect(MessageAction.forkTarget(in: "fork-\(enc("sess-a"))") == nil)
             #expect(MessageAction.forkTarget(in: "fork-\(enc("sess-a")).x") == nil)
+        }
+
+        @Test("the regenerate wire id round-trips session and index")
+        func regenerateTargetRoundTrip() throws {
+            let session = "sess/with.dots-and_underscores"
+            let id = "regen-\(enc(session)).9"
+            let target = try #require(MessageAction.regenerateTarget(in: id))
+            #expect(target.sessionID == session)
+            #expect(target.messageIndex == 9)
+            #expect(MessageAction.regenerateTarget(in: "fork-\(enc(session)).9") == nil,
+                    "the two server actions must not answer each other's ids")
+            #expect(MessageAction.regenerateTarget(in: "regen-btn") == nil,
+                    "the header's regen id carries no session/index")
         }
     }
 
@@ -142,7 +192,7 @@ extension ArcWebUITestRoot {
         func forkKeepsInclusivePrefix() throws {
             let fork = try #require(SessionFork(
                 session: Self.source(),
-                throughUserMessageAt: 2,
+                throughMessageAt: 2,
                 title: "first",
                 workspaceKey: "main",
                 categoryID: "cat-1"
@@ -161,7 +211,7 @@ extension ArcWebUITestRoot {
         @Test("the materialized session records its parent")
         func forkRecordsLineage() throws {
             let fork = try #require(SessionFork(
-                session: Self.source(), throughUserMessageAt: 4, title: "first"))
+                session: Self.source(), throughMessageAt: 4, title: "first"))
             let copy = fork.makeSession(now: Self.t0)
             #expect(copy.parentSessionID == "sess-src")
             #expect(copy.messages.count == 5)
@@ -176,29 +226,56 @@ extension ArcWebUITestRoot {
             source.config = SessionConfigSnapshot(
                 model: "pinned-model", provider: "openai", temperature: 0.2)
             let fork = try #require(SessionFork(
-                session: source, throughUserMessageAt: 2, title: "first"))
+                session: source, throughMessageAt: 2, title: "first"))
             let copy = fork.makeSession(now: Self.t0)
             #expect(copy.config == source.config,
                     "a fork of a pinned session must keep running the pinned config")
         }
 
-        @Test("a cut at a non-user message is refused")
-        func refusesAssistantCut() {
-            #expect(SessionFork(session: Self.source(), throughUserMessageAt: 1, title: "x") == nil,
-                    "cutting at an assistant reply would keep a reply whose prompt is gone")
+        @Test("a fork can cut at an assistant reply")
+        func forkCutsAtAssistantReply() throws {
+            let fork = try #require(SessionFork(
+                session: Self.source(), throughMessageAt: 1, title: "first"))
+            #expect(fork.messages.map(\.role) == [.user, .assistant])
+            #expect(fork.messages.last?.content == "reply one")
+        }
+
+        @Test("a cut at a tool row or a tool-call request is refused")
+        func refusesToolCut() {
+            let toolRow = Session(
+                id: "sess-tool", createdAt: Self.t0, updatedAt: Self.t0,
+                messages: [
+                    Message(role: .user, content: "run it", createdAt: Self.t0),
+                    Message(role: .tool, content: "output", createdAt: Self.t0),
+                ])
+            #expect(SessionFork(session: toolRow, throughMessageAt: 1, title: "x") == nil,
+                    "a tool result without its call is not a readable transcript")
+
+            let callRow = Session(
+                id: "sess-call", createdAt: Self.t0, updatedAt: Self.t0,
+                messages: [
+                    Message(role: .user, content: "run it", createdAt: Self.t0),
+                    Message(role: .assistant, content: nil,
+                            toolCalls: [ToolCall(id: "c1",
+                                                 function: ToolCallFunction(name: "terminal",
+                                                                            arguments: "{}"))],
+                            createdAt: Self.t0),
+                ])
+            #expect(SessionFork(session: callRow, throughMessageAt: 1, title: "x") == nil,
+                    "cutting a tool-call request away from its results would corrupt the fork")
         }
 
         @Test("an out-of-range cut is refused")
         func refusesOutOfRangeCut() {
-            #expect(SessionFork(session: Self.source(), throughUserMessageAt: 5, title: "x") == nil)
-            #expect(SessionFork(session: Self.source(), throughUserMessageAt: -1, title: "x") == nil)
+            #expect(SessionFork(session: Self.source(), throughMessageAt: 5, title: "x") == nil)
+            #expect(SessionFork(session: Self.source(), throughMessageAt: -1, title: "x") == nil)
         }
 
         @Test("a long source title is clipped before the branch marker grows")
         func titleIsClipped() throws {
             let long = String(repeating: "word ", count: 40)
             let fork = try #require(SessionFork(
-                session: Self.source(), throughUserMessageAt: 0, title: long))
+                session: Self.source(), throughMessageAt: 0, title: long))
             #expect(fork.title.hasPrefix("↳ "))
             #expect(fork.title.count <= 2 + 60 + 1)
         }
@@ -220,7 +297,7 @@ extension ArcWebUITestRoot {
             let app = AppState(renderFixture: fixture)
             await app.bindForkStore(store)
 
-            let newID = try #require(await app.forkSession(source.id, throughUserMessageAt: 2))
+            let newID = try #require(await app.forkSession(source.id, throughMessageAt: 2))
 
             let copy = try #require(try await store.get(id: newID))
             #expect(copy.messages.map(\.content) == ["first", "reply one", "second"])
@@ -244,7 +321,7 @@ extension ArcWebUITestRoot {
             fixture.sessions = [Self.source()]
             fixture.activeSessionID = "sess-src"
             let app = AppState(renderFixture: fixture)
-            let forked = await app.forkSession("sess-src", throughUserMessageAt: 2)
+            let forked = await app.forkSession("sess-src", throughMessageAt: 2)
             #expect(forked == nil)
             let count = await app.sessions.count
             #expect(count == 1)

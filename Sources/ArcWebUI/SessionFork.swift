@@ -29,18 +29,23 @@ struct SessionFork {
     let workspaceKey: String?
     let categoryID: String?
 
-    /// A fork is only meaningful at a user message: cutting at an assistant or
-    /// tool row would replay a reply whose prompt is gone (or a tool result
-    /// whose call is gone). Out-of-range indexes are rejected the same way.
+    /// A fork is meaningful only at a user message or an assistant reply: the
+    /// kept transcript must end on something a reader can see. Cutting at a
+    /// tool row would keep a result whose call is gone; an out-of-range index
+    /// is rejected the same way.
     init?(
         session: Session,
-        throughUserMessageAt index: Int,
+        throughMessageAt index: Int,
         title: String,
         workspaceKey: String? = nil,
         categoryID: String? = nil
     ) {
-        guard session.messages.indices.contains(index),
-              session.messages[index].role == .user else { return nil }
+        guard session.messages.indices.contains(index) else { return nil }
+        let cut = session.messages[index]
+        // a tool-call request is not a reply: its results would be cut away.
+        let isCutPoint = cut.role == .user
+            || (cut.role == .assistant && (cut.toolCalls ?? []).isEmpty)
+        guard isCutPoint else { return nil }
         self.sourceID = session.id
         self.messages = Array(session.messages[...index])
         self.title = "↳ " + trunc(title, 60)
@@ -76,19 +81,19 @@ struct SessionFork {
 extension AppState {
 
     /// Fork `id` into a new session that keeps its transcript through
-    /// `throughUserMessageAt`, then open it.
+    /// `throughMessageAt`, then open it.
     ///
-    /// Returns the new session's id; nil when the index is not a user message,
-    /// the source is gone, or storage is unavailable. The source session is
-    /// untouched — a fork is a branch, never a truncation.
+    /// Returns the new session's id; nil when the cut is not a user message or
+    /// assistant reply, the source is gone, or storage is unavailable. The
+    /// source session is untouched — a fork is a branch, never a truncation.
     @discardableResult
-    func forkSession(_ id: String, throughUserMessageAt index: Int) async -> String? {
+    func forkSession(_ id: String, throughMessageAt index: Int) async -> String? {
         guard let store else { return nil }
         await ensureSessionMessages(id)
         guard let source = sessions.first(where: { $0.id == id }),
               let fork = SessionFork(
                 session: source,
-                throughUserMessageAt: index,
+                throughMessageAt: index,
                 title: sessionTitle(source),
                 workspaceKey: settings.sessionWorkspaces[id],
                 categoryID: settings.sessionCategories[id]

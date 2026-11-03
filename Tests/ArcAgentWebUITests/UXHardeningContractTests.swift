@@ -841,13 +841,17 @@ extension ArcWebUITestRoot {
                     "the doubled-quote spelling is back: tool-card copy emits data-copy=\"\"<args>\"\"")
             // attribute order is the framework's: take the whole button tag, then
             // assert on it, instead of pinning an order that markup no longer has.
-            let copyBtn = reply.range(of: #"<button [^>]*class="msg-copy-btn msg-action-btn"[^>]*>"#,
+            // message actions are labelled, focusable controls now (copy /
+            // regenerate / fork here). the old hover-only copy icon was quiet at
+            // the cost of never being reachable by a keyboard reader; the footer
+            // reveals itself on `:focus-within`, so the controls must be tabbable.
+            let copyBtn = reply.range(of: #"<button [^>]*class="msg-action-btn"[^>]*>"#,
                                       options: .regularExpression).map { String(reply[$0]) }
-            #expect(copyBtn != nil, "the assistant reply must render its copy button")
-            #expect(copyBtn?.contains("tabindex=\"-1\"") == true,
-                    "message copy buttons must be quiet")
-            #expect(copyBtn?.contains("title=\"Copy response\"") == true,
-                    "the copy button must keep its tooltip")
+            #expect(copyBtn != nil, "the assistant reply must render its copy action")
+            #expect(copyBtn?.contains("tabindex=\"-1\"") != true,
+                    "message actions must stay in the tab order; focus-within reveals the footer")
+            #expect(copyBtn?.contains("title=\"Copy message\"") == true,
+                    "the copy action must keep its tooltip")
             let overlay = Self.overlay
             #expect(overlay.contains("function visibleSessionRows()"),
                     "the overlay must rove across visible rows only")
