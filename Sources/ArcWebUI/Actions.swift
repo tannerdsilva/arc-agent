@@ -863,6 +863,11 @@ extension AppState {
                             ? usage.totalTokens
                             : usage.promptTokens + usage.completionTokens)
                     }
+                    // Per-iteration context meter: every model API call in the
+                    // tool loop reports usage; keep the latest where the meter
+                    // snapshot and the pusher can see it.
+                    liveTurnUsage[sessionID] = usage
+                    ctxMeterDirty.insert(sessionID)
                     applyLive(event)
                     await flush()
                 case .toolCallStarted(let id, let name, let arguments):
@@ -976,6 +981,10 @@ extension AppState {
         }
 
         activeTurns[sessionID] = nil
+        // The stored transcript now carries the turn's real usage; the live
+        // copy's job (per-iteration meter) is done.
+        liveTurnUsage.removeValue(forKey: sessionID)
+        ctxMeterDirty.remove(sessionID)
         if let finalError {
             // the core's failure text is already prefixed; the toast is not.
             let reason = finalError.hasPrefix("Error: ") ? String(finalError.dropFirst(7)) : finalError
@@ -1062,6 +1071,16 @@ extension AppState {
         // the presenter wiring tests read the batch the pusher receives, and that
         // batch is this function's answer.
         u.append(fragment("composer-flyout", Div { composerFlyoutHTML() }.id("composer-flyout")))
+        // Per-iteration context meter: a `.usage` event marks the session
+        // dirty; the next coalesced tick re-renders just the meter node with
+        // the latest prompt-token count. Consumed once — clean bytes on idle
+        // ticks push nothing.
+        if let sid = activeSessionID,
+           activeTurns[sid] != nil,
+           ctxMeterDirty.remove(sid) != nil,
+           let s = activeSession() {
+            u.append(fragment("ctx-meter", Div { ctxIndicatorHTML(s) }.id("ctx-meter")))
+        }
         return u
     }
 

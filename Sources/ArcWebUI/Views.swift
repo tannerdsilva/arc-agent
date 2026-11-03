@@ -2189,7 +2189,12 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         let limit = profileContext(for: s.id)?.contextLength
             ?? presetForChat?.contextLength
             ?? 1_048_576
-        let last = s.messages.reversed().compactMap { $0.usage }.first
+        // A running turn's latest API-call usage wins: it is fresher than any
+        // stored message (tool-loop iterations persist without usage) and is
+        // what makes the meter advance per iteration. Falls back to the last
+        // stored usage-bearing message, then the estimate.
+        let last = liveTurnUsage[s.id]
+            ?? s.messages.reversed().compactMap { $0.usage }.first
         if last == nil {
             // No provider usage recorded yet: warm the scaffold estimate off
             // the render path (system prompt + tool schemas), converging the
@@ -2402,9 +2407,12 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     .aria(.label("Bookmark this chat"))
                     composerSelectorsHTML()
                     Span(class: .spacer) {}
-                    if let s = activeSession() {
-                        ctxIndicatorHTML(s)
-                    }
+                if let s = activeSession() {
+                    // stable id: the pusher re-renders just this node on each
+                    // per-iteration usage report (see liveFragments()).
+                    Div { ctxIndicatorHTML(s) }
+                        .id("ctx-meter")
+                }
                     if running {
                         // While a turn runs, the send control becomes a red stop button.
                         ArcButton(id: "cb-send", component: "stop-turn", class: ClassName(.sendBtn, .stop)) {

@@ -972,6 +972,17 @@ actor AppState {
     /// is removed when the turn ends, so a stopped chat can never interrupt a
     /// later turn.
     var turnAgents: [String: ArcAgent] = [:]
+    /// The running turn's most recent provider usage, keyed by sessionID.
+    /// Written on every `.usage` event — i.e. after every model API call in
+    /// the tool loop — so the context meter (which otherwise reads only the
+    /// last *stored* usage-bearing message) advances per iteration. Cleared
+    /// when the turn finalizes (the stored reply then carries the real final
+    /// usage).
+    var liveTurnUsage: [String: Usage] = [:]
+    /// Sessions whose live context meter needs a fragment push (set on
+    /// `.usage`, consumed by `liveFragments()`), so identical meter bytes are
+    /// never re-sent on idle throttle ticks.
+    var ctxMeterDirty: Set<String> = []
     /// arc-style approval gate for the webui tool loop: the terminal tool
     /// is checked against ApprovalManager, and dangerous commands pause the
     /// turn on a permission card until the user approves or denies.
