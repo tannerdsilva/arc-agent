@@ -37,13 +37,24 @@ extension ArcCoreTestRoot {
             // Everything between head and tail is compressible.
             #expect(w.head.count + w.middle.count + w.tail.count == msgs.count - 1)
 
-            // Tiny budget: floor of at least 4 tail messages.
+            // Small budget: the protect floor (4) holds while it fits the
+            // soft ceiling (tailBudget × 1.5) — a run of bulky outputs is
+            // capped by the ceiling, not frozen verbatim (reference
+            // _find_tail_cut_by_tokens).
             let w2 = ContextCompression.window(
+                msgs,
+                tailBudget: 40,
+                countTokens: { _ in 1 }
+            )
+            #expect(w2.tail.count >= 4)
+            // Bulky-run cap: a ceiling of 6 tokens stops the walk at ~1
+            // message even though the floor asks for 4.
+            let w3 = ContextCompression.window(
                 msgs,
                 tailBudget: 4,
                 countTokens: { _ in 1 }
             )
-            #expect(w2.tail.count >= 4)
+            #expect(w3.tail.count < 4)
         }
 
         @Test("prune replaces oversized tool results, keeps metadata")
@@ -161,6 +172,117 @@ extension ArcCoreTestRoot {
             #expect(block?.contains("[System note: The following is recalled memory context") == true)
             #expect(block?.hasSuffix("</memory-context>") == true)
             #expect(block?.contains("server runs Ubuntu") == true)
+        }
+
+        // MARK: - Hermes-scheme behaviors (Phase 1 / boundaries / defenses)
+
+        private func toolMsg(_ name: String, _ content: String, id: String) -> Message {
+            Message(role: .tool, content: content, name: name, toolCallID: id)
+        }
+
+        private func callMsg(_ name: String, _ args: String, id: String) -> Message {
+            Message(
+                role: .assistant,
+                content: nil,
+                toolCalls: [ToolCall(
+                    id: id,
+                    type: "function",
+                    function: ToolCallFunction(name: name, arguments: args)
+                )]
+            )
+        }
+
+        @Test("Phase 1: informative one-line summaries, dedup, arg truncation, skill tombstones")
+        func phaseOnePrune() {
+            let big = String(repeating: "x", count: 5_000)
+            let small = "exit 0"
+            let args = String(repeating: "a", count: 2_000)
+            var msgs: [Message] = [
+                callMsg("terminal", args, id: "c1"),
+                toolMsg("terminal", big, id: "c1"),
+                callMsg("read_file", "{}", id: "c2"),
+                toolMsg("read_file", small, id: "c2"),
+                toolMsg("read_file", small, id: "c3"), // duplicate of c2's result
+                toolMsg("skill_view", "---\nname: arc-agent-harness\n---\n" + big, id: "c4"),
+            ]
+            let out = ContextCompression.pruneOutsideTail(msgs)
+            // the oversized result becomes a one-liner with shape info
+            #expect(out[1].content?.contains("pruned") == true)
+            #expect(out[1].content?.contains("terminal") == true)
+            // the duplicated result is demoted, the newest stays verbatim
+            #expect(out[3].content?.contains("pruned") == true)
+            #expect(out[4].content == small)
+            // skill_view body becomes the exact tombstone
+            #expect(out[5].content == "[SKILL_PRUNED: arc-agent-harness]")
+            // tool rows keep their ids (pairs stay repairable)
+            #expect(out[5].toolCallID == "c4")
+            // small results untouched, but bulky args truncated
+            #expect(out[0].toolCalls?.first?.function.arguments.count ?? 0 < 1_100)
+            _ = msgs // mutability not needed
+        }
+
+        @Test("Tail cut never splits a tool group and keeps the latest user turn")
+        func atomicBoundaries() {
+            var msgs: [Message] = (0..<8).map { msg(.user, "m\($0)") }
+            msgs.append(callMsg("terminal", "{}", id: "t1"))
+            msgs.append(toolMsg("terminal", "output", id: "t1"))
+            msgs.append(msg(.user, "the real ask"))
+            let w = ContextCompression.window(
+                msgs,
+                tailBudget: 1, // ceiling forces a minimal tail
+                countTokens: { _ in 1 }
+            )
+            // the assistant call and its result land in the SAME region
+            let callInTail = w.tail.contains { $0.role == .assistant && ($0.toolCalls?.first?.id == "t1") }
+            let resultInTail = w.tail.contains { $0.toolCallID == "t1" }
+            #expect(callInTail == resultInTail)
+            // the most recent user message is in the tail
+            #expect(w.tail.contains { $0.role == .user && $0.content == "the real ask" })
+        }
+
+        @Test("Secret redaction happens at serialization, before the aux model")
+        func redaction() {
+            let line = "[Tool terminal]: ran with api_key = supersecretvalue12345 and bearer AbCdEf0123456789abcdef"
+            let record = ContextCompression.compressedRecord([msg(.user, line)])
+            #expect(!record.contains("supersecretvalue12345"))
+            #expect(record.contains("[REDACTED]"))
+        }
+
+        @Test("Ghost-skill defense: markers are collected then reinjected verbatim")
+        func ghostSkills() {
+            let material = [
+                toolMsg("skill_view", "[SKILL_PRUNED: arc-agent-harness]", id: "c1"),
+                msg(.assistant, "some skills were loaded"),
+            ]
+            let markers = ContextCompression.collectSkillMarkers(material)
+            #expect(markers == ["[SKILL_PRUNED: arc-agent-harness]"])
+            let summary = "Work summary. Some skills were loaded earlier."
+            let reinjected = ContextCompression.reinjectSkillMarkers(summary, markers: markers)
+            #expect(reinjected.contains("[SKILL_PRUNED: arc-agent-harness]"))
+            // already-present markers are not duplicated
+            let already = "[SKILL_PRUNED: arc-agent-harness]\nrest"
+            #expect(ContextCompression.reinjectSkillMarkers(already, markers: markers) == already)
+        }
+
+        @Test("Pass 4 pressure demotion fires only when the protected region overshoots")
+        func pressurePass() {
+            let bigTool = toolMsg("terminal", String(repeating: "y", count: 50_000), id: "t9")
+            let head = [msg(.user, "head")]
+            let tail = [bigTool, msg(.user, "keep me"), msg(.assistant, "ok")]
+            // 1.5× the tail budget in tokens: protected region far over
+            let fired = ContextCompression.pressureDemote(
+                head, tail, tailBudget: 100,
+                countTokens: { text in text.count / 4 }
+            )
+            #expect(fired.fired)
+            #expect(fired.tail.first?.content?.contains("pruned") == true)
+            #expect(fired.tail.last?.content == "ok") // recent floor verbatim
+            // a protected region that fits never fires
+            let quiet = ContextCompression.pressureDemote(
+                head, [msg(.user, "small")], tailBudget: 10_000,
+                countTokens: { text in text.count / 4 }
+            )
+            #expect(!quiet.fired)
         }
     }
 }

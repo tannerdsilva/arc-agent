@@ -13,25 +13,67 @@ public enum ContextCompression {
     // MARK: - Window selection (reference compress() steps 2-4)
 
     /// Split non-system messages into protected head, compressible middle,
-    /// and protected tail. Head = the first exchange (2 messages). Tail =
-    /// the most recent messages within `tailBudget` tokens, minimum 4.
+    /// and protected tail (reference `_find_tail_cut_by_tokens`).
+    ///
+    /// - head: the first `protectFirst` non-system messages (decayed to 0
+    ///   by the caller after the first compression — reference #11996).
+    /// - tail: walked backward from the end until the soft ceiling
+    ///   (`tailBudget × 1.5`) is hit, subject to a minimum floor of
+    ///   `minTailFloor` messages (capped so a run of bulky outputs cannot be
+    ///   frozen verbatim).
+    /// - Boundaries never split a tool_call/tool_result group: if the cut
+    ///   lands between an assistant call row and its results, the tail
+    ///   extends backward to keep the group atomic.
+    /// - The most recent user message always lands in the tail.
     public static func window(
         _ messages: [Message],
         tailBudget: Int,
+        minTailFloor: Int = 4,
+        protectFirst: Int = 2,
         countTokens: (String) -> Int
     ) -> (head: [Message], middle: [Message], tail: [Message]) {
         let nonSystem = messages.filter { $0.role != .system }
-        let head = Array(nonSystem.prefix(min(2, nonSystem.count)))
+        let head = Array(nonSystem.prefix(min(protectFirst, nonSystem.count)))
+        let softCeiling = tailBudget * 3 / 2
         var tailTokens = 0
         var tailCount = 0
         let mid = Array(nonSystem.dropFirst(head.count))
         for msg in mid.reversed() {
-            tailTokens += countTokens(msg.content ?? "") + 4
+            let cost = countTokens(msg.content ?? "") + 4
+            // stop conditions: soft ceiling hit, or the soft budget reached
+            // once the floor is satisfied
+            if tailCount > 0
+                && (tailTokens + cost > softCeiling
+                    || (tailCount >= minTailFloor && tailTokens >= tailBudget)) {
+                break
+            }
+            tailTokens += cost
             tailCount += 1
-            if tailTokens >= tailBudget && tailCount >= 4 { break }
+            if tailCount >= minTailFloor && tailTokens >= tailBudget { break }
         }
-        let tail = Array(mid.suffix(tailCount))
-        let compressible = Array(mid.prefix(max(0, mid.count - tailCount)))
+        var tailStart = max(0, mid.count - tailCount)
+
+        // Atomic tool groups: walk the tail start backward while it would
+        // orphan a tool result from its parent assistant call.
+        func declaresCall(_ msg: Message, id: String) -> Bool {
+            guard msg.role == .assistant else { return false }
+            if msg.toolCallID == id { return true }
+            return (msg.toolCalls ?? []).contains { $0.id == id }
+        }
+        while tailStart > 0,
+              mid[tailStart].role == .tool,
+              let callID = mid[tailStart].toolCallID,
+              declaresCall(mid[tailStart - 1], id: callID) {
+            tailStart -= 1
+        }
+
+        // The most recent user message always lands in the tail.
+        if let lastUser = mid.lastIndex(where: { $0.role == .user }), lastUser < tailStart {
+            tailStart = lastUser
+        }
+
+        let tail = Array(mid.suffix(mid.count - tailStart))
+        let compressible = Array(mid.prefix(tailStart))
         return (head, compressible, tail)
     }
 
@@ -206,18 +248,144 @@ public enum ContextCompression {
 
     // MARK: - Cheap pre-pass: prune old tool results (reference Phase 1)
 
-    /// Replace very large tool-result contents in the compressible region
-    /// with the reference placeholder. The assistant tool-call row is kept.
-    public static func pruneToolResults(_ messages: [Message], maxChars: Int = 3_000) -> [Message] {
-        messages.map { msg in
-            guard msg.role == .tool, let content = msg.content, content.count > maxChars else { return msg }
-            return Message(
-                role: .tool,
-                content: "[Old tool output cleared to save context space]",
-                name: msg.name,
-                toolCallID: msg.toolCallID
-            )
+    /// One-line summary for a demoted tool result (reference Phase 1: old
+    /// tool results become informative one-liners, not blank placeholders —
+    /// "[terminal] npm test → exit 0, 47 lines").
+    static func toolResultSummary(_ msg: Message, maxChars: Int = 3_000) -> String {
+        let content = msg.content ?? ""
+        let tool = msg.name ?? "tool"
+        let lineCount = content.split(separator: "\n", omittingEmptySubsequences: false).count
+        let head = content
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .first.map(String.init) ?? ""
+        let brief = head.count > 120 ? String(head.prefix(120)) + "…" : head
+        if content.count <= maxChars {
+            // Small enough to keep verbatim — nothing to demote.
+            return content
         }
+        return "[Tool \(tool)]: \(brief) … (pruned: \(lineCount) lines, \(content.count) chars)"
+    }
+
+    /// Extract the skill name from a `skill_view` tool result (frontmatter
+    /// `name:` line) for the ghost-skill tombstone.
+    static func skillName(from content: String) -> String? {
+        for line in content.split(separator: "\n").prefix(12) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("name:") {
+                let name = trimmed.dropFirst(5).trimmingCharacters(in: .whitespaces)
+                if !name.isEmpty { return String(name) }
+            }
+        }
+        return nil
+    }
+
+    /// Reference Phase 1, applied everywhere EXCEPT the protected tail:
+    ///
+    /// 1. Demote old tool results to one-line summaries; `skill_view` bodies
+    ///    become `[SKILL_PRUNED: name]` tombstones instead of bare summaries
+    ///    (the ghost-skill defense keys on the exact marker later).
+    /// 2. Deduplicate identical tool results — keep the newest verbatim.
+    /// 3. Truncate bulky tool_call arguments in assistant messages.
+    ///
+    /// Returns nil for a message that is unchanged (callers rebuild rows).
+    public static func pruneOutsideTail(
+        _ messages: [Message],
+        maxChars: Int = 3_000,
+        argChars: Int = 1_000
+    ) -> [Message] {
+        // Dedup map: the last occurrence of each identical tool result stays
+        // verbatim; earlier ones are demoted. Keyed on name + content.
+        var lastSeen: [String: Int] = [:]
+        for (idx, msg) in messages.enumerated() where msg.role == .tool {
+            let key = (msg.name ?? "") + "|" + (msg.content ?? "")
+            lastSeen[key] = idx
+        }
+
+        var out: [Message] = []
+        out.reserveCapacity(messages.count)
+        for (idx, msg) in messages.enumerated() {
+            if msg.role == .tool {
+                let key = (msg.name ?? "") + "|" + (msg.content ?? "")
+                var content = msg.content ?? ""
+                let isSkillView = msg.name == "skill_view"
+                if idx != lastSeen[key] {
+                    // duplicate of a newer identical result — always demoted,
+                    // regardless of size (reference: keep newest verbatim only)
+                    content = isSkillView
+                        ? "[SKILL_PRUNED: \(skillName(from: content) ?? "unknown")]"
+                        : toolResultSummary(msg, maxChars: 0)
+                } else if isSkillView, content.count > maxChars {
+                    content = "[SKILL_PRUNED: \(skillName(from: content) ?? "unknown")]"
+                } else if content.count > maxChars {
+                    content = toolResultSummary(msg, maxChars: maxChars)
+                }
+                if content != msg.content {
+                    out.append(Message(
+                        role: .tool,
+                        content: content,
+                        name: msg.name,
+                        toolCallID: msg.toolCallID
+                    ))
+                    continue
+                }
+                out.append(msg)
+                continue
+            }
+            if msg.role == .assistant, let calls = msg.toolCalls, !calls.isEmpty {
+                var changed = false
+                var newCalls: [ToolCall] = []
+                newCalls.reserveCapacity(calls.count)
+                for call in calls {
+                    if call.function.arguments.count > argChars {
+                        newCalls.append(ToolCall(
+                            id: call.id,
+                            type: call.type,
+                            function: ToolCallFunction(
+                                name: call.function.name,
+                                arguments: String(call.function.arguments.prefix(argChars)) + " …[args truncated]"
+                            )
+                        ))
+                        changed = true
+                    } else {
+                        newCalls.append(call)
+                    }
+                }
+                if changed {
+                    out.append(Message(
+                        role: .assistant,
+                        content: msg.content,
+                        toolCalls: newCalls,
+                        createdAt: msg.createdAt,
+                        reasoning: msg.reasoning,
+                        usage: msg.usage
+                    ))
+                    continue
+                }
+                out.append(msg)
+                continue
+            }
+            out.append(msg)
+        }
+        return out
+    }
+
+    /// Legacy single-region variant kept for the pluggable engine and tests:
+    /// prune one contiguous region (typically the compressible middle).
+    public static func pruneToolResults(_ messages: [Message], maxChars: Int = 3_000) -> [Message] {
+        pruneOutsideTail(messages, maxChars: maxChars)
+            .map { msg in
+                // the legacy contract used the reference placeholder text
+                guard msg.role == .tool,
+                      let content = msg.content,
+                      content.hasPrefix("[Tool "),
+                      content.contains("… (pruned: ") else { return msg }
+                return Message(
+                    role: .tool,
+                    content: "[Old tool output cleared to save context space]",
+                    name: msg.name,
+                    toolCallID: msg.toolCallID
+                )
+            }
     }
 
     // MARK: - Post-pass: orphaned tool_call/tool_result cleanup
@@ -448,6 +616,116 @@ public enum ContextCompression {
             + String(summary.suffix(chars / 2))
     }
 
+    // MARK: - Reference helpers: redaction, ghost skills, pressure, echo rows
+
+    /// Deterministic secret redaction applied at serialization time
+    /// (reference `_serialize_for_summary`): common credential shapes and
+    /// labeled values become [REDACTED] before anything reaches the
+    /// summary LLM — the prompt's instruction alone is not a guarantee.
+    static let secretPatterns: [NSRegularExpression] = [
+        // labeled assignments: api_key = ..., Authorization: Bearer x, password: ...
+        try! NSRegularExpression(
+            pattern: #"(?i)\b((?:api[_-]?key|access[_-]?token|auth[_-]?token|secret|password|passwd|pwd|token|credential|private[_-]?key|client[_-]?secret|bearer)\b\s*[:=]\s*")[^"]{8,}"([^"]|$)"#),
+        try! NSRegularExpression(
+            pattern: #"(?i)\b((?:api[_-]?key|access[_-]?token|auth[_-]?token|secret|password|passwd|pwd|token|credential|private[_-]?key|client[_-]?secret)\b\s*[:=]\s*')[^']{8,}'"#),
+        try! NSRegularExpression(
+            pattern: #"(?i)\b((?:api[_-]?key|access[_-]?token|auth[_-]?token|secret|password|passwd|pwd|token|credential|private[_-]?key|client[_-]?secret)\b\s*[:=]\s*)[^\s"']{8,}"#),
+        // bearer headers
+        try! NSRegularExpression(pattern: #"(?i)bearer\s+[a-z0-9._\-]{16,}"#),
+        // well-known token shapes
+        try! NSRegularExpression(pattern: #"\bsk-[A-Za-z0-9_\-]{16,}"#),
+        try! NSRegularExpression(pattern: #"\bgh[pousr]_[A-Za-z0-9]{20,}"#),
+        try! NSRegularExpression(pattern: #"\bxox[baprs]-[A-Za-z0-9\-]{10,}"#),
+        try! NSRegularExpression(pattern: #"\bAKIA[0-9A-Z]{16}\b"#),
+    ]
+
+    /// Redact secret-shaped text. Best-effort line-level defense; the
+    /// summarizer prompt still instructs [REDACTED] as the second layer.
+    public static func redactSecrets(_ text: String) -> String {
+        var out = text
+        for regex in secretPatterns {
+            out = regex.stringByReplacingMatches(
+                in: out,
+                range: NSRange(out.startIndex..., in: out),
+                withTemplate: "$1[REDACTED]$2"
+            )
+        }
+        return out
+    }
+
+    /// Ghost-skill defense (reference `_reinject_pruned_skill_markers`):
+    /// collect the exact `[SKILL_PRUNED: name]` markers from the material
+    /// deterministically BEFORE the summarizer call (LLMs paraphrase them
+    /// into "some skills were loaded", erasing the reload instruction).
+    public static func collectSkillMarkers(_ messages: [Message]) -> [String] {
+        var seen = Set<String>()
+        var ordered: [String] = []
+        for msg in messages {
+            guard let content = msg.content else { continue }
+            for line in content.split(separator: "\n") {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard trimmed.hasPrefix("[SKILL_PRUNED: "), trimmed.hasSuffix("]") else { continue }
+                if seen.insert(trimmed).inserted { ordered.append(trimmed) }
+            }
+        }
+        return ordered
+    }
+
+    /// Reinject the exact markers into a summary that lost them.
+    public static func reinjectSkillMarkers(_ summary: String, markers: [String]) -> String {
+        guard !markers.isEmpty else { return summary }
+        let missing = markers.filter { !summary.contains($0) }
+        guard !missing.isEmpty else { return summary }
+        return summary
+            + "\n\nPRUNED SKILLS — these were loaded earlier and then pruned from "
+            + "context; if needed again they must be re-read via skill_view "
+            + "before any reliance on their contents:\n"
+            + missing.joined(separator: "\n")
+    }
+
+    /// Strip blank platform-echo user rows trailing the latest actionable
+    /// turn (reference: done deliberately before any abort point so even an
+    /// aborted compression keeps this win).
+    public static func stripTrailingBlankUserRows(_ messages: [Message]) -> [Message] {
+        var result = messages
+        while let last = result.last,
+              last.role == .user,
+              (last.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            result.removeLast()
+        }
+        return result
+    }
+
+    /// Pass 4 — pressure demotion (reference `_prune_old_tool_results`):
+    /// fires only when the protected region alone exceeds
+    /// `tailBudget × 1.5`. Overrides skill protections in the tail and keeps
+    /// a short recent floor (`keepLast`) verbatim.
+    public static func pressureDemote(
+        _ head: [Message],
+        _ tail: [Message],
+        tailBudget: Int,
+        countTokens: (String) -> Int,
+        keepLast: Int = 4
+    ) -> (head: [Message], tail: [Message], fired: Bool) {
+        let protectedTokens =
+            head.reduce(0) { $0 + countTokens($1.content ?? "") + 4 }
+            + tail.reduce(0) { $0 + countTokens($1.content ?? "") + 4 }
+        guard protectedTokens > tailBudget * 3 / 2 else {
+            return (head, tail, false)
+        }
+        let demoteUpTo = max(0, tail.count - min(keepLast, max(1, tail.count - 1)))
+        let demotedTail = tail.enumerated().map { idx, msg -> Message in
+            guard msg.role == .tool, idx < demoteUpTo else { return msg }
+            return Message(
+                role: .tool,
+                content: toolResultSummary(msg, maxChars: 0),
+                name: msg.name,
+                toolCallID: msg.toolCallID
+            )
+        }
+        return (head, demotedTail, true)
+    }
+
     // MARK: - Record serialization
 
     /// One message rendered as a role-labeled record line, optionally capped
@@ -475,7 +753,11 @@ public enum ContextCompression {
     }
 
     /// Render messages as the role-labeled record fed to the summarizer.
+    /// Secrets are redacted deterministically here (reference
+    /// `_serialize_for_summary`), before anything reaches the aux model.
     public static func compressedRecord(_ messages: [Message]) -> String {
-        messages.compactMap { recordLine($0) }.joined(separator: "\n\n---\n\n")
+        messages.compactMap { recordLine($0) }
+            .map { redactSecrets($0) }
+            .joined(separator: "\n\n---\n\n")
     }
 }

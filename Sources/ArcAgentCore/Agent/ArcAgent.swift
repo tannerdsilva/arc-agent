@@ -454,6 +454,14 @@ public actor ArcAgent: Service {
     /// for cursor recovery after a restart.
     private var microState = MicroCompactState()
     private var lastTwoCompressionSavings: [Int] = []
+    /// Successful big-compression run count — drives head-protection decay
+    /// (reference #11996: protect_first_n applies only before the first
+    /// compaction) and the feasibility skip.
+    private var compressionRuns = 0
+    /// Set when a pass records "ineffective" (nothing compressible); the
+    /// next pass skips the expensive LLM call if the middle is <10% of the
+    /// threshold (reference feasibility skip).
+    private var lastCompressionIneffective = false
     /// Mid-turn steering messages, drained before the next LLM request.
     private var pendingSteers: [String] = []
     /// One-shot ``Configuration/initialHistory`` seed, applied before the first
@@ -1538,6 +1546,13 @@ public actor ArcAgent: Service {
         guard config.autoCompression || force else { return }
         let limit = effectiveContextLimit()
         let estimated = await estimateRequestTokens()
+        let overThreshold = estimated > limit || (lastRecordedPromptTokens ?? 0) > limit
+        // Blocked-while-over-budget warning (reference: the caller surfaces
+        // that the model may silently stop answering as context grows to the
+        // hard provider limit).
+        if overThreshold && compressionThrottled && !force {
+            logger.warning("compression blocked by anti-thrash while over budget (~\(estimated)/\(limit) tokens); the model may stop answering as context grows toward the provider's hard limit")
+        }
         guard Self.shouldAutoCompress(
             estimated: estimated,
             lastRealPromptTokens: lastRecordedPromptTokens,
@@ -1569,6 +1584,13 @@ public actor ArcAgent: Service {
         // `estimateRequestTokens` adds, so the two always agree.
         let overhead = await fixedOverheadTokens()
         let historyBudget = ContextCompression.RequestBudget(limit: limit, overhead: overhead).historyBudget
+        // Blank platform-echo user rows trailing the latest actionable turn
+        // are stripped first — before any abort point, so even an aborted
+        // compression keeps this win (reference Phase 1 tail).
+        let stripped = ContextCompression.stripTrailingBlankUserRows(messageHistory)
+        if stripped.count != messageHistory.count {
+            messageHistory = stripped
+        }
         let systemMessages = messageHistory.filter { $0.role == .system }
         let nonSystem = messageHistory.filter { $0.role != .system }
         let historyTokens = tokenCounter.count(messages: messageHistory, model: config.model)
@@ -1578,12 +1600,15 @@ public actor ArcAgent: Service {
         // above the limit still gates (estimates can undershoot).
         guard historyTokens > historyBudget || (lastRecordedPromptTokens ?? 0) > limit else { return }
 
-        // Head protection: never summarize the first exchange. Tail and
-        // summary protection: both are carved out of the history budget so
-        // head + summary + tail always fit it (reference compress() steps
-        // 2-4, made overhead-aware).
+        // Head protection: never summarize the first exchange — but the
+        // protection decays to zero after the first successful compression
+        // (reference #11996: early conversation is not fossilized forever).
+        // Tail and summary protection: both are carved out of the history
+        // budget so head + summary + tail always fit it (reference compress()
+        // steps 2-4, made overhead-aware).
+        let protectFirst = compressionRuns == 0 ? 2 : 0
         let headTokens = tokenCounter.count(
-            messages: Array(nonSystem.prefix(min(2, nonSystem.count))),
+            messages: Array(nonSystem.prefix(min(protectFirst, nonSystem.count))),
             model: config.model
         )
         let sizes = ContextCompression.budgets(
@@ -1594,18 +1619,56 @@ public actor ArcAgent: Service {
         let window = ContextCompression.window(
             nonSystem,
             tailBudget: sizes.tail,
+            protectFirst: protectFirst,
             countTokens: { [config] text in tokenCounter.count(text, model: config.model) }
         )
-        let head = window.head
+        var head = window.head
         var middle = window.middle
-        let tail = window.tail
+        var tail = window.tail
 
-        // Cheap pre-pass (reference Phase 1): prune old tool results before any
-        // summary decision, so an aborted compression still returns the win.
-        middle = ContextCompression.pruneToolResults(middle)
+        // Phase 1 (reference): deterministic prune applied everywhere EXCEPT
+        // the protected tail — informative one-line summaries, duplicate
+        // demotion, bulky-argument truncation, skill tombstones. Persisted
+        // BEFORE any abort point so the win survives a later skip/failure.
+        let prunedHeadMiddle = ContextCompression.pruneOutsideTail(head + middle)
+        if prunedHeadMiddle != head + middle {
+            let prunedHead = Array(prunedHeadMiddle.prefix(head.count))
+            let prunedMiddle = Array(prunedHeadMiddle.dropFirst(head.count))
+            messageHistory = systemMessages + prunedHead + prunedMiddle + tail
+            await applyCompactedHistory()
+            head = prunedHead
+            middle = prunedMiddle
+        }
 
+        // Pass 4 — pressure demotion: fires only when the protected region
+        // alone exceeds tail budget × 1.5; overrides skill protections and
+        // keeps a short recent floor verbatim.
+        let pressure = ContextCompression.pressureDemote(
+            head,
+            tail,
+            tailBudget: sizes.tail,
+            countTokens: { [config] text in tokenCounter.count(text, model: config.model) }
+        )
+        if pressure.fired {
+            head = pressure.head
+            tail = pressure.tail
+            messageHistory = systemMessages + head + middle + tail
+            await applyCompactedHistory()
+        }
+
+        // Record "ineffective" when nothing compressible remains
+        // (reference: compress_start >= compress_end → anti-thrash engages
+        // rather than looping forever).
         guard !middle.isEmpty else {
             // Even the protected window alone exceeds the budget.
+            lastCompressionIneffective = true
+            lastTwoCompressionSavings.append(0)
+            if lastTwoCompressionSavings.count > 2 { lastTwoCompressionSavings.removeFirst() }
+            if lastTwoCompressionSavings.count == 2,
+               lastTwoCompressionSavings.allSatisfy({ $0 < limit / 10 }) {
+                compressionThrottled = true
+                logger.warning("compression throttled: last two compressions saved <10% each")
+            }
             messageHistory = systemMessages + Array(nonSystem.suffix(min(8, nonSystem.count)))
             messageHistory = ContextCompression.orphanCleanup(messageHistory)
             await applyCompactedHistory()
@@ -1650,8 +1713,27 @@ public actor ArcAgent: Service {
             )
         }
 
+        // Ghost-skill defense: collect the exact [SKILL_PRUNED:] markers
+        // deterministically BEFORE the call — the summarizer would paraphrase
+        // them away, erasing the reload instruction.
+        let skillMarkers = ContextCompression.collectSkillMarkers(middle)
+
         let summaryText: String
-        if let prompt,
+        // Feasibility skip (reference): after an "ineffective" strike, a
+        // middle that is <10% of the threshold never gets the LLM call —
+        // the bounded extractive record handles it.
+        let skipLLM = lastCompressionIneffective && middleTokens < limit / 10
+        if skipLLM {
+            logger.info("compression: middle \(middleTokens) tokens after an ineffective strike; skipping the summary LLM")
+        }
+        if skipLLM {
+            summaryText = ContextCompression.extractiveSummary(
+                previous: previousSummaryBody,
+                material: middle,
+                budget: summaryBudget,
+                countTokens: { [config] text in tokenCounter.count(text, model: config.model) }
+            )
+        } else if let prompt,
            let summarized = await summarizeForCompression(prompt.userContent),
            !summarized.isEmpty {
             // The prompt asks for ~`summaryBudget` tokens; the model is never
@@ -1674,11 +1756,14 @@ public actor ArcAgent: Service {
             )
             logger.warning("compression: aux summary unavailable; using bounded extractive record")
         }
+        // Restore the exact pruned-skill markers the summary may have lost.
+        let finalSummary = ContextCompression.reinjectSkillMarkers(summaryText, markers: skillMarkers)
+        lastCompressionIneffective = false
 
         let newSystem = systemMessages.filter { !($0.content ?? "").hasPrefix(Self.compressionSummaryPrefix) }
         let summaryMessage = Message(
             role: .system,
-            content: "\(Self.compressionSummaryPrefix)\n\n\(summaryText)"
+            content: "\(Self.compressionSummaryPrefix)\n\n\(finalSummary)"
         )
         let candidate = ContextCompression.orphanCleanup(
             newSystem + [summaryMessage] + head + tail
@@ -1700,6 +1785,9 @@ public actor ArcAgent: Service {
         // would re-fire compression on the next iteration no matter how small
         // the new history is. The next successful request repopulates it.
         lastRecordedPromptTokens = nil
+        // A successful pass: head protection decays and feasibility windows
+        // key off the run count from here on (reference compression_count++).
+        compressionRuns += 1
         // The transcript was rewritten: move the store and its append
         // watermark with it, or every later append silently disappears.
         await applyCompactedHistory()
