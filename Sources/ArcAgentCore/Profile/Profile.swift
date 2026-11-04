@@ -43,47 +43,6 @@ public struct AvatarConfig: Codable, Sendable, Equatable {
 /// - Each profile has a filesystem directory under `~/.arc/profiles/<name>/`
 ///   (e.g. its canonical bot-chat id in `canonical_chat.txt`).
 /// - The `"default"` profile is the backward-compatible primary agent.
-/// Per-profile model context parameters (reference per-profile config parity).
-/// Every field is optional: `nil` inherits the session's model config or the
-/// provider default, so a profile can override just the window size.
-public struct ProfileContextConfig: Codable, Sendable, Equatable {
-    /// Model context window in tokens (reference `context_length`).
-    public var contextLength: Int?
-    /// Explicit generation budget (reference `max_tokens` override).
-    public var maxOutputTokens: Int?
-    /// Reasoning effort: "minimal"/"low"/"medium"/"high"/"max".
-    public var reasoningEffort: String?
-    /// Sampling temperature (0.0 - 2.0).
-    public var temperature: Double?
-    /// Nucleus sampling threshold (0.0 - 1.0).
-    public var topP: Double?
-    /// Auto-compress threshold in tokens: when the estimated context exceeds
-    /// this, older history is summarized (nil = the default budget).
-    public var compressionBudget: Int?
-
-    public init(
-        contextLength: Int? = nil,
-        maxOutputTokens: Int? = nil,
-        reasoningEffort: String? = nil,
-        temperature: Double? = nil,
-        topP: Double? = nil,
-        compressionBudget: Int? = nil
-    ) {
-        self.contextLength = contextLength
-        self.maxOutputTokens = maxOutputTokens
-        self.reasoningEffort = reasoningEffort
-        self.temperature = temperature
-        self.topP = topP
-        self.compressionBudget = compressionBudget
-    }
-
-    /// True when no override is set (the profile inherits everything).
-    public var isEmpty: Bool {
-        contextLength == nil && maxOutputTokens == nil && reasoningEffort == nil
-            && temperature == nil && topP == nil && compressionBudget == nil
-    }
-}
-
 public struct Profile: Codable, Sendable, Identifiable, Equatable {
     /// Unique profile name (lowercase, alphanumeric + hyphens).
     /// Also serves as the `id` for `Identifiable` conformance.
@@ -117,10 +76,6 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
     /// Custom SOUL.md content (personality + instructions).
     /// When nil, the agent keeps the built-in identity from its system prompt.
     public var soulMD: String?
-
-    /// Per-profile model context parameters (window size, generation budget,
-    /// sampling). Nil fields inherit the session's model config or defaults.
-    public var context: ProfileContextConfig?
 
     /// Skill names pinned to this profile: their SKILL.md content is injected
     /// into every prompt built for chats bound to this profile (equivalent to
@@ -160,7 +115,6 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
         enabledToolsets: Set<String>? = nil,
         disabledToolsets: Set<String>? = nil,
         soulMD: String? = nil,
-        context: ProfileContextConfig? = nil,
         contextSkills: [String]? = nil,
         contextDefaults: ContextRecipe? = nil,
         avatar: AvatarConfig? = nil,
@@ -177,7 +131,6 @@ public struct Profile: Codable, Sendable, Identifiable, Equatable {
         self.enabledToolsets = enabledToolsets
         self.disabledToolsets = disabledToolsets
         self.soulMD = soulMD
-        self.context = context
         self.contextSkills = contextSkills
         self.contextDefaults = contextDefaults
         self.avatar = avatar

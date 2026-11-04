@@ -43,7 +43,7 @@ extension ArcWebUITestRoot {
                                   model: "gpt-5-mini")]
             f.editingProfile = "fast"
             let page = await AppState(renderFixture: f).profilesMain().markup.html
-            #expect(page.contains("Context skills"), "the section keeps its heading")
+            #expect(page.contains("Pinned skills"), "the section keeps its heading")
             #expect(page.contains("id=\"pcs-toggle\""), "the picker has its trigger")
             #expect(page.contains("data-component-id=\"pcs\""),
                     "the popover is wired by component id — a class-only marker never fires")

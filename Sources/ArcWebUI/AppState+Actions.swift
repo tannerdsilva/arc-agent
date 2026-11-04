@@ -1399,33 +1399,24 @@ extension AppState {
         return true
     }
 
-    /// The context overrides of the profile bound to a chat, if any.
+    /// Effective auto-compress threshold for a chat: the bound model
+    /// configuration's explicit budget, else the ARC_COMPRESSION_BUDGET env,
+    /// else 32k.
     ///
-    /// An unbound chat runs as the `default` profile (that is what the
-    /// composer displays), so its context parameters are inherited too —
-    /// otherwise a budget set on the default profile record would silently
-    /// resolve to the 32k env/default ladder for every new chat.
-    func profileContext(for sessionID: String?) -> ProfileContextConfig? {
-        let pname = profileName(for: sessionID) ?? "default"
-        guard let p = profiles.first(where: { $0.name == pname }),
-              let ctx = p.context, !ctx.isEmpty
-        else { return nil }
-        return ctx
-    }
-
-    /// Effective auto-compress threshold for a chat: the bound profile's
-    /// compression budget, else the ARC_COMPRESSION_BUDGET env, else 32k.
+    /// Model parameters live in the model configuration (per model), never in
+    /// the profile — a profile points at a model, it does not carry
+    /// parameters. The explicit per-model budget is a deliberate override —
+    /// honor it as-is. Otherwise resolve the model's context length (same
+    /// ladder as the context ring) and clamp the env/default budget to half
+    /// the window, so compression can never be scheduled AFTER the model's
+    /// hard limit (the old absolute 32k would never fire on small-window
+    /// models and was needlessly aggressive on huge ones).
     func compressionBudget(for sessionID: String?) -> Int {
-        // An explicit per-profile budget is a deliberate override — honor it
-        // as-is. Otherwise resolve the model's context length (same ladder as
-        // the context ring) and clamp the env/default budget to half the
-        // window, so compression can never be scheduled AFTER the model's
-        // hard limit (the old absolute 32k would never fire on small-window
-        // models and was needlessly aggressive on huge ones).
-        if let b = profileContext(for: sessionID)?.compressionBudget, b > 0 { return b }
+        if let b = settings.modelConfig(named: configName(for: sessionID))?.compressionBudget, b > 0 {
+            return b
+        }
         let envOrDefault = Int(ProcessInfo.processInfo.environment["ARC_COMPRESSION_BUDGET"] ?? "") ?? 32_000
-        let ctx = profileContext(for: sessionID)?.contextLength
-            ?? settings.modelConfig(named: configName(for: sessionID))?.contextLength
+        let ctx = settings.modelConfig(named: configName(for: sessionID))?.contextLength
             ?? arcConfig.model.contextLength
         guard let ctx, ctx > 0 else { return envOrDefault }
         return min(envOrDefault, ctx / 2)

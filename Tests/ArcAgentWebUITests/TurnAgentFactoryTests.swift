@@ -34,16 +34,6 @@ extension ArcWebUITestRoot {
             topP: 0.5
         )
 
-        /// the profile's context overrides — the caller's `profileContext`.
-        private static let alphaContext = ProfileContextConfig(
-            contextLength: 32_000,
-            maxOutputTokens: 256,
-            reasoningEffort: "high",
-            temperature: 0.9,
-            topP: 0.8,
-            compressionBudget: 12_000
-        )
-
         private static func temporaryWorkspace(_ label: String) -> String {
             FileManager.default.temporaryDirectory
                 .appendingPathComponent("arc-a5-\(label)-\(UUID().uuidString)", isDirectory: true)
@@ -89,8 +79,7 @@ extension ArcWebUITestRoot {
                     name: "alpha",
                     title: "Alpha",
                     description: "factory fixture",
-                    soulMD: "You are Alpha, the factory fixture.",
-                    context: Self.alphaContext
+                    soulMD: "You are Alpha, the factory fixture."
                 )
             ]
             f.arcConfig.security.approvalMode = "smart"
@@ -122,7 +111,6 @@ extension ArcWebUITestRoot {
 
             let (agent, config) = await app.makeTurnAgent(
                 preset: Self.preset,
-                profileContext: Self.alphaContext,
                 thinking: "medium",
                 headless: false,
                 sessionID: "s-alpha"
@@ -153,19 +141,20 @@ extension ArcWebUITestRoot {
                     "unlimited by default (limits.turnDuration unset → 0)")
             #expect(config.disabledToolsets == Set(["browser", "cron"]))
             let turnBudget = await app.compressionBudget(for: "s-alpha")
-            #expect(turnBudget == 12_000, "the profile's compression budget")
+            #expect(turnBudget == 32_000, "no preset budget → the env/default ladder")
             #expect(config.maxContextTokens == turnBudget)
 
-            // the effective preset: profile context wins over the preset.
+            // the effective preset: the model configuration IS the parameter
+            // home; profiles no longer carry parameters.
             #expect(config.model == "stub-model-1")
             #expect(config.provider == "custom")
             #expect(config.baseURL.absoluteString == "http://127.0.0.1:9/v1")
             #expect(config.apiKey == "stub-key")
-            #expect(config.contextLength == 32_000)
-            #expect(config.maxOutputTokens == 256)
-            #expect(config.temperature == 0.9)
-            #expect(config.topP == 0.8)
-            #expect(config.reasoningEffort == "high")
+            #expect(config.contextLength == 8_000)
+            #expect(config.maxOutputTokens == 512)
+            #expect(config.temperature == 0.2)
+            #expect(config.topP == 0.5)
+                    #expect(config.reasoningEffort == "medium", "the thinking level is the fallback effort")
 
             // the profile's skills override replaces the global disabled list:
             // "global-off" survives because the profile only disabled
@@ -198,7 +187,6 @@ extension ArcWebUITestRoot {
 
             let (_, config) = await app.makeTurnAgent(
                 preset: Self.preset,
-                profileContext: nil,
                 thinking: "off",
                 headless: true,
                 sessionID: "s-plain"
@@ -218,12 +206,13 @@ extension ArcWebUITestRoot {
             #expect(config.maxContextTokens == defaultBudget)
         }
 
-        @Test("a profile that pins only reasoning keeps the preset's sampling values")
+        @Test("the model config's reasoning effort wins over the thinking level")
         func partialContextKeepsPresetValues() async throws {
             let app = plainState(workspacePath: Self.temporaryWorkspace("partial"))
+            var preset = Self.preset
+            preset.reasoningEffort = "low"
             let (_, config) = await app.makeTurnAgent(
-                preset: Self.preset,
-                profileContext: ProfileContextConfig(reasoningEffort: "low"),
+                preset: preset,
                 thinking: "high",
                 headless: true,
                 sessionID: "s-plain"
@@ -244,7 +233,6 @@ extension ArcWebUITestRoot {
 
             let (_, config) = await app.makeTurnAgent(
                 preset: bad,
-                profileContext: nil,
                 thinking: "medium",
                 headless: false,
                 sessionID: "s-plain"

@@ -43,13 +43,13 @@ extension ArcWebUITestRoot {
 		///   `invalidField`/`errSpan` pair. `required: true` would replace the
 		///   visible "Required" badge with a `::after` marker — a text change, not a
 		///   structural one — so they stay hand-written for B3's typed vocabulary.
-		/// - a dropdown (1): `profile-ctx-effort` is the `Select` family, B2.2's card.
+		/// - a dropdown (1): `mc-effort` is the `Select` family, B2.2's card.
 		private static let unadopted = [
 			"cat-rename-input", "cat-name-input", "cat-color-input",
 			"kb-addcol-name", "kb-addcard-name", "clarify-input",
 			"composer-input", "storage-edit-id", "ws-new-name",
 			"skill-name-input", "skill-desc-input",
-			"profile-ctx-effort",
+			"mc-effort",
 		]
 
 		private static func regex(_ pattern: String) throws -> NSRegularExpression {
@@ -116,7 +116,7 @@ extension ArcWebUITestRoot {
 		func adoptionIsNotVacuous() throws {
 			let source = try Self.viewsSource()
 			let fields = source.components(separatedBy: "WebUIField(label:").count - 1
-			#expect(fields >= 33, "expected the labelled fields to render through WebUIField; found \(fields)")
+			#expect(fields >= 29, "expected the labelled fields to render through WebUIField; found \(fields)")
 		}
 
 		@Test("the controls outside WebUIField are exactly the enumerated shapes")

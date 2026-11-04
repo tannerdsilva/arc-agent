@@ -104,7 +104,6 @@ extension ArcWebUITestRoot {
             let app = state(arc, skills: discovered)
             let (_, ui) = await app.makeTurnAgent(
                 preset: Self.preset,
-                profileContext: nil,
                 thinking: "medium",
                 headless: true,
                 sessionID: "s-surface"
@@ -127,7 +126,7 @@ extension ArcWebUITestRoot {
                 resolvedModel: "m",
                 resolvedProvider: "p",
                 resolvedBaseURL: URL(string: "http://127.0.0.1:9/v1")!,
-                resolvedContext: nil,
+                resolvedParams: nil,
                 resolvedRecipe: ResolvedContextRecipe.resolve(global: nil, profile: nil, session: nil),
                 profile: "default"
             )
@@ -159,7 +158,7 @@ extension ArcWebUITestRoot {
             let app = AppState(renderFixture: f)
 
             let (_, config) = await app.makeTurnAgent(
-                preset: Self.preset, profileContext: nil, thinking: "medium",
+                preset: Self.preset, thinking: "medium",
                 headless: true, sessionID: "s-alpha")
 
             #expect(config.skills.map(\.name) == ["alpha", "gamma"])

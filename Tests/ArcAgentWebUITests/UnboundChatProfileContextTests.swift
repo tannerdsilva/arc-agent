@@ -5,68 +5,57 @@ import Testing
 import ArcAgentCore
 
 // ===========================================================================
-// MARK: - unbound chats inherit the default profile's context (H1)
+// MARK: - model parameters resolve per model, never from the profile
 //
-// The Profiles editor save worked all along — the record and the disk overlay
-// were both correct. The bug was in the resolution ladder: a chat with no
-// binding in `settings.sessionProfile` (every "New chat") resolved no profile
-// at all, so the default profile's `compressionBudget`/`contextLength`
-// overrides were ignored and the engine fell back to the 32k default. The
-// composer displayed "Profile — Default", so what the operator saw and what
-// the engine did silently disagreed.
+// The model configuration is the single home for model parameters. The
+// compression ladder resolves the bound chat's preset budget first; profiles
+// do not carry parameters at all (the legacy `context` block was removed).
 // ===========================================================================
 
 extension ArcWebUITestRoot {
 
-    @Suite("unbound chat profile context", .serialized)
+    @Suite("per-model parameter resolution", .serialized)
     struct UnboundChatProfileContextTests {
 
-        private static let defaultProfile = Profile(
-            name: "default",
-            title: "Default",
-            context: ProfileContextConfig(
-                contextLength: 599_040,
-                compressionBudget: 130_048
-            )
-        )
-
-        private static let customProfile = Profile(
-            name: "lab",
-            title: "Lab",
-            context: ProfileContextConfig(compressionBudget: 8_192)
-        )
-
-        private func makeApp() -> AppState {
+        private func makeApp(presets: [ModelConfigPreset], sessionConfig: [String: String] = [:]) -> AppState {
             AppState(renderFixture: AppState.RenderFixture(
-                profiles: [Self.defaultProfile, Self.customProfile]
+                settings: { var s = AppSettings()
+                    s.modelConfigs = presets
+                    s.sessionConfig = sessionConfig
+                    return s }(),
+                profiles: [Profile(name: "default", title: "Default")]
             ))
         }
 
-        @Test("an unbound chat resolves the default profile's context overrides")
-        func unboundInheritsDefault() async {
-            let app = makeApp()
-            let ctx = await app.profileContext(for: "fresh-session")
-            #expect(ctx?.compressionBudget == 130_048)
-            #expect(ctx?.contextLength == 599_040)
+        private static let preset = ModelConfigPreset(
+            name: "glm", model: "glm-5.3", provider: "custom",
+            baseURL: "https://api.example.com/v1", apiKey: "",
+            contextLength: 599_040, maxOutputTokens: nil,
+            reasoningEffort: nil, compressionBudget: 130_048, source: "ui")
+
+        @Test("a chat bound to a model config resolves that config's budget")
+        func boundPresetBudget() async {
+            let app = makeApp(presets: [Self.preset], sessionConfig: ["fresh-session": "glm"])
+            let budget = await app.compressionBudget(for: "fresh-session")
+            #expect(budget == 130_048)
         }
 
-        @Test("an unbound chat with no default profile on record resolves nothing")
-        func unboundWithoutDefault() async {
-            let app = AppState(renderFixture: AppState.RenderFixture(
-                profiles: [Self.customProfile]
-            ))
-            let ctx = await app.profileContext(for: nil)
-            #expect(ctx == nil)
+        @Test("an unbound chat falls back to the env/default ladder, not a profile")
+        func unboundFallsBack() async {
+            let app = makeApp(presets: [Self.preset])
+            // no sessionConfig binding → no preset → env default (32k), clamped
+            // to half of the global context length when one is configured.
+            let budget = await app.compressionBudget(for: "fresh-session")
+            #expect(budget > 0)
         }
 
-        @Test("a bound chat still resolves its own profile")
-        func boundResolvesOwn() async {
-            let app = AppState(renderFixture: AppState.RenderFixture(
-                settings: { var s = AppSettings(); s.sessionProfile["sid-1"] = "lab"; return s }(),
-                profiles: [Self.defaultProfile, Self.customProfile]
-            ))
-            let ctx = await app.profileContext(for: "sid-1")
-            #expect(ctx?.compressionBudget == 8_192)
+        @Test("a profile record without parameters still binds chats")
+        func profileWithoutParams() async {
+            let app = makeApp(presets: [Self.preset], sessionConfig: ["sid-1": "glm"])
+            // resolution no longer consults profiles for parameters; the
+            // preset ladder alone decides.
+            let budget = await app.compressionBudget(for: "sid-1")
+            #expect(budget == 130_048)
         }
     }
 }

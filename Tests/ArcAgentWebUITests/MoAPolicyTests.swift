@@ -41,7 +41,6 @@ extension ArcWebUITestRoot {
         private func turnMoA(_ app: AppState) async -> MoAConfig {
             let (_, config) = await app.makeTurnAgent(
                 preset: Self.preset,
-                profileContext: nil,
                 thinking: "medium",
                 headless: true,
                 sessionID: "s-moa"

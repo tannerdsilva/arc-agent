@@ -175,7 +175,6 @@ extension ArcWebUITestRoot {
             await app.bindRecordingClient(client)
             let minted = await app.makeTurnAgent(
                 preset: preset,
-                profileContext: nil,
                 thinking: "off",
                 headless: true,
                 sessionID: sessionID,

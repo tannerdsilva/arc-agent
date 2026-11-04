@@ -311,7 +311,6 @@ extension ArcWebUITestRoot {
         ) async throws -> [AgentTurnEvent] {
             let minted = await harness.app.makeTurnAgent(
                 preset: Self.preset,
-                profileContext: nil,
                 thinking: "off",
                 headless: headless,
                 sessionID: harness.sessionID,

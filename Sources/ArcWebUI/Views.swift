@@ -2307,8 +2307,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     /// auto-compress threshold, and per-session lifetime cache stats.
     func ctxSnapshot(for s: Session) -> CtxSnapshot {
         let presetForChat = settings.modelConfig(named: configName(for: s.id))
-        let limit = profileContext(for: s.id)?.contextLength
-            ?? presetForChat?.contextLength
+        let limit = presetForChat?.contextLength
             ?? 1_048_576
         // A running turn's latest API-call usage wins: it is fresher than any
         // stored message (tool-loop iterations persist without usage) and is
@@ -2323,7 +2322,6 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             if let preset = settings.modelConfig(named: configName(for: s.id)) {
                 warmScaffoldTokens(
                     preset: preset,
-                    profileContext: profileContext(for: s.id),
                     sessionID: s.id)
             }
         }
@@ -3160,7 +3158,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         DetailSub {
                             Text("Overrides configured on the profile: \(toolsetsNote)")
                         }
-                        Heading("Context parameters", level: .h3, class: .detailH3)
+                        Heading("Pinned skills", level: .h3, class: .detailH3)
                         profileContextHTML(p)
                         Heading("Agent powers", level: .h3, class: .detailH3)
                         DetailSub {
@@ -3186,14 +3184,12 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     private func profileFormView() -> some WebUI.View {
         let editing = editingProfile.flatMap { n in profiles.first { $0.name == n } }
         let isEdit = editing != nil
-        let ectx = editing?.context
-        let effortSel = ectx?.reasoningEffort ?? ""
         return mainScroll {
             Form(method: nil, id: "profile-create-form", class: ClassName(.detailCard, .profileForm)) {
                 Heading(isEdit ? "Edit profile" : "New profile", level: .h1, class: .detailTitle)
                 DetailSub {
                     Text(isEdit
-                         ? "Edit the profile identity and its context parameters."
+                         ? "Edit the profile identity and pinned skills."
                          : "A named, isolated agent configuration.")
                 }
                 FormGrid {
@@ -3220,49 +3216,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             .data("component-id", "profile-desc-input")
                     }
                 }
-                Heading("Context parameters", level: .h3, class: .detailH3)
-                DetailSub {
-                    Text("Model context overrides for chats bound to this profile. Leave blank to inherit the chat's model config.")
-                }
-                FormGrid {
-                    WebUIField(label: "Context window (tokens)", controlID: "profile-ctx-length") {
-                        Input(field: "profile-ctx-length",
-                              placeholder: "e.g. 128000", type: .number,
-                              value: ectx?.contextLength.map(String.init) ?? "",
-                              attributes: [("min", "1024"), ("step", "1024")])
-                    }
-                    WebUIField(label: "Max output (tokens)", controlID: "profile-ctx-maxtok") {
-                        Input(field: "profile-ctx-maxtok",
-                              placeholder: "e.g. 8192", type: .number,
-                              value: ectx?.maxOutputTokens.map(String.init) ?? "",
-                              attributes: [("min", "1")])
-                    }
-                    Div {
-                        Label("Reasoning effort", for: "profile-ctx-effort")
-                        Select(field: "profile-ctx-effort",
-                               options: AppState.effortOptions, selected: effortSel)
-                            .data("component-id", "profile-ctx-effort")
-                    }
-                    WebUIField(label: "Temperature", controlID: "profile-ctx-temp") {
-                        Input(field: "profile-ctx-temp",
-                              placeholder: "e.g. 0.7", type: .number,
-                              value: ectx?.temperature.map { String($0) } ?? "",
-                              attributes: [("min", "0"), ("max", "2"), ("step", "0.1")])
-                    }
-                    WebUIField(label: "Top P", controlID: "profile-ctx-topp") {
-                        Input(field: "profile-ctx-topp",
-                              placeholder: "e.g. 0.9", type: .number,
-                              value: ectx?.topP.map { String($0) } ?? "",
-                              attributes: [("min", "0"), ("max", "1"), ("step", "0.05")])
-                    }
-                    WebUIField(label: "Compress at (tokens)", controlID: "profile-ctx-budget") {
-                        Input(field: "profile-ctx-budget",
-                              placeholder: "e.g. 32000", type: .number,
-                              value: ectx?.compressionBudget.map(String.init) ?? "",
-                              attributes: [("min", "1024"), ("step", "1")])
-                    }
-                }
-                Heading("Context skills", level: .h3, class: .detailH3)
+                Heading("Pinned skills", level: .h3, class: .detailH3)
                 DetailSub {
                     Text("Skills pinned to this profile: their full content is loaded into every prompt for chats bound to this profile (as if the user had asked for them).")
                 }
@@ -3276,28 +3230,15 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
     }
 
-    /// Per-profile context parameters summary (kv rows; "Inherit Default" when
-    /// unset) plus the pinned context skills, if any. Keys carry the trailing
+    /// Pinned context skills summary (kv rows). The key carries the trailing
     /// ": " the settings copy uses between label and value.
     func profileContextHTML(_ p: Profile) -> some WebUI.View {
         Group {
-            if let ctx = p.context, !ctx.isEmpty {
-                AkvRow(key: "Context window:",
-                       value: ctx.contextLength.map { "\($0) tokens" } ?? "Inherit Default")
-                AkvRow(key: "Max output:",
-                       value: ctx.maxOutputTokens.map { "\($0) tokens" } ?? "Inherit Default")
-                AkvRow(key: "Reasoning effort:", value: ctx.reasoningEffort ?? "Inherit Default")
-                AkvRow(key: "Temperature:", value: ctx.temperature.map { String($0) } ?? "Inherit Default")
-                AkvRow(key: "Top P:", value: ctx.topP.map { String($0) } ?? "Inherit Default")
-                AkvRow(key: "Compress at:",
-                       value: ctx.compressionBudget.map { "\($0) tokens" } ?? "Inherit Default")
-            } else {
-                AkvRow(key: "Context:", value: "Inherit Default (no overrides)")
-            }
             if let pinned = p.contextSkills, !pinned.isEmpty {
-                AkvRow(key: "Context skills", value: pinned.joined(separator: ", "))
+                AkvRow(key: "Pinned skills", value: pinned.joined(separator: ", "))
+            } else {
+                AkvRow(key: "Pinned skills", value: "None")
             }
-
         }
     }
 
@@ -4700,6 +4641,18 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                           type: .text,
                           attributes: [("data-component-id", "mc-maxtok"),
                                        ("autocomplete", "off")])
+                }
+                WebUIField(label: "Compress at (optional)", controlID: "mc-budget") {
+                    Input(field: "mc-budget", placeholder: "e.g. 32000",
+                          type: .text,
+                          attributes: [("data-component-id", "mc-budget"),
+                                       ("autocomplete", "off")])
+                }
+                Div {
+                    Label("Reasoning effort", for: "mc-effort")
+                    Select(field: "mc-effort",
+                           options: AppState.effortOptions, selected: "")
+                        .data("component-id", "mc-effort")
                 }
             }
             Div(class: ClassName(.rowActionsMain, .rowActionsFlush)) {

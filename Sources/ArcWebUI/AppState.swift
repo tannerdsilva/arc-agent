@@ -147,6 +147,12 @@ struct ModelConfigPreset: Codable, Equatable, Identifiable, Sendable {
     var maxOutputTokens: Int?
     var temperature: Double?
     var topP: Double?
+    /// Reasoning effort ("minimal"/"low"/"medium"/"high"/"max"). nil = off /
+    /// provider default.
+    var reasoningEffort: String?
+    /// Auto-compress threshold in tokens. nil = the engine's default ladder
+    /// (half the resolved context window).
+    var compressionBudget: Int?
     /// Provenance: "config.json" = the managed preset refreshed from
     /// `~/.arc/config.json` on every boot; "ui" = created in the picker; nil =
     /// pre-provenance (the legacy one-shot seed, adopted on first reconcile).
@@ -162,6 +168,8 @@ struct ModelConfigPreset: Codable, Equatable, Identifiable, Sendable {
         maxOutputTokens: Int? = nil,
         temperature: Double? = nil,
         topP: Double? = nil,
+        reasoningEffort: String? = nil,
+        compressionBudget: Int? = nil,
         source: String? = nil
     ) {
         self.name = name
@@ -173,19 +181,9 @@ struct ModelConfigPreset: Codable, Equatable, Identifiable, Sendable {
         self.maxOutputTokens = maxOutputTokens
         self.temperature = temperature
         self.topP = topP
+        self.reasoningEffort = reasoningEffort
+        self.compressionBudget = compressionBudget
         self.source = source
-    }
-
-    /// A copy with the bound profile's context overrides applied (nil fields
-    /// keep this config's values). Used when a chat is bound to a profile
-    /// that sets per-profile context parameters.
-    func applying(_ ctx: ProfileContextConfig) -> ModelConfigPreset {
-        var copy = self
-        if let v = ctx.contextLength { copy.contextLength = v }
-        if let v = ctx.maxOutputTokens { copy.maxOutputTokens = v }
-        if let v = ctx.temperature { copy.temperature = v }
-        if let v = ctx.topP { copy.topP = v }
-        return copy
     }
 }
 
@@ -2606,16 +2604,15 @@ actor AppState {
     /// - Returns: The agent and the `Configuration` it was built from.
     func makeTurnAgent(
         preset: ModelConfigPreset,
-        profileContext: ProfileContextConfig?,
         thinking: String,
         headless: Bool,
         sessionID: String,
         initialHistory: [Message]? = nil,
         maxIterations iterationBudget: Int? = nil
     ) async -> (agent: ArcAgent, config: ArcAgent.Configuration) {
-        // apply the profile's context overrides to the preset (contextLength,
-        // maxOutputTokens, temperature, topP).
-        let effectivePreset = profileContext.map { preset.applying($0) } ?? preset
+        // Model parameters come from the model configuration itself (per
+        // model); profiles point at models, they do not carry parameters.
+        let effectivePreset = preset
 
         // resolve the session's workspace root (created on first use) — it is
         // both the tool root and the project-context directory.
@@ -2644,9 +2641,10 @@ actor AppState {
             window: arcConfig.agent.backgroundReviewWindow
         )
 
-        // reasoning effort: the profile override wins, then the thinking level
-        // ("off" means no effort).
-        let reasoningEffort = profileContext?.reasoningEffort ?? (thinking == "off" ? nil : thinking)
+        // reasoning effort: the model configuration's explicit effort wins,
+        // then the thinking level ("off" means no effort).
+        let reasoningEffort = preset.reasoningEffort
+            ?? (thinking == "off" ? nil : thinking)
 
         // max iterations mirrors the turn loop's clamp: at least one pass.
         let maxIterations = max(1, iterationBudget ?? effectiveMaxTurns())
@@ -2786,27 +2784,24 @@ actor AppState {
     /// is cached per session.
     func warmScaffoldTokens(
         preset: ModelConfigPreset,
-        profileContext: ProfileContextConfig?,
         sessionID: String
     ) {
         guard scaffoldNeedsWarm(for: sessionID) else { return }
         scaffoldWarmInFlight.insert(sessionID)
         Task { [weak self] in
             await self?.runScaffoldWarm(
-                preset: preset, profileContext: profileContext, sessionID: sessionID)
+                preset: preset, sessionID: sessionID)
         }
     }
 
     private func runScaffoldWarm(
         preset: ModelConfigPreset,
-        profileContext: ProfileContextConfig?,
         sessionID: String
     ) async {
         defer { scaffoldWarmInFlight.remove(sessionID) }
         let thinking = thinkingLevel(for: sessionID)
         let minted = await makeTurnAgent(
             preset: preset,
-            profileContext: profileContext,
             thinking: thinking,
             headless: true,
             sessionID: sessionID,
@@ -2856,7 +2851,6 @@ actor AppState {
         guard let preset = settings.modelConfig(named: configName(for: sid)) else { return }
         let minted = await makeTurnAgent(
             preset: preset,
-            profileContext: profileContext(for: sid),
             thinking: thinkingLevel(for: sid),
             headless: true,
             sessionID: sid,

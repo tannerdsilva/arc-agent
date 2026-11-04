@@ -243,7 +243,6 @@ extension AppState {
     ///     policy). A scheduled job keeps its own cap through here.
     func makeTurnAgent(
         preset: ModelConfigPreset,
-        profileContext: ProfileContextConfig?,
         thinking: String,
         headless: Bool,
         sessionID: String,
@@ -253,7 +252,6 @@ extension AppState {
     ) async -> (agent: ArcAgent, config: ArcAgent.Configuration) {
         let minted = await makeTurnAgent(
             preset: preset,
-            profileContext: profileContext,
             thinking: thinking,
             headless: headless,
             sessionID: sessionID,
@@ -600,11 +598,9 @@ extension AppState {
             await pusher(structuralChange())
             return
         }
-        // Per-profile context overrides: when the chat is bound to a profile
-        // that sets context parameters, the effective preset (and the request
-        // effort below) follow the profile instead of the chat's config.
-        let pctx = profileContext(for: sessionID)
-        let effectivePreset = pctx.map { preset.applying($0) } ?? preset
+        // Model parameters resolve from the chat's model configuration (per
+        // model); the bound profile does not carry parameters.
+        let effectivePreset = preset
         // The turn's agent builds its own provider client from the turn's
         // configuration. This pre-flight gate keeps the legacy behaviour for a
         // configuration that cannot build one at all (no http client), so the
@@ -745,7 +741,6 @@ extension AppState {
         // approves silently.
         let minted = await makeTurnAgent(
             preset: preset,
-            profileContext: pctx,
             thinking: thinkingLevel(for: sessionID),
             headless: headless,
             sessionID: sessionID,
@@ -1907,19 +1902,9 @@ extension Controller {
         let name = (event.string("profile-name-input") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let title = event.string("profile-title-input") ?? ""
         let desc = event.string("profile-desc-input") ?? ""
-        let ctxLength = AppState.optInt(event.string("profile-ctx-length") ?? "")
-        let maxOutput = AppState.optInt(event.string("profile-ctx-maxtok") ?? "")
-        let rawEffort = event.string("profile-ctx-effort") ?? ""
-        let effort = rawEffort.isEmpty ? nil : rawEffort
-        let temperature = AppState.optDouble(event.string("profile-ctx-temp") ?? "")
-        let topP = AppState.optDouble(event.string("profile-ctx-topp") ?? "")
-        let budget = AppState.optInt(event.string("profile-ctx-budget") ?? "")
         let skillsDraft = await self.app.profileSkillsDraft
         return await self.submitProfileForm(
             name: name, title: title, desc: desc,
-            contextLength: ctxLength, maxOutputTokens: maxOutput,
-            reasoningEffort: effort, temperature: temperature,
-            topP: topP, compressionBudget: budget,
             contextSkills: skillsDraft.isEmpty ? nil : skillsDraft
         )
     }
@@ -2834,30 +2819,16 @@ extension Controller {
     }
 
     /// Create or update a profile from the profile form (the form doubles as
-    /// the edit form; `editingProfile` selects the mode). Context parameters
-    /// are stored per-profile via the core `Profile.context`.
+    /// the edit form; `editingProfile` selects the mode). Model parameters are
+    /// configured per model in the model configuration — the profile carries
+    /// identity, toolsets, and pinned skills only.
     private func submitProfileForm(
         name: String,
         title: String,
         desc: String,
-        contextLength: Int? = nil,
-        maxOutputTokens: Int? = nil,
-        reasoningEffort: String? = nil,
-        temperature: Double? = nil,
-        topP: Double? = nil,
-        compressionBudget: Int? = nil,
         contextSkills: [String]? = nil
     ) async -> [FragmentUpdate] {
         let pm = ProfileManager()
-        let ctx = ProfileContextConfig(
-            contextLength: contextLength,
-            maxOutputTokens: maxOutputTokens,
-            reasoningEffort: reasoningEffort,
-            temperature: temperature,
-            topP: topP,
-            compressionBudget: compressionBudget
-        )
-        let cleaned = ctx.isEmpty ? nil : ctx
         do {
             if let editName = await self.app.editingProfile {
                 guard var p = try await pm.get(name: editName) else {
@@ -2866,22 +2837,8 @@ extension Controller {
                 }
                 p.title = title
                 p.description = desc
-                p.context = cleaned
                 p.contextSkills = contextSkills
                 try await pm.update(p)
-                // Verify-after-write: re-read from the store so a dropped or
-                // rejected write cannot present as success. The store overlays
-                // `profiles/<name>/config.json`, so the re-read is the same
-                // view the compression ladder resolves against.
-                if let reread = try await pm.get(name: editName) {
-                    let saved = reread.context?.compressionBudget
-                    let wanted = cleaned?.compressionBudget
-                    if saved != wanted {
-                        app.crumb("profile save: \(editName) budget mismatch after write (saved \(saved.map(String.init) ?? "nil"), wanted \(wanted.map(String.init) ?? "nil"))")
-                        _ = await app.hint("Profile saved, but the compression budget did not stick — check the Logs panel.", kind: "error")
-                    }
-                }
-                app.crumb("profile save: \(editName) updated (budget \(p.context?.compressionBudget.map(String.init) ?? "inherit"))")
                 await self.app.setEditingProfile(nil)
                 await app.reloadProfiles()
                 await app.selectProfile(p.name)
@@ -2894,7 +2851,6 @@ extension Controller {
                 var p = try await pm.create(name: name)
                 p.title = title
                 p.description = desc
-                p.context = cleaned
                 p.contextSkills = contextSkills
                 try await pm.update(p)
                 await app.reloadProfiles()
@@ -3450,7 +3406,10 @@ extension Controller {
         let key = event.string("mc-apikey") ?? ""
         let ctx = Int((event.string("mc-ctx") ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
         let maxtok = Int((event.string("mc-maxtok") ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
-        return await self.addModelConfig(name: name, model: model, provider: provider, baseURL: base, apiKey: key, contextLength: ctx, maxOutputTokens: maxtok)
+        let budget = Int((event.string("mc-budget") ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+        let rawEffort = (event.string("mc-effort") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let effort = rawEffort.isEmpty ? nil : rawEffort
+        return await self.addModelConfig(name: name, model: model, provider: provider, baseURL: base, apiKey: key, contextLength: ctx, maxOutputTokens: maxtok, compressionBudget: budget, reasoningEffort: effort)
     }
 
     @Wired("modelcfg-list", events: [.click])
@@ -3716,7 +3675,7 @@ extension Controller {
         return await self.changed()
     }
 
-    private func addModelConfig(name: String, model: String, provider: String, baseURL: String, apiKey: String, contextLength ctx: Int?, maxOutputTokens maxtok: Int? = nil) async -> [FragmentUpdate] {
+    private func addModelConfig(name: String, model: String, provider: String, baseURL: String, apiKey: String, contextLength ctx: Int?, maxOutputTokens maxtok: Int? = nil, compressionBudget: Int? = nil, reasoningEffort: String? = nil) async -> [FragmentUpdate] {
         guard !name.isEmpty, !model.isEmpty, !baseURL.isEmpty else {
             _ = await app.hint("Name, model and base URL are required.", kind: "error")
             return await self.changed()
@@ -3725,7 +3684,7 @@ extension Controller {
             _ = await app.hint("Base URL is not a valid URL.", kind: "error")
             return await self.changed()
         }
-        let preset = ModelConfigPreset(name: name, model: model, provider: provider.isEmpty ? "custom" : provider, baseURL: baseURL, apiKey: apiKey, contextLength: ctx, maxOutputTokens: maxtok, source: "ui")
+        let preset = ModelConfigPreset(name: name, model: model, provider: provider.isEmpty ? "custom" : provider, baseURL: baseURL, apiKey: apiKey, contextLength: ctx, maxOutputTokens: maxtok, reasoningEffort: reasoningEffort, compressionBudget: compressionBudget, source: "ui")
         await app.addModelConfig(preset)
         _ = await app.hint("Configuration '\(name)' added.")
         return await self.changed()

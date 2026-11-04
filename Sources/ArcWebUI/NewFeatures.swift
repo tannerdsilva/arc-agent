@@ -160,7 +160,6 @@ extension AppState {
         // cap is the retired loop's, so a job that used to stop stops here too.
         let minted = await makeTurnAgent(
             preset: preset,
-            profileContext: profileContext(for: sid),
             thinking: thinkingLevel(for: sid),
             headless: true,
             sessionID: sid,

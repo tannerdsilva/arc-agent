@@ -57,7 +57,7 @@ public actor SessionAgent: Service {
         resolvedModel: String,
         resolvedProvider: String,
         resolvedBaseURL: URL,
-        resolvedContext: ProfileContextConfig?,
+        resolvedParams: PerModelParameters?,
         resolvedRecipe: ResolvedContextRecipe,
         profile: String
     ) -> ArcAgent.Configuration {
@@ -81,8 +81,8 @@ public actor SessionAgent: Service {
             query: nil,
             maxContextTokens: 64_000,
             sessionID: sessionID,
-            contextLength: resolvedContext?.contextLength,
-            compressionBudget: resolvedContext?.compressionBudget,
+            contextLength: resolvedParams?.contextLength,
+            compressionBudget: resolvedParams?.compressionBudget,
             platformHint: "daemon",
             moa: agentConfig.moa,
             skillInlineCommands: agentConfig.skillInlineCommands,
@@ -91,10 +91,10 @@ public actor SessionAgent: Service {
                 window: agentConfig.backgroundReviewWindow
             ),
             verifyOnStop: agentConfig.verifyOnStop,
-            reasoningEffort: resolvedContext?.reasoningEffort,
-            temperature: resolvedContext?.temperature,
-            topP: resolvedContext?.topP,
-            maxOutputTokens: resolvedContext?.maxOutputTokens,
+            reasoningEffort: resolvedParams?.reasoningEffort,
+            temperature: resolvedParams?.temperature,
+            topP: resolvedParams?.topP,
+            maxOutputTokens: resolvedParams?.maxOutputTokens,
             mcpServers: agentConfig.mcpServers,
             disabledToolsets: agentConfig.disabledToolsets,
             contextRecipe: resolvedRecipe,
@@ -116,7 +116,7 @@ public actor SessionAgent: Service {
             let resolvedBaseURL: URL
             let resolvedSOUL: String?
             let resolvedProfileRecord: Profile?
-            let resolvedContext: ProfileContextConfig?
+            let resolvedParams: PerModelParameters?
             let resolvedProfileDefaults: ContextRecipe?
 
             if let profileConfig = try await profileManager.get(name: profile) {
@@ -132,7 +132,7 @@ public actor SessionAgent: Service {
                 }
                 resolvedSOUL = profileConfig.soulMD
                 resolvedProfileRecord = profileConfig
-                resolvedContext = profileConfig.context
+                resolvedParams = ModelParameterStore.parameters(forModel: resolvedModel)
                 resolvedProfileDefaults = profileConfig.contextDefaults
             } else {
                 resolvedModel = agentConfig.model
@@ -144,7 +144,7 @@ public actor SessionAgent: Service {
                 }
                 resolvedSOUL = nil
                 resolvedProfileRecord = nil
-                resolvedContext = nil
+                resolvedParams = ModelParameterStore.parameters(forModel: agentConfig.model)
                 resolvedProfileDefaults = nil
             }
 
@@ -272,7 +272,7 @@ public actor SessionAgent: Service {
                 resolvedModel: resolvedModel,
                 resolvedProvider: resolvedProvider,
                 resolvedBaseURL: resolvedBaseURL,
-                resolvedContext: resolvedContext,
+                resolvedParams: resolvedParams,
                 resolvedRecipe: resolvedRecipe,
                 profile: profile
             ))

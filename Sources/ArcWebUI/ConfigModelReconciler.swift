@@ -22,6 +22,7 @@ enum ConfigModelReconciler {
         var apiKey: String
         var contextLength: Int?
         var maxOutputTokens: Int?
+        var reasoningEffort: String?
 
         init(arc: ArcConfig, apiKey: String = "") {
             self.model = arc.model.defaultModel
@@ -30,6 +31,7 @@ enum ConfigModelReconciler {
             self.apiKey = apiKey
             self.contextLength = arc.model.contextLength
             self.maxOutputTokens = arc.model.maxOutputTokens
+            self.reasoningEffort = arc.agent.reasoningEffort
         }
     }
 
@@ -77,6 +79,7 @@ enum ConfigModelReconciler {
         if !resolved.apiKey.isEmpty { preset.apiKey = resolved.apiKey }
         preset.contextLength = resolved.contextLength
         preset.maxOutputTokens = resolved.maxOutputTokens
+        preset.reasoningEffort = resolved.reasoningEffort
         if preset != s.modelConfigs[managedIndex] {
             s.modelConfigs[managedIndex] = preset
             changed = true

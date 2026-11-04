@@ -85,7 +85,6 @@ extension ArcWebUITestRoot {
 
             let (_, config) = await app.makeTurnAgent(
                 preset: Self.preset,
-                profileContext: nil,
                 thinking: "off",
                 headless: false,
                 sessionID: "s-alpha"
@@ -144,11 +143,11 @@ extension ArcWebUITestRoot {
             )
 
             let (_, alpha) = await app.makeTurnAgent(
-                preset: Self.preset, profileContext: nil, thinking: "off",
+                preset: Self.preset, thinking: "off",
                 headless: false, sessionID: "s-alpha"
             )
             let (_, beta) = await app.makeTurnAgent(
-                preset: Self.preset, profileContext: nil, thinking: "off",
+                preset: Self.preset, thinking: "off",
                 headless: false, sessionID: "s-beta"
             )
 
@@ -189,7 +188,7 @@ extension ArcWebUITestRoot {
             let app = state(bindings: ["s-alpha": "alpha"], profiles: ["alpha"], memory: tessera)
 
             let (_, config) = await app.makeTurnAgent(
-                preset: Self.preset, profileContext: nil, thinking: "off",
+                preset: Self.preset, thinking: "off",
                 headless: false, sessionID: "s-alpha"
             )
 

@@ -184,7 +184,6 @@ public actor FileProfileStore: ProfileStore {
         if let v = full.model { merged.model = v }
         if let v = full.provider { merged.provider = v }
         if let v = full.baseURL { merged.baseURL = v }
-        if let v = full.context { merged.context = v }
         if let v = full.contextSkills { merged.contextSkills = v }
         if let v = full.enabledToolsets { merged.enabledToolsets = v }
         if let v = full.disabledToolsets { merged.disabledToolsets = v }
