@@ -443,6 +443,7 @@ public actor ArcAgent: Service {
     /// Warned once that the fixed scaffold alone exceeds the compression
     /// limit — the condition is permanent for the profile, so say it once.
     private var warnedFixedOverheadExceedsLimit = false
+    private var warnedOutputReservationExceedsWindow = false
     /// Cached project context files (static per agent/working directory).
     private var contextFilesCache: [(name: String, content: String)]?
     /// Compression cool-down: summary-LLM rate limit parks us until this date.
@@ -1659,6 +1660,36 @@ public actor ArcAgent: Service {
         return base >= usable ? max(1, usable * 85 / 100) : base
     }
 
+    /// The inverted-reservation check: `maxOutputTokens` ≥ the context window
+    /// means the output reservation consumes the entire window — the
+    /// effective limit falls into the collapsed half-budget fallback and
+    /// every compression decision plans against a nonsense threshold. Uses
+    /// the same window derivation as ``effectiveContextLimit``.
+    nonisolated func invertedOutputReservation() -> (maxOutputTokens: Int, contextWindow: Int)? {
+        let window = config.contextLength ?? config.maxContextTokens
+        guard let reserved = config.maxOutputTokens, reserved > 0,
+              window > 0, reserved >= window else { return nil }
+        return (reserved, window)
+    }
+
+    /// Warn (and surface as a turn event) about an inverted output
+    /// reservation. Called at turn-loop start; the event is emitted at most
+    /// once per agent — the condition is static config, not per-turn state.
+    private func noteOutputReservation(emit: ((AgentTurnEvent) -> Void)? = nil) {
+        guard let inverted = invertedOutputReservation(),
+              !warnedOutputReservationExceedsWindow else { return }
+        warnedOutputReservationExceedsWindow = true
+        logger.warning("config: maxOutputTokens (\(inverted.maxOutputTokens)) meets or exceeds the context window (\(inverted.contextWindow)); the output reservation inverts the compression limit — set maxOutputTokens below the context window")
+        emit?(.outputReservationExceedsWindow(
+            maxOutputTokens: inverted.maxOutputTokens,
+            contextWindow: inverted.contextWindow))
+    }
+
+    /// Test hook for the once-only reservation warning.
+    func noteOutputReservationForTest(emit: @escaping @Sendable (AgentTurnEvent) -> Void) async {
+        noteOutputReservation(emit: emit)
+    }
+
     /// Token estimate for the tool schemas, cached (schema set is static).
     private func toolSchemaTokens() -> Int {
         if let cached = toolSchemaTokenEstimate { return cached }
@@ -2374,6 +2405,7 @@ public actor ArcAgent: Service {
 
     /// The core turn loop with retry logic, fallback models, and timeout.
     private func runTurnLoop(client: any LLMClient) async throws -> String {
+        noteOutputReservation()
         await toolGuardrails.resetTurn()
         guard let hc = self.httpClient else {
             return "Error: Agent HTTP client not initialized."
@@ -2670,7 +2702,7 @@ public actor ArcAgent: Service {
                             continuation.yield(text)
                         case .toolCallFinished(_, let name, let result):
                             continuation.yield("[Tool: \(name)] \(result)\n")
-                        case .compressing, .contextConstrained, .reasoningDelta, .toolCallStarted, .usage, .completed:
+                        case .compressing, .contextConstrained, .outputReservationExceedsWindow, .reasoningDelta, .toolCallStarted, .usage, .completed:
                             break
                         }
                     }
@@ -2692,6 +2724,7 @@ public actor ArcAgent: Service {
         emit: @escaping @Sendable (AgentTurnEvent) -> Void
     ) async throws {
         await toolGuardrails.resetTurn()
+        noteOutputReservation(emit: emit)
         guard let hc = self.httpClient else {
             emit(.failed("Error: Agent HTTP client not initialized."))
             return

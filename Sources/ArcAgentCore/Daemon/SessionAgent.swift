@@ -377,6 +377,8 @@ public actor SessionAgent: Service {
                             logger.info("session: compressing context (session \(sessionID))")
                         case .contextConstrained(let scaffold, let limit):
                             logger.warning("session: fixed overhead (~\(scaffold)) exceeds the effective compression limit (\(limit)); compressing what it can (session \(sessionID))")
+                        case .outputReservationExceedsWindow(let maxTokens, let window):
+                            logger.warning("session: maxOutputTokens (\(maxTokens)) meets or exceeds the context window (\(window)); the output reservation inverts the compression limit (session \(sessionID))")
                         case .completed:
                             break
                         }

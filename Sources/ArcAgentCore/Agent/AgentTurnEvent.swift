@@ -60,6 +60,14 @@ public enum AgentTurnEvent: Sendable {
     /// UI surfaces it as a persistent toast; other surfaces log it.
     case contextConstrained(scaffold: Int, limit: Int)
 
+    /// Configuration misconfiguration: the profile's `maxOutputTokens` meets
+    /// or exceeds the context window, so the output reservation inverts the
+    /// effective-limit math (usable ≤ 0) and collapses the compression
+    /// threshold. Emitted at most once per agent at the first turn-loop
+    /// start. Display-only — the web UI surfaces it as a persistent toast;
+    /// other surfaces log it.
+    case outputReservationExceedsWindow(maxOutputTokens: Int, contextWindow: Int)
+
     /// The turn stopped on an error or an interruption notice. `message` is
     /// the complete visible text (already prefixed, e.g. `Error: …`).
     /// Terminal.

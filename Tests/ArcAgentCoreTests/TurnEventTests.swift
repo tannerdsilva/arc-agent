@@ -335,6 +335,7 @@ extension ArcCoreTestRoot {
                 case .usage: return "usage"
                 case .compressing: return "compressing"
                 case .contextConstrained: return "constrained"
+                case .outputReservationExceedsWindow: return "reservation"
                 case .completed: return "completed"
                 case .failed: return "failed"
                 }

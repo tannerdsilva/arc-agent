@@ -838,7 +838,7 @@ extension AppState {
                             await pusher(await transcriptFragments())
                         }
                     }
-                case .toolCallStarted, .toolCallFinished, .compressing, .contextConstrained:
+                case .toolCallStarted, .toolCallFinished, .compressing, .contextConstrained, .outputReservationExceedsWindow:
                     // a compression pass is mid-turn: it must not close the
                     // held tool round, since text and tools continue after it.
                     break
@@ -910,6 +910,15 @@ extension AppState {
                     // be recreated per turn — dedupe on text so the bubble
                     // cannot stack.
                     let text = "Fixed context (~\(scaffold) tokens) exceeds the auto-compression limit (\(limit)) — compressing what it can; shrink the profile's toolset/system prompt or raise its context window"
+                    if !toasts.contains(where: { $0.text == text }) {
+                        _ = surfaceToast(text, kind: "error", persistent: true)
+                        await pusher(toastFragments())
+                    }
+                    applyLive(event)
+                case .outputReservationExceedsWindow(let maxTokens, let window):
+                    // Persistent toast — same policy as .contextConstrained:
+                    // the misconfiguration outlives the turn until fixed.
+                    let text = "Max output tokens (\(maxTokens)) meets or exceeds the context window (\(window)) — the output reservation inverts the compression limit; set maxOutputTokens below the context window"
                     if !toasts.contains(where: { $0.text == text }) {
                         _ = surfaceToast(text, kind: "error", persistent: true)
                         await pusher(toastFragments())

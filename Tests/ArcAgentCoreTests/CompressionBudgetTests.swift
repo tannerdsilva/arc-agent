@@ -111,6 +111,44 @@ extension ArcCoreTestRoot {
             #expect(events.all.isEmpty)
         }
 
+        @Test("inverted output reservation is detected; sane config is not")
+        func invertedOutputReservationDetection() {
+            // maxOutputTokens ≥ window: the reservation consumes the entire
+            // window and the effective limit collapses to the half-budget
+            // fallback — the greeting-chat failure shape.
+            let inverted = ArcAgent(config: makeConfig(
+                compressionBudget: 10_000, contextLength: 20_480, maxOutputTokens: 512_000))
+            let pair = inverted.invertedOutputReservation()
+            #expect(pair?.maxOutputTokens == 512_000)
+            #expect(pair?.contextWindow == 20_480)
+
+            // Reservation under the window: no warning.
+            let sane = ArcAgent(config: makeConfig(
+                compressionBudget: 10_000, contextLength: 20_480, maxOutputTokens: 4_096))
+            #expect(sane.invertedOutputReservation() == nil)
+
+            // No maxOutputTokens configured: nothing to invert.
+            let unset = ArcAgent(config: makeConfig(
+                compressionBudget: 10_000, contextLength: 20_480))
+            #expect(unset.invertedOutputReservation() == nil)
+        }
+
+        @Test("inverted reservation emits .outputReservationExceedsWindow once")
+        func outputReservationEventEmittedOnce() async {
+            let agent = ArcAgent(config: makeConfig(
+                compressionBudget: 10_000, contextLength: 20_480, maxOutputTokens: 512_000))
+            let events = ThreadSafeArray<AgentTurnEvent>()
+            await agent.noteOutputReservationForTest(emit: { events.append($0) })
+            await agent.noteOutputReservationForTest(emit: { events.append($0) })
+            #expect(events.all.count == 1, "expected exactly one reservation event; got \(events.all.count)")
+            if case .outputReservationExceedsWindow(let maxTokens, let window) = events.all.first {
+                #expect(maxTokens == 512_000)
+                #expect(window == 20_480)
+            } else {
+                Issue.record("missing reservation event payload")
+            }
+        }
+
         @Test("overhead wall emits a .contextConstrained turn event once")
         func contextConstrainedEventEmitted() async {
             // Scaffold (real registry, ~800) over a tiny limit: the engine

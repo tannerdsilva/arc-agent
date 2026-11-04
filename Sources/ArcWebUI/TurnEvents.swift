@@ -40,7 +40,7 @@ struct TurnTranscript: Sendable {
             toolMessages.append(
                 Message(role: .tool, content: result, name: name, toolCallID: id)
             )
-        case .toolCallStarted, .failed, .compressing, .contextConstrained:
+        case .toolCallStarted, .failed, .compressing, .contextConstrained, .outputReservationExceedsWindow:
             // non-terminal bookkeeping the transcript does not record:
             // starts and failures land as tool/assistant messages elsewhere,
             // and a compression pass (and its wall notice) is display-only.
@@ -115,6 +115,10 @@ struct TurnLiveState: Sendable {
         case .contextConstrained:
             // display-only: the wall toast is raised by the Actions handler;
             // the live block keeps its current (compressing) status.
+            break
+        case .outputReservationExceedsWindow:
+            // display-only: the misconfiguration toast is raised by the
+            // Actions handler; the live block keeps its current status.
             break
         case .completed:
             next.status = "done"

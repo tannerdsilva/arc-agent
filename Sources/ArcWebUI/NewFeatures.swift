@@ -219,7 +219,7 @@ extension AppState {
                     for message in takeToolRoundMessages() {
                         await persist(message)
                     }
-                case .toolCallStarted, .toolCallFinished, .compressing, .contextConstrained:
+                case .toolCallStarted, .toolCallFinished, .compressing, .contextConstrained, .outputReservationExceedsWindow:
                     // mid-turn; the held tool round stays open.
                     break
                 }
@@ -247,6 +247,9 @@ extension AppState {
                     // compression state.
                     break
                 case .contextConstrained:
+                    // display-only; same policy as .compressing here.
+                    break
+                case .outputReservationExceedsWindow:
                     // display-only; same policy as .compressing here.
                     break
                 case .completed(let text, _):
