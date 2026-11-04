@@ -2040,6 +2040,15 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             Text(" Waiting for your approval…")
                         }
                     }
+                case "compressing":
+                    if mode != "hide_all_activity" {
+                        LiveStatus {
+                            Span {
+                                WebUIIcon(.refreshCw, size: .small)
+                                Text(" Compressing context…")
+                            }
+                        }
+                    }
                 case "done":
                     // nothing: the committed message replaces this node
                     Group {}
@@ -2052,6 +2061,14 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             }
                         }
                     }
+                }
+                // Live tool-activity log: every call this turn made, in order —
+                // running rows show name + clock, finished rows keep a muted
+                // one-line result preview (full text in the title). This is the
+                // streamed counterpart of the final render's worklog: without
+                // it a tool sequence was invisible until the turn ended.
+                if mode != "hide_all_activity" && !live.toolActivity.isEmpty {
+                    liveToolActivityHTML(live.toolActivity)
                 }
                 thinkingRow
                 MsgBody {
@@ -2072,6 +2089,34 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         .id("live-turn")
         .data("streaming", "true")
         .data("session", live.sessionID)
+    }
+
+    /// The live tool-activity rows: one per `LiveToolActivity`, in call order.
+    private func liveToolActivityHTML(_ activity: [LiveToolActivity]) -> some WebUI.View {
+        var rows: [any WebUI.View] = []
+        for act in activity {
+            rows.append(Div(class: ClassName(.liveToolRow)) {
+                WebUIIcon(.tool, size: .small)
+                Span(class: .ltName) {
+                    Text(act.name + (act.result == nil ? " …" : ""))
+                }
+                if let result = act.result {
+                    let firstLine = result
+                        .split(separator: "\n", omittingEmptySubsequences: true)
+                        .first.map(String.init) ?? result
+                    let preview = firstLine.count > 160
+                        ? String(firstLine.prefix(160)) + "…"
+                        : firstLine
+                    Span(class: .ltResult) { Text(preview) }
+                        .title(result)
+                } else {
+                    MsgElapsed { Text(fmtElapsed(act.startedAt)) }
+                        .data("elapsed", "")
+                        .data("started", "\(Int(act.startedAt.timeIntervalSince1970 * 1000))")
+                }
+            })
+        }
+        return Div { rows }
     }
 
     // MARK: Composer flyout (arc parity: approval + clarification cards)

@@ -1767,6 +1767,13 @@ public static let css: String = """
     @keyframes blink { 50% { opacity: 0; } }
 
     .live-status { font-size: 0.84em; color: var(--muted); margin: -8px 0 12px; display: flex; gap: 8px; align-items: center; }
+    /* Live tool-activity rows: one per tool call in the streaming block —
+       running rows show the name + clock, finished rows keep a muted
+       one-line result preview (full text in title). Subtle 1px dividers. */
+    .live-tool-row { font-size: 0.84em; color: var(--muted); display: flex; gap: 8px; align-items: baseline; padding: 5px 0; border-top: 1px solid var(--border); min-width: 0; }
+    .live-tool-row svg { width: 13px; height: 13px; vertical-align: -2px; flex: none; align-self: center; }
+    .live-tool-row .lt-name { color: var(--fg); flex: none; }
+    .live-tool-row .lt-result { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
     /* ── Composer flyout: arc-parity approval card ── */
     .composer-flyout { width: 100%; }

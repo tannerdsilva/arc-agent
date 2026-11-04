@@ -88,12 +88,19 @@ struct TurnLiveState: Sendable {
         case .usage(let u):
             let elapsed = max(0.2, now.timeIntervalSince(prior.startedAt))
             next.tps = u.completionTokens > 0 ? Double(u.completionTokens) / elapsed : nil
-        case .toolCallStarted(_, let name, _):
+        case .toolCallStarted(let id, let name, let arguments):
             next.toolChips.append("⚙ \(name)")
+            next.toolActivity.append(LiveToolActivity(
+                id: id, name: name, arguments: arguments, startedAt: now
+            ))
             next.toolName = name
             next.toolStartedAt = now
             next.status = "tool"
-        case .toolCallFinished(_, let name, _):
+        case .toolCallFinished(let id, let name, let result):
+            // the log keeps the finished call visible: fill its result in place.
+            if let idx = next.toolActivity.lastIndex(where: { $0.id == id }) {
+                next.toolActivity[idx].result = result
+            }
             next.toolChips.removeAll { $0 == "⚙ \(name)" }
             if next.toolChips.isEmpty {
                 next.toolName = nil

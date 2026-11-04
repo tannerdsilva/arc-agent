@@ -533,6 +533,12 @@ struct LiveTurn {
     /// Accumulated reasoning/thinking text streamed by the model.
     var thinking: String = ""
     var toolChips: [String] = []
+    /// Append-only tool-activity log: one entry per `toolCallStarted`, its
+    /// `result` filled in on `toolCallFinished`. Finished calls STAY in the
+    /// streaming block (with a result preview) instead of vanishing — the
+    /// chips alone only ever named the currently-running tool, so a tool
+    /// sequence was invisible until the final transcript render.
+    var toolActivity: [LiveToolActivity] = []
     var status: String = "running"   // running | tool | compressing | done | error
     /// Name of the tool currently executing (nil outside a tool call) and when it
     /// started — the live status line shows name + a client-ticked clock.
@@ -545,6 +551,16 @@ struct LiveTurn {
     var turnToken = 0
     /// Live tokens-per-second estimate for the streaming reply (showTps).
     var tps: Double? = nil
+}
+
+/// One tool call in the live turn's activity log (see `LiveTurn.toolActivity`).
+struct LiveToolActivity: Sendable {
+    let id: String
+    let name: String
+    let arguments: String
+    /// The tool's result once `toolCallFinished` lands; nil while running.
+    var result: String? = nil
+    var startedAt: Date
 }
 
 /// A pending user-approval request (arc-style permission card in the chat).

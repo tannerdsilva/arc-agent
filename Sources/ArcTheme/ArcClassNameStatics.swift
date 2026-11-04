@@ -296,6 +296,9 @@ extension ClassName {
 	public static var limitV: ClassName { ClassName(ArcClass.limitV.token) }
 	public static var listRow: ClassName { ClassName(ArcClass.listRow.token) }
 	public static var liveStatus: ClassName { ClassName(ArcClass.liveStatus.token) }
+	public static var liveToolRow: ClassName { ClassName(ArcClass.liveToolRow.token) }
+	public static var ltName: ClassName { ClassName(ArcClass.ltName.token) }
+	public static var ltResult: ClassName { ClassName(ArcClass.ltResult.token) }
 	public static var logChips: ClassName { ClassName(ArcClass.logChips.token) }
 	public static var logLine: ClassName { ClassName(ArcClass.logLine.token) }
 	public static var logLvl: ClassName { ClassName(ArcClass.logLvl.token) }

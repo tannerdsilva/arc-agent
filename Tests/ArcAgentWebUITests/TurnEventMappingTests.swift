@@ -228,6 +228,50 @@ extension ArcWebUITestRoot {
             #expect(final.status == "running")
         }
 
+        @Test("tool activity log keeps finished calls with their results")
+        func toolActivityLogPersists() {
+            var state = LiveTurn(sessionID: "s1", userText: "hi", attachments: [])
+            state = TurnLiveState.apply(
+                .toolCallStarted(id: "c1", name: "terminal", arguments: "{\"cmd\":\"ls\"}"),
+                to: state, now: Date(timeIntervalSince1970: 1_700_000_000)
+            )
+            // while running: one entry, no result
+            #expect(state.toolActivity.count == 1)
+            #expect(state.toolActivity[0].result == nil)
+            #expect(state.toolActivity[0].arguments == "{\"cmd\":\"ls\"}")
+
+            state = TurnLiveState.apply(
+                .toolCallFinished(id: "c1", name: "terminal", result: "file1\nfile2"),
+                to: state, now: Date(timeIntervalSince1970: 1_700_000_010)
+            )
+            // finished: the entry STAYS, now carrying its result
+            #expect(state.toolActivity.count == 1)
+            #expect(state.toolActivity[0].result == "file1\nfile2")
+
+            // a second call appends; the first entry is untouched
+            state = TurnLiveState.apply(
+                .toolCallStarted(id: "c2", name: "read_file", arguments: "{}"),
+                to: state, now: Date(timeIntervalSince1970: 1_700_000_020)
+            )
+            #expect(state.toolActivity.count == 2)
+            #expect(state.toolActivity[0].result == "file1\nfile2")
+            #expect(state.toolActivity[1].result == nil)
+        }
+
+        @Test("compressing sets status and is restored by the next tool/text event")
+        func compressingStatus() {
+            var state = LiveTurn(sessionID: "s1", userText: "hi", attachments: [])
+            state = TurnLiveState.apply(.compressing, to: state)
+            #expect(state.status == "compressing")
+            state = TurnLiveState.apply(.textDelta("back"), to: state)
+            #expect(state.status == "running")
+            state = TurnLiveState.apply(.compressing, to: state)
+            state = TurnLiveState.apply(
+                .toolCallStarted(id: "c1", name: "terminal", arguments: "{}"), to: state
+            )
+            #expect(state.status == "tool")
+        }
+
         @Test("completed sets status to done")
         func completedSetsStatusDone() {
             let prior = LiveTurn(

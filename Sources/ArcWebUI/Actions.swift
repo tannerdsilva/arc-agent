@@ -676,7 +676,10 @@ extension AppState {
         var lastLiveText = ""
         var lastLiveThinking = ""
         func liveStructureSignature(_ live: LiveTurn) -> String {
-            "\(live.status)|\(live.toolChips.joined(separator: "|"))|\(live.thinking.isEmpty)|\(live.assistantText.isEmpty)|\(Int((live.tps ?? 0) / 10))|\(live.toolName ?? "")"
+            // toolActivity participates: a call starting (count change) or a
+            // result landing (last entry's result state) re-renders the live
+            // block's rows, like the chips and status do.
+            "\(live.status)|\(live.toolChips.joined(separator: "|"))|\(live.thinking.isEmpty)|\(live.assistantText.isEmpty)|\(Int((live.tps ?? 0) / 10))|\(live.toolName ?? "")|\(live.toolActivity.count)|\(live.toolActivity.filter { $0.result != nil }.count)"
         }
         func pushLive() async {
             // The turn's own guard plus the visible view: the 90 ms live pushes
