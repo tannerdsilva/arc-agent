@@ -48,13 +48,31 @@ struct SessionFork {
         guard isCutPoint else { return nil }
         self.sourceID = session.id
         self.messages = Array(session.messages[...index])
-        self.title = "↳ " + trunc(title, 60)
+        // One arrow, never a stack of them. Each fork used to prepend another
+        // `↳ ` to the SOURCE title, so forking a fork produced `↳ ↳ Count…` and
+        // a third fork pushed the actual name out of the row entirely — the
+        // arrow ate the title it exists to preserve. Lineage depth already
+        // lives in `parentSessionID`; the marker only has to say "branch".
+        self.title = "↳ " + trunc(Self.withoutForkMark(title), 60)
         self.model = session.model
         self.provider = session.provider
         self.config = session.config
         self.contextOverrides = session.contextOverrides
         self.workspaceKey = workspaceKey
         self.categoryID = categoryID
+    }
+
+    /// `title` with any fork markers already on it stripped.
+    ///
+    /// A fork's title is derived from its source, so the arrow would compound
+    /// (`↳ ↳ ↳ Count…`) and push the name out of the sidebar row. Depth lives
+    /// in `parentSessionID`; the visible marker is a single branch glyph.
+    static func withoutForkMark(_ title: String) -> String {
+        var rest = Substring(title)
+        while let first = rest.first, first == "↳" || first == " " {
+            rest = rest.dropFirst()
+        }
+        return String(rest)
     }
 
     /// Materialize the persisted session. `parentSessionID` records the lineage

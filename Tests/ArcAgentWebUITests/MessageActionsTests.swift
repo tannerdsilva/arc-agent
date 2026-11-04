@@ -208,6 +208,26 @@ extension ArcWebUITestRoot {
             #expect(fork.categoryID == "cat-1")
         }
 
+        /// A fork OF a fork keeps exactly one branch marker.
+        ///
+        /// Each fork used to prepend another `↳ ` to its source's title, so a
+        /// third-generation fork read `↳ ↳ ↳ Count from 1 to 60…` — the arrow
+        /// ate the name it exists to preserve. Depth is already recorded in
+        /// `parentSessionID`, so the visible marker stays single.
+        @Test("forking a fork keeps one arrow, not a stack")
+        func forkTitleDoesNotCompound() throws {
+            let fork = try #require(SessionFork(
+                session: Self.source(),
+                throughMessageAt: 2,
+                title: "↳ ↳ ↳ Count from 1 to 60"
+            ))
+            #expect(fork.title == "↳ Count from 1 to 60",
+                    "the branch marker stacked: \(fork.title)")
+            #expect(fork.title.filter { $0 == "↳" }.count == 1,
+                    "a fork title must carry exactly one arrow: \(fork.title)")
+        }
+
+        /// The materialized session records its parent
         @Test("the materialized session records its parent")
         func forkRecordsLineage() throws {
             let fork = try #require(SessionFork(
