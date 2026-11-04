@@ -3583,16 +3583,6 @@ extension Controller {
         return await self.workspaceAction(tid)
     }
 
-    @Wired("workspace-upload", events: [.submit])
-    func handleWorkspaceUpload(_ event: EventData) async -> [FragmentUpdate] {
-        let name = event.string("upl-name") ?? ""
-        let path = event.string("upl-path") ?? ""
-        let b64 = event.string("upl-b64") ?? ""
-        guard !path.isEmpty, !b64.isEmpty else { return [] }
-        await self.app.uploadWorkspaceFile(name: name, relPath: path, b64: b64)
-        return await self.changed()
-    }
-
     /// A streamed upload writes the file and clears the tree cache, but an HTTP
     /// route returns no `FragmentUpdate`, so nothing repaints on its own. The
     /// client sends this event after a 200; the handler carries no payload and

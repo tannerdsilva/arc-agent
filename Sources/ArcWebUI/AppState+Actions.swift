@@ -1107,28 +1107,6 @@ extension AppState {
         }
     }
 
-    /// Write an uploaded file (base64 payload) into the workspace at relPath.
-    func uploadWorkspaceFile(name: String, relPath: String, b64: String) {
-        guard !relPath.components(separatedBy: "/").contains("..") else {
-            _ = hint("Upload rejected: invalid path.", kind: "error")
-            return
-        }
-        guard let data = Data(base64Encoded: b64) else {
-            _ = hint("Upload failed: could not decode \(name).", kind: "error")
-            return
-        }
-        let dest = workspaceRootURL().appendingPathComponent(relPath)
-        let fm = FileManager.default
-        do {
-            try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: dest)
-            clearWorkspaceTreeCache()
-            _ = hint("Uploaded \(dest.lastPathComponent).")
-        } catch {
-            _ = hint("Upload failed for \(name): \(error.localizedDescription)", kind: "error")
-        }
-    }
-
     /// Open a workspace file in the panel's preview pane. Resolves `relPath`
     /// under `root` (default: the active chat's workspace path), guards path
     /// traversal, and reads best-effort UTF-8 text (binary / oversized files

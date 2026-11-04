@@ -183,6 +183,26 @@ public struct WebUIHost: Service {
         )
     }
 
+    /// the page document this host renders, from the config the server is built with.
+    ///
+    /// `maxFrameBytes` is read from `config.maxFrameSize` at the one place the page
+    /// is assembled, so the budget the engine refuses on and the budget the socket
+    /// enforces are the same number: a host that tunes the server cannot leave the
+    /// page publishing the old one.
+    static func pageDocument(
+        config: WebUIServerConfig,
+        sheetURL: String,
+        overlayURL: String,
+        renderToken: String? = nil
+    ) -> @Sendable (UnsafeMarkup, String) -> WebUI.HTMLDocument {
+        AppShell.makeDocument(
+            sheetURL: sheetURL,
+            overlayURL: overlayURL,
+            renderToken: renderToken,
+            maxFrameBytes: config.maxFrameSize
+        )
+    }
+
     public func run() async throws {
         // Route every swift-log line into the in-app ring buffer instead of
         // stdout, so the Logs panel is the operator view. Idempotent: the
@@ -190,6 +210,9 @@ public struct WebUIHost: Service {
         WebUILogging.install()
         let logger = Logger(label: "arc-agent.webui")
         logger.info("starting (pid \(ProcessInfo.processInfo.processIdentifier))")
+        // one config value reaches the server and the page it serves: the frame
+        // budget the page publishes is the one the socket enforces.
+        let config = serverConfig
 
         // Sidecar plugins answer host-side channel requests through the
         // app state; attach before the first render (their activate/render
@@ -289,7 +312,7 @@ public struct WebUIHost: Service {
         // The theme attributes belong on `<html>`, not on `#app`: the engine writes them on
         // `documentElement` and the theme is scoped to `:root`. `themeAttrs` is the server's
         // default, which the engine overrides from storage before first paint.
-        let makeDocument = AppShell.makeDocument(sheetURL: sheet.url, overlayURL: overlay.url)
+        let makeDocument = Self.pageDocument(config: config, sheetURL: sheet.url, overlayURL: overlay.url)
         // the tokens this host served, so `POST /api/upload` can tell a page it
         // rendered from a request that never loaded one. Bounded (see
         // `UploadTokenStore`): a daemon runs for weeks.
@@ -309,7 +332,8 @@ public struct WebUIHost: Service {
             }
             await app.armScrollToBottom()
             let shell = await app.appShell()
-            return AppShell.makeDocument(
+            return Self.pageDocument(
+                config: config,
                 sheetURL: sheet.url,
                 overlayURL: overlay.url,
                 renderToken: renderToken
@@ -344,7 +368,7 @@ public struct WebUIHost: Service {
         let server = WebUIServer(
             router: pageRouter,
             eventRouter: router,
-            config: serverConfig,
+            config: config,
             logger: logger
         )
 

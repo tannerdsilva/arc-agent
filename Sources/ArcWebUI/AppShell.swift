@@ -35,16 +35,25 @@ public enum AppShell {
     /// - parameter renderToken: the token this response was rendered for. The page
     ///   echoes it in the `webui-config` meta so the upload route can tell a page
     ///   this host served from one that never loaded (`RuntimeConfig.renderToken`).
-    ///   nil/empty leaves the meta at `{}` — the pre-upload shape, byte for byte.
+    ///   nil/empty leaves the token out of the meta — a page rendered with no
+    ///   other runtime knob still carries the `{}` shape, byte for byte.
+    /// - parameter maxFrameBytes: the frame budget the server this page is served
+    ///   from enforces (`WebUIServerConfig.maxFrameSize`), published so the engine
+    ///   can refuse an over-budget frame before it closes the socket with 1009.
+    ///   the caller reads it from the config the server is built with, never a
+    ///   literal: a page that names a budget the socket does not enforce is worse
+    ///   than a page that names none.
     public static func makeDocument(
         sheetURL: String,
         overlayURL: String,
-        renderToken: String? = nil
+        renderToken: String? = nil,
+        maxFrameBytes: Int? = nil
     ) -> @Sendable (UnsafeMarkup, String) -> WebUI.HTMLDocument {
         { body, themeAttrs in
             // only a real token goes into the meta: an empty one would say "a
             // token exists" to the client without ever validating.
             let token = (renderToken?.isEmpty == false) ? renderToken : nil
+            let runtime = RuntimeConfig(renderToken: token, maxFrameBytes: maxFrameBytes)
             return WebUI.HTMLDocument(
                 title: "ARC Agent",
                 body: body,
@@ -57,8 +66,10 @@ public enum AppShell {
                 devMode: false,
                 // The token rides the framework's own runtime config, so the
                 // client reads it from the same `webui-config` meta as every
-                // other runtime knob and arc writes no client-side plumbing for it.
-                runtimeConfig: token.map { RuntimeConfig(renderToken: $0) },
+                // other runtime knob and arc writes no client-side plumbing for
+                // it. The frame budget rides beside it: one value published,
+                // one value enforced.
+                runtimeConfig: runtime.isEmpty ? nil : runtime,
                 // Extras, not a restated policy: a full policy names no nonce source, and
                 // `HTMLDocument` then suppresses the pre-paint theme prelude rather than
                 // emit an inline script the browser refuses (a stored scheme would flash
