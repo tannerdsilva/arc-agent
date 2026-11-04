@@ -1292,7 +1292,9 @@ public static let css: String = """
     }
 
     .msg { display: flex; padding: 10px 0; }
-    .msg.user { justify-content: flex-end; }
+    /* the user's row stacks the bubble over its hover actions; the actions
+       align to the bubble's right edge, not the reading column's. */
+    .msg.user { flex-direction: column; align-items: flex-end; }
     .msg.assistant { justify-content: flex-start; }
     /* Streaming live-turn: a quiet accent hairline marks the turn in flight
        (the avatar/timing state rides on .role-icon and data-streaming). */
@@ -1697,13 +1699,21 @@ public static let css: String = """
       font-size: 0.86em; user-select: none;
     }
 
-    /* ── Message hover footer: produced-at time + copy (arc parity) ── */
-    .msg-foot { display: flex; align-items: center; gap: 8px; margin-top: 5px; opacity: 0; transition: opacity 0.15s; }
-    .msg:hover .msg-foot { opacity: 1; }
+    /* ── Message hover footer: copy / regenerate / fork (arc parity) ── */
+    .msg-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; opacity: 0; transition: opacity 0.15s; }
+    .msg:hover .msg-foot,
+    .msg:focus-within .msg-foot { opacity: 1; }
+    /* a keyboard reader reaches the actions before the footer is visible:
+       focus-within reveals them, and a touch surface has no hover to wait for. */
+    @media (hover: none) {
+      .msg-foot { opacity: 1; }
+    }
     .msg-time { font-size: 0.84em; color: var(--muted); }
     .msg-actions { display: inline-flex; align-items: center; gap: 2px; }
-    .msg-action-btn { background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 5px; border-radius: 5px; display: inline-flex; align-items: center; transition: color 0.12s, background 0.12s; }
-    .msg-action-btn:hover { color: var(--text); background: var(--surface-2); }
+    /* message actions are labelled ghost pills: "Regenerate" and "Fork here"
+       are not discoverable icons, and the row reads as one quiet line. */
+    .msg-action-btn { background: none; border: 1px solid transparent; color: var(--muted); cursor: pointer; padding: 3px 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; transition: color 0.12s, background 0.12s, border-color 0.12s; }
+    .msg-action-btn:hover { color: var(--text); background: var(--surface-2); border-color: var(--border); }
     .msg-action-btn svg { width: 12px; height: 12px; }
     .tool-pills { display: flex; flex-direction: column; align-items: stretch; gap: 2px; margin: 6px 0 4px; }
     /* Each tool call expands independently; cards stack vertically. */
@@ -3030,6 +3040,39 @@ public static let css: String = """
     .ws-panel.drag { box-shadow: inset 0 0 0 2px var(--accent-strong); }
     #ws-dock.drag { box-shadow: inset 0 0 0 2px var(--accent-strong); border-radius: var(--radius-sm); }
     .composer-bar.drag { box-shadow: inset 0 0 0 2px var(--accent-strong); }
+    /* Upload progress tray. The rows are client-owned (overlay.js appends the
+       tray to <body>), so they must not depend on a server fragment: a
+       workspace re-render replaces #ws-panel wholesale. */
+    .ws-uploads {
+      position: fixed; right: 14px; bottom: 14px; z-index: 900;
+      display: flex; flex-direction: column; gap: 6px;
+      width: min(320px, calc(100vw - 28px)); pointer-events: none;
+    }
+    .ws-upload {
+      pointer-events: auto; position: relative; min-width: 0;
+      display: grid; grid-template-columns: 1fr auto; gap: 2px 8px;
+      padding: 8px 10px; border-radius: 10px;
+      background: var(--surface); border: 1px solid var(--border-strong);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
+      font-size: 0.8em; cursor: pointer;
+    }
+    .ws-upload-name {
+      min-width: 0; color: var(--text);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .ws-upload-meta { grid-column: 1; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .ws-upload-bar { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+    .ws-upload-fill { display: block; height: 100%; width: 0; background: var(--accent-strong); transition: width .12s linear; }
+    .ws-upload-cancel {
+      grid-row: 1; grid-column: 2; align-self: center; justify-self: end;
+      background: transparent; border: none; padding: 0 2px;
+      color: var(--muted); font: inherit; cursor: pointer;
+    }
+    .ws-upload-cancel:hover, .ws-upload-cancel:focus-visible { color: var(--danger); }
+    .ws-upload.done .ws-upload-meta { color: var(--accent-strong); }
+    .ws-upload.error { border-color: var(--danger); }
+    .ws-upload.error .ws-upload-meta { color: var(--danger); }
+    .ws-upload.cancelled { opacity: .6; }
     .inline-edit {
       background: var(--surface); border: 1px solid var(--accent-border);
       border-radius: var(--radius-sm); color: var(--text);

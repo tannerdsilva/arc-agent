@@ -469,7 +469,9 @@ extension ArcWebUITestRoot {
 	    @Test("phase 3: user message matches golden")
 	    func phase3UserMessage() async {
 	        let app = AppState(renderFixture: .init())
-	        let html = await app.messageHTML(Self.phase3Thread()[0], rawIdx: 0).markup.html
+	        // a session id exercises the fork action: the golden must pin both
+	        // controls, not a copy-only footer.
+	        let html = await app.messageHTML(Self.phase3Thread()[0], rawIdx: 0, sessionID: "sess-a").markup.html
 	        Parity.capture(html, as: "message-user")
 	        Parity.expect(html, matches: "message-user")
 	    }
@@ -477,7 +479,7 @@ extension ArcWebUITestRoot {
 	    @Test("phase 3: assistant message with tool calls matches golden")
 	    func phase3AssistantMessage() async {
 	        let app = AppState(renderFixture: .init())
-	        let html = await app.messageHTML(Self.phase3Thread()[1], rawIdx: 1).markup.html
+	        let html = await app.messageHTML(Self.phase3Thread()[1], rawIdx: 1, sessionID: "sess-a").markup.html
 	        Parity.capture(html, as: "message-assistant-tools")
 	        Parity.expect(html, matches: "message-assistant-tools")
 	    }
@@ -485,7 +487,7 @@ extension ArcWebUITestRoot {
 	    @Test("phase 3: assistant message with usage matches golden")
 	    func phase3AssistantUsage() async {
 	        let app = AppState(renderFixture: .init())
-	        let html = await app.messageHTML(Self.phase3Thread()[3], rawIdx: 3).markup.html
+	        let html = await app.messageHTML(Self.phase3Thread()[3], rawIdx: 3, sessionID: "sess-a").markup.html
 	        Parity.capture(html, as: "message-assistant-usage")
 	        Parity.expect(html, matches: "message-assistant-usage")
 	    }
@@ -502,7 +504,7 @@ extension ArcWebUITestRoot {
 	    func phase3TurnBlock() async {
 	        let app = AppState(renderFixture: .init())
 	        let seg = Array(Self.phase3Thread()[1...3])
-	        let html = await app.turnBlockHTML(seg, mode: "compact_worklog", turnIndex: 1).map { render($0) } ?? ""
+	        let html = await app.turnBlockHTML(seg, mode: "compact_worklog", turnIndex: 1, sessionID: "sess-a").map { render($0) } ?? ""
 	        Parity.capture(html, as: "turn-block")
 	        Parity.expect(html, matches: "turn-block")
 	    }
@@ -630,7 +632,7 @@ extension ArcWebUITestRoot {
 	    func assistantMessageMatchesGolden() async {
 	        let app = AppState(renderFixture: .init())
 	        let m = Message(role: .assistant, content: "Hello, world")
-	        let html = await app.messageHTML(m).markup.html
+	        let html = await app.messageHTML(m, rawIdx: 0, sessionID: "sess-a").markup.html
 	        Parity.capture(html, as: "assistantMessage")
 	        Parity.expect(html, matches: "assistantMessage")
 	    }

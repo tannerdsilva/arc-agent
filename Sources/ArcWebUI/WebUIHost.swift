@@ -180,10 +180,30 @@ public struct WebUIHost: Service {
                 AppShell.Assets.sheet.registration,
                 AppShell.Assets.overlay.registration,
             ],
-            // Uploads ride a hidden form whose `upl-b64` field carries the
-            // file base64-encoded. No size cap on uploads (user request), so
-            // the body limit is off.
+            // Workspace uploads stream over their own HTTP route with a
+            // token-bound budget; the socket body limit stays off so large
+            // request payloads elsewhere are not truncated (user request).
             maxBodyBytes: .max,
+        )
+    }
+
+    /// the page document this host renders, from the config the server is built with.
+    ///
+    /// `maxFrameBytes` is read from `config.maxFrameSize` at the one place the page
+    /// is assembled, so the budget the engine refuses on and the budget the socket
+    /// enforces are the same number: a host that tunes the server cannot leave the
+    /// page publishing the old one.
+    static func pageDocument(
+        config: WebUIServerConfig,
+        sheetURL: String,
+        overlayURL: String,
+        renderToken: String? = nil
+    ) -> @Sendable (UnsafeMarkup, String) -> WebUI.HTMLDocument {
+        AppShell.makeDocument(
+            sheetURL: sheetURL,
+            overlayURL: overlayURL,
+            renderToken: renderToken,
+            maxFrameBytes: config.maxFrameSize
         )
     }
 
@@ -194,6 +214,9 @@ public struct WebUIHost: Service {
         WebUILogging.install()
         let logger = Logger(label: "arc-agent.webui")
         logger.info("starting (pid \(ProcessInfo.processInfo.processIdentifier))")
+        // one config value reaches the server and the page it serves: the frame
+        // budget the page publishes is the one the socket enforces.
+        let config = serverConfig
 
         // Sidecar plugins answer host-side channel requests through the
         // app state; attach before the first render (their activate/render
@@ -293,32 +316,54 @@ public struct WebUIHost: Service {
         // The theme attributes belong on `<html>`, not on `#app`: the engine writes them on
         // `documentElement` and the theme is scoped to `:root`. `themeAttrs` is the server's
         // default, which the engine overrides from storage before first paint.
-        let makeDocument = AppShell.makeDocument(sheetURL: sheet.url, overlayURL: overlay.url)
+        let makeDocument = Self.pageDocument(config: config, sheetURL: sheet.url, overlayURL: overlay.url)
+        // the tokens this host served, so `POST /api/upload` can tell a page it
+        // rendered from a request that never loaded one. Bounded (see
+        // `UploadTokenStore`): a daemon runs for weeks.
+        let uploadTokens = UploadTokenStore()
         // The page is a typed value now, not a string: this provider answers the
         // document itself and `Route.page` hands it to the server, which renders
         // it inside the render context the server owns. That is the 2.0 shape the
         // deprecated `requestRender:` init predates — and the reason arc needs no
         // materializer of its own.
-        let pageProvider: @Sendable (String?) async -> WebUI.HTMLDocument = { [app] deepLink in
+        //
+        // The token is the one THIS response was minted for: it goes into the
+        // document's `webui-config` meta (so the page can echo it on an upload)
+        // and into the store the upload route validates against.
+        let pageProvider: @Sendable (String?, String) async -> WebUI.HTMLDocument = { [app] deepLink, renderToken in
             if let sid = deepLink, !sid.isEmpty {
                 await app.openDeepLink(sid)
             }
             await app.armScrollToBottom()
             let shell = await app.appShell()
-            return makeDocument(shell.markup, AppShell.themeAttrs(await app.themeDefaults()))
+            return Self.pageDocument(
+                config: config,
+                sheetURL: sheet.url,
+                overlayURL: overlay.url,
+                renderToken: renderToken
+            )(shell.markup, AppShell.themeAttrs(await app.themeDefaults()))
         }
 
         // "/" is the page. "/index.html" was its alias before the router existed
         // and stays one, so an old deep link keeps resolving (the deprecated
         // render inits added it for the same reason).
+        //
+        // Both page routes record the token they serve; the upload route is the
+        // one POST arc answers itself (streamed to disk, never buffered).
         let pageRouter = Router {
-            Route.page("/") { request in
+            WorkspaceUpload.pageRoute("/", tokens: uploadTokens) { deepLink, token in
                 // ?s=<id> opens that conversation directly (copy-link flow).
-                await pageProvider(request.query["s"])
+                await pageProvider(deepLink, token)
             }
-            Route.page("/index.html") { _ in
-                await pageProvider(nil)
+            WorkspaceUpload.pageRoute("/index.html", tokens: uploadTokens) { _, token in
+                await pageProvider(nil, token)
             }
+            WorkspaceUpload.uploadRoute(
+                root: { [app] in await app.workspaceRootURL() },
+                tokenStore: uploadTokens,
+                limit: WorkspaceUpload.configuredCap,
+                onUploaded: { [app] in await app.clearWorkspaceTreeCache() }
+            )
         }
 
         // `eventRouter:` hands the server the router arc wires by hand: the
@@ -327,7 +372,7 @@ public struct WebUIHost: Service {
         let server = WebUIServer(
             router: pageRouter,
             eventRouter: router,
-            config: serverConfig,
+            config: config,
             logger: logger
         )
 

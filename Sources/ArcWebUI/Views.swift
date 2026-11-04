@@ -1323,7 +1323,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         // otherwise `data-follow` lands on `.chat-scroll-wrap`.
         let scroller = ChatScroll {
             ChatInner {
-                messagesHTML(session?.messages ?? [])
+                messagesHTML(session?.messages ?? [], sessionID: session?.id)
             }
             .id("chat-inner")
         }
@@ -1408,13 +1408,19 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
     }
 
-    func messagesHTML(_ messages: [Message]) -> some WebUI.View {
+    /// The transcript rows.
+    ///
+    /// `sessionID` is the conversation the rows belong to; it is what the
+    /// fork-here action encodes. nil renders a read-only copy of a transcript
+    /// (a task thread): copy stays available, fork does not — see
+    /// `userMessageActions(for:rawIdx:sessionID:)`.
+    func messagesHTML(_ messages: [Message], sessionID: String? = nil) -> some WebUI.View {
         var blocks: [any WebUI.View] = []
         var i = 0
         let mode = settings.activityDisplay
         while i < messages.count {
             if messages[i].role == .user {
-                blocks.append(messageHTML(messages[i], rawIdx: i))
+                blocks.append(messageHTML(messages[i], rawIdx: i, sessionID: sessionID))
                 i += 1
                 continue
             }
@@ -1427,10 +1433,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             var j = i
             while j < messages.count, messages[j].role != .user { j += 1 }
             let seg = Array(messages[i..<j])
-            if let block = turnBlockHTML(seg, mode: mode, turnIndex: i) {
+            if let block = turnBlockHTML(seg, mode: mode, turnIndex: i, sessionID: sessionID) {
                 blocks.append(block)
             } else {
-                blocks.append(contentsOf: legacySegmentHTML(seg, mode: mode))
+                blocks.append(contentsOf: legacySegmentHTML(seg, mode: mode, baseIndex: i, sessionID: sessionID))
             }
             i = j
         }
@@ -1602,7 +1608,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
     }
 
-    func turnBlockHTML(_ seg: [Message], mode: String, turnIndex: Int) -> (any WebUI.View)? {
+    func turnBlockHTML(_ seg: [Message], mode: String, turnIndex: Int, sessionID: String? = nil) -> (any WebUI.View)? {
         guard mode == "compact_worklog" || mode == "transparent_stream" else { return nil }
         guard let finalIdx = seg.lastIndex(where: { $0.role == .assistant && ($0.toolCalls ?? []).isEmpty }) else { return nil }
         var rounds: [(Message, [String: String])] = []
@@ -1711,7 +1717,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     if let reason = finalMsg.terminalReason {
                         terminalCardHTML(for: reason)
                     }
-                    msgFootHTML(finalMsg)
+                    msgFootHTML(finalMsg, rawIdx: turnIndex + finalIdx, sessionID: sessionID)
                 }
                 .attribute("style", "max-width:100%;width:100%")
             }
@@ -1722,7 +1728,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
 
     /// Legacy per-piece rendering for a completed assistant segment (used when
     /// `turnBlockHTML` declines — e.g. stop/error trunks, hide mode).
-    func legacySegmentHTML(_ seg: [Message], mode: String) -> [any WebUI.View] {
+    func legacySegmentHTML(_ seg: [Message], mode: String, baseIndex: Int, sessionID: String? = nil) -> [any WebUI.View] {
         var out: [any WebUI.View] = []
         var i = 0
         while i < seg.count {
@@ -1738,7 +1744,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 i = j
                 continue
             }
-            out.append(messageHTML(m))
+            out.append(messageHTML(m, rawIdx: baseIndex + i, sessionID: sessionID))
             i += 1
         }
         return out
@@ -1824,15 +1830,17 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
     }
 
-    func messageHTML(_ m: Message, rawIdx: Int = -1) -> some WebUI.View {
+    func messageHTML(_ m: Message, rawIdx: Int = -1, sessionID: String? = nil) -> some WebUI.View {
         return Group {
             switch m.role {
             case .user:
                 // Slash-command rewrites (skill invocation scaffolding) keep the
                 // typed line as the display text; the model sees `content`.
                 let content = m.displayText ?? m.content ?? ""
+                let actions = userMessageActions(for: m, rawIdx: rawIdx, sessionID: sessionID)
                 let bubble = Div(class: ClassName(.msg, .user)) {
                     Div(class: ClassName(.msgBody, .userBubble)) { TrustedMarkup(mdBox(content), from: .markdown) }
+                    messageActionsHTML(actions)
                 }
                 if rawIdx >= 0 {
                     bubble.id("msg-user-\(rawIdx)")
@@ -1850,7 +1858,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         if let reason = m.terminalReason {
                             terminalCardHTML(for: reason)
                         }
-                        msgFootHTML(m)
+                        msgFootHTML(m, rawIdx: rawIdx, sessionID: sessionID)
                     }
                     .attribute("style", "max-width:100%;width:100%")
                 }
@@ -2268,16 +2276,11 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         return f.string(from: d)
     }
 
-    func msgFootHTML(_ m: Message) -> some WebUI.View {
-        Div(class: .msgFoot) {
-            Span(class: .msgActions) {
-                ArcButton(id: nil, component: nil, class: "msg-copy-btn msg-action-btn", tabIndex: -1) {
-                    WebUIIcon(.copy, size: .small)
-                }
-                .data("copy", m.content ?? "")
-                .title("Copy response")
-            }
-        }
+    /// The hover footer under an assistant reply: copy, regenerate, fork here.
+    /// `rawIdx` is the reply's index in the session transcript; without a
+    /// session/index (a render fixture, a task thread) only copy is offered.
+    func msgFootHTML(_ m: Message, rawIdx: Int = -1, sessionID: String? = nil) -> some WebUI.View {
+        messageActionsHTML(assistantMessageActions(for: m, rawIdx: rawIdx, sessionID: sessionID))
     }
 
     // MARK: - Context window indicator (arc parity)

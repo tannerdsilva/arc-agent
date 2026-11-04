@@ -243,7 +243,13 @@ extension AppState {
     func storeComposerDraft(_ text: String, sessionID: String) {
         if let submitted = submittedDrafts[sessionID],
            Date().timeIntervalSince(submitted.at) < Self.draftSubmitGuardWindow,
-           submitted.text == text {
+           // Compared trimmed: the field can hold more than the submit carried.
+           // The slash palette completes `/help` to `/help ` and Enter sends that
+           // — the guard recorded the trimmed spelling, the trailing input frame
+           // carried the padded one, and the draft came back after the client had
+           // already cleared the composer.
+           submitted.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            == text.trimmingCharacters(in: .whitespacesAndNewlines) {
             return
         }
         settings.composerDrafts[sessionID] = text
@@ -1038,75 +1044,6 @@ extension AppState {
             _ = hint("Created '\(name)'.")
         } catch {
             _ = hint("Could not create '\(name)': \(error.localizedDescription)", kind: "error")
-        }
-    }
-
-    /// Write an uploaded file (base64 payload) into the workspace at relPath.
-    func uploadWorkspaceFile(name: String, relPath: String, b64: String) {
-        guard !relPath.components(separatedBy: "/").contains("..") else {
-            _ = hint("Upload rejected: invalid path.", kind: "error")
-            return
-        }
-        guard let data = Data(base64Encoded: b64) else {
-            _ = hint("Upload failed: could not decode \(name).", kind: "error")
-            return
-        }
-        let dest = workspaceRootURL().appendingPathComponent(relPath)
-        let fm = FileManager.default
-        do {
-            try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: dest)
-            clearWorkspaceTreeCache()
-            _ = hint("Uploaded \(dest.lastPathComponent).")
-        } catch {
-            _ = hint("Upload failed for \(name): \(error.localizedDescription)", kind: "error")
-        }
-    }
-
-    /// Write a composer-dropped or pasted file into the active chat's
-    /// workspace under `attachments/` and attach its absolute path to the
-    /// next message. Unlike ``uploadWorkspaceFile`` this never overwrites:
-    /// an existing name gets a numeric suffix before the extension.
-    func composerAttachUpload(name: String, relPath: String, b64: String) {
-        var rel = relPath
-        while rel.hasPrefix("/") { rel.removeFirst() }
-        guard !rel.isEmpty, !rel.components(separatedBy: "/").contains("..") else {
-            _ = hint("Attach rejected: invalid path.", kind: "error")
-            return
-        }
-        guard let data = Data(base64Encoded: b64) else {
-            _ = hint("Attach failed: could not decode \(name).", kind: "error")
-            return
-        }
-        let fm = FileManager.default
-        let baseDir = workspaceRootURL().appendingPathComponent("attachments")
-        let dest = baseDir.appendingPathComponent(rel)
-        guard dest.standardizedFileURL.path.hasPrefix(baseDir.standardizedFileURL.path) else {
-            _ = hint("Attach rejected: invalid path.", kind: "error")
-            return
-        }
-        let final: URL
-        if fm.fileExists(atPath: dest.path) {
-            let ext = dest.pathExtension
-            let stem = dest.deletingPathExtension().lastPathComponent
-            var n = 2
-            var candidate = baseDir.appendingPathComponent("\(stem)-\(n).\(ext)")
-            while fm.fileExists(atPath: candidate.path) {
-                n += 1
-                candidate = baseDir.appendingPathComponent("\(stem)-\(n).\(ext)")
-            }
-            final = candidate
-        } else {
-            final = dest
-        }
-        do {
-            try fm.createDirectory(at: final.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: final)
-            clearWorkspaceTreeCache()
-            addAttachment(final.path)
-            _ = hint("Attached \(final.lastPathComponent).")
-        } catch {
-            _ = hint("Attach failed for \(name): \(error.localizedDescription)", kind: "error")
         }
     }
 

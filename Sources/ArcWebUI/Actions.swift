@@ -561,7 +561,8 @@ extension AppState {
         headless: Bool = false,
         selectAfter: Bool = true,
         displayText: String? = nil,
-        consumesDraft: Bool = true
+        consumesDraft: Bool = true,
+        usePendingAttachments: Bool = true
     ) async {
         // Bind to the session the message was typed into — the active session
         // may change while the Task is queued or while another chat runs.
@@ -574,7 +575,7 @@ extension AppState {
         await ensureSessionMessages(sessionID)
         var session = sessions[idx]
 
-        let atts = attachments
+        let atts = usePendingAttachments ? attachments : []
         var userContent = raw
         if !atts.isEmpty {
             // arc parity: image attachments are described by the active
@@ -616,7 +617,11 @@ extension AppState {
         let turn = LiveTurn(sessionID: sessionID, userText: raw, attachments: atts)
         activeTurns[sessionID] = turn
         pendingDelete = false
-        attachments = []
+        // A regenerate asks an old prompt: the composer's staged attachments
+        // are for the reader's NEXT message and must survive the turn.
+        if usePendingAttachments {
+            attachments = []
+        }
         // Remember what this submit consumed before clearing the draft: a
         // trailing input frame still carrying the sent text must not
         // resurrect it (the engine's debounce can land it after this clear).
@@ -1328,6 +1333,7 @@ final class Controller: Sendable {
         await wireNav(router)
         wireChat(router)
         wireChatMenu(router)
+        wireMessageActions(router)
         wireSkills(router)
         wireProfiles(router)
         wireTools(router)
@@ -2125,6 +2131,66 @@ extension Controller {
     }
 }
 
+@WireGroup("message_actions")
+extension Controller {
+    /// The footer actions under a message.
+    ///
+    /// copy never arrives here — the overlay owns `[data-copy]`, so a copy
+    /// click carries no `targetId` this wire can act on. the server actions do:
+    /// `fork-<session>.<index>` and `regen-<session>.<index>` name the
+    /// conversation and the cut point.
+    @Wired("msg-actions", events: [.click])
+    func handleMessageAction(_ event: EventData) async -> [FragmentUpdate] {
+        guard let targetID = event.string("targetId") else { return [] }
+        if let target = MessageAction.forkTarget(in: targetID) {
+            return await forkAt(target.sessionID, messageIndex: target.messageIndex)
+        }
+        if let target = MessageAction.regenerateTarget(in: targetID) {
+            return await regenerateAt(target.sessionID, messageIndex: target.messageIndex)
+        }
+        return []
+    }
+
+    /// fork-here: open a new chat that keeps the transcript through the clicked
+    /// message. the source chat is never touched (see `AppState.forkSession`).
+    private func forkAt(_ sessionID: String, messageIndex: Int) async -> [FragmentUpdate] {
+        guard await self.app.forkSession(sessionID, throughMessageAt: messageIndex) != nil else {
+            _ = await self.app.hint("Couldn't fork from that message.", kind: "error")
+            return await self.changed()
+        }
+        return await self.changed()
+    }
+
+    /// regenerate: re-ask the prompt behind the clicked reply as a new turn.
+    ///
+    /// the checks run before the turn is spawned so a refusal can toast on this
+    /// response; the turn itself is fire-and-forget like a normal send, or the
+    /// click's response would wait for the whole streamed reply.
+    private func regenerateAt(_ sessionID: String, messageIndex: Int) async -> [FragmentUpdate] {
+        guard await self.app.activeSessionID == sessionID else {
+            _ = await self.app.hint("Open that chat to regenerate its reply.", kind: "error")
+            return await self.changed()
+        }
+        guard await !self.app.isTurnActive(sessionID: sessionID) else {
+            _ = await self.app.hint("Stop the current response before regenerating.", kind: "error")
+            return await self.changed()
+        }
+        guard let prompt = await self.app.regenerationPrompt(
+            sessionID: sessionID, assistantIndex: messageIndex
+        ) else {
+            _ = await self.app.hint("Couldn't find the prompt for that reply.", kind: "error")
+            return await self.changed()
+        }
+        let pusher = push
+        Task {
+            await self.app.startRegeneration(
+                sessionID: sessionID, prompt: prompt, pusher: pusher
+            )
+        }
+        return await self.changed()
+    }
+}
+
 @WireGroup("workspaces")
 extension Controller {
     @Wired("ws-new", events: [.click])
@@ -2358,6 +2424,12 @@ extension Controller {
         wireGroup_ctxpane(router)
     }
 
+    /// User-message footer actions (fork-here): a chat-panel wire, but not the
+    /// chat row menu's — keep the registrars one per surface.
+    private func wireMessageActions(_ router: EventRouter) {
+        wireGroup_message_actions(router)
+    }
+
     private func newChat() async {
         await app.ensureRuntime()
         // Reuse the current chat when it is still a pristine "New chat":
@@ -2409,7 +2481,21 @@ extension Controller {
         // Builtin slash commands are resolved locally (arc agent webui
         // COMMANDS) before anything else, including while a turn is running.
         if trimmed.hasPrefix("/") {
+            // The session the command was typed in, captured before the command
+            // runs (`/new` switches to a different one).
+            let slashSession = await app.activeSessionID
             if let updates = await handleBuiltinSlashCommand(trimmed) {
+                // A builtin runs locally, so there is no turn to consume the
+                // draft the way `runTurn` and the queued-send branch do. Left
+                // alone, the command stays in the composer and the next Enter
+                // runs it a second time — `/help` twice produced two transcript
+                // rows in the browser. Same two calls as the queued path, so a
+                // trailing input frame (the engine debounces) cannot resurrect
+                // the text either.
+                if let slashSession {
+                    await app.noteSubmittedDraft(trimmed, sessionID: slashSession)
+                    await app.storeComposerDraft("", sessionID: slashSession)
+                }
                 return updates
             }
         }
@@ -3525,23 +3611,12 @@ extension Controller {
         return await self.workspaceAction(tid)
     }
 
-    @Wired("workspace-upload", events: [.submit])
-    func handleWorkspaceUpload(_ event: EventData) async -> [FragmentUpdate] {
-        let name = event.string("upl-name") ?? ""
-        let path = event.string("upl-path") ?? ""
-        let b64 = event.string("upl-b64") ?? ""
-        guard !path.isEmpty, !b64.isEmpty else { return [] }
-        await self.app.uploadWorkspaceFile(name: name, relPath: path, b64: b64)
-        return await self.changed()
-    }
-
-    @Wired("composer-attach", events: [.submit])
-    func handleComposerAttach(_ event: EventData) async -> [FragmentUpdate] {
-        let name = event.string("upl-name") ?? ""
-        let rel = event.string("upl-rel") ?? ""
-        let b64 = event.string("upl-b64") ?? ""
-        guard !rel.isEmpty, !b64.isEmpty else { return [] }
-        await self.app.composerAttachUpload(name: name, relPath: rel, b64: b64)
+    /// A streamed upload writes the file and clears the tree cache, but an HTTP
+    /// route returns no `FragmentUpdate`, so nothing repaints on its own. The
+    /// client sends this event after a 200; the handler carries no payload and
+    /// does nothing but ask the door for a fresh render.
+    @Wired("workspace-refresh", events: [.click])
+    func handleWorkspaceRefresh(_ event: EventData) async -> [FragmentUpdate] {
         return await self.changed()
     }
 
