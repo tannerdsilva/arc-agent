@@ -1757,17 +1757,28 @@
   // No FileReader, no base64, no frame — a file is no longer a message.
   // (`fetch` cannot report upload progress; a 2 GB transfer must show it.)
 
-  // The page's render token rides the `webui-config` meta
-  // (`AppShell.makeDocument` writes it) and the upload route refuses every
-  // other credential. Parsed once and cached; a missing or malformed meta
-  // becomes a row error, never a thrown exception in the drop handler.
+  // The page's upload token rides its OWN meta (`arc-upload-token`,
+  // written by `AppShell.makeDocument`) and the upload route refuses every
+  // other credential. It is deliberately not part of `webui-config`: a
+  // `renderToken` there makes the engine echo the token on every event, and
+  // the server then routes each event into that render's session — where a
+  // host that wires once at boot has no handlers, so every control goes dead.
+  // Parsed once and cached; a missing or malformed meta becomes a row error,
+  // never a thrown exception in the drop handler.
   var wsUploadToken = null;
   var wsUploadTokenParsed = false;
 
   function uploadToken() {
     if (wsUploadTokenParsed) return wsUploadToken;
     wsUploadTokenParsed = true;
-    var meta = document.querySelector('meta[name="webui-config"]');
+    var meta = document.querySelector('meta[name="arc-upload-token"]');
+    var value = meta ? meta.getAttribute('content') : '';
+    if (value) {
+      wsUploadToken = value;
+      return wsUploadToken;
+    }
+    // older served page: the token still lives in the runtime config.
+    meta = document.querySelector('meta[name="webui-config"]');
     var raw = meta ? meta.getAttribute('content') : '';
     if (!raw) return wsUploadToken;
     try {

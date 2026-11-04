@@ -94,11 +94,14 @@ private struct UploadHarness {
     }
 
     static func token(inPage page: String) -> String? {
-        // the meta value is attribute-escaped: `{&quot;renderToken&quot;:&quot;…&quot;}`
-        let marker = "renderToken&quot;:&quot;"
+        // The upload token rides its own meta (`arc-upload-token`), never the
+        // `webui-config` runtime config: a `renderToken` there is echoed on every
+        // event frame, and the server then dispatches into a render session a
+        // hand-wired host has no handlers in.
+        let marker = "<meta name=\"arc-upload-token\" content=\""
         guard let start = page.range(of: marker) else { return nil }
         let rest = page[start.upperBound...]
-        guard let end = rest.range(of: "&quot;") else { return nil }
+        guard let end = rest.range(of: "\"") else { return nil }
         let value = String(rest[..<end.lowerBound])
         return value.isEmpty ? nil : value
     }
@@ -412,8 +415,18 @@ struct UploadRouteTests {
             #expect(!token.isEmpty)
             #expect(await harness.tokenStore.contains(token), "the page's token was not recorded by the page route")
             #expect(
-                page.contains("&quot;renderToken&quot;:&quot;\(token)&quot;"),
-                "the page did not publish its token in the webui-config meta"
+                page.contains("name=\"arc-upload-token\" content=\"\(token)\""),
+                "the page did not publish its upload token in the arc-upload-token meta"
+            )
+            // The token must NOT ride the runtime config. `RuntimeConfig.renderToken`
+            // makes the engine echo it on every event frame, and the server then
+            // resolves each frame to the render session that token names — where a
+            // host that wires once at boot (arc's `Controller.wireAll`) has no
+            // handlers. The observable failure is total: every click, send and menu
+            // is answered with nothing at all and no error on either side.
+            #expect(
+                !page.contains("&quot;renderToken&quot;:&quot;"),
+                "the token must not ride webui-config: token-bound frames route to an empty render session"
             )
             // the token reaches the page through `makeDocument`, and only when
             // it is handed one — a page rendered without a token must not
