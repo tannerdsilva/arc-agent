@@ -2190,7 +2190,26 @@
           b.innerHTML = '✓';
           setTimeout(function () { b.innerHTML = orig; }, 1500);
         }
-      }, function () { });
+      }, function () {
+        // A refused write (clipboard permission denied, an insecure context, a
+        // browser that blocks the async API) used to fail in complete silence:
+        // the label stayed "Copy" and nothing said the text never left the
+        // page. The control owns the outcome, so it says so in place, and the
+        // toast explains why.
+        var label = b.querySelector('[data-copy-label]');
+        if (label) {
+          var origLabel = label.textContent;
+          label.textContent = 'Failed';
+          setTimeout(function () { label.textContent = origLabel; }, 2000);
+        } else {
+          var orig = b.innerHTML;
+          b.innerHTML = '✕';
+          setTimeout(function () { b.innerHTML = orig; }, 2000);
+        }
+        flashToast('Could not copy — the browser blocked clipboard access.', 'error');
+      });
+    } else {
+      flashToast('Could not copy — this browser has no clipboard access.', 'error');
     }
   });
 
