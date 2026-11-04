@@ -215,7 +215,7 @@ extension AppState {
                         ArcButton(a.label, id: "ta-\(a.id)-\(t.id)", component: nil, class: .toastAction)
                     }
                     ArcButton(id: "t-\(t.id)", component: nil, class: .toastX) {
-                        WebUIIcon(.x, size: .small)
+                        WebUIIcon(.x, size: .medium)
                     }
                 }
             }

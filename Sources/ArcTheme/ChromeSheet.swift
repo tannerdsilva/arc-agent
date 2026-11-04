@@ -2564,7 +2564,7 @@ public static let css: String = """
       pointer-events: auto;
     }
     .toast .toast-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: 0 0 8px; }
-    .toast .toast-x { border: none; background: none; color: var(--muted); opacity: 0.7; cursor: pointer; font-size: 0.95em; }
+    .toast .toast-x { border: none; background: none; color: var(--muted); opacity: 0.9; cursor: pointer; font-size: 1.25em; line-height: 1; padding: 0 3px; }
     .toast .toast-x:hover { opacity: 1; }
     /* Success confirms (copied / deleted / saved): green, never red. */
     .toast.success {
