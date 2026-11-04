@@ -1845,20 +1845,19 @@ public actor ArcAgent: Service {
         logger.info("compression: running (estimated ~\(estimated) tokens, limit \(limit))")
 
         // The fixed part of the request (system prompt + tool schemas) is the
-        // one quantity compression cannot touch. If it ALONE meets the
-        // effective limit, no compression result can ever fit: the pass would
-        // run with a zero history budget — an empty summary record and a
-        // clamped-away tail that erases the pending user prompt (observed in
-        // a 20.5k profile whose scaffold is ~13.7k). Prompts still run while
-        // the provider accepts the request — nothing here blocks a turn —
-        // but compression is refused instead of silently destroying history.
+        // one quantity compression cannot touch. When it ALONE meets the
+        // effective limit, no compression result can ever FIT the limit — but
+        // the request can still be made smaller. Instead of refusing, the
+        // engine runs an emergency minimize pass: head protection is dropped,
+        // everything except the latest user turn is summarized, and the
+        // zero-budget clamp is skipped (it would erase the tail). The request
+        // may remain over the limit — the provider is still the hard ceiling —
+        // but it is as small as the scaffold allows.
         let scaffoldOverhead = await fixedOverheadTokens()
-        guard scaffoldOverhead < limit else {
-            if !warnedFixedOverheadExceedsLimit {
-                warnedFixedOverheadExceedsLimit = true
-                logger.warning("compression impossible: fixed overhead (~\(scaffoldOverhead) tokens) meets or exceeds the effective limit (\(limit)); history is never compressed and may grow until the provider rejects it — shrink the profile's toolset/system prompt or raise its context window")
-            }
-            return
+        let overheadWall = scaffoldOverhead >= limit
+        if overheadWall, !warnedFixedOverheadExceedsLimit {
+            warnedFixedOverheadExceedsLimit = true
+            logger.warning("compression constrained: fixed overhead (~\(scaffoldOverhead) tokens) meets or exceeds the effective limit (\(limit)); compressing what it can, but the request can never fit the limit — shrink the profile's toolset/system prompt or raise its context window")
         }
 
         // Pluggable context engines (reference context_engine): the
@@ -1879,7 +1878,9 @@ public actor ArcAgent: Service {
         // `fixedOverheadTokens` is the same quantity
         // `estimateRequestTokens` adds, so the two always agree.
         let overhead = scaffoldOverhead
-        let historyBudget = ContextCompression.RequestBudget(limit: limit, overhead: overhead).historyBudget
+        let historyBudget = overheadWall
+            ? 0
+            : ContextCompression.RequestBudget(limit: limit, overhead: overhead).historyBudget
         // Blank platform-echo user rows trailing the latest actionable turn
         // are stripped first — before any abort point, so even an aborted
         // compression keeps this win (reference Phase 1 tail).
@@ -1902,22 +1903,42 @@ public actor ArcAgent: Service {
         // Tail and summary protection: both are carved out of the history
         // budget so head + summary + tail always fit it (reference compress()
         // steps 2-4, made overhead-aware).
-        let protectFirst = compressionRuns == 0 ? 2 : 0
+        // Emergency passes drop head protection entirely — the goal is to
+        // minimize, not to fit.
+        let protectFirst = overheadWall ? 0 : (compressionRuns == 0 ? 2 : 0)
         let headTokens = tokenCounter.count(
             messages: Array(nonSystem.prefix(min(protectFirst, nonSystem.count))),
             model: config.model
         )
-        let sizes = ContextCompression.budgets(
-            historyBudget: historyBudget,
-            headTokens: headTokens,
-            compressibleTokens: nonSystemTokens
-        )
-        let window = ContextCompression.window(
-            nonSystem,
-            tailBudget: sizes.tail,
-            protectFirst: protectFirst,
-            countTokens: { [config] text in tokenCounter.count(text, model: config.model) }
-        )
+        // Under the wall there is no tail budget (the tail is just the pinned
+        // latest user turn) and the summary takes the normal ceiling, bounded
+        // by the material it replaces.
+        let sizes = overheadWall
+            ? (tail: 0, summary: min(6_000, nonSystemTokens))
+            : ContextCompression.budgets(
+                historyBudget: historyBudget,
+                headTokens: headTokens,
+                compressibleTokens: nonSystemTokens
+            )
+        let window: (head: [Message], middle: [Message], tail: [Message])
+        if overheadWall {
+            // Split manually: everything before the latest user message is
+            // summarized; the latest user turn (plus any trailing tool rows
+            // of its turn) is the tail. Head protection is already zero.
+            let lastUser = nonSystem.lastIndex(where: { $0.role == .user }) ?? nonSystem.count
+            window = (
+                head: [],
+                middle: Array(nonSystem.prefix(lastUser)),
+                tail: Array(nonSystem.suffix(nonSystem.count - lastUser))
+            )
+        } else {
+            window = ContextCompression.window(
+                nonSystem,
+                tailBudget: sizes.tail,
+                protectFirst: protectFirst,
+                countTokens: { [config] text in tokenCounter.count(text, model: config.model) }
+            )
+        }
         var head = window.head
         var middle = window.middle
         var tail = window.tail
@@ -1938,18 +1959,21 @@ public actor ArcAgent: Service {
 
         // Pass 4 — pressure demotion: fires only when the protected region
         // alone exceeds tail budget × 1.5; overrides skill protections and
-        // keeps a short recent floor verbatim.
-        let pressure = ContextCompression.pressureDemote(
-            head,
-            tail,
-            tailBudget: sizes.tail,
-            countTokens: { [config] text in tokenCounter.count(text, model: config.model) }
-        )
-        if pressure.fired {
-            head = pressure.head
-            tail = pressure.tail
-            messageHistory = systemMessages + head + middle + tail
-            await applyCompactedHistory()
+        // keeps a short recent floor verbatim. Emergency passes skip it —
+        // there is nothing protected left to demote.
+        if !overheadWall {
+            let pressure = ContextCompression.pressureDemote(
+                head,
+                tail,
+                tailBudget: sizes.tail,
+                countTokens: { [config] text in tokenCounter.count(text, model: config.model) }
+            )
+            if pressure.fired {
+                head = pressure.head
+                tail = pressure.tail
+                messageHistory = systemMessages + head + middle + tail
+                await applyCompactedHistory()
+            }
         }
 
         // Record "ineffective" when nothing compressible remains
@@ -2064,19 +2088,25 @@ public actor ArcAgent: Service {
         let candidate = ContextCompression.orphanCleanup(
             newSystem + [summaryMessage] + head + tail
         )
-        // Hard guarantee: the pass returns a history the full request budget
-        // can hold, so the next iteration does not compress again. The tail
+        // Hard guarantee (normal passes): the result fits the full request
+        // budget so the next iteration does not compress again. The tail
         // budget can overshoot by one large message; this trims the oldest.
         // Cleanup runs again afterwards: a trimmed assistant tool-call row
         // would otherwise leave its tool result orphaned on the wire.
-        messageHistory = ContextCompression.orphanCleanup(
-            ContextCompression.clampToBudget(
+        // Emergency passes skip the clamp — their budget is zero by
+        // definition and clamping would erase the pinned latest-user tail.
+        let clamped: [Message]
+        if overheadWall {
+            clamped = candidate
+        } else {
+            clamped = ContextCompression.clampToBudget(
                 candidate,
                 protectedPrefix: newSystem.count + 1 + head.count,
                 budget: historyBudget,
                 countTokens: { [config] text in tokenCounter.count(text, model: config.model) }
             )
-        )
+        }
+        messageHistory = ContextCompression.orphanCleanup(clamped)
         // The provider count measured the PRE-compression request; keeping it
         // would re-fire compression on the next iteration no matter how small
         // the new history is. The next successful request repopulates it.

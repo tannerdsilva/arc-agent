@@ -126,12 +126,13 @@ extension ArcCoreTestRoot {
             #expect(prompt.contains("Conversation started:"))
         }
 
-        @Test("compression is refused when fixed overhead meets the effective limit")
-        func compressionRefusedWhenOverheadMeetsLimit() async throws {
+        @Test("overhead wall: compresses what it can instead of refusing")
+        func overheadWallCompressesWhatItCan() async throws {
             // Tiny context (limit 150) with a real registry (~800 overhead):
-            // no compression result could ever fit. The engine must refuse to
-            // run rather than emit an empty summary record and clamp away the
-            // pending user prompt (the observed silent-history-loss bug).
+            // no compression result can ever FIT the limit. The engine must
+            // still minimize — summarize everything except the latest user
+            // turn — rather than refuse and let history grow forever. The
+            // latest user prompt is immutable and must reach the model.
             let store = tempStore()
             let sid = "overhead-wall"
             var initial: [Message] = []
@@ -151,16 +152,20 @@ extension ArcCoreTestRoot {
 
             let calls = box.recordedCalls()
             guard let sent = calls.first else { return }
-            // No compression summary was injected…
+            // An emergency summary record exists — the wall no longer refuses.
             let summary = sent.filter {
                 $0.role == .system
                     && ($0.content ?? "").hasPrefix(ArcAgent.compressionSummaryPrefix)
             }
-            #expect(summary.isEmpty)
-            // …and the turn still ran: the full history went out untouched
-            // (prompts are never blocked — the provider owns the hard limit).
-            #expect(sent.filter { $0.role != .system }.count >= 60)
-            #expect(sent.last?.content == "hello")
+            #expect(summary.count == 1,
+                "expected an emergency summary; got \(sent.filter { $0.role == .system }.count) system rows")
+            // History was minimized: the 60 old messages are gone.
+            let nonSystem = sent.filter { $0.role != .system }
+            #expect(nonSystem.count <= 8,
+                "history must be minimized under the wall; got \(nonSystem.count) non-system rows")
+            // The pending user prompt is immutable: it must reach the model.
+            #expect(nonSystem.last?.role == .user && nonSystem.last?.content == "hello",
+                "latest user message must survive the emergency pass")
         }
 
         @Test("sanitize applied on restore: orphaned tool results are dropped")
