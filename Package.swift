@@ -271,6 +271,14 @@ let package = Package(
                 // SwiftPM does not re-export a dependency: a test naming PageDiffer
                 // needs the product declared here too.
                 .product(name: "WebUIState", package: "no-webui"),
+                // the upload route is mounted on a real server in UploadRouteTests,
+                // so the test names Router/WebUIServer/HTTPResponse directly.
+                .product(name: "WebUI", package: "no-webui"),
+                .product(name: "WebUIServer", package: "no-webui"),
+                // the mid-body disconnect test drives a raw socket: nio is already
+                // the server's transport, so the test speaks the same wire.
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
             ],
             resources: [
                 // the palette pins: the values the painted sheet must still hold, extracted

@@ -1,4 +1,5 @@
 import WebUI
+import WebUICore
 import WebUIDesignSystem
 import WebUIServer
 
@@ -31,12 +32,20 @@ public enum AppShell {
     /// only), so the component sheet must be linked; and arc's sheet must follow it, or the
     /// three colliding `:root` tokens (`--radius-sm/md/lg`) and ten like-named classes
     /// (`chip`, `kv`, `toast`, …) silently change ownership.
+    /// - parameter renderToken: the token this response was rendered for. The page
+    ///   echoes it in the `webui-config` meta so the upload route can tell a page
+    ///   this host served from one that never loaded (`RuntimeConfig.renderToken`).
+    ///   nil/empty leaves the meta at `{}` — the pre-upload shape, byte for byte.
     public static func makeDocument(
         sheetURL: String,
-        overlayURL: String
+        overlayURL: String,
+        renderToken: String? = nil
     ) -> @Sendable (UnsafeMarkup, String) -> WebUI.HTMLDocument {
         { body, themeAttrs in
-            WebUI.HTMLDocument(
+            // only a real token goes into the meta: an empty one would say "a
+            // token exists" to the client without ever validating.
+            let token = (renderToken?.isEmpty == false) ? renderToken : nil
+            return WebUI.HTMLDocument(
                 title: "ARC Agent",
                 body: body,
                 rawStyles: [],
@@ -46,6 +55,10 @@ public enum AppShell {
                 headContent: HeadContent { .script(src: overlayURL) },
                 htmlAttributes: themeAttrs,
                 devMode: false,
+                // The token rides the framework's own runtime config, so the
+                // client reads it from the same `webui-config` meta as every
+                // other runtime knob and arc writes no client-side plumbing for it.
+                runtimeConfig: token.map { RuntimeConfig(renderToken: $0) },
                 // Extras, not a restated policy: a full policy names no nonce source, and
                 // `HTMLDocument` then suppresses the pre-paint theme prelude rather than
                 // emit an inline script the browser refuses (a stored scheme would flash
