@@ -248,6 +248,55 @@ extension ArcCoreTestRoot {
             #expect(record.contains("[REDACTED]"))
         }
 
+        @Test("clampToBudget never drops the latest user message behind tool traffic")
+        func clampKeepsLatestUser() {
+            // The observed failure shape: a pending question followed by tool
+            // traffic, a zero history budget, minKeptTail=2 — the old
+            // oldest-first drop erased the question and kept the tool pair.
+            var work: [Message] = [msg(.system, "sys"), msg(.user, "answer me please")]
+            for i in 0..<4 {
+                work.append(callMsg("terminal", "{\"i\":\(i)}", id: "t\(i)"))
+                work.append(toolMsg("terminal", "output \(i)", id: "t\(i)"))
+            }
+            let out = ContextCompression.clampToBudget(
+                work,
+                protectedPrefix: 1, // system row only — summary/head
+                budget: 0,          // the zero-history-budget dead zone
+                countTokens: { _ in 1 }
+            )
+            #expect(out.contains { $0.role == .user && $0.content == "answer me please" })
+        }
+
+        @Test("clampToBudget still drops around the pinned user row until minKeptTail")
+        func clampDropsAroundPin() {
+            var work: [Message] = [msg(.system, "sys"), msg(.user, "the ask")]
+            for i in 0..<8 {
+                work.append(msg(.assistant, "older turn \(i)"))
+            }
+            let out = ContextCompression.clampToBudget(
+                work,
+                protectedPrefix: 1,
+                budget: 5, // tokens; countTokens=1/msg → keep only the pin + 2
+                minKeptTail: 2,
+                countTokens: { _ in 1 }
+            )
+            #expect(out.contains { $0.role == .user && $0.content == "the ask" })
+            // 1 protected row + the pin + minKeptTail, and nothing older survives
+            #expect(out.count <= 1 + 1 + 2)
+        }
+
+        @Test("clampToBudget is a no-op when the budget already holds")
+        func clampNoOpWhenFits() {
+            let work = [msg(.system, "sys"), msg(.user, "hi"), msg(.assistant, "hey")]
+            let out = ContextCompression.clampToBudget(
+                work,
+                protectedPrefix: 1,
+                budget: 10_000,
+                countTokens: { _ in 1 }
+            )
+            #expect(out.count == work.count)
+        }
+
         @Test("Ghost-skill defense: markers are collected then reinjected verbatim")
         func ghostSkills() {
             let material = [

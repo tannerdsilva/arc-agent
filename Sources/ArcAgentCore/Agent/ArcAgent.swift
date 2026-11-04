@@ -440,6 +440,9 @@ public actor ArcAgent: Service {
     private var toolSchemaTokenEstimate: Int?
     /// Cached ``(builtin, mcp)`` schema-token split for the breakdown pane.
     private var toolSchemaSplitEstimate: (builtin: Int, mcp: Int)?
+    /// Warned once that the fixed scaffold alone exceeds the compression
+    /// limit — the condition is permanent for the profile, so say it once.
+    private var warnedFixedOverheadExceedsLimit = false
     /// Cached project context files (static per agent/working directory).
     private var contextFilesCache: [(name: String, content: String)]?
     /// Compression cool-down: summary-LLM rate limit parks us until this date.
@@ -1841,6 +1844,23 @@ public actor ArcAgent: Service {
         emit?(.compressing)
         logger.info("compression: running (estimated ~\(estimated) tokens, limit \(limit))")
 
+        // The fixed part of the request (system prompt + tool schemas) is the
+        // one quantity compression cannot touch. If it ALONE meets the
+        // effective limit, no compression result can ever fit: the pass would
+        // run with a zero history budget — an empty summary record and a
+        // clamped-away tail that erases the pending user prompt (observed in
+        // a 20.5k profile whose scaffold is ~13.7k). Prompts still run while
+        // the provider accepts the request — nothing here blocks a turn —
+        // but compression is refused instead of silently destroying history.
+        let scaffoldOverhead = await fixedOverheadTokens()
+        guard scaffoldOverhead < limit else {
+            if !warnedFixedOverheadExceedsLimit {
+                warnedFixedOverheadExceedsLimit = true
+                logger.warning("compression impossible: fixed overhead (~\(scaffoldOverhead) tokens) meets or exceeds the effective limit (\(limit)); history is never compressed and may grow until the provider rejects it — shrink the profile's toolset/system prompt or raise its context window")
+            }
+            return
+        }
+
         // Pluggable context engines (reference context_engine): the
         // prune-tool-results variant trims tool output only; everything else
         // uses the default summarize-and-window engine below.
@@ -1856,9 +1876,9 @@ public actor ArcAgent: Service {
         // leaves: the system prompt and tool schemas are never compressed, so
         // a window sized off `limit` alone has no room for the summary and
         // leaves the request over budget — which re-fires compression on
-        // every iteration. `fixedOverheadTokens` is the same quantity
+        // `fixedOverheadTokens` is the same quantity
         // `estimateRequestTokens` adds, so the two always agree.
-        let overhead = await fixedOverheadTokens()
+        let overhead = scaffoldOverhead
         let historyBudget = ContextCompression.RequestBudget(limit: limit, overhead: overhead).historyBudget
         // Blank platform-echo user rows trailing the latest actionable turn
         // are stripped first — before any abort point, so even an aborted

@@ -221,6 +221,13 @@ public enum ContextCompression {
     /// a history the full request budget can hold. `protectedPrefix` counts
     /// the messages that must survive (system messages, the summary, the
     /// head); at least `minKeptTail` tail messages stay regardless.
+    ///
+    /// The **latest user message is immutable**: the model cannot answer a
+    /// prompt it never sees, so the clamp skips over it instead of dropping
+    /// it — even when it is older than trailing tool traffic (a pending
+    /// question followed by tool calls is exactly the shape where the old
+    /// oldest-first drop erased the request). It may still be summarized by a
+    /// LATER pass, after the turn it belongs to has completed.
     public static func clampToBudget(
         _ messages: [Message],
         protectedPrefix: Int,
@@ -233,17 +240,23 @@ public enum ContextCompression {
         for msg in messages { total += countTokens(msg.content ?? "") + 4 }
         guard total > budget else { return messages }
 
-        var drop = 0
-        var kept = messages.count - protectedCount
-        while total > budget && kept > minKeptTail {
-            let idx = protectedCount + drop
-            guard idx < messages.count else { break }
-            total -= countTokens(messages[idx].content ?? "") + 4
-            drop += 1
+        var lastUserIndex = messages.lastIndex(where: { $0.role == .user })
+        var work = messages
+        var idx = protectedCount
+        var kept = work.count - protectedCount
+        while total > budget && kept > minKeptTail && idx < work.count {
+            if idx == lastUserIndex {
+                // immutable: skip over the pending user request
+                idx += 1
+                continue
+            }
+            total -= countTokens(work[idx].content ?? "") + 4
+            work.remove(at: idx)
+            if let lu = lastUserIndex, lu > idx { lastUserIndex = lu - 1 }
             kept -= 1
         }
-        guard drop > 0 else { return messages }
-        return Array(messages[0..<protectedCount]) + Array(messages[(protectedCount + drop)...])
+        guard work.count < messages.count else { return messages }
+        return work
     }
 
     // MARK: - Cheap pre-pass: prune old tool results (reference Phase 1)

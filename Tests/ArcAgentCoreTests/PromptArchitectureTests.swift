@@ -80,12 +80,62 @@ extension ArcCoreTestRoot {
 
         @Test("compression triggers on FULL estimate (context files + schemas) and rebuilds the prompt")
         func compressionUsesFullEstimate() async throws {
-            // Tiny context length (limit 60) + restored history: compression must
-            // fire and produce an extractive summary (no aux override in tests).
+            // Overhead (~800 tokens of schemas+prompt) must fit under the
+            // effective limit — an overhead >= limit config is refused now
+            // (the zero-history-budget dead zone) and has its own test. A
+            // 4k context (limit 2000) with 300 restored exchanges (~2400
+            // tokens) is over on the FULL estimate: compression must fire,
+            // produce an extractive summary (no aux override in tests), and
+            // shrink the history while keeping the pending user message.
             let store = tempStore()
             let sid = "compress-me"
             var initial: [Message] = []
-            for i in 0..<20 {
+            for i in 0..<300 {
+                initial.append(Message(role: .user, content: "old user \(i)"))
+                initial.append(Message(role: .assistant, content: "old answer \(i)"))
+            }
+            try await store.create(Session(id: sid, model: "m", provider: "p", messages: initial))
+
+            let box = ClientScripts(responses: [LLMResponse(content: "done", finishReason: "stop")])
+            let config = makeConfig(
+                store: store, sessionID: sid, persistSessions: false,
+                contextLength: 4_000, maxContextTokens: 64_000,
+                injectProjectContext: false
+            )
+            _ = try await runOnce(config, box: box)
+
+            let calls = box.recordedCalls()
+            #expect(calls.count == 1, "expected exactly one LLM call")
+            guard let sent = calls.first else { return }
+            // Summary system message must be present, and the history must be
+            // a compressed remainder (tail ~ half the history budget), not the
+            // full 601-message restore.
+            let summary = sent.filter {
+                $0.role == .system
+                    && ($0.content ?? "").hasPrefix(ArcAgent.compressionSummaryPrefix)
+            }
+            #expect(summary.count == 1, "expected a compression summary; got \(sent.map(\.role))")
+            let nonSystem = sent.filter { $0.role != .system }
+            #expect(nonSystem.count <= 120,
+                "tail protection failed: \(nonSystem.count) non-system messages")
+            // The pending user prompt is immutable: it must reach the model.
+            #expect(nonSystem.last?.role == .user && nonSystem.last?.content == "hello",
+                "latest user message must survive compression")
+            // The system prompt was rebuilt after compression (timestamp present).
+            let prompt = sent.first(where: { $0.role == .system })?.content ?? ""
+            #expect(prompt.contains("Conversation started:"))
+        }
+
+        @Test("compression is refused when fixed overhead meets the effective limit")
+        func compressionRefusedWhenOverheadMeetsLimit() async throws {
+            // Tiny context (limit 150) with a real registry (~800 overhead):
+            // no compression result could ever fit. The engine must refuse to
+            // run rather than emit an empty summary record and clamp away the
+            // pending user prompt (the observed silent-history-loss bug).
+            let store = tempStore()
+            let sid = "overhead-wall"
+            var initial: [Message] = []
+            for i in 0..<30 {
                 initial.append(Message(role: .user, content: "old user \(i)"))
                 initial.append(Message(role: .assistant, content: "old answer \(i)"))
             }
@@ -100,20 +150,17 @@ extension ArcCoreTestRoot {
             _ = try await runOnce(config, box: box)
 
             let calls = box.recordedCalls()
-            #expect(calls.count == 1, "expected exactly one LLM call")
             guard let sent = calls.first else { return }
-            // Summary system message must be present, and history must contain
-            // only head (2) + tail (~4) + the new user message.
+            // No compression summary was injected…
             let summary = sent.filter {
                 $0.role == .system
                     && ($0.content ?? "").hasPrefix(ArcAgent.compressionSummaryPrefix)
             }
-            #expect(summary.count == 1, "expected a compression summary; got \(sent.map(\.role))")
-            #expect(sent.filter { $0.role != .system }.count <= 8,
-                "tail protection failed: \(sent.filter { $0.role != .system }.count) non-system messages")
-            // The system prompt was rebuilt after compression (timestamp present).
-            let prompt = sent.first(where: { $0.role == .system })?.content ?? ""
-            #expect(prompt.contains("Conversation started:"))
+            #expect(summary.isEmpty)
+            // …and the turn still ran: the full history went out untouched
+            // (prompts are never blocked — the provider owns the hard limit).
+            #expect(sent.filter { $0.role != .system }.count >= 60)
+            #expect(sent.last?.content == "hello")
         }
 
         @Test("sanitize applied on restore: orphaned tool results are dropped")
