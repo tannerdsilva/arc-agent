@@ -875,9 +875,14 @@ extension Controller {
 
     @Wired("regen", events: [.click])
     func handleRegen(_ event: EventData) async -> [FragmentUpdate] {
-        guard let tid = event.string("targetId"),
-              tid.hasPrefix("regen-"),
-              let lastUser = await self.app.regenText() else { return [] }
+        // Two controls share this boundary: the per-message button names its turn
+        // (`regen-<session>.<index>`) and the chat header's `#regen-btn` carries
+        // no targetId at all. Requiring one left the header button inert — the
+        // click reached the server and was answered with nothing, with no error
+        // on either side. Both mean "redo this chat's last reply", so only a
+        // foreign targetId is refused.
+        if let tid = event.string("targetId"), !tid.hasPrefix("regen-") { return [] }
+        guard let lastUser = await self.app.regenText() else { return [] }
         return await self.submitChat(text: lastUser)
     }
 }
