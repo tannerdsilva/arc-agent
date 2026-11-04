@@ -19,7 +19,7 @@ extension ArcWebUITestRoot {
     /// migrated group drive the group's own `wireGroup_<g>(router)` into a
     /// fresh router and assert the exact handler count. Deleting a `@Wired`
     /// annotation drops exactly one group's count, so this pin turns only one
-    /// way. `wireAll` must register exactly 179: 165 generated + 12 `nav-\(id)` +
+    /// way. `wireAll` must register exactly 181: 167 generated + 12 `nav-\(id)` +
     /// `sidebar-plugin-toggle` + `cat-pick`.
     @Suite("wiring invariant", .serialized)
     struct WiringInvariantTests {
@@ -63,7 +63,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_settings_admin(router)
-            #expect(router.handlerCount(in: .default) == 32, "settings_admin group registration drifted")
+            #expect(router.handlerCount(in: .default) == 33, "settings_admin group registration drifted")
         }
 
         @Test("every skills handler is registered after wireGroup_skills")
@@ -186,16 +186,16 @@ extension ArcWebUITestRoot {
             #expect(router.handlerCount(in: .default) == 1, "message_actions group registration drifted")
         }
 
-        @Test("wireAll registers exactly 180 handlers (166 generated + 12 nav ids + sidebar-plugin-toggle + cat-pick)")
-        func wireAllRegistersExactly180() async throws {
+        @Test("wireAll registers exactly 181 handlers (167 generated + 12 nav ids + sidebar-plugin-toggle + cat-pick)")
+        func wireAllRegistersExactly181() async throws {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             await controller.wireAll(router)
 
             let count = router.handlerCount(in: .default)
             #expect(
-                count == 180,
-                "wireAll must register exactly 180 handlers: 166 @Wired-generated + 12 nav-(id) + sidebar-plugin-toggle + cat-pick, got \(count)"
+                count == 181,
+                "wireAll must register exactly 181 handlers: 167 @Wired-generated + 12 nav-(id) + sidebar-plugin-toggle + cat-pick, got \(count)"
             )
         }
 
@@ -231,6 +231,25 @@ extension ArcWebUITestRoot {
                     "chat-new answers: it asks the door to look, and an empty batch is the nudge")
             #expect(outcome.fragments.isEmpty,
                     "the batch crossed the door, not the socket — the server has nothing to write")
+        }
+
+        /// The upload refresh seam (d-y): an HTTP upload returns no
+        /// `FragmentUpdate`, so the client sends this event after a 200. It must
+        /// be registered, carry no payload work, and ask the door for exactly one
+        /// render — the tree is re-rendered by the server, never by the client.
+        @Test("workspace-refresh asks the door for a render and writes nothing on the socket")
+        func workspaceRefreshAsksForRender() async throws {
+            let door = Door()
+            let router = EventRouter()
+            let controller = Controller(app: Self.app, push: door.push)
+            await controller.wireAll(router)
+
+            let outcome = await router.dispatch(
+                EventData(component: ComponentID("workspace-refresh"), event: "click", data: [:]))
+            #expect(outcome.fragments.isEmpty,
+                    "the refresh crosses the door, not the originating socket")
+            #expect(await door.batches == [[]],
+                    "workspace-refresh must ask for exactly one render and do nothing else")
         }
     }
 }

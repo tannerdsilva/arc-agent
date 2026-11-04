@@ -2985,6 +2985,39 @@ public static let css: String = """
     .ws-ic { flex: 0 0 auto; font-size: 0.95em; }
     .ws-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .ws-panel.drag { box-shadow: inset 0 0 0 2px var(--accent-strong); }
+    /* Upload progress tray. The rows are client-owned (overlay.js appends the
+       tray to <body>), so they must not depend on a server fragment: a
+       workspace re-render replaces #ws-panel wholesale. */
+    .ws-uploads {
+      position: fixed; right: 14px; bottom: 14px; z-index: 900;
+      display: flex; flex-direction: column; gap: 6px;
+      width: min(320px, calc(100vw - 28px)); pointer-events: none;
+    }
+    .ws-upload {
+      pointer-events: auto; position: relative; min-width: 0;
+      display: grid; grid-template-columns: 1fr auto; gap: 2px 8px;
+      padding: 8px 10px; border-radius: 10px;
+      background: var(--surface); border: 1px solid var(--border-strong);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
+      font-size: 0.8em; cursor: pointer;
+    }
+    .ws-upload-name {
+      min-width: 0; color: var(--text);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .ws-upload-meta { grid-column: 1; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .ws-upload-bar { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+    .ws-upload-fill { display: block; height: 100%; width: 0; background: var(--accent-strong); transition: width .12s linear; }
+    .ws-upload-cancel {
+      grid-row: 1; grid-column: 2; align-self: center; justify-self: end;
+      background: transparent; border: none; padding: 0 2px;
+      color: var(--muted); font: inherit; cursor: pointer;
+    }
+    .ws-upload-cancel:hover, .ws-upload-cancel:focus-visible { color: var(--danger); }
+    .ws-upload.done .ws-upload-meta { color: var(--accent-strong); }
+    .ws-upload.error { border-color: var(--danger); }
+    .ws-upload.error .ws-upload-meta { color: var(--danger); }
+    .ws-upload.cancelled { opacity: .6; }
     .inline-edit {
       background: var(--surface); border: 1px solid var(--accent-border);
       border-radius: var(--radius-sm); color: var(--text);

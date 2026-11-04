@@ -66,6 +66,7 @@ extension ClassName {
 	public static var bubble: ClassName { ClassName(ArcClass.bubble.token) }
 	public static var bubbleOpt: ClassName { ClassName(ArcClass.bubbleOpt.token) }
 	public static var bubbleOpts: ClassName { ClassName(ArcClass.bubbleOpts.token) }
+	public static var cancelled: ClassName { ClassName(ArcClass.cancelled.token) }
 	public static var cardH3: ClassName { ClassName(ArcClass.cardH3.token) }
 	public static var cardLead: ClassName { ClassName(ArcClass.cardLead.token) }
 	public static var cardStack: ClassName { ClassName(ArcClass.cardStack.token) }
@@ -634,6 +635,13 @@ extension ClassName {
 	public static var wsPreviewScroll: ClassName { ClassName(ArcClass.wsPreviewScroll.token) }
 	public static var wsRow: ClassName { ClassName(ArcClass.wsRow.token) }
 	public static var wsTools: ClassName { ClassName(ArcClass.wsTools.token) }
+	public static var wsUpload: ClassName { ClassName(ArcClass.wsUpload.token) }
+	public static var wsUploadBar: ClassName { ClassName(ArcClass.wsUploadBar.token) }
+	public static var wsUploadCancel: ClassName { ClassName(ArcClass.wsUploadCancel.token) }
+	public static var wsUploadFill: ClassName { ClassName(ArcClass.wsUploadFill.token) }
+	public static var wsUploadMeta: ClassName { ClassName(ArcClass.wsUploadMeta.token) }
+	public static var wsUploadName: ClassName { ClassName(ArcClass.wsUploadName.token) }
+	public static var wsUploads: ClassName { ClassName(ArcClass.wsUploads.token) }
 	public static var yolo: ClassName { ClassName(ArcClass.yolo.token) }
 	public static var yoloIco: ClassName { ClassName(ArcClass.yoloIco.token) }
 	public static var yoloOff: ClassName { ClassName(ArcClass.yoloOff.token) }

@@ -299,6 +299,9 @@
       if (btn) btn.click();
     }, 350);
   }
+  // Generated paste names carry a counter: two images pasted in the same
+  // millisecond must not land on one path.
+  var wsPasteSeq = 0;
   document.addEventListener('paste', function (e) {
     if (!e.target || e.target.id !== 'composer-input') return;
     var cd = e.clipboardData;
@@ -336,13 +339,13 @@
     imgs.forEach(function (f) {
       var ext = (f.type.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '').toLowerCase();
       if (!ext || ext.length > 8) ext = 'img';
-      fetch('/api/upload?ext=' + encodeURIComponent(ext), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream' },
-        body: f
-      }).then(function (r) { return r.json(); }).then(function (j) {
-        if (j && j.ok && j.path) attachUploadedPath(j.path);
-      }).catch(function (err) { console.warn('image upload failed', err); });
+      // A pasted image has no filename of its own, so it lands in the
+      // workspace under a generated one and the attach wire takes the path
+      // the upload answered with. The counter keeps two images pasted in the
+      // same millisecond apart.
+      wsPasteSeq++;
+      var rel = 'pasted-' + Date.now() + '-' + wsPasteSeq + '.' + ext;
+      sendUpload(f, rel, function (path) { attachUploadedPath(workspaceAbsolutePath(path)); });
     });
   });
 
@@ -1749,43 +1752,203 @@
   // document is ready — otherwise a TypeError kills every later handler.
   var wsFileInput = null;
 
-  function wsUploadForm() {
-    var f = document.getElementById('ws-upload-form');
-    if (!f) {
-      f = document.createElement('form');
-      f.id = 'ws-upload-form';
-      f.style.display = 'none';
-      f.setAttribute('data-component-id', 'workspace-upload');
-      f.innerHTML = '<input type="hidden" name="upl-name"><input type="hidden" name="upl-path"><input type="hidden" name="upl-b64">';
-      document.body.appendChild(f);
+  // ---- Uploads stream to `POST /api/upload`: one XMLHttpRequest per file,
+  // the `File` object handed to `send()` so the browser reads it from disk.
+  // No FileReader, no base64, no frame — a file is no longer a message.
+  // (`fetch` cannot report upload progress; a 2 GB transfer must show it.)
+
+  // The page's render token rides the `webui-config` meta
+  // (`AppShell.makeDocument` writes it) and the upload route refuses every
+  // other credential. Parsed once and cached; a missing or malformed meta
+  // becomes a row error, never a thrown exception in the drop handler.
+  var wsUploadToken = null;
+  var wsUploadTokenParsed = false;
+
+  function uploadToken() {
+    if (wsUploadTokenParsed) return wsUploadToken;
+    wsUploadTokenParsed = true;
+    var meta = document.querySelector('meta[name="webui-config"]');
+    var raw = meta ? meta.getAttribute('content') : '';
+    if (!raw) return wsUploadToken;
+    try {
+      var cfg = JSON.parse(raw);
+      if (cfg && typeof cfg.renderToken === 'string' && cfg.renderToken) {
+        wsUploadToken = cfg.renderToken;
+      }
+    } catch (err) {
+      wsUploadToken = null;
     }
-    return f;
+    return wsUploadToken;
   }
 
-  function readFileAsB64(file, cb) {
-    var reader = new FileReader();
-    reader.onload = function (ev) {
-      var b64 = String(ev.target.result || '').split(',')[1] || '';
-      cb(b64);
-    };
-    reader.onerror = function () { flashToast('Failed to read ' + file.name, 'error'); cb(null); };
-    reader.readAsDataURL(file);
+  // A row's path is root-relative (that is what the route answers), but the
+  // attach wire wants a real filesystem path: `#ws-tree` renders the panel's
+  // workspace root, so the pair is composed here rather than guessed.
+  function workspaceAbsolutePath(relPath) {
+    var tree = document.getElementById('ws-tree');
+    var root = tree ? (tree.getAttribute('data-root') || '') : '';
+    if (!root) return relPath;
+    if (root.charAt(root.length - 1) === '/') return root + relPath;
+    return root + '/' + relPath;
   }
 
-  function sendUpload(file, relPath) {
-    var LIMIT = 10 * 1024 * 1024;
-    if (file.size > LIMIT) {
-      flashToast('"' + file.name + '" is larger than 10 MB', 'error');
+  // The tray hangs off <body>, not inside #ws-panel: a `changed()` render
+  // replaces the panel wholesale, and rows inside it would vanish while the
+  // rest of a folder is still uploading.
+  function uploadTray() {
+    var tray = document.getElementById('ws-uploads');
+    if (tray || !document.body) return tray;
+    tray = document.createElement('div');
+    tray.id = 'ws-uploads';
+    tray.className = 'ws-uploads';
+    document.body.appendChild(tray);
+    return tray;
+  }
+
+  function humanBytes(n) {
+    if (typeof n !== 'number' || !isFinite(n) || n < 0) return '0 B';
+    if (n < 1024) return Math.round(n) + ' B';
+    var units = ['KB', 'MB', 'GB', 'TB'];
+    var v = n / 1024;
+    var i = 0;
+    while (v >= 1024 && i < units.length - 1) { v = v / 1024; i++; }
+    return (v >= 10 ? String(Math.round(v)) : String(Math.round(v * 10) / 10)) + ' ' + units[i];
+  }
+
+  // Every visible string is assigned with textContent: a filename is user
+  // data and must never be parsed as markup.
+  function uploadRow(file) {
+    var tray = uploadTray();
+    if (!tray) return null;
+    var row = document.createElement('div');
+    row.className = 'ws-upload';
+    var name = document.createElement('span');
+    name.className = 'ws-upload-name';
+    name.textContent = file.name;
+    name.title = file.name;
+    var cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'ws-upload-cancel';
+    cancel.textContent = 'Cancel';
+    cancel.title = 'Cancel ' + file.name;
+    var meta = document.createElement('span');
+    meta.className = 'ws-upload-meta';
+    meta.textContent = '0% · ' + humanBytes(0) + ' / ' + humanBytes(file.size);
+    var bar = document.createElement('span');
+    bar.className = 'ws-upload-bar';
+    var fill = document.createElement('span');
+    fill.className = 'ws-upload-fill';
+    bar.appendChild(fill);
+    row.appendChild(name);
+    row.appendChild(cancel);
+    row.appendChild(meta);
+    row.appendChild(bar);
+    // a finished row is dismissable like a toast
+    row.addEventListener('click', function () {
+      if (row.parentNode) row.parentNode.removeChild(row);
+    });
+    tray.appendChild(row);
+    return { row: row, meta: meta, fill: fill, cancel: cancel };
+  }
+
+  function uploadProgress(ui, loaded, total) {
+    var pct = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+    ui.meta.textContent = pct + '% · ' + humanBytes(loaded) + ' / ' + humanBytes(total);
+    ui.fill.style.width = pct + '%';
+  }
+
+  function uploadFinish(ui, state, text, dismissAfter) {
+    ui.row.className = 'ws-upload ' + state;
+    ui.meta.textContent = text;
+    if (ui.cancel.parentNode) ui.cancel.parentNode.removeChild(ui.cancel);
+    if (dismissAfter > 0) {
+      setTimeout(function () {
+        if (ui.row.parentNode) ui.row.parentNode.removeChild(ui.row);
+      }, dismissAfter);
+    }
+  }
+
+  // An HTTP upload returns no `FragmentUpdate`, so the tree cannot repaint on
+  // its own. Ask for one through the engine's own delegated click path: a
+  // hidden `data-component-id` anchor makes the exact event frame a real
+  // click sends (no second transport, no client-side tree renderer).
+  // Coalesced — a folder drop finishes N uploads within a second and one
+  // server render is enough for all of them.
+  var wsRefreshAnchor = null;
+  var wsRefreshTimer = null;
+
+  function requestWorkspaceRefresh() {
+    if (wsRefreshTimer) return;
+    wsRefreshTimer = setTimeout(function () {
+      wsRefreshTimer = null;
+      if (!document.body) return;
+      if (!wsRefreshAnchor) {
+        wsRefreshAnchor = document.createElement('span');
+        wsRefreshAnchor.id = 'ws-upload-refresh';
+        wsRefreshAnchor.setAttribute('data-component-id', 'workspace-refresh');
+        wsRefreshAnchor.style.display = 'none';
+        document.body.appendChild(wsRefreshAnchor);
+      }
+      wsRefreshAnchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    }, 250);
+  }
+
+  function sendUpload(file, relPath, onDone) {
+    var token = uploadToken();
+    var ui = uploadRow(file);
+    if (!ui) return;
+    if (!token) {
+      uploadFinish(ui, 'error', 'upload refused: this page carries no render token — reload the page', 12000);
       return;
     }
-    readFileAsB64(file, function (b64) {
-      if (b64 === null) return;
-      var f = wsUploadForm();
-      f.querySelector('[name="upl-name"]').value = file.name;
-      f.querySelector('[name="upl-path"]').value = relPath;
-      f.querySelector('[name="upl-b64"]').value = b64;
-      try { f.requestSubmit(); } catch (err) { f.submit(); }
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/upload');
+    try {
+      xhr.setRequestHeader('X-Render-Token', token);
+      xhr.setRequestHeader('X-Upload-Path', relPath);
+      xhr.setRequestHeader('X-Upload-Name', file.name);
+    } catch (err) {
+      // a header value the browser refuses to encode (a name outside
+      // Latin-1) must fail this row, not the loop that is dropping files
+      uploadFinish(ui, 'error', 'upload failed: this file name cannot be sent', 12000);
+      return;
+    }
+    xhr.upload.onprogress = function (e) {
+      if (e.lengthComputable) {
+        uploadProgress(ui, e.loaded, e.total);
+      } else {
+        ui.meta.textContent = humanBytes(e.loaded) + ' sent';
+      }
+    };
+    xhr.onload = function () {
+      var body = null;
+      try { body = JSON.parse(xhr.responseText); } catch (err) { body = null; }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        var bytes = (body && typeof body.bytes === 'number') ? body.bytes : file.size;
+        uploadFinish(ui, 'done', 'Done · ' + humanBytes(bytes), 4000);
+        if (typeof onDone === 'function') {
+          onDone(body && typeof body.path === 'string' ? body.path : relPath);
+        }
+        requestWorkspaceRefresh();
+      } else {
+        // the route names its constraint in `error` (limit, free space,
+        // token); show it, because "upload failed" alone hides the fix
+        var msg = (body && typeof body.error === 'string') ? body.error : '';
+        if (!msg) msg = String(xhr.responseText || '').replace(/\s+/g, ' ').slice(0, 240);
+        if (!msg) msg = 'upload failed (HTTP ' + xhr.status + ')';
+        uploadFinish(ui, 'error', msg, 12000);
+      }
+    };
+    xhr.onerror = function () { uploadFinish(ui, 'error', 'upload failed: connection lost', 12000); };
+    // the server deletes the `.part` when the connection drops, so cancelling
+    // is the abort and nothing else — no client-side cleanup to get wrong
+    xhr.onabort = function () { uploadFinish(ui, 'cancelled', 'Cancelled', 3000); };
+    ui.cancel.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      xhr.abort();
     });
+    xhr.send(file);
   }
 
   function collectEntry(entry, base, done) {

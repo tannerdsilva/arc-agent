@@ -3593,6 +3593,15 @@ extension Controller {
         return await self.changed()
     }
 
+    /// A streamed upload writes the file and clears the tree cache, but an HTTP
+    /// route returns no `FragmentUpdate`, so nothing repaints on its own. The
+    /// client sends this event after a 200; the handler carries no payload and
+    /// does nothing but ask the door for a fresh render.
+    @Wired("workspace-refresh", events: [.click])
+    func handleWorkspaceRefresh(_ event: EventData) async -> [FragmentUpdate] {
+        return await self.changed()
+    }
+
     @Wired("ws-new-form", events: [.submit, .click])
     func handleWsNewForm(_ event: EventData) async -> [FragmentUpdate] {
         if event.event == "submit" {
