@@ -17,9 +17,13 @@ extension ArcWebUITestRoot {
 
 		@Test("arc keeps render tokens off")
 		func renderTokenPolicy() {
-			// arc threads no render token into the page (`AppShell.makeDocument` has
-			// no token parameter), so every event routes to `.default` and turning
-			// this on would refuse all registered handlers. documented, not accidental.
+			// arc threads the page's render token into the document — uploads
+			// carry it in `X-Render-Token` — but leaves `requireRenderToken`
+			// off: the token is minted per render and lives only in this
+			// process, so a page served before a restart (or held open past the
+			// router reaping its session) would have every event refused. the
+			// socket stays tolerant; uploads do their own check.
+			// documented, not accidental.
 			#expect(config.requireRenderToken == false)
 		}
 
