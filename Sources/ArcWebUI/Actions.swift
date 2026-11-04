@@ -2445,7 +2445,21 @@ extension Controller {
         // Builtin slash commands are resolved locally (arc agent webui
         // COMMANDS) before anything else, including while a turn is running.
         if trimmed.hasPrefix("/") {
+            // The session the command was typed in, captured before the command
+            // runs (`/new` switches to a different one).
+            let slashSession = await app.activeSessionID
             if let updates = await handleBuiltinSlashCommand(trimmed) {
+                // A builtin runs locally, so there is no turn to consume the
+                // draft the way `runTurn` and the queued-send branch do. Left
+                // alone, the command stays in the composer and the next Enter
+                // runs it a second time — `/help` twice produced two transcript
+                // rows in the browser. Same two calls as the queued path, so a
+                // trailing input frame (the engine debounces) cannot resurrect
+                // the text either.
+                if let slashSession {
+                    await app.noteSubmittedDraft(trimmed, sessionID: slashSession)
+                    await app.storeComposerDraft("", sessionID: slashSession)
+                }
                 return updates
             }
         }

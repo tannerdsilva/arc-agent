@@ -251,7 +251,13 @@ extension AppState {
     func storeComposerDraft(_ text: String, sessionID: String) {
         if let submitted = submittedDrafts[sessionID],
            Date().timeIntervalSince(submitted.at) < Self.draftSubmitGuardWindow,
-           submitted.text == text {
+           // Compared trimmed: the field can hold more than the submit carried.
+           // The slash palette completes `/help` to `/help ` and Enter sends that
+           // — the guard recorded the trimmed spelling, the trailing input frame
+           // carried the padded one, and the draft came back after the client had
+           // already cleared the composer.
+           submitted.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            == text.trimmingCharacters(in: .whitespacesAndNewlines) {
             return
         }
         settings.composerDrafts[sessionID] = text

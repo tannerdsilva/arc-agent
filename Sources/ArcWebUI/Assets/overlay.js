@@ -14,10 +14,37 @@
   // listener lives on `document`, so this one registers on `window` (bubble
   // reaches window last): registering on `document` instead would clear the
   // field BEFORE the engine reads it, and every send would carry "".
+  // The submit clear below erases the composer, but the engine restores form
+  // values across a fragment patch — and a local slash command echoes a message,
+  // so a patch lands right after the clear and hands the command back to the
+  // field. The user then sees `/help` still sitting there and the next Enter
+  // runs it again (measured: two transcript rows for one command). Remember what
+  // was submitted and clear it again only if the patch restored exactly that
+  // text; a real edit is never touched.
+  var submittedComposerText = null;
+
+  function clearRestoredComposer() {
+    if (submittedComposerText === null) return;
+    var t = document.getElementById('composer-input');
+    if (!t || t.value === '') {
+      submittedComposerText = null;
+      return;
+    }
+    if (t.value.trim() === String(submittedComposerText).trim()) {
+      t.value = '';
+      submittedComposerText = null;
+    }
+  }
+
   window.addEventListener('submit', function (e) {
     if (e.target && e.target.id === 'composer-form') {
       var t = document.getElementById('composer-input');
-      if (t) t.value = '';
+      if (t) {
+        // Remembered so a fragment patch that restores the field can be
+        // recognised as the echo of this submit (see clearRestoredComposer).
+        submittedComposerText = t.value;
+        t.value = '';
+      }
       // A send consumes the composed text; an open slash menu must not
       // linger over the next prompt.
       closeSlashMenu();
@@ -1005,6 +1032,7 @@
   }
 
   function enhancePatched(changed) {
+    clearRestoredComposer();
     resizeComposerIfNew();
     if (changed && changed.length) {
       for (var i = 0; i < changed.length; i++) {
