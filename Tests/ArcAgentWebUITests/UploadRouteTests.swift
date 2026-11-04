@@ -415,14 +415,23 @@ struct UploadRouteTests {
                 page.contains("&quot;renderToken&quot;:&quot;\(token)&quot;"),
                 "the page did not publish its token in the webui-config meta"
             )
-            // measured, not asserted: the token adds one field to the meta.
+            // the token reaches the page through `makeDocument`, and only when
+            // it is handed one — a page rendered without a token must not
+            // carry an empty credential the client could echo back.
             let markup = UnsafeMarkup.trusted("<p>probe</p>")
             let attrs = "data-scheme=\"poseidon\" data-theme=\"dark\""
             let without = AppShell.makeDocument(sheetURL: "/ui/style.css", overlayURL: "/ui/init.js")(markup, attrs)
             let with = AppShell.makeDocument(
                 sheetURL: "/ui/style.css", overlayURL: "/ui/init.js", renderToken: token
             )(markup, attrs)
-            print("upload-page-bytes: without-token=\(without.markup.html.utf8.count) with-token=\(with.markup.html.utf8.count)")
+            #expect(
+                !without.markup.html.contains(token),
+                "a page rendered without a token must not carry one"
+            )
+            #expect(
+                with.markup.html.contains(token),
+                "a page rendered with a token must publish it"
+            )
         }
     }
 
