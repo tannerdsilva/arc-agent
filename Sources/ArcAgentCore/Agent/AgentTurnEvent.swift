@@ -53,6 +53,13 @@ public enum AgentTurnEvent: Sendable {
     /// context…" message); ``streamConversation`` does not project it.
     case compressing
 
+    /// The fixed request scaffold (system prompt + tool schemas) meets or
+    /// exceeds the effective compression limit, so no compression result can
+    /// ever fit and the engine is minimizing what it can instead. Emitted at
+    /// most once per agent alongside the log warning. Display-only — the web
+    /// UI surfaces it as a persistent toast; other surfaces log it.
+    case contextConstrained(scaffold: Int, limit: Int)
+
     /// The turn stopped on an error or an interruption notice. `message` is
     /// the complete visible text (already prefixed, e.g. `Error: …`).
     /// Terminal.

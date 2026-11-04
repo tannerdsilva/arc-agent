@@ -1858,6 +1858,9 @@ public actor ArcAgent: Service {
         if overheadWall, !warnedFixedOverheadExceedsLimit {
             warnedFixedOverheadExceedsLimit = true
             logger.warning("compression constrained: fixed overhead (~\(scaffoldOverhead) tokens) meets or exceeds the effective limit (\(limit)); compressing what it can, but the request can never fit the limit — shrink the profile's toolset/system prompt or raise its context window")
+            // Surface outside the logs too: the web UI renders this as a
+            // persistent toast, other surfaces log it once.
+            emit?(.contextConstrained(scaffold: scaffoldOverhead, limit: limit))
         }
 
         // Pluggable context engines (reference context_engine): the
@@ -2667,7 +2670,7 @@ public actor ArcAgent: Service {
                             continuation.yield(text)
                         case .toolCallFinished(_, let name, let result):
                             continuation.yield("[Tool: \(name)] \(result)\n")
-                        case .compressing, .reasoningDelta, .toolCallStarted, .usage, .completed:
+                        case .compressing, .contextConstrained, .reasoningDelta, .toolCallStarted, .usage, .completed:
                             break
                         }
                     }

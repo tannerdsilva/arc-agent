@@ -838,7 +838,7 @@ extension AppState {
                             await pusher(await transcriptFragments())
                         }
                     }
-                case .toolCallStarted, .toolCallFinished, .compressing:
+                case .toolCallStarted, .toolCallFinished, .compressing, .contextConstrained:
                     // a compression pass is mid-turn: it must not close the
                     // held tool round, since text and tools continue after it.
                     break
@@ -903,6 +903,18 @@ extension AppState {
                     // mutation — the turn's text and tools continue after it.
                     applyLive(event)
                     await flush()
+                case .contextConstrained(let scaffold, let limit):
+                    // Persistent toast (the condition outlives the turn: the
+                    // profile is over-committed until a human fixes it). The
+                    // engine emits at most once per agent, but turn agents can
+                    // be recreated per turn — dedupe on text so the bubble
+                    // cannot stack.
+                    let text = "Fixed context (~\(scaffold) tokens) exceeds the auto-compression limit (\(limit)) — compressing what it can; shrink the profile's toolset/system prompt or raise its context window"
+                    if !toasts.contains(where: { $0.text == text }) {
+                        _ = surfaceToast(text, kind: "error", persistent: true)
+                        await pusher(toastFragments())
+                    }
+                    applyLive(event)
                 case .completed(let finalText, _):
                     round.apply(event)
                     if finalText != round.content {

@@ -334,6 +334,7 @@ extension ArcCoreTestRoot {
                 case .toolCallFinished: return "finished"
                 case .usage: return "usage"
                 case .compressing: return "compressing"
+                case .contextConstrained: return "constrained"
                 case .completed: return "completed"
                 case .failed: return "failed"
                 }

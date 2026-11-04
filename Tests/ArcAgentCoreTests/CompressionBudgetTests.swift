@@ -110,6 +110,27 @@ extension ArcCoreTestRoot {
             await agent.autoCompressIfNeeded(emit: { events.append($0) }, force: false)
             #expect(events.all.isEmpty)
         }
+
+        @Test("overhead wall emits a .contextConstrained turn event once")
+        func contextConstrainedEventEmitted() async {
+            // Scaffold (real registry, ~800) over a tiny limit: the engine
+            // minimizes and raises the wall event exactly once per agent.
+            let agent = ArcAgent(config: makeConfig(
+                compressionBudget: nil, contextLength: 300, maxContextTokens: 64_000))
+            let events = ThreadSafeArray<AgentTurnEvent>()
+            await agent.autoCompressIfNeeded(emit: { events.append($0) }, force: true)
+            await agent.autoCompressIfNeeded(emit: { events.append($0) }, force: true)
+            let wallEvents = events.all.filter { event in
+                if case .contextConstrained = event { return true }
+                return false
+            }
+            #expect(wallEvents.count == 1, "expected exactly one wall event; got \(wallEvents.count)")
+            if case .contextConstrained(let scaffold, let limit) = wallEvents.first {
+                #expect(scaffold >= limit)
+            } else {
+                Issue.record("missing wall event payload")
+            }
+        }
     }
 }
 

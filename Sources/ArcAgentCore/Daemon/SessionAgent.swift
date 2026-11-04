@@ -375,6 +375,8 @@ public actor SessionAgent: Service {
                             logger.debug("session: usage prompt=\(usage.promptTokens) completion=\(usage.completionTokens) (session \(sessionID))")
                         case .compressing:
                             logger.info("session: compressing context (session \(sessionID))")
+                        case .contextConstrained(let scaffold, let limit):
+                            logger.warning("session: fixed overhead (~\(scaffold)) exceeds the effective compression limit (\(limit)); compressing what it can (session \(sessionID))")
                         case .completed:
                             break
                         }

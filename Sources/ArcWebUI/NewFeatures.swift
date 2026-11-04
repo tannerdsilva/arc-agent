@@ -219,7 +219,7 @@ extension AppState {
                     for message in takeToolRoundMessages() {
                         await persist(message)
                     }
-                case .toolCallStarted, .toolCallFinished, .compressing:
+                case .toolCallStarted, .toolCallFinished, .compressing, .contextConstrained:
                     // mid-turn; the held tool round stays open.
                     break
                 }
@@ -245,6 +245,9 @@ extension AppState {
                 case .compressing:
                     // display-only; a scheduled-job transcript stores no
                     // compression state.
+                    break
+                case .contextConstrained:
+                    // display-only; same policy as .compressing here.
                     break
                 case .completed(let text, _):
                     round.apply(event)
