@@ -342,8 +342,10 @@ struct Chat: AsyncParsableCommand {
                 for try await chunk in agent.streamConversation(message: expanded.text) {
                     print(chunk, terminator: "")
                     // fflush is safe on TTYs and pipes; synchronizeFile would
-                    // raise NSFileHandleOperationException on a pipe.
-                    fflush(stdout)
+                    // raise NSFileHandleOperationException on a pipe. Flush-all
+                    // is the portable form: on Linux glibc's stdout is a shared
+                    // mutable var, which Swift 6 strict concurrency rejects.
+                    fflush(nil)
                 }
             } catch {
                 print("\nError: \(error.localizedDescription)")
