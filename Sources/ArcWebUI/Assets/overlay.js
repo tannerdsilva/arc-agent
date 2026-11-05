@@ -320,6 +320,23 @@
     });
   }
 
+  // The attach wire is server state: the path rides the `file-path-input`
+  // form value and a click on `file-attach` commits it as a composer
+  // attachment. The runtime debounces input events (~80ms); wait for the
+  // path to reach the server before clicking Attach, or the click wins the
+  // race and the server sees an empty path.
+  function attachUploadedPath(p) {
+    var inp = document.getElementById('file-path-input');
+    if (!inp) return;
+    var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(inp, p);
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    setTimeout(function () {
+      var btn = document.getElementById('file-attach');
+      if (btn) btn.click();
+    }, 350);
+  }
+
   document.addEventListener('dragover', function (e) {
     var c = e.target && e.target.closest ? e.target.closest('#composer-form') : null;
     if (!c) return;
