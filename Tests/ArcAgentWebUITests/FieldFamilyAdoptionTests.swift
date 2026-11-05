@@ -44,12 +44,16 @@ extension ArcWebUITestRoot {
 		///   visible "Required" badge with a `::after` marker — a text change, not a
 		///   structural one — so they stay hand-written for B3's typed vocabulary.
 		/// - a dropdown (1): `profile-ctx-effort` is the `Select` family, B2.2's card.
+		/// - an inline option (1): `mce-clear-key` is the remove-the-stored-key
+		///   checkbox *inside* the API-key field. it is an option, not a field, so
+		///   a `.field` wrapper would add a second label row for nothing.
 		private static let unadopted = [
 			"cat-rename-input", "cat-name-input", "cat-color-input",
 			"kb-addcol-name", "kb-addcard-name", "clarify-input",
 			"composer-input", "storage-edit-id", "ws-new-name",
 			"skill-name-input", "skill-desc-input",
 			"profile-ctx-effort",
+			"mce-clear-key",
 		]
 
 		private static func regex(_ pattern: String) throws -> NSRegularExpression {

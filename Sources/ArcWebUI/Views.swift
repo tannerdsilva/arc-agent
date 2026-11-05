@@ -4459,7 +4459,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             DetailCard {
                 Heading("Model configurations", level: .h3, class: .cardH3)
                 Div(class: ClassName(.detailSub, .cardSub)) {
-                    Text("Add or remove the model configurations available in every chat's config selector.")
+                    Text("Add, edit, or remove the model configurations available in every chat's config selector.")
                 }
                 Div {
                     if settings.modelConfigs.isEmpty {
@@ -4476,6 +4476,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 }
                                 McModel { Text(c.model) }
                                 Div(class: ClassName(.rowActionsMain, .rowActionsFlush)) {
+                                    ArcButton("Edit", id: "mc-edit-\(encName)",
+                                              class: ClassName(.ghostBtn, .btnSm))
                                     ArcButton("Remove", id: "mc-del-\(encName)",
                                               class: ClassName(.dangerBtn, .btnSm))
                                 }
@@ -4484,7 +4486,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
                 .wire("modelcfg-list")
-                modelConfigAddForm()
+                modelConfigForm()
             }
             DetailCard(class: .cardStack) {
                 Heading("Main model", level: .h3, class: .cardH3)
@@ -4563,6 +4565,116 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             }
         }
         .data("component-id", "modelcfg-add-form")
+    }
+
+    /// The section's form slot: the edit form while one configuration is being
+    /// edited, the add form otherwise. Only one of them is ever on the page.
+    private func modelConfigForm() -> some WebUI.View {
+        Group {
+            if let name = editingModelConfig,
+               let preset = settings.modelConfigs.first(where: { $0.name == name }) {
+                modelConfigEditForm(preset)
+            } else {
+                modelConfigAddForm()
+            }
+        }
+    }
+
+    /// The in-place editor for one configuration.
+    ///
+    /// A managed configuration's name is read-only: the main configuration owns
+    /// that record and the boot reconciler keeps its name equal to the model, so
+    /// accepting a different label here would be undone at the next start. The
+    /// key field starts empty — the stored secret is never rendered, only
+    /// described by its placeholder — and a blank field means "keep it".
+    private func modelConfigEditForm(_ preset: ModelConfigPreset) -> some WebUI.View {
+        let managed = ConfigModelReconciler.manages(preset)
+        let keyPlaceholder: String
+        if stagedModelConfigAPIKey != nil {
+            keyPlaceholder = "a new key is staged — leave blank to keep it"
+        } else if !preset.apiKey.isEmpty {
+            keyPlaceholder = "stored — leave blank to keep it"
+        } else {
+            keyPlaceholder = "sk-…"
+        }
+        let nameAttributes: [(String, String)] = managed
+            ? [("readonly", ""), ("autocomplete", "off"), ("spellcheck", "false")]
+            : [("autocomplete", "off"), ("spellcheck", "false")]
+        return Form(method: nil, id: "modelcfg-edit-form", class: ClassName(.formGrid, .formSep)) {
+            DetailSub {
+                Text("Editing ")
+                InlineCode(preset.name)
+                if managed {
+                    Text(" — the main configuration. Its name follows the model, and saving also updates arc's default model.")
+                } else {
+                    Text(" — saving applies the change to every chat that uses it.")
+                }
+            }
+            FormGrid3 {
+                WebUIField(label: "Name", controlID: "mce-name") {
+                    Input(field: "mce-name", placeholder: preset.name,
+                          type: nil,
+                          value: formValues["mce-name", default: preset.name],
+                          attributes: nameAttributes)
+                    Small(managed
+                          ? "The name follows the model."
+                          : "How the configuration appears in every picker.")
+                }
+                WebUIField(label: "Model", controlID: "mce-model") {
+                    Input(field: "mce-model", placeholder: "deepseek-v4-flash",
+                          type: nil,
+                          value: formValues["mce-model", default: preset.model],
+                          attributes: [("autocomplete", "off"), ("spellcheck", "false")])
+                }
+                WebUIField(label: "Provider", controlID: "mce-provider") {
+                    Input(field: "mce-provider", placeholder: "custom",
+                          type: nil,
+                          value: formValues["mce-provider", default: preset.provider],
+                          attributes: [("autocomplete", "off"), ("spellcheck", "false")])
+                }
+            }
+            WebUIField(label: "Base URL", controlID: "mce-baseurl") {
+                Input(field: "mce-baseurl",
+                      placeholder: "https://api.openai.com/v1", type: nil,
+                      value: formValues["mce-baseurl", default: preset.baseURL],
+                      attributes: [("autocomplete", "off"), ("spellcheck", "false")])
+            }
+            FormGrid2 {
+                WebUIField(label: "API key (optional)", controlID: "mce-apikey") {
+                    Input(field: "mce-apikey", placeholder: keyPlaceholder,
+                          type: .password,
+                          value: "",
+                          attributes: [("autocomplete", "new-password"),
+                                       ("spellcheck", "false")])
+                    if !preset.apiKey.isEmpty {
+                        FieldLabel(class: .auxField) {
+                            Input(field: "mce-clear-key", type: .checkbox, value: "1",
+                                  attributes: formValues["mce-clear-key"] != nil
+                                    ? [("checked", "")] : [])
+                            Text(" Remove the stored key")
+                        }
+                    }
+                }
+                WebUIField(label: "Context length (optional)", controlID: "mce-ctx") {
+                    Input(field: "mce-ctx", placeholder: "128000",
+                          type: .text,
+                          value: formValues["mce-ctx", default: preset.contextLength.map(String.init) ?? ""],
+                          attributes: [("autocomplete", "off")])
+                }
+                WebUIField(label: "Max output tokens (optional)", controlID: "mce-maxtok") {
+                    Input(field: "mce-maxtok", placeholder: "32768",
+                          type: .text,
+                          value: formValues["mce-maxtok", default: preset.maxOutputTokens.map(String.init) ?? ""],
+                          attributes: [("autocomplete", "off")])
+                }
+            }
+            Div(class: ClassName(.rowActionsMain, .rowActionsFlush)) {
+                ArcButton("Save changes", class: .primaryBtn, type: .submit)
+                ArcButton("Cancel", id: "mc-edit-cancel", component: "mc-edit-cancel",
+                          class: .ghostBtn)
+            }
+        }
+        .data("component-id", "modelcfg-edit-form")
     }
 
     /// one auxiliary task: either the inline editor (when it is the task being

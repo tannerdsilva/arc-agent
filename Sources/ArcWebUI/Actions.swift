@@ -3491,6 +3491,36 @@ extension Controller {
         return await self.modelConfigAction(tid)
     }
 
+    /// The edit form's save. The form's field names are the submit payload keys
+    /// the engine builds (`extractFormData` keys by `name`), so a renamed field
+    /// silently kills Save — the contract test pins them.
+    @Wired("modelcfg-edit-form", events: [.submit])
+    func handleModelCfgEditForm(_ event: EventData) async -> [FragmentUpdate] {
+        guard let original = await self.app.editingModelConfig else { return [] }
+        let draft = ModelConfigDraft(
+            name: (event.string("mce-name") ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            model: (event.string("mce-model") ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            provider: (event.string("mce-provider") ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            baseURL: (event.string("mce-baseurl") ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            apiKey: event.string("mce-apikey") ?? "",
+            clearAPIKey: event.string("mce-clear-key") != nil,
+            contextLength: Int((event.string("mce-ctx") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)),
+            maxOutputTokens: Int((event.string("mce-maxtok") ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+        )
+        if let failure = await self.app.saveModelConfigEdit(originalName: original, draft: draft) {
+            _ = await self.app.hint(failure.message, kind: "error")
+        } else {
+            _ = await self.app.hint("Model configuration saved.")
+        }
+        return await self.changed()
+    }
+
+    @Wired("mc-edit-cancel", events: [.click])
+    func handleModelCfgEditCancel(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.closeModelConfigEdit()
+        return await self.changed()
+    }
+
     @Wired("kanban", events: [.click, .submit])
     func handleKanban(_ event: EventData) async -> [FragmentUpdate] {
         if event.event == "submit" {
@@ -3741,7 +3771,7 @@ extension Controller {
             _ = await app.hint("Name, model and base URL are required.", kind: "error")
             return await self.changed()
         }
-        guard URL(string: baseURL) != nil else {
+        guard AppState.isEndpointURL(baseURL) else {
             _ = await app.hint("Base URL is not a valid URL.", kind: "error")
             return await self.changed()
         }
@@ -3752,7 +3782,9 @@ extension Controller {
     }
 
     private func modelConfigAction(_ tid: String) async -> [FragmentUpdate] {
-        if tid.hasPrefix("mc-del-") {
+        if tid.hasPrefix("mc-edit-"), let name = dec(String(tid.dropFirst("mc-edit-".count))) {
+            await self.app.openModelConfigEdit(name)
+        } else if tid.hasPrefix("mc-del-") {
             if let name = dec(String(tid.dropFirst("mc-del-".count))) {
                 await self.app.removeModelConfig(name)
                 _ = await self.app.hint("Removed configuration '\(name)'.")

@@ -1895,6 +1895,9 @@ extension AppState {
 
     func removeModelConfig(_ name: String) {
         settings.modelConfigs.removeAll { $0.name == name }
+        // an editor pointing at the removed record would render the add form
+        // with a stale draft behind it.
+        if editingModelConfig == name { closeModelConfigEdit() }
         if settings.activeConfig == name {
             settings.activeConfig = settings.modelConfigs.first?.name ?? ""
         }

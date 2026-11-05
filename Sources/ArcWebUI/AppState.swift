@@ -1122,6 +1122,16 @@ actor AppState {
         return had
     }
 
+    // MARK: Model configuration presets (Settings → Model configurations)
+
+    /// The configuration being edited in place; nil while the add form owns
+    /// the section.
+    var editingModelConfig: String?
+    /// A key typed into the edit form that has not been saved yet. It is never
+    /// rendered: the form shows a placeholder instead, so a secret cannot ride
+    /// a patch frame back to the client.
+    var stagedModelConfigAPIKey: String?
+
     // MARK: MCP server presets (Settings → MCP servers)
 
     /// The add/edit form is open (either adding a new server or editing the

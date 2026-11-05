@@ -101,6 +101,14 @@ enum ConfigModelReconciler {
         return changed
     }
 
+    /// Whether `preset` is the config-owned record. A legacy seed (no
+    /// provenance, named by its model) is adopted on the next reconcile, so an
+    /// edit must treat it as managed too — otherwise the edit is overwritten at
+    /// the following boot.
+    static func manages(_ preset: ModelConfigPreset) -> Bool {
+        preset.source == managedSource || (preset.source == nil && preset.name == preset.model)
+    }
+
     private static func name(for resolved: Resolved) -> String {
         resolved.model.isEmpty ? "default" : resolved.model
     }
