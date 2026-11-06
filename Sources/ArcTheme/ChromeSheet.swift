@@ -2367,11 +2367,22 @@ public static let css: String = """
       font-size: 0.86em;
       color: var(--text);
       max-width: 260px;
+      min-width: 0;
       font-family: ui-monospace, Menlo, monospace;
+    }
+    /* The label is the only shrinkable part: long names ellipsize inside
+       the rounded box instead of clipping through it. The full path rides
+       the chip's title tooltip. */
+    .chip .chip-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .chip .chip-x {
       border: none; background: none; color: var(--muted);
       cursor: pointer; padding: 0; font-size: 0.9em; line-height: 1;
+      flex-shrink: 0;
       opacity: 0.7; transition: opacity 0.12s, color 0.12s;
     }
     .chip .chip-x:hover { color: var(--danger); opacity: 1; }

@@ -2496,11 +2496,17 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 Div(class: .attachChips) {
                     for (i, path) in attachments.enumerated() {
                         Span(class: .chip) {
-                            Text("@\(trunc(path, 50))")
+                            Span(class: .chipLabel) {
+                                // Visually just the file name — the full
+                                // path lives in the tooltip, where it can
+                                // be long without crowding the composer.
+                                Text("@\(trunc((path as NSString).lastPathComponent, 50))")
+                            }
                             ArcButton(id: "att-del-\(i)", component: nil, class: .chipX) {
                                 WebUIIcon(.x, size: .small)
                             }
                         }
+                        .attribute("title", path)
                     }
                 }
                 .id("attach-chips")

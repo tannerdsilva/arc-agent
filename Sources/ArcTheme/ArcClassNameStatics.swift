@@ -98,6 +98,7 @@ extension ClassName {
 	public static var chip: ClassName { ClassName(ArcClass.chip.token) }
 	public static var chipBtn: ClassName { ClassName(ArcClass.chipBtn.token) }
 	public static var chipHint: ClassName { ClassName(ArcClass.chipHint.token) }
+	public static var chipLabel: ClassName { ClassName(ArcClass.chipLabel.token) }
 	public static var chipX: ClassName { ClassName(ArcClass.chipX.token) }
 	public static var chk: ClassName { ClassName(ArcClass.chk.token) }
 	public static var clarifyCard: ClassName { ClassName(ArcClass.clarifyCard.token) }

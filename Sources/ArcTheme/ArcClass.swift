@@ -119,6 +119,7 @@ public enum ArcClass: String, CaseIterable, Sendable {
 	case chip = "chip"
 	case chipBtn = "chip-btn"
 	case chipHint = "chip-hint"
+	case chipLabel = "chip-label"
 	case chipX = "chip-x"
 	case chk = "chk"
 	case clarifyCard = "clarify-card"
