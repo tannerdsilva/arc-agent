@@ -24,7 +24,6 @@ struct ComposerUploadStagingTests {
     }
 
     @Test func removeChatUploadsDeletesOnlyTheSessionFolder() throws {
-        let root = AppState.chatUploadsRootURL()
         let mine = try #require(AppState.chatUploadDir(sessionID: "staging-test-session"))
         let other = try #require(AppState.chatUploadDir(sessionID: "staging-test-other"))
         try FileManager.default.createDirectory(at: mine, withIntermediateDirectories: true)

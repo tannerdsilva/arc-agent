@@ -621,6 +621,10 @@ extension AppState {
         // are for the reader's NEXT message and must survive the turn.
         if usePendingAttachments {
             attachments = []
+            // The turn consumed the composer's staged attachments for this
+            // chat: the per-chat staging list must forget them too, or the
+            // chips would resurrect on the next visit to the chat.
+            pendingAttachmentsBySession[sessionID] = []
         }
         // Remember what this submit consumed before clearing the draft: a
         // trailing input frame still carrying the sent text must not

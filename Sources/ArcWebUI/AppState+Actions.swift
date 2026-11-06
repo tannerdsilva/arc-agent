@@ -132,6 +132,9 @@ extension AppState {
     }
 
     func setActiveSession(_ id: String) async {
+        // Stash the composer attachments of the chat being left, then show
+        // the stashed list of the chat being opened (empty on first visit).
+        if let old = activeSessionID { pendingAttachmentsBySession[old] = attachments }
         activeSessionID = id
         pendingDelete = false
         filePopOpen = false
@@ -143,8 +146,12 @@ extension AppState {
             // sidebar does not keep a ghost "New chat" the store never lists.
             sessions.removeAll { $0.id == draft }
             sessionVersion += 1
+            // The draft is gone: nothing can ever reference its staged
+            // uploads or its pending-attachment list again.
+            pendingAttachmentsBySession.removeValue(forKey: draft)
+            AppState.removeChatUploads(sessionID: draft)
         }
-        attachments = []
+        attachments = pendingAttachmentsBySession[id] ?? []
         forceScrollBottom = true
         // Follow the chat's own workspace (right panel + composer selector).
         if let id = activeSessionID {
@@ -350,6 +357,7 @@ extension AppState {
     func addAttachment(_ path: String) {
         guard !attachments.contains(path) else { return }
         attachments.append(path)
+        if let id = activeSessionID { pendingAttachmentsBySession[id] = attachments }
         settings.recentFiles.removeAll { $0 == path }
         settings.recentFiles.insert(path, at: 0)
         if settings.recentFiles.count > 10 { settings.recentFiles = Array(settings.recentFiles.prefix(10)) }
@@ -360,7 +368,25 @@ extension AppState {
 
     func removeAttachment(_ index: Int) {
         guard attachments.indices.contains(index) else { return }
-        attachments.remove(at: index)
+        let path = attachments.remove(at: index)
+        if let id = activeSessionID { pendingAttachmentsBySession[id] = attachments }
+        // The X on an attachment chip means "discarded": when the path was a
+        // staged composer upload (inside the uploads root), the file is now
+        // unreferenced by anything — delete it, and drop the chat's staging
+        // folder if that emptied it. Paths outside the staging root (files
+        // the user attached from disk) are never touched.
+        let root = AppState.chatUploadsRootURL().standardizedFileURL
+        let target = URL(fileURLWithPath: path).standardizedFileURL
+        let prefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        guard target.path != root.path, target.path.hasPrefix(prefix) else { return }
+        let fm = FileManager.default
+        try? fm.removeItem(at: target)
+        let dir = target.deletingLastPathComponent()
+        if dir.path.hasPrefix(prefix),
+           dir.deletingLastPathComponent().path == root.path,
+           (try? fm.contentsOfDirectory(atPath: dir.path))?.isEmpty == true {
+            try? fm.removeItem(at: dir)
+        }
     }
 
     func toggleBookmarkActive() {

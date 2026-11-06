@@ -785,6 +785,11 @@ actor AppState {
     /// each keystroke; writes at most once per ~1.5 s while typing).
     var draftSaveTask: Task<Void, Never>?
     var attachments: [String] = []
+    /// Per-chat staging of the composer's pending attachments (in-memory).
+    /// `attachments` mirrors the ACTIVE chat's entry: switching chats swaps
+    /// the visible list, so a file dropped in chat A is still attached when
+    /// the user returns to A. Cleared when the chat's message is sent.
+    var pendingAttachmentsBySession: [String: [String]] = [:]
     /// Context blocks attached to the composer via "Reply with selection"
     /// (reference `_pendingSelections`). In-memory only (not persisted).
     var pendingContexts: [PendingContext] = []
