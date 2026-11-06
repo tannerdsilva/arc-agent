@@ -295,6 +295,10 @@ public struct MsgBody<Content: WebUI.View> {}
 @StyledElement(.div)
 public struct MsgMeta<Content: WebUI.View> {}
 
+/// `.msg-attachments` — the attachment pill row on a sent user message.
+@StyledElement(.div)
+public struct MsgAttachments<Content: WebUI.View> {}
+
 /// `.set-row` — a row pairing a setting's label with its control.
 @StyledElement(.div)
 public struct SetRow<Content: WebUI.View> {}

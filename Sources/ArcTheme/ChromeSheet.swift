@@ -1311,6 +1311,19 @@ public static let css: String = """
     }
     .msg-body.interim { opacity: 0.85; }
     .msg.user .msg-body { width: fit-content; max-width: 60%; }
+    /* Attachment pills on a sent user message (reference webui parity):
+       right-aligned with the bubble, each pill capped like the composer
+       chips; the row sits outside the bubble box, above it. */
+    .msg.user .msg-attachments {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
+      margin-bottom: 6px;
+      width: fit-content;
+      max-width: 60%;
+      margin-left: auto;
+    }
     .msg.user .user-bubble {
       width: fit-content;
       max-width: 60%;

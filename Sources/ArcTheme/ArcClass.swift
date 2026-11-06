@@ -385,6 +385,7 @@ public enum ArcClass: String, CaseIterable, Sendable {
 	case msgActionBtn = "msg-action-btn"
 	case msgActions = "msg-actions"
 	case msgBody = "msg-body"
+	case msgAttachments = "msg-attachments"
 	case msgElapsed = "msg-elapsed"
 	case msgFoot = "msg-foot"
 	case msgMeta = "msg-meta"

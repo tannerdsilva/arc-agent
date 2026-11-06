@@ -364,6 +364,7 @@ extension ClassName {
 	public static var msgActionBtn: ClassName { ClassName(ArcClass.msgActionBtn.token) }
 	public static var msgActions: ClassName { ClassName(ArcClass.msgActions.token) }
 	public static var msgBody: ClassName { ClassName(ArcClass.msgBody.token) }
+	public static var msgAttachments: ClassName { ClassName(ArcClass.msgAttachments.token) }
 	public static var msgElapsed: ClassName { ClassName(ArcClass.msgElapsed.token) }
 	public static var msgFoot: ClassName { ClassName(ArcClass.msgFoot.token) }
 	public static var msgMeta: ClassName { ClassName(ArcClass.msgMeta.token) }

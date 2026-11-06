@@ -101,11 +101,21 @@ extension AppState {
     /// A task thread passes no session id on purpose: forking there would swap
     /// the active chat behind a panel that never shows it.
     func userMessageActions(for message: Message, rawIdx: Int, sessionID: String?) -> [MessageAction] {
-        var actions: [MessageAction] = [.copy(text: message.displayText ?? message.content ?? "")]
+        var actions: [MessageAction] = [.copy(text: userVisibleText(for: message))]
         if let sessionID, !sessionID.isEmpty, rawIdx >= 0 {
             actions.append(.fork(sessionID: sessionID, messageIndex: rawIdx))
         }
         return actions
+    }
+
+    /// The text a reader sees for a user message: the display text when set,
+    /// otherwise the stored content with attachment marker plumbing stripped
+    /// (the same view `messageHTML` renders).
+    func userVisibleText(for message: Message) -> String {
+        if let display = message.displayText { return display }
+        let content = message.content ?? ""
+        guard content.contains("[attachment: ") else { return content }
+        return userAttachmentPills(content).visible
     }
 
     /// The actions an assistant reply offers: copy always; regenerate and

@@ -1830,6 +1830,52 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
     }
 
+    /// Extract `[attachment: path]` marker lines (and a directly following
+    /// `[Image description: …]` companion) from a stored user message's
+    /// content. Returns the attachment paths for pill rendering and the
+    /// text the reader should see with those markers stripped — historical
+    /// messages may have no `displayText`, so the renderer cannot rely on
+    /// it to hide the plumbing.
+    func userAttachmentPills(_ content: String) -> (paths: [String], visible: String) {
+        var paths: [String] = []
+        var visible: [String] = []
+        var suppressDescription = false
+        for line in content.components(separatedBy: "\n") {
+            if line.hasPrefix("[attachment: ") && line.hasSuffix("]") {
+                let path = String(line.dropFirst("[attachment: ".count).dropLast())
+                if !path.isEmpty { paths.append(path) }
+                suppressDescription = true
+                continue
+            }
+            if suppressDescription, line.hasPrefix("[Image description: "),
+               !paths.isEmpty {
+                // only the line directly after an image marker belongs to it
+                suppressDescription = false
+                continue
+            }
+            suppressDescription = false
+            visible.append(line)
+        }
+        return (paths, visible.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// The attachment pill row shown on a sent user message (reference
+    /// webui parity): paperclip + file name per attachment, right-aligned
+    /// above the bubble text.
+    func userAttachmentPillsHTML(_ paths: [String]) -> some WebUI.View {
+        MsgAttachments {
+            for p in paths {
+                Span(class: .chip) {
+                    Span(class: .chipLabel) {
+                        WebUIIcon(.paperclip, size: .small)
+                        Text(" \(trunc((p as NSString).lastPathComponent, 50))")
+                    }
+                }
+                .attribute("title", p)
+            }
+        }
+    }
+
     func messageHTML(_ m: Message, rawIdx: Int = -1, sessionID: String? = nil) -> some WebUI.View {
         return Group {
             switch m.role {
@@ -1837,9 +1883,18 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 // Slash-command rewrites (skill invocation scaffolding) keep the
                 // typed line as the display text; the model sees `content`.
                 let content = m.displayText ?? m.content ?? ""
+                // Attachment markers ride the stored content: render them as
+                // pills above the text, and never leak the raw marker lines.
+                let pills = userAttachmentPills(m.content ?? "")
+                let visible = pills.paths.isEmpty
+                    ? content
+                    : (m.displayText ?? pills.visible)
                 let actions = userMessageActions(for: m, rawIdx: rawIdx, sessionID: sessionID)
                 let bubble = Div(class: ClassName(.msg, .user)) {
-                    Div(class: ClassName(.msgBody, .userBubble)) { TrustedMarkup(mdBox(content), from: .markdown) }
+                    if !pills.paths.isEmpty {
+                        userAttachmentPillsHTML(pills.paths)
+                    }
+                    Div(class: ClassName(.msgBody, .userBubble)) { TrustedMarkup(mdBox(visible), from: .markdown) }
                     messageActionsHTML(actions)
                 }
                 if rawIdx >= 0 {
