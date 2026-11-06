@@ -326,7 +326,9 @@
 
   function sendComposerUpload(file, name) {
     var dir = composerUploadSessionID();
-    var fname = name || file.name;
+    // collapse doubled slashes and leading separators: a folder drop names
+    // destinations like `Folder/file` and must never carry `//` into a header.
+    var fname = (name || file.name).replace(/\/{2,}/g, '/').replace(/^\//, '');
     sendUpload(file, dir + '/' + fname, function (path, body) {
       // The route answers the destination it actually wrote: prefer the
       // absolute path (the staging root is not the workspace tree root,
@@ -342,16 +344,33 @@
   // attachment. The runtime debounces input events (~80ms); wait for the
   // path to reach the server before clicking Attach, or the click wins the
   // race and the server sees an empty path.
+  // Attachments commit ONE AT A TIME. The attach wire is a single shared
+  // `#file-path-input` plus a click on `#file-attach`, so overlapping commits
+  // would each read whatever path had landed last — a multi-file drop
+  // collapsed to one chip. The queue gives every uploaded path its own
+  // set-input → wait-for-debounce → click cycle before the next starts.
+  var attachQueue = [];
+  var attachBusy = false;
   function attachUploadedPath(p) {
+    attachQueue.push(p);
+    pumpAttachQueue();
+  }
+  function pumpAttachQueue() {
+    if (attachBusy) return;
+    var p = attachQueue.shift();
+    if (p === undefined) return;
+    attachBusy = true;
     var inp = document.getElementById('file-path-input');
-    if (!inp) return;
+    if (!inp) { attachBusy = false; return; }
     var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
     setter.call(inp, p);
     inp.dispatchEvent(new Event('input', { bubbles: true }));
     setTimeout(function () {
       var btn = document.getElementById('file-attach');
       if (btn) btn.click();
-    }, 350);
+      attachBusy = false;
+      pumpAttachQueue();
+    }, 400);
   }
 
   document.addEventListener('dragover', function (e) {
@@ -378,7 +397,9 @@
       for (var i = 0; i < items.length; i++) {
         var entry = items[i].webkitGetAsEntry ? items[i].webkitGetAsEntry() : null;
         if (entry) {
-          collectEntry(entry, 'attachments/', function (file, path) {
+          // base '' — the per-chat staging folder already isolates these
+          // uploads; a folder drop lands as <Folder>/<file> under it.
+          collectEntry(entry, '', function (file, path) {
             if (file) sendComposerUpload(file, path);
           });
         } else if (items[i].kind === 'file') {
