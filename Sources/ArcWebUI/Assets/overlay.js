@@ -308,16 +308,33 @@
     closeSlashMenu();
   });
 
-  // ---- Composer drag & drop + image paste: dropped or pasted files
-  // upload into the active chat's workspace under attachments/ and are
-  // attached to the next message via the attach wire (the chips re-render
-  // with no client round-trip). Text pastes are untouched. Composer
-  // drag & drop streams through the same upload route as the workspace
-  // panel — no base64 round-trip.
-  function sendComposerUpload(file, relPath) {
-    sendUpload(file, relPath || ('attachments/' + file.name), function (path) {
-      attachUploadedPath(workspaceAbsolutePath(path));
-    });
+  // ---- Composer drag & drop + image paste: dropped or pasted files are
+  // STAGED for this conversation — not written into any workspace. They
+  // land under the daemon's uploads root in a per-chat subfolder
+  // (<sessionID>/<name>) and are attached to the next message via the
+  // attach wire using the absolute path the route answers with. The
+  // staging folder is deleted with the chat. Text pastes are untouched.
+  // Composer drag & drop streams through the same upload machinery as
+  // the workspace panel — but its own route, so the two never mix.
+  function composerUploadSessionID() {
+    var el = document.getElementById('chat-scroll');
+    var sid = el ? (el.getAttribute('data-session') || '') : '';
+    sid = sid.replace(/^\s+|\s+$/g, '');
+    if (!sid || sid.indexOf('/') !== -1 || sid.indexOf('\\') !== -1) return 'unfiled';
+    return sid;
+  }
+
+  function sendComposerUpload(file, name) {
+    var dir = composerUploadSessionID();
+    var fname = name || file.name;
+    sendUpload(file, dir + '/' + fname, function (path, body) {
+      // The route answers the destination it actually wrote: prefer the
+      // absolute path (the staging root is not the workspace tree root,
+      // so composing from #ws-tree data-root would be wrong).
+      var abs = (body && typeof body.absolute === 'string' && body.absolute)
+        ? body.absolute : path;
+      attachUploadedPath(abs);
+    }, '/api/upload/chat');
   }
 
   // The attach wire is server state: the path rides the `file-path-input`
@@ -416,13 +433,13 @@
     imgs.forEach(function (f) {
       var ext = (f.type.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '').toLowerCase();
       if (!ext || ext.length > 8) ext = 'img';
-      // A pasted image has no filename of its own, so it lands in the
-      // workspace under a generated one and the attach wire takes the path
-      // the upload answered with. The counter keeps two images pasted in the
-      // same millisecond apart.
+      // A pasted image has no filename of its own, so it stages in the
+      // chat's uploads folder under a generated name and the attach wire
+      // takes the absolute path the upload answered with. The counter
+      // keeps two images pasted in the same millisecond apart.
       wsPasteSeq++;
       var rel = 'pasted-' + Date.now() + '-' + wsPasteSeq + '.' + ext;
-      sendUpload(f, rel, function (path) { attachUploadedPath(workspaceAbsolutePath(path)); });
+      sendComposerUpload(f, rel);
     });
   });
 
@@ -1983,7 +2000,7 @@
     }, 250);
   }
 
-  function sendUpload(file, relPath, onDone) {
+  function sendUpload(file, relPath, onDone, endpoint) {
     var token = uploadToken();
     var ui = uploadRow(file);
     if (!ui) return;
@@ -1992,7 +2009,7 @@
       return;
     }
     var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/upload');
+    xhr.open('POST', endpoint || '/api/upload');
     try {
       xhr.setRequestHeader('X-Render-Token', token);
       xhr.setRequestHeader('X-Upload-Path', relPath);
@@ -2017,7 +2034,7 @@
         var bytes = (body && typeof body.bytes === 'number') ? body.bytes : file.size;
         uploadFinish(ui, 'done', 'Done · ' + humanBytes(bytes), 4000);
         if (typeof onDone === 'function') {
-          onDone(body && typeof body.path === 'string' ? body.path : relPath);
+          onDone(body && typeof body.path === 'string' ? body.path : relPath, body);
         }
         requestWorkspaceRefresh();
       } else {

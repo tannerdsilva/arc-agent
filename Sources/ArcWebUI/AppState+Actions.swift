@@ -487,6 +487,9 @@ extension AppState {
         } catch {
             LogCollector.shared.append(level: .error, text: "[store] failed to delete session \(String(id.prefix(8))): \(error)")
         }
+        // The chat's staged uploads were only referenced by this session:
+        // gone with it (best-effort — a leftover folder is not an error).
+        AppState.removeChatUploads(sessionID: id)
         // Drop it from the cache too: a deliberate delete must not be
         // resurrected by the ghost-tolerance path in `reloadSessions`.
         sessions.removeAll { $0.id == id }
@@ -548,6 +551,7 @@ extension AppState {
             } catch {
                 LogCollector.shared.append(level: .error, text: "[store] failed to delete empty session \(String(id.prefix(8))): \(error)")
             }
+            AppState.removeChatUploads(sessionID: id)
             sessions.removeAll { $0.id == id }
             settings.sessionWorkspaces.removeValue(forKey: id)
             settings.sessionCategories.removeValue(forKey: id)

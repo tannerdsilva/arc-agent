@@ -5751,6 +5751,37 @@ extension AppState {
         URL(fileURLWithPath: panelWorkspacePath())
     }
 
+    // MARK: - Composer upload staging
+
+    /// Staging root for composer uploads: `<arc home>/uploads`, with one
+    /// subfolder per chat session. Deliberately NOT the workspace — a file
+    /// dropped into the chat bar belongs to the conversation, not the project
+    /// tree, and must survive workspace switches without polluting either.
+    static func chatUploadsRootURL() -> URL {
+        ArcHome.root.appendingPathComponent("uploads", isDirectory: true)
+    }
+
+    /// The staging folder for one chat's uploads, or nil when the id cannot
+    /// name a single directory component (defensive: ids are internal, but a
+    /// slashed id would otherwise escape the staging root).
+    static func chatUploadDir(sessionID: String) -> URL? {
+        let id = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty, !id.contains("/"), !id.contains("\\"), id != ".", id != ".." else { return nil }
+        return ArcHome.root
+            .appendingPathComponent("uploads", isDirectory: true)
+            .appendingPathComponent(id, isDirectory: true)
+    }
+
+    /// Delete every staged upload that belonged to a deleted chat. Missing
+    /// folders are the normal case (a chat with no uploads) and are silent.
+    static func removeChatUploads(sessionID: String) {
+        guard let dir = Self.chatUploadDir(sessionID: sessionID) else { return }
+        // Containment double-check before a recursive delete: the path must
+        // still sit directly inside the staging root.
+        guard dir.deletingLastPathComponent() == chatUploadsRootURL() else { return }
+        try? FileManager.default.removeItem(at: dir)
+    }
+
     /// AGENTS.md / AGENT.md in the workspace root, if present.
     func workspaceContextURL() -> URL? {
         for candidate in ["AGENTS.md", "AGENT.md"] {

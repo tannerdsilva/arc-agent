@@ -157,12 +157,13 @@ enum WorkspaceUpload {
     ///   - onUploaded: called after a successful rename (arc clears its
     ///     workspace tree cache here so the file appears on the next render).
     static func uploadRoute(
+        path: String = routePath,
         root: @escaping @Sendable () async -> URL,
         tokenStore: UploadTokenStore,
         limit: Int,
         onUploaded: @escaping @Sendable () async -> Void = {}
     ) -> Route {
-        Route.upload(PathPattern(routePath), limit: limit) { head, body in
+        Route.upload(PathPattern(path), limit: limit) { head, body in
             // 1. auth before a single body byte is read: a refused request
             //    writes nothing, and never pays for the upload it asked for.
             guard let token = head.headers.first(name: "X-Render-Token"),
@@ -274,7 +275,7 @@ enum WorkspaceUpload {
                 return json(500, ["ok": false, "error": "upload failed: could not place \(relPath)"])
             }
             await onUploaded()
-            return json(200, ["ok": true, "path": relPath, "bytes": bytes])
+            return json(200, ["ok": true, "path": relPath, "bytes": bytes, "absolute": destination.path])
         }
     }
 

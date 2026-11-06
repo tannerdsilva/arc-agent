@@ -364,6 +364,17 @@ public struct WebUIHost: Service {
                 limit: WorkspaceUpload.configuredCap,
                 onUploaded: { [app] in await app.clearWorkspaceTreeCache() }
             )
+            // Composer uploads stage OUTSIDE any workspace: one folder per
+            // chat under ~/.arc/uploads, removed when the chat is deleted.
+            // The client names the destination `<sessionID>/<file>` in the
+            // X-Upload-Path header; the path rules (no `..`, containment)
+            // apply unchanged.
+            WorkspaceUpload.uploadRoute(
+                path: "/api/upload/chat",
+                root: { await AppState.chatUploadsRootURL() },
+                tokenStore: uploadTokens,
+                limit: WorkspaceUpload.configuredCap
+            )
         }
 
         // `eventRouter:` hands the server the router arc wires by hand: the
