@@ -5771,6 +5771,7 @@ extension AppState {
                             }
                             WsIc { WebUIIcon(.folder, size: .small) }
                             WsName { Text(name) }
+                            workspaceDeleteX(encPath)
                         }
                         .attribute("style", "padding-left:\(pad)px")
                         .title(rp)
@@ -5781,6 +5782,7 @@ extension AppState {
                         ArcButton(id: "w-file-\(encPath)", component: nil, class: .wsRow) {
                             WsIc { WebUIIcon(.file, size: .small) }
                             WsName { Text(name) }
+                            workspaceDeleteX(encPath)
                         }
                         .attribute("style", "padding-left:\(pad + 4)px")
                         .title(rp)
@@ -5791,6 +5793,16 @@ extension AppState {
         walk(root, prefix: "", depth: 0)
         if rows.isEmpty { rows.append(EmptyHint { Text("This workspace is empty.") }) }
         return Group { rows }
+    }
+
+    /// The hover-revealed delete control on a workspace tree row. The span
+    /// carries its own id so the engine reports `w-del-…` as the click's
+    /// `targetId` (the ancestor-row contract), diverting the click to the
+    /// confirm flow instead of open/expand.
+    static func workspaceDeleteX(_ encPath: String) -> some WebUI.View {
+        Span(class: .wsDel) { WebUIIcon(.x, size: .small) }
+            .id("w-del-\(encPath)")
+            .title("Delete")
     }
 
     func wsFileIcon(_ name: String) -> String {
@@ -5805,6 +5817,50 @@ extension AppState {
     /// workspace, or the global default workspace when no chat is open.
     func panelWorkspacePath() -> String {
         workspacePath(for: activeSessionID)
+    }
+
+    /// Arm the shared confirmation dialog for deleting a workspace tree
+    /// entry. Nothing is touched here — the modal's Delete button does that.
+    func armWorkspaceEntryDelete(_ rel: String) {
+        // reject traversal before it can reach the dialog body
+        guard !rel.contains(".."), !rel.hasPrefix("/") else { return }
+        let root = URL(fileURLWithPath: panelWorkspacePath()).standardizedFileURL
+        let target = root.appendingPathComponent(rel).standardizedFileURL
+        guard target.path != root.path, target.path.hasPrefix(root.path + "/") else { return }
+        let name = (rel as NSString).lastPathComponent
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: target.path, isDirectory: &isDir)
+        let directory = exists && isDir.boolValue
+        requestConfirm(ConfirmRequest(
+            kind: "ws-delete", id: rel,
+            title: directory ? "Delete folder?" : "Delete file?",
+            body: directory
+            ? "The folder “\(name)” and everything inside it will be permanently deleted. This cannot be undone."
+            : "The file “\(name)” will be permanently deleted. This cannot be undone."))
+    }
+
+    /// Delete a workspace tree entry after confirmation. Resolves the relative
+    /// path against the panel's workspace root and refuses anything that
+    /// escapes it; clears the render cache so the tree repaints.
+    func deleteWorkspaceEntry(_ rel: String) async {
+        guard !rel.contains(".."), !rel.hasPrefix("/") else {
+            _ = await hint("That path is outside the workspace.", kind: "error")
+            return
+        }
+        let root = URL(fileURLWithPath: panelWorkspacePath()).standardizedFileURL
+        let target = root.appendingPathComponent(rel).standardizedFileURL
+        guard target.path != root.path, target.path.hasPrefix(root.path + "/") else {
+            _ = await hint("That path is outside the workspace.", kind: "error")
+            return
+        }
+        do {
+            try FileManager.default.removeItem(at: target)
+        } catch {
+            _ = await hint("Delete failed: \(error.localizedDescription)", kind: "error")
+            return
+        }
+        clearWorkspaceTreeCache()
+        _ = await hint("Deleted \(rel)")
     }
 
     /// URL of the workspace root directory shown in the right panel.

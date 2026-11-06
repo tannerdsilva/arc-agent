@@ -659,6 +659,7 @@ public enum ArcClass: String, CaseIterable, Sendable {
 	case worklogSummary = "worklog-summary"
 	case wsBody = "ws-body"
 	case wsCaret = "ws-caret"
+	case wsDel = "ws-del"
 	case wsClosing = "ws-closing"
 	case wsDockBtn = "ws-dock-btn"
 	case wsDockOpen = "ws-dock-open"

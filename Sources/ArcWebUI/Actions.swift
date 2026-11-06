@@ -2092,6 +2092,9 @@ extension Controller {
         case "empty-drafts":
             await self.app.cancelConfirm()
             await self.app.clearEmptyDrafts()
+        case "ws-delete":
+            await self.app.cancelConfirm()
+            await self.app.deleteWorkspaceEntry(req.id)
         default:
             await self.app.cancelConfirm()
         }
@@ -3742,6 +3745,10 @@ extension Controller {
             return []   // client-side: menu toggle / file picker
         } else if tid == "w-hidden" {
             await app.toggleShowHiddenFiles()
+        } else if tid.hasPrefix("w-del-"), let path = dec(String(tid.dropFirst("w-del-".count))) {
+            // the hover X: arm the shared confirmation dialog; nothing is
+            // deleted until "Delete" is pressed in the modal
+            await app.armWorkspaceEntryDelete(path)
         } else if tid.hasPrefix("w-toggle-"), let path = dec(String(tid.dropFirst("w-toggle-".count))) {
             await app.togglePath(path)
         } else if tid.hasPrefix("w-file-"), let path = dec(String(tid.dropFirst("w-file-".count))) {

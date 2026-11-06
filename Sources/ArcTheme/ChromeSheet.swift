@@ -3058,6 +3058,18 @@ public static let css: String = """
       padding: 5px 12px 5px 12px; cursor: pointer; min-width: 0;
     }
     .ws-row:hover { background: var(--surface-2); }
+    /* Hover-revealed delete control: invisible at rest, appears on row hover
+       or keyboard focus; the row keeps its click-to-open behaviour because the
+       span reports its own id as the click's targetId. */
+    .ws-row .ws-del {
+      margin-left: auto; flex: 0 0 auto;
+      display: inline-flex; align-items: center;
+      color: var(--muted); opacity: 0;
+      transition: opacity 0.12s ease;
+      cursor: pointer; border-radius: 4px; padding: 1px 2px;
+    }
+    .ws-row:hover .ws-del, .ws-row:focus-within .ws-del { opacity: 1; }
+    .ws-row .ws-del:hover { color: var(--danger); }
     .ws-caret { width: 12px; flex: 0 0 12px; color: var(--muted); font-size: 0.86em; }
     .ws-ic { flex: 0 0 auto; font-size: 0.95em; }
     .ws-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

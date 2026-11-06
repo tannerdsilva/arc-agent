@@ -636,6 +636,7 @@ extension ClassName {
 	public static var worklogSummary: ClassName { ClassName(ArcClass.worklogSummary.token) }
 	public static var wsBody: ClassName { ClassName(ArcClass.wsBody.token) }
 	public static var wsCaret: ClassName { ClassName(ArcClass.wsCaret.token) }
+	public static var wsDel: ClassName { ClassName(ArcClass.wsDel.token) }
 	public static var wsClosing: ClassName { ClassName(ArcClass.wsClosing.token) }
 	public static var wsDockBtn: ClassName { ClassName(ArcClass.wsDockBtn.token) }
 	public static var wsDockOpen: ClassName { ClassName(ArcClass.wsDockOpen.token) }
