@@ -24,6 +24,8 @@ import WebUI
 ///  - drops an empty `class=""` / `style=""` attribute
 ///  - decodes numeric character references in text (`&#9776;` == `☰`)
 ///  - sorts the attributes of every open tag
+///  - canonicalizes an absolute home directory (`/Users/<name>/…`, `/home/<name>/…`)
+///    to `<home>`, so a golden captured on one machine still compares on another
 ///
 /// the result is what "the same markup" means in this migration; anything the
 /// normalizer hides is a real difference the migration did not intend.
@@ -99,6 +101,46 @@ enum ParityNormalize {
             i = end
         }
 
+        return canonicalizeHome(out)
+    }
+
+    /// replace a machine-specific home directory inside an absolute path with a
+    /// fixed token, on both sides of a comparison. a golden captured elsewhere
+    /// embeds that host's `/Users/<name>/…`, and the path is volatile in exactly
+    /// the way a timestamp is: left in place it turns every parity suite red on
+    /// any machine but the one that captured it, which reads as a real markup
+    /// difference and is not one.
+    private static func canonicalizeHome(_ s: String) -> String {
+        let roots = ["/Users/", "/home/"]
+        let chars = Array(s)
+        var out = ""
+        var i = 0
+        while i < chars.count {
+            var matched: String?
+            if chars[i] == "/" {
+                for root in roots where i + root.count <= chars.count {
+                    if String(chars[i..<(i + root.count)]) == root {
+                        matched = root
+                        break
+                    }
+                }
+            }
+            guard let root = matched else {
+                out.append(chars[i])
+                i += 1
+                continue
+            }
+            out += root
+            i += root.count
+            // the user segment ends at the next path separator, or at a character
+            // that terminates a path in text (markup, a quote, an entity, space)
+            var segment = ""
+            while i < chars.count, !"/\"'<>&;\n\t ".contains(chars[i]) {
+                segment.append(chars[i])
+                i += 1
+            }
+            if !segment.isEmpty { out += "<home>" }
+        }
         return out
     }
 
