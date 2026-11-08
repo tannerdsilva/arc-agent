@@ -1359,6 +1359,9 @@ final class Controller: Sendable {
         wireSidebarPluginToggles(router)
         wireGroup_todos(router)
         wireGroup_queue(router)
+        // the cron group survives (schedule-editor drafts, task search, deliver
+        // preset); only its `tasks` id moved to the render pass in
+        // `tasksBoundary`, so the group stays wired here.
         wireGroup_cron(router)
         wireGroup_regen(router)
         await installSidebarTabPlugins(router)

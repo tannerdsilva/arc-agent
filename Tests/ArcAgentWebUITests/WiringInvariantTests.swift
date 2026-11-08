@@ -20,12 +20,13 @@ extension ArcWebUITestRoot {
     /// migrated group drive the group's own `wireGroup_<g>(router)` into a
     /// fresh router and assert the exact handler count. Deleting a `@Wired`
     /// annotation drops exactly one group's count, so this pin turns only one
-    /// way. `wireAll` must register exactly 179: 177 generated (the group
+    /// way. `wireAll` must register exactly 178: 176 generated (the group
     /// counts pinned below, `ctxpane` included) + `sidebar-plugin-toggle` +
     /// `cat-pick`. The 12 `nav-\(id)` registrations moved to the render pass
-    /// (see `NavRoutingContractTests`), and toasts, insights and logs followed
-    /// (`ToastRenderContractTests`, `InsightsRenderContractTests`,
-    /// `LogsRenderContractTests`), which is why the count sits 16 below the
+    /// (see `NavRoutingContractTests`), and toasts, insights, logs and the
+    /// scheduled-tasks boundary followed (`ToastRenderContractTests`,
+    /// `InsightsRenderContractTests`, `LogsRenderContractTests`,
+    /// `CronRenderContractTests`), which is why the count sits 17 below the
     /// upstream line's 195 rather than at it.
     @Suite("wiring invariant", .serialized)
     struct WiringInvariantTests {
@@ -159,8 +160,8 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_cron(router)
-            #expect(router.handlerCount(in: .default) == 11,
-                    "cron group: tasks + 8 schedule-editor change wires + task-search input + deliver preset")
+            #expect(router.handlerCount(in: .default) == 10,
+                    "cron group: 8 schedule-editor change wires + task-search input + deliver preset — `tasks` itself registers at render time through `tasksBoundary`")
         }
 
         @Test("every regen handler is registered after wireGroup_regen")
@@ -179,16 +180,16 @@ extension ArcWebUITestRoot {
             #expect(router.handlerCount(in: .default) == 1, "message_actions group registration drifted")
         }
 
-        @Test("wireAll registers exactly 179 handlers (177 generated incl. ctxpane + sidebar-plugin-toggle + cat-pick - toasts, insights, logs)")
-        func wireAllRegistersExactly179() async throws {
+        @Test("wireAll registers exactly 178 handlers (176 generated incl. ctxpane + sidebar-plugin-toggle + cat-pick - toasts, insights, logs, cron)")
+        func wireAllRegistersExactly178() async throws {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             await controller.wireAll(router)
 
             let count = router.handlerCount(in: .default)
             #expect(
-                count == 179,
-                "wireAll must register exactly 179 handlers: 177 generated (incl. ctxpane; toasts, insights and logs register at render time) + sidebar-plugin-toggle + cat-pick, got \(count)"
+                count == 178,
+                "wireAll must register exactly 178 handlers: 176 generated (incl. ctxpane; toasts, insights, logs and the scheduled-tasks boundary register at render time) + sidebar-plugin-toggle + cat-pick, got \(count)"
             )
         }
 

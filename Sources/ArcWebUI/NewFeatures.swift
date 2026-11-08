@@ -1082,13 +1082,13 @@ extension AppState {
                 if open {
                     if !rows.isEmpty {
                         Div(class: .taskList) { rows }
-                            .wire("tasks")
+                            .control(id: "tasks", perform: self.tasksBoundary)
                     }
                     // An empty group renders nothing inside — just the
                     // collapsed-able header with its (0) count.
                 }
             }
-            .wire("tasks")
+            .control(id: "tasks", perform: self.tasksBoundary)
         }
         return Group {
             PanelHead {
@@ -1104,7 +1104,7 @@ extension AppState {
                     .title("New scheduled job")
                 }
             }
-            .wire("tasks")
+            .control(id: "tasks", perform: self.tasksBoundary)
             PanelBody {
                 Div(class: .taskSearch) {
                     Input(field: "task-search", placeholder: "Filter jobs by name or prompt…")
@@ -1202,7 +1202,7 @@ extension AppState {
                 .title("Delete job and its chat")
             }
             .margin(0)
-            .wire("tasks")
+            .control(id: "tasks", perform: self.tasksBoundary)
         }
         let isScript = !(job.script ?? "").isEmpty
         let banner = taskBanner(job: job)
@@ -1356,7 +1356,7 @@ extension AppState {
                             }.title("Save job")
                         }
                         .margin(0)
-                        .wire("tasks")
+                        .control(id: "tasks", perform: self.tasksBoundary)
                     }
                     FieldLabel(class: .taskField) {
                         Text("Name")
@@ -1542,7 +1542,7 @@ extension AppState {
                         ArcButton(id: "task-run-\(key)", component: nil, class: .ghostBtn) {
                             WebUIIcon(open ? .chevronUp : .chevronDown, size: .small)
                         }.title(open ? "Hide output" : "Show output")
-                    }.wire("tasks")
+                    }.control(id: "tasks", perform: self.tasksBoundary)
                     if open {
                         Div(class: .taskRunBody) {
                             Text(shown)
@@ -1551,7 +1551,7 @@ extension AppState {
                                     Text("View full output")
                                 }.title("Show the complete output")
                             }
-                        }.wire("tasks")
+                        }.control(id: "tasks", perform: self.tasksBoundary)
                     }
                 }.data("st", r.status ?? "ok")
             }
@@ -1604,6 +1604,105 @@ extension AppState {
         default: String(format: "%.1f MB", Double(n) / 1_000_000)
         }
     }
+
+    /// The scheduled-tasks boundary, shared by every render site that carries
+    /// the `tasks` id: the panel head, the task list, each category group, the
+    /// selected task's control row, and the script-run disclosures. It used to
+    /// be one boot registration answering both a click and the create form's
+    /// submit; registration is id-keyed and happens in the render pass, so each
+    /// container installs this one body and the form's
+    /// `data-component-id="tasks"` still routes submits here. Only the vehicle
+    /// changed — the body is the one the boot handler carried.
+    private func tasksBoundary(_ event: EventData) async -> [FragmentUpdate] {
+        if event.event == "submit" {
+            // The name/prompt/deliver/profile ride the submit payload; the
+            // schedule fields live in the actor draft (kept current by the
+            // change wires in `@WireGroup("cron")`), so the preview the user
+            // saw is the schedule that is saved.
+            let name = event.string("task-name") ?? ""
+            let prompt = event.string("task-prompt") ?? ""
+            let preset = taskDeliverPreset
+            let deliver = preset == "custom" ? (event.string("task-deliver") ?? "") : ""
+            let profile = event.string("task-profile") ?? ""
+            let workspace = event.string("task-workspace") ?? ""
+            let jobModel = event.string("task-model") ?? ""
+            let schedule = taskScheduleExpression()
+            let kind = taskJobKind
+            let runBudget: Int? = kind == "oneshot" ? 1 : nil
+            // The edit target rides the form payload (hidden field), not
+            // actor mode state — a mode reset between opening the form and
+            // submitting used to fall through to addJob (the duplicate bug).
+            let editID = event.string("task-edit-id") ?? ""
+            let mode = tasksMode
+            if !editID.isEmpty {
+                await editJob(editID, name: name, schedule: schedule, prompt: prompt,
+                              deliver: deliver, profile: profile, runBudget: runBudget,
+                              workspace: workspace, model: jobModel)
+            } else if mode == .edit, let sel = tasksSelectedID {
+                await editJob(sel, name: name, schedule: schedule, prompt: prompt,
+                              deliver: deliver, profile: profile, runBudget: runBudget,
+                              workspace: workspace, model: jobModel)
+            } else {
+                let n = name.isEmpty ? "Untitled job" : name
+                if let id = await addJob(name: n, schedule: schedule, prompt: prompt,
+                                         deliver: deliver, profile: profile, runBudget: runBudget,
+                                         workspace: workspace, model: jobModel) {
+                    await selectTaskJob(id)
+                }
+            }
+            await signalStructure()
+            return []
+        }
+        guard let tid = event.string("targetId") else { return [] }
+        if tid == "task-new" {
+            openTaskAdd()
+        } else if tid == "task-refresh" {
+            await refreshScheduledJobs()
+        } else if tid.hasPrefix("task-grp-") {
+            toggleTaskGroup(String(tid.dropFirst("task-grp-".count)))
+        } else if tid == "task-cancel" {
+            closeTaskForm()
+        } else if tid.hasPrefix("task-cat-") {
+            setTasksCategory(String(tid.dropFirst("task-cat-".count)))
+        } else if tid.hasPrefix("task-open-") {
+            await selectTaskJob(String(tid.dropFirst("task-open-".count)))
+        } else if tid.hasPrefix("task-edit-") {
+            let id = String(tid.dropFirst("task-edit-".count))
+            guard cronVerbAllowed("edit", id) else {
+                await signalStructure()
+                return []
+            }
+            await openTaskEdit(id)
+        } else if tid.hasPrefix("task-dup-") {
+            await duplicateJob(String(tid.dropFirst("task-dup-".count)))
+        } else if tid.hasPrefix("task-toggle-") {
+            let id = String(tid.dropFirst("task-toggle-".count))
+            guard cronVerbAllowed("toggle", id) else {
+                await signalStructure()
+                return []
+            }
+            await toggleJob(id)
+        } else if tid.hasPrefix("task-now-") {
+            // Event-driven Run now: runJobNow arms + flags + spawns the turn
+            // off-path; the signal below re-renders to Running immediately,
+            // and the completion push arrives via the change door when the
+            // turn lands. Nothing here awaits the turn.
+            let runID = String(tid.dropFirst("task-now-".count))
+            guard cronVerbAllowed("run", runID) else {
+                await signalStructure()
+                return []
+            }
+            await runJobNow(runID)
+        } else if tid.hasPrefix("task-runfold-") {
+            expandScriptRun(String(tid.dropFirst("task-runfold-".count)))
+        } else if tid.hasPrefix("task-run-") {
+            toggleScriptRun(String(tid.dropFirst("task-run-".count)))
+        } else if tid.hasPrefix("task-del-") {
+            await deleteJob(String(tid.dropFirst("task-del-".count)))
+        }
+        await signalStructure()
+        return []
+    }
 }
 
 // MARK: - Controller wires (todos, cron, regenerate)
@@ -1653,91 +1752,11 @@ extension Controller {
         }
         return await self.changed()
     }
+
 }
 
 @WireGroup("cron")
 extension Controller {
-
-    @Wired("tasks", events: [.click, .submit])
-    func handleCron(_ event: EventData) async -> [FragmentUpdate] {
-        if event.event == "submit" {
-            // The name/prompt/deliver/profile ride the submit payload; the
-            // schedule fields live in the actor draft (kept current by the
-            // change wires below), so the preview the user saw is the
-            // schedule that is saved.
-            let name = event.string("task-name") ?? ""
-            let prompt = event.string("task-prompt") ?? ""
-            let preset = await self.app.taskDeliverPreset
-            let deliver = preset == "custom" ? (event.string("task-deliver") ?? "") : ""
-            let profile = event.string("task-profile") ?? ""
-            let workspace = event.string("task-workspace") ?? ""
-            let jobModel = event.string("task-model") ?? ""
-            let schedule = await self.app.taskScheduleExpression()
-            let kind = await self.app.taskJobKind
-            let runBudget: Int? = kind == "oneshot" ? 1 : nil
-            // The edit target rides the form payload (hidden field), not
-            // actor mode state — a mode reset between opening the form and
-            // submitting used to fall through to addJob (the duplicate bug).
-            let editID = event.string("task-edit-id") ?? ""
-            let mode = await self.app.tasksMode
-            if !editID.isEmpty {
-                await self.app.editJob(editID, name: name, schedule: schedule, prompt: prompt,
-                                       deliver: deliver, profile: profile, runBudget: runBudget,
-                                       workspace: workspace, model: jobModel)
-            } else if mode == .edit, let sel = await self.app.tasksSelectedID {
-                await self.app.editJob(sel, name: name, schedule: schedule, prompt: prompt,
-                                       deliver: deliver, profile: profile, runBudget: runBudget,
-                                       workspace: workspace, model: jobModel)
-            } else {
-                let n = name.isEmpty ? "Untitled job" : name
-                if let id = await self.app.addJob(name: n, schedule: schedule, prompt: prompt,
-                                                  deliver: deliver, profile: profile, runBudget: runBudget,
-                                                  workspace: workspace, model: jobModel) {
-                    await self.app.selectTaskJob(id)
-                }
-            }
-            return await self.changed()
-        }
-        guard let tid = event.string("targetId") else { return [] }
-        if tid == "task-new" {
-            await self.app.openTaskAdd()
-        } else if tid == "task-refresh" {
-            await self.app.refreshScheduledJobs()
-        } else if tid.hasPrefix("task-grp-") {
-            await self.app.toggleTaskGroup(String(tid.dropFirst("task-grp-".count)))
-        } else if tid == "task-cancel" {
-            await self.app.closeTaskForm()
-        } else if tid.hasPrefix("task-cat-") {
-            await self.app.setTasksCategory(String(tid.dropFirst("task-cat-".count)))
-        } else if tid.hasPrefix("task-open-") {
-            await self.app.selectTaskJob(String(tid.dropFirst("task-open-".count)))
-        } else if tid.hasPrefix("task-edit-") {
-            let id = String(tid.dropFirst("task-edit-".count))
-            guard await self.app.cronVerbAllowed("edit", id) else { return await self.changed() }
-            await self.app.openTaskEdit(id)
-        } else if tid.hasPrefix("task-dup-") {
-            await self.app.duplicateJob(String(tid.dropFirst("task-dup-".count)))
-        } else if tid.hasPrefix("task-toggle-") {
-            let id = String(tid.dropFirst("task-toggle-".count))
-            guard await self.app.cronVerbAllowed("toggle", id) else { return await self.changed() }
-            await self.app.toggleJob(id)
-        } else if tid.hasPrefix("task-now-") {
-            // Event-driven Run now: runJobNow arms + flags + spawns the turn
-            // off-path; the changed() below re-renders to Running immediately,
-            // and the completion push arrives via the change door when the
-            // turn lands. Nothing here awaits the turn.
-            let runID = String(tid.dropFirst("task-now-".count))
-            guard await self.app.cronVerbAllowed("run", runID) else { return await self.changed() }
-            await self.app.runJobNow(runID)
-        } else if tid.hasPrefix("task-runfold-") {
-            await self.app.expandScriptRun(String(tid.dropFirst("task-runfold-".count)))
-        } else if tid.hasPrefix("task-run-") {
-            await self.app.toggleScriptRun(String(tid.dropFirst("task-run-".count)))
-        } else if tid.hasPrefix("task-del-") {
-            await self.app.deleteJob(String(tid.dropFirst("task-del-".count)))
-        }
-        return await self.changed()
-    }
 
     // Schedule-editor change wires: each field keeps the actor draft in sync
     // so the live cron preview (and the submit) always match what is shown.
