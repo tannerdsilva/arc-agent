@@ -390,6 +390,31 @@ extension AppState {
         }
     }
 
+    /// The context-pane boundary, installed by the ring and the card in their
+    /// own render passes. The engine only sends `targetId` for a nested
+    /// id-bearing element (never for the wired component itself), so: no
+    /// targetId = ring click (pane closed) or backdrop click (pane open); the
+    /// card id itself is inert.
+    private func contextPaneBoundary(_ event: EventData) async -> [FragmentUpdate] {
+        switch event.string("targetId") {
+        case "ctx-pane-close":
+            closeContextPane()
+            await signalStructure()
+            return []
+        case "ctx-pane-card":
+            return [] // clicks inside the card content are inert
+        default:
+            // No nested id: the ring (open) or the backdrop (close).
+            if contextPane != nil {
+                closeContextPane()
+            } else {
+                await openContextPane()
+            }
+            await signalStructure()
+            return []
+        }
+    }
+
     /// The context-breakdown pane: one centered card describing exactly what
     /// the next request would contain and how many tokens each part carries.
     /// Opened by clicking the context ring; dismissed by the close button,
@@ -425,7 +450,7 @@ extension AppState {
                     .attribute("role", "dialog")
                     .aria(.modal(.yes))
                     .aria(.labelledby("ctx-pane-title"))
-                    .wire("ctxpane")
+                    .control(id: "ctxpane", perform: contextPaneBoundary)
                 }
             }
         }
@@ -2475,7 +2500,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             }
                         }
                     }
-                    .wire("ctxpane")
+                    // the ring registers the pane boundary in this render pass;
+                    // the click opens or closes through the one shared body.
+                    .control(id: "ctxpane", perform: contextPaneBoundary)
                     .title("Context window usage — click for the breakdown")
                     .aria(.label("Context window usage — click for the breakdown"))
                     Div(class: .ctxTooltip) {

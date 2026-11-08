@@ -1983,33 +1983,6 @@ extension Controller {
     }
 }
 
-@WireGroup("ctxpane")
-extension Controller {
-    /// Context breakdown pane: opened from the context ring, dismissed
-    /// from the close button or the backdrop. The engine only sends
-    /// `targetId` for a nested id-bearing element (never for the wired
-    /// component itself), so: no targetId = ring click (pane closed) or
-    /// backdrop click (pane open); the card id itself is inert.
-    @Wired("ctxpane", events: [.click])
-    func handleContextPane(_ event: EventData) async -> [FragmentUpdate] {
-        switch event.string("targetId") {
-        case "ctx-pane-close":
-            await self.app.closeContextPane()
-            return await self.changed()
-        case "ctx-pane-card":
-            return [] // clicks inside the card content are inert
-        default:
-            // No nested id: the ring (open) or the backdrop (close).
-            if await self.app.contextPane != nil {
-                await self.app.closeContextPane()
-            } else {
-                await self.app.openContextPane()
-            }
-            return await self.changed()
-        }
-    }
-}
-
 @WireGroup("chatmenu")
 extension Controller {
     @Wired("chat-menu", events: [.click, .submit])
@@ -2372,11 +2345,10 @@ extension Controller {
 
     /// Chat row “⋮” menu (copy link / rename / pin / archive / duplicate /
     /// delete), the centered delete-confirmation modal, and the archived list
-    /// toggle. Also mounts the context-breakdown pane (`ctx-ring` → open,
-    /// close button / backdrop → dismiss).
+    /// toggle. The context-breakdown pane registers at render time (see
+    /// `contextPaneHTML` and `ctxIndicatorHTML`).
     private func wireChatMenu(_ router: EventRouter) {
         wireGroup_chatmenu(router)
-        wireGroup_ctxpane(router)
     }
 
     /// User-message footer actions (fork-here): a chat-panel wire, but not the
