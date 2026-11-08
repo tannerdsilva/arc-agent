@@ -65,7 +65,7 @@ let package = Package(
         ),
         .package(
             url: "https://github.com/tannerdsilva/no-webui.git",
-            revision: "403b23bb16880a6207ff6308e3b8280cb591508b"
+            revision: "b249bd73d99ae07f86ede4b7202a5eaf23030f8a"
         ),
 		.package(path: "Plugins/ArcSidebarTabs"),
 	],
