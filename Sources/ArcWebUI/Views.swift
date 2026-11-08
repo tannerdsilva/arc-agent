@@ -709,8 +709,12 @@ extension AppState {
 
     /// arc-parity relative time: 1m / 12m / 3h / 4d / Aug 28 (+year if older
     /// than this year). Mirrors the client-side ladder in init.js.
-    func relTimeLabel(_ d: Date) -> String {
-        let now = Date()
+    ///
+    /// `now` is injectable only so `RelativeTimeParityTests` can pin this ladder
+    /// against the golden table at a fixed instant: the production call site
+    /// passes nothing and reads the wall clock, and no bucket boundary or
+    /// format string here depends on the parameter.
+    func relTimeLabel(_ d: Date, now: Date = Date()) -> String {
         let diff = max(0, now.timeIntervalSince(d))
         if diff < 60 { return "1m" }
         if diff < 3600 { return "\(Int(diff / 60))m" }
