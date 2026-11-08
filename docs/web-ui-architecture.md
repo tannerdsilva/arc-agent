@@ -261,13 +261,13 @@ engine side is pinned by no-webui's browser smoke.
 - Host assets are **content-stamped and cached for a year**: the sheet and the
   overlay are linked as `…?v=<sha256 prefix>` derived from their own bytes, so a rebuild
   changes the url by construction and a repeat navigation transfers none of them. Both are
-  served compressed (`Vary: Accept-Encoding`; gzip on request — 25,766 of 249,982 bytes for
-  the sheet, 9,904 of 34,967 for the overlay) and `immutable`. The policy
+  served compressed (`Vary: Accept-Encoding`; gzip on request — 29,281 of 271,933 bytes for
+  the sheet, 29,950 of 104,088 for the overlay, measured 2026-11-07) and `immutable`. The policy
   passes only its one extra (`img-src … https: blob:`) through
   `contentSecurityPolicyExtras`, so the framework's nonce — and with it the pre-paint theme
   prelude — survives.
 - no-webui products in use: `WebUI` (view DSL, `EventRouter`, `CSSRule`,
-  `WebUIRuntime`, `WebUIIcon`), `WebUIDesignSystem` (`DesignToken`, `WebUITheme`,
+  `WebUIIcon`), `WebUIDesignSystem` (`DesignToken`, `WebUITheme`,
   `@Theme`, `TokenAlias`, `ThemeCatalog`), `WebUIServer`.
 
 ## why arc keeps its own components
@@ -297,6 +297,32 @@ order was "grep both, then delete". do not re-run this analysis and
 
 ## Known gaps
 
+- **Open (2026-11-07): the no-webui pin is a revision, so upstream work only lands on a manual
+  bump.** `data-no-restore` is the measured cost: `ArcSwitch` has emitted the attribute at 13
+  call sites since it was written, the engine at the previous pin (`403b23b`) had no reference to
+  it, and every switch stayed subject to the stale-`checked` restore the attribute exists to
+  prevent. `b249bd7` implements it; `SwitchRestoreTests` pins both halves (the bytes the server
+  serves plus arc's emission). The general hazard stays: a revision pin makes drift invisible
+  until someone bumps it, so `make check-pin` now reports the lag.
+- **Open (2026-11-07): the in-page anchor workaround rests on a justification that is false at
+  arc's own pin.** `overlay.js` intercepts every same-page `#` click (the skip link, the settings
+  chips) with a comment asserting that a navigate re-render drops every handler arc registered at
+  boot. `WebUIServer.answerNavigate` calls `router.begin(session, preservingRegistrations: true)`
+  and has since `a5fa7bb` (2026-10-14), which is an ancestor of the pin. The workaround now buys
+  only "no redundant round-trip for an in-page jump"; it is the first deletion of the
+  migration-debt paydown.
+- **Open (2026-11-07): the modal focus trap is arc-owned for a reason nobody wrote down.** The
+  comment claims a `STABILITY.md` limitation that does not exist — the engine ships
+  `restoreModalFocus` plus a `Tab` trap on `.modal-overlay`. The code stays because the engine
+  holds a raw element reference and a patch-replaced trigger is disconnected, so its `focus()`
+  silently no-ops, while arc re-queries by `id`/`data-sid`. The justification, not the
+  implementation, is the debt.
+- **Open (2026-11-07): zero adoption of the typed control handlers.** `controlAttributes`,
+  `ElementRef` and the `.onClick`/`.onSubmit`/`.onInput`/`.onChange` modifiers are unused; the
+  routing is 199 hand-written `router.register`/`wire` sites plus container handlers that
+  string-match `targetId` prefixes, and the overlay synthesizes wire events on fabricated
+  components. Boot-time registration is still supported and documented, so this is alignment
+  debt rather than breakage.
 - **Open (2026-10-28): two push guards still read source text.**
   `UXHardeningContractTests` slices `turnChromeFragments()` out of `Actions.swift`, and
   `SettingsLayoutContractTests` slices `handleFontSizePick` — both then assert that
@@ -315,9 +341,18 @@ order was "grep both, then delete". do not re-run this analysis and
   source, and `gen_runtime.py` were deleted. `HTMLDocument` now boots no-webui's
   **engine**, and a page loads exactly two scripts: `/ui/webui-engine.js` (routed
   by `WebUIServer`) plus the arc overlay. Transport, event dispatch, fragment
-  patching, scroll/form-state restore and sanitising are the engine's job.
-  The overlay keeps only arc-specific behaviour — composer, markdown-table enhancement,
-  slash menu, selection button, outline, worklog.
+  Transport, event dispatch, fragment patching, scroll/form-state restore and sanitising are the
+  engine's job.
+  The overlay's scope is closer to even than "only arc-specific behaviour", which is what this
+  document used to claim: measured against the file body (2,284 attributed lines, 104,088 bytes
+  at the `b249bd7` pin), **1,129 lines (49.4 %) are generic client behaviour the engine should
+  own** — scroll memory, draft re-assertion, focus return, skip-link validity, autogrow,
+  enter-submit, dismiss ordering, drag-reorder, number clamping, roving tabindex, ticking labels
+  — and 1,155 lines (50.6 %) are arc's own composition: composer, markdown-table enhancement,
+  slash menu, selection button, outline, worklog, uploads, drawer, toasts, kanban, rename.
+  38 lines (1.7 %) are pure computation, the only part a wasm island could carry today (the
+  island contract's imports are stubbed, so it cannot reach the DOM). The generic half is
+  upstream work recorded in the migration-debt plan, not a task in this repo.
 - **Resolved (2026-09): the overlay rides the engine's post-patch seam.** It used to rescan
   the whole document from a `MutationObserver` — including on its own edits, so a streaming
   turn re-triggered it repeatedly — and the seam the engine grew for exactly this
