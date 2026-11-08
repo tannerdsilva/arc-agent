@@ -1512,23 +1512,16 @@ extension ArcWebUITestRoot {
         // drawer covering the rail, and the empty-draft clutter.
 
         /// UX-60 — the S1 freeze. A Settings sub-nav row is `<a href="#appearance">`.
-        /// Left to the browser the hash jump pushes a history entry and fires
-        /// `popstate`; the engine reports that as a `navigate` frame, and the
-        /// server's navigate re-render RESETS the render session arc registered its
-        /// handlers in at boot. Every control then goes dead — the rail, the
-        /// settings chips, the composer — until the server restarts. The overlay
-        /// must intercept the jump so the URL (and the history stack) never move.
-        @Test("in-page #anchors are intercepted so they can never fire a navigate")
-        func inPageAnchorsDoNotNavigate() async {
-            let overlay = Self.overlay
-            #expect(overlay.contains("closest('a[href^=\"#\"]')"),
-                    "the overlay must intercept same-page anchors before the browser navigates")
-            #expect(overlay.contains("e.preventDefault();"),
-                    "the jump must be prevented (no hash change → no popstate → no navigate frame)")
-            #expect(overlay.contains("target.scrollIntoView"),
-                    "the anchor must still move the view to its target")
-            #expect(overlay.contains("target.focus({ preventScroll: true })"),
-                    "a control target must receive focus (that is the skip link's whole job)")
+        /// The overlay used to intercept every same-page `#` click because a
+        /// navigate re-render was said to RESET the render session arc registered
+        /// its handlers in at boot. That premise died at this package's pin:
+        /// `WebUIServer.answerNavigate` re-renders with
+        /// `begin(..., preservingRegistrations: true)` since `a5fa7bb`, and the
+        /// interception was deleted 2026-11-07. What still has to hold is the
+        /// markup a browser jump needs — real, named, focusable anchors. The
+        /// router half of the premise is pinned behaviourally by `AnchorJumpTests`.
+        @Test("settings sub-nav rows stay real named anchors a browser can jump to")
+        func settingsSubNavRowsAreRealAnchors() async {
             // The settings sub-nav rows must stay real, named, focusable links.
             // asserted on the RENDERED panel: the rows are a typed composite now,
             // and a source grep would keep passing if the anchor stopped emitting.
