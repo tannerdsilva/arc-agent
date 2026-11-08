@@ -42,7 +42,7 @@ extension ArcWebUITestRoot {
         func railRegistersAtRenderTime() async {
             let router = EventRouter()
             let html = await Self.renderRail(router: router)
-            let expected = await Self.app.railTabIDs().count
+            let expected = await Self.app.railTabIDs().count + 1  // + the toast container (Task 2.2, group 1)
 
             #expect(router.handlerCount(in: .default) == expected,
                     "the render pass must register every rail tab, got \(router.handlerCount(in: .default)) for \(expected) tabs")

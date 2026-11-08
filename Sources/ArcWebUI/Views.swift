@@ -138,7 +138,16 @@ extension AppState {
         Div(id: "toasts") {
             toastsHTML()
         }
-        .wire("toast-dismiss")
+        // the container registers its own handler in this render pass: the toast
+        // id travels as `targetId`, so one stable id covers every row.
+        .control(id: "toast-dismiss") { event in
+            guard let tid = event.string("targetId") else { return [] }
+            guard tid.hasPrefix("t-"),
+                  let id = Int(tid.dropFirst("t-".count)) else { return [] }
+            await self.dismissToast(id: id)
+            await self.signalStructure()
+            return []
+        }
     }
 
     func iconbarHTML() -> some WebUI.View {

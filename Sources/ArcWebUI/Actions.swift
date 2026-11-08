@@ -1357,7 +1357,6 @@ final class Controller: Sendable {
         wirePlugins(router)
         wireMCP(router)
         wireSidebarPluginToggles(router)
-        wireToasts(router)
         wireLogs(router)
         wireInsights(router)
         wireGroup_todos(router)
@@ -2365,18 +2364,6 @@ extension Controller {
     func handleInsRange(_ event: EventData) async -> [FragmentUpdate] {
         let days = Int(event.string("value") ?? "30") ?? 30
         await self.app.setInsightsRange(days)
-        return await self.changed()
-    }
-}
-
-@WireGroup("toasts")
-extension Controller {
-    @Wired("toast-dismiss", events: [.click])
-    func handleToastDismiss(_ event: EventData) async -> [FragmentUpdate] {
-        guard let tid = event.string("targetId") else { return [] }
-        guard tid.hasPrefix("t-"),
-              let id = Int(tid.dropFirst("t-".count)) else { return [] }
-        await self.app.dismissToast(id: id)
         return await self.changed()
     }
 }
@@ -3871,7 +3858,6 @@ extension Controller {
 
     // MARK: Toasts
 
-    private func wireToasts(_ router: EventRouter) {
-        wireGroup_toasts(router)
-    }
+    // toasts register at render time in `toastsShell` (`.onClick(id:)`); there
+    // is no boot group to wire.
 }

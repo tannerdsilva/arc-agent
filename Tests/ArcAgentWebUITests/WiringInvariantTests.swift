@@ -150,13 +150,10 @@ extension ArcWebUITestRoot {
             #expect(router.handlerCount(in: .default) == 1, "insights group registration drifted")
         }
 
-        @Test("every toasts handler is registered after wireGroup_toasts")
-        func toastsGroupHasExactCount() async throws {
-            let router = EventRouter()
-            let controller = Controller(app: Self.app, push: Self.push)
-            controller.wireGroup_toasts(router)
-            #expect(router.handlerCount(in: .default) == 1, "toasts group registration drifted")
-        }
+        // toasts register at render time in `toastsShell`, so there is no boot
+        // group to count here. `toastsShell`'s container id is pinned by the
+        // render-parity goldens and dispatched in `NavRoutingContractTests`'
+        // neighbourhood: see `ToastRenderContractTests` (added with the group).
 
         @Test("every todos handler is registered after wireGroup_todos")
         func todosGroupHasExactCount() async throws {
@@ -191,16 +188,16 @@ extension ArcWebUITestRoot {
             #expect(router.handlerCount(in: .default) == 1, "message_actions group registration drifted")
         }
 
-        @Test("wireAll registers exactly 183 handlers (181 generated incl. ctxpane + sidebar-plugin-toggle + cat-pick)")
-        func wireAllRegistersExactly183() async throws {
+        @Test("wireAll registers exactly 182 handlers (180 generated incl. ctxpane + sidebar-plugin-toggle + cat-pick - toasts)")
+        func wireAllRegistersExactly182() async throws {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             await controller.wireAll(router)
 
             let count = router.handlerCount(in: .default)
             #expect(
-                count == 183,
-                "wireAll must register exactly 183 handlers: 181 generated (incl. ctxpane) + sidebar-plugin-toggle + cat-pick, got \(count)"
+                count == 182,
+                "wireAll must register exactly 182 handlers: 180 generated (incl. ctxpane, minus toasts) + sidebar-plugin-toggle + cat-pick, got \(count)"
             )
         }
 
