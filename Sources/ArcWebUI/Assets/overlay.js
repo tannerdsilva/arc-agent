@@ -761,11 +761,13 @@
     link.hidden = !document.getElementById('composer-input');
   }
 
-  // ---- Confirmation dialog: focus, Escape, and a light focus trap.
-  // The dialog is a server-rendered fragment the engine patches in, so nothing
-  // moves focus into it and Escape had no owner. Land focus on Cancel, route
-  // Escape to it, and keep Tab inside the card (no-webui's STABILITY.md lists a
-  // framework modal focus trap as a known limitation, so arc owns its own).
+  // ---- Confirmation dialog: focus, Escape, and a focus trap.
+  // the dialog is patched in: no focus lands in it and Escape had no
+  // owner, so focus Cancel, route Escape to it, trap Tab. the engine traps
+  // Tab on `.modal-overlay` and returns focus (`restoreModalFocus`), but
+  // holds a raw element ref, so a patch-replaced trigger's `focus()` no-ops.
+  // arc re-queries by `id`/`data-sid`, deliberately; no upstream limitation is
+  // the reason, and never was. `ModalFocusContractTests` pins both halves.
   function modalCard() {
     return document.querySelector('.modal-overlay .modal-card') ||
       document.querySelector('.modal-overlay .ctx-pane-card');
@@ -792,7 +794,7 @@
   //
   // The restore is keyed to a TRANSITION, not to the snapshot alone: the close
   // round-trip delivers several fragment patches in one batch and the runtime
-  // calls enhancePatched for each. The old restoreModalFocus began with an
+  // calls enhancePatched for each. arc's old `restoreModalFocus` began with an
   // early guard (activeElement !== body → forget the trigger), and the very
   // first patch in the batch ran while the dialog was STILL in the DOM — with
   // focus on #modal-cancel — so the guard wiped the memory before the removal
