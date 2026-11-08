@@ -1,5 +1,6 @@
 import Testing
 @testable import ArcAgentCore
+import WebUIIslandWire
 import Foundation
 
 // =========================================================================

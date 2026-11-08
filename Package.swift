@@ -131,6 +131,15 @@ let package = Package(
                 .product(name: "HTTPTypes", package: "swift-http-types"),
                 .product(name: "SwiftSlash", package: "SwiftSlash"),
                 .product(name: "Crypto", package: "swift-crypto"),
+                // the framework's zero-dependency, Foundation-free escaping leaf.
+                // no-webui declares no product for `WebUISharedCore` itself at this
+                // pin, so this is its declared carrier: `WebUIIslandWire`'s only
+                // target dependency is `WebUISharedCore` and it `@_exported`s it
+                // (the framework's own comment: island authors reach the leaf
+                // "without depending on `WebUICore`, which links swift-log").
+                // `WebUI/Utilities.swift`'s shared renderer emits HTML and now uses
+                // the framework's `htmlEscape` instead of a second copy.
+                .product(name: "WebUIIslandWire", package: "no-webui"),
             ],
             exclude: [
             ],
@@ -238,6 +247,9 @@ let package = Package(
                 // the shutdown-contract test builds a real ServiceGroup.
                 .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
                 .product(name: "Logging", package: "swift-log"),
+                // HTMLEscapeTests compares arc's escaping against the framework's
+                // (and, after the swap, pins the framework's output as a golden).
+                .product(name: "WebUIIslandWire", package: "no-webui"),
             ],
         ),
 

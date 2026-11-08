@@ -1,27 +1,5 @@
 import Foundation
-
-// MARK: - HTML Escaping
-
-/// Escape a string for safe inclusion in HTML content.
-///
-/// Replaces the five characters that have special meaning in HTML:
-/// - `&` → `&amp;`
-/// - `<` → `&lt;`
-/// - `>` → `&gt;`
-/// - `"` → `&quot;`
-/// - `'` → `&#39;`
-///
-/// - Parameter string: The raw string to escape.
-/// - Returns: An HTML-safe string.
-public func htmlEscape(_ string: String) -> String {
-    var result = string
-    result = result.replacingOccurrences(of: "&", with: "&amp;")
-    result = result.replacingOccurrences(of: "<", with: "&lt;")
-    result = result.replacingOccurrences(of: ">", with: "&gt;")
-    result = result.replacingOccurrences(of: "\"", with: "&quot;")
-    result = result.replacingOccurrences(of: "'", with: "&#39;")
-    return result
-}
+import WebUIIslandWire
 
 // MARK: - URL Sanitization
 
