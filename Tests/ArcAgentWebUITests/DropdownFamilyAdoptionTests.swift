@@ -187,13 +187,19 @@ extension ArcWebUITestRoot {
 					#expect(Self.attribute("data-component-id", in: button ?? "") == trigger,
 					        "\(page): the boundary must ride the trigger itself, not a wrapper")
 
-					// the double-registration shape: `id:`/`onSelect:` handed to the
-					// component on top of a self-wiring button emits a SECOND
-					// `data-event` inside the control. measured: arc's `ArcButton`
-					// emits none of its own, so exactly one is correct.
+					// the trigger is a boundary too when its group registers at
+					// render time, and the panel is the other one. exactly one of
+					// each: a second `data-event` on the trigger is the
+					// double-registration shape `id:`/`onSelect:` produces on top
+					// of a self-wiring button.
 					let control = Self.divSubtree(in: markup, containing: "id=\"\(trigger)\"")
-					#expect(Self.occurrences(of: "data-event=\"click\"", in: control) == 1,
-					        "\(page): \(trigger) has \(Self.occurrences(of: "data-event=\"click\"", in: control)) click boundaries — the panel must be the only one")
+					let trigger = button ?? ""
+					let triggerEvents = Self.occurrences(of: "data-event=\"click\"", in: trigger)
+					#expect(triggerEvents <= 1,
+					        "\(page): \(trigger) carries \(triggerEvents) click boundaries on itself — the trigger may own at most one")
+					let controlEvents = Self.occurrences(of: "data-event=\"click\"", in: control)
+					#expect(controlEvents == triggerEvents + 1,
+					        "\(page): \(trigger) subtree has \(controlEvents) click boundaries — the panel must be the only other one")
 
 					// the panel boundary is unchanged: same dispatch id, same event.
 					#expect(Self.occurrences(of: "data-component-id=\"\(panel)\" data-event=\"click\"", in: control) == 1,

@@ -230,12 +230,15 @@ extension ArcWebUITestRoot {
 
         @Test("a settings click reaches the wire only through the door")
         func handlerClickBecomesAFrame() async {
-            // The plumbing the sweep depends on, end to end: a real @Wired handler,
-            // dispatched by a real router, pushing through a real PushEdge, with the
-            // frame derived from the real shell. A handler's returned batch is
-            // written to the originating socket by no-webui and never diffed — if
-            // its signal never reaches the door, the page goes stale and no other
-            // test in this suite would see it.
+            // The plumbing the sweep depends on, end to end: a real handler,
+            // dispatched by a real router, pushing through a real PushEdge, with
+            // the frame derived from the real shell. The settings group
+            // registers at render time (Task 2.2), so the page is rendered
+            // inside a RenderContext to install `font-size-pick`, and the app's
+            // structural signal is the door this test's edge supplies. A
+            // handler's returned batch is written to the originating socket by
+            // no-webui and never diffed — if its signal never reaches the door,
+            // the page goes stale and no other test in this suite would see it.
             let app = AppState(renderFixture: .init())
             let wire = Wire()
             let edge = PushEdge(
@@ -244,9 +247,13 @@ extension ArcWebUITestRoot {
                 broadcast: { await wire.record($0) }
             )
             edge.seed(await app.appShell().markup.html)
+            await app.installStructuralSignal { await edge.push([]) }
             let router = EventRouter()
-            let controller = Controller(app: app, push: { await edge.push($0) })
-            await controller.wireAll(router)
+            _ = await RenderContext.$current.withValue(
+                RenderContext(router: router, session: .default)
+            ) {
+                await app.settingsMain().markup.html
+            }
 
             let outcome = await router.dispatch(EventData(
                 component: ComponentID("font-size-pick"),
