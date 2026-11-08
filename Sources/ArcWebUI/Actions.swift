@@ -1358,7 +1358,6 @@ final class Controller: Sendable {
         wireMCP(router)
         wireSidebarPluginToggles(router)
         wireLogs(router)
-        wireInsights(router)
         wireGroup_todos(router)
         wireGroup_queue(router)
         wireGroup_cron(router)
@@ -1400,9 +1399,8 @@ final class Controller: Sendable {
 
     // MARK: Insights
 
-    private func wireInsights(_ router: EventRouter) {
-        wireGroup_insights(router)
-    }
+    // insights register at render time in `insightsPanel` (`.control(id:on:)`);
+    // there is no boot group to wire.
 }
 
 @WireGroup("chat")
@@ -2354,16 +2352,6 @@ extension Controller {
     @Wired("log-clear", events: [.click])
     func handleLogClear(_ event: EventData) async -> [FragmentUpdate] {
         LogCollector.shared.clear()
-        return await self.changed()
-    }
-}
-
-@WireGroup("insights")
-extension Controller {
-    @Wired("ins-range", events: [.change])
-    func handleInsRange(_ event: EventData) async -> [FragmentUpdate] {
-        let days = Int(event.string("value") ?? "30") ?? 30
-        await self.app.setInsightsRange(days)
         return await self.changed()
     }
 }

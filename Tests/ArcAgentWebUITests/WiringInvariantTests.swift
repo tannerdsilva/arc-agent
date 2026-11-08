@@ -20,11 +20,12 @@ extension ArcWebUITestRoot {
     /// migrated group drive the group's own `wireGroup_<g>(router)` into a
     /// fresh router and assert the exact handler count. Deleting a `@Wired`
     /// annotation drops exactly one group's count, so this pin turns only one
-    /// way. `wireAll` must register exactly 183: 181 generated (the group
+    /// way. `wireAll` must register exactly 181: 179 generated (the group
     /// counts pinned below, `ctxpane` included) + `sidebar-plugin-toggle` +
     /// `cat-pick`. The 12 `nav-\(id)` registrations moved to the render pass
-    /// (see `NavRoutingContractTests`), which is why the count sits 12 below
-    /// the upstream line's 195 rather than at it.
+    /// (see `NavRoutingContractTests`), and toasts and insights followed
+    /// (`ToastRenderContractTests`, `InsightsRenderContractTests`), which is
+    /// why the count sits 14 below the upstream line's 195 rather than at it.
     @Suite("wiring invariant", .serialized)
     struct WiringInvariantTests {
 
@@ -142,18 +143,12 @@ extension ArcWebUITestRoot {
             #expect(router.handlerCount(in: .default) == 2, "logs group registration drifted")
         }
 
-        @Test("every insights handler is registered after wireGroup_insights")
-        func insightsGroupHasExactCount() async throws {
-            let router = EventRouter()
-            let controller = Controller(app: Self.app, push: Self.push)
-            controller.wireGroup_insights(router)
-            #expect(router.handlerCount(in: .default) == 1, "insights group registration drifted")
-        }
-
         // toasts register at render time in `toastsShell`, so there is no boot
-        // group to count here. `toastsShell`'s container id is pinned by the
-        // render-parity goldens and dispatched in `NavRoutingContractTests`'
-        // neighbourhood: see `ToastRenderContractTests` (added with the group).
+        // group to count here: see `ToastRenderContractTests` (added with the
+        // group).
+
+        // insights register at render time in `insightsPanel`, so there is no
+        // boot group to count here: see `InsightsRenderContractTests`.
 
         @Test("every todos handler is registered after wireGroup_todos")
         func todosGroupHasExactCount() async throws {
@@ -188,16 +183,16 @@ extension ArcWebUITestRoot {
             #expect(router.handlerCount(in: .default) == 1, "message_actions group registration drifted")
         }
 
-        @Test("wireAll registers exactly 182 handlers (180 generated incl. ctxpane + sidebar-plugin-toggle + cat-pick - toasts)")
-        func wireAllRegistersExactly182() async throws {
+        @Test("wireAll registers exactly 181 handlers (179 generated incl. ctxpane + sidebar-plugin-toggle + cat-pick - toasts, insights)")
+        func wireAllRegistersExactly181() async throws {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             await controller.wireAll(router)
 
             let count = router.handlerCount(in: .default)
             #expect(
-                count == 182,
-                "wireAll must register exactly 182 handlers: 180 generated (incl. ctxpane, minus toasts) + sidebar-plugin-toggle + cat-pick, got \(count)"
+                count == 181,
+                "wireAll must register exactly 181 handlers: 179 generated (incl. ctxpane; toasts and insights register at render time) + sidebar-plugin-toggle + cat-pick, got \(count)"
             )
         }
 

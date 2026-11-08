@@ -22,6 +22,17 @@ extension ArcWebUITestRoot {
     @Suite("memory panel scope", .serialized)
     struct MemoryPanelScopeTests {
 
+        /// Every test here runs against an unlocked gate. The suite pins which
+        /// document a turn addresses, never the lockdown — and a real
+        /// `AppState()` boot elsewhere in the process installs the operator's
+        /// live agent-powers, so on a machine whose `~/.arc/config.json` locks
+        /// MEMORY every write asserted below is refused by state this suite
+        /// never asked for. Declaring the gate here keeps suite ordering out of
+        /// the result.
+        init() {
+            AgentPowers.configure(AgentPowersConfig())
+        }
+
         /// No network, no sampling knobs to observe: these tests are about
         /// which document a turn addresses, not which model it asks.
         private static let preset = ModelConfigPreset(
