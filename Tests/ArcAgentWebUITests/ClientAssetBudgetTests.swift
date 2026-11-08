@@ -18,11 +18,14 @@ extension ArcWebUITestRoot {
 	@Suite("Client asset budget", .serialized)
 	struct ClientAssetBudgetTests {
 
-		/// measured 102,849 bytes / 2,311 lines after Tasks 1.1 and 1.2 (104,088
-		/// bytes / 2,336 lines before them). one byte of headroom is left, which is
-		/// the ratchet working as intended: the next commit either shrinks the file
-		/// or raises this number with a measured reason in its message.
-		private static let ceiling = 102_850
+		/// measured 106,609 bytes / 2,394 lines after the upstream line's cron,
+		/// kanban and composer-attachment work was replayed underneath this
+		/// migration (102,849 bytes / 2,311 lines before it). the growth is
+		/// upstream's, and it is temporary: the staged-chip, upload-tray,
+		/// workspace-delete and popover blocks these commits add are exactly the
+		/// ones the following commits in this program retire into engine
+		/// behavior, so the ceiling comes back down rather than staying here.
+		private static let ceiling = 106_610
 
 		private static let sourcePath = "Sources/ArcWebUI/Assets/overlay.js"
 

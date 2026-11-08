@@ -7,9 +7,10 @@ extension ArcWebUITestRoot {
     /// The invariant pin: every registration that the `Controller` installs is
     /// produced by `@Wired`/`@WireGroup` generation, never by a literal
     /// `wire(router, id:)` call site. The only literal-id `wire` calls that
-    /// remain are the two documented dynamic escapes (`nav-\(id)` and
-    /// `sidebar-plugin-toggle`) plus the `cat-pick` handler (it carries
-    /// `contextmenu`, which no `HTMLEvent` case covers).
+    /// remain are the two documented escapes (`sidebar-plugin-toggle`) plus the
+    /// `cat-pick` handler (it carries `contextmenu`, which no `HTMLEvent` case
+    /// covers). Nav is no longer among them: it registers at render time
+    /// through `controlAttributes` in `railButton`.
     ///
     /// This is the dispatch-fallback gate the plan pins at Wave 4
     /// (strict-dom's `registeredComponentIDs(in:)` + `WirePairingTests` are not
@@ -19,8 +20,11 @@ extension ArcWebUITestRoot {
     /// migrated group drive the group's own `wireGroup_<g>(router)` into a
     /// fresh router and assert the exact handler count. Deleting a `@Wired`
     /// annotation drops exactly one group's count, so this pin turns only one
-    /// way. `wireAll` must register exactly 181: 167 generated (166 + the
-    /// context-pane group) + 12 `nav-\(id)` + `sidebar-plugin-toggle` + `cat-pick`.
+    /// way. `wireAll` must register exactly 183: 181 generated (the group
+    /// counts pinned below, `ctxpane` included) + `sidebar-plugin-toggle` +
+    /// `cat-pick`. The 12 `nav-\(id)` registrations moved to the render pass
+    /// (see `NavRoutingContractTests`), which is why the count sits 12 below
+    /// the upstream line's 195 rather than at it.
     @Suite("wiring invariant", .serialized)
     struct WiringInvariantTests {
 
@@ -187,16 +191,17 @@ extension ArcWebUITestRoot {
             #expect(router.handlerCount(in: .default) == 1, "message_actions group registration drifted")
         }
 
-        @Test("wireAll registers exactly 181 handlers (167 generated incl. ctxpane + 12 nav ids + sidebar-plugin-toggle + cat-pick)")
-        func wireAllRegistersExactly180() async throws {
+        @Test("wireAll registers exactly 183 handlers (181 generated incl. ctxpane + sidebar-plugin-toggle + cat-pick)")
+        func wireAllRegistersExactly183() async throws {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             await controller.wireAll(router)
 
             let count = router.handlerCount(in: .default)
             #expect(
-                count == 195,
-                "wireAll must register exactly 195 handlers: 167 @Wired-generated (incl. ctxpane) + 12 nav-(id) + sidebar-plugin-toggle + cat-pick + 10 cron schedule/search/deliver wires, got \(count)")
+                count == 183,
+                "wireAll must register exactly 183 handlers: 181 generated (incl. ctxpane) + sidebar-plugin-toggle + cat-pick, got \(count)"
+            )
         }
 
         /// A non-listed id has no handler: the router answers empty fragments.

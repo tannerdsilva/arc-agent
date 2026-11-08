@@ -171,11 +171,22 @@ extension AppState {
     /// `Group` keeps it as exactly one `<button>` (no wrapper element), so the
     /// rail renders one button per tab.
     private func railButton(_ tab: any SidebarTab, active: Bool) -> some WebUI.View {
+        // the id and the handler travel with the control: registration happens
+        // in this render pass, so no central nav loop has to enumerate the rail.
+        // `signalStructure` is the app's stopgap route to the push edge; the
+        // engine is expected to own this as a handler outcome.
+        let tabID = tab.id
+        let navigation = controlAttributes(id: "nav-\(tabID)", event: .click) { _ in
+            await self.switchTab(tabID)
+            await self.notifyTabActivated(tabID)
+            await self.signalStructure()
+            return []
+        }
         let base = ArcButton(
-            id: "nav-\(tab.id)",
-            component: "nav-\(tab.id)",
+            id: "nav-\(tabID)",
             class: ClassName(active ? "icon-btn active" : "icon-btn"),
-            tabIndex: active ? 0 : -1
+            tabIndex: active ? 0 : -1,
+            extraAttributes: navigation
         ) {
             SidebarTabIconRenderer.view(tab.icon)
         }

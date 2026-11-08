@@ -1,3 +1,4 @@
+import ArcAgentCore
 import Foundation
 import Testing
 @testable import ArcWebUI
@@ -8,8 +9,16 @@ import Testing
 @Suite("Attachment chip discard", .serialized)
 struct AttachmentChipDiscardTests {
 
+    /// Boot the real state, then put the process-global gate back: the boot
+    /// reads the operator's live `~/.arc/config.json` and installs its
+    /// agent-powers locks, which would otherwise outlive this suite and refuse
+    /// writes in every later suite sharing the process (memory panel scope).
+    /// These tests exercise uploads, never the gate, so the live locks are not
+    /// part of what they pin.
     private func makeAppState() async throws -> AppState {
-        try await AppState()
+        let gate = AgentPowers.config
+        defer { AgentPowers.configure(gate) }
+        return try await AppState()
     }
 
     @Test func removingStagedChipDeletesTheFile() async throws {

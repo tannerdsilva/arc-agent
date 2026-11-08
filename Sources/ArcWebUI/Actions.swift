@@ -1313,16 +1313,16 @@ final class Controller: Sendable {
     // registered*. That was the defect this adoption wave fixed, and
     // `EventRouter.handlerCount(in:)` is the only honest way to observe it.
     //
-    // Three sanctioned escapes remain, each unexpressible as a `@Wired`
-    // marker:
-    // 1. `nav-\(id)` in `wireNav` — the ids are not static literals; they
-    //    come from `app.railTabIDs()` and are interpolated in a loop.
-    // 2. `sidebar-plugin-toggle` in `wireSidebarPluginToggles` — one fixed id
+    // Two sanctioned escapes remain, each unexpressible as a `@Wired` marker:
+    // 1. `sidebar-plugin-toggle` in `wireSidebarPluginToggles` — one fixed id
     //    covers every third-party plugin row, and the handler dispatches on
     //    the event's `targetId` (`sbpl-<key>`).
-    // 3. `cat-pick` in `wireChat` — it carries `contextmenu`, which is not an
+    // 2. `cat-pick` in `wireChat` — it carries `contextmenu`, which is not an
     //    `HTMLEvent` case, so the macro cannot express its event set.
     //
+    // Nav used to be a third (`nav-\(id)` from `app.railTabIDs()`); it now
+    // registers at render time through `controlAttributes` in `railButton`, so
+    // the rail's controls carry their own ids and handlers.
     // Any other literal id here is a regression: add a `@Wired` handler to the
     // owning `@WireGroup` instead.
     func wire(
@@ -1346,7 +1346,6 @@ final class Controller: Sendable {
         let app = self.app
         let push = self.push
         await app.installChangeDoor { await push(app.structuralChange()) }
-        await wireNav(router)
         wireChat(router)
         wireChatMenu(router)
         wireMessageActions(router)
@@ -1376,19 +1375,6 @@ final class Controller: Sendable {
         for id in app.pluginTabs.keys.sorted() {
             if let tab = app.pluginTabs[id] {
                 await tab.install(SidebarTabRegistration(registrar))
-            }
-        }
-    }
-
-    // MARK: Nav
-
-    private func wireNav(_ router: EventRouter) async {
-        let ids = await app.railTabIDs()
-        for id in ids {
-            wire(router, id: "nav-\(id)", events: ["click"]) { _ in
-                await self.app.switchTab(id)
-                await self.app.notifyTabActivated(id)
-                return await self.changed()
             }
         }
     }

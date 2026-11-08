@@ -42,6 +42,9 @@ public struct ArcButton<Views: WebUI.View>: WebUI.View {
 	public func render(into buffer: inout HTMLBuffer) {
 		var attributes = ""
 		if let id { attributes += " id=\"\(htmlEscape(id))\"" }
+		// emitted before `component` so a control that supplies its own
+		// data-component-id keeps the attribute where it has always sat.
+		if !extraAttributes.isEmpty { attributes += extraAttributes }
 		let componentId = routing.map { $0.value } ?? component
 		if let componentId, !componentId.isEmpty {
 			attributes += " data-component-id=\"\(htmlEscape(componentId))\""
@@ -53,7 +56,6 @@ public struct ArcButton<Views: WebUI.View>: WebUI.View {
 		if let tabIndex { attributes += " tabindex=\"\(tabIndex)\"" }
 		if disabled { attributes += " disabled=\"\"" }
 		if hidden { attributes += " hidden=\"\"" }
-		if !extraAttributes.isEmpty { attributes += extraAttributes }
 
 		buffer.beginElement("button", attributes)
 		buffer.endOpenTag()
