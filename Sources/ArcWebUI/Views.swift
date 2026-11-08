@@ -5585,7 +5585,17 @@ extension AppState {
         return Group {
             PanelHead {
                 PanelTitle { Text("Logs") }
-                ArcButton(id: "log-clear", component: "log-clear", class: .iconMini) {
+                // the clear control registers in this render pass: id and handler
+                // travel with the button through `ArcButton.extraAttributes`.
+                ArcButton(
+                    id: "log-clear",
+                    class: .iconMini,
+                    extraAttributes: controlAttributes(id: "log-clear", event: .click) { _ in
+                        LogCollector.shared.clear()
+                        await self.signalStructure()
+                        return []
+                    }
+                ) {
                     WebUIIcon(.trash, size: .small)
                 }
                 .title("Clear logs")
@@ -5615,7 +5625,15 @@ extension AppState {
                             .aria(.pressed(active ? .yes : .no))
                     }
                 }
-                .wire("log-filter")
+                // one boundary for every chip: the level travels as `targetId`,
+                // and the registration happens in this render pass.
+                .control(id: "log-filter") { event in
+                    guard let tid = event.string("targetId"), tid.hasPrefix("log-filter-") else { return [] }
+                    let lvl = String(tid.dropFirst("log-filter-".count))
+                    await self.setLogFilter(lvl)
+                    await self.signalStructure()
+                    return []
+                }
                 Div(class: .logPanelNote) { Text("In-app log stream. Captured lines from this process appear here instead of the terminal.") }
             }
         }

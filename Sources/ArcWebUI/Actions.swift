@@ -1357,7 +1357,6 @@ final class Controller: Sendable {
         wirePlugins(router)
         wireMCP(router)
         wireSidebarPluginToggles(router)
-        wireLogs(router)
         wireGroup_todos(router)
         wireGroup_queue(router)
         wireGroup_cron(router)
@@ -1393,9 +1392,9 @@ final class Controller: Sendable {
 
     // MARK: Logs
 
-    private func wireLogs(_ router: EventRouter) {
-        wireGroup_logs(router)
-    }
+    // logs register at render time in `logsPanel` (`.control(id:)` for the
+    // filter boundary, `controlAttributes` through `ArcButton.extraAttributes`
+    // for the clear button); there is no boot group to wire.
 
     // MARK: Insights
 
@@ -2335,23 +2334,6 @@ extension Controller {
     @Wired("plugin-rescan", events: [.click])
     func handlePluginRescan(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.refreshPlugins()
-        return await self.changed()
-    }
-}
-
-@WireGroup("logs")
-extension Controller {
-    @Wired("log-filter", events: [.click])
-    func handleLogFilter(_ event: EventData) async -> [FragmentUpdate] {
-        guard let tid = event.string("targetId"), tid.hasPrefix("log-filter-") else { return [] }
-        let lvl = String(tid.dropFirst("log-filter-".count))
-        await self.app.setLogFilter(lvl)
-        return await self.changed()
-    }
-
-    @Wired("log-clear", events: [.click])
-    func handleLogClear(_ event: EventData) async -> [FragmentUpdate] {
-        LogCollector.shared.clear()
         return await self.changed()
     }
 }
