@@ -14,6 +14,10 @@ public struct ArcSwitch: WebUI.View {
 	public let event: String?
 	public let value: String?
 	public let ariaLabel: String?
+	/// raw attributes emitted verbatim after the routing pair — a leading space
+	/// included. the seam a render-time control uses to carry
+	/// `controlAttributes` output (id + event) it registered while rendering.
+	public var extraAttributes: String = ""
 
 	public init(
 		id: String,
@@ -21,7 +25,8 @@ public struct ArcSwitch: WebUI.View {
 		component: String? = nil,
 		event: String? = nil,
 		value: String? = nil,
-		ariaLabel: String? = nil
+		ariaLabel: String? = nil,
+		extraAttributes: String = ""
 	) {
 		self.id = id
 		self.on = on
@@ -29,6 +34,7 @@ public struct ArcSwitch: WebUI.View {
 		self.event = event
 		self.value = value
 		self.ariaLabel = ariaLabel
+		self.extraAttributes = extraAttributes
 	}
 
 	public func render(into buffer: inout HTMLBuffer) {
@@ -39,6 +45,7 @@ public struct ArcSwitch: WebUI.View {
 		if let event, !event.isEmpty {
 			attributes += " data-event=\"\(htmlEscape(event))\""
 		}
+		if !extraAttributes.isEmpty { attributes += extraAttributes }
 		if let value, !value.isEmpty {
 			attributes += " value=\"\(htmlEscape(value))\""
 		}

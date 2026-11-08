@@ -1351,7 +1351,6 @@ final class Controller: Sendable {
         wireMessageActions(router)
         wireSkills(router)
         wireProfiles(router)
-        wireTools(router)
         wireWorkspaces(router)
         wireSettings(router)
         wirePlugins(router)
@@ -2301,27 +2300,6 @@ extension Controller {
     }
 }
 
-@WireGroup("tools")
-extension Controller {
-    @Wired("tool-list", events: [.click])
-    func handleToolList(_ event: EventData) async -> [FragmentUpdate] {
-        guard let tid = event.string("targetId"), tid.hasPrefix("tl-open-") else { return [] }
-        let name = dec(String(tid.dropFirst("tl-open-".count))) ?? ""
-        await self.app.selectTool(name)
-        return await self.changed()
-    }
-
-    @Wired("tools-toggle", events: [.change])
-    func handleToolsToggle(_ event: EventData) async -> [FragmentUpdate] {
-        let tid = event.string("targetId") ?? event.string("value") ?? ""
-        guard tid.hasPrefix("ts-") else { return [] }
-        let ts = dec(String(tid.dropFirst("ts-".count))) ?? ""
-        let on = event.checked == true
-        await self.app.setToolset(ts, enabled: on)
-        return await self.changed()
-    }
-}
-
 @WireGroup("plugins")
 extension Controller {
     @Wired("plugin-toggle", events: [.change])
@@ -2931,9 +2909,9 @@ extension Controller {
 
     // MARK: Tools
 
-    private func wireTools(_ router: EventRouter) {
-        wireGroup_tools(router)
-    }
+    // tools register at render time in `toolsPanel` (`.control(id:on:)` for the
+    // row boundary, `controlAttributes` through `ArcSwitch.extraAttributes` for
+    // each toolset toggle); there is no boot group to wire.
 
     // MARK: Tool plugins (Settings)
 

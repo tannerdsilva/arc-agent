@@ -1114,9 +1114,21 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                         Text("\(filtered.count) tool\(filtered.count == 1 ? "" : "s")")
                                     }
                                 }
-                                ArcSwitch(id: "ts-\(encTS)", on: !disabled, component: "tools-toggle",
-                                          event: "change", value: "ts-\(encTS)",
-                                          ariaLabel: "Enable \(toolset) tools")
+                                // each row registers the tools boundary in this
+                                // render pass; the row button keeps only its id,
+                                // so the click still reports `tl-open-<enc>` as
+                                // `targetId`.
+                                ArcSwitch(id: "ts-\(encTS)", on: !disabled,
+                                          value: "ts-\(encTS)",
+                                          ariaLabel: "Enable \(toolset) tools",
+                                          extraAttributes: controlAttributes(id: "tools-toggle", event: .change) { event in
+                                              let tid = event.string("targetId") ?? event.string("value") ?? ""
+                                              guard tid.hasPrefix("ts-") else { return [] }
+                                              let ts = dec(String(tid.dropFirst("ts-".count))) ?? ""
+                                              await self.setToolset(ts, enabled: event.checked == true)
+                                              await self.signalStructure()
+                                              return []
+                                          })
                                     .title(disabled ? "Toolset disabled" : "Toolset enabled")
                             }
                             if toolset == "mcp" && mcpServers == 0 {
@@ -1139,7 +1151,16 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                         }
                                     }
                                 }
-                                .data("component-id", "tool-list")
+                                // the row boundary registers in this render pass;
+                                // the button inside carries only its id so the
+                                // click reports `tl-open-<enc>` as `targetId`.
+                                .control(id: "tool-list", on: .click) { event in
+                                    guard let tid = event.string("targetId"), tid.hasPrefix("tl-open-") else { return [] }
+                                    let name = dec(String(tid.dropFirst("tl-open-".count))) ?? ""
+                                    await self.selectTool(name)
+                                    await self.signalStructure()
+                                    return []
+                                }
                                 .aria([.current(.yes)], when: active)])
                             }
                         }

@@ -20,14 +20,14 @@ extension ArcWebUITestRoot {
     /// migrated group drive the group's own `wireGroup_<g>(router)` into a
     /// fresh router and assert the exact handler count. Deleting a `@Wired`
     /// annotation drops exactly one group's count, so this pin turns only one
-    /// way. `wireAll` must register exactly 178: 176 generated (the group
+    /// way. `wireAll` must register exactly 176: 174 generated (the group
     /// counts pinned below, `ctxpane` included) + `sidebar-plugin-toggle` +
     /// `cat-pick`. The 12 `nav-\(id)` registrations moved to the render pass
-    /// (see `NavRoutingContractTests`), and toasts, insights, logs and the
-    /// scheduled-tasks boundary followed (`ToastRenderContractTests`,
+    /// (see `NavRoutingContractTests`), and toasts, insights, logs, the
+    /// scheduled-tasks boundary and tools followed (`ToastRenderContractTests`,
     /// `InsightsRenderContractTests`, `LogsRenderContractTests`,
-    /// `CronRenderContractTests`), which is why the count sits 17 below the
-    /// upstream line's 195 rather than at it.
+    /// `CronRenderContractTests`, `ToolsRenderContractTests`), which is why the
+    /// count sits 19 below the upstream line's 195 rather than at it.
     @Suite("wiring invariant", .serialized)
     struct WiringInvariantTests {
 
@@ -121,13 +121,8 @@ extension ArcWebUITestRoot {
             #expect(router.handlerCount(in: .default) == 6, "queue group registration drifted")
         }
 
-        @Test("every tools handler is registered after wireGroup_tools")
-        func toolsGroupHasExactCount() async throws {
-            let router = EventRouter()
-            let controller = Controller(app: Self.app, push: Self.push)
-            controller.wireGroup_tools(router)
-            #expect(router.handlerCount(in: .default) == 2, "tools group registration drifted")
-        }
+        // tools register at render time in `toolsPanel`, so there is no boot
+        // group to count here: see `ToolsRenderContractTests`.
 
         @Test("every plugins handler is registered after wireGroup_plugins")
         func pluginsGroupHasExactCount() async throws {
@@ -180,16 +175,16 @@ extension ArcWebUITestRoot {
             #expect(router.handlerCount(in: .default) == 1, "message_actions group registration drifted")
         }
 
-        @Test("wireAll registers exactly 178 handlers (176 generated incl. ctxpane + sidebar-plugin-toggle + cat-pick - toasts, insights, logs, cron)")
-        func wireAllRegistersExactly178() async throws {
+        @Test("wireAll registers exactly 176 handlers (174 generated incl. ctxpane + sidebar-plugin-toggle + cat-pick - toasts, insights, logs, cron, tools)")
+        func wireAllRegistersExactly176() async throws {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             await controller.wireAll(router)
 
             let count = router.handlerCount(in: .default)
             #expect(
-                count == 178,
-                "wireAll must register exactly 178 handlers: 176 generated (incl. ctxpane; toasts, insights, logs and the scheduled-tasks boundary register at render time) + sidebar-plugin-toggle + cat-pick, got \(count)"
+                count == 176,
+                "wireAll must register exactly 176 handlers: 174 generated (incl. ctxpane; toasts, insights, logs, the scheduled-tasks boundary and tools register at render time) + sidebar-plugin-toggle + cat-pick, got \(count)"
             )
         }
 
