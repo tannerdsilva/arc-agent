@@ -419,6 +419,10 @@ public struct WebUIHost: Service {
             await edge.push(updates)
         })
         await controller.wireAll(router)
+        // the render-time controls' door: `controlAttributes` handlers run where
+        // the controller's push closure is not reachable, so the app carries the
+        // signal. installed once, at the same point the controller is wired.
+        await app.installStructuralSignal { await edge.push([]) }
         logger.info("serving http://\(host):\(port) (page \(bootPageBytes) bytes)")
         // no cron engine here: the daemon owns the one scheduler and calls
         // back into this host's `runScheduledJob` for job execution.
