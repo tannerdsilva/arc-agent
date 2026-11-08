@@ -311,12 +311,14 @@ order was "grep both, then delete". do not re-run this analysis and
   and has since `a5fa7bb` (2026-10-14), which is an ancestor of the pin. The workaround now buys
   only "no redundant round-trip for an in-page jump"; it is the first deletion of the
   migration-debt paydown.
-- **Open (2026-11-07): the modal focus trap is arc-owned for a reason nobody wrote down.** The
-  comment claims a `STABILITY.md` limitation that does not exist — the engine ships
-  `restoreModalFocus` plus a `Tab` trap on `.modal-overlay`. The code stays because the engine
-  holds a raw element reference and a patch-replaced trigger is disconnected, so its `focus()`
-  silently no-ops, while arc re-queries by `id`/`data-sid`. The justification, not the
-  implementation, is the debt.
+- **Resolved (2026-11-07): the modal focus trap is arc-owned, and the comment now says why.**
+  The comment used to justify 128 lines of arc-owned focus code with a `STABILITY.md` limitation
+  that does not exist: the engine ships `restoreModalFocus` plus a `Tab` trap on
+  `.modal-overlay`, and that document says the opposite — modal focus management is engine-owned
+  and probed. The code stays because the engine holds a raw element reference, so a
+  patch-replaced trigger's `focus()` silently no-ops, while arc re-queries by `id`/`data-sid`.
+  The comment names that reason, and `ModalFocusContractTests` pins both halves from the bytes
+  the daemon serves.
 - **Open (2026-11-07): zero adoption of the typed control handlers.** `controlAttributes`,
   `ElementRef` and the `.onClick`/`.onSubmit`/`.onInput`/`.onChange` modifiers are unused; the
   routing is 199 hand-written `router.register`/`wire` sites plus container handlers that

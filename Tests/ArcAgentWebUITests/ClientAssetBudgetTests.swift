@@ -18,10 +18,10 @@ extension ArcWebUITestRoot {
 	@Suite("Client asset budget", .serialized)
 	struct ClientAssetBudgetTests {
 
-		/// measured 102,713 bytes / 2,309 lines after Task 1.1 deleted the
-		/// in-page anchor workaround (104,088 bytes and 2,336 lines before it).
-		/// pinned 137 bytes above the measurement, so the next addition trips
-		/// deliberately rather than accumulating.
+		/// measured 102,849 bytes / 2,311 lines after Tasks 1.1 and 1.2 (104,088
+		/// bytes / 2,336 lines before them). one byte of headroom is left, which is
+		/// the ratchet working as intended: the next commit either shrinks the file
+		/// or raises this number with a measured reason in its message.
 		private static let ceiling = 102_850
 
 		private static let sourcePath = "Sources/ArcWebUI/Assets/overlay.js"
