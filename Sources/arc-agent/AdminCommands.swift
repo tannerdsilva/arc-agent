@@ -268,14 +268,27 @@ struct KanbanList: AsyncParsableCommand {
 
 // MARK: - Cron
 
-/// `arc cron` — inspect cron jobs.
+/// `arc cron` — full cron job lifecycle from the terminal.
+///
+/// Verbs: `list` (with a due-now indicator — the debugging affordance
+/// that replaces Hermes's `tick`, which is deliberately NOT ported: arc's
+/// bookkeeping mode advances `nextRunAt` and would consume due slots with
+/// fake output against a live store), `create`, `edit`, `pause`,
+/// `resume`, `run`, `remove`, `history`. All verbs are thin argument
+/// parsing over ``CronOps`` — the same mutation layer the agent tool uses.
+///
+/// `--deliver`, `--repeat` and `--script` flags arrive with the delivery
+/// and unattended-semantics phases; the arg names are reserved here so
+/// the verb surface does not churn.
 
 struct CronCmd: AsyncParsableCommand {
 
     static let configuration = CommandConfiguration(
         commandName: "cron",
-        abstract: "Inspect cron jobs.",
-        subcommands: [CronList.self]
+        abstract: "Inspect and manage cron jobs.",
+        subcommands: [CronList.self, CronCreate.self, CronEdit.self,
+                      CronPause.self, CronResume.self, CronRunNow.self,
+                      CronRemove.self, CronHistory.self]
     )
 }
 
@@ -283,7 +296,7 @@ struct CronList: AsyncParsableCommand {
 
     static let configuration = CommandConfiguration(
         commandName: "list",
-        abstract: "List all cron jobs."
+        abstract: "List all cron jobs (⏰ marks jobs due on the next scheduler pass)."
     )
 
     func run() async throws {
@@ -293,13 +306,150 @@ struct CronList: AsyncParsableCommand {
             print("No cron jobs.")
             return
         }
+        let now = Date()
         print("⚡ ARC Agent — Cron jobs")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         for j in jobs {
-            print("  \(j.id.prefix(8)) — \(j.schedule) — \(j.name)")
+            let due = CronOps.isDue(j, now: now) ? "  ⏰ DUE NOW" : ""
+            let state = j.isActive ? "active" : "paused"
+            let next = j.nextRunAt.map { "next \($0)" } ?? "unscheduled"
+            print("  \(j.id.prefix(8)) — \(j.schedule) — \(j.name) [\(state), \(next)]\(due)")
+            if let status = j.lastStatus {
+                print("     last run: \(status) at \(j.lastRunAt.map { "\($0)" } ?? "?") (run #\(j.runCount))")
+            }
             print("     \(String(describing: j.prompt.prefix(140)))")
         }
         print("Total: \(jobs.count) job(s)")
+    }
+}
+
+struct CronCreate: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "create",
+        abstract: "Create a cron job."
+    )
+
+    @Option(name: .shortAndLong) var name: String
+    @Option(name: .shortAndLong) var schedule: String
+    @Option(name: .shortAndLong) var prompt: String
+
+    func run() async throws {
+        let job = try await CronOps.create(store: FileCronStore(), name: name,
+                                           schedule: schedule, prompt: prompt)
+        print("Created \(job.id) — \(job.name)")
+        if let next = job.nextRunAt { print("Next run: \(next)") }
+        print("Reserve: --deliver/--repeat/--script arrive with later phases.")
+    }
+}
+
+struct CronEdit: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "edit",
+        abstract: "Edit a job's schedule, prompt or name (revalidates the schedule)."
+    )
+
+    @Option(name: .shortAndLong) var id: String
+    @Option(name: .shortAndLong) var schedule: String?
+    @Option(name: .shortAndLong) var prompt: String?
+    @Option(name: .shortAndLong) var name: String?
+
+    func run() async throws {
+        let job = try await CronOps.edit(store: FileCronStore(), id: id,
+                                         name: name, schedule: schedule, prompt: prompt)
+        print("Edited \(job.id) — schedule '\(job.schedule)'")
+        if let next = job.nextRunAt { print("Next run: \(next)") }
+    }
+}
+
+struct CronPause: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "pause",
+        abstract: "Pause a job (isActive=false; no catch-up on resume)."
+    )
+
+    @Argument var id: String
+
+    func run() async throws {
+        let job = try await CronOps.pause(store: FileCronStore(), id: id)
+        print("Paused \(job.id) at \(job.pausedAt.map { "\($0)" } ?? "?")")
+    }
+}
+
+struct CronResume: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "resume",
+        abstract: "Resume a job; the next run is computed from now (no catch-up burst)."
+    )
+
+    @Argument var id: String
+
+    func run() async throws {
+        let job = try await CronOps.resume(store: FileCronStore(), id: id)
+        print("Resumed \(job.id)")
+        if let next = job.nextRunAt { print("Next run: \(next)") }
+    }
+}
+
+struct CronRunNow: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "run",
+        abstract: "Arm a job to fire on the scheduler's next pass (no inline execution)."
+    )
+
+    @Argument var id: String
+
+    func run() async throws {
+        let job = try await CronOps.runNow(store: FileCronStore(), id: id)
+        print("Armed \(job.id) — fires on the next scheduler pass (≤30s).")
+        if let next = job.nextRunAt { print("Next run: \(next)") }
+    }
+}
+
+struct CronRemove: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "remove",
+        abstract: "Remove a job and its run history."
+    )
+
+    @Argument var id: String
+
+    func run() async throws {
+        try await CronOps.remove(store: FileCronStore(), id: id)
+        print("Removed \(id) (job + history).")
+    }
+}
+
+struct CronHistory: AsyncParsableCommand {
+
+    static let configuration = CommandConfiguration(
+        commandName: "history",
+        abstract: "Show a job's per-attempt run history (newest first)."
+    )
+
+    @Argument var id: String
+    @Option(name: .shortAndLong) var limit: Int = 10
+
+    func run() async throws {
+        let history = RuntimeCronRunHistory()
+        let runs = try await history.listRuns(jobID: id, limit: limit)
+        if runs.isEmpty {
+            print("No recorded runs for \(id).")
+            return
+        }
+        print("⚡ ARC Agent — Run history for \(id)")
+        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        for run in runs {
+            let status = run.status ?? "?"
+            let err = run.error.map { " — \($0)" } ?? ""
+            print("  \(run.startedAt)  [\(status)]  \(String(describing: run.output.prefix(120)))\(err)")
+        }
+        print("Total: \(runs.count) record(s)")
     }
 }
 

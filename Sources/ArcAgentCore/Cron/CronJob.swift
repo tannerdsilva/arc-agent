@@ -34,6 +34,8 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
     public var lastFinishedAt: Date?
     /// The failure message when `lastStatus` is "error".
     public var lastError: String?
+    /// When the job was paused (``CronOps.pause``). Cleared on resume.
+    public var pausedAt: Date?
 
     public init(
         id: String = UUID().uuidString,
@@ -56,6 +58,7 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
         self.lastStartedAt = nil
         self.lastFinishedAt = nil
         self.lastError = nil
+        self.pausedAt = nil
     }
 }
 
@@ -83,6 +86,10 @@ public protocol CronStore: Sendable {
 public actor FileCronStore: CronStore {
 
     private let directory: URL
+
+    /// The store root (`~/.arc/cron/`) — run history lives at
+    /// `<root>/history/<jobID>/`. Nonisolated: the directory is immutable.
+    public nonisolated var homeDirectory: URL { directory }
 
     public init(directory: URL? = nil) {
         let dir = directory ?? ArcHome.cron
