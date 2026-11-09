@@ -45,6 +45,18 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
     /// Live countdown for ``repeatBudget``; persisted so a restart can't
     /// resurrect an exhausted budget. Nil = no budget / budget not armed.
     public var runsRemaining: Int?
+    /// Reset the job's persistent session every N runs (nil = never).
+    /// The reset happens BETWEEN firings — a job's in-flight turn is
+    /// never cut; the next firing starts in a fresh session.
+    public var resetEveryRuns: Int?
+    /// Runs completed since the last session reset. Persisted with the
+    /// per-run save, so a daemon restart mid-bucket does not zero the
+    /// count (a stateless counter would silently reset the bucket).
+    public var runsSinceReset: Int?
+    /// One-shot signal: the NEXT firing must start in a fresh session.
+    /// Set by the scheduler when the bucket crosses the threshold, read
+    /// (and consumed) by the runner before it builds the session.
+    public var needsSessionReset: Bool
     /// Shell line to run INSTEAD of the LLM (plan Phase 6.2). Non-nil
     /// bypasses the agent entirely: stdout = the run's output, empty
     /// stdout + exit 0 = silent, non-zero/timeout = alert. Vetted through
@@ -88,6 +100,9 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
         self.pausedReason = nil
         self.repeatBudget = nil
         self.runsRemaining = nil
+        self.resetEveryRuns = nil
+        self.runsSinceReset = nil
+        self.needsSessionReset = false
         self.script = nil
         self.profile = nil
         self.deliver = nil
@@ -106,6 +121,7 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
         case pausedAt, pausedReason
         case repeatBudget = "repeat"
         case runsRemaining
+        case resetEveryRuns, runsSinceReset, needsSessionReset
         case profile, deliver
         case script
     }

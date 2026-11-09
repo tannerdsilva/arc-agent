@@ -148,6 +148,9 @@ public enum CronJobTool {
             try CronOps.vetScriptPublic(script)
             job.script = script.isEmpty ? nil : script
         }
+        if let reset = args["resetEveryRuns"] as? String, let n = Int(reset) {
+            job.resetEveryRuns = n > 0 ? n : nil
+        }
         try await store.save(job)
         let next = job.nextRunAt.map { " Next run: \($0)." } ?? ""
         return "Created job '\(name)' (\(job.id)). Schedule: \(schedule).\(next)"

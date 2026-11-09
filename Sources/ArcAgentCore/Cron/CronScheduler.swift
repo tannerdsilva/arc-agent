@@ -105,9 +105,14 @@ public actor CronScheduler: Service {
                 // Never record() + a separate save (two kind-3005 publishes).
                 let startedAt = now
                 job.lastStartedAt = startedAt
+                // Hand the runner a copy that carries the reset signal, but
+                // clear it on the persisted job: the signal is consumed by
+                // THIS firing (crash between = flag still true = retried).
+                var runJob = job
+                job.needsSessionReset = false
                 do {
                     if let runner = jobRunner {
-                        let result = try await runner(job)
+                        let result = try await runner(runJob)
                         job.lastOutput = String(result.output.prefix(cronOutputCap))
                         job.lastDeliveryError = result.deliveryError
                     } else {
@@ -125,6 +130,19 @@ public actor CronScheduler: Service {
                 job.lastRunAt = now
                 job.lastFinishedAt = Date()
                 job.runCount += 1
+                // Reset-every-N (§7.2): the counter rides the per-run save
+                // (survives restarts). When the bucket crosses the
+                // threshold the counter zeroes and the NEXT firing starts
+                // in a fresh session — never mid-firing.
+                if job.resetEveryRuns != nil {
+                    job.runsSinceReset = (job.runsSinceReset ?? 0) + 1
+                    if let every = job.resetEveryRuns,
+                       let since = job.runsSinceReset, since >= every {
+                        job.runsSinceReset = 0
+                        job.needsSessionReset = true
+                        logger.notice("Cron job '\(job.name)' hit its reset-every-\(every) bucket — next firing starts a fresh session")
+                    }
+                }
                 // Repeat budget: arm on first run if unset, then count
                 // down. At zero the job self-retires — a final "no more
                 // runs" state visible on the job, never a fake record.

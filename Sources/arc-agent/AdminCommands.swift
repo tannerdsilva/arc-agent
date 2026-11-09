@@ -339,11 +339,13 @@ struct CronCreate: AsyncParsableCommand {
     /// Shell line to run instead of the agent (no_agent mode). Hardline
     /// scripts are rejected here — never stored.
     @Option(name: .shortAndLong) var script: String?
+    /// Reset the job's session context every N runs (drift control).
+    @Option(name: .long) var resetEvery: Int?
 
     func run() async throws {
         let job = try await CronOps.create(store: FileCronStore(), name: name,
                                            schedule: schedule, prompt: prompt, deliver: deliver,
-                                           script: script)
+                                           script: script, resetEveryRuns: resetEvery)
         print("Created \(job.id) — \(job.name)")
         if let next = job.nextRunAt { print("Next run: \(next)") }
         if let deliver = job.deliver { print("Deliver: \(deliver)") }
@@ -365,12 +367,15 @@ struct CronEdit: AsyncParsableCommand {
     @Option(name: .shortAndLong) var deliver: String?
     /// New shell line (no_agent mode), or "" to clear. Hardline rejected.
     @Option(name: .shortAndLong) var script: String?
+    /// Reset the job's session context every N runs, or 0 to disable.
+    @Option(name: .long) var resetEvery: Int?
 
     func run() async throws {
         let job = try await CronOps.edit(store: FileCronStore(), id: id,
                                          name: name, schedule: schedule, prompt: prompt,
                                          deliver: deliver.map { Optional($0) },
-                                         script: script.map { Optional($0) })
+                                         script: script.map { Optional($0) },
+                                         resetEveryRuns: resetEvery.map { $0 == 0 ? Optional<Int>.none : Optional($0) })
         print("Edited \(job.id) — schedule '\(job.schedule)'")
         if let next = job.nextRunAt { print("Next run: \(next)") }
         if let deliver = job.deliver { print("Deliver: \(deliver)") }

@@ -241,6 +241,14 @@ public struct SessionHost: Service {
                 return CronRunResult(output: "")  // silent success
             }
             let sessionID = "cron-\(job.id)"
+            // Session reset (§7.2): the scheduler set `needsSessionReset`
+            // on THIS job copy when the last run crossed the bucket —
+            // tear the persistent session down so the next getOrCreate
+            // builds a fresh one (chat entry/titles survive; the ID
+            // is stable by design). The flag clears in the run's save.
+            if job.needsSessionReset {
+                await reg.remove(sessionID: sessionID)
+            }
             let handle = await reg.getOrCreate(sessionID: sessionID, profile: "default", isCron: true)
             let incoming = IncomingMessage(
                 id: UUID().uuidString,

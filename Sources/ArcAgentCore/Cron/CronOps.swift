@@ -27,7 +27,8 @@ public enum CronOps {
         schedule: String,
         prompt: String,
         deliver: String? = nil,
-        script: String? = nil
+        script: String? = nil,
+        resetEveryRuns: Int? = nil
     ) async throws -> CronJob {
         guard CronSchedule.isValid(schedule) else {
             throw CronOpsError("invalid schedule '\(schedule)' — use 5-field cron, '30m'/'2h'/'1d', or an ISO timestamp")
@@ -37,6 +38,7 @@ public enum CronOps {
         job.nextRunAt = CronSchedule.next(schedule, after: Date())
         job.deliver = normalizedDeliver(deliver)
         job.script = script
+        job.resetEveryRuns = resetEveryRuns
         try await store.save(job)
         return job
     }
@@ -53,7 +55,8 @@ public enum CronOps {
         schedule: String? = nil,
         prompt: String? = nil,
         deliver: String?? = nil,
-        script: String?? = nil
+        script: String?? = nil,
+        resetEveryRuns: Int?? = nil
     ) async throws -> CronJob {
         guard var job = try await store.get(id: id) else {
             throw CronOpsError("no such job: \(id)")
@@ -73,6 +76,7 @@ public enum CronOps {
             try vetScript(value)
             job.script = (value?.isEmpty ?? true) ? nil : value
         }
+        if let resetEveryRuns { job.resetEveryRuns = resetEveryRuns }
         try await store.save(job)
         return job
     }
