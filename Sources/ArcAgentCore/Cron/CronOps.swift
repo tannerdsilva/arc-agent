@@ -112,6 +112,11 @@ public enum CronOps {
     /// the `<store dir>/history/<id>/` record directory goes with it —
     /// an orphaned history tree for a deleted job is just rot.
     public static func remove(store: any CronStore, id: String) async throws {
+        // Missing id → error, like pause/resume/run: a silent no-op remove
+        // would let a caller believe a job is gone when it never existed.
+        guard try await store.get(id: id) != nil else {
+            throw CronOpsError("no such job: \(id)")
+        }
         try await store.delete(id: id)
         if let fileStore = store as? FileCronStore {
             let historyDir = fileStore.homeDirectory

@@ -186,6 +186,12 @@ public actor SessionRegistry {
     /// ``SessionAgent`` so a session's tool surface registers
     /// `send_group_chat` only where rooms actually exist.
     private(set) var groupChats: GroupChatManager?
+    /// The process's cron store + run history, when a session host owns
+    /// them. Read by ``SessionAgent`` so a session's tool surface
+    /// registers `cronjob` only where jobs actually live (the scheduler's
+    /// store — never a second instance over the same directory).
+    private(set) var cronStore: (any CronStore)?
+    private(set) var cronHistory: (any CronRunHistory)?
     private let logger = Logger(label: "com.arc-agent.session-registry")
 
     /// Delay before the first auto-restart of a crashed session agent, in
@@ -295,6 +301,11 @@ public actor SessionRegistry {
     /// Set the group-chat manager reference.
     func setGroupChats(_ manager: GroupChatManager) {
         self.groupChats = manager
+    }
+
+    func setCron(store: any CronStore, history: any CronRunHistory) {
+        self.cronStore = store
+        self.cronHistory = history
     }
 
     /// Get or create a session agent for the given session ID.

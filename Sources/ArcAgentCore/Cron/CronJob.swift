@@ -36,6 +36,10 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
     public var lastError: String?
     /// When the job was paused (``CronOps.pause``). Cleared on resume.
     public var pausedAt: Date?
+    /// The profile that created/wrote the job. Nil = manageable by anyone
+    /// (covers web-UI- and CLI-created jobs; agent tools stamp their
+    /// captured ``ToolContext``). Phase 6 scoping reads this.
+    public var profile: String?
 
     public init(
         id: String = UUID().uuidString,
@@ -59,6 +63,7 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
         self.lastFinishedAt = nil
         self.lastError = nil
         self.pausedAt = nil
+        self.profile = nil
     }
 }
 

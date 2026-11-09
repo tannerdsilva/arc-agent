@@ -216,6 +216,9 @@ public enum ArcDaemon {
         let cronTimeZone = daemonConfig.cron.timeZone.flatMap { TimeZone(identifier: $0) } ?? .current
         let cronHistory = RuntimeCronRunHistory()
         let cronScheduler = CronScheduler(store: cronStore, timeZone: cronTimeZone, history: cronHistory, jobRunner: jobRunner)
+        if let sessionHost {
+            await sessionHost.provideCron(store: cronStore, history: cronHistory)
+        }
 
         printBanner(plan: plan, config: daemonConfig)
 
@@ -293,7 +296,13 @@ public enum ArcDaemon {
                     kanban: kanbanBoard,
                     // `send_message` reaches the same platform adapters the
                     // sessions do; the slot is this surface's own (slice 6).
-                    delivery: sessionHost?.delivery
+                    delivery: sessionHost?.delivery,
+                    // The MCP surface shares the daemon's cron store and
+                    // history, so an MCP client manages the jobs the
+                    // scheduler runs. MCP is the one TCP surface — auth is
+                    // the bind host, so cron scoping (Phase 6) matters here.
+                    cron: cronStore,
+                    cronHistory: cronHistory
                 )
             ))
         }

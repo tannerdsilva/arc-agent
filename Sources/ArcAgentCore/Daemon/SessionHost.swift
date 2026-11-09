@@ -84,6 +84,13 @@ public struct SessionHost: Service {
     /// slice 6).
     public var delivery: DeliveryManager { deliveryManager }
 
+    /// Wire the process's cron store + history into the session registry
+    /// so hosted sessions' tool surfaces register `cronjob` against the
+    /// scheduler's own store (daemon startup).
+    public func provideCron(store: any CronStore, history: any CronRunHistory) async {
+        await registry.setCron(store: store, history: history)
+    }
+
     public init(
         api: API? = nil,
         telegramToken: String? = nil,

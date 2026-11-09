@@ -206,6 +206,11 @@ public actor SessionAgent: Service {
                 // second instance over the same directory would not see the
                 // tasks another surface created.
                 kanban: agentConfig.kanban,
+                // The process's cron store + history, when this host owns
+                // them: `cronjob` acts on exactly the jobs the scheduler
+                // runs, never a second store over the same directory.
+                cron: await registry.cronStore,
+                cronHistory: await registry.cronHistory,
                 enabledPlugins: pluginAllowList()
             )
 

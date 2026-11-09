@@ -60,6 +60,8 @@ public enum ArcAgentCore {
         groupChats: GroupChatManager? = nil,
         kanban: (any KanbanBoard)? = nil,
         delivery: DeliveryManager? = nil,
+        cron: (any CronStore)? = nil,
+        cronHistory: (any CronRunHistory)? = nil,
         dependencies: ToolDependencies = ToolDependencies()
     ) throws -> CompileTimeToolRegistry {
         var registry = CompileTimeToolRegistry(toolDependencies: dependencies)
@@ -129,6 +131,13 @@ public enum ArcAgentCore {
         if let groupChats {
             try registry.register(SendGroupChatTool.entry(
                 context: context, profiles: profiles, groupChats: groupChats))
+        }
+
+        // Cron exists only where the caller owns a store: a surface with
+        // none (the CLI bridge) does not advertise `cronjob`.
+        if let cron {
+            try registry.register(CronJobTool.entry(
+                context: context, store: cron, history: cronHistory))
         }
 
         // Browser tools (CDP provider — no Playwright/Node required)
