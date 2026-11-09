@@ -61,7 +61,10 @@ public actor CronScheduler: Service {
                 do {
                     try await self.runDueJobs()
                 } catch {
-                    // Log and continue on transient errors
+                    // Transient errors must be visible, not swallowed — a
+                    // silently failing poll loop looks exactly like "no
+                    // jobs due" from the outside.
+                    logger.error("Cron poll failed: \(error)")
                 }
 
                 try await Task.sleep(nanoseconds: interval)

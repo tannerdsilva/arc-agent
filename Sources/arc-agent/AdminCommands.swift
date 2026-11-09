@@ -300,7 +300,7 @@ struct CronList: AsyncParsableCommand {
     )
 
     func run() async throws {
-        let store = FileCronStore()
+        let store = RuntimeCronStore()
         let jobs = try await store.listAll()
         if jobs.isEmpty {
             print("No cron jobs.")
@@ -345,7 +345,7 @@ struct CronCreate: AsyncParsableCommand {
     @Argument var contextFrom: [String] = []
 
     func run() async throws {
-        let job = try await CronOps.create(store: FileCronStore(), name: name,
+        let job = try await CronOps.create(store: RuntimeCronStore(), name: name,
                                            schedule: schedule, prompt: prompt, deliver: deliver,
                                            script: script, resetEveryRuns: resetEvery,
                                            contextFrom: contextFrom.isEmpty ? nil : contextFrom)
@@ -374,7 +374,7 @@ struct CronEdit: AsyncParsableCommand {
     @Option(name: .long) var resetEvery: Int?
 
     func run() async throws {
-        let job = try await CronOps.edit(store: FileCronStore(), id: id,
+        let job = try await CronOps.edit(store: RuntimeCronStore(), id: id,
                                          name: name, schedule: schedule, prompt: prompt,
                                          deliver: deliver.map { Optional($0) },
                                          script: script.map { Optional($0) },
@@ -395,7 +395,7 @@ struct CronPause: AsyncParsableCommand {
     @Argument var id: String
 
     func run() async throws {
-        let job = try await CronOps.pause(store: FileCronStore(), id: id)
+        let job = try await CronOps.pause(store: RuntimeCronStore(), id: id)
         print("Paused \(job.id) at \(job.pausedAt.map { "\($0)" } ?? "?")")
     }
 }
@@ -410,7 +410,7 @@ struct CronResume: AsyncParsableCommand {
     @Argument var id: String
 
     func run() async throws {
-        let job = try await CronOps.resume(store: FileCronStore(), id: id)
+        let job = try await CronOps.resume(store: RuntimeCronStore(), id: id)
         print("Resumed \(job.id)")
         if let next = job.nextRunAt { print("Next run: \(next)") }
     }
@@ -426,7 +426,7 @@ struct CronRunNow: AsyncParsableCommand {
     @Argument var id: String
 
     func run() async throws {
-        let job = try await CronOps.runNow(store: FileCronStore(), id: id)
+        let job = try await CronOps.runNow(store: RuntimeCronStore(), id: id)
         print("Armed \(job.id) — fires on the next scheduler pass (≤30s).")
         if let next = job.nextRunAt { print("Next run: \(next)") }
     }
@@ -442,7 +442,7 @@ struct CronRemove: AsyncParsableCommand {
     @Argument var id: String
 
     func run() async throws {
-        try await CronOps.remove(store: FileCronStore(), id: id)
+        try await CronOps.remove(store: RuntimeCronStore(), id: id)
         print("Removed \(id) (job + history).")
     }
 }
