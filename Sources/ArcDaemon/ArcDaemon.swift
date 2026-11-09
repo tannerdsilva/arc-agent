@@ -201,13 +201,13 @@ public enum ArcDaemon {
         // is off.
         let cronStore = RuntimeCronStore()
         await ScheduledJobsImport.runIfNeeded(into: cronStore)
-        let jobRunner: @Sendable (CronJob) async throws -> String
+        let jobRunner: @Sendable (CronJob) async throws -> CronRunResult
         if let uiHost {
-            jobRunner = { job in await uiHost.runScheduledJob(job) }
+            jobRunner = { job in CronRunResult(output: await uiHost.runScheduledJob(job)) }
         } else if let sessionHost {
             jobRunner = sessionHost.cronRunner
         } else {
-            jobRunner = { _ in "No runner: neither the web UI nor the session host is enabled." }
+            jobRunner = { _ in CronRunResult(output: "No runner: neither the web UI nor the session host is enabled.") }
         }
         // One daemon-wide wall-clock zone: jobs are statements about this
         // machine, so a job's hour means the hour *here* (`cron.time_zone`,

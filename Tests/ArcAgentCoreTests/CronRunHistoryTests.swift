@@ -181,7 +181,7 @@ struct CronRunHistorySchedulerTests {
         let store = CountingStore(job: job)
         let history = FileCronRunHistory(directory: FileManager.default.temporaryDirectory
             .appendingPathComponent("arc-cron-single-\(UUID().uuidString)", isDirectory: true))
-        let scheduler = CronScheduler(store: store, pollIntervalSeconds: 1, history: history, jobRunner: { _ in "ran!" })
+        let scheduler = CronScheduler(store: store, pollIntervalSeconds: 1, history: history, jobRunner: { _ in CronRunResult(output: "ran!") })
         try await scheduler.runDueJobs()
         let saved = await store.job
         #expect(await store.saves == 1, "exactly one save per run — never record() + save")

@@ -200,7 +200,7 @@ extension ArcCoreTestRoot {
             var job = CronJob(id: "j1", name: "briefing", schedule: "30m", prompt: "Summarize.")
             job.nextRunAt = Date().addingTimeInterval(-60)
             let store = FakeCronStore(jobs: [job])
-            let scheduler = CronScheduler(store: store, jobRunner: { _ in "hello from cron" })
+            let scheduler = CronScheduler(store: store, jobRunner: { _ in CronRunResult(output: "hello from cron") })
 
             try await scheduler.runDueJobs()
 
@@ -216,7 +216,7 @@ extension ArcCoreTestRoot {
             var job = CronJob(id: "j2", name: "noise", schedule: "1d", prompt: "x")
             job.nextRunAt = Date().addingTimeInterval(-60)
             let store = FakeCronStore(jobs: [job])
-            let scheduler = CronScheduler(store: store, jobRunner: { _ in String(repeating: "a", count: 9000) })
+            let scheduler = CronScheduler(store: store, jobRunner: { _ in CronRunResult(output: String(repeating: "a", count: 9000)) })
             try await scheduler.runDueJobs()
             let updated = await store.jobs.first { $0.id == "j2" }
             #expect(updated?.lastOutput?.count == 4000)
@@ -243,7 +243,7 @@ extension ArcCoreTestRoot {
             let job = CronJob(id: "j4", name: "fresh", schedule: "nonsense", prompt: "x")
             let store = FakeCronStore(jobs: [job])
             let ran = BoolFlag()
-            let scheduler = CronScheduler(store: store, jobRunner: { _ in ran.value = true; return "unexpected" })
+            let scheduler = CronScheduler(store: store, jobRunner: { _ in ran.value = true; return CronRunResult(output: "unexpected") })
             try await scheduler.runDueJobs()
             #expect(!ran.value)
             let updated = await store.jobs.first { $0.id == "j4" }

@@ -143,6 +143,7 @@ public enum CronJobTool {
         var job = CronJob(name: name, schedule: schedule, prompt: prompt)
         job.profile = context.profile.rawValue
         job.nextRunAt = CronSchedule.next(schedule, after: Date())
+        if let deliver = args["deliver"] as? String { job.deliver = deliver }
         try await store.save(job)
         let next = job.nextRunAt.map { " Next run: \($0)." } ?? ""
         return "Created job '\(name)' (\(job.id)). Schedule: \(schedule).\(next)"
@@ -164,6 +165,7 @@ public enum CronJobTool {
         }
         if let name = args["name"] as? String, !name.isEmpty { job.name = name }
         if let prompt = args["prompt"] as? String, !prompt.isEmpty { job.prompt = prompt }
+        if let deliver = args["deliver"] as? String { job.deliver = deliver.isEmpty ? nil : deliver }
         try await store.save(job)
         let next = job.nextRunAt.map { " Next run: \($0)." } ?? ""
         return "Edited job \(id). Schedule: \(job.schedule).\(next)"

@@ -40,6 +40,13 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
     /// (covers web-UI- and CLI-created jobs; agent tools stamp their
     /// captured ``ToolContext``). Phase 6 scoping reads this.
     public var profile: String?
+    /// Delivery target for run results: `"<platform>:<chatID>"`, e.g.
+    /// `telegram:123456789`. One target in v1; nil or "none" = result
+    /// stays in the job's own record (and the persistent session).
+    public var deliver: String?
+    /// The delivery failure from the last run, if any. A delivery failure
+    /// does NOT fail the run — `lastStatus` reflects the agent run only.
+    public var lastDeliveryError: String?
 
     public init(
         id: String = UUID().uuidString,
@@ -64,6 +71,8 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
         self.lastError = nil
         self.pausedAt = nil
         self.profile = nil
+        self.deliver = nil
+        self.lastDeliveryError = nil
     }
 }
 
@@ -72,6 +81,39 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
 /// ``CronStore`` is a **protocol**. The default implementation is
 /// ``FileCronStore`` (JSON files). A Tessera-backed implementation will
 /// follow once the session/memory stores prove out.
+// MARK: - Run result (runner → scheduler handoff)
+
+/// What a job runner hands back to the scheduler. The runner owns side
+/// effects (platform delivery); the scheduler owns persistence — one
+/// `store.save(job)` stamps output, status AND delivery outcome together
+/// (the single-save rule).
+public struct CronRunResult: Sendable {
+    /// The job's answer (the first response of its one-shot session).
+    public let output: String
+    /// Why delivery to `job.deliver` failed, if it did. Nil = delivered
+    /// (or nothing to deliver). Never affects `lastStatus`.
+    public let deliveryError: String?
+
+    public init(output: String, deliveryError: String? = nil) {
+        self.output = output
+        self.deliveryError = deliveryError
+    }
+}
+
+/// Parse a job's `deliver` field into a `ChatTarget`, or nil.
+///
+/// Grammar: `"none"`/nil → nil (no delivery); otherwise exactly one
+/// `"<platform>:<chatID>"` — chatID may itself contain colons (Slack
+/// thread suffixes), so the split keeps everything after the FIRST colon.
+public func CronDeliveryTarget(jobDeliver: String?) -> ChatTarget? {
+    guard let deliver = jobDeliver, deliver != "none" else { return nil }
+    let parts = deliver.split(separator: ":", maxSplits: 1).map(String.init)
+    guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
+    return ChatTarget(platform: parts[0], chatID: parts[1])
+}
+
+// MARK: - Store + history (plan §2)
+
 public protocol CronStore: Sendable {
     func save(_ job: CronJob) async throws
     func get(id: String) async throws -> CronJob?

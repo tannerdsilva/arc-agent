@@ -62,7 +62,7 @@ public struct SessionHost: Service {
     /// The cron job runner (reference `cron` service parity): executes a due
     /// job as a one-shot agent session. The daemon owns the scheduler itself
     /// (`ArcDaemon`) and picks this runner when the web UI is not hosted.
-    public let cronRunner: @Sendable (CronJob) async throws -> String
+    public let cronRunner: @Sendable (CronJob) async throws -> CronRunResult
 
     /// The messaging service this host owns.
     ///
@@ -224,6 +224,8 @@ public struct SessionHost: Service {
         // session under the default profile; the first response lands in
         // the job's `lastOutput` (capped by the scheduler, which the daemon
         // owns — this closure is its runner when the web UI is not hosted).
+        let hostLogger = self.logger
+        let delivery = self.deliveryManager
         self.cronRunner = { job in
             let sessionID = "cron-\(job.id)"
             let handle = await reg.getOrCreate(sessionID: sessionID, profile: "default")
@@ -240,7 +242,29 @@ public struct SessionHost: Service {
                 break // First response is the job result.
             }
             await reg.remove(sessionID: sessionID)
-            return output.isEmpty ? "Job processed (no response)." : output
+            let finalOutput = output.isEmpty ? "Job processed (no response)." : output
+            // Platform delivery (plan §5): the runner owns side effects,
+            // the scheduler owns persistence — a delivery failure comes
+            // back as `deliveryError` and rides the scheduler's single
+            // save as `lastDeliveryError`. The run itself stays "ok".
+            var deliveryError: String?
+            if let target = CronDeliveryTarget(jobDeliver: job.deliver) {
+                do {
+                    _ = try await delivery.send(
+                        message: OutgoingMessage(
+                            text: "[cron] \(job.name)\n\n\(finalOutput)",
+                            parseMode: nil,
+                            isPartial: false,
+                            attachments: nil
+                        ),
+                        to: target
+                    )
+                } catch {
+                    hostLogger.error("Cron job \(job.name) delivery to \(job.deliver ?? "?") failed: \(error)")
+                    deliveryError = "delivery to '\(job.deliver ?? "?")' failed: \(error)"
+                }
+            }
+            return CronRunResult(output: finalOutput, deliveryError: deliveryError)
         }
     }
 

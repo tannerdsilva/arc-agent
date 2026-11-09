@@ -333,13 +333,16 @@ struct CronCreate: AsyncParsableCommand {
     @Option(name: .shortAndLong) var name: String
     @Option(name: .shortAndLong) var schedule: String
     @Option(name: .shortAndLong) var prompt: String
+    /// Delivery target `platform:chatID` (e.g. `telegram:123456789`), or
+    /// "none". Run results are sent there after each run.
+    @Option(name: .shortAndLong) var deliver: String?
 
     func run() async throws {
         let job = try await CronOps.create(store: FileCronStore(), name: name,
-                                           schedule: schedule, prompt: prompt)
+                                           schedule: schedule, prompt: prompt, deliver: deliver)
         print("Created \(job.id) — \(job.name)")
         if let next = job.nextRunAt { print("Next run: \(next)") }
-        print("Reserve: --deliver/--repeat/--script arrive with later phases.")
+        if let deliver = job.deliver { print("Deliver: \(deliver)") }
     }
 }
 
@@ -354,12 +357,16 @@ struct CronEdit: AsyncParsableCommand {
     @Option(name: .shortAndLong) var schedule: String?
     @Option(name: .shortAndLong) var prompt: String?
     @Option(name: .shortAndLong) var name: String?
+    /// New delivery target, or "none" to clear.
+    @Option(name: .shortAndLong) var deliver: String?
 
     func run() async throws {
         let job = try await CronOps.edit(store: FileCronStore(), id: id,
-                                         name: name, schedule: schedule, prompt: prompt)
+                                         name: name, schedule: schedule, prompt: prompt,
+                                         deliver: deliver.map { Optional($0) })
         print("Edited \(job.id) — schedule '\(job.schedule)'")
         if let next = job.nextRunAt { print("Next run: \(next)") }
+        if let deliver = job.deliver { print("Deliver: \(deliver)") }
     }
 }
 

@@ -32,7 +32,7 @@ public actor CronScheduler: Service {
     /// `lastOutput` (capped at 4 KB); when nil (tests/standalone), the
     /// scheduler bookkeeps without running anything. The daemon injects a
     /// runner that turns the job into a one-shot agent session.
-    private let jobRunner: (@Sendable (CronJob) async throws -> String)?
+    private let jobRunner: (@Sendable (CronJob) async throws -> CronRunResult)?
     private let logger = Logger(label: "com.arc-agent.cron-scheduler")
 
     public init(
@@ -40,7 +40,7 @@ public actor CronScheduler: Service {
         pollIntervalSeconds: UInt64 = 30,
         timeZone: TimeZone = .current,
         history: (any CronRunHistory)? = nil,
-        jobRunner: (@Sendable (CronJob) async throws -> String)? = nil
+        jobRunner: (@Sendable (CronJob) async throws -> CronRunResult)? = nil
     ) {
         self.store = store
         self.pollInterval = pollIntervalSeconds * 1_000_000_000
@@ -100,11 +100,13 @@ public actor CronScheduler: Service {
                 job.lastStartedAt = startedAt
                 do {
                     if let runner = jobRunner {
-                        let output = try await runner(job)
-                        job.lastOutput = String(output.prefix(cronOutputCap))
+                        let result = try await runner(job)
+                        job.lastOutput = String(result.output.prefix(cronOutputCap))
+                        job.lastDeliveryError = result.deliveryError
                     } else {
                         // Bookkeeping-only mode (tests / no runner).
                         job.lastOutput = "Executed at \(now)"
+                        job.lastDeliveryError = nil
                     }
                     job.lastStatus = "ok"
                     job.lastError = nil

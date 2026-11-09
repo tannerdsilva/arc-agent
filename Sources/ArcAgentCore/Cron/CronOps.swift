@@ -25,13 +25,15 @@ public enum CronOps {
         store: any CronStore,
         name: String,
         schedule: String,
-        prompt: String
+        prompt: String,
+        deliver: String? = nil
     ) async throws -> CronJob {
         guard CronSchedule.isValid(schedule) else {
             throw CronOpsError("invalid schedule '\(schedule)' — use 5-field cron, '30m'/'2h'/'1d', or an ISO timestamp")
         }
         var job = CronJob(name: name, schedule: schedule, prompt: prompt)
         job.nextRunAt = CronSchedule.next(schedule, after: Date())
+        job.deliver = normalizedDeliver(deliver)
         try await store.save(job)
         return job
     }
@@ -46,7 +48,8 @@ public enum CronOps {
         id: String,
         name: String? = nil,
         schedule: String? = nil,
-        prompt: String? = nil
+        prompt: String? = nil,
+        deliver: String?? = nil
     ) async throws -> CronJob {
         guard var job = try await store.get(id: id) else {
             throw CronOpsError("no such job: \(id)")
@@ -60,8 +63,17 @@ public enum CronOps {
         }
         if let name { job.name = name }
         if let prompt { job.prompt = prompt }
+        if let deliver { job.deliver = normalizedDeliver(deliver) }
         try await store.save(job)
         return job
+    }
+
+    /// `"none"` → nil; a `platform:chatID` string stays (grammar validated
+    /// at delivery time by ``CronDeliveryTarget`` — an invalid target is a
+    /// persisted `lastDeliveryError`, not a rejected job).
+    private static func normalizedDeliver(_ deliver: String?) -> String? {
+        guard let deliver, deliver != "none", !deliver.isEmpty else { return nil }
+        return deliver
     }
 
     // MARK: - Pause / Resume
