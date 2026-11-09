@@ -212,6 +212,8 @@ public enum ArcDaemon {
         // is off.
         let cronStore = RuntimeCronStore()
         await ScheduledJobsImport.runIfNeeded(into: cronStore)
+        let cronTimeZone = daemonConfig.cron.timeZone.flatMap { TimeZone(identifier: $0) } ?? .current
+        let cronHistory = RuntimeCronRunHistory()
         let jobRunner: @Sendable (CronJob) async throws -> CronRunResult
         // Script jobs (§6.2) bypass every agent surface — the shell line
         // is the whole job. Checked before the runner selection so the
@@ -232,14 +234,23 @@ public enum ArcDaemon {
                     deliveryError: nil
                 )
             }
-            return try await selectedRunner(job)
+            // context_from chaining (§8): inject upstreams' latest ok
+            // records into the firing prompt BEFORE the runner sees the
+            // job. Script jobs don't chain (the shell line is the job).
+            var runJob = job
+            if let refs = job.contextFrom, !refs.isEmpty, (job.script ?? "").isEmpty {
+                runJob.prompt = await CronChaining.injectedPrompt(
+                    base: job.prompt,
+                    contextFrom: refs,
+                    resolve: CronChaining.makeResolver(store: cronStore, history: cronHistory)
+                )
+            }
+            return try await selectedRunner(runJob)
         }
         // One daemon-wide wall-clock zone: jobs are statements about this
         // machine, so a job's hour means the hour *here* (`cron.time_zone`,
         // IANA name; absent = local). Per-job zones were considered and
         // rejected — they'd make two jobs' "9am" disagree silently.
-        let cronTimeZone = daemonConfig.cron.timeZone.flatMap { TimeZone(identifier: $0) } ?? .current
-        let cronHistory = RuntimeCronRunHistory()
         let cronScheduler = CronScheduler(store: cronStore, timeZone: cronTimeZone, history: cronHistory, jobRunner: jobRunner)
         if let sessionHost {
             await sessionHost.provideCron(store: cronStore, history: cronHistory)

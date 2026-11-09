@@ -28,7 +28,8 @@ public enum CronOps {
         prompt: String,
         deliver: String? = nil,
         script: String? = nil,
-        resetEveryRuns: Int? = nil
+        resetEveryRuns: Int? = nil,
+        contextFrom: [String]? = nil
     ) async throws -> CronJob {
         guard CronSchedule.isValid(schedule) else {
             throw CronOpsError("invalid schedule '\(schedule)' — use 5-field cron, '30m'/'2h'/'1d', or an ISO timestamp")
@@ -39,6 +40,7 @@ public enum CronOps {
         job.deliver = normalizedDeliver(deliver)
         job.script = script
         job.resetEveryRuns = resetEveryRuns
+        job.contextFrom = (contextFrom?.isEmpty ?? true) ? nil : contextFrom
         try await store.save(job)
         return job
     }
@@ -56,7 +58,8 @@ public enum CronOps {
         prompt: String? = nil,
         deliver: String?? = nil,
         script: String?? = nil,
-        resetEveryRuns: Int?? = nil
+        resetEveryRuns: Int?? = nil,
+        contextFrom: [String]?? = nil
     ) async throws -> CronJob {
         guard var job = try await store.get(id: id) else {
             throw CronOpsError("no such job: \(id)")
@@ -77,6 +80,15 @@ public enum CronOps {
             job.script = (value?.isEmpty ?? true) ? nil : value
         }
         if let resetEveryRuns { job.resetEveryRuns = resetEveryRuns }
+        if let contextFrom {  // outer = presence (don't touch vs set)
+            // Unknown ids are tolerated, not rejected: jobs may be created
+            // in dependency order, and injection skips absent upstreams.
+            if let ids = contextFrom {  // inner = the list (nil clears)
+                job.contextFrom = ids.isEmpty ? nil : ids
+            } else {
+                job.contextFrom = nil
+            }
+        }
         try await store.save(job)
         return job
     }

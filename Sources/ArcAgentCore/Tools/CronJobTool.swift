@@ -148,6 +148,11 @@ public enum CronJobTool {
             try CronOps.vetScriptPublic(script)
             job.script = script.isEmpty ? nil : script
         }
+        if let refs = args["context_from"] as? [String] {
+            // Unknown ids tolerated: dependency-order creation is fine;
+            // injection skips absent upstreams.
+            job.contextFrom = refs.isEmpty ? nil : refs
+        }
         if let reset = args["resetEveryRuns"] as? String, let n = Int(reset) {
             job.resetEveryRuns = n > 0 ? n : nil
         }
@@ -176,6 +181,11 @@ public enum CronJobTool {
         if let script = args["script"] as? String {
             try CronOps.vetScriptPublic(script)
             job.script = script.isEmpty ? nil : script
+        }
+        if let refs = args["context_from"] as? [String] {
+            // Unknown ids tolerated: dependency-order creation is fine;
+            // injection skips absent upstreams.
+            job.contextFrom = refs.isEmpty ? nil : refs
         }
         try await store.save(job)
         let next = job.nextRunAt.map { " Next run: \($0)." } ?? ""

@@ -57,6 +57,12 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
     /// Set by the scheduler when the bucket crosses the threshold, read
     /// (and consumed) by the runner before it builds the session.
     public var needsSessionReset: Bool
+    /// Job IDs whose latest SUCCESSFUL run output is injected into this
+    /// job's prompt each firing (Hermes `context_from` parity, over
+    /// durable run records — status and error text included). Missing or
+    /// errored upstreams contribute nothing: a firing never blocks on an
+    /// unavailable upstream.
+    public var contextFrom: [String]?
     /// Shell line to run INSTEAD of the LLM (plan Phase 6.2). Non-nil
     /// bypasses the agent entirely: stdout = the run's output, empty
     /// stdout + exit 0 = silent, non-zero/timeout = alert. Vetted through
@@ -103,6 +109,7 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
         self.resetEveryRuns = nil
         self.runsSinceReset = nil
         self.needsSessionReset = false
+        self.contextFrom = nil
         self.script = nil
         self.profile = nil
         self.deliver = nil
@@ -122,6 +129,7 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
         case repeatBudget = "repeat"
         case runsRemaining
         case resetEveryRuns, runsSinceReset, needsSessionReset
+        case contextFrom
         case profile, deliver
         case script
     }

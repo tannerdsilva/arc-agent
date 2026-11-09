@@ -341,11 +341,14 @@ struct CronCreate: AsyncParsableCommand {
     @Option(name: .shortAndLong) var script: String?
     /// Reset the job's session context every N runs (drift control).
     @Option(name: .long) var resetEvery: Int?
+    /// Upstream job IDs whose latest ok output is injected each firing.
+    @Argument var contextFrom: [String] = []
 
     func run() async throws {
         let job = try await CronOps.create(store: FileCronStore(), name: name,
                                            schedule: schedule, prompt: prompt, deliver: deliver,
-                                           script: script, resetEveryRuns: resetEvery)
+                                           script: script, resetEveryRuns: resetEvery,
+                                           contextFrom: contextFrom.isEmpty ? nil : contextFrom)
         print("Created \(job.id) — \(job.name)")
         if let next = job.nextRunAt { print("Next run: \(next)") }
         if let deliver = job.deliver { print("Deliver: \(deliver)") }
