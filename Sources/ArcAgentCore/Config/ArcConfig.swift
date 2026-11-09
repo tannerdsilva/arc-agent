@@ -779,6 +779,11 @@ public struct SecurityConfig: Codable, Sendable, Equatable {
     /// This is the **only** approval setting. `off` is the YOLO policy — no
     /// prompts at all — and is frozen at process start.
     public var approvalMode: String
+    /// How FLAGGED commands behave in cron sessions (unattended turns):
+    /// `deny` (default) | `smart`. No manual, no approve-all — an
+    /// unattended turn has nobody to prompt. Unknown values resolve to
+    /// deny with a warning, never a guess.
+    public var cronMode: String?
     /// Commands pre-exempted from approval ("Always allow" choices).
     /// Matched by exact, trimmed command string.
     public var alwaysAllowedCommands: [String]
@@ -801,6 +806,7 @@ public struct SecurityConfig: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.approvalMode = try container.decodeIfPresent(String.self, forKey: .approvalMode) ?? SecurityConfig().approvalMode
+        self.cronMode = try container.decodeIfPresent(String.self, forKey: .cronMode)
         self.alwaysAllowedCommands = try container.decodeIfPresent([String].self, forKey: .alwaysAllowedCommands) ?? SecurityConfig().alwaysAllowedCommands
         self.toolPolicy = try container.decodeIfPresent(ToolPolicyConfig.self, forKey: .toolPolicy) ?? ToolPolicyConfig()
     }

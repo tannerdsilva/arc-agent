@@ -77,6 +77,13 @@ public actor CronScheduler: Service {
         let activeJobs = try await store.listActive()
 
         for var job in activeJobs {
+            // Paused jobs never fire. `isActive` is false AND `pausedAt`
+            // set — the transition is visible on the job, no per-poll
+            // spam beyond one debug line.
+            if job.pausedAt != nil {
+                logger.debug("Cron job '\(job.name)' is paused (\(job.pausedReason ?? "no reason")) — skipping")
+                continue
+            }
             guard let nextRun = job.nextRunAt ?? CronSchedule.next(job.schedule, after: now, timeZone: timeZone) else {
                 // First run — compute and store.
                 job.nextRunAt = CronSchedule.next(job.schedule, after: now, timeZone: timeZone)
@@ -118,6 +125,17 @@ public actor CronScheduler: Service {
                 job.lastRunAt = now
                 job.lastFinishedAt = Date()
                 job.runCount += 1
+                // Repeat budget: arm on first run if unset, then count
+                // down. At zero the job self-retires — a final "no more
+                // runs" state visible on the job, never a fake record.
+                if let budget = job.repeatBudget {
+                    if job.runsRemaining == nil { job.runsRemaining = budget }
+                    job.runsRemaining = max(0, (job.runsRemaining ?? budget) - 1)
+                    if job.runsRemaining == 0 {
+                        job.isActive = false
+                        logger.notice("Cron job '\(job.name)' completed its repeat budget (\(budget) runs) — deactivated")
+                    }
+                }
                 job.nextRunAt = CronSchedule.next(job.schedule, after: now, timeZone: timeZone)
                 if let history {
                     let run = CronRunRecord(

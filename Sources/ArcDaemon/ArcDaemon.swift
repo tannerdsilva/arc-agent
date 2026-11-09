@@ -122,6 +122,17 @@ public enum ArcDaemon {
             // The process's approval policy, resolved through config + env
             // (`ARC_YOLO` → off). Every hosted session agent gets this mode.
             approvalMode: ApprovalMode(configValue: arc.security.approvalMode),
+            // Cron approval policy (`security.cronMode`): deny | smart,
+            // unknown → deny with a warning (fail-closed, never a guess).
+            cronMode: {
+                switch arc.security.cronMode?.lowercased() {
+                case "smart": return .smart
+                case "deny", nil: return .deny
+                case let other?:
+                    print("⚠️ Unknown security.cronMode '\(other)' — using deny")
+                    return .deny
+                }
+            }(),
             mcpServers: arc.mcpServers,
             contextDefaults: WebUIContextDefaults.loadFromDisk() ?? arc.contextDefaults,
             storage: storage,
@@ -202,12 +213,26 @@ public enum ArcDaemon {
         let cronStore = RuntimeCronStore()
         await ScheduledJobsImport.runIfNeeded(into: cronStore)
         let jobRunner: @Sendable (CronJob) async throws -> CronRunResult
+        // Script jobs (§6.2) bypass every agent surface — the shell line
+        // is the whole job. Checked before the runner selection so the
+        // web-UI path never spins a session for a script job.
+        let selectedRunner: @Sendable (CronJob) async throws -> CronRunResult
         if let uiHost {
-            jobRunner = { job in CronRunResult(output: await uiHost.runScheduledJob(job)) }
+            selectedRunner = { job in CronRunResult(output: await uiHost.runScheduledJob(job)) }
         } else if let sessionHost {
-            jobRunner = sessionHost.cronRunner
+            selectedRunner = sessionHost.cronRunner
         } else {
-            jobRunner = { _ in CronRunResult(output: "No runner: neither the web UI nor the session host is enabled.") }
+            selectedRunner = { _ in CronRunResult(output: "No runner: neither the web UI nor the session host is enabled.") }
+        }
+        jobRunner = { job in
+            if let script = job.script, !script.isEmpty {
+                let outcome = await CronScriptRunner.run(script: script)
+                return CronRunResult(
+                    output: outcome.failed ? (outcome.output ?? "script failed") : (outcome.output ?? ""),
+                    deliveryError: nil
+                )
+            }
+            return try await selectedRunner(job)
         }
         // One daemon-wide wall-clock zone: jobs are statements about this
         // machine, so a job's hour means the hour *here* (`cron.time_zone`,

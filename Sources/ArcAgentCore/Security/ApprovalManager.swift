@@ -97,6 +97,19 @@ public enum ApprovalMode: String, Sendable, Codable {
     }
 }
 
+/// How FLAGGED commands behave in cron sessions. Binary by policy — no
+/// `.manual` (a prompt can never be answered unattended) and no
+/// approve-all.
+public enum CronApprovalMode: String, Sendable, Codable {
+    /// Every flagged action is refused immediately, mid-turn; the turn
+    /// continues and the job still runs and delivers.
+    case deny
+    /// Flagged actions arbitrate through the smart classifier; a
+    /// suspicious-or-worse verdict (or classifier absence) DENIES — it
+    /// never prompts, because there is nobody to fall back to.
+    case smart
+}
+
 /// A pending approval request handed to an injected ``ApprovalPresenter``.
 public struct ApprovalRequest: Sendable {
 
@@ -163,6 +176,12 @@ public actor ApprovalManager {
     /// The approval mode, frozen at initialization.
     public let mode: ApprovalMode
 
+    /// How FLAGGED commands behave in cron sessions (unattended turns).
+    /// Binary — `deny` or `smart`. There is no `.manual` and no
+    /// approve-all in cron: a prompt needs a human, and a cron turn has
+    /// none. Hardline stays unconditional above this.
+    public let cronPolicy: CronApprovalMode
+
     /// Optional LLM risk classifier (reference "smart command approval"),
     /// injected by the agent and fed by the `approval` auxiliary model.
     /// A nil result means "classifier unavailable" → regex detection is used.
@@ -194,10 +213,12 @@ public actor ApprovalManager {
     ///     (exact trimmed match). Loaded from the persisted allowlist.
     public init(
         mode: ApprovalMode = .manual,
+        cronMode: CronApprovalMode = .deny,
         classifier: (@Sendable (String) async -> DangerLevel?)? = nil,
         alwaysAllowedCommands: [String] = []
     ) {
         self.mode = mode
+        self.cronPolicy = cronMode
         self.classifier = classifier
         self.alwaysAllowed = Set(alwaysAllowedCommands.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })
     }
@@ -306,10 +327,12 @@ public actor ApprovalManager {
     public func requestApproval(
         command: String,
         description: String,
-        sessionKey: String
+        sessionKey: String,
+        isCronSession: Bool = false
     ) async -> ApprovalResult {
         // Layer 1 — hardline: unconditional denial, above every mode and
-        // allowlist. A human pressing "approve" cannot override it.
+        // allowlist. A human pressing "approve" cannot override it — and
+        // neither can a cron policy.
         if HardlineBlocker.detect(command) != nil {
             return .denied
         }
@@ -319,6 +342,18 @@ public actor ApprovalManager {
         // Layer 2/3 — was the command flagged at all? Unflagged commands are
         // never promptable, in any mode.
         let flagged = await detectDangerLevel(command) >= .dangerous
+        // Cron sessions (unattended turns): the mode is the cron policy,
+        // not the interactive one. `.manual` is simply unreachable — a
+        // presenter would hang a job that nobody is watching.
+        if isCronSession {
+            guard flagged else { return .approved }
+            guard cronPolicy == .smart else { return .denied }
+            let level = await smartLevel(command)
+            // Unattended: critical/suspicious DENY. A classifier absence
+            // falls back to regex (conservative); it can never approve.
+            if level >= .suspicious { return .denied }
+            return .approved
+        }
         switch mode {
         case .off:
             // YOLO: flagged commands pass without prompting (hardline was

@@ -26,14 +26,17 @@ public enum CronOps {
         name: String,
         schedule: String,
         prompt: String,
-        deliver: String? = nil
+        deliver: String? = nil,
+        script: String? = nil
     ) async throws -> CronJob {
         guard CronSchedule.isValid(schedule) else {
             throw CronOpsError("invalid schedule '\(schedule)' — use 5-field cron, '30m'/'2h'/'1d', or an ISO timestamp")
         }
+        try vetScript(script)
         var job = CronJob(name: name, schedule: schedule, prompt: prompt)
         job.nextRunAt = CronSchedule.next(schedule, after: Date())
         job.deliver = normalizedDeliver(deliver)
+        job.script = script
         try await store.save(job)
         return job
     }
@@ -49,7 +52,8 @@ public enum CronOps {
         name: String? = nil,
         schedule: String? = nil,
         prompt: String? = nil,
-        deliver: String?? = nil
+        deliver: String?? = nil,
+        script: String?? = nil
     ) async throws -> CronJob {
         guard var job = try await store.get(id: id) else {
             throw CronOpsError("no such job: \(id)")
@@ -64,6 +68,11 @@ public enum CronOps {
         if let name { job.name = name }
         if let prompt { job.prompt = prompt }
         if let deliver { job.deliver = normalizedDeliver(deliver) }
+        if let script {
+            let value: String? = script  // String?? outer holds presence
+            try vetScript(value)
+            job.script = (value?.isEmpty ?? true) ? nil : value
+        }
         try await store.save(job)
         return job
     }
@@ -76,16 +85,37 @@ public enum CronOps {
         return deliver
     }
 
+    /// Public vetting for the tool's create path (CronOps keeps its own).
+    public static func vetScriptPublic(_ script: String) throws {
+        guard !script.isEmpty else { return }
+        if let hit = HardlineBlocker.detect(script) {
+            throw CronOpsError("hardline: \(hit) — script rejected at creation; approval cannot launder it")
+        }
+    }
+
+    /// Creation-time vetting: a script is security-screened ONCE, when it
+    /// is stored — not per-run. A hardline script never becomes a stored
+    /// job, so no approval prompt can launder it later. Soft/execution-flag
+    /// findings are recorded but not blocking (the script runs unattended
+    /// by design; the human chose the line).
+    private static func vetScript(_ script: String?) throws {
+        guard let script, !script.isEmpty else { return }
+        if let hit = HardlineBlocker.detect(script) {
+            throw CronOpsError("hardline: \(hit) — script rejected at creation; approval cannot launder it")
+        }
+    }
+
     // MARK: - Pause / Resume
 
     /// Pause: `isActive = false` + `pausedAt` stamp. The scheduler skips
     /// inactive jobs, so the stale `nextRunAt` simply never fires.
-    public static func pause(store: any CronStore, id: String) async throws -> CronJob {
+    public static func pause(store: any CronStore, id: String, reason: String? = nil) async throws -> CronJob {
         guard var job = try await store.get(id: id) else {
             throw CronOpsError("no such job: \(id)")
         }
         job.isActive = false
         job.pausedAt = Date()
+        job.pausedReason = reason
         try await store.save(job)
         return job
     }

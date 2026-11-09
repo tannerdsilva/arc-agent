@@ -67,6 +67,17 @@ public actor ArcAgent: Service {
         /// The approval mode for dangerous commands.
         public var approvalMode: ApprovalMode
 
+        /// How flagged commands behave when THIS session is a cron job's
+        /// persistent session (`cron-<jobID>`, set by the cron runner).
+        /// Binary deny/smart — see ``CronApprovalMode``. Only read when
+        /// `isCronSession` is true.
+        public var cronMode: CronApprovalMode = .deny
+
+        /// Whether this agent's turns are unattended cron runs. Set by the
+        /// cron runner's session construction; NEVER inferred from platform
+        /// strings (one job must not taint an unrelated session).
+        public var isCronSession: Bool = false
+
         /// Injected, long-lived approval manager. When set it **replaces** the
         /// agent's own manager — used by surfaces that rebuild the agent per
         /// turn (web UI) so "Allow session"/"Allow always" outlive a single
@@ -219,6 +230,8 @@ public actor ArcAgent: Service {
             maxTurnDuration: Int = 0,
             persistSessions: Bool = true,
             approvalMode: ApprovalMode = .manual,
+            cronMode: CronApprovalMode = .deny,
+            isCronSession: Bool = false,
             approvalManager: ApprovalManager? = nil,
             alwaysAllowedCommands: [String] = [],
             query: String? = nil,
@@ -272,6 +285,8 @@ public actor ArcAgent: Service {
             self.maxTurnDuration = maxTurnDuration
             self.persistSessions = persistSessions
             self.approvalMode = approvalMode
+            self.cronMode = cronMode
+            self.isCronSession = isCronSession
             self.approvalManager = approvalManager
             self.alwaysAllowedCommands = alwaysAllowedCommands
             self.query = query
@@ -502,6 +517,7 @@ public actor ArcAgent: Service {
         self.approvalManager = config.approvalManager
             ?? ApprovalManager(
                 mode: config.approvalMode,
+                cronMode: config.cronMode,
                 alwaysAllowedCommands: config.alwaysAllowedCommands)
         self.toolGuardrails = ToolGuardrails(limits: .init(loopCap: config.toolLoopCap))
         self.delegationManager = DelegationManager(
@@ -4023,14 +4039,25 @@ public actor ArcAgent: Service {
                     description: toolCall.function.name == "terminal"
                         ? "Execute shell command"
                         : "Execute Python code",
-                    sessionKey: sessionID
+                    sessionKey: sessionID,
+                    isCronSession: config.isCronSession
                 ) {
                 case .denied:
+                    if config.isCronSession {
+                        // Unattended refusal: the agent sees the structured
+                        // text mid-turn and can adapt; the job still runs
+                        // and delivers. Never a prompt, never a hang.
+                        let snippet = args.trimmingCharacters(in: .whitespacesAndNewlines)
+                        return "BLOCKED: \(snippet.prefix(160)) — cron jobs run without a user present to approve it. Find an alternative approach that avoids this command. To let the smart classifier arbitrate flagged commands in cron jobs, set security.cronMode: smart in ~/.arc/config.json."
+                    }
                     if let hit = await approvalManager.hardlineDenial(command: args) {
                         return "Error: Command blocked by security policy (hardline: \(hit)). This command is never executable — approval cannot be granted for it."
                     }
                     return "Error: Command blocked by security policy."
                 case .requiresReview:
+                    if config.isCronSession {
+                        return "BLOCKED: command requires review — cron jobs run without a user present to approve it. Find an alternative approach."
+                    }
                     return "⚠️ Command requires manual approval. Run it yourself or disable the approval system."
                 case .approved:
                     break

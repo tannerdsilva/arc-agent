@@ -336,10 +336,14 @@ struct CronCreate: AsyncParsableCommand {
     /// Delivery target `platform:chatID` (e.g. `telegram:123456789`), or
     /// "none". Run results are sent there after each run.
     @Option(name: .shortAndLong) var deliver: String?
+    /// Shell line to run instead of the agent (no_agent mode). Hardline
+    /// scripts are rejected here — never stored.
+    @Option(name: .shortAndLong) var script: String?
 
     func run() async throws {
         let job = try await CronOps.create(store: FileCronStore(), name: name,
-                                           schedule: schedule, prompt: prompt, deliver: deliver)
+                                           schedule: schedule, prompt: prompt, deliver: deliver,
+                                           script: script)
         print("Created \(job.id) — \(job.name)")
         if let next = job.nextRunAt { print("Next run: \(next)") }
         if let deliver = job.deliver { print("Deliver: \(deliver)") }
@@ -359,11 +363,14 @@ struct CronEdit: AsyncParsableCommand {
     @Option(name: .shortAndLong) var name: String?
     /// New delivery target, or "none" to clear.
     @Option(name: .shortAndLong) var deliver: String?
+    /// New shell line (no_agent mode), or "" to clear. Hardline rejected.
+    @Option(name: .shortAndLong) var script: String?
 
     func run() async throws {
         let job = try await CronOps.edit(store: FileCronStore(), id: id,
                                          name: name, schedule: schedule, prompt: prompt,
-                                         deliver: deliver.map { Optional($0) })
+                                         deliver: deliver.map { Optional($0) },
+                                         script: script.map { Optional($0) })
         print("Edited \(job.id) — schedule '\(job.schedule)'")
         if let next = job.nextRunAt { print("Next run: \(next)") }
         if let deliver = job.deliver { print("Deliver: \(deliver)") }

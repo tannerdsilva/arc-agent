@@ -26,8 +26,10 @@ public actor SessionAgent: Service {
         incomingMessages: AsyncStream<IncomingMessage>,
         deliveryManager: DeliveryManager,
         registry: SessionRegistry,
-        responseContinuation: AsyncStream<String>.Continuation
+        responseContinuation: AsyncStream<String>.Continuation,
+        isCronSession: Bool = false
     ) {
+        self.isCronSession = isCronSession
         self.sessionID = sessionID
         self.profile = profile
         self.agentConfig = agentConfig
@@ -37,6 +39,10 @@ public actor SessionAgent: Service {
         self.registry = registry
         self.responseContinuation = responseContinuation
     }
+
+    /// Whether this agent's turns are unattended cron runs (set by the
+    /// cron runner's `getOrCreate`). Durable for the session's life.
+    private let isCronSession: Bool
 
     // MARK: - Engine configuration
 
@@ -59,7 +65,8 @@ public actor SessionAgent: Service {
         resolvedBaseURL: URL,
         resolvedParams: PerModelParameters?,
         resolvedRecipe: ResolvedContextRecipe,
-        profile: String
+        profile: String,
+        isCronSession: Bool = false
     ) -> ArcAgent.Configuration {
         ArcAgent.Configuration(
             model: resolvedModel,
@@ -75,6 +82,8 @@ public actor SessionAgent: Service {
             maxTurnDuration: agentConfig.maxTurnDuration ?? 0,
             persistSessions: agentConfig.tessera != nil ? agentConfig.persistSessions : false,
             approvalMode: agentConfig.approvalMode,
+            cronMode: agentConfig.cronMode,
+            isCronSession: isCronSession,
             // Session agents are long-lived, but seed the persisted
             // "Always allow" list so allowlist entries span restarts.
             alwaysAllowedCommands: loadConfig().security.alwaysAllowedCommands,
@@ -279,7 +288,8 @@ public actor SessionAgent: Service {
                 resolvedBaseURL: resolvedBaseURL,
                 resolvedParams: resolvedParams,
                 resolvedRecipe: resolvedRecipe,
-                profile: profile
+                profile: profile,
+                isCronSession: isCronSession
             ))
             logger.info("step: setting up client")
             await agent.setupClient(httpClient: httpClient)

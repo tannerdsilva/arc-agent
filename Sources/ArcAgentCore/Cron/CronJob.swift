@@ -36,6 +36,21 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
     public var lastError: String?
     /// When the job was paused (``CronOps.pause``). Cleared on resume.
     public var pausedAt: Date?
+    /// Why the job was paused (human or agent note). Cleared on resume.
+    public var pausedReason: String?
+    /// Run budget: the job self-retires after N runs (nil = unlimited).
+    /// JSON key stays `"repeat"` (Hermes parity) even though the Swift
+    /// name can't be the keyword — see ``CodingKeys``.
+    public var repeatBudget: Int?
+    /// Live countdown for ``repeatBudget``; persisted so a restart can't
+    /// resurrect an exhausted budget. Nil = no budget / budget not armed.
+    public var runsRemaining: Int?
+    /// Shell line to run INSTEAD of the LLM (plan Phase 6.2). Non-nil
+    /// bypasses the agent entirely: stdout = the run's output, empty
+    /// stdout + exit 0 = silent, non-zero/timeout = alert. Vetted through
+    /// the Security pipeline at job-creation time — a stored hardline
+    /// script is rejected on save, never laundered later.
+    public var script: String?
     /// The profile that created/wrote the job. Nil = manageable by anyone
     /// (covers web-UI- and CLI-created jobs; agent tools stamp their
     /// captured ``ToolContext``). Phase 6 scoping reads this.
@@ -70,9 +85,29 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
         self.lastFinishedAt = nil
         self.lastError = nil
         self.pausedAt = nil
+        self.pausedReason = nil
+        self.repeatBudget = nil
+        self.runsRemaining = nil
+        self.script = nil
         self.profile = nil
         self.deliver = nil
         self.lastDeliveryError = nil
+    }
+
+    /// Field names on disk. `repeat` is a Swift keyword, so the budget is
+    /// `repeatBudget` in code but `repeat` in JSON (Hermes parity).
+    enum CodingKeys: String, CodingKey {
+        case id, name, schedule, prompt
+        case isActive
+        case createdAt
+        case nextRunAt, lastRunAt, lastStartedAt, lastFinishedAt
+        case lastOutput, lastStatus, lastError, lastDeliveryError
+        case runCount
+        case pausedAt, pausedReason
+        case repeatBudget = "repeat"
+        case runsRemaining
+        case profile, deliver
+        case script
     }
 }
 

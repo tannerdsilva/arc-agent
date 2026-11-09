@@ -227,8 +227,21 @@ public struct SessionHost: Service {
         let hostLogger = self.logger
         let delivery = self.deliveryManager
         self.cronRunner = { job in
+            // Script jobs bypass the LLM entirely (plan §6.2): the shell
+            // line IS the job. Silence stays silent; failure alerts.
+            if let script = job.script, !script.isEmpty {
+                let outcome = await CronScriptRunner.run(script: script)
+                if outcome.failed {
+                    return CronRunResult(output: outcome.output ?? "script failed",
+                                         deliveryError: nil)
+                }
+                if let text = outcome.output {
+                    return CronRunResult(output: text)
+                }
+                return CronRunResult(output: "")  // silent success
+            }
             let sessionID = "cron-\(job.id)"
-            let handle = await reg.getOrCreate(sessionID: sessionID, profile: "default")
+            let handle = await reg.getOrCreate(sessionID: sessionID, profile: "default", isCron: true)
             let incoming = IncomingMessage(
                 id: UUID().uuidString,
                 chat: ChatTarget(platform: "cron", chatID: job.id),

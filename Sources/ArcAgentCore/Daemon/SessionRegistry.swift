@@ -71,6 +71,8 @@ public actor SessionRegistry {
         /// every hosted agent was hardcoded to `.manual`, so `smart` and `off`
         /// never reached the daemon.
         public let approvalMode: ApprovalMode
+        /// `security.cronMode` — deny | smart; unknown → deny (config warns).
+        public let cronMode: CronApprovalMode
 
         /// Mixture-of-Agents configuration (reference `moa` config block).
         public let moa: MoAConfig
@@ -128,6 +130,7 @@ public actor SessionRegistry {
             toolLoopCap: Limit? = nil,
             maxTurnDuration: Int? = nil,
             approvalMode: ApprovalMode = .manual,
+            cronMode: CronApprovalMode = .deny,
 
             mcpServers: [String: MCPServerConfig] = [:],
             contextDefaults: ContextRecipe? = nil,
@@ -156,6 +159,7 @@ public actor SessionRegistry {
             self.toolLoopCap = toolLoopCap
             self.maxTurnDuration = maxTurnDuration
             self.approvalMode = approvalMode
+            self.cronMode = cronMode
 
             self.mcpServers = mcpServers
             self.contextDefaults = contextDefaults
@@ -318,7 +322,7 @@ public actor SessionRegistry {
     /// contends with its predecessor for the session's LMDB environment, and
     /// there is no window in which ``removeIfCurrent(sessionID:agent:)`` can
     /// resolve against the wrong generation.
-    func getOrCreate(sessionID: String, profile: String = "default") async -> SessionHandle {
+    func getOrCreate(sessionID: String, profile: String = "default", isCron: Bool = false) async -> SessionHandle {
         if agents[sessionID] != nil {
             handles[sessionID]?.inputContinuation.finish()
             handles[sessionID]?.responseContinuation.finish()
@@ -364,7 +368,8 @@ public actor SessionRegistry {
             incomingMessages: inputStream,
             deliveryManager: deliveryManager,
             registry: self,
-            responseContinuation: responseContinuation
+            responseContinuation: responseContinuation,
+            isCronSession: isCron
         )
         agents[sessionID] = agent
         handles[sessionID] = handle
