@@ -214,7 +214,8 @@ public enum ArcDaemon {
         // IANA name; absent = local). Per-job zones were considered and
         // rejected — they'd make two jobs' "9am" disagree silently.
         let cronTimeZone = daemonConfig.cron.timeZone.flatMap { TimeZone(identifier: $0) } ?? .current
-        let cronScheduler = CronScheduler(store: cronStore, timeZone: cronTimeZone, jobRunner: jobRunner)
+        let cronHistory = RuntimeCronRunHistory()
+        let cronScheduler = CronScheduler(store: cronStore, timeZone: cronTimeZone, history: cronHistory, jobRunner: jobRunner)
 
         printBanner(plan: plan, config: daemonConfig)
 

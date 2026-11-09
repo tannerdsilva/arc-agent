@@ -620,7 +620,7 @@ extension AppState {
         let statusCls = job.isActive ? "on" : "off"
         let next = cronNextLabel(for: job, format: fmtRel)
         let last = job.lastRunAt.map { fmtRel($0) } ?? "never"
-        let out = job.lastOutput.map { trunc($0, 160) } ?? "—"
+        let out = job.lastOutput.map { trunc($0, 160) } ?? job.lastError.map { "Error: \(trunc($0, 140))" } ?? "—"
         let toggleLabel = job.isActive ? "Stop" : "Start"
         let ctrl = Div(class: ClassName(.detailCard, .taskCtrlCard)) {
             Div(class: .taskCtrlHead) {

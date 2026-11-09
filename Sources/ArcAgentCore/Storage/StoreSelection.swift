@@ -178,3 +178,34 @@ public actor RuntimeCronStore: CronStore {
         try await resolve().listAll()
     }
 }
+
+/// A ``CronRunHistory`` resolving to ``TesseraCronRunHistory`` when Tessera
+/// is active and to ``FileCronRunHistory`` otherwise — the same lazy gate as
+/// ``RuntimeCronStore``. Every surface resolves history through this actor
+/// so jobs and history can never disagree about medium.
+public actor RuntimeCronRunHistory: CronRunHistory {
+
+    private var history: (any CronRunHistory)?
+
+    public init() {}
+
+    private func resolve() async -> any CronRunHistory {
+        if let history { return history }
+        let tessera = await TesseraAvailability.shared.isTesseraActive()
+        let chosen: any CronRunHistory = tessera ? TesseraCronRunHistory() : FileCronRunHistory()
+        history = chosen
+        return chosen
+    }
+
+    public func record(_ run: CronRunRecord, jobID: String) async throws {
+        try await resolve().record(run, jobID: jobID)
+    }
+
+    public func listRuns(jobID: String, limit: Int) async throws -> [CronRunRecord] {
+        try await resolve().listRuns(jobID: jobID, limit: limit)
+    }
+
+    public func prune(jobID: String, keep: Int) async throws {
+        try await resolve().prune(jobID: jobID, keep: keep)
+    }
+}

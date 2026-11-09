@@ -25,6 +25,15 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
     public var runCount: Int
     /// Last output from the job.
     public var lastOutput: String?
+    /// Status of the last run: "ok" | "error" | "timeout". Part of the
+    /// per-run job payload so the tessera event stream doubles as history.
+    public var lastStatus: String?
+    /// When the last run started.
+    public var lastStartedAt: Date?
+    /// When the last run finished.
+    public var lastFinishedAt: Date?
+    /// The failure message when `lastStatus` is "error".
+    public var lastError: String?
 
     public init(
         id: String = UUID().uuidString,
@@ -43,6 +52,10 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
         self.nextRunAt = nil
         self.runCount = 0
         self.lastOutput = nil
+        self.lastStatus = nil
+        self.lastStartedAt = nil
+        self.lastFinishedAt = nil
+        self.lastError = nil
     }
 }
 

@@ -24,6 +24,10 @@ public actor CronScheduler: Service {
     /// The wall-clock zone cron schedules in. Daemon-wide (``CronConfig``):
     /// a job's "9am" means 9am *here*, regardless of which profile wrote it.
     private let timeZone: TimeZone
+    /// Per-attempt history. Nil = no history is written (tests). In file
+    /// mode a record file is written per run; in tessera mode the backend
+    /// no-ops because the single `save(job)` below IS the record.
+    private let history: (any CronRunHistory)?
     /// Executes a due job. When non-nil, the job's output becomes
     /// `lastOutput` (capped at 4 KB); when nil (tests/standalone), the
     /// scheduler bookkeeps without running anything. The daemon injects a
@@ -35,11 +39,13 @@ public actor CronScheduler: Service {
         store: any CronStore,
         pollIntervalSeconds: UInt64 = 30,
         timeZone: TimeZone = .current,
+        history: (any CronRunHistory)? = nil,
         jobRunner: (@Sendable (CronJob) async throws -> String)? = nil
     ) {
         self.store = store
         self.pollInterval = pollIntervalSeconds * 1_000_000_000
         self.timeZone = timeZone
+        self.history = history
         self.jobRunner = jobRunner
     }
 
@@ -86,26 +92,43 @@ public actor CronScheduler: Service {
 
             if now >= nextRun {
                 logger.info("Running job: \(job.name)")
+                // Single-save rule: stamp every last* field, write file-mode
+                // history, then EXACTLY ONE store.save — that save is both
+                // bookkeeping and, in tessera mode, the durable run record.
+                // Never record() + a separate save (two kind-3005 publishes).
+                let startedAt = now
+                job.lastStartedAt = startedAt
                 do {
                     if let runner = jobRunner {
                         let output = try await runner(job)
-                        job.lastOutput = String(output.prefix(4000))
+                        job.lastOutput = String(output.prefix(cronOutputCap))
                     } else {
                         // Bookkeeping-only mode (tests / no runner).
                         job.lastOutput = "Executed at \(now)"
                     }
-                    job.lastRunAt = now
-                    job.runCount += 1
-                    job.nextRunAt = CronSchedule.next(job.schedule, after: now, timeZone: timeZone)
-                    try await store.save(job)
+                    job.lastStatus = "ok"
+                    job.lastError = nil
                 } catch {
-                    job.lastRunAt = now
-                    job.runCount += 1
-                    job.lastOutput = "Error: \(error)"
-                    job.nextRunAt = CronSchedule.next(job.schedule, after: now, timeZone: timeZone)
-                    try await store.save(job)
+                    job.lastStatus = "error"
+                    job.lastError = String(describing: error)
                     logger.error("Cron job \(job.name) failed: \(error)")
                 }
+                job.lastRunAt = now
+                job.lastFinishedAt = Date()
+                job.runCount += 1
+                job.nextRunAt = CronSchedule.next(job.schedule, after: now, timeZone: timeZone)
+                if let history {
+                    let run = CronRunRecord(
+                        jobID: job.id,
+                        startedAt: startedAt,
+                        finishedAt: job.lastFinishedAt,
+                        status: job.lastStatus,
+                        output: job.lastOutput ?? "",
+                        error: job.lastError
+                    )
+                    try? await history.record(run, jobID: job.id)
+                }
+                try await store.save(job)
             }
         }
     }

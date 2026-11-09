@@ -222,7 +222,7 @@ extension ArcCoreTestRoot {
             #expect(updated?.lastOutput?.count == 4000)
         }
 
-        @Test("runner failure lands as Error: in lastOutput and still advances")
+        @Test("runner failure lands in lastError/lastStatus and still advances")
         func runnerFailure() async throws {
             var job = CronJob(id: "j3", name: "boom", schedule: "30m", prompt: "x")
             job.nextRunAt = Date().addingTimeInterval(-60)
@@ -231,8 +231,11 @@ extension ArcCoreTestRoot {
             let scheduler = CronScheduler(store: store, jobRunner: { _ in throw Boom() })
             try await scheduler.runDueJobs()
             let updated = await store.jobs.first { $0.id == "j3" }
-            #expect(updated?.lastOutput?.hasPrefix("Error: ") == true)
+            #expect(updated?.lastStatus == "error", "status is structured, not prose in lastOutput")
+            #expect(updated?.lastError == "kaput")
+            #expect(updated?.lastOutput == nil, "a failed run carries no output — the error is in lastError")
             #expect(updated?.runCount == 1)
+            #expect(updated?.nextRunAt != nil, "schedule advances even on failure")
         }
 
         @Test("unparseable schedule hits the first-run bookkeeping branch")
