@@ -249,17 +249,16 @@ extension ArcCoreTestRoot {
             #expect(updated?.runCount == 0)
         }
 
-        @Test("computeNextRun parses human schedules including every-prefix")
+        @Test("schedule parsing: intervals resolve to their stated interval")
         func scheduleParsing() {
-            let base = Date(timeIntervalSince1970: 0)
-            // every 2h → 7200s
-            var job = CronJob(name: "x", schedule: "every 2h", prompt: "x")
-            let next = computeNextRun(for: job) ?? .distantFuture
-            #expect(abs(next.timeIntervalSinceNow - 7200) < 5)
-            job = CronJob(name: "y", schedule: "30min", prompt: "x")
-            let next2 = computeNextRun(for: job) ?? .distantFuture
-            #expect(abs(next2.timeIntervalSinceNow - 1800) < 5)
-            _ = base
+            // CronSchedule is a pure engine: `next` is relative to an
+            // explicit `after`, not the wall clock (the old
+            // `computeNextRun` baked `Date()` in, which made the same
+            // schedule untestable and drifted under poll latency).
+            let after = Date(timeIntervalSince1970: 1_750_000_000)
+            #expect(CronSchedule.next("every 2h", after: after)!.timeIntervalSince(after) == 7200)
+            #expect(CronSchedule.next("30min", after: after)!.timeIntervalSince(after) == 1800)
+            #expect(CronSchedule.next("nonsense", after: after) == nil)
         }
     }
 }

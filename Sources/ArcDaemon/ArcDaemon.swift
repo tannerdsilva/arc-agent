@@ -209,7 +209,12 @@ public enum ArcDaemon {
         } else {
             jobRunner = { _ in "No runner: neither the web UI nor the session host is enabled." }
         }
-        let cronScheduler = CronScheduler(store: cronStore, jobRunner: jobRunner)
+        // One daemon-wide wall-clock zone: jobs are statements about this
+        // machine, so a job's hour means the hour *here* (`cron.time_zone`,
+        // IANA name; absent = local). Per-job zones were considered and
+        // rejected — they'd make two jobs' "9am" disagree silently.
+        let cronTimeZone = daemonConfig.cron.timeZone.flatMap { TimeZone(identifier: $0) } ?? .current
+        let cronScheduler = CronScheduler(store: cronStore, timeZone: cronTimeZone, jobRunner: jobRunner)
 
         printBanner(plan: plan, config: daemonConfig)
 

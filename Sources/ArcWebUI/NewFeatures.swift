@@ -400,56 +400,16 @@ private struct ScheduledToolRound {
     var results: [(id: String, name: String, result: String)] = []
 }
 
-/// Compute the next fire date for a cron expression (supports "30m",
-/// "every 2h", "0 9 * * *", and ISO timestamps).
+/// Compute the next fire date for a cron expression.
+///
+/// **Wrapper** — the engine lives in ``CronSchedule`` (ArcAgentCore); the
+/// duplicated parser that used to live here (and its `CronField` machinery,
+/// which refused `*/15`, `1-5`, `0,30`, and day-of-week names outright, and
+/// ANDed dom/dow) is deleted. This shim exists so the web UI keeps its
+/// call sites and test signature; it resolves in the daemon's local zone
+/// exactly as the old code did.
 func CronNext(expression: String, from date: Date) -> Date? {
-    let cal = Calendar.current
-    let expr = expression.trimmingCharacters(in: .whitespacesAndNewlines)
-    if let iso = ISO8601DateFormatter().date(from: expr), iso > date { return iso }
-    if expr.hasPrefix("every ") {
-        let rest = expr.dropFirst("every ".count)
-        if let interval = parseInterval(String(rest)) { return date.addingTimeInterval(interval) }
-    }
-    if let interval = parseInterval(expr) { return date.addingTimeInterval(interval) }
-    // Cron 5-field: "m h dom mon dow".
-    //
-    // only a number or `*` is understood. a field this parser cannot read —
-    // `*/15`, `1-5`, `0,30` — is refused rather than left nil: a nil component
-    // means "any value" to Calendar, so accepting the field would silently
-    // widen the schedule (a 15-minute step became every minute).
-    let fields = expr.split(separator: " ").map(String.init)
-    guard fields.count == 5,
-          let minute = cronField(fields[0], in: 0...59),
-          let hour = cronField(fields[1], in: 0...23),
-          let day = cronField(fields[2], in: 1...31),
-          let month = cronField(fields[3], in: 1...12),
-          let weekday = cronField(fields[4], in: 0...7)
-    else { return nil }
-    // cron's day-of-month and day-of-week are ORed when both are restricted;
-    // Calendar ANDs components, so an expression that sets both would fire on
-    // the wrong days. refuse the shape instead of answering with a lie.
-    if case .value(_) = day, case .value(_) = weekday { return nil }
-    var comps = DateComponents()
-    if case .value(let v) = minute { comps.minute = v }
-    if case .value(let v) = hour { comps.hour = v }
-    if case .value(let v) = day { comps.day = v }
-    if case .value(let v) = month { comps.month = v }
-    // cron numbers weekdays 0/7 = Sunday … 6 = Saturday; Calendar numbers
-    // 1 = Sunday … 7 = Saturday.
-    if case .value(let v) = weekday { comps.weekday = v % 7 + 1 }
-    return cal.nextDate(after: date, matching: comps, matchingPolicy: .nextTime)
-}
-
-/// one 5-field cron field: `*` (unconstrained) or a number in range.
-private enum CronField {
-    case wildcard
-    case value(Int)
-}
-
-private func cronField(_ raw: String, in allowed: ClosedRange<Int>) -> CronField? {
-    if raw == "*" { return .wildcard }
-    guard let value = Int(raw), allowed.contains(value) else { return nil }
-    return .value(value)
+    CronSchedule.next(expression, after: date)
 }
 
 func parseInterval(_ s: String) -> TimeInterval? {

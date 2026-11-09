@@ -55,16 +55,23 @@ extension ArcWebUITestRoot {
                     "cron 7 is Sunday (Calendar weekday 1)")
         }
 
-        @Test("an unsupported step expression is refused, not widened to every minute")
-        func cronRejectsStepSyntax() {
-            #expect(CronNext(expression: "*/15 * * * *", from: Date()) == nil,
-                    "*/15 must not be read as 'any minute'")
+        @Test("step syntax now parses with step semantics (engine upgrade)")
+        func cronParsesStepSyntax() throws {
+            // The old web-UI parser refused steps; the shared engine
+            // (CronSchedule) implements them — */15 is fifteen minutes
+            // past the hour, never "any minute".
+            let next = CronNext(expression: "*/15 * * * *", from: try localDate(2026, 10, 30, 12, 7))
+            #expect(next != nil)
+            #expect(Calendar.current.component(.minute, from: next!) == 15)
         }
 
-        @Test("an unsupported range expression is refused")
-        func cronRejectsRangeSyntax() {
-            #expect(CronNext(expression: "0 9 * * 1-5", from: Date()) == nil,
-                    "a weekday range must not be read as 'any weekday'")
+        @Test("range syntax now parses with range semantics (engine upgrade)")
+        func cronParsesRangeSyntax() throws {
+            // Friday 2026-10-30 12:00 local → "0 9 * * 1-5" is Monday 09:00,
+            // not "any weekday".
+            let next = CronNext(expression: "0 9 * * 1-5", from: try localDate(2026, 10, 30, 12, 0))
+            #expect(next != nil)
+            #expect(Calendar.current.component(.weekday, from: next!) == 2)
         }
 
         @Test("out-of-range field values are refused")

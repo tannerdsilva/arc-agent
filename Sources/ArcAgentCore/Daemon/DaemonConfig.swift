@@ -51,6 +51,9 @@ public struct DaemonConfig: Sendable {
     /// The daemon's Web UI surface (no-webui + ArcWebUI).
     public var webui: WebUIConfig
 
+    /// Cron scheduler settings (`"cron"` section in `daemon.json`).
+    public var cron: CronDaemonConfig
+
     /// The daemon's MCP server surface (swift-mcp, TCP).
     public var mcpServer: MCPServerSurfaceConfig
     /// The kanban dispatcher loop (core file board).
@@ -63,7 +66,8 @@ public struct DaemonConfig: Sendable {
         api: APIConfig = APIConfig(),
         webui: WebUIConfig = WebUIConfig(),
         mcpServer: MCPServerSurfaceConfig = MCPServerSurfaceConfig(),
-        kanban: KanbanConfig = KanbanConfig()
+        kanban: KanbanConfig = KanbanConfig(),
+        cron: CronDaemonConfig = CronDaemonConfig()
     ) {
         self.telegram = telegram
         self.email = email
@@ -72,6 +76,7 @@ public struct DaemonConfig: Sendable {
         self.webui = webui
         self.mcpServer = mcpServer
         self.kanban = kanban
+        self.cron = cron
     }
 
     /// Load config from `<home>/daemon.json`, applying env overrides.
@@ -94,6 +99,7 @@ public struct DaemonConfig: Sendable {
             config.webui = WebUIConfig(dict: root["webui"] as? [String: Any], env: environment)
             config.mcpServer = MCPServerSurfaceConfig(dict: root["mcp_server"] as? [String: Any], env: environment)
             config.kanban = KanbanConfig(dict: root["kanban"] as? [String: Any], env: environment)
+            config.cron = CronDaemonConfig(dict: root["cron"] as? [String: Any], env: environment)
         } else {
             // No file: still honor env-only configuration.
             config.telegram = TelegramConfig(dict: nil, env: environment)
@@ -469,5 +475,25 @@ public struct KanbanConfig: Sendable {
 
     private static func truthy(_ v: String) -> Bool {
         ["1", "true", "yes", "on"].contains(v.lowercased())
+    }
+}
+
+/// Cron scheduler settings (`"cron"` section in `daemon.json`). Absent
+/// fields default — an install that never mentions cron pays nothing.
+public struct CronDaemonConfig: Sendable {
+    /// IANA timezone the cron engine schedules in (e.g. "Europe/Berlin").
+    /// Nil = the daemon's local timezone. One daemon-wide zone: jobs are
+    /// wall-clock statements about this machine, not per-author whims —
+    /// a job's hour means the hour *here*. (An invalid identifier silently
+    /// falls back to local rather than refusing to boot the daemon.)
+    public var timeZone: String?
+
+    public init(timeZone: String? = nil) {
+        self.timeZone = timeZone
+    }
+
+    init(dict: [String: Any]?, env: [String: String]) {
+        let d = dict ?? [:]
+        self.timeZone = env["ARC_CRON_TIME_ZONE"] ?? (d["time_zone"] as? String)
     }
 }
