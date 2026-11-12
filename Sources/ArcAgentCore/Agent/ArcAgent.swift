@@ -64,6 +64,13 @@ public actor ArcAgent: Service {
         public var maxTurnDuration: Int
         /// Whether to persist sessions.
         public var persistSessions: Bool
+        /// Whether the stored transcript is restored into the context on the
+        /// first turn. `false` = fresh-context mode: the transcript keeps
+        /// appending to the store (the job's chat stays complete) but never
+        /// re-enters the model's context — each run starts clean. Cron
+        /// sessions set this so a recurring job's earlier runs don't leak
+        /// into later ones.
+        public var restoreHistoryOnStart: Bool
         /// The approval mode for dangerous commands.
         public var approvalMode: ApprovalMode
 
@@ -229,6 +236,7 @@ public actor ArcAgent: Service {
             toolLoopCap: Limit? = nil,
             maxTurnDuration: Int = 0,
             persistSessions: Bool = true,
+            restoreHistoryOnStart: Bool = true,
             approvalMode: ApprovalMode = .manual,
             cronMode: CronApprovalMode = .deny,
             isCronSession: Bool = false,
@@ -284,6 +292,7 @@ public actor ArcAgent: Service {
             self.toolLoopCap = toolLoopCap
             self.maxTurnDuration = maxTurnDuration
             self.persistSessions = persistSessions
+            self.restoreHistoryOnStart = restoreHistoryOnStart
             self.approvalMode = approvalMode
             self.cronMode = cronMode
             self.isCronSession = isCronSession
@@ -356,6 +365,13 @@ public actor ArcAgent: Service {
     private var httpClient: HTTPClient?
     private var auxRouter: AuxiliaryModelRouter?
     private var messageHistory: [Message]
+
+    /// Observability/test seam: how many messages are in the live context.
+    var contextMessageCount: Int { messageHistory.count }
+
+    /// Observability/test seam: whether the store session is known to
+    /// already exist (append path vs create path in persistence).
+    var storeSessionKnown: Bool { sessionCreatedInStore }
     private let sessionID: String
     /// How many messages of `messageHistory` have been persisted to the
     /// session store. Reset by a compression rewrite (see
@@ -1138,6 +1154,21 @@ public actor ArcAgent: Service {
         guard !sessionRestored else { return }
         sessionRestored = true
         guard let sid = config.sessionID else { return }
+        // Fresh-context mode (cron): the stored transcript stays in the
+        // store — the job's chat keeps every run — but it must not enter
+        // this run's context. Only probe existence so later appends hit
+        // the existing session instead of trying to create it again.
+        if !config.restoreHistoryOnStart {
+            do {
+                if try await config.sessionStore.get(id: sid) != nil {
+                    sessionCreatedInStore = true
+                }
+                logger.info("fresh-context session \(sid): stored history not restored")
+            } catch {
+                logger.error("failed to probe session \(sid): \(error)")
+            }
+            return
+        }
         do {
             if let session = try await config.sessionStore.get(id: sid) {
                 messageHistory = Self.sanitizeMessages(session.messages)
