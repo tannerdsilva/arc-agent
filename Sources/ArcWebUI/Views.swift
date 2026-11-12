@@ -3174,6 +3174,20 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
 
     // MARK: Profiles main
 
+    /// The one-line toolset-override summary the profile detail shows.
+    /// Both fields empty = the profile carries no policy at all.
+    static func profilesToolsetsNote(enabled: Set<String>, disabled: Set<String>) -> String {
+        if enabled.isEmpty && disabled.isEmpty { return "all (not overridden)" }
+        var parts: [String] = []
+        if !disabled.isEmpty {
+            parts.append("disabled: \(disabled.sorted().joined(separator: ", "))")
+        }
+        if !enabled.isEmpty {
+            parts.append("enabled-only: \(enabled.sorted().joined(separator: ", "))")
+        }
+        return parts.joined(separator: " · ")
+    }
+
     func profilesMain() -> some WebUI.View {
         // UX-13: with exactly one profile there is nothing to "select" —
         // auto-select it so the canvas is never a dead end. Only when two
@@ -3186,8 +3200,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             if createProfile || editingProfile != nil {
                 profileFormView()
             } else if let name = selectedProfile, let p = profiles.first(where: { $0.name == name }) {
-                let set = p.enabledToolsets ?? []
-                let toolsetsNote = set.isEmpty ? "all (not overridden)" : set.joined(separator: ", ")
+                let toolsetsNote = Self.profilesToolsetsNote(
+                    enabled: p.enabledToolsets ?? [], disabled: p.disabledToolsets ?? [])
                 let encName = enc(p.name)
                 let isDefault = p.name == "default"
                 mainScroll {

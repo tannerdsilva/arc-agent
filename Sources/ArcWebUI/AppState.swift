@@ -2795,6 +2795,20 @@ actor AppState {
             ?? URL(string: "https://invalid.invalid")!
 
         // build the configuration from those sources.
+        // Per-profile toolset tightening, matching the SessionAgent precedent:
+        // the global baseline is the floor, and the chat's bound profile may
+        // only disable more (deny list, or an `enabledToolsets` allowlist that
+        // darkens everything unlisted). Never additive upward.
+        var effectiveDisabled = toolPolicy.disabledToolsetSet
+        if let pname,
+           let bound = profiles.first(where: { $0.name == pname }) {
+            effectiveDisabled.formUnion(bound.disabledToolsets ?? [])
+            if let enabled = bound.enabledToolsets {
+                effectiveDisabled.formUnion(
+                    Set(registry.allTools.map(\.toolset)).subtracting(enabled))
+            }
+        }
+
         let config = ArcAgent.Configuration(
             model: effectivePreset.model,
             provider: effectivePreset.provider,
@@ -2838,7 +2852,7 @@ actor AppState {
             topP: effectivePreset.topP,
             maxOutputTokens: effectivePreset.maxOutputTokens,
             agentPowers: arcConfig.agentPowers,
-            disabledToolsets: toolPolicy.disabledToolsetSet,
+            disabledToolsets: effectiveDisabled,
             // the scripted-client seam (nil in production) — see
             // `turnClientOverride`.
             llmClient: turnClientOverride,

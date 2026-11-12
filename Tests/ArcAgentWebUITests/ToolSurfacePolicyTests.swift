@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import ArcToolKit
 @testable import ArcAgentCore
 @testable import ArcWebUI
 
@@ -165,6 +166,73 @@ extension ArcWebUITestRoot {
             #expect(config.disabledToolsets == Set(["browser"]))
         }
 
+        @Test("per-profile toolsets tighten on top of the global baseline (daemon session)")
+        func profileToolsetsTightenDaemonSession() async throws {
+            // A registry whose toolsets are known exactly, so the allowlist
+            // math is assertable: alpha, beta, gamma — and nothing else.
+            let registry = StubToolsetRegistry(toolsets: ["alpha", "beta", "gamma"])
+            let all = Set(registry.allTools.map(\.toolset))
+
+            func config(global: Set<String>, disabled: Set<String>?, enabled: Set<String>?)
+                -> ArcAgent.Configuration {
+                let daemon = SessionRegistry.AgentConfig(
+                    model: "m", provider: "p", baseURL: "http://127.0.0.1:9/v1",
+                    apiKey: "k",
+                    disabledToolsets: global,
+                    skills: []
+                )
+                return SessionAgent.agentConfiguration(
+                    agentConfig: daemon,
+                    sessionID: "s-tighten",
+                    registry: registry,
+                    sessionStore: VolatileSessionStore(),
+                    memoryProvider: FileMemoryProvider(),
+                    resolvedModel: "m",
+                    resolvedProvider: "p",
+                    resolvedBaseURL: URL(string: "http://127.0.0.1:9/v1")!,
+                    resolvedParams: nil,
+                    resolvedRecipe: ResolvedContextRecipe.resolve(global: nil, profile: nil, session: nil),
+                    profile: "tight",
+                    profileDisabledToolsets: disabled ?? [],
+                    profileEnabledToolsets: enabled
+                )
+            }
+
+            // union: the profile's deny list adds to the global floor…
+            #expect(config(global: ["alpha"], disabled: ["beta"], enabled: nil)
+                .disabledToolsets == ["alpha", "beta"])
+            // …and the global floor survives a profile that names nothing.
+            #expect(config(global: ["alpha"], disabled: [], enabled: nil)
+                .disabledToolsets == ["alpha"])
+
+            // allowlist: everything unlisted goes dark, and the global floor
+            // still applies even to a listed set.
+            let allowlisted = config(global: ["alpha"], disabled: nil, enabled: ["beta"])
+            #expect(allowlisted.disabledToolsets == ["alpha", "gamma"])
+        }
+
+        @Test("a bound profile tightens the web UI turn agent's toolsets")
+        func profileToolsetsTightenTurnAgent() async throws {
+            var f = AppState.RenderFixture()
+            f.settings.workspaces = [WorkspaceEntry(
+                name: "main", path: Self.temporaryDirectory("ws").path)]
+            f.settings.activeWorkspace = "main"
+            f.settings.sessionProfile["s-tight"] = "tight"
+            f.profiles = [Profile(name: "tight", disabledToolsets: ["terminal"])]
+            let app = AppState(renderFixture: f)
+
+            let (_, config) = await app.makeTurnAgent(
+                preset: Self.preset, thinking: "medium",
+                headless: true, sessionID: "s-tight")
+
+            #expect(config.disabledToolsets.contains("terminal"))
+            // an unbound chat keeps the baseline untouched.
+            let (_, plain) = await app.makeTurnAgent(
+                preset: Self.preset, thinking: "medium",
+                headless: true, sessionID: "s-loose")
+            #expect(!plain.disabledToolsets.contains("terminal"))
+        }
+
         // MARK: - the toggles write policy, not view state
 
         @Test("the toolset toggle writes config.tools")
@@ -225,7 +293,8 @@ extension ArcWebUITestRoot {
             #expect(!source.contains("skills: []"),
                     "skills come from the AgentConfig, never a literal empty list")
             #expect(source.contains("skills: agentConfig.skills"))
-            #expect(source.contains("disabledToolsets: agentConfig.disabledToolsets"))
+            #expect(source.contains("agentConfig.disabledToolsets.union(profileDisabledToolsets)"),
+                    "the daemon's floor is the global list; the profile only tightens it")
         }
 
         @Test("ArcDaemon hands the config's tool policy to its session config")
@@ -382,5 +451,31 @@ extension ArcWebUITestRoot {
             #expect(lift.declared == nil)
             #expect(lift.settings == s)
         }
+    }
+}
+
+/// A registry with an exact, tiny toolset universe — the allowlist math is
+/// only assertable when "everything unlisted" is a known set.
+private struct StubToolsetRegistry: ToolRegistry {
+    let allTools: [RegisteredTool]
+
+    init(toolsets: [String]) {
+        self.allTools = toolsets.map { ts in
+            RegisteredTool(
+                tool: StubToolsetRegistry.Tool(name: "tool-\(ts)", toolset: ts),
+                origin: .builtin)
+        }
+    }
+
+    func lookup(name: String) -> RegisteredTool? { allTools.first { $0.name == name } }
+    mutating func register(_ tool: any AgentTool, origin: ToolOrigin) throws {}
+    func buildToolSchemas(enabled: Set<String>, disabled: Set<String>) -> [[String: Any]] { [] }
+
+    private struct Tool: AgentTool {
+        let name: String
+        let toolset: String
+        var description: String { "stub" }
+        var schema: JSONSchema { .object(properties: [:], required: []) }
+        var handler: ToolHandler { { _ in "" } }
     }
 }

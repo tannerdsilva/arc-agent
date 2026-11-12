@@ -78,7 +78,9 @@ public actor SessionAgent: Service {
         resolvedParams: PerModelParameters?,
         resolvedRecipe: ResolvedContextRecipe,
         profile: String,
-        isCronSession: Bool = false
+        isCronSession: Bool = false,
+        profileDisabledToolsets: Set<String> = [],
+        profileEnabledToolsets: Set<String>? = nil
     ) -> ArcAgent.Configuration {
         ArcAgent.Configuration(
             model: resolvedModel,
@@ -120,7 +122,19 @@ public actor SessionAgent: Service {
             topP: resolvedParams?.topP,
             maxOutputTokens: resolvedParams?.maxOutputTokens,
             mcpServers: agentConfig.mcpServers,
-            disabledToolsets: agentConfig.disabledToolsets,
+            // Tightening is additive and matches `arc run --profile`: the
+            // daemon-global baseline (`tools.disabledToolsets`) is the floor,
+            // and the assigned profile may only disable more — either by
+            // listing sets to deny or by an allowlist (`enabledToolsets`,
+            // everything unlisted goes dark). A profile can never re-enable
+            // a toolset the process banned.
+            disabledToolsets: {
+                var disabled = agentConfig.disabledToolsets.union(profileDisabledToolsets)
+                if let enabled = profileEnabledToolsets {
+                    disabled.formUnion(Set(registry.allTools.map(\.toolset)).subtracting(enabled))
+                }
+                return disabled
+            }(),
             contextRecipe: resolvedRecipe,
             // The prompt's "Active ARC profile" line and `profile_edit`'s
             // SOUL default both read this; it had no caller before slice 4.
@@ -307,7 +321,9 @@ public actor SessionAgent: Service {
                 resolvedParams: resolvedParams,
                 resolvedRecipe: resolvedRecipe,
                 profile: profile,
-                isCronSession: isCronSession
+                isCronSession: isCronSession,
+                profileDisabledToolsets: resolvedProfileRecord?.disabledToolsets ?? [],
+                profileEnabledToolsets: resolvedProfileRecord?.enabledToolsets
             ))
             logger.info("step: setting up client")
             await agent.setupClient(httpClient: httpClient)
