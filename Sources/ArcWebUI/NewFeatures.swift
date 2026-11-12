@@ -656,6 +656,15 @@ extension AppState {
             j.lastError = ok ? nil : (text.hasPrefix("Error: ") ? String(text.dropFirst("Error: ".count)) : text).prefix(500).description
             j.runCount += 1
             j.lastOutput = trunc(text, 240)
+            // Run budget: arm on first run if unset, then count down —
+            // SUCCESS only (same rule as the scheduler's post-run path).
+            // A failed run consumes nothing; at zero the job self-retires
+            // (isActive=false) and settles into Completed.
+            if let budget = j.runBudget, ok {
+                if j.runsRemaining == nil { j.runsRemaining = budget }
+                j.runsRemaining = max(0, (j.runsRemaining ?? budget) - 1)
+                if j.runsRemaining == 0 { j.isActive = false }
+            }
             // Re-arm RECURRING schedules only — a one-shot has fired its
             // only moment (the same rule the scheduler applies post-run).
             // The old unconditional CronNext re-armed a one-shot back to
@@ -854,7 +863,12 @@ extension AppState {
     /// recurring), running or not. See ``AppState.TaskCategory``.
     nonisolated func taskCategory(for j: CronJob) -> AppState.TaskCategory {
         if j.lastStatus == "error" { return .failed }
+        // Budget exhausted: the counter (runsRemaining) OR the run history
+        // — a successful runCount at/over the budget is authoritative even
+        // if a pre-fix writer left the countdown stale ("Runs 1 of 1 — 1
+        // remaining" while the job stayed Active).
         let budgetSpent = j.isBudgetSpent
+            || (j.runBudget != nil && j.lastStatus == "ok" && j.runCount >= j.runBudget!)
         let firedWithNoNext = j.nextRunAt == nil && j.runCount > 0 && !j.schedule.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if budgetSpent || firedWithNoNext { return .completed }
         if j.schedule.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .idle }
@@ -1079,7 +1093,12 @@ extension AppState {
                 TaskCtrlKey { Text("Runs") }
                 TaskCtrlVal {
                     if let budget = job.runBudget {
-                        Text("\(job.runCount) of \(budget) — \(job.runsRemaining ?? budget) remaining")
+                        // The counter and the run history must agree: take
+                        // the pessimistic view so a stale countdown can
+                        // never claim runs it already spent.
+                        let remaining = max(0, min(job.runsRemaining ?? budget,
+                                                   budget - job.runCount))
+                        Text("\(job.runCount) of \(budget) — \(remaining) remaining")
                     } else {
                         Text("\(job.runCount) run\(job.runCount == 1 ? "" : "s")")
                     }

@@ -204,6 +204,29 @@ extension ArcWebUITestRoot {
             #expect(final.lastOutput == "Job done.")
         }
 
+        @Test("Run-now counts a successful run against the budget and retires the job")
+        func runNowConsumesBudget() async throws {
+            let client = JobScriptClient(mode: .toolThenFinal)
+            let (app, _, _) = try await Self.harness(client: client)
+            var job = Self.job()
+            job.schedule = "" // manual job, budget 1 — Idle then Completed
+            job.runBudget = 1
+            try await app.cronStore.save(job)
+            await app.refreshScheduledJobs()
+
+            await app.runJobNow(job.id)
+            for _ in 0..<100 {
+                if !(await app.runningCronJobs.contains(job.id)) { break }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            let final = try #require(try await app.cronStore.get(id: job.id))
+            #expect(final.runCount == 1)
+            #expect(final.runsRemaining == 0, "the successful run consumed the budget")
+            #expect(final.isActive == false, "the job self-retires at zero")
+            let cat = await app.taskCategory(for: final)
+            #expect(cat == .completed, "a budget-spent job settles into Completed")
+        }
+
         @Test("a failed Run-now stamps lastStatus error, not ok")
         func runNowFailureStampsError() async throws {
             // A scripted client whose stream throws — the same shape as a

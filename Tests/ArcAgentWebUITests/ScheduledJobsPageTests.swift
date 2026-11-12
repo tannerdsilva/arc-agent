@@ -99,6 +99,20 @@ extension ArcWebUITestRoot {
             #expect(await app.taskCategory(for: pausedFailed) == .failed)
         }
 
+        @Test("priority: a stale budget counter cannot keep a spent job out of Completed")
+        func staleCounterHeals() async {
+            let app = makeApp()
+            // Pre-fix writer shape: the run happened, but runsRemaining was
+            // never decremented ("Runs 1 of 1 — 1 remaining", still Active).
+            var stale = job("j-stale", "Stale counter", "0 7 * * *", isActive: true,
+                            runs: 1, next: Date(timeIntervalSince1970: 1_800_000_000))
+            stale.lastStatus = "ok"
+            stale.runBudget = 1
+            stale.runsRemaining = 1
+            #expect(await app.taskCategory(for: stale) == .completed,
+                    "runCount >= budget with an ok last run is authoritative")
+        }
+
         @Test("a running job carries the task-running class and no running tag")
         func runningBorderNotTag() async {
             var f = AppState.RenderFixture()
