@@ -1297,6 +1297,29 @@ extension AppState {
         let expr = taskScheduleExpression()
         let profileOpts: [SelectOption] = [SelectOption(value: "", label: "Server default")] +
             profiles.map { SelectOption(value: $0.name, label: $0.title.isEmpty ? $0.name : $0.title) }
+        // Workspace + model dropdowns mirror the composer's pickers: the
+        // configured workspace entries and the model ids behind the configured
+        // model configs, so nothing has to be typed from memory. A value the
+        // job already carries but that is no longer configured (or was set
+        // through the tool) is appended so edits still show it.
+        var seenPaths = Set<String>()
+        var workspaceOpts: [SelectOption] = [SelectOption(value: "", label: "Server directory")]
+        workspaceOpts += settings.workspaces
+                .filter { !$0.path.isEmpty && seenPaths.insert($0.path).inserted }
+                .map { SelectOption(value: $0.path, label: $0.name) }
+        if let jobWorkspace = job?.workspace, !jobWorkspace.isEmpty,
+           !seenPaths.contains(jobWorkspace) {
+            workspaceOpts.append(SelectOption(value: jobWorkspace, label: jobWorkspace))
+        }
+        var seenModels = Set<String>()
+        var modelOpts: [SelectOption] = [SelectOption(value: "", label: "Profile default")]
+        modelOpts += settings.modelConfigs
+                .filter { !$0.model.isEmpty && seenModels.insert($0.model).inserted }
+                .map { SelectOption(value: $0.model, label: $0.name) }
+        if let jobModel = job?.model, !jobModel.isEmpty,
+           !seenModels.contains(jobModel) {
+            modelOpts.append(SelectOption(value: jobModel, label: jobModel))
+        }
         return MainView {
             MainScroll {
                 // a real form: Enter in any field submits, and the boundary on the
@@ -1440,18 +1463,19 @@ extension AppState {
                         }
                         FieldLabel(class: .taskField) {
                             Text("Workspace")
-                            Span(class: .taskOpt) { Text("optional — defaults to the server's directory") }
-                            Input(field: "task-workspace", placeholder: "e.g. ~/Documents/SwiftProjects/arc-agent",
-                                  value: job?.workspace ?? "", attributes: [("autocomplete", "off")])
-                            Element(.p, class: .taskPreview) {
-                                Text("Roots the job's tools: AGENTS.md and relative paths resolve here. Must exist.")
+                            Select(field: "task-workspace", options: workspaceOpts,
+                                   selected: job?.workspace ?? "")
+                            Span(class: .taskOpt) {
+                                Text("Roots the job's tools — AGENTS.md and relative paths resolve here.")
                             }
                         }
                         FieldLabel(class: .taskField) {
                             Text("Model")
-                            Span(class: .taskOpt) { Text("optional — defaults to the profile's model") }
-                            Input(field: "task-model", placeholder: "e.g. claude-sonnet-4-5",
-                                  value: job?.model ?? "", attributes: [("autocomplete", "off")])
+                            Select(field: "task-model", options: modelOpts,
+                                   selected: job?.model ?? "")
+                            Span(class: .taskOpt) {
+                                Text("Runs under the profile's model when unset.")
+                            }
                         }
                     }
                     .data("component-id", "tasks")
