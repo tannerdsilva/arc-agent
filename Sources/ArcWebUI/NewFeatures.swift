@@ -136,6 +136,40 @@ extension AppState {
         runningCronJobs.insert(job.id)
         await onBackgroundChange?()
         defer { runningCronJobs.remove(job.id) }
+
+        // Script jobs never mint a turn agent or a model client (§6.2):
+        // the shell line runs through SwiftSlash directly and its outcome
+        // IS the output. The job's chat only mirrors the script and the
+        // result so the Tasks page shows what ran — a transcript, not a
+        // session environment; no prompt builder, no tools, no LLM.
+        if let script = job.script, !script.isEmpty {
+            let outcome = await CronScriptRunner.run(script: script)
+            lastScheduledRunFailed = outcome.failed
+            if let store {
+                var mirror = Session(
+                    id: sid, createdAt: now, updatedAt: now,
+                    model: job.model ?? "", provider: "",
+                    title: "Cron: \(job.name)", messages: [],
+                    source: "cron-script", workspaceKey: WorkspacePath.root)
+                if let existing = try? await store.get(id: sid) {
+                    mirror = existing
+                } else {
+                    try? await store.create(mirror)
+                    settings.sessionTitles[sid] = "Cron: \(job.name)"
+                }
+                await persistMessage(
+                    Message(role: .user, content: "$ \(script)", createdAt: now),
+                    sessionID: sid, store: store, healWith: mirror.messages)
+                if let text = outcome.output {
+                    await persistMessage(
+                        Message(role: .assistant, content: text, createdAt: Date()),
+                        sessionID: sid, store: store, healWith: mirror.messages)
+                }
+            }
+            // Silence stays silent: nil output = success with nothing to say.
+            return outcome.output ?? ""
+        }
+
         var session: Session
         if sessions.contains(where: { $0.id == sid }) {
             await ensureSessionMessages(sid)

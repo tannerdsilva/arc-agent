@@ -204,6 +204,65 @@ extension ArcWebUITestRoot {
             #expect(final.lastOutput == "Job done.")
         }
 
+        // MARK: script jobs (§6.2): SwiftSlash, never a session turn
+
+        @Test("a script job runs through SwiftSlash — no LLM, mirrored transcript")
+        func scriptJobBypassesTheLLM() async throws {
+            let client = JobScriptClient(mode: .toolThenFinal)
+            let (app, store, _) = try await Self.harness(client: client)
+            var job = Self.job()
+            job.script = "echo script-echo-ok"
+
+            let output = await app.runScheduledJob(job)
+
+            // The shell line ran; the LLM never saw a single request.
+            #expect(output == "script-echo-ok")
+            #expect(client.captured.isEmpty, "a script job never mints a turn agent")
+
+            // The job's chat mirrors the script and its result.
+            let sid = await app.jobSessionID(job)
+            let stored = try #require(try await store.get(id: sid))
+            let roles: [Message.Role] = [.user, .assistant]
+            #expect(stored.messages.map(\.role) == roles)
+            #expect(stored.messages[0].content == "$ echo script-echo-ok")
+            #expect(stored.messages[1].content == "script-echo-ok")
+        }
+
+        @Test("a failing script job's exit status surfaces as the output")
+        func scriptJobFailureSurfaces() async throws {
+            let client = JobScriptClient(mode: .toolThenFinal)
+            let (app, store, _) = try await Self.harness(client: client)
+            var job = Self.job()
+            job.script = "exit 3"
+
+            let output = await app.runScheduledJob(job)
+
+            #expect(output.contains("exit 3"), "the failure alert becomes the output")
+            #expect(client.captured.isEmpty)
+            #expect(await app.lastScheduledRunFailed, "the run is stamped failed")
+            let sid = await app.jobSessionID(job)
+            let stored = try #require(try await store.get(id: sid))
+            #expect(stored.messages.count == 2, "script + failure alert")
+            #expect(stored.messages[1].content?.contains("exit 3") == true)
+        }
+
+        @Test("a silent script job says nothing but still mirrors the run")
+        func silentScriptJobStaysSilent() async throws {
+            let client = JobScriptClient(mode: .toolThenFinal)
+            let (app, store, _) = try await Self.harness(client: client)
+            var job = Self.job()
+            job.script = "true"
+
+            let output = await app.runScheduledJob(job)
+
+            #expect(output == "", "silence stays silent — no delivered text")
+            #expect(client.captured.isEmpty)
+            let sid = await app.jobSessionID(job)
+            let stored = try #require(try await store.get(id: sid))
+            #expect(stored.messages.map(\.role) == [.user],
+                    "the script is mirrored; there is no result to say")
+        }
+
         @Test("Run-now counts a successful run against the budget and retires the job")
         func runNowConsumesBudget() async throws {
             let client = JobScriptClient(mode: .toolThenFinal)
