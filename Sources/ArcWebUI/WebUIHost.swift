@@ -443,6 +443,15 @@ public struct WebUIHost: Service {
             guard await app.expireToasts() else { return }
             await server.broadcast(await app.toastFragments())
         }
+        // Scheduled-tasks liveness: the daemon's scheduler writes job records
+        // and job chats out-of-band, so the Tasks page re-pulls on a slow
+        // cadence and pushes a structural change only when something visible
+        // moved (category moves, last/next run, the job's live chat thread).
+        // An idle page sends nothing.
+        let tasksStreamer = IntervalService(name: "scheduled-tasks", interval: .seconds(2)) { [app] in
+            guard await app.syncScheduledJobs() else { return }
+            await server.broadcast(await app.structuralChange())
+        }
 
         // The UI is only reachable once the server binds; record it so the
         // profile card can show the "Daemon running" badge truthfully.
@@ -463,6 +472,7 @@ public struct WebUIHost: Service {
                 logStreamer,
                 wsStreamer,
                 toastStreamer,
+                tasksStreamer,
             ],
             logger: logger
         )

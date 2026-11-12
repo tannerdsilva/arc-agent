@@ -128,6 +128,14 @@ extension AppState {
     @discardableResult
     func runScheduledJob(_ job: CronJob, now: Date = Date()) async -> String {
         let sid = jobSessionID(job)
+        // Running flag lives HERE, not in Run-now, so a scheduler-fired run
+        // shows the pulsing border too. The push makes every open page
+        // re-render the running state the moment the turn starts; the defer
+        // clears it for callers that don't route through finishRunNow (the
+        // daemon's own runner path).
+        runningCronJobs.insert(job.id)
+        await onBackgroundChange?()
+        defer { runningCronJobs.remove(job.id) }
         var session: Session
         if sessions.contains(where: { $0.id == sid }) {
             await ensureSessionMessages(sid)
@@ -206,6 +214,13 @@ extension AppState {
 
         func persist(_ message: Message) async {
             await persistMessage(message, sessionID: sid, store: store)
+            // Liveness: while the job's chat is open on the Tasks page, every
+            // persisted message refetches the bodies and nudges a re-render —
+            // the thread builds in place as the turn runs, like a chat turn.
+            if tasksSelectedID == job.id {
+                await refetchSessionMessages(sid)
+                await onBackgroundChange?()
+            }
         }
 
         do {
@@ -323,6 +338,72 @@ extension AppState {
         mutate(&job)
         try? await cronStore.save(job)
         await refreshScheduledJobs()
+    }
+
+    /// The scheduled-tasks liveness tick (driven by the host's 2s interval
+    /// service): the daemon's scheduler writes job records out-of-band, so
+    /// the page's render cache goes stale unless it is re-pulled. Compares
+    /// fingerprints and reports whether ANYTHING visible moved — the caller
+    /// broadcasts a structural change only then, so an idle page sends no
+    /// traffic. Also refetches the selected job's chat bodies when the
+    /// store's count outgrew the cache (a running turn persists messages
+    /// without touching the job record).
+    func syncScheduledJobs() async -> Bool {
+        var changed = false
+        let jobs = (try? await cronStore.listAll()) ?? []
+        let fresh = jobs.sorted { $0.id < $1.id }
+        guard !fresh.isEmpty || !settings.scheduledJobs.isEmpty else { return false }
+        let cached = settings.scheduledJobs.sorted { $0.id < $1.id }
+        if fresh.map(Self.jobFingerprint) != cached.map(Self.jobFingerprint) {
+            settings.scheduledJobs = jobs
+            changed = true
+            // Run history derives from the job record; the selected job's
+            // recent-runs card rides the same change.
+            if let id = tasksSelectedID {
+                await loadRunHistory(id)
+            }
+        }
+        // The selected job's chat: compare the store's body count against
+        // the cache — mid-turn messages never change the job fingerprint.
+        if let id = tasksSelectedID,
+           let job = fresh.first(where: { $0.id == id }) {
+            let sid = jobSessionID(job)
+            if let cachedCount = sessions.first(where: { $0.id == sid })?.messages.count,
+               let full = try? await store?.get(id: sid),
+               full.messages.count != cachedCount {
+                await refetchSessionMessages(sid)
+                changed = true
+            }
+        }
+        return changed
+    }
+
+    /// Every field the Tasks page renders, in one comparable string — the
+    /// cheap staleness test behind ``syncScheduledJobs``.
+    nonisolated static func jobFingerprint(_ j: CronJob) -> String {
+        func ts(_ d: Date?) -> String { d.map { "\($0.timeIntervalSince1970)" } ?? "-" }
+        func orDash(_ s: String?) -> String { s ?? "-" }
+        var parts: [String] = []
+        parts.append(j.id)
+        parts.append(j.name)
+        parts.append(j.schedule)
+        parts.append(j.isActive.description)
+        parts.append(String(j.runCount))
+        parts.append(j.runBudget.map(String.init) ?? "-")
+        parts.append(j.runsRemaining.map(String.init) ?? "-")
+        parts.append(ts(j.nextRunAt))
+        parts.append(ts(j.lastStartedAt))
+        parts.append(ts(j.lastRunAt))
+        parts.append(ts(j.lastFinishedAt))
+        parts.append(orDash(j.lastStatus))
+        parts.append(orDash(j.lastError))
+        parts.append(j.lastOutput ?? "-")
+        parts.append(orDash(j.lastDeliveryError))
+        parts.append(orDash(j.deliver))
+        parts.append(ts(j.pausedAt))
+        parts.append(j.contextFrom?.joined(separator: ",") ?? "-")
+        parts.append(orDash(j.script))
+        return parts.joined(separator: "|")
     }
 
     @discardableResult
@@ -621,6 +702,10 @@ extension AppState {
               await CronRunGate.shared.tryAcquire(id)
         else { return }
         runningCronJobs.insert(id)
+        // Nudge a re-render immediately: the pulsing running border and the
+        // disabled Run-now button appear the moment the click lands, not at
+        // the turn's end.
+        await onBackgroundChange?()
         // The turn runs on a child task so the wire handler returns
         // immediately — an inline run blocked the whole fragment pipeline
         // for the job's duration (the whole-app freeze). When it lands,

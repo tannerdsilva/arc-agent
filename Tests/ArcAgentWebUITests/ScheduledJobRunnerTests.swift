@@ -227,6 +227,35 @@ extension ArcWebUITestRoot {
             #expect(cat == .completed, "a budget-spent job settles into Completed")
         }
 
+        @Test("the sync tick surfaces out-of-band scheduler writes; idle pages push nothing")
+        func syncTickLiveness() async throws {
+            let client = JobScriptClient(mode: .toolThenFinal)
+            let (app, _, _) = try await Self.harness(client: client)
+            var job = Self.job()
+            job.runBudget = 3
+            try await app.cronStore.save(job)
+            await app.refreshScheduledJobs()
+            // An idle store: the tick must report no change (no push traffic).
+            #expect(await app.syncScheduledJobs() == false, "nothing moved — no push")
+
+            // A scheduler fire lands out-of-band: bump the record directly in
+            // the store WITHOUT going through the app's writers — exactly the
+            // daemon's write shape.
+            var fired = try #require(try await app.cronStore.get(id: job.id))
+            fired.runCount = 1
+            fired.lastStatus = "ok"
+            fired.runsRemaining = 2
+            fired.lastRunAt = Date()
+            fired.nextRunAt = Date().addingTimeInterval(1800)
+            try await app.cronStore.save(fired)
+
+            #expect(await app.syncScheduledJobs() == true, "the scheduler write moved the fingerprint")
+            let cached = await app.settings.scheduledJobs.first { $0.id == job.id }
+            #expect(cached?.runsRemaining == 2, "the render cache now carries the scheduler's count")
+            let cat = await app.taskCategory(for: cached!)
+            #expect(cat == .activePending, "budget not yet spent — still Active/Pending")
+        }
+
         @Test("a failed Run-now stamps lastStatus error, not ok")
         func runNowFailureStampsError() async throws {
             // A scripted client whose stream throws — the same shape as a

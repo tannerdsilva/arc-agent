@@ -731,6 +731,25 @@ actor AppState {
         evictOverloadedCache()
     }
 
+    /// Unconditionally refetch a session's bodies from the store, replacing
+    /// the cached copy. Used by the scheduled-tasks liveness loop: a running
+    /// job's chat must update while its turn streams messages in, and
+    /// `ensureSessionMessages` no-ops on a non-empty cache.
+    func refetchSessionMessages(_ id: String) async {
+        guard let store else { return }
+        guard let full = try? await store.get(id: id) else { return }
+        guard let i = sessions.firstIndex(where: { $0.id == id }) else {
+            // Not cached at all — ensure materializes it.
+            await ensureSessionMessages(id)
+            return
+        }
+        sessions[i].messages = full.messages
+        sessions[i].messageCount = full.messages.count
+        sessions[i].title = full.title
+        touchSessionLoaded(id)
+        evictOverloadedCache()
+    }
+
     func touchSessionLoaded(_ id: String) {
         loadedSessionOrder.removeAll { $0 == id }
         loadedSessionOrder.append(id)
