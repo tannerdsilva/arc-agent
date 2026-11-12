@@ -96,11 +96,20 @@ public actor TesseraCronStore: CronStore {
 
     // MARK: - Private
 
+    /// Cache-first with a short resync TTL. Multiple writer instances share
+    /// the relay (web UI actor, daemon SessionHost actor) and the event log
+    /// is append-only, so a delete published by one instance only becomes
+    /// visible to the others through a re-snapshot. Without the TTL a stale
+    /// instance kept serving a deleted job from its cache — and the next
+    /// post-run save resurrected it.
+    private var lastSync = Date.distantPast
+
     private func ensureLoaded() async throws {
-        guard !loaded else { return }
         let conn = connection
+        if loaded, Date().timeIntervalSince(lastSync) < 5 { return }
         try await conn.ensureStarted()
         cache = Self.latestByJob(from: await conn.snapshot(kind: Self.kind))
+        lastSync = Date()
         loaded = true
     }
 }

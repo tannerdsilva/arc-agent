@@ -43,15 +43,20 @@ public enum CronJobTool {
             toolset: "scheduling",
             description: "Manage your scheduled jobs (cron). Actions: create, edit, list, "
                 + "pause, resume, run, remove, history.\n\n"
-                + "create needs name, schedule and prompt. Schedule syntax: 5-field cron "
+                + "create needs name and either a prompt (LLM job) or a script (shell job — "
+                + "the line runs instead of the agent); schedule is optional — omit it (or pass \"\") "
+                + "for a schedule-less manual job that never auto-fires (Idle in the web UI, "
+                + "triggered via the run action). Schedule syntax: 5-field cron "
                 + "('0 9 * * *', with ranges/lists/steps like '*/15' and 'mon-fri'), human "
                 + "intervals ('30m', '2h', 'daily'), or an ISO one-shot "
                 + "('2026-06-01T09:00:00Z'). Times are the daemon's wall-clock zone.\n\n"
                 + "run arms a job for the NEXT scheduler pass (≤30s) — it does not execute "
                 + "inline. pause/resume keep history; remove deletes the job AND its run "
                 + "history. history shows the newest attempts with status and output.\n\n"
-                + "Jobs you create are stamped with your profile. Deliver/repeat options "
-                + "are reserved for later phases.",
+                + "Jobs you create are stamped with your profile. run_budget makes a one-shot: "
+                + "set 1 and the schedule must be a single ISO instant (or the job fires only "
+                + "when run manually). A failed one-shot stays retryable; a succeeded one is "
+                + "completed and cannot run, pause, or re-arm again.",
             schema: .object(
                 description: "Scheduled job parameters",
                 properties: [
@@ -63,12 +68,24 @@ public enum CronJobTool {
                     "name": .string(description: "Job name (create, or edit to rename)."),
                     "schedule": .string(
                         description: "5-field cron, human interval ('30m', 'daily'), or ISO one-shot "
-                            + "(create, or edit to recadence). Validated before persisting."
+                            + "(create, or edit to recadence). Optional: omit or pass \"\" for a "
+                            + "schedule-less manual job — it never auto-fires and lives in the "
+                            + "web UI's Idle group; trigger it with the run action. "
+                            + "Validated when present."
                     ),
-                    "prompt": .string(description: "Prompt fired at each run (create, or edit)."),
+                    "prompt": .string(description: "Prompt fired at each run (create, or edit). "
+                        + "Ignored when a script is set."),
+                    "script": .string(description: "Shell line run INSTEAD of the LLM each firing "
+                        + "(create, or edit; pass \"\" to clear and revert to prompt mode). "
+                        + "Stdout is the run's output; empty stdout + exit 0 is silent; "
+                        + "non-zero/timeout alerts. Screened for catastrophic commands at "
+                        + "creation — a rejected script is never stored."),
                     "limit": .string(description: "Max records for history (default 10)."),
                     "deliver": .string(description: "RESERVED for Phase 5 (platform delivery)."),
-                    "repeat": .string(description: "RESERVED for Phase 6 (run budgets)."),
+                    "run_budget": .integer(
+                        description: "Total allowed successful runs; 1 = one-shot (then the "
+                            + "schedule must be a single ISO instant). Omit for unlimited."
+                    ),
                 ],
                 required: ["action"]
             ),
@@ -129,20 +146,43 @@ public enum CronJobTool {
         guard let name = args["name"] as? String, !name.isEmpty else {
             return "Error: 'name' is required for create."
         }
-        guard let schedule = args["schedule"] as? String, !schedule.isEmpty else {
-            return "Error: 'schedule' is required for create."
+        let script = (args["script"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var prompt = ""
+        if let script, !script.isEmpty {
+            try CronOps.vetScriptPublic(script)
+        } else {
+            guard let p = args["prompt"] as? String, !p.isEmpty else {
+                return "Error: 'prompt' (or 'script') is required for create."
+            }
+            prompt = p
         }
-        guard let prompt = args["prompt"] as? String, !prompt.isEmpty else {
-            return "Error: 'prompt' is required for create."
+        // Schedule is optional: an omitted/empty schedule creates a
+        // schedule-less manual job (never auto-fires, Idle in the web UI).
+        let schedule = (args["schedule"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !schedule.isEmpty {
+            guard CronSchedule.isValid(schedule) else {
+                return "Error: invalid schedule '\(schedule)' — use 5-field cron, '30m'/'2h'/'1d', or an ISO timestamp."
+            }
         }
-        // Validate BEFORE building the job so the legible error is the
-        // schedule problem, not a persistence failure.
-        guard CronSchedule.isValid(schedule) else {
-            return "Error: invalid schedule '\(schedule)' — use 5-field cron, '30m'/'2h'/'1d', or an ISO timestamp."
+        var runBudget: Int?
+        if let raw = args["run_budget"] {
+            guard let n = raw as? Int, n >= 1 else {
+                return "Error: 'run_budget' must be a positive integer (1 = one-shot)."
+            }
+            if n == 1, CronSchedule.isRecurring(schedule) {
+                return "Error: a one-shot (run budget 1) cannot have a recurring schedule — use a single ISO timestamp."
+            }
+            runBudget = n
         }
         var job = CronJob(name: name, schedule: schedule, prompt: prompt)
+        if let script, !script.isEmpty { job.script = script }
         job.profile = context.profile.rawValue
         job.nextRunAt = CronSchedule.next(schedule, after: Date())
+        if let runBudget {
+            job.runBudget = runBudget
+            job.runsRemaining = runBudget
+        }
         if let deliver = args["deliver"] as? String { job.deliver = deliver }
         if let script = args["script"] as? String {
             try CronOps.vetScriptPublic(script)
@@ -168,12 +208,34 @@ public enum CronJobTool {
         guard var job = try await store.get(id: id) else {
             return "Error: no such job: \(id)"
         }
-        if let schedule = args["schedule"] as? String, !schedule.isEmpty {
-            guard CronSchedule.isValid(schedule) else {
-                return "Error: invalid schedule '\(schedule)' — job left untouched."
+        if let rawSchedule = args["schedule"] as? String {
+            let schedule = rawSchedule.trimmingCharacters(in: .whitespacesAndNewlines)
+            if schedule.isEmpty {
+                // Clearing the schedule turns the job into a schedule-less
+                // manual job: never auto-fires, Idle in the web UI.
+                job.schedule = ""
+                job.nextRunAt = nil
+            } else {
+                guard CronSchedule.isValid(schedule) else {
+                    return "Error: invalid schedule '\(schedule)' — job left untouched."
+                }
+                let effectiveBudget = (args["run_budget"] as? Int) ?? job.runBudget
+                if effectiveBudget == 1, CronSchedule.isRecurring(schedule) {
+                    return "Error: a one-shot (run budget 1) cannot have a recurring schedule — job left untouched."
+                }
+                job.schedule = schedule
+                job.nextRunAt = CronSchedule.next(schedule, after: Date())
             }
-            job.schedule = schedule
-            job.nextRunAt = CronSchedule.next(schedule, after: Date())
+        }
+        if let raw = args["run_budget"] {
+            guard let n = raw as? Int, n >= 1 else {
+                return "Error: 'run_budget' must be a positive integer (1 = one-shot)."
+            }
+            if n == 1, CronSchedule.isRecurring(job.schedule) {
+                return "Error: a one-shot (run budget 1) cannot have a recurring schedule — job left untouched."
+            }
+            job.runBudget = n
+            job.runsRemaining = n
         }
         if let name = args["name"] as? String, !name.isEmpty { job.name = name }
         if let prompt = args["prompt"] as? String, !prompt.isEmpty { job.prompt = prompt }

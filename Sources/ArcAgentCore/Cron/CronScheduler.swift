@@ -34,6 +34,10 @@ public actor CronScheduler: Service {
     /// runner that turns the job into a one-shot agent session.
     private let jobRunner: (@Sendable (CronJob) async throws -> CronRunResult)?
     private let logger = Logger(label: "com.arc-agent.cron-scheduler")
+    /// One-announcement-per-lifecycle guards (in-memory on purpose: a restart
+    /// may re-announce once, which is honest — the durable state is the job).
+    private var completedAnnounced: Set<String> = []
+    private var deadAnnounced: Set<String> = []
 
     public init(
         store: any CronStore,
@@ -87,21 +91,77 @@ public actor CronScheduler: Service {
                 logger.debug("Cron job '\(job.name)' is paused (\(job.pausedReason ?? "no reason")) — skipping")
                 continue
             }
-            guard let nextRun = job.nextRunAt ?? CronSchedule.next(job.schedule, after: now, timeZone: timeZone) else {
-                // First run — compute and store.
-                job.nextRunAt = CronSchedule.next(job.schedule, after: now, timeZone: timeZone)
-                // A schedule that still yields no next run is a dead job:
-                // this guard is the only place that notices, so say so —
-                // every pass, the UI shows it a bare "—".
-                if job.nextRunAt == nil {
-                    logger.warning("Cron job '\(job.name)' (schedule: '\(job.schedule)') has no computable next run — it will never fire; fix or delete it")
-                }
-                try await store.save(job)
+            // A MANUAL-ONLY job (no schedule) with no armed fire date is
+            // legitimate, not dead: it runs when the user says so (Run
+            // now arms `nextRunAt`). Skip silently — the dead-job warning
+            // below is for jobs whose schedule is broken, not absent.
+            if job.schedule.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, job.nextRunAt == nil {
                 continue
             }
+            // SELF-HEAL: a one-shot that already fired must never sit armed.
+            // The pre-fix re-arm wrote jobs whose `nextRunAt` still points at
+            // their own (future) ISO instant — clear it so the job settles
+            // into Completed. A Run-now RETRY arms at ~now (past or due by
+            // the time this pass runs), so only a FUTURE pointer is stale.
+            if !CronSchedule.isRecurring(job.schedule), job.lastRunAt != nil,
+               let armed = job.nextRunAt, armed > now {
+                job.nextRunAt = nil
+                var healed = job
+                if let fresh = try? await store.get(id: job.id) {
+                    healed = fresh
+                    healed.nextRunAt = nil
+                }
+                try? await store.save(healed)
+                logger.notice("Cron one-shot '\(job.name)' already fired — cleared its stale future arm")
+                continue
+            }
+            var nextRun = job.nextRunAt ?? CronSchedule.next(job.schedule, after: now, timeZone: timeZone)
+            if job.nextRunAt == nil, let computed = nextRun {
+                // First compute — store once, so the UI shows a real next
+                // run instead of "—" until the firing pass.
+                job.nextRunAt = computed
+                try await store.save(job)
+            }
+            guard let nextRun else {
+                // No computable next run. Two very different situations
+                // share this shape, and only one of them is a problem:
+                //
+                //   • the job HAS fired and its schedule now yields nil —
+                //     a spent one-shot (or an exhausted cadence). That is
+                //     completion, not breakage: the UI already renders
+                //     `nextRunAt == nil` as Completed. Announce once at
+                //     info, never warn, and never save — the state does
+                //     not change pass to pass (the old code warned and
+                //     saved on EVERY poll for a done job).
+                //
+                //   • the job has NEVER fired and the schedule yields nil
+                //     — genuinely dead (unparseable/garbage). Warn once,
+                //     so a broken job stays loud without spamming every
+                //     pass.
+                if job.lastStartedAt != nil {
+                    if completedAnnounced.insert(job.id).inserted {
+                        logger.info("Cron job '\(job.name)' has fired and its schedule yields no further runs — completed")
+                    }
+                } else if deadAnnounced.insert(job.id).inserted {
+                    logger.warning("Cron job '\(job.name)' (schedule: '\(job.schedule)') has no computable next run — it will never fire; fix or delete it")
+                }
+                continue
+            }
+            // Re-armed (an edit landed a fresh schedule): the announcement
+            // sets must not swallow a later exhaustion's notice.
+            completedAnnounced.remove(job.id)
+            deadAnnounced.remove(job.id)
 
             if now >= nextRun {
                 logger.info("Running job: \(job.name)")
+                // One run per job at a time: a manual Run-now in the web UI
+                // shares this process, so the gate (not just this actor's
+                // state) decides. A skipped firing is not lost — the next
+                // pass re-evaluates the schedule.
+                guard await CronRunGate.shared.tryAcquire(job.id) else {
+                    logger.debug("Cron job '\(job.name)' is already running (manual Run-now?) — skipping this firing")
+                    continue
+                }
                 // Single-save rule: stamp every last* field, write file-mode
                 // history, then EXACTLY ONE store.save — that save is both
                 // bookkeeping and, in tessera mode, the durable run record.
@@ -146,30 +206,81 @@ public actor CronScheduler: Service {
                         logger.notice("Cron job '\(job.name)' hit its reset-every-\(every) bucket — next firing starts a fresh session")
                     }
                 }
-                // Repeat budget: arm on first run if unset, then count
-                // down. At zero the job self-retires — a final "no more
-                // runs" state visible on the job, never a fake record.
-                if let budget = job.repeatBudget {
+                // Run budget: arm on first run if unset, then count down —
+                // SUCCESS only. A failed run consumes nothing: the job
+                // (even a one-shot) stays retryable until a run succeeds.
+                // At zero the job self-retires — a final "no more runs"
+                // state visible on the job, never a fake record.
+                if let budget = job.runBudget, job.lastStatus == "ok" {
                     if job.runsRemaining == nil { job.runsRemaining = budget }
                     job.runsRemaining = max(0, (job.runsRemaining ?? budget) - 1)
                     if job.runsRemaining == 0 {
                         job.isActive = false
-                        logger.notice("Cron job '\(job.name)' completed its repeat budget (\(budget) runs) — deactivated")
+                        logger.notice("Cron job '\(job.name)' completed its run budget (\(budget) runs) — deactivated")
                     }
                 }
-                job.nextRunAt = CronSchedule.next(job.schedule, after: now, timeZone: timeZone)
+                // Re-arm ONLY recurring schedules. A one-shot instant (or a
+                // manual job's empty schedule) has fired its only moment —
+                // clear the pointer so the job settles into Completed/Idle
+                // instead of re-arming to the same future instant forever.
+                job.nextRunAt = CronSchedule.isRecurring(job.schedule)
+                    ? CronSchedule.next(job.schedule, after: now, timeZone: timeZone)
+                    : nil
+                // Lost-update guard: the run took wall-clock time, so an
+                // edit (or another writer) may have landed in the store
+                // meanwhile. Re-read and apply ONLY run bookkeeping onto the
+                // fresh copy — saving the pass-start snapshot would silently
+                // revert the edit (the "edited prompt didn't take" bug).
+                var persist = job
+                var deleted = false
+                if let fresh = try? await store.get(id: job.id) {
+                    var merged = fresh
+                    merged.lastStartedAt = job.lastStartedAt
+                    merged.lastFinishedAt = job.lastFinishedAt
+                    merged.lastStatus = job.lastStatus
+                    merged.lastOutput = job.lastOutput
+                    merged.lastError = job.lastError
+                    merged.lastDeliveryError = job.lastDeliveryError
+                    merged.lastRunAt = job.lastRunAt
+                    merged.runCount = max(job.runCount, fresh.runCount) + (job.runCount > fresh.runCount ? 0 : 1)
+                    // The reset flag and bucket are the scheduler's own
+                    // transition state (armed/consumed within this firing) —
+                    // copy verbatim. ORing the fresh copy would resurrect a
+                    // flag this firing just consumed.
+                    merged.runsSinceReset = job.runsSinceReset
+                    merged.needsSessionReset = job.needsSessionReset
+                    merged.isActive = job.isActive && fresh.isActive
+                    merged.runsRemaining = job.runsRemaining
+                    // Next fire: re-arm only RECURRING schedules. A one-shot
+                    // instant (or a manual job's empty schedule) has fired
+                    // its only moment — clear the pointer so the job settles
+                    // into Completed/Idle instead of re-arming to the same
+                    // future instant forever.
+                    merged.nextRunAt = CronSchedule.isRecurring(merged.schedule)
+                        ? CronSchedule.next(merged.schedule, after: now, timeZone: timeZone)
+                        : nil
+                    persist = merged
+                } else {
+                    // The job vanished from the store mid-run (the user
+                    // deleted it). Saving the stale copy would resurrect it —
+                    // skip the save and the history record entirely.
+                    deleted = true
+                    logger.info("Cron job '\(job.name)' was deleted mid-run — dropping the post-run save")
+                }
+                if deleted { continue }
                 if let history {
                     let run = CronRunRecord(
                         jobID: job.id,
                         startedAt: startedAt,
-                        finishedAt: job.lastFinishedAt,
-                        status: job.lastStatus,
-                        output: job.lastOutput ?? "",
-                        error: job.lastError
+                        finishedAt: persist.lastFinishedAt,
+                        status: persist.lastStatus,
+                        output: persist.lastOutput ?? "",
+                        error: persist.lastError
                     )
                     try? await history.record(run, jobID: job.id)
                 }
-                try await store.save(job)
+                try await store.save(persist)
+                await CronRunGate.shared.release(job.id)
             }
         }
     }

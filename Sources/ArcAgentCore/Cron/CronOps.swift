@@ -29,18 +29,31 @@ public enum CronOps {
         deliver: String? = nil,
         script: String? = nil,
         resetEveryRuns: Int? = nil,
-        contextFrom: [String]? = nil
+        contextFrom: [String]? = nil,
+        runBudget: Int? = nil
     ) async throws -> CronJob {
-        guard CronSchedule.isValid(schedule) else {
-            throw CronOpsError("invalid schedule '\(schedule)' — use 5-field cron, '30m'/'2h'/'1d', or an ISO timestamp")
+        // An EMPTY schedule is legal — a manual-only job (runs when the
+        // user says so). Anything non-empty must parse.
+        let trimmed = schedule.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            guard CronSchedule.isValid(schedule) else {
+                throw CronOpsError("invalid schedule '\(schedule)' — use 5-field cron, '30m'/'2h'/'1d', an ISO timestamp, or leave it empty for a manual job")
+            }
+        }
+        // A ONE-SHOT cannot also be recurring: one fire total means the
+        // schedule is either a single instant or nothing at all.
+        if runBudget == 1, CronSchedule.isRecurring(schedule) {
+            throw CronOpsError("a one-shot (run budget 1) cannot have a recurring schedule — use a single ISO timestamp or no schedule")
         }
         try vetScript(script)
         var job = CronJob(name: name, schedule: schedule, prompt: prompt)
-        job.nextRunAt = CronSchedule.next(schedule, after: Date())
+        job.nextRunAt = trimmed.isEmpty ? nil : CronSchedule.next(schedule, after: Date())
         job.deliver = normalizedDeliver(deliver)
         job.script = script
         job.resetEveryRuns = resetEveryRuns
         job.contextFrom = (contextFrom?.isEmpty ?? true) ? nil : contextFrom
+        job.runBudget = runBudget
+        if runBudget != nil { job.runsRemaining = runBudget }
         try await store.save(job)
         return job
     }
@@ -59,17 +72,37 @@ public enum CronOps {
         deliver: String?? = nil,
         script: String?? = nil,
         resetEveryRuns: Int?? = nil,
-        contextFrom: [String]?? = nil
+        contextFrom: [String]?? = nil,
+        runBudget: Int?? = nil
     ) async throws -> CronJob {
         guard var job = try await store.get(id: id) else {
             throw CronOpsError("no such job: \(id)")
         }
         if let schedule {
-            guard CronSchedule.isValid(schedule) else {
-                throw CronOpsError("invalid schedule '\(schedule)' — job left untouched")
+            let trimmed = schedule.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                guard CronSchedule.isValid(schedule) else {
+                    throw CronOpsError("invalid schedule '\(schedule)' — job left untouched")
+                }
             }
             job.schedule = schedule
-            job.nextRunAt = CronSchedule.next(schedule, after: Date())
+            job.nextRunAt = trimmed.isEmpty ? nil : CronSchedule.next(schedule, after: Date())
+        }
+        if let runBudget {  // outer = presence (don't touch vs set)
+            // A one-shot cannot be recurring — check against the schedule
+            // this edit leaves on the job (nil clears the budget).
+            if runBudget == 1, CronSchedule.isRecurring(job.schedule) {
+                throw CronOpsError("a one-shot (run budget 1) cannot have a recurring schedule — job left untouched")
+            }
+            job.runBudget = runBudget
+            // Re-arm the countdown when a budget appears/changes; a nil
+            // budget clears it entirely.
+            if let b = runBudget { job.runsRemaining = b } else { job.runsRemaining = nil }
+        }
+        // One-shot invariants against the job's OWN schedule (covers edits
+        // that change the schedule while a budget is already set).
+        if job.runBudget == 1, CronSchedule.isRecurring(job.schedule) {
+            throw CronOpsError("a one-shot (run budget 1) cannot have a recurring schedule — job left untouched")
         }
         if let name { job.name = name }
         if let prompt { job.prompt = prompt }
@@ -125,9 +158,14 @@ public enum CronOps {
 
     /// Pause: `isActive = false` + `pausedAt` stamp. The scheduler skips
     /// inactive jobs, so the stale `nextRunAt` simply never fires.
+    /// ONE-SHOTS cannot be paused (they have one fire — pause adds no
+    /// semantics); reschedule or delete instead.
     public static func pause(store: any CronStore, id: String, reason: String? = nil) async throws -> CronJob {
         guard var job = try await store.get(id: id) else {
             throw CronOpsError("no such job: \(id)")
+        }
+        guard !job.isOneShot else {
+            throw CronOpsError("a one-shot job cannot be paused — reschedule or delete it instead")
         }
         job.isActive = false
         job.pausedAt = Date()
@@ -155,9 +193,18 @@ public enum CronOps {
     /// Arm a job to fire on the scheduler's next pass: `nextRunAt = now`.
     /// No inline execution — the daemon's session host owns running, and
     /// duplicating it here would bypass every session guard.
+    ///
+    /// A SPENT one-shot refuses (completed means completed — the UI
+    /// grays the button, the op enforces it). Setting `nextRunAt = now`
+    /// also consumes any pending scheduled firing (one pending firing
+    /// at most). A budget that hasn't fired yet is untouched — a failed
+    /// one-shot is retryable here.
     public static func runNow(store: any CronStore, id: String) async throws -> CronJob {
         guard var job = try await store.get(id: id) else {
             throw CronOpsError("no such job: \(id)")
+        }
+        guard !job.isBudgetSpent || job.lastStatus == "error" else {
+            throw CronOpsError("job '\(job.name)' has completed its run budget and cannot run again")
         }
         job.nextRunAt = Date()
         try await store.save(job)

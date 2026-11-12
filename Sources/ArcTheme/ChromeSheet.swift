@@ -900,6 +900,8 @@ public static let css: String = """
       cursor: pointer;
     }
     .ghost-btn:hover { color: var(--text); border-color: var(--muted); }
+    .ghost-btn.disabled { opacity: 0.45; cursor: default; }
+    .ghost-btn.disabled:hover { color: inherit; border-color: var(--border); }
     .danger-btn {
       background: transparent; color: var(--danger);
       border: 1px solid var(--danger); border-radius: var(--radius-sm);
@@ -1031,13 +1033,19 @@ public static let css: String = """
       font-size: 0.85em; transition: border-color .15s, background .15s; }
     .task-row:hover { border-color: var(--border-strong); background: var(--surface-2); }
     .task-row.active { border-color: var(--accent-border); background: var(--accent-soft); }
+    /* Running job: the row card's border pulses in the theme accent — no tag. */
+    @keyframes task-running-pulse {
+      0%, 100% { border-color: var(--accent-border); box-shadow: 0 0 0 0 var(--accent-soft); }
+      50% { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    }
+    .task-row.task-running { border-color: var(--accent); animation: task-running-pulse 1.4s ease-in-out infinite; }
     .task-dot { color: var(--muted); font-size: 0.78em; line-height: 1.6; flex: 0 0 auto; }
     .task-dot.on { color: var(--success); }
     .task-ri { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
     .task-rname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .task-rmeta { font-size: 0.84em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tasks-main-view { padding: 22px clamp(20px, 7vw, 88px) 12px; }
-    .tasks-main-wrap { width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; }
+    .tasks-main-wrap { width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; min-height: 100%; }
     .task-ctrl-card { padding: 16px 18px; }
     .task-ctrl-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
     .task-ctrl-name { font-size: 1.05em; font-weight: 650; margin-bottom: 3px; display: flex; align-items: center; gap: 8px; }
@@ -1048,8 +1056,8 @@ public static let css: String = """
     .task-ctrl-line { display: flex; gap: 10px; font-size: 0.86em; padding: 5px 0; border-top: 1px solid var(--border); }
     .task-ctrl-key { flex: 0 0 84px; color: var(--muted); font-weight: 600; }
     .task-ctrl-val { color: var(--text); word-break: break-word; }
-    .task-thread { flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
-    .task-thread .chat-scroll { height: 100%; overflow-y: auto; padding: 4px 0; }
+    .task-thread { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+    .task-thread .chat-scroll { padding: 4px 0; }
     .task-add { display: flex; flex-direction: column; gap: 12px; }
     .task-add-row { display: flex; gap: 14px; flex-wrap: wrap; }
     .task-field { display: flex; flex-direction: column; gap: 5px; font-size: 0.86em; color: var(--muted); font-weight: 600; }
@@ -1069,6 +1077,53 @@ public static let css: String = """
     .task-every { display: flex; gap: 6px; }
     .task-every input { width: 90px; flex: 0 0 90px; }
     .task-every select { flex: 1; }
+    .task-cats { display: flex; gap: 6px; flex-wrap: wrap; }
+    .task-cat { font-size: 0.84em; padding: 3px 10px; border: 1px solid var(--border);
+      border-radius: 999px; background: var(--surface); color: var(--muted); cursor: pointer; }
+    .task-cat:hover { border-color: var(--border-strong); color: var(--text); }
+    .task-cat-active { border-color: var(--accent-border); background: var(--accent-soft); color: var(--text); }
+    .task-groups { display: flex; flex-direction: column; gap: 2px; }
+    .task-group { margin-bottom: 4px; }
+    .task-group-head { display: flex; align-items: center; gap: 6px; width: 100%;
+      background: none; border: none; padding: 8px 2px; font-size: 0.72em;
+      letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); cursor: pointer; }
+    .task-group-head:hover { color: var(--text); }
+    .task-group-head svg { flex: none; }
+    .task-banner { border: 1px solid var(--accent-border); background: var(--surface);
+      border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; color: var(--muted); }
+    .task-banner h3 { font-size: 0.72em; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--accent-strong); margin: 0 0 6px; }
+    .task-form-top { display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; margin-bottom: 16px; }
+    .task-form-top h2 { margin: 0; }
+    .task-row .chip { margin-left: auto; color: var(--muted); }
+    .task-row .chip[data-st] { margin-left: 0; }
+    .task-row .chip[data-st="paused"] { color: var(--warning, #d29922); border-color: var(--warning, #d29922); }
+    .chip[data-st="completed"] { color: var(--success); border-color: var(--success); }
+    .chip[data-st="failed"] { color: var(--danger); border-color: var(--danger); }
+    .chip[data-st="running"] { color: var(--accent, #58a6ff); border-color: var(--accent, #58a6ff); }
+    .task-ctrl-line { align-items: center; }
+    .task-ctrl-line .task-ctrl-key { flex: 0 0 130px; }
+    .task-search input { width: 100%; }
+    .task-sched { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+    .task-sched select, .task-sched input { width: 100%; }
+    .task-form-actions { display: flex; gap: 8px; align-items: center; }
+    .task-topbar { display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 2px 2px 0; }
+    .task-topname { font-size: 1.05em; font-weight: 650; display: flex; align-items: center;
+      gap: 8px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .task-hist-card { padding-right: 6px; }
+    .task-hist { display: flex; flex-direction: column; }
+    .task-hist-row { display: flex; gap: 10px; font-size: 0.84em; padding: 5px 0;
+      border-top: 1px solid var(--border); align-items: baseline; }
+    .task-hist-row:first-child { border-top: 0; }
+    .task-hist-time { flex: 0 0 108px; color: var(--muted); }
+    .task-hist-status { flex: 0 0 62px; font-weight: 700; }
+    .task-hist-row[data-st="ok"] .task-hist-status { color: var(--success); }
+    .task-hist-row[data-st="error"] .task-hist-status,
+    .task-hist-row[data-st="timeout"] .task-hist-status { color: var(--danger, #c0504d); }
+    .task-hist-out { color: var(--text); min-width: 0; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; }
     .ap-skills-scroll { max-height: 250px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 2px; padding-right: 6px; }
     .set-row .aux-right { display: flex; gap: 8px; flex-shrink: 0; }
     /* Auxiliary models: 15 two-line rows stacked into ~1000px of scroll read as

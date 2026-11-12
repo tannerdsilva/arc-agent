@@ -68,6 +68,19 @@ public enum CronSchedule {
         return nextCron(fields, after: date, timeZone: timeZone)
     }
 
+    /// True when the expression fires REPEATEDLY (cron/interval). An ISO
+    /// one-shot instant, or an empty schedule (manual-only job), is not
+    /// recurring. Used to enforce "a one-shot cannot be recurring".
+    public static func isRecurring(_ expression: String) -> Bool {
+        let trimmed = expression.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let lowered = trimmed.lowercased()
+        if trimmed.contains("T") || lowered.contains("t") {
+            return false  // ISO instant — fires at most once
+        }
+        return true
+    }
+
     /// True when the expression parses at all (CLI/UI/tool validation).
     ///
     /// Deliberately independent of the current date: a valid one-shot in the

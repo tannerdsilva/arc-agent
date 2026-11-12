@@ -415,7 +415,7 @@ public struct WebUIHost: Service {
             broadcast: { [server] updates in await server.broadcast(updates) }
         )
         edge.seed(bootShell.html)
-        let controller = Controller(app: app, push: { updates in
+        let controller = await Controller(app: app, push: { updates in
             await edge.push(updates)
         })
         await controller.wireAll(router)

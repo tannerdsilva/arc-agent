@@ -895,6 +895,33 @@ extension ArcCoreTestRoot {
             #expect(bareNames.contains("send_message"))
         }
 
+        @Test("a registry with a cron store registers cronjob in the scheduling toolset")
+        func registryWithCronStore() throws {
+            let dir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cron-registry-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let store = FileCronStore(directory: dir)
+
+            let with = try ArcAgentCore.buildRegistry(
+                context: ArcAgentCore.testContext(),
+                profiles: InMemoryProfileStore(),
+                memory: FileMemoryProvider(),
+                sessions: FileSessionStore(),
+                cron: store
+            )
+            let cronTools = with.allTools.filter { $0.toolset == "scheduling" }
+            #expect(cronTools.map(\.name) == ["cronjob"], "the web UI surface must advertise cronjob or the agent reaches for crontab")
+
+            let bare = try ArcAgentCore.buildRegistry(
+                context: ArcAgentCore.testContext(),
+                profiles: InMemoryProfileStore(),
+                memory: FileMemoryProvider(),
+                sessions: FileSessionStore()
+            )
+            #expect(!bare.allTools.contains { $0.name == "cronjob" })
+        }
+
         // =========================================================================
         // MARK: - LLM Error Descriptions
         // =========================================================================

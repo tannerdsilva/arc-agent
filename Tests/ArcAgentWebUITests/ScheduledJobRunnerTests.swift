@@ -23,6 +23,7 @@ final class JobScriptClient: LLMClient, Sendable {
     enum Mode: Sendable {
         case toolThenFinal
         case alwaysTool
+        case alwaysFails
     }
 
     private let mode: Mode
@@ -54,6 +55,9 @@ final class JobScriptClient: LLMClient, Sendable {
             store.append(messages)
             return store.count - 1
         }
+        if mode == .alwaysFails {
+            return AsyncThrowingStream { $0.finish(throwing: LLMError.apiError(statusCode: 500, message: "scripted failure")) }
+        }
         let sawToolResult = messages.contains { $0.role == .tool }
         return AsyncThrowingStream { continuation in
             switch mode {
@@ -68,7 +72,7 @@ final class JobScriptClient: LLMClient, Sendable {
                     ]))
                     continuation.yield(LLMDelta(content: nil, finishReason: "tool_calls"))
                 }
-            case .alwaysTool:
+            case .alwaysTool, .alwaysFails:
                 continuation.yield(LLMDelta(content: nil, toolCalls: [
                     ToolCallDelta(index: 0, id: "call-echo-\(round)", name: "echo",
                                   arguments: #"{"value":"alpha"}"#)
@@ -168,6 +172,56 @@ extension ArcWebUITestRoot {
                     "the job's agent is bound to the job session's workspace")
             #expect(firstRequest.contains { $0.role == .user && $0.content == job.prompt },
                     "the job prompt is the user turn")
+        }
+
+        @Test("Run-now arms asynchronously and stamps the record off-path")
+        func runNowDoesNotBlockAndStampsCorrectly() async throws {
+            let client = JobScriptClient(mode: .toolThenFinal)
+            let (app, _, _) = try await Self.harness(client: client)
+            // A one-shot whose instant is in the far future — the shape that
+            // used to re-arm itself into Active forever.
+            var job = Self.job()
+            job.schedule = "2099-01-01T00:00:00Z"
+            try await app.cronStore.save(job)
+            await app.refreshScheduledJobs()
+
+            await app.runJobNow(job.id)
+            #expect(await app.runningCronJobs.contains(job.id),
+                    "the run is flagged before the handler returns")
+
+            // The turn runs off-path; wait for it to land (the scripted
+            // client completes in milliseconds).
+            for _ in 0..<100 {
+                if !(await app.runningCronJobs.contains(job.id)) { break }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            #expect(await app.runningCronJobs.isEmpty, "the flag clears on completion")
+            let final = try #require(try await app.cronStore.get(id: job.id))
+            #expect(final.runCount == 1)
+            #expect(final.lastStatus == "ok")
+            #expect(final.nextRunAt == nil,
+                    "a fired one-shot is never re-armed, even from the UI path")
+            #expect(final.lastOutput == "Job done.")
+        }
+
+        @Test("a failed Run-now stamps lastStatus error, not ok")
+        func runNowFailureStampsError() async throws {
+            // A scripted client whose stream throws — the same shape as a
+            // transport failure mid-turn.
+            let client = JobScriptClient(mode: .alwaysFails)
+            let (app, _, _) = try await Self.harness(client: client)
+            var job = Self.job()
+            job.schedule = "0 9 * * *"
+            try await app.cronStore.save(job)
+            await app.refreshScheduledJobs()
+            await app.runJobNow(job.id)
+            for _ in 0..<100 {
+                if !(await app.runningCronJobs.contains(job.id)) { break }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            let final = try #require(try await app.cronStore.get(id: job.id))
+            #expect(final.lastStatus == "error")
+            #expect(final.runCount == 1, "the attempt still counts")
         }
 
         @Test("a job keeps its own 25-round ceiling")

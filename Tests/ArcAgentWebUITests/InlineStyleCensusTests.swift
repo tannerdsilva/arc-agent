@@ -55,7 +55,7 @@ extension ArcWebUITestRoot {
 		/// added two `margin-top:14px` sites, and a top-only margin has no door —
 		/// `.margin(_:)` takes one uniform length. they are the next slice's work,
 		/// not a new allowance.
-		static let expectedCount = 17
+		static let expectedCount = 16
 
 		/// every px length those sites spell. `0` and `4` are on the design system's 4px
 		/// grid, so a future slice can still move them; `2`, `6`, `10` and `14` have no

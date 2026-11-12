@@ -297,10 +297,10 @@ extension ClassName {
 	public static var limitTitle: ClassName { ClassName(ArcClass.limitTitle.token) }
 	public static var limitV: ClassName { ClassName(ArcClass.limitV.token) }
 	public static var listRow: ClassName { ClassName(ArcClass.listRow.token) }
-	public static var liveStatus: ClassName { ClassName(ArcClass.liveStatus.token) }
 	public static var liveToolRow: ClassName { ClassName(ArcClass.liveToolRow.token) }
 	public static var ltName: ClassName { ClassName(ArcClass.ltName.token) }
 	public static var ltResult: ClassName { ClassName(ArcClass.ltResult.token) }
+	public static var liveStatus: ClassName { ClassName(ArcClass.liveStatus.token) }
 	public static var logChips: ClassName { ClassName(ArcClass.logChips.token) }
 	public static var logLine: ClassName { ClassName(ArcClass.logLine.token) }
 	public static var logLvl: ClassName { ClassName(ArcClass.logLvl.token) }
@@ -551,6 +551,14 @@ extension ClassName {
 	public static var `switch`: ClassName { ClassName(ArcClass.`switch`.token) }
 	public static var taskAdd: ClassName { ClassName(ArcClass.taskAdd.token) }
 	public static var taskAddRow: ClassName { ClassName(ArcClass.taskAddRow.token) }
+	public static var taskCat: ClassName { ClassName(ArcClass.taskCat.token) }
+	public static var taskCatActive: ClassName { ClassName(ArcClass.taskCatActive.token) }
+	public static var taskGroups: ClassName { ClassName(ArcClass.taskGroups.token) }
+	public static var taskGroup: ClassName { ClassName(ArcClass.taskGroup.token) }
+	public static var taskGroupHead: ClassName { ClassName(ArcClass.taskGroupHead.token) }
+	public static var taskBanner: ClassName { ClassName(ArcClass.taskBanner.token) }
+	public static var taskFormTop: ClassName { ClassName(ArcClass.taskFormTop.token) }
+	public static var taskCats: ClassName { ClassName(ArcClass.taskCats.token) }
 	public static var taskCtrlCard: ClassName { ClassName(ArcClass.taskCtrlCard.token) }
 	public static var taskCtrlHead: ClassName { ClassName(ArcClass.taskCtrlHead.token) }
 	public static var taskCtrlKey: ClassName { ClassName(ArcClass.taskCtrlKey.token) }
@@ -561,6 +569,13 @@ extension ClassName {
 	public static var taskDot: ClassName { ClassName(ArcClass.taskDot.token) }
 	public static var taskEvery: ClassName { ClassName(ArcClass.taskEvery.token) }
 	public static var taskField: ClassName { ClassName(ArcClass.taskField.token) }
+	public static var taskFormActions: ClassName { ClassName(ArcClass.taskFormActions.token) }
+	public static var taskHist: ClassName { ClassName(ArcClass.taskHist.token) }
+	public static var taskHistCard: ClassName { ClassName(ArcClass.taskHistCard.token) }
+	public static var taskHistOut: ClassName { ClassName(ArcClass.taskHistOut.token) }
+	public static var taskHistRow: ClassName { ClassName(ArcClass.taskHistRow.token) }
+	public static var taskHistStatus: ClassName { ClassName(ArcClass.taskHistStatus.token) }
+	public static var taskHistTime: ClassName { ClassName(ArcClass.taskHistTime.token) }
 	public static var taskList: ClassName { ClassName(ArcClass.taskList.token) }
 	public static var taskOpt: ClassName { ClassName(ArcClass.taskOpt.token) }
 	public static var taskPreview: ClassName { ClassName(ArcClass.taskPreview.token) }
@@ -568,8 +583,13 @@ extension ClassName {
 	public static var taskRmeta: ClassName { ClassName(ArcClass.taskRmeta.token) }
 	public static var taskRname: ClassName { ClassName(ArcClass.taskRname.token) }
 	public static var taskRow: ClassName { ClassName(ArcClass.taskRow.token) }
+	public static var taskRunning: ClassName { ClassName(ArcClass.taskRunning.token) }
+	public static var taskSched: ClassName { ClassName(ArcClass.taskSched.token) }
+	public static var taskSearch: ClassName { ClassName(ArcClass.taskSearch.token) }
 	public static var taskStatus: ClassName { ClassName(ArcClass.taskStatus.token) }
 	public static var taskThread: ClassName { ClassName(ArcClass.taskThread.token) }
+	public static var taskTopbar: ClassName { ClassName(ArcClass.taskTopbar.token) }
+	public static var taskTopname: ClassName { ClassName(ArcClass.taskTopname.token) }
 	public static var tasksMainView: ClassName { ClassName(ArcClass.tasksMainView.token) }
 	public static var tasksMainWrap: ClassName { ClassName(ArcClass.tasksMainWrap.token) }
 	public static var tcArg: ClassName { ClassName(ArcClass.tcArg.token) }

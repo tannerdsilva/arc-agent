@@ -118,19 +118,19 @@ struct CronRunHistoryTests {
         #expect(runs[1].startedAt == Date(timeIntervalSince1970: 1_000))
     }
 
-    @Test("tessera decode: an event predating the status fields still decodes (nil status)")
+    @Test("tessera decode: an event predating the status fields is not a run (no stamp)")
     func tesseraDecodeLegacyPayload() throws {
         var legacy = CronJob(id: "j1", name: "x", schedule: "5m", prompt: "p")
         legacy.runCount = 1
         legacy.lastOutput = "legacy"
-        // no lastStatus/lastStartedAt — the pre-Phase-2 shape
+        // no lastStatus/lastStartedAt — the pre-Phase-2 shape. Without a
+        // start time there is no way to tell a run from a state save, and
+        // rendering it as a run produced the Dec-31-1969 phantom.
         let records = [
             tessEvent("arc/cron/j1/1", encodeJob(legacy, seq: 1)),
         ]
         let runs = TesseraCronRunHistory.runs(from: records, jobID: "j1", limit: 50)
-        #expect(runs.count == 1)
-        #expect(runs[0].status == nil)
-        #expect(runs[0].output == "legacy")
+        #expect(runs.isEmpty)
     }
 
     @Test("tessera decode: limit honored, other jobs' events ignored")
@@ -139,12 +139,56 @@ struct CronRunHistoryTests {
         a.lastStatus = "ok"; a.lastStartedAt = Date(timeIntervalSince1970: 1)
         var b = CronJob(id: "b", name: "b", schedule: "5m", prompt: "p")
         b.lastStatus = "ok"; b.lastStartedAt = Date(timeIntervalSince1970: 2)
-        var records = [(seq: 1, job: a), (seq: 2, job: b), (seq: 3, job: a)].map {
+        // distinct runs need distinct startedAt — equal stamps are one run
+        var a2 = a
+        a2.lastStartedAt = Date(timeIntervalSince1970: 3)
+        var records = [(seq: 1, job: a), (seq: 2, job: b), (seq: 3, job: a2)].map {
             tessEvent("arc/cron/\($0.job.id)/\($0.seq)", encodeJob($0.job, seq: $0.seq))
         }
         records.remove(at: 1) // drop job b; job a keeps seq 1 and 3
         #expect(TesseraCronRunHistory.runs(from: records, jobID: "a", limit: 50).count == 2)
         #expect(TesseraCronRunHistory.runs(from: records, jobID: "a", limit: 1).count == 1)
+    }
+
+    @Test("tessera decode: same-run snapshots (equal startedAt) collapse to one record")
+    func tesseraDecodeSameRunCollapse() throws {
+        // one run, saved four times (UI update + scheduler + stale saves) —
+        // the shape the live store showed for the smoke job
+        var job = CronJob(id: "j1", name: "x", schedule: "5m", prompt: "p")
+        job.lastStatus = "ok"
+        job.lastStartedAt = Date(timeIntervalSince1970: 1_000)
+        job.lastOutput = "SMOKE-OK"
+        var records = [1, 2, 3, 4].map { seq in
+            tessEvent("arc/cron/j1/\(seq)", encodeJob(job, seq: seq))
+        }
+        // a DIFFERENT run (new startedAt) must not collapse into it
+        var next = job
+        next.lastStartedAt = Date(timeIntervalSince1970: 2_000)
+        next.runCount = job.runCount + 1
+        records.append(tessEvent("arc/cron/j1/5", encodeJob(next, seq: 5)))
+
+        let runs = TesseraCronRunHistory.runs(from: records, jobID: "j1", limit: 50)
+        #expect(runs.count == 2, "four snapshots of one run + one new run")
+        #expect(runs[0].startedAt == Date(timeIntervalSince1970: 2_000), "newest first")
+        #expect(runs[1].startedAt == Date(timeIntervalSince1970: 1_000))
+    }
+
+    @Test("tessera decode: a snapshot without lastStartedAt (creation/edit save) is not a run")
+    func tesseraDecodeSkipsUnstampedSnapshots() throws {
+        var fresh = CronJob(id: "phantom", name: "n", schedule: "1m", prompt: "p")
+        fresh.lastStartedAt = nil          // creation snapshot — never run
+        fresh.lastOutput = nil
+        var run = fresh
+        run.lastStartedAt = Date(timeIntervalSince1970: 1_000)
+        run.lastStatus = "ok"
+        run.lastOutput = "Confirmation"
+        let records = [
+            tessEvent("arc/cron/phantom/1", encodeJob(fresh, seq: 1)),
+            tessEvent("arc/cron/phantom/2", encodeJob(run, seq: 2)),
+        ]
+        let out = TesseraCronRunHistory.runs(from: records, jobID: "phantom", limit: 10)
+        #expect(out.count == 1, "the creation snapshot must not render as a Dec 31 1969 phantom run")
+        #expect(out.first?.startedAt == Date(timeIntervalSince1970: 1_000))
     }
 
     private func tessEvent(_ dTag: String, _ content: String) -> TesseraRecord {

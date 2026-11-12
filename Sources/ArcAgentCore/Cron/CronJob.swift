@@ -39,12 +39,27 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
     /// Why the job was paused (human or agent note). Cleared on resume.
     public var pausedReason: String?
     /// Run budget: the job self-retires after N runs (nil = unlimited).
-    /// JSON key stays `"repeat"` (Hermes parity) even though the Swift
-    /// name can't be the keyword — see ``CodingKeys``.
-    public var repeatBudget: Int?
-    /// Live countdown for ``repeatBudget``; persisted so a restart can't
+    /// `runBudget == 1` is the canonical ONE-SHOT shape — and a one-shot
+    /// cannot also be recurring (validated at create/edit, see
+    /// ``CronOps``). JSON key stays `"repeat"` (Hermes parity) — the
+    /// Swift name can't be the keyword; see ``CodingKeys``.
+    public var runBudget: Int?
+    /// Live countdown for ``runBudget``; persisted so a restart can't
     /// resurrect an exhausted budget. Nil = no budget / budget not armed.
     public var runsRemaining: Int?
+
+    /// True when this job is a ONE-SHOT: exactly one fire, ever —
+    /// scheduler or manual — then completed. Drives the pause refusal
+    /// and the UI's disabled controls.
+    public var isOneShot: Bool { runBudget == 1 }
+
+    /// True when the budget is fully SPENT (fired successfully enough
+    /// times). A failed run does not consume budget — a failed one-shot
+    /// stays retryable until it succeeds.
+    public var isBudgetSpent: Bool {
+        guard let budget = runBudget else { return false }
+        return (runsRemaining ?? budget) <= 0
+    }
     /// Reset the job's persistent session every N runs (nil = never).
     /// The reset happens BETWEEN firings — a job's in-flight turn is
     /// never cut; the next firing starts in a fresh session.
@@ -104,7 +119,7 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
         self.lastError = nil
         self.pausedAt = nil
         self.pausedReason = nil
-        self.repeatBudget = nil
+        self.runBudget = nil
         self.runsRemaining = nil
         self.resetEveryRuns = nil
         self.runsSinceReset = nil
@@ -117,7 +132,7 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
     }
 
     /// Field names on disk. `repeat` is a Swift keyword, so the budget is
-    /// `repeatBudget` in code but `repeat` in JSON (Hermes parity).
+    /// `runBudget` in code but `repeat` in JSON (Hermes parity).
     enum CodingKeys: String, CodingKey {
         case id, name, schedule, prompt
         case isActive
@@ -126,7 +141,7 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
         case lastOutput, lastStatus, lastError, lastDeliveryError
         case runCount
         case pausedAt, pausedReason
-        case repeatBudget = "repeat"
+        case runBudget = "repeat"
         case runsRemaining
         case resetEveryRuns, runsSinceReset, needsSessionReset
         case contextFrom

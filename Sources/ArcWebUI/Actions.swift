@@ -460,6 +460,12 @@ extension AppState {
                 LogCollector.shared.append(level: .error, text: "[store] ghost-session recovery failed for \(String(sessionID.prefix(8))) — message dropped: \(message.role.rawValue)")
                 _ = toast("A message could not be saved — the chat's store file was missing and recovery failed. See Logs.", kind: "error")
             }
+        } catch SessionShareError.sessionDeleted {
+            // Terminal state: the session was deliberately deleted while a
+            // turn was still finishing (e.g. a cron job removed mid-run).
+            // The deletion wins — log quietly, no toast, no ghost heal
+            // (healing a tombstoned session would resurrect it).
+            LogCollector.shared.append(level: .info, text: "[store] dropped \(message.role.rawValue) for deleted session \(String(sessionID.prefix(8)))")
         } catch {
             LogCollector.shared.append(level: .error, text: "[store] failed to persist \(message.role.rawValue) message for session \(String(sessionID.prefix(8))): \(error)")
             _ = toast("A message could not be saved (store error) — see Logs.", kind: "error")
@@ -1334,6 +1340,12 @@ final class Controller: Sendable {
     }
 
     func wireAll(_ router: EventRouter) async {
+        // The change door for off-path work (Run-now completions): a job
+        // finishing outside any handler still re-renders every open page.
+        // Installed here because AppState is an actor and the init is sync.
+        let app = self.app
+        let push = self.push
+        await app.installChangeDoor { await push(app.structuralChange()) }
         await wireNav(router)
         wireChat(router)
         wireChatMenu(router)

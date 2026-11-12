@@ -43,9 +43,14 @@ public actor TesseraCronRunHistory: CronRunHistory {
     /// newest-seq-first, honoring `limit`. An event predating the status
     /// fields (old payload) decodes to a record with nil status rather
     /// than being dropped — a job's history never shrinks on upgrade.
+    ///
+    /// Multiple events can describe the SAME run (every save of the job
+    /// publishes a snapshot; a save storm after a manual run used to
+    /// duplicate rows). Events sharing a `startedAt` are one attempt —
+    /// keep the highest seq (the most recent snapshot of that run).
     public static func runs(from records: [TesseraRecord], jobID: String, limit: Int) -> [CronRunRecord] {
         let prefix = "arc/cron/\(jobID)/"
-        var runs: [(seq: Int, run: CronRunRecord)] = []
+        var runs: [(seq: Int, startedAt: Date, run: CronRunRecord)] = []
         for record in records {
             guard let dTag = record.dTag,
                   dTag.hasPrefix(prefix),
@@ -53,16 +58,31 @@ public actor TesseraCronRunHistory: CronRunHistory {
                   let payload = try? JSONDecoder().decode(TesseraCronRecord.self, from: Data(record.content.utf8))
             else { continue }
             let job = payload.job
+            // A snapshot without lastStartedAt is not a run — it's a state
+            // save (job creation, an edit, a pause). Rendering it as a run
+            // produced a phantom "Dec 31, 1969 18:00" row (epoch zero in
+            // local time). Snapshots only become run records once the
+            // scheduler or a manual Run-now has stamped a start time.
+            guard let startedAt = job.lastStartedAt else { continue }
             let run = CronRunRecord(
                 jobID: jobID,
-                startedAt: job.lastStartedAt ?? Date(timeIntervalSince1970: 0),
+                startedAt: startedAt,
                 finishedAt: job.lastFinishedAt,
                 status: job.lastStatus,
                 output: job.lastOutput ?? "",
                 error: job.lastError
             )
-            runs.append((seq, run))
+            runs.append((seq, startedAt, run))
         }
-        return runs.sorted { $0.seq > $1.seq }.prefix(limit).map(\.run)
+        // same-run collapse: identical startedAt keeps the newest snapshot
+        var deduped: [(seq: Int, startedAt: Date, run: CronRunRecord)] = []
+        for entry in runs.sorted(by: { $0.seq < $1.seq }) {
+            if let last = deduped.last, last.startedAt == entry.startedAt {
+                deduped[deduped.count - 1] = entry
+            } else {
+                deduped.append(entry)
+            }
+        }
+        return deduped.sorted { $0.seq > $1.seq }.prefix(limit).map(\.run)
     }
 }

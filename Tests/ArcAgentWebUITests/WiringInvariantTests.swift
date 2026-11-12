@@ -167,7 +167,8 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_cron(router)
-            #expect(router.handlerCount(in: .default) == 1, "cron group registration drifted")
+            #expect(router.handlerCount(in: .default) == 11,
+                    "cron group: tasks + 8 schedule-editor change wires + task-search input + deliver preset")
         }
 
         @Test("every regen handler is registered after wireGroup_regen")
@@ -194,9 +195,8 @@ extension ArcWebUITestRoot {
 
             let count = router.handlerCount(in: .default)
             #expect(
-                count == 181,
-                "wireAll must register exactly 181 handlers: 167 @Wired-generated (incl. ctxpane) + 12 nav-(id) + sidebar-plugin-toggle + cat-pick, got \(count)"
-            )
+                count == 191,
+                "wireAll must register exactly 191 handlers: 167 @Wired-generated (incl. ctxpane) + 12 nav-(id) + sidebar-plugin-toggle + cat-pick + 10 cron schedule/search/deliver wires, got \(count)")
         }
 
         /// A non-listed id has no handler: the router answers empty fragments.

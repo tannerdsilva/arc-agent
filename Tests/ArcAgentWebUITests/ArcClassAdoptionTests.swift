@@ -45,13 +45,13 @@ extension ArcWebUITestRoot {
 			// declared by no sheet — ArcClass cannot name them
 			"approval-title", "arch-ico", "btn", "chat-menu-items", "clarify-title",
 			"ctx-swatches", "dd-list-profile", "dd-pop-ws", "insights-main",
-			"panel-note", "pill-other", "queue-card",
-			"queue-loop-count-label", "skill-cat-title", "task-ctrl-main",
+			"pill-other", "queue-card",
+			"queue-loop-count-label", "skill-cat-title",
 			"thinking-detail", "todo-list", "visible", "ws-head", "ws-menu", "yolo-text",
 		]
 
 		/// sites whose class value is interpolated (`\\(` inside the literal).
-		static let residualInterpolatedSites = 27
+		static let residualInterpolatedSites = 25
 
 		static func sources() -> [(String, String)] {
 			let root = URL(fileURLWithPath: #filePath)

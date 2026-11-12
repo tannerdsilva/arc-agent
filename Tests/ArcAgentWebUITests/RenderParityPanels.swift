@@ -741,6 +741,10 @@ extension ArcWebUITestRoot {
 			                isActive: active)
 			j.runCount = runs
 			j.lastOutput = runs > 0 ? "Sent 3 summaries." : nil
+			// Fixed dates (not Date()) so the rendered labels are deterministic
+			// across runs — the goldens pin the exact bytes.
+			if active { j.nextRunAt = Date(timeIntervalSince1970: 1_800_000_000) }
+			if runs > 0 { j.lastRunAt = Date(timeIntervalSince1970: 1_700_000_100) }
 			return j
 		}
 
@@ -763,15 +767,17 @@ extension ArcWebUITestRoot {
 			}
 		}
 
-		private func tasksApp(selected: String? = "job-1") -> AppState {
-			app {
-				$0.settings.scheduledJobs = [
-					self.job("job-1", "Morning digest", "every 15m", runs: 3),
-					self.job("job-2", "Nightly sweep", "0 3 * * *", active: false),
-				]
-				$0.tasksSelectedID = selected
-				$0.sessions = [self.session("Cron-job-1", "Morning digest")]
-			}
+		private func tasksApp(selected: String? = "job-1",
+		                      _ configure: (inout AppState.RenderFixture) -> Void = { _ in }) -> AppState {
+			var fixture = AppState.RenderFixture()
+			fixture.settings.scheduledJobs = [
+				self.job("job-1", "Morning digest", "every 15m", runs: 3),
+				self.job("job-2", "Nightly sweep", "0 3 * * *", active: false),
+			]
+			fixture.tasksSelectedID = selected
+			fixture.sessions = [self.session("Cron-job-1", "Morning digest")]
+			configure(&fixture)
+			return AppState(renderFixture: fixture)
 		}
 
 		@Test("todos panel, tasks tab, one open and one done todo, matches golden")
@@ -817,11 +823,27 @@ extension ArcWebUITestRoot {
 			Parity.expect(html, matches: "task-row")
 		}
 
-		@Test("task form, matches golden")
-		func taskFormHTMLGolden() async {
-			let html = await tasksApp().taskFormHTML().markup.html
-			Parity.capture(html, as: "task-form")
-			Parity.expect(html, matches: "task-form")
+		@Test("task form, add mode, matches golden")
+		func taskFormAddGolden() async {
+			let html = await tasksApp { $0.tasksMode = .add
+				// a custom expression the parser rejects keeps the preview
+				// date-free, so the golden is time-independent.
+				$0.taskSchedPreset = "custom"
+				$0.taskSchedCustom = "70 9 * * *"
+			}.taskFormPage(title: "New scheduled job", submitLabel: "Schedule job", job: nil).markup.html
+			Parity.capture(html, as: "task-form-add")
+			Parity.expect(html, matches: "task-form-add")
+		}
+
+		@Test("task form, edit mode, matches golden")
+		func taskFormEditGolden() async {
+			let html = await tasksApp { $0.tasksMode = .edit
+				$0.taskSchedPreset = "custom"
+				$0.taskSchedCustom = "70 9 * * *"
+			}.taskFormPage(title: "Edit job", submitLabel: "Save changes",
+			               job: self.job("job-1", "Morning digest", "every 15m", runs: 3)).markup.html
+			Parity.capture(html, as: "task-form-edit")
+			Parity.expect(html, matches: "task-form-edit")
 		}
 	}
 }

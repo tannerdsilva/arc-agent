@@ -949,6 +949,58 @@ actor AppState {
     /// Scheduled-tasks page: the job whose controls + chat are open in the main pane.
     var tasksSelectedID: String? = nil
 
+    /// Scheduled-tasks page categories. An exclusive lifecycle partition:
+    /// **pending** = enabled but never fired yet; **active** = enabled and
+    /// has fired with a next fire; **idle** = schedule-less and never
+    /// fired (manual-only job waiting for Run now); **paused** = paused
+    /// by the user; **failed** = last attempt errored with no next fire
+    /// (Retry = Run now); **completed** = fired successfully with no
+    /// next fire (budget spent or exhausted).
+    enum TaskCategory: String, Sendable { case activePending, idle, paused, failed, completed }
+    var tasksCategory: TaskCategory = .activePending
+    /// Collapsible sidebar category groups (rawValue keys); all open by default.
+    var taskExpanded: Set<String> = ["activePending", "idle", "paused", "failed", "completed"]
+    /// "local" hides the custom-target field; "custom" reveals it.
+    var taskDeliverPreset: String = "local"
+    /// Search draft, filtered live against job name + prompt contents.
+    var tasksSearchDraft: String = ""
+    /// What the main pane shows: a selected job, the add form, or the edit form.
+    enum TasksMode: Sendable, Equatable { case detail, add, edit }
+    var tasksMode: TasksMode = .detail
+    // Schedule-editor draft — synced from the form's change events so the
+    // live cron preview (and the eventual submit) agree with what is shown.
+    var taskSchedPreset: String = "every"
+    var taskSchedEvery: String = "15"
+    var taskSchedUnit: String = "m"
+    var taskSchedTime: String = "09:00"
+    var taskSchedDow: String = "1"
+    var taskSchedCustom: String = ""
+    /// Jobs with a Run-now turn currently executing (see ``finishRunNow``).
+    var runningCronJobs: Set<String> = []
+    /// The door an off-path completion pushes through. Installed by the
+    /// Controller (it owns `push`); nil in tests that don't render.
+    var onBackgroundChange: (@Sendable () async -> Void)?
+
+    /// Installed once by the Controller: the door off-path completions push
+    /// through (the Controller owns `push`; an actor property can't be set
+    /// from its nonisolated init).
+    func installChangeDoor(_ door: @escaping @Sendable () async -> Void) {
+        onBackgroundChange = door
+    }
+    /// Set by ``runScheduledJob``: whether the most recent scheduled run
+    /// ended in failure (drives `lastStatus` on the run record).
+    internal(set) var lastScheduledRunFailed = false
+    /// The job-kind preset driving the form: "recurring" (cron/interval),
+    /// "oneshot" (run budget 1 — schedule is a single ISO instant), or
+    /// "manual" (no schedule — runs only via Run now).
+    var taskJobKind: String = "recurring"
+    /// One-shot instant draft ("2026-06-01T09:00:00"); free text so edit
+    /// round-trips losslessly (a datetime picker would drop the zone).
+    var taskSchedWhen: String = ""
+    /// Recent runs per job (the new per-attempt cron history), loaded when a
+    /// job is opened and refreshed after a run.
+    var taskRunHistory: [String: [CronRunRecord]] = [:]
+
     /// Personal memory panel (phase: memory).
     var memoryDoc: String? = nil    // "memory" | "user" | "soul" | "context"
     var memoryEdit = false
@@ -1184,6 +1236,8 @@ actor AppState {
     /// phase-2 convergence. `settings.scheduledJobs` is only a render cache,
     /// reloaded by ``refreshScheduledJobs()``.
     let cronStore = RuntimeCronStore()
+    /// Per-attempt run history (new cron §2) — the detail card's "Recent runs".
+    let cronHistory = RuntimeCronRunHistory()
 
     // MARK: Init
 
@@ -1299,6 +1353,24 @@ actor AppState {
         // phase 7.6b: the scheduled-tasks page reads its selection from here, so
         // a fixture that cannot set it can only ever capture the empty main.
         var tasksSelectedID: String? = nil
+        /// Scheduled-jobs page state seams (nil = leave the default). The
+        /// category/mode/search and the schedule-editor draft are the only
+        /// ways a render test can pin the redesigned page's branches.
+        var tasksCategory: TaskCategory? = nil
+        var tasksMode: TasksMode? = nil
+        var tasksSearchDraft: String? = nil
+        var taskExpanded: Set<String>? = nil
+        /// Jobs with a turn in flight (drives the row loading border).
+        var runningCronJobs: Set<String> = []
+        var taskDeliverPreset: String? = nil
+        var taskSchedPreset: String? = nil
+        var taskSchedEvery: String? = nil
+        var taskSchedUnit: String? = nil
+        var taskSchedTime: String? = nil
+        var taskSchedDow: String? = nil
+        var taskSchedCustom: String? = nil
+        var taskJobKind: String? = nil
+        var taskSchedWhen: String? = nil
         /// The backend the runtime resolved ("file" | "tessera"). The storage
         /// picker renders the medium in use from this, so a fixture that cannot
         /// set it can only ever capture file mode.
@@ -1375,6 +1447,20 @@ actor AppState {
         self.queueLinksOpen = fixture.queueLinksOpen
         self.queueLinkSel = fixture.queueLinkSel
         self.tasksSelectedID = fixture.tasksSelectedID
+        if let v = fixture.tasksCategory { self.tasksCategory = v }
+        if let v = fixture.taskExpanded { self.taskExpanded = v }
+        self.runningCronJobs = fixture.runningCronJobs
+        if let v = fixture.taskDeliverPreset { self.taskDeliverPreset = v }
+        if let v = fixture.tasksMode { self.tasksMode = v }
+        if let v = fixture.tasksSearchDraft { self.tasksSearchDraft = v }
+        if let v = fixture.taskSchedPreset { self.taskSchedPreset = v }
+        if let v = fixture.taskSchedEvery { self.taskSchedEvery = v }
+        if let v = fixture.taskSchedUnit { self.taskSchedUnit = v }
+        if let v = fixture.taskSchedTime { self.taskSchedTime = v }
+        if let v = fixture.taskSchedDow { self.taskSchedDow = v }
+        if let v = fixture.taskSchedCustom { self.taskSchedCustom = v }
+        if let v = fixture.taskJobKind { self.taskJobKind = v }
+        if let v = fixture.taskSchedWhen { self.taskSchedWhen = v }
         self.settings.insightsRangeDays = fixture.insightsRangeDays
         self.settings.kanbanColumns = fixture.kanbanColumns
         self.settings.kanbanCards = fixture.kanbanCards
@@ -1417,6 +1503,12 @@ actor AppState {
         // (no daemon to hand one over) builds its own over `~/.arc/kanban`.
         let board = kanban ?? FileKanbanBoard()
         self.kanban = board
+        // The UI's own cron store + history (§2): the same pair the jobs page,
+        // `arc cron` and the daemon's scheduler read through. Binding them
+        // here registers `cronjob` on THIS surface — without it the web UI's
+        // tool list had no scheduling group and the UI turn engine could not
+        // create or manage jobs (the agent then reached for the terminal and
+        // installed a macOS crontab instead).
         self.registry = MutableToolRegistry(builtIn: try ArcAgentCore.buildRegistry(
             context: ToolContext(
                 profile: .default,
@@ -1428,7 +1520,9 @@ actor AppState {
             memory: FileMemoryProvider(),
             sessions: FileSessionStore(),
             kanban: board,
-            delivery: delivery
+            delivery: delivery,
+            cron: cronStore,
+            cronHistory: cronHistory
         ))
         let grouped = Dictionary(grouping: self.registry.allTools.map { $0.tool }, by: { $0.toolset })
         self.toolsets = grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
@@ -3161,6 +3255,12 @@ actor AppState {
             // The same board the boot surface and (in the daemon) the sessions
             // use — a rebuild must not leave the tools without one.
             kanban: kanban,
+            // Same for the cron store + history: the boot registry binds them,
+            // and every rebuild must too or `cronjob` vanishes from the
+            // surface after the first plugin rescan (the agent then decides
+            // "there is no cron tool here" and reaches for the terminal).
+            cron: cronStore,
+            cronHistory: cronHistory,
             enabledPlugins: arcConfig.plugins.enabled.map { Set($0) }
         )
     }

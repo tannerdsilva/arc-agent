@@ -47,6 +47,42 @@ struct CronJobToolTests {
         #expect(jobs.first?.nextRunAt != nil)
     }
 
+    @Test("create with a script builds a shell job; prompt optional, hardline rejected")
+    func createScriptJob() async throws {
+        let store = tempStore()
+        let entry = CronJobTool.entry(context: context, store: store)
+        let out = try await entry.handler(["action": "create",
+                                           "name": "disk-watch",
+                                           "schedule": "*/15 * * * *",
+                                           "script": "df -h | tail -1"])
+        #expect(!out.hasPrefix("Error:"), "script create succeeded: \(out)")
+        let job = try await store.listAll().first
+        #expect(job?.script == "df -h | tail -1")
+        #expect(job?.prompt.isEmpty ?? false)
+
+        // hardline scripts are refused at creation, never stored
+        let bad = try await entry.handler(["action": "create", "name": "bad",
+                                           "script": "rm -rf /"])
+        #expect(bad.hasPrefix("Error:"), "hardline script refused")
+        #expect(try await store.listAll().count == 1)
+    }
+
+    @Test("create with neither prompt nor script is refused; edit can clear a script")
+    func scriptLifecycle() async throws {
+        let store = tempStore()
+        let entry = CronJobTool.entry(context: context, store: store)
+        let none = try await entry.handler(["action": "create", "name": "empty"])
+        #expect(none.contains("(or 'script')"), "legible refusal: \(none)")
+
+        _ = try await entry.handler(["action": "create", "name": "sh",
+                                     "schedule": "0 9 * * *", "script": "date"])
+        let id = try await store.listAll().first?.id ?? ""
+        let cleared = try await entry.handler(["action": "edit", "id": id, "script": ""])
+        #expect(!cleared.hasPrefix("Error:"), "clearing works: \(cleared)")
+        let job = try await store.get(id: id)
+        #expect(job?.script == nil, "script cleared — prompt mode again")
+    }
+
     @Test("create with an invalid schedule returns Error and persists nothing")
     func createRejectsGarbage() async throws {
         let store = tempStore()
@@ -55,6 +91,37 @@ struct CronJobToolTests {
                                            "name": "x", "schedule": "garbage", "prompt": "p"])
         #expect(out.hasPrefix("Error:"))
         #expect(try await store.listAll().isEmpty)
+    }
+
+    @Test("create without a schedule makes a schedule-less manual job (Idle)")
+    func createWithoutSchedule() async throws {
+        let store = tempStore()
+        let entry = CronJobTool.entry(context: context, store: store)
+        // Omitted schedule...
+        let out = try await entry.handler(["action": "create",
+                                           "name": "manual", "prompt": "do the thing"])
+        #expect(!out.hasPrefix("Error:"), "schedule-less create succeeds: \(out)")
+        // ...and an explicit empty one.
+        let out2 = try await entry.handler(["action": "create",
+                                            "name": "manual2", "schedule": "  ", "prompt": "p"])
+        #expect(!out2.hasPrefix("Error:"), "blank schedule = schedule-less: \(out2)")
+        let jobs = try await store.listAll()
+        #expect(jobs.count == 2)
+        #expect(jobs.allSatisfy { $0.schedule.isEmpty && $0.nextRunAt == nil },
+                "no schedule, no next fire — the scheduler never touches it")
+    }
+
+    @Test("edit with an empty schedule clears it and drops the next fire")
+    func editClearsSchedule() async throws {
+        let store = tempStore()
+        let entry = CronJobTool.entry(context: context, store: store)
+        _ = try await entry.handler(["action": "create", "name": "j",
+                                     "schedule": "0 9 * * *", "prompt": "p"])
+        let id = try await store.listAll().first!.id
+        let out = try await entry.handler(["action": "edit", "id": id, "schedule": ""])
+        #expect(!out.hasPrefix("Error:"), "clearing the schedule succeeds: \(out)")
+        let job = try await store.get(id: id)!
+        #expect(job.schedule.isEmpty && job.nextRunAt == nil)
     }
 
     @Test("list, pause, resume, run, edit and remove act on the bound store")
