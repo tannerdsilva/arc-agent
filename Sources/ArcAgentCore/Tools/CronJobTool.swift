@@ -205,7 +205,7 @@ public enum CronJobTool {
         guard let id = args["id"] as? String, !id.isEmpty else {
             return "Error: 'id' is required for edit."
         }
-        guard var job = try await store.get(id: id) else {
+        guard var job = try await store.get(id: try await resolveJobID(id, store: store)) else {
             return "Error: no such job: \(id)"
         }
         if let rawSchedule = args["schedule"] as? String {
@@ -276,7 +276,27 @@ public enum CronJobTool {
         guard let id = args["id"] as? String, !id.isEmpty else {
             return "Error: 'id' is required."
         }
-        return try await body(id)
+        return try await body(try await resolveJobID(id, store: store))
+    }
+
+    /// A recoverable tool-level failure with a user-legible message; the
+    /// handler's catch renders it as "Error: <message>".
+    private struct CronToolFailure: Error, CustomStringConvertible {
+        let description: String
+        init(_ message: String) { description = message }
+    }
+
+    /// Resolve a job id exactly, or as a unique prefix. `list` deliberately
+    /// shows 8-char ids — an agent acting on its own listing must be able to
+    /// hand one back, and `store.get` is exact-match only.
+    private static func resolveJobID(_ raw: String, store: any CronStore) async throws -> String {
+        if (try await store.get(id: raw)) != nil { return raw }
+        let matches = try await store.listAll().filter { $0.id.hasPrefix(raw) }
+        if matches.count == 1 { return matches[0].id }
+        if matches.isEmpty {
+            throw CronToolFailure("no job matches id '\(raw)' (list shows 8-char prefixes — copy one exactly)")
+        }
+        throw CronToolFailure("id '\(raw)' is ambiguous — \(matches.count) jobs share that prefix; use more characters")
     }
 
     private static func performPause(_ id: String, store: any CronStore) async throws -> String {
@@ -303,7 +323,7 @@ public enum CronJobTool {
         guard let id = args["id"] as? String, !id.isEmpty else {
             return "Error: 'id' is required for history."
         }
-        guard try await store.get(id: id) != nil else {
+        guard try await store.get(id: try await resolveJobID(id, store: store)) != nil else {
             return "Error: no such job: \(id)"
         }
         guard let history else {

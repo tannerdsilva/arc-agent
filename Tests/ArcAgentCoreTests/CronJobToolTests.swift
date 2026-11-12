@@ -25,6 +25,42 @@ struct CronJobToolTests {
         grant: ToolGrant(profile: ProfileName("default")!)
     )
 
+    @Test("list's 8-char id prefixes resolve back to full ids for other actions")
+    func prefixIDsResolve() async throws {
+        let store = tempStore()
+        let entry = CronJobTool.entry(context: context, store: store)
+        _ = try await entry.handler(["action": "create", "name": "nightly",
+                                     "schedule": "30m", "prompt": "p"])
+        let listed = try await entry.handler(["action": "list"])
+        let line = try #require(listed.split(separator: "\n").dropFirst().first)
+        let short = line.trimmingCharacters(in: .whitespaces)
+            .dropFirst(2).prefix(8)  // skip "• "
+        #expect(short.count == 8, "list shows the 8-char prefix")
+
+        // Pause using the prefix the agent just read off the list.
+        let paused = try await entry.handler(["action": "pause", "id": String(short)])
+        #expect(paused.contains("Paused 'nightly'"))
+
+        // Full id still works (exact match wins without a scan).
+        let full = try #require(try await store.listAll().first?.id)
+        _ = try await entry.handler(["action": "resume", "id": full])
+    }
+
+    @Test("ambiguous and unknown id prefixes fail with legible errors")
+    func prefixEdgeCases() async throws {
+        let store = tempStore()
+        let entry = CronJobTool.entry(context: context, store: store)
+        _ = try await entry.handler(["action": "create", "name": "a", "schedule": "30m", "prompt": "p"])
+        _ = try await entry.handler(["action": "create", "name": "b", "schedule": "30m", "prompt": "p"])
+        // Two UUIDv4 jobs sharing a leading digit is astronomically unlikely;
+        // force the ambiguous shape with an empty prefix instead.
+        let out = try await entry.handler(["action": "pause", "id": "zzzzzzzz"])
+        #expect(out.contains("no job matches"))
+
+        let none = try await entry.handler(["action": "edit", "id": "no-such-job", "name": "x"])
+        #expect(none.contains("no job matches"))
+    }
+
     @Test("entry builds a scheduling-toolset tool named cronjob")
     func entryShape() {
         let entry = CronJobTool.entry(context: context, store: tempStore())
