@@ -322,7 +322,13 @@ public actor SessionRegistry {
     /// contends with its predecessor for the session's LMDB environment, and
     /// there is no window in which ``removeIfCurrent(sessionID:agent:)`` can
     /// resolve against the wrong generation.
-    func getOrCreate(sessionID: String, profile: String = "default", isCron: Bool = false) async -> SessionHandle {
+    func getOrCreate(
+        sessionID: String,
+        profile: String = "default",
+        isCron: Bool = false,
+        workspace: String? = nil,
+        model: String? = nil
+    ) async -> SessionHandle {
         if agents[sessionID] != nil {
             handles[sessionID]?.inputContinuation.finish()
             handles[sessionID]?.responseContinuation.finish()
@@ -369,7 +375,9 @@ public actor SessionRegistry {
             deliveryManager: deliveryManager,
             registry: self,
             responseContinuation: responseContinuation,
-            isCronSession: isCron
+            isCronSession: isCron,
+            workspace: workspace,
+            model: model
         )
         agents[sessionID] = agent
         handles[sessionID] = handle

@@ -95,6 +95,13 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
     /// The delivery failure from the last run, if any. A delivery failure
     /// does NOT fail the run — `lastStatus` reflects the agent run only.
     public var lastDeliveryError: String?
+    /// Workspace root the job's turn runs in (tilde-expanded). Nil = the
+    /// process cwd, like every other daemon session. `AGENTS.md`, project
+    /// context and relative tool paths resolve here.
+    public var workspace: String?
+    /// Model override for the job's turns. Nil = the session profile's
+    /// model (or the server default when the profile doesn't pin one).
+    public var model: String?
 
     public init(
         id: String = UUID().uuidString,
@@ -129,6 +136,8 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
         self.profile = nil
         self.deliver = nil
         self.lastDeliveryError = nil
+        self.workspace = nil
+        self.model = nil
     }
 
     /// Field names on disk. `repeat` is a Swift keyword, so the budget is
@@ -145,7 +154,7 @@ public struct CronJob: Sendable, Codable, Equatable, Identifiable {
         case runsRemaining
         case resetEveryRuns, runsSinceReset, needsSessionReset
         case contextFrom
-        case profile, deliver
+        case profile, deliver, workspace, model
         case script
     }
 }

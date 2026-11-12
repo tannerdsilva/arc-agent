@@ -408,7 +408,8 @@ extension AppState {
 
     @discardableResult
     func addJob(name: String, schedule: String, prompt: String, firstRun: Date? = nil,
-                deliver: String? = nil, profile: String? = nil, runBudget: Int? = nil) async -> String? {
+                deliver: String? = nil, profile: String? = nil, runBudget: Int? = nil,
+                workspace: String? = nil, model: String? = nil) async -> String? {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let s = schedule.trimmingCharacters(in: .whitespacesAndNewlines)
         let p = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -416,9 +417,17 @@ extension AppState {
         // now). A one-shot with a recurring schedule is not.
         guard !n.isEmpty, !p.isEmpty else { return nil }
         if runBudget == 1, CronSchedule.isRecurring(s) { return nil }
+        // A nonexistent workspace would fail silently every firing — the
+        // form refuses to save it (mirrors CronOps.vetWorkspace).
+        if let ws = CronOps.normalizedWorkspace(workspace) {
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: ws, isDirectory: &isDir), isDir.boolValue else { return nil }
+        }
         var job = CronJob(name: n, schedule: s, prompt: p)
         job.deliver = (deliver?.isEmpty ?? true) ? nil : deliver
         job.profile = (profile?.isEmpty ?? true) ? nil : profile
+        job.workspace = CronOps.normalizedWorkspace(workspace)
+        job.model = (model?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) ? nil : model?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let runBudget {
             job.runBudget = runBudget
             job.runsRemaining = runBudget
@@ -439,6 +448,8 @@ extension AppState {
         var job = CronJob(name: "\(src.name) (copy)", schedule: src.schedule, prompt: src.prompt)
         job.deliver = src.deliver
         job.profile = src.profile
+        job.workspace = src.workspace
+        job.model = src.model
         job.script = src.script
         job.contextFrom = src.contextFrom
         job.runBudget = src.runBudget
@@ -454,7 +465,8 @@ extension AppState {
     /// Apply an edit-form submit: rename / reschedule / re-prompt, recomputing
     /// the next fire date when the schedule changed.
     func editJob(_ id: String, name: String, schedule: String, prompt: String,
-                 deliver: String?, profile: String?, runBudget: Int? = nil) async {
+                 deliver: String?, profile: String?, runBudget: Int? = nil,
+                 workspace: String? = nil, model: String? = nil) async {
         // Compare-and-save against the store's current copy, never the page
         // cache — the cache can be stale by several scheduler runs.
         guard var job = try? await cronStore.get(id: id), job != nil else { return }
@@ -469,6 +481,22 @@ extension AppState {
         job.prompt = p
         job.deliver = (deliver?.isEmpty ?? true) ? nil : deliver
         job.profile = (profile?.isEmpty ?? true) ? nil : profile
+        // Workspace/model edits: a set-but-invalid workspace keeps the old
+        // value (the form refuses the whole save via the guard below the
+        // same way addJob does — here we mirror addJob's refusal).
+        if let ws = workspace {
+            if let normalized = CronOps.normalizedWorkspace(ws) {
+                var isDir: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: normalized, isDirectory: &isDir), isDir.boolValue else { return }
+                job.workspace = normalized
+            } else {
+                job.workspace = nil
+            }
+        }
+        if let m = model {
+            let t = m.trimmingCharacters(in: .whitespacesAndNewlines)
+            job.model = t.isEmpty ? nil : t
+        }
         if let runBudget {
             // An edit is a deliberate reconfiguration — re-arm the countdown
             // unconditionally, so a spent one-shot being reshaped gets a
@@ -1175,6 +1203,14 @@ extension AppState {
                 TaskCtrlVal { Text(job.profile ?? "Server default") }
             }
             TaskCtrlLine {
+                TaskCtrlKey { Text("Workspace") }
+                TaskCtrlVal { Text(job.workspace ?? "Server directory") }
+            }
+            TaskCtrlLine {
+                TaskCtrlKey { Text("Model") }
+                TaskCtrlVal { Text(job.model ?? "Profile default") }
+            }
+            TaskCtrlLine {
                 TaskCtrlKey { Text("Runs") }
                 TaskCtrlVal {
                     if let budget = job.runBudget {
@@ -1402,6 +1438,21 @@ extension AppState {
                                 Text("Runs under the server default profile when unset.")
                             }
                         }
+                        FieldLabel(class: .taskField) {
+                            Text("Workspace")
+                            Span(class: .taskOpt) { Text("optional — defaults to the server's directory") }
+                            Input(field: "task-workspace", placeholder: "e.g. ~/Documents/SwiftProjects/arc-agent",
+                                  value: job?.workspace ?? "", attributes: [("autocomplete", "off")])
+                            Element(.p, class: .taskPreview) {
+                                Text("Roots the job's tools: AGENTS.md and relative paths resolve here. Must exist.")
+                            }
+                        }
+                        FieldLabel(class: .taskField) {
+                            Text("Model")
+                            Span(class: .taskOpt) { Text("optional — defaults to the profile's model") }
+                            Input(field: "task-model", placeholder: "e.g. claude-sonnet-4-5",
+                                  value: job?.model ?? "", attributes: [("autocomplete", "off")])
+                        }
                     }
                     .data("component-id", "tasks")
             }
@@ -1480,6 +1531,8 @@ extension Controller {
             let preset = await self.app.taskDeliverPreset
             let deliver = preset == "custom" ? (event.string("task-deliver") ?? "") : ""
             let profile = event.string("task-profile") ?? ""
+            let workspace = event.string("task-workspace") ?? ""
+            let jobModel = event.string("task-model") ?? ""
             let schedule = await self.app.taskScheduleExpression()
             let kind = await self.app.taskJobKind
             let runBudget: Int? = kind == "oneshot" ? 1 : nil
@@ -1490,14 +1543,17 @@ extension Controller {
             let mode = await self.app.tasksMode
             if !editID.isEmpty {
                 await self.app.editJob(editID, name: name, schedule: schedule, prompt: prompt,
-                                       deliver: deliver, profile: profile, runBudget: runBudget)
+                                       deliver: deliver, profile: profile, runBudget: runBudget,
+                                       workspace: workspace, model: jobModel)
             } else if mode == .edit, let sel = await self.app.tasksSelectedID {
                 await self.app.editJob(sel, name: name, schedule: schedule, prompt: prompt,
-                                       deliver: deliver, profile: profile, runBudget: runBudget)
+                                       deliver: deliver, profile: profile, runBudget: runBudget,
+                                       workspace: workspace, model: jobModel)
             } else {
                 let n = name.isEmpty ? "Untitled job" : name
                 if let id = await self.app.addJob(name: n, schedule: schedule, prompt: prompt,
-                                                  deliver: deliver, profile: profile, runBudget: runBudget) {
+                                                  deliver: deliver, profile: profile, runBudget: runBudget,
+                                                  workspace: workspace, model: jobModel) {
                     await self.app.selectTaskJob(id)
                 }
             }

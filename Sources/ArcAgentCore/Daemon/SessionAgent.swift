@@ -27,9 +27,13 @@ public actor SessionAgent: Service {
         deliveryManager: DeliveryManager,
         registry: SessionRegistry,
         responseContinuation: AsyncStream<String>.Continuation,
-        isCronSession: Bool = false
+        isCronSession: Bool = false,
+        workspace: String? = nil,
+        model: String? = nil
     ) {
         self.isCronSession = isCronSession
+        self.workspaceOverride = workspace
+        self.modelOverride = model
         self.sessionID = sessionID
         self.profile = profile
         self.agentConfig = agentConfig
@@ -43,6 +47,14 @@ public actor SessionAgent: Service {
     /// Whether this agent's turns are unattended cron runs (set by the
     /// cron runner's `getOrCreate`). Durable for the session's life.
     private let isCronSession: Bool
+
+    /// Workspace root for the session's tools (nil = the process cwd).
+    /// Cron jobs set this per firing from the job's `workspace` field.
+    private let workspaceOverride: String?
+
+    /// Model override for this session's turns (nil = profile/config
+    /// resolution). Cron jobs set this per firing from the job's `model`.
+    private let modelOverride: String?
 
     // MARK: - Engine configuration
 
@@ -129,7 +141,9 @@ public actor SessionAgent: Service {
             let resolvedProfileDefaults: ContextRecipe?
 
             if let profileConfig = try await profileManager.get(name: profile) {
-                resolvedModel = profileConfig.model ?? agentConfig.model
+                // Job-level model override (cron) wins over the profile;
+                // the profile wins over the server default.
+                resolvedModel = modelOverride ?? profileConfig.model ?? agentConfig.model
                 resolvedProvider = profileConfig.provider ?? agentConfig.provider
                 // Safe URL resolution — no force-unwrap
                 if let profileURL = profileConfig.baseURL.flatMap({ URL(string: $0) }) {
@@ -144,7 +158,7 @@ public actor SessionAgent: Service {
                 resolvedParams = ModelParameterStore.parameters(forModel: resolvedModel)
                 resolvedProfileDefaults = profileConfig.contextDefaults
             } else {
-                resolvedModel = agentConfig.model
+                resolvedModel = modelOverride ?? agentConfig.model
                 resolvedProvider = agentConfig.provider
                 if let url = URL(string: agentConfig.baseURL) {
                     resolvedBaseURL = url
@@ -194,10 +208,11 @@ public actor SessionAgent: Service {
             let toolContext = ToolContext(
                 profile: sessionProfile,
                 sessionID: sessionID,
-                // A daemon session has no per-session workspace root (the web
-                // UI does): `AGENTS.md` resolves where it always has, relative
-                // to the process.
-                workspace: FileManager.default.currentDirectoryPath,
+                // Per-session workspace root when the caller supplies one
+                // (cron jobs pin the project the job operates on); the
+                // process cwd remains the default so `AGENTS.md` resolves
+                // where it always has.
+                workspace: workspaceOverride ?? FileManager.default.currentDirectoryPath,
                 grant: AgentPowers.grant(profile: sessionProfile)
             )
             let toolRegistry = try await MutableToolRegistry.make(

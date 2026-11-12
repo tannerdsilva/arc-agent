@@ -30,7 +30,9 @@ public enum CronOps {
         script: String? = nil,
         resetEveryRuns: Int? = nil,
         contextFrom: [String]? = nil,
-        runBudget: Int? = nil
+        runBudget: Int? = nil,
+        workspace: String? = nil,
+        model: String? = nil
     ) async throws -> CronJob {
         // An EMPTY schedule is legal — a manual-only job (runs when the
         // user says so). Anything non-empty must parse.
@@ -46,6 +48,7 @@ public enum CronOps {
             throw CronOpsError("a one-shot (run budget 1) cannot have a recurring schedule — use a single ISO timestamp or no schedule")
         }
         try vetScript(script)
+        try CronOps.vetWorkspace(workspace)
         var job = CronJob(name: name, schedule: schedule, prompt: prompt)
         job.nextRunAt = trimmed.isEmpty ? nil : CronSchedule.next(schedule, after: Date())
         job.deliver = normalizedDeliver(deliver)
@@ -54,6 +57,8 @@ public enum CronOps {
         job.contextFrom = (contextFrom?.isEmpty ?? true) ? nil : contextFrom
         job.runBudget = runBudget
         if runBudget != nil { job.runsRemaining = runBudget }
+        job.workspace = CronOps.normalizedWorkspace(workspace)
+        job.model = normalizedOptional(model)
         try await store.save(job)
         return job
     }
@@ -73,7 +78,9 @@ public enum CronOps {
         script: String?? = nil,
         resetEveryRuns: Int?? = nil,
         contextFrom: [String]?? = nil,
-        runBudget: Int?? = nil
+        runBudget: Int?? = nil,
+        workspace: String?? = nil,
+        model: String?? = nil
     ) async throws -> CronJob {
         guard var job = try await store.get(id: id) else {
             throw CronOpsError("no such job: \(id)")
@@ -113,6 +120,13 @@ public enum CronOps {
             job.script = (value?.isEmpty ?? true) ? nil : value
         }
         if let resetEveryRuns { job.resetEveryRuns = resetEveryRuns }
+        if let workspace {  // outer = presence (don't touch vs set)
+            try CronOps.vetWorkspace(workspace)  // inner may be nil = clear
+            job.workspace = CronOps.normalizedWorkspace(workspace)
+        }
+        if let model {  // outer = presence (don't touch vs set)
+            job.model = normalizedOptional(model)  // inner nil or "" clears
+        }
         if let contextFrom {  // outer = presence (don't touch vs set)
             // Unknown ids are tolerated, not rejected: jobs may be created
             // in dependency order, and injection skips absent upstreams.
@@ -124,6 +138,35 @@ public enum CronOps {
         }
         try await store.save(job)
         return job
+    }
+
+    // MARK: - Workspace + model fields
+
+    /// Trim + expand `~`; empty → nil. Existence is checked separately
+    /// (``vetWorkspace``) so tests and deferred paths can normalize first.
+    public static func normalizedWorkspace(_ workspace: String?) -> String? {
+        guard let workspace else { return nil }
+        let trimmed = workspace.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return (trimmed as NSString).expandingTildeInPath
+    }
+
+    /// A job's workspace must exist and be a directory at create/edit
+    /// time — a typo'd path would otherwise fail silently every firing
+    /// (tools resolving relative to the process cwd instead). Fail loud.
+    static func vetWorkspace(_ workspace: String?) throws {
+        guard let normalized = normalizedWorkspace(workspace) else { return }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: normalized, isDirectory: &isDir), isDir.boolValue else {
+            throw CronOpsError("workspace '\(normalized)' does not exist (or is not a directory) — job left untouched")
+        }
+    }
+
+    /// Shared empty→nil normalization for plain string overrides.
+    private static func normalizedOptional(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// `"none"` → nil; a `platform:chatID` string stays (grammar validated

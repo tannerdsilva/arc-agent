@@ -86,6 +86,15 @@ public enum CronJobTool {
                         description: "Total allowed successful runs; 1 = one-shot (then the "
                             + "schedule must be a single ISO instant). Omit for unlimited."
                     ),
+                    "workspace": .string(
+                        description: "Absolute path (tilde OK) the job's turn runs in — AGENTS.md "
+                            + "and relative tool paths resolve there (create, or edit; pass \"\" "
+                            + "to clear). Must exist when set."
+                    ),
+                    "model": .string(
+                        description: "Model override for the job's turns (create, or edit; pass "
+                            + "\"\" to clear). Omit to use the profile's model."
+                    ),
                 ],
                 required: ["action"]
             ),
@@ -196,6 +205,13 @@ public enum CronJobTool {
         if let reset = args["resetEveryRuns"] as? String, let n = Int(reset) {
             job.resetEveryRuns = n > 0 ? n : nil
         }
+        if let ws = args["workspace"] as? String {
+            do { try CronOps.vetWorkspace(ws) } catch { return "Error: \(error)" }
+            job.workspace = CronOps.normalizedWorkspace(ws)
+        }
+        if let m = args["model"] as? String {
+            job.model = m.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : m.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         try await store.save(job)
         let next = job.nextRunAt.map { " Next run: \($0)." } ?? ""
         return "Created job '\(name)' (\(job.id)). Schedule: \(schedule).\(next)"
@@ -248,6 +264,13 @@ public enum CronJobTool {
             // Unknown ids tolerated: dependency-order creation is fine;
             // injection skips absent upstreams.
             job.contextFrom = refs.isEmpty ? nil : refs
+        }
+        if let ws = args["workspace"] as? String {
+            do { try CronOps.vetWorkspace(ws) } catch { return "Error: \(error)" }
+            job.workspace = CronOps.normalizedWorkspace(ws)
+        }
+        if let m = args["model"] as? String {
+            job.model = m.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : m.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         try await store.save(job)
         let next = job.nextRunAt.map { " Next run: \($0)." } ?? ""

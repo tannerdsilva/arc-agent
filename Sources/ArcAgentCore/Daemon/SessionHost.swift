@@ -249,7 +249,17 @@ public struct SessionHost: Service {
             if job.needsSessionReset {
                 await reg.remove(sessionID: sessionID)
             }
-            let handle = await reg.getOrCreate(sessionID: sessionID, profile: "default", isCron: true)
+            let handle = await reg.getOrCreate(
+                sessionID: sessionID,
+                profile: "default",
+                isCron: true,
+                // Per-job pins: the job's workspace roots the turn's tools
+                // (AGENTS.md, relative paths) and `model` overrides the
+                // profile's model for this firing. Both normalized at
+                // create/edit (tilde expanded, existence vetted).
+                workspace: job.workspace,
+                model: job.model
+            )
             let incoming = IncomingMessage(
                 id: UUID().uuidString,
                 chat: ChatTarget(platform: "cron", chatID: job.id),
