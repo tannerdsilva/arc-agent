@@ -103,6 +103,24 @@ async function ev(expr) { return driver.js(expr); }
 async function waitMs(ms) { await sleep(ms); }
 async function settle(ms = 250) { await sleep(ms); }
 
+/// poll until `expr` is truthy, or the deadline passes; returns the last value.
+///
+/// a popover open/close is a websocket round-trip plus a patch, so a single
+/// fixed settle-then-sample reads the PRE-patch state on a cold daemon and
+/// reports a false "still open"/"never opened". every open/close assertion in
+/// this file must poll the settled value; the assertion itself is unchanged.
+async function waitTrue(expr, timeoutMs = 2000, intervalMs = 50) {
+  const deadline = Date.now() + timeoutMs;
+  let last = false;
+  while (Date.now() < deadline) {
+    last = !!(await ev(expr));
+    if (last) return true;
+    await sleep(intervalMs);
+  }
+  return last;
+}
+
+
 async function waitReady() {
   await driver.waitFor(`!!document.getElementById('app') && !!document.getElementById('nav-chat')`, { timeoutMs: 20000, label: 'app boot' });
   await settle(400);
@@ -607,17 +625,13 @@ async function runInteractions() {
     const row = {};
     // open
     await ev(`document.querySelector('${trig}')?.click()`);
-    await settle(350);
-    const opened = await ev(`uxGates.popovers().${name}.open`);
-    row.opened = opened;
-    // Escape
+    row.opened = await waitTrue(`uxGates.popovers().${name}.open`);
+    // Escape — polled: the close is a round-trip + patch, not a synchronous toggle
     await driver.pressEscape();
-    await settle(300);
-    row.escClosed = !(await ev(`uxGates.popovers().${name}.open`));
+    row.escClosed = !(await waitTrue(`uxGates.popovers().${name}.open`));
     // outside click (real click in the transcript, clear of any popover)
     await ev(`document.querySelector('${trig}')?.click()`);
-    await settle(350);
-    const o2 = await ev(`uxGates.popovers().${name}.open`);
+    const o2 = await waitTrue(`uxGates.popovers().${name}.open`);
     row.esc2opened = o2;
     if (o2) {
       const pt = await ev(`(() => {
@@ -630,8 +644,7 @@ async function runInteractions() {
         return { x: Math.round(x), y: Math.round(y) };
       })()`);
       await driver.clickAt(pt.x, pt.y);
-      await settle(350);
-      row.outsideClosed = !(await ev(`uxGates.popovers().${name}.open`));
+      row.outsideClosed = !(await waitTrue(`uxGates.popovers().${name}.open`));
     } else {
       row.outsideClosed = null;
     }
@@ -786,40 +799,24 @@ async function runInteractions() {
   await settle(700);
   del.gone = !(await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some(r => r.getAttribute('data-sid') === '${probeSid}'); })()`));
   del.toast = await ev(`uxGates.toast()`);
-  del.deletedToast = del.toast.items.some((t) => t.text.includes('deleted') && t.actionLabel === 'Undo');
-  // Undo
-  await ev(`document.querySelector('.toast .toast-action')?.click()`);
-  await settle(900);
-  del.restored = await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some(r => r.getAttribute('data-sid') === '${probeSid}'); })()`);
-  const afterCount = await ev(`uxGates.sessions().count`);
-  // The point of this check is "undo restored the row once, not twice" — a
-  // global row count also moves with every session an earlier sub-test creates
-  // (the slash sub-test opens a fresh chat), so it reported a mismatch that had
-  // nothing to do with undo. Count the probe row itself.
-  const restoredRows = await ev(`(() => [...document.querySelectorAll('.sess-row')].filter(r => r.getAttribute('data-sid') === '${probeSid}').length)()`);
-  del.restoredRows = restoredRows;
+  // 2026-10-30 product decision: the delete notification deliberately carries NO
+  // Undo action (pinned from the Swift side by
+  // UXHardeningContractTests.deleteHasNoUndoToast). This check kept requiring
+  // actionLabel === 'Undo', so it has been RED since that decision — and a gate
+  // that is always red cannot gate. It now asserts the current contract, and it
+  // asserts the ABSENCE of an action, which the old version never checked.
+  del.deletedToast = del.toast.items.some((t) => t.text.includes('deleted'));
+  del.noUndo = del.toast.items.every((t) => !t.actionLabel && !t.hasAction);
+  // the row is really gone, and nothing restored it — deletion is permanent now,
+  // so a global session count is the wrong instrument (earlier sub-tests create
+  // chats); the probe row's absence is the assertion.
+  del.finalGone = !(await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some(r => r.getAttribute('data-sid') === '${probeSid}'); })()`));
+  await settle(400);
+  del.finalGoneStaysGone = !(await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some(r => r.getAttribute('data-sid') === '${probeSid}'); })()`));
   del.beforeCount = beforeCount;
-  del.afterCount = afterCount;
-  del.countConsistent = restoredRows === 1;
-  // clean up: delete again (no undo)
-  if (del.restored) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      await openMenu(probeSid);
-      await clickMenuDanger(probeSid);
-      if (await ev(`uxGates.modal().open`)) {
-        await ev(`document.getElementById('modal-confirm')?.click()`);
-        await settle(700);
-        break;
-      }
-      await driver.pressEscape();
-      await settle(250);
-    }
-    del.finalGone = !(await ev(`(() => { const rows = [...document.querySelectorAll('.sess-row')]; return rows.some(r => r.getAttribute('data-sid') === '${probeSid}'); })()`));
-  } else {
-    del.finalGone = true;
-  }
-  const delOk = del.modalOpen && del.gone && del.deletedToast && del.restored && del.countConsistent && del.finalGone;
-  add('delete flow (modal -> deleted -> toast+Undo -> restored -> cleanup)', delOk, del);
+  del.afterCount = await ev(`uxGates.sessions().count`);
+  const delOk = del.modalOpen && del.gone && del.deletedToast && del.noUndo && del.finalGone && del.finalGoneStaysGone;
+  add('delete flow (modal -> deleted -> toast with no Undo -> stays deleted)', delOk, del);
 
   // ---- 6. dock 5x cycle ------------------------------------------------------
   const dock = {};
