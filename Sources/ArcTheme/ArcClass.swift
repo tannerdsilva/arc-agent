@@ -597,6 +597,8 @@ public enum ArcClass: String, CaseIterable, Sendable {
 	case taskHistCard = "task-hist-card"
 	case taskHistOut = "task-hist-out"
 	case taskHistRow = "task-hist-row"
+	case kbBoardsHead = "kb-boards-head"
+	case kbBoardsLabel = "kb-boards-label"
 	case taskScriptBox = "task-script-box"
 	case taskScriptNote = "task-script-note"
 	case taskRunItem = "task-run-item"

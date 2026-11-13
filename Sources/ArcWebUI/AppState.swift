@@ -120,11 +120,27 @@ struct ConfirmRequest: Equatable {
     var body: String
 }
 
+/// A named kanban board — a grouping of columns and cards.
+///
+/// Boards are lightweight: an id and a display name. The implicit id
+/// `"default"` is what legacy single-board data (columns and cards stored
+/// without a `board` key) reads as, so an old settings file needs no
+/// migration write — it simply appears as one board named "Default".
+struct KBBoard: Codable, Equatable, Identifiable {
+    var id: String
+    var name: String
+}
+
+/// The board a column belongs to. `nil` is the legacy single-board world
+/// and always reads as the `"default"` board (`AppState.boardID`).
+let kanbanDefaultBoardID = "default"
+
 /// Kanban board column (name + accent color).
 struct KBColumn: Codable, Equatable, Identifiable {
     var id: String
     var name: String
     var color: String
+    var board: String?
 }
 
 /// Kanban board card.
@@ -133,6 +149,7 @@ struct KBCard: Codable, Equatable, Identifiable {
     var columnID: String
     var title: String
     var note: String = ""
+    var board: String?
 }
 
 /// A user-managed model configuration preset (shown in the chat config selector).
@@ -353,6 +370,12 @@ struct AppSettings: Codable, Equatable {
     /// Kanban board state.
     var kanbanColumns: [KBColumn] = []
     var kanbanCards: [KBCard] = []
+    /// Named boards (Hermes parity). An empty list on load means legacy
+    /// single-board data — `ensureKanbanBoards` derives the Default board
+    /// from it; columns/cards with a nil `board` read as that board.
+    var kanbanBoards: [KBBoard] = []
+    /// The board the Kanban page is showing. `nil` resolves to the default.
+    var kanbanSelectedBoard: String? = nil
 
     /// Per-profile enabled skills (profile name -> list of skill names).
     var profileSkills: [String: [String]] = [:]
@@ -422,7 +445,7 @@ struct AppSettings: Codable, Equatable {
         case recentFiles
         case sessionConfig, sessionProfile, sessionThinking, sessionTitles, archivedSessions
         case chatCategories, sessionCategories
-        case kanbanColumns, kanbanCards
+        case kanbanColumns, kanbanCards, kanbanBoards, kanbanSelectedBoard
         case todos
         // `scheduledJobs` deliberately absent: the cron store owns jobs since
         // phase 2; the legacy key is lifted once by `ScheduledJobsImport`.
@@ -491,6 +514,8 @@ struct AppSettings: Codable, Equatable {
         queueLoopCount = try c.decodeIfPresent(Int.self, forKey: .queueLoopCount) ?? 2
         kanbanColumns = try c.decodeIfPresent([KBColumn].self, forKey: .kanbanColumns) ?? []
         kanbanCards = try c.decodeIfPresent([KBCard].self, forKey: .kanbanCards) ?? []
+        kanbanBoards = try c.decodeIfPresent([KBBoard].self, forKey: .kanbanBoards) ?? []
+        kanbanSelectedBoard = try c.decodeIfPresent(String.self, forKey: .kanbanSelectedBoard)
         profileSkills = try c.decodeIfPresent([String: [String]].self, forKey: .profileSkills) ?? [:]
         composerDrafts = try c.decodeIfPresent([String: String].self, forKey: .composerDrafts) ?? [:]
         lastTurnLimit = try c.decodeIfPresent(Int.self, forKey: .lastTurnLimit) ?? 25
@@ -1063,6 +1088,11 @@ actor AppState {
     /// Card awaiting delete confirmation — the board's in-place two-step, the
     /// same guard `confirmColumn` already gives columns.
     var confirmCard: String? = nil
+    // Multi-board state (Hermes parity): the inline create form, the board
+    // row armed for delete, and the board being renamed inline.
+    var addingBoard = false
+    var confirmBoard: String? = nil
+    var renamingBoardID: String? = nil
 
     /// Shared palette for category / kanban column colors.
     static let palette: [String] = [
@@ -1352,6 +1382,11 @@ actor AppState {
         // phase 7: kanban board state
         var kanbanColumns: [KBColumn] = []
         var kanbanCards: [KBCard] = []
+        var kanbanBoards: [KBBoard] = []
+        var kanbanSelectedBoard: String? = nil
+        var addingBoard = false
+        var confirmBoard: String? = nil
+        var renamingBoardID: String? = nil
         var addingColumn = false
         var addingCardColumnID: String? = nil
         var kanbanAddError: String? = nil
@@ -1507,6 +1542,11 @@ actor AppState {
         self.settings.insightsRangeDays = fixture.insightsRangeDays
         self.settings.kanbanColumns = fixture.kanbanColumns
         self.settings.kanbanCards = fixture.kanbanCards
+        self.settings.kanbanBoards = fixture.kanbanBoards
+        self.settings.kanbanSelectedBoard = fixture.kanbanSelectedBoard
+        self.addingBoard = fixture.addingBoard
+        self.confirmBoard = fixture.confirmBoard
+        self.renamingBoardID = fixture.renamingBoardID
         self.registry = MutableToolRegistry(builtIn: CompileTimeToolRegistry())
         for tool in fixture.registryTools {
             // Render fixtures are neither compiled in nor plugin-discovered:
@@ -1618,7 +1658,7 @@ actor AppState {
             &self.settings,
             resolved: .init(arc: resolvedConfig, apiKey: Self.envAPIKey)
         )
-        self.settings = AppState.seedKanban(into: self.settings)
+        self.settings = AppState.ensureKanbanBoards(into: self.settings)
         if Self.migrateLegacyAuxModels(into: &self.settings, arc: &self.arcConfig) {
             Self.persist(self.settings)
         }
@@ -2380,14 +2420,34 @@ actor AppState {
         return lifted
     }
 
-    /// Seed the default kanban columns on first run (no stored board yet).
-    static func seedKanban(into s: AppSettings) -> AppSettings {
+    /// The board a row belongs to: an explicit board id, or the default
+    /// board for legacy rows stored before boards existed.
+    static func boardID(_ board: String?) -> String { board ?? kanbanDefaultBoardID }
+
+    /// Derive the board list from legacy single-board data and seed the
+    /// default columns on first run (no stored board yet).
+    ///
+    /// Legacy columns/cards carry `board == nil`, which `boardID(_:)` reads
+    /// as the default board — so an old settings file shows up as one board
+    /// named "Default" without a migration write. A brand-new install gets
+    /// the Default board seeded with the three standard columns; new boards
+    /// the user creates seed their own columns at creation time.
+    static func ensureKanbanBoards(into s: AppSettings) -> AppSettings {
         var s = s
+        if s.kanbanBoards.isEmpty {
+            s.kanbanBoards = [KBBoard(id: kanbanDefaultBoardID, name: "Default")]
+        }
+        // A stale selection (a deleted board's id read from disk) falls back
+        // to the first board rather than showing an empty page.
+        if s.kanbanSelectedBoard == nil || !s.kanbanBoards.contains(where: { $0.id == s.kanbanSelectedBoard }) {
+            s.kanbanSelectedBoard = s.kanbanBoards.first?.id
+        }
         guard s.kanbanColumns.isEmpty else { return s }
         let palette = ["#5BB98C", "#2F9EB7", "#E1914B", "#9D5CD0"]
         let names = ["Backlog", "In progress", "Done"]
         s.kanbanColumns = names.enumerated().map { i, name in
-            KBColumn(id: UUID().uuidString, name: name, color: palette[i % palette.count])
+            KBColumn(id: UUID().uuidString, name: name, color: palette[i % palette.count],
+                     board: kanbanDefaultBoardID)
         }
         return s
     }

@@ -46,7 +46,8 @@ extension ArcWebUITestRoot {
 		/// - a dropdown (1): `mc-effort` is the `Select` family, B2.2's card.
 		private static let unadopted = [
 			"cat-rename-input", "cat-name-input", "cat-color-input",
-			"kb-addcol-name", "kb-addcard-name", "clarify-input",
+			"kb-addcol-name", "kb-addcard-name", "kb-board-name",
+			"kb-board-ren-name", "clarify-input",
 			"composer-input", "storage-edit-id", "ws-new-name",
 			"skill-name-input", "skill-desc-input",
 			"mc-effort",

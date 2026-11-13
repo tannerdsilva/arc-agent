@@ -3564,6 +3564,37 @@ extension Controller {
         return await self.changed()
     }
 
+    @Wired("kb-addboard", events: [.click])
+    func handleKbAddBoard(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.setAddingBoard(!self.app.addingBoard)
+        return await self.changed()
+    }
+
+    @Wired("kb-board-form", events: [.submit, .click])
+    func handleKbBoardForm(_ event: EventData) async -> [FragmentUpdate] {
+        if event.event == "submit" {
+            await self.app.addKanbanBoard(name: event.string("kb-board-name") ?? "")
+        } else if event.string("targetId") != "kb-board-cancel" {
+            return []
+        } else {
+            await self.app.setAddingBoard(false)
+        }
+        return await self.changed()
+    }
+
+    @Wired("kb-board-ren-form", events: [.submit, .click])
+    func handleKbBoardRenForm(_ event: EventData) async -> [FragmentUpdate] {
+        if event.event == "submit" {
+            let id = event.string("kb-board-ren-id") ?? ""
+            await self.app.renameKanbanBoard(id, to: event.string("kb-board-ren-name") ?? "")
+        } else if event.string("targetId") != "kb-board-ren-cancel" {
+            return []
+        } else {
+            await self.app.setRenamingBoard(nil)
+        }
+        return await self.changed()
+    }
+
     @Wired("kb-addcard-form", events: [.submit, .click])
     func handleKbAddCardForm(_ event: EventData) async -> [FragmentUpdate] {
         if event.event == "submit" {
@@ -3707,6 +3738,20 @@ extension Controller {
     private func kanbanAction(_ tid: String) async -> [FragmentUpdate] {
         if tid == "kb-addcol" {
             await app.setAddingColumn(!app.addingColumn)
+        } else if tid == "kb-addboard" {
+            await app.setAddingBoard(!app.addingBoard)
+        } else if tid.hasPrefix("kb-sel-"), let id = dec(String(tid.dropFirst("kb-sel-".count))) {
+            await app.selectKanbanBoard(id)
+        } else if tid.hasPrefix("kb-dboard-"), let id = dec(String(tid.dropFirst("kb-dboard-".count))) {
+            // two-step, like the column header: first click arms, second deletes
+            if await app.confirmBoard == id {
+                await app.deleteKanbanBoard(id)
+            } else {
+                await app.setConfirmBoard(id)
+                await app.setRenamingBoard(nil)
+            }
+        } else if tid.hasPrefix("kb-renboard-"), let id = dec(String(tid.dropFirst("kb-renboard-".count))) {
+            await app.setRenamingBoard(app.renamingBoardID == id ? nil : id)
         } else if tid.hasPrefix("kb-pdel-"), let id = dec(String(tid.dropFirst("kb-pdel-".count))) {
             await self.confirmDeleteKanban(id)
         } else if tid.hasPrefix("kb-bdel-"), let id = dec(String(tid.dropFirst("kb-bdel-".count))) {

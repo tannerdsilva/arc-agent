@@ -1124,6 +1124,11 @@ public static let css: String = """
     .task-hist-row[data-st="timeout"] .task-hist-status { color: var(--danger, #c0504d); }
     .task-hist-out { color: var(--text); min-width: 0; overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; }
+    /* Kanban boards section: label row + board rows in the side panel. */
+    .kb-boards-head { display: flex; align-items: center; justify-content: space-between;
+      margin: 10px 0 4px; }
+    .kb-boards-label { font-size: 11px; font-weight: 600; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--muted, var(--text-dim, #888)); }
     /* Script jobs: the script box (mono, inset) + helper, and the
        Hermes-style per-run output disclosure rows. */
     .task-script-box { font-family: var(--mono, monospace); font-size: 0.9em;

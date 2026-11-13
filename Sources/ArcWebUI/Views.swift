@@ -5024,6 +5024,83 @@ extension AppState {
                 }
             }
             PanelBody {
+                // ── Boards (Hermes parity): select, create, rename, delete ──
+                Div(class: .kbBoardsHead) {
+                    Span(class: .kbBoardsLabel) { Text("Boards") }
+                    ArcButton(id: "kb-addboard", component: "kb-addboard", class: .plusBtn) {
+                        if addingBoard {
+                            WebUIIcon(.x, size: .small)
+                        } else {
+                            WebUIIcon(.plus, size: .small)
+                        }
+                    }
+                    .title(addingBoard ? "Cancel" : "New board")
+                }
+                if addingBoard {
+                    Form(action: "", method: nil, id: "kb-board-form", class: .catAddForm) {
+                        Input(field: "kb-board-name",
+                              placeholder: "Board name", type: .text,
+                              attributes: [
+                                ("data-component-id", "kb-board-name"),
+                                ("autofocus", ""),
+                              ])
+                        CatAddActions {
+                            ArcButton("Add", class: .primaryBtn, type: .submit)
+                            ArcButton("Cancel", id: "kb-board-cancel", component: nil, class: .ghostBtn)
+                        }
+                    }
+                    .data("component-id", "kb-board-form")
+                }
+                for board in settings.kanbanBoards {
+                    let bid = enc(board.id)
+                    let selected = AppState.boardID(settings.kanbanSelectedBoard) == board.id
+                    let armed = confirmBoard == board.id
+                    if renamingBoardID == board.id {
+                        ErasedViews([Form(action: "", method: nil, id: "kb-board-ren-form", class: .catAddForm) {
+                            Input(field: "kb-board-ren-name",
+                                  placeholder: board.name, type: .text,
+                                  attributes: [
+                                    ("data-component-id", "kb-board-ren-name"),
+                                    ("value", board.name),
+                                    ("autofocus", ""),
+                                  ])
+                            Input(name: "kb-board-ren-id", type: .hidden,
+                                  attributes: [("id", "kb-board-ren-id"), ("value", board.id)])
+                            CatAddActions {
+                                ArcButton("Save", class: .primaryBtn, type: .submit)
+                                ArcButton("Cancel", id: "kb-board-ren-cancel", component: nil, class: .ghostBtn)
+                            }
+                        }
+                        .data("component-id", "kb-board-ren-form")])
+                    } else {
+                        let rowClass: ClassName = selected ? ClassName(.listRow, .sel) : ClassName(.listRow)
+                        ErasedViews([Div(class: rowClass) {
+                            ArcButton(id: "kb-sel-\(bid)", component: nil, class: .kbPcol) {
+                                LrName { Text(board.name) }
+                                LrSub { Text(boardCardCount(board.id)) }
+                            }
+                            .attribute("style", "flex:1")
+                            RowActions {
+                                ArcButton(id: "kb-renboard-\(bid)", component: nil, class: .iconMini) {
+                                    WebUIIcon(.edit, size: .small)
+                                }
+                                .title("Rename board")
+                                ArcButton(id: "kb-dboard-\(bid)", component: nil,
+                                          class: ClassName(armed ? "sess-confirm" : "icon-mini danger")) {
+                                    if armed {
+                                        Text(" Confirm?")
+                                    } else {
+                                        WebUIIcon(.x, size: .small)
+                                    }
+                                }
+                                .title("Delete board")
+                            }
+                        }])
+                    }
+                }
+                if settings.kanbanBoards.isEmpty {
+                    EmptyHint { Text("No boards — press + to add one.") }
+                }
                 if addingColumn {
                     Form(action: "", method: nil, id: "kb-addcol-form", class: .catAddForm) {
                         Input(field: "kb-addcol-name",
@@ -5052,7 +5129,7 @@ extension AppState {
                     }
                     .data("component-id", "kb-addcol-form")
                 }
-                for col in settings.kanbanColumns {
+                for col in selectedKanbanColumns() {
                     let cid = enc(col.id)
                     let count = settings.kanbanCards.filter { $0.columnID == col.id }.count
                     Div(class: .listRow) {
@@ -5079,7 +5156,7 @@ extension AppState {
                         }
                     }
                 }
-                if settings.kanbanColumns.isEmpty {
+                if selectedKanbanColumns().isEmpty {
                     EmptyHint { Text("No columns — press + to add one.") }
                 }
             }
@@ -5090,8 +5167,9 @@ extension AppState {
 
     /// Board: one scrollable row of columns with their cards (arc-style).
     func kanbanMain() -> some WebUI.View {
-        Group {
-            if settings.kanbanColumns.isEmpty {
+        let cols = selectedKanbanColumns()
+        return Group {
+            if cols.isEmpty {
                 MainView {
                     Blank {
                         Big { WebUIIcon(.columns, size: .extraLarge) }
@@ -5102,7 +5180,7 @@ extension AppState {
             } else {
                 Div(class: ClassName(.kanbanMain, .mainView)) {
                     Div(class: .kanbanBoard) {
-                        for col in settings.kanbanColumns {
+                        for col in cols {
                             ErasedViews([kanbanColumnHTML(col)])
                         }
                     }

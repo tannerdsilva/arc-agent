@@ -778,6 +778,127 @@ extension AppState {
 
     func setAddingColumn(_ on: Bool) { addingColumn = on }
 
+    /// The id of the board the Kanban page is showing (nil selection reads
+    /// as the default board, matching legacy data).
+    func selectedBoardID() -> String {
+        settings.kanbanSelectedBoard ?? kanbanDefaultBoardID
+    }
+
+    /// Columns of the selected board, in stored order.
+    func selectedKanbanColumns() -> [KBColumn] {
+        let sel = selectedBoardID()
+        return settings.kanbanColumns.filter { AppState.boardID($0.board) == sel }
+    }
+
+    /// "N cards" label for a board's row: cards whose column belongs to it.
+    func boardCardCount(_ id: String) -> String {
+        let cols = Set(settings.kanbanColumns
+            .filter { AppState.boardID($0.board) == id }
+            .map { $0.id })
+        let n = settings.kanbanCards.filter { cols.contains($0.columnID) }.count
+        return "\(n) card\(n == 1 ? "" : "s")"
+    }
+
+    // MARK: Boards
+
+    func setAddingBoard(_ on: Bool) {
+        addingBoard = on
+        if on { renamingBoardID = nil; confirmBoard = nil }
+    }
+
+    func setConfirmBoard(_ id: String?) { confirmBoard = id }
+
+    func setRenamingBoard(_ id: String?) {
+        renamingBoardID = id
+        if id != nil { addingBoard = false; confirmBoard = nil }
+    }
+
+    func selectKanbanBoard(_ id: String) {
+        guard settings.kanbanBoards.contains(where: { $0.id == id }) else { return }
+        settings.kanbanSelectedBoard = id
+        // transient UI state does not survive a board switch
+        confirmBoard = nil
+        addingBoard = false
+        renamingBoardID = nil
+        confirmColumn = nil
+        confirmCard = nil
+        addingCardColumnID = nil
+        saveSettings()
+    }
+
+    func addKanbanBoard(name raw: String) {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            _ = hint("Board needs a name.", kind: "error")
+            return
+        }
+        // names are display labels; two boards may share one only by
+        // accident — refuse the exact duplicate so a double-submit
+        // creates one board, not two.
+        guard !settings.kanbanBoards.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) else {
+            _ = hint("A board named '\(name)' already exists.", kind: "error")
+            return
+        }
+        let board = KBBoard(id: UUID().uuidString, name: name)
+        settings.kanbanBoards.append(board)
+        settings.kanbanSelectedBoard = board.id
+        addingBoard = false
+        confirmBoard = nil
+        // a fresh board starts usable: the three standard columns, so the
+        // user lands on a board they can drop cards into immediately.
+        let palette = ["#5BB98C", "#2F9EB7", "#E1914B", "#9D5CD0"]
+        let names = ["Backlog", "In progress", "Done"]
+        for (i, n) in names.enumerated() {
+            settings.kanbanColumns.append(
+                KBColumn(id: UUID().uuidString, name: n, color: palette[i % palette.count], board: board.id))
+        }
+        saveSettings()
+    }
+
+    func renameKanbanBoard(_ id: String, to raw: String) {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty,
+              let i = settings.kanbanBoards.firstIndex(where: { $0.id == id }),
+              !settings.kanbanBoards.contains(where: { $0.id != id && $0.name.caseInsensitiveCompare(name) == .orderedSame })
+        else {
+            if name.isEmpty { _ = hint("Board needs a name.", kind: "error") }
+            return
+        }
+        settings.kanbanBoards[i].name = name
+        renamingBoardID = nil
+        saveSettings()
+    }
+
+    func deleteKanbanBoard(_ id: String) {
+        confirmBoard = nil
+        // the last board is not deletable — the page has nothing to show
+        // without one, and recreating the default from an empty list would
+        // resurrect the "Default" name the user just removed.
+        guard settings.kanbanBoards.count > 1 else {
+            _ = hint("The last board cannot be deleted.", kind: "error")
+            return
+        }
+        guard settings.kanbanBoards.contains(where: { $0.id == id }) else { return }
+        let columnIDs = Set(settings.kanbanColumns
+            .filter { AppState.boardID($0.board) == id }
+            .map { $0.id })
+        settings.kanbanColumns.removeAll { columnIDs.contains($0.id) }
+        settings.kanbanCards.removeAll { columnIDs.contains($0.columnID) }
+        settings.kanbanBoards.removeAll { $0.id == id }
+        // a legacy nil-board column reads as the default board, so deleting
+        // the default must also clear those — they would otherwise resurface
+        // as orphans on the next Default board creation.
+        if id == kanbanDefaultBoardID {
+            settings.kanbanColumns.removeAll { $0.board == nil }
+            settings.kanbanCards.removeAll { $0.board == nil }
+        }
+        if settings.kanbanSelectedBoard == id {
+            settings.kanbanSelectedBoard = settings.kanbanBoards.first?.id
+        }
+        addingCardColumnID = nil
+        saveSettings()
+    }
+
     func addKanbanColumn(name raw: String, color: String) {
         let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else {
@@ -788,7 +909,8 @@ extension AppState {
             _ = hint("Choose a color for the column.", kind: "error")
             return
         }
-        settings.kanbanColumns.append(KBColumn(id: UUID().uuidString, name: name, color: color))
+        settings.kanbanColumns.append(
+            KBColumn(id: UUID().uuidString, name: name, color: color, board: selectedBoardID()))
         saveSettings()
     }
 
@@ -824,7 +946,8 @@ extension AppState {
             return
         }
         kanbanAddError = nil
-        settings.kanbanCards.append(KBCard(id: UUID().uuidString, columnID: columnID, title: t))
+        settings.kanbanCards.append(
+            KBCard(id: UUID().uuidString, columnID: columnID, title: t, board: selectedBoardID()))
         addingCardColumnID = nil
         saveSettings()
     }

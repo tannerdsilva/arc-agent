@@ -293,7 +293,7 @@ extension ArcWebUITestRoot {
 			// routing change and needs the card that owns it.
 			let source = try Self.viewsSource()
 			let count = Self.occurrences(of: "data-component-id", in: source)
-			#expect(count == 38, "Views.swift carries \(count) `data-component-id` spellings, not the recorded 38")
+			#expect(count == 40, "Views.swift carries \(count) `data-component-id` spellings, not the recorded 40")
 		}
 
 		@Test("the rows are not boundaries")
