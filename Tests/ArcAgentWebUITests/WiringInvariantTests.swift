@@ -21,7 +21,16 @@ extension ArcWebUITestRoot {
     /// fresh router and assert the exact handler count. Deleting a `@Wired`
     /// annotation drops exactly one group's count, so this pin turns only one
     /// way. `wireAll` must register exactly 151: 149 generated + the two
-    /// literal escapes `sidebar-plugin-toggle` + `cat-pick`. The 12
+    /// literal escapes `sidebar-plugin-toggle` + `cat-pick`.
+    ///
+    /// The count is read from `hostHandlerCount`, not `handlerCount(in: .default)`:
+    /// since no-webui 2.8.0 a registration made without a session lands in the
+    /// router's HOST table (§22.1/D1), not in `.default`. `.default` is a real
+    /// render session for tokenless pages, and counting it here would read zero
+    /// for a fully wired host — a pin that cannot tell "nothing registered" from
+    /// "everything registered in the other scope".
+    ///
+    /// The 12
     /// `nav-\(id)` registrations moved to the render pass (see
     /// `NavRoutingContractTests`), and toasts, insights, logs, the
     /// scheduled-tasks boundary, tools, the context pane and settings followed
@@ -56,7 +65,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_chat(router)
-            #expect(router.handlerCount(in: .default) == 45, "chat group registration drifted")
+            #expect(router.hostHandlerCount == 45, "chat group registration drifted")
         }
 
         // settings register at render time across `settingsMain`'s sections,
@@ -68,7 +77,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_settings_admin(router)
-            #expect(router.handlerCount(in: .default) == 36, "settings_admin group registration drifted")
+            #expect(router.hostHandlerCount == 36, "settings_admin group registration drifted")
         }
 
         @Test("every skills handler is registered after wireGroup_skills")
@@ -76,7 +85,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_skills(router)
-            #expect(router.handlerCount(in: .default) == 15, "skills group registration drifted")
+            #expect(router.hostHandlerCount == 15, "skills group registration drifted")
         }
 
         @Test("every profiles handler is registered after wireGroup_profiles")
@@ -84,7 +93,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_profiles(router)
-            #expect(router.handlerCount(in: .default) == 11, "profiles group registration drifted")
+            #expect(router.hostHandlerCount == 11, "profiles group registration drifted")
         }
 
         @Test("every mcp handler is registered after wireGroup_mcp")
@@ -92,7 +101,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_mcp(router)
-            #expect(router.handlerCount(in: .default) == 8, "mcp group registration drifted")
+            #expect(router.hostHandlerCount == 8, "mcp group registration drifted")
         }
 
         @Test("every chatmenu handler is registered after wireGroup_chatmenu")
@@ -100,7 +109,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_chatmenu(router)
-            #expect(router.handlerCount(in: .default) == 7, "chatmenu group registration drifted")
+            #expect(router.hostHandlerCount == 7, "chatmenu group registration drifted")
         }
 
         @Test("every workspaces handler is registered after wireGroup_workspaces")
@@ -108,7 +117,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_workspaces(router)
-            #expect(router.handlerCount(in: .default) == 6, "workspaces group registration drifted")
+            #expect(router.hostHandlerCount == 6, "workspaces group registration drifted")
         }
 
         @Test("every queue handler is registered after wireGroup_queue")
@@ -116,7 +125,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_queue(router)
-            #expect(router.handlerCount(in: .default) == 6, "queue group registration drifted")
+            #expect(router.hostHandlerCount == 6, "queue group registration drifted")
         }
 
         // tools register at render time in `toolsPanel`, so there is no boot
@@ -127,7 +136,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_plugins(router)
-            #expect(router.handlerCount(in: .default) == 2, "plugins group registration drifted")
+            #expect(router.hostHandlerCount == 2, "plugins group registration drifted")
         }
 
         // logs register at render time in `logsPanel`, so there is no boot
@@ -145,7 +154,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_todos(router)
-            #expect(router.handlerCount(in: .default) == 1, "todos group registration drifted")
+            #expect(router.hostHandlerCount == 1, "todos group registration drifted")
         }
 
         @Test("every cron handler is registered after wireGroup_cron")
@@ -153,7 +162,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_cron(router)
-            #expect(router.handlerCount(in: .default) == 10,
+            #expect(router.hostHandlerCount == 10,
                     "cron group: 8 schedule-editor change wires + task-search input + deliver preset — `tasks` itself registers at render time through `tasksBoundary`")
         }
 
@@ -162,7 +171,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_regen(router)
-            #expect(router.handlerCount(in: .default) == 1, "regen group registration drifted")
+            #expect(router.hostHandlerCount == 1, "regen group registration drifted")
         }
 
         @Test("every message_actions handler is registered after wireGroup_message_actions")
@@ -170,7 +179,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_message_actions(router)
-            #expect(router.handlerCount(in: .default) == 1, "message_actions group registration drifted")
+            #expect(router.hostHandlerCount == 1, "message_actions group registration drifted")
         }
 
         @Test("wireAll registers exactly 151 handlers (149 generated + sidebar-plugin-toggle + cat-pick - toasts, insights, logs, cron, tools, ctxpane, settings)")
@@ -179,7 +188,7 @@ extension ArcWebUITestRoot {
             let controller = Controller(app: Self.app, push: Self.push)
             await controller.wireAll(router)
 
-            let count = router.handlerCount(in: .default)
+            let count = router.hostHandlerCount
             #expect(
                 count == 151,
                 "wireAll must register exactly 151 handlers: 149 generated (toasts, insights, logs, the scheduled-tasks boundary, tools, ctxpane and settings register at render time) + sidebar-plugin-toggle + cat-pick, got \(count)"

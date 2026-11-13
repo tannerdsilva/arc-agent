@@ -33,12 +33,16 @@ public enum AppShell {
     /// three colliding `:root` tokens (`--radius-sm/md/lg`) and ten like-named classes
     /// (`chip`, `kv`, `toast`, …) silently change ownership.
     /// - parameter renderToken: the token this response was rendered for. The page
-    ///   publishes it in the `arc-upload-token` meta and nowhere else, so the
-    ///   upload route can tell a page this host served from one that never
-    ///   loaded. It deliberately does NOT ride `RuntimeConfig.renderToken` (see
-    ///   the note in the body).
-    ///   nil/empty leaves the meta out of the page — a page rendered with no
-    ///   other runtime knob still carries the `{}` shape, byte for byte.
+    ///   publishes it twice, deliberately: in the `arc-upload-token` meta (the
+    ///   upload route's credential, until 2.10.0's upload transport replaces it)
+    ///   and as `RuntimeConfig.renderToken`. The runtime-config copy is what
+    ///   makes the engine echo the token on every event and ping, so the server
+    ///   resolves each frame to the render session it minted for this response —
+    ///   the session this page's render-time `controlAttributes` handlers
+    ///   registered into. Everything the render did not wire still answers from
+    ///   the router's host table (2.8.0: session first, host second — §22.1/D1).
+    ///   nil/empty leaves both out of the page — a page rendered with no other
+    ///   runtime knob still carries the `{}` shape, byte for byte.
     /// - parameter maxFrameBytes: the frame budget the server this page is served
     ///   from enforces (`WebUIServerConfig.maxFrameSize`), published so the engine
     ///   can refuse an over-budget frame before it closes the socket with 1009.
@@ -52,24 +56,34 @@ public enum AppShell {
         maxFrameBytes: Int? = nil
     ) -> @Sendable (UnsafeMarkup, String) -> WebUI.HTMLDocument {
         { body, themeAttrs in
-            // only a real token goes into the meta: an empty one would say "a
+            // only a real token goes into the page: an empty one would say "a
             // token exists" to the client without ever validating.
             let token = (renderToken?.isEmpty == false) ? renderToken : nil
-            // The upload token rides ITS OWN meta, never `RuntimeConfig.renderToken`.
+            // The token rides the runtime config AND its own meta.
             //
-            // `renderToken` in the runtime config makes the engine echo the token
-            // on every event frame, and the server resolves such a frame to the
-            // render session that token names (`WebUIServer.boundSession`) instead
-            // of the `.default` session a hand-wired host registers into. arc wires
-            // its controls ONCE at boot (`Controller.wireAll`) — the documented
-            // shape for `init(router:eventRouter:…)` — so every token-bound frame
-            // would be dispatched into a session that has never heard of the
-            // control's id and answered with nothing at all: clicks, sends, menus
-            // and the whole rail go dead with no error on either side. The token
-            // exists for the upload route alone (it proves the page came from a
-            // render this host served), so it is published where only that client
-            // reads it.
-            let runtime = RuntimeConfig(maxFrameBytes: maxFrameBytes)
+            // `RuntimeConfig.renderToken` makes the engine echo the token on
+            // every event frame, and the server resolves such a frame to the
+            // render session that token names (`WebUIServer.boundSession`)
+            // instead of the `.default` session a tokenless page routes in.
+            //
+            // Before no-webui 2.8.0 that was fatal for a hand-wired host: arc
+            // wires its controls ONCE at boot (`Controller.wireAll`), that boot
+            // wiring landed in `.default`, and a token-bound frame dispatched
+            // into a session that had never heard of the control's id — clicks,
+            // sends, menus and the whole rail went dead with no error on either
+            // side. 2.8.0 removed the trap by giving the router two scopes: the
+            // `register(_:for:)` calls `wireAll` makes land in ONE sealed HOST
+            // table, each render pass gets its own session (where
+            // `controlAttributes` lands), and dispatch resolves the session
+            // first and the host table second (§22.1/D1). So a token-bound frame
+            // reaches the page's own render-time handlers, and every id the
+            // render did not wire still answers from the host table: publishing
+            // the token is what makes BOTH populations reachable from one page.
+            //
+            // The `arc-upload-token` meta stays alongside it: that is the
+            // upload route's credential until 2.10.0 (A6) makes the render
+            // token the upload token and deletes the meta.
+            let runtime = RuntimeConfig(renderToken: token, maxFrameBytes: maxFrameBytes)
             return WebUI.HTMLDocument(
                 title: "ARC Agent",
                 body: body,
@@ -83,9 +97,10 @@ public enum AppShell {
                 },
                 htmlAttributes: themeAttrs,
                 devMode: false,
-                // The frame budget is the only runtime knob arc publishes: one
-                // value named here, one value enforced by the socket that served
-                // this page. (The upload token is a separate meta — see above.)
+                // Two runtime knobs, both facts about the socket that served
+                // this page: the render token the engine echoes (so frames
+                // resolve to this render's session) and the frame budget the
+                // socket enforces. Either being absent drops only itself.
                 runtimeConfig: runtime.isEmpty ? nil : runtime,
                 // Extras, not a restated policy: a full policy names no nonce source, and
                 // `HTMLDocument` then suppresses the pre-paint theme prelude rather than

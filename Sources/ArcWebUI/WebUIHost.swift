@@ -327,9 +327,15 @@ public struct WebUIHost: Service {
         // deprecated `requestRender:` init predates — and the reason arc needs no
         // materializer of its own.
         //
-        // The token is the one THIS response was minted for: it goes into the
-        // document's `webui-config` meta (so the page can echo it on an upload)
-        // and into the store the upload route validates against.
+        // The token is the one THIS response was minted for: it rides the
+        // document's `webui-config` (the engine echoes it, so every frame
+        // resolves to the session this render's `controlAttributes` handlers
+        // registered into), its `arc-upload-token` meta (the upload route's
+        // credential until A6) and the store the upload route validates against.
+        // The shell above is rendered OUTSIDE a render pass — it is the same
+        // document skeleton on every response — so it registers no session
+        // handlers; the app's `appShell()` render is the one that runs inside the
+        // server's `RenderContext` and lands in this token's session.
         let pageProvider: @Sendable (String?, String) async -> WebUI.HTMLDocument = { [app] deepLink, renderToken in
             if let sid = deepLink, !sid.isEmpty {
                 await app.openDeepLink(sid)
@@ -378,8 +384,10 @@ public struct WebUIHost: Service {
         }
 
         // `eventRouter:` hands the server the router arc wires by hand: the
-        // `wireAll` registrations below land in its default session, and without
-        // this init they would land in a router the server never consults.
+        // `wireAll` registrations below land in its HOST table — one table for
+        // the whole router, sealed after the boot wiring and consulted by every
+        // dispatch after the page's own session (§22.1/D1). Without this init
+        // they would land in a router the server never consults.
         let server = WebUIServer(
             router: pageRouter,
             eventRouter: router,
@@ -419,6 +427,15 @@ public struct WebUIHost: Service {
             await edge.push(updates)
         })
         await controller.wireAll(router)
+        // the host table is complete: seal it before the server can bind, so a
+        // registration made without a session is a logged refusal (`.error`,
+        // naming the id) instead of a table that grows under a live listener.
+        // `wireAll` is arc's only host-table writer — every other registration
+        // is a render pass (`controlAttributes`), and the seal does not touch
+        // those. `WebUIServer.start()` seals too; the call is idempotent, and
+        // sealing here states the ordering as arc's contract rather than as an
+        // implementation detail of the server.
+        router.sealHostRegistrations()
         // the render-time controls' door: `controlAttributes` handlers run where
         // the controller's push closure is not reachable, so the app carries the
         // signal. installed once, at the same point the controller is wired.

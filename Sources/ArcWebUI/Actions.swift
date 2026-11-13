@@ -1311,7 +1311,10 @@ final class Controller: Sendable {
     // expands to nothing, so a `@Wired` handler in an `extension Controller`
     // that carries no `@WireGroup` compiles cleanly and is *silently never
     // registered*. That was the defect this adoption wave fixed, and
-    // `EventRouter.handlerCount(in:)` is the only honest way to observe it.
+    // `EventRouter.hostHandlerCount` is the only honest way to observe it: a
+    // registration made without a session lands in the router's HOST table
+    // (no-webui 2.8.0, §22.1/D1), so `handlerCount(in: .default)` reads zero for
+    // a fully wired host.
     //
     // Two sanctioned escapes remain, each unexpressible as a `@Wired` marker:
     // 1. `sidebar-plugin-toggle` in `wireSidebarPluginToggles` — one fixed id

@@ -65,7 +65,7 @@ let package = Package(
         ),
         .package(
             url: "https://github.com/tannerdsilva/no-webui.git",
-            revision: "9c18dc58a3cf2cdb34573aaf383eb6931961e876"
+            revision: "b2101e0fe05773791a6649dface59a261cdb5f1b"
         ),
 		.package(path: "Plugins/ArcSidebarTabs"),
 	],
@@ -291,6 +291,14 @@ let package = Package(
                 // the server's transport, so the test speaks the same wire.
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
+                // TwoPopulationDispatchTests speaks the websocket: the upgrade
+                // handshake and the frames are the framework's own client types,
+                // so a wire-shape drift fails there instead of in a browser.
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "NIOWebSocket", package: "swift-nio"),
+                // the seal's diagnostic is a swift-log `.error` line; the test
+                // captures it through a handler to assert the refusal is loud.
+                .product(name: "Logging", package: "swift-log"),
             ],
             resources: [
                 // the palette pins: the values the painted sheet must still hold, extracted
