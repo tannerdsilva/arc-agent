@@ -120,6 +120,30 @@ async function waitTrue(expr, timeoutMs = 2000, intervalMs = 50) {
   return last;
 }
 
+/// wait until `expr` reaches `want` AND holds it for `holdMs`; false on timeout.
+///
+/// the three wrong instruments this replaces, in order: a fixed settle-then-sample
+/// reads the pre-patch document on a cold daemon; a poll-until-truthy returns the
+/// instant `open` flips, so the close is tested while the open patch is still in
+/// flight (the patch then re-opens the panel); and a poll-until-stable called with
+/// the *initial* value returns immediately, before any patch has arrived.
+/// "reached and held" is the only shape that answers the question actually asked.
+async function waitStableValue(expr, want, holdMs = 300, timeoutMs = 4000, intervalMs = 50) {
+  const deadline = Date.now() + timeoutMs;
+  let heldSince = null;
+  while (Date.now() < deadline) {
+    const now = !!(await ev(expr));
+    if (now === want) {
+      if (heldSince === null) heldSince = Date.now();
+      if (Date.now() - heldSince >= holdMs) return true;
+    } else {
+      heldSince = null;
+    }
+    await sleep(intervalMs);
+  }
+  return false;
+}
+
 
 async function waitReady() {
   await driver.waitFor(`!!document.getElementById('app') && !!document.getElementById('nav-chat')`, { timeoutMs: 20000, label: 'app boot' });
@@ -623,17 +647,18 @@ async function runInteractions() {
   const triggers = { file: '#cb-file', workspace: '#cb-ws-toggle', profile: '#cb-profile-toggle', model: '#cb-model-toggle', think: '#cb-think-toggle' };
   for (const [name, trig] of Object.entries(triggers)) {
     const row = {};
-    // open
+    // open — "reached and held", so a late patch cannot be mistaken for either side
     await ev(`document.querySelector('${trig}')?.click()`);
-    row.opened = await waitTrue(`uxGates.popovers().${name}.open`);
-    // Escape — polled: the close is a round-trip + patch, not a synchronous toggle
+    row.opened = await waitStableValue(`uxGates.popovers().${name}.open`, true);
+    // Escape — closed must HOLD, else a late open patch re-opens and hides the bug
     await driver.pressEscape();
-    row.escClosed = !(await waitTrue(`uxGates.popovers().${name}.open`));
+    row.escClosed = await waitStableValue(`uxGates.popovers().${name}.open`, false);
     // outside click (real click in the transcript, clear of any popover)
     await ev(`document.querySelector('${trig}')?.click()`);
-    const o2 = await waitTrue(`uxGates.popovers().${name}.open`);
+    const o2 = await waitStableValue(`uxGates.popovers().${name}.open`, true);
     row.esc2opened = o2;
     if (o2) {
+      await settle(250);
       const pt = await ev(`(() => {
         const cs = document.getElementById('chat-scroll');
         const pr = uxGates.popoverRect('${name}');
@@ -644,7 +669,7 @@ async function runInteractions() {
         return { x: Math.round(x), y: Math.round(y) };
       })()`);
       await driver.clickAt(pt.x, pt.y);
-      row.outsideClosed = !(await waitTrue(`uxGates.popovers().${name}.open`));
+      row.outsideClosed = await waitStableValue(`uxGates.popovers().${name}.open`, false);
     } else {
       row.outsideClosed = null;
     }
