@@ -449,10 +449,6 @@ public static let css: String = """
     .log-panel-note { font-size: 0.86em; color: var(--muted); line-height: 1.5; margin: 4px 6px 0; }
 
     /* ─── Chat list rows ──────────────────────────────────────── */
-    /* a bucket is a native <details>: the caret points right while closed and
-       the platform hides the rows. the head keeps its own styling and its
-       quiet tab order; `list-style: none` plus the -webkit marker rule is the
-       pair that removes the UA triangle in Safari and Chrome. */
     .sess-group { margin: 2px 0 4px; }
     .sess-group-head {
       display: flex; align-items: center; gap: 6px; width: 100%;
@@ -462,16 +458,15 @@ public static let css: String = """
       font-size: 11.5px; font-weight: 600;
       letter-spacing: 0.06em; text-transform: uppercase;
       cursor: pointer; border-radius: 8px; text-align: left;
-      list-style: none;
     }
-    .sess-group-head::-webkit-details-marker { display: none; }
     .sess-group-head:hover { color: var(--text); background: var(--surface-2); }
     .sess-group-head:focus-visible { outline: 1px solid var(--accent-border); }
     .sess-caret { display: inline-flex; align-items: center; opacity: 0.7; transition: transform 0.15s ease; }
     .sess-caret svg { width: 10px; height: 10px; }
     .sess-group-head .sess-group-title { flex: 0 0 auto; }
     /* Collapsed buckets hide their rows; the caret rotates from down to right. */
-    .sess-group:not([open]) .sess-caret { transform: rotate(-90deg); }
+    .sess-group.collapsed .sess-caret { transform: rotate(-90deg); }
+    .sess-group.collapsed .sess-group-rows { display: none; }
     .sess-group-rows { display: flex; flex-direction: column; }
     .rel-time { white-space: nowrap; font-variant-numeric: tabular-nums; }
     .sess-row {
@@ -767,13 +762,12 @@ public static let css: String = """
       color: var(--text); font-size: 0.84em; font-weight: 700;
       letter-spacing: 0.05em; text-transform: uppercase;
       cursor: pointer; border-radius: 8px; text-align: left;
-      list-style: none;
     }
-    .skill-cat-head::-webkit-details-marker { display: none; }
     .skill-cat-head:hover { background: var(--surface-2); }
     .skill-cat-caret { display: inline-flex; opacity: 0.7; transition: transform 0.15s ease; }
     .skill-cat-caret svg { width: 11px; height: 11px; }
-    .skill-group:not([open]) .skill-cat-caret { transform: rotate(-90deg); }
+    .skill-group.collapsed .skill-cat-caret { transform: rotate(-90deg); }
+    .skill-group.collapsed .skill-cat-rows { display: none; }
     .skill-cat-count { opacity: 0.55; font-weight: 600; }
     .skill-cat-rows { display: flex; flex-direction: column; }
     .skill-row .skill-open { flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; gap: 0; line-height: 1.25; padding: 0; }
@@ -2461,15 +2455,6 @@ public static let css: String = """
     .composer-toolbar .spacer { flex: 1; }
     /* ── Context window indicator (arc parity) ── */
     .ctx-indicator-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    /* the chip is a native <details>; its summary is the ring, and the marker
-       (plus its tab stop) is suppressed so the button inside stays the one
-       control the reader tabs to. */
-    .ctx-indicator-wrap > details { display: inline-flex; align-items: center; }
-    .ctx-indicator-wrap > details > summary {
-      display: flex; align-items: center; justify-content: center;
-      list-style: none; outline: none;
-    }
-    .ctx-indicator-wrap > details > summary::-webkit-details-marker { display: none; }
     .ctx-indicator { width: 26px; height: 26px; padding: 0; border: none; background: none; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; transition: opacity 0.15s, transform 0.15s; }
     .ctx-indicator:hover { opacity: 0.88; transform: translateY(-1px); }
     .ctx-ring { position: relative; display: flex; width: 22px; height: 22px; align-items: center; justify-content: center; }
@@ -2482,7 +2467,7 @@ public static let css: String = """
     .ctx-indicator.ctx-high .ctx-ring-value { stroke: var(--danger); }
     .ctx-tooltip { position: absolute; right: 0; bottom: calc(100% + 10px); min-width: 210px; max-width: 250px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22); font-size: 12px; line-height: 1.45; color: var(--muted); opacity: 0; transform: translateY(4px); pointer-events: none; transition: opacity 0.14s ease, transform 0.14s ease; z-index: 30; }
     .ctx-tooltip::after { content: ''; position: absolute; right: 10px; top: 100%; border-width: 6px 6px 0 6px; border-style: solid; border-color: var(--surface) transparent transparent transparent; }
-    .ctx-indicator-wrap:hover .ctx-tooltip, .ctx-indicator-wrap:focus-within .ctx-tooltip, .ctx-indicator-wrap > details[open] ~ .ctx-tooltip { opacity: 1; transform: translateY(0); pointer-events: auto; }
+    .ctx-indicator-wrap:hover .ctx-tooltip, .ctx-indicator-wrap:focus-within .ctx-tooltip, .ctx-indicator-wrap.ctx-open .ctx-tooltip { opacity: 1; transform: translateY(0); pointer-events: auto; }
     .ctx-tooltip-title { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 5px; }
     .ctx-tooltip-line + .ctx-tooltip-line { margin-top: 3px; }
     .send-btn {

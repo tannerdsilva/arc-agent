@@ -816,20 +816,18 @@ extension AppState {
     }
 
     /// One collapsible bucket: caret + title + count + the session rows.
-    ///
-    /// A native `<details>`: the engine keeps `open` across a patch by id
-    /// (`data-preserve-open`), so collapsing a bucket is the platform's job and
-    /// the overlay owns no click handler for it. The head stays a quiet utility
-    /// (`tabindex="-1"`): the bucket is a grouping, not a control, and the rows
-    /// inside it are the roving tab stops.
     func groupHTML(key: String, title: String, sessions: [Session], todos: Bool = false) -> some WebUI.View {
-        ArcDisclosure(open: true,
-                      summaryClass: .sessGroupHead,
-                      summaryTabIndex: -1,
-                      summaryTitle: title) {
-            Span(class: .sessCaret) { WebUIIcon(.chevronDown, size: .small) }
-            Span(class: .sessGroupTitle) { Text(title) }
-        } content: {
+        Div(class: .sessGroup) {
+            ArcButton(
+                id: "sess-grp-\(key)",
+                component: nil,                 // the group head owns no boundary
+                class: .sessGroupHead,
+                tabIndex: -1                    // quiet utility, not a tab stop
+            ) {
+                Span(class: .sessCaret) { WebUIIcon(.chevronDown, size: .small) }
+                Span(class: .sessGroupTitle) { Text(title) }
+            }
+            .title(title)
             // no aria-label: the head's own `.sess-group-title` span already names
             // it, so a label would be a redundant second name — and the phase's
             // contract is that a conversion changes NO bytes.
@@ -842,9 +840,6 @@ extension AppState {
             // one tab stop per group, ArrowUp/Down moves focus + tabindex.
             .behavior(Roving())
         }
-        .addClass(.sessGroup)
-        .id("sess-grp-\(key)")
-        .behavior(Disclosure())
         .data("grp", key)
     }
 
@@ -1051,13 +1046,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             PanelBody {
                 for cat in cats {
                     let list = groups[cat] ?? []
-                    ErasedViews([ArcDisclosure(open: true,
-                                               summaryClass: .skillCatHead,
-                                               summaryTitle: "Toggle section") {
-                        Span(class: .skillCatCaret) { WebUIIcon(.chevronDown, size: .small) }
-                        Span(class: "skill-cat-title") { Text(cat) }
-                        Span(class: .skillCatCount) { Text("(\(list.count))") }
-                    } content: {
+                    ErasedViews([Div(class: .skillGroup) {
+                        ArcButton(id: "skcat-\(enc(cat))", class: .skillCatHead, type: .button) {
+                            Span(class: .skillCatCaret) { WebUIIcon(.chevronDown, size: .small) }
+                            Span(class: "skill-cat-title") { Text(cat) }
+                            Span(class: .skillCatCount) { Text("(\(list.count))") }
+                        }
+                        .title("Toggle section")
                         Div(class: .skillCatRows) {
                             for skill in list {
                                 ErasedViews([skillRowHTML(skill)])
@@ -1065,9 +1060,6 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         }
                         .data("component-id", "skill-list")
                     }
-                    .addClass(.skillGroup)
-                    .id("skcat-\(enc(cat))")
-                    .behavior(Disclosure())
                     .data("grp-skill", cat)])
                 }
                 if let emptyMessage {
@@ -2554,37 +2546,21 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         return Group {
             if !s.messages.isEmpty {
                 Div(class: .ctxIndicatorWrap) {
-                    // The chip IS the disclosure: a `<details>` whose summary is
-                    // the ring. A click on the summary therefore both opens the
-                    // pane (the `ctxpane` boundary rides the details) and pins
-                    // the breakdown open, which is the activation path touch
-                    // needs. The button inside could not do this: a click on an
-                    // interactive descendant does NOT run a summary's activation
-                    // behaviour, so the chip stayed shut.
-                    //
-                    // The tooltip is the details' SIBLING rather than its body:
-                    // a closed `<details>` renders no content, and the breakdown
-                    // must still appear on hover.
-                    ArcDisclosure(summaryTitle: "Context window usage — click for the breakdown",
-                                  summaryLabel: "Context window usage — click for the breakdown") {
-                        Span(class: ClassName("ctx-indicator\(level)")) {
-                            Span(class: .ctxRing) {
-                                // the ring geometry lives in ArcRing: one typed view
-                                // instead of an inline <svg> string.
-                                ArcRing(percentage: pct)
-                                Span(class: .ctxRingCenter) {
-                                    Text(pct >= 100 ? "99+" : "\(pct)%")
-                                }
+                    ArcButton(id: "ctx-ring", component: nil, class: ClassName("ctx-indicator\(level)")) {
+                        Span(class: .ctxRing) {
+                            // the ring geometry lives in ArcRing: one typed view
+                            // instead of an inline <svg> string.
+                            ArcRing(percentage: pct)
+                            Span(class: .ctxRingCenter) {
+                                Text(pct >= 100 ? "99+" : "\(pct)%")
                             }
                         }
-                    } content: {
-                        EmptyView()
                     }
-                    .id("ctx-chip")
-                    .behavior(Disclosure())
-                    // the summary registers the pane boundary in this render pass;
+                    // the ring registers the pane boundary in this render pass;
                     // the click opens or closes through the one shared body.
                     .control(id: "ctxpane", perform: contextPaneBoundary)
+                    .title("Context window usage — click for the breakdown")
+                    .aria(.label("Context window usage — click for the breakdown"))
                     Div(class: .ctxTooltip) {
                         Div(class: .ctxTooltipTitle) { Text("Context window") }
                         CtxTooltipLine { Text("\(pct)% used · \(100 - pct)% left") }
@@ -3004,9 +2980,6 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
             }
-            // the layer the engine closes on Escape / an outside click; the
-            // boundary above is the control it fires, and closing is still the
-            // server's `dd-dismiss` handler (one round trip, all four panels).
             .wire("ws-pick")
         }
     }
