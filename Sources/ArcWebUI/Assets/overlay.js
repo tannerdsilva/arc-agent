@@ -254,7 +254,6 @@
     t.value = (t.value || '').replace(/^\s*\/[^\s]*/, '/' + name + ' ');
     slashSuppressed = name;
     t.dispatchEvent(new Event('input', { bubbles: true }));
-    resizeComposer();
     closeSlashMenu();
     t.focus();
   }
@@ -464,29 +463,8 @@
     });
   });
 
-  // ---- Composer autogrow (arc parity): the textarea expands with
-  // content up to 7 visible lines, then scrolls internally.
-  function resizeComposer() {
-    var t = document.getElementById('composer-input');
-    if (!t) return;
-    var cs = getComputedStyle(t);
-    var lh = parseFloat(cs.lineHeight) || 22;
-    var pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
-    var max = Math.round(lh * 7 + pad);
-    t.style.height = 'auto';
-    var h = Math.min(t.scrollHeight, max);
-    t.style.height = h + 'px';
-    t.style.overflowY = t.scrollHeight > max ? 'auto' : 'hidden';
-  }
-  // Fragments replace the textarea node on re-renders; resize only when
-  // a fresh node appears (keystrokes use the input listener below).
-  function resizeComposerIfNew() {
-    var t = document.getElementById('composer-input');
-    if (t && !t.__rsz) { t.__rsz = true; resizeComposer(); }
-  }
   document.addEventListener('input', function (e) {
     if (e.target && e.target.id === 'composer-input') {
-      resizeComposer();
       syncSlashMenu(e.target.value);
     }
   });
@@ -965,7 +943,6 @@
   }
 
   function enhanceAll() {
-    resizeComposerIfNew();
     stickToChat();
     syncComposerDraft();
     syncModalFocus();
@@ -978,7 +955,6 @@
 
   function enhancePatched(changed) {
     clearRestoredComposer();
-    resizeComposerIfNew();
     stickToChat();
     syncComposerDraft();
     syncModalFocus();
@@ -999,7 +975,6 @@
         focusComposerWanted = false;
         ci.focus();
         ci.setSelectionRange(ci.value.length, ci.value.length);
-        resizeComposerIfNew();
       }
     }
     // Round-3 UX-34/35: a form fragment that just landed can ask for the caret

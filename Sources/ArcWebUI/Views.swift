@@ -2693,6 +2693,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 TextArea(field: "composer-input",
                          placeholder: running ? "Send another message — queued after this reply." : "Message ARC…",
                          value: draft, rows: 1)
+                    // The composer grows with its content; the sheet's
+                    // `max-height: 180px` on `.composer-bar textarea` is the
+                    // cap the old client resizer computed in JS.
+                    .behavior(Autogrow())
                     .data("component-id", "composer-input")
                     .data("session", sid)
                     .data("draft", draft)

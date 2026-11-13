@@ -321,13 +321,22 @@ extension ArcWebUITestRoot {
         // MARK: - B1/F52 Enter sends
 
         @Test("Enter sends from the composer; Shift+Enter keeps the newline")
-        func enterSends() {
+        func enterSends() async {
             let js = Self.overlay
             #expect(js.contains("t.id !== 'composer-input'"), "the handler must be scoped to the composer")
             #expect(js.contains("e.shiftKey"), "Shift+Enter must stay a newline")
             #expect(js.contains("form.requestSubmit()"),
                     "the submit path must be the form's own, so the engine flushes and reads live values")
             #expect(js.contains("e.keyCode === 229"), "an IME commit must not send")
+            // This block STAYS under no-webui 2.7.0: `data-submit-on-enter`
+            // returns early for a textarea (webui-engine-ext.js), so the
+            // attribute cannot submit the composer and the handler above is the
+            // only path. Autogrow, in the same row, IS the engine's now.
+            let composer = await RenderedMarkup.composer()
+            #expect(composer.contains("data-autogrow"),
+                    "the composer textarea must carry the engine's growth behavior")
+            #expect(!js.contains("resizeComposer"),
+                    "the overlay must not keep its own resizer beside the engine's")
         }
 
         // MARK: - UX-28 slash menu whole-row scroll + initial active row (T25)
