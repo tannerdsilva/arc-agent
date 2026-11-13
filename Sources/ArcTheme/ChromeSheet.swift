@@ -537,6 +537,7 @@ public static let css: String = """
     }
     @keyframes sess-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
     .row-actions { display: flex; flex-direction: column; justify-content: center; gap: 2px; padding-right: 4px; }
+    .icon-mini.kb-danger-icon { color: var(--danger); }
     .icon-mini {
       width: 24px; height: 24px;
       display: flex; align-items: center; justify-content: center;
@@ -1135,7 +1136,7 @@ public static let css: String = """
     .kb-lanes { display: flex; flex-direction: column; gap: 16px;
       flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 16px 16px; }
     .kb-lanes-single { overflow-y: hidden; }
-    .kb-lane { display: flex; flex-direction: column; min-height: 300px;
+    .kb-lane { display: flex; flex-direction: column; min-height: 440px;
       min-width: 0; }
     .kb-lane-single { flex: 1 1 auto; min-height: 0; }
     .kb-lane-head { display: flex; align-items: center; gap: 6px;

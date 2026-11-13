@@ -347,15 +347,15 @@ extension ArcWebUITestRoot {
 			Parity.expect(html, matches: "kanban-main")
 		}
 
-		@Test("kanban card armed, matches golden")
+		@Test("kanban card delete arms the shared modal, matches golden")
 		func kanbanCardArmedGolden() async {
-			let col = KBColumn(id: "col-1", name: "Backlog", color: "#5BB98C")
-			let lane = KBLane(id: "lane-1", name: "General")
 			let html = await app {
-				$0.kanbanColumns = [col]
+				$0.kanbanColumns = [KBColumn(id: "col-1", name: "Backlog", color: "#5BB98C")]
 				$0.kanbanCards = [KBCard(id: "card-1", columnID: "col-1", title: "Write the parser")]
-				$0.confirmCard = "card-1"
-			}.kanbanColumnHTML(col, lane: lane, isPrimary: true).markup.html
+				$0.pendingConfirm = ConfirmRequest(
+					kind: "kb-card", id: "card-1", title: "Delete card?",
+					body: "The card \u{201C}Write the parser\u{201D} will be permanently deleted.")
+			}.modalHTML().markup.html
 			Parity.capture(html, as: "kanban-card-armed")
 			Parity.expect(html, matches: "kanban-card-armed")
 		}

@@ -1120,14 +1120,9 @@ actor AppState {
     /// Round-3 UX-34: inline reason for an empty card title, rendered next to
     /// the field instead of only in a corner toast.
     var kanbanAddError: String? = nil
-    var confirmColumn: String? = nil
-    /// Card awaiting delete confirmation — the board's in-place two-step, the
-    /// same guard `confirmColumn` already gives columns.
-    var confirmCard: String? = nil
-    // Multi-board state (Hermes parity): the inline create form, the board
+    /// Card awaiting delete confirmation — the board's in-place two-step, the    // Multi-board state (Hermes parity): the inline create form, the board
     // row armed for delete, and the board being renamed inline.
     var addingBoard = false
-    var confirmBoard: String? = nil
     var renamingBoardID: String? = nil
     // Lanes: the lane being renamed inline.
     var renamingLaneID: String? = nil
@@ -1424,15 +1419,12 @@ actor AppState {
         var kanbanLanes: [KBLane] = []
         var kanbanSelectedBoard: String? = nil
         var addingBoard = false
-        var confirmBoard: String? = nil
         var renamingBoardID: String? = nil
         var renamingLaneID: String? = nil
         var addingColumn = false
         var addingCardColumnID: String? = nil
         var addingCardLaneID: String? = nil
         var kanbanAddError: String? = nil
-        var confirmColumn: String? = nil
-        var confirmCard: String? = nil
         // phase 7: memory state
         var memoryDoc: String? = nil
         var memoryEdit = false
@@ -1542,8 +1534,6 @@ actor AppState {
         self.addingColumn = fixture.addingColumn
         self.addingCardColumnID = fixture.addingCardColumnID
         self.kanbanAddError = fixture.kanbanAddError
-        self.confirmColumn = fixture.confirmColumn
-        self.confirmCard = fixture.confirmCard
         self.memoryDoc = fixture.memoryDoc
         self.memoryEdit = fixture.memoryEdit
         self.memoryContent = fixture.memoryContent
@@ -1590,7 +1580,6 @@ actor AppState {
         // way a loaded settings file would.
         self.settings = AppState.ensureKanbanBoards(into: self.settings)
         self.addingBoard = fixture.addingBoard
-        self.confirmBoard = fixture.confirmBoard
         self.renamingBoardID = fixture.renamingBoardID
         self.renamingLaneID = fixture.renamingLaneID
         self.registry = MutableToolRegistry(builtIn: CompileTimeToolRegistry())

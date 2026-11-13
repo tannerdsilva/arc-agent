@@ -5054,7 +5054,6 @@ extension AppState {
                 for board in settings.kanbanBoards {
                     let bid = enc(board.id)
                     let selected = AppState.boardID(settings.kanbanSelectedBoard) == board.id
-                    let armed = confirmBoard == board.id
                     if renamingBoardID == board.id {
                         ErasedViews([Form(action: "", method: nil, id: "kb-board-ren-form", class: .catAddForm) {
                             Input(field: "kb-board-ren-name",
@@ -5085,13 +5084,8 @@ extension AppState {
                                     WebUIIcon(.edit, size: .small)
                                 }
                                 .title("Rename board")
-                                ArcButton(id: "kb-dboard-\(bid)", component: nil,
-                                          class: ClassName(armed ? "sess-confirm" : "icon-mini danger")) {
-                                    if armed {
-                                        Text(" Confirm?")
-                                    } else {
-                                        WebUIIcon(.x, size: .small)
-                                    }
+                                ArcButton(id: "kb-dboard-\(bid)", component: nil, class: .iconMiniDanger) {
+                                    WebUIIcon(.x, size: .small)
                                 }
                                 .title("Delete board")
                             }
@@ -5116,13 +5110,8 @@ extension AppState {
                             // a column delete arms first (matching the board's
                             // column header), so one stray click never drops a
                             // column and its cards.
-                            ArcButton(id: "kb-pdel-\(cid)", component: nil,
-                                      class: ClassName(confirmColumn == col.id ? "sess-confirm" : "icon-mini danger")) {
-                                if confirmColumn == col.id {
-                                    Text(" Confirm?")
-                                } else {
-                                    WebUIIcon(.x, size: .small)
-                                }
+                            ArcButton(id: "kb-pdel-\(cid)", component: nil, class: .iconMiniDanger) {
+                                WebUIIcon(.x, size: .small)
                             }
                             .title("Delete column")
                         }
@@ -5214,6 +5203,10 @@ extension AppState {
                         WebUIIcon(.edit, size: .small)
                     }
                     .title("Rename lane")
+                    ArcButton(id: "kb-ldel-\(lid)", component: nil, class: .iconMiniDanger) {
+                        WebUIIcon(.x, size: .small)
+                    }
+                    .title("Delete lane")
                 }
             }
             Div(class: .kbLaneCols) {
@@ -5263,7 +5256,6 @@ extension AppState {
         let cid = enc(col.id)
         let lid = enc(lane.id)
         let cards = settings.kanbanCards.filter { $0.columnID == col.id && cardBelongsToLane($0, lane, firstLaneID: isPrimary ? lane.id : nil) }
-        let armed = confirmColumn == col.id
         let addErr = kanbanAddError
         // the error node exists even while empty: the client fills
         // `#kb-addcard-err` after a rejected submit.
@@ -5278,13 +5270,8 @@ extension AppState {
                     }
                     .title("Rename column")
                     .data("colid", col.id)
-                    ArcButton(id: "kb-bdel-\(cid)", component: nil,
-                              class: ClassName(armed ? "sess-confirm" : "icon-mini danger")) {
-                        if armed {
-                            Text("Confirm?")
-                        } else {
-                            WebUIIcon(.x, size: .small)
-                        }
+                    ArcButton(id: "kb-bdel-\(cid)", component: nil, class: .iconMiniDanger) {
+                        WebUIIcon(.x, size: .small)
                     }
                     .title("Delete column")
                 }
@@ -5335,9 +5322,8 @@ extension AppState {
     func kanbanCardHTML(_ card: KBCard) -> some WebUI.View {
         let encc = enc(card.id)
         let idx = settings.kanbanColumns.firstIndex { $0.id == card.columnID } ?? 0
-        // Two-step delete, matching the column header: the first click arms the
-        // card and the button becomes "Confirm?" (a single click used to bin it).
-        let armed = confirmCard == card.id
+        // Deletion is confirmed through the shared modal (`kb-del` arms
+        // `pendingConfirm`); the ✕ itself never deletes.
         return Div(class: .kbCard) {
             Div(class: .kbCardTitle) { Text(trunc(card.title, 70)) }
                 .data("cardid", card.id)
@@ -5359,13 +5345,8 @@ extension AppState {
                     }
                     .title("Move right")
                 }
-                ArcButton(id: "kb-del-\(encc)", component: nil,
-                          class: ClassName(armed ? "sess-confirm" : "icon-mini danger")) {
-                    if armed {
-                        Text("Confirm?")
-                    } else {
-                        WebUIIcon(.x, size: .small)
-                    }
+                ArcButton(id: "kb-del-\(encc)", component: nil, class: .iconMiniDanger) {
+                    WebUIIcon(.x, size: .small)
                 }
                 .title("Delete card")
             }

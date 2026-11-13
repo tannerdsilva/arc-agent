@@ -501,6 +501,7 @@ extension ClassName {
 	public static var sendBtn: ClassName { ClassName(ArcClass.sendBtn.token) }
 	public static var sessCaret: ClassName { ClassName(ArcClass.sessCaret.token) }
 	public static var sessConfirm: ClassName { ClassName(ArcClass.sessConfirm.token) }
+	public static var iconMiniDanger: ClassName { ClassName(ArcClass.iconMiniDanger.token) }
 	public static var sessGroup: ClassName { ClassName(ArcClass.sessGroup.token) }
 	public static var sessGroupHead: ClassName { ClassName(ArcClass.sessGroupHead.token) }
 	public static var sessGroupRows: ClassName { ClassName(ArcClass.sessGroupRows.token) }

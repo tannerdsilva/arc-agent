@@ -803,25 +803,21 @@ extension AppState {
 
     func setAddingBoard(_ on: Bool) {
         addingBoard = on
-        if on { renamingBoardID = nil; confirmBoard = nil }
+        if on { renamingBoardID = nil }
     }
 
-    func setConfirmBoard(_ id: String?) { confirmBoard = id }
 
     func setRenamingBoard(_ id: String?) {
         renamingBoardID = id
-        if id != nil { addingBoard = false; confirmBoard = nil }
+        if id != nil { addingBoard = false }
     }
 
     func selectKanbanBoard(_ id: String) {
         guard settings.kanbanBoards.contains(where: { $0.id == id }) else { return }
         settings.kanbanSelectedBoard = id
         // transient UI state does not survive a board switch
-        confirmBoard = nil
         addingBoard = false
         renamingBoardID = nil
-        confirmColumn = nil
-        confirmCard = nil
         addingCardColumnID = nil
         saveSettings()
     }
@@ -843,7 +839,6 @@ extension AppState {
         settings.kanbanBoards.append(board)
         settings.kanbanSelectedBoard = board.id
         addingBoard = false
-        confirmBoard = nil
         // a fresh board starts usable: the three standard columns, so the
         // user lands on a board they can drop cards into immediately.
         let palette = ["#5BB98C", "#2F9EB7", "#E1914B", "#9D5CD0"]
@@ -885,9 +880,25 @@ extension AppState {
         card.lane == lane.id || (card.lane == nil && lane.id == firstLaneID)
     }
 
+    /// Deletes a lane; its cards fall back to the board's primary lane
+    /// (a nil lane reads as primary). The last remaining lane cannot be
+    /// deleted — a board without lanes has nothing to render.
+    func deleteKanbanLane(_ id: String) {
+        let bid = AppState.boardID(settings.kanbanSelectedBoard)
+        let lanes = settings.kanbanLanes.filter { AppState.boardID($0.board) == bid }
+        guard lanes.count > 1, let lane = lanes.first(where: { $0.id == id }) else { return }
+        settings.kanbanLanes.removeAll { $0.id == id }
+        for i in settings.kanbanCards.indices
+        where settings.kanbanCards[i].lane == lane.id {
+            settings.kanbanCards[i].lane = nil
+        }
+        if renamingLaneID == id { renamingLaneID = nil }
+        saveSettings()
+    }
+
     func setRenamingLane(_ id: String?) {
         renamingLaneID = id
-        if id != nil { addingBoard = false; confirmBoard = nil }
+        if id != nil { addingBoard = false }
     }
 
     /// "+ Row": a new lane named "Lane N" (N = 1-based position), sharing the
@@ -916,7 +927,6 @@ extension AppState {
     }
 
     func deleteKanbanBoard(_ id: String) {
-        confirmBoard = nil
         // the last board is not deletable — the page has nothing to show
         // without one, and recreating the default from an empty list would
         // resurrect the "Default" name the user just removed.
@@ -961,15 +971,12 @@ extension AppState {
         saveSettings()
     }
 
-    func setConfirmColumn(_ id: String?) { confirmColumn = id }
 
-    func setConfirmCard(_ id: String?) { confirmCard = id }
 
     func deleteKanbanColumn(_ id: String) {
         settings.kanbanColumns.removeAll { $0.id == id }
         settings.kanbanCards.removeAll { $0.columnID == id }
-        if addingCardColumnID == id { addingCardColumnID = nil }
-        confirmColumn = nil
+        if addingCardColumnID == id { addingCardColumnID = nil; addingCardLaneID = nil }
         saveSettings()
     }
 

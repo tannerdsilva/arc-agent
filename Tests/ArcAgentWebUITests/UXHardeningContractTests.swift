@@ -1072,34 +1072,28 @@ extension ArcWebUITestRoot {
 
         // MARK: - A15/F27/F58/F60 the guarded deletes
 
-        @Test("kanban cards arm a two-step delete like the column header")
+@Test("kanban card delete arms the shared centered modal")
         func kanbanCardGuard() async {
-            #expect(Self.actions.contains("await app.confirmCard == id"),
-                    "a card ✕ used to delete on one click with no guard and no undo")
-            // asserted on the rendered card, not the source text that used to
-            // build it: the affordance the user reaches is the contract.
-            let card = KBCard(id: "card-1", columnID: "col-1", title: "Write the parser")
-            func render(confirming: String?) async -> String {
-                var fixture = AppState.RenderFixture()
-                fixture.kanbanColumns = [KBColumn(id: "col-1", name: "Backlog", color: "#5BB98C")]
-                fixture.kanbanCards = [card]
-                fixture.confirmCard = confirming
-                return await AppState(renderFixture: fixture).kanbanCardHTML(card).markup.html
-            }
-            let armed = await render(confirming: "card-1")
-            #expect(armed.contains("id=\"kb-del-\(enc("card-1"))\""),
+            #expect(Self.actions.contains("kind: \"kb-card\", id: id"),
+                    "a card ✕ must arm pendingConfirm, never delete directly")
+            #expect(Self.actions.contains("\"kb-card\":"),
+                    "the shared modal dispatch must fire the kanban card delete")
+            // the rendered card keeps a reachable ✕ with no inline confirm text:
+            // the confirmation lives in the center-screen dialog, not the row.
+            var fixture = AppState.RenderFixture()
+            fixture.kanbanColumns = [KBColumn(id: "col-1", name: "Backlog", color: "#5BB98C")]
+            fixture.kanbanCards = [KBCard(id: "card-1", columnID: "col-1", title: "Write the parser")]
+            fixture.pendingConfirm = ConfirmRequest(
+                kind: "kb-card", id: "card-1", title: "Delete card?",
+                body: "The card \u{201C}Write the parser\u{201D} will be permanently deleted.")
+            let html = await AppState(renderFixture: fixture).kanbanCardHTML(
+                KBCard(id: "card-1", columnID: "col-1", title: "Write the parser")).markup.html
+            #expect(html.contains("id=\"kb-del-\(enc("card-1"))\""),
                     "the card's delete control must stay reachable")
-            #expect(armed.contains(">Confirm?</button>"),
-                    "the first click must arm the delete, not perform it")
-            #expect(!armed.contains("icon-mini danger"),
-                    "the armed label must not carry `icon-mini`: a fixed 24x24 box clipped \"Confirm?\"")
-            let idle = await render(confirming: nil)
-            #expect(idle.contains("class=\"icon-mini danger\""),
-                    "an unarmed card keeps its ✕")
-            #expect(!idle.contains("Confirm?"),
-                    "an unarmed card must not ask to confirm")
-            #expect(Self.sheetSource.contains("white-space: nowrap;"),
-                    ".sess-confirm must never wrap or inherit an icon's width")
+            #expect(!html.contains("Confirm?"),
+                    "the row must not inline a confirm label — the modal owns confirmation")
+            let modal = await AppState(renderFixture: fixture).modalHTML().markup.html
+            #expect(modal.contains("Delete card?") && modal.contains("id=\"modal-confirm\""))
         }
 
         @Test("workspace deletes confirm, and `main` offers no delete at all")

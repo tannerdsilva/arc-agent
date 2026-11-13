@@ -114,7 +114,6 @@ struct KanbanBoardsTests {
             ],
             selected: "b1")
         await app.selectKanbanBoard("b1")
-        await app.setConfirmBoard("b1")
         await app.deleteKanbanBoard("b1")
         let s = await app.settings
         #expect(s.kanbanBoards.map { $0.id } == ["b2"])

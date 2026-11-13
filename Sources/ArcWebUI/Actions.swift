@@ -2107,6 +2107,18 @@ extension Controller {
         case "ws-delete":
             await self.app.cancelConfirm()
             await self.app.deleteWorkspaceEntry(req.id)
+        case "kb-board":
+            await self.app.cancelConfirm()
+            await self.app.deleteKanbanBoard(req.id)
+        case "kb-column":
+            await self.app.cancelConfirm()
+            await self.app.deleteKanbanColumn(req.id)
+        case "kb-card":
+            await self.app.cancelConfirm()
+            await self.app.deleteKanbanCard(req.id)
+        case "kb-lane":
+            await self.app.cancelConfirm()
+            await self.app.deleteKanbanLane(req.id)
         default:
             await self.app.cancelConfirm()
         }
@@ -3763,19 +3775,24 @@ extension Controller {
         } else if tid.hasPrefix("kb-sel-"), let id = dec(String(tid.dropFirst("kb-sel-".count))) {
             await app.selectKanbanBoard(id)
         } else if tid.hasPrefix("kb-dboard-"), let id = dec(String(tid.dropFirst("kb-dboard-".count))) {
-            // two-step, like the column header: first click arms, second deletes
-            if await app.confirmBoard == id {
-                await app.deleteKanbanBoard(id)
-            } else {
-                await app.setConfirmBoard(id)
-                await app.setRenamingBoard(nil)
-            }
+            // shared centered modal: one click arms, Delete in the dialog fires
+            let name = await app.settings.kanbanBoards.first(where: { $0.id == id })?.name ?? "board"
+            await app.setRenamingBoard(nil)
+            await app.requestConfirm(ConfirmRequest(
+                kind: "kb-board", id: id, title: "Delete board?",
+                body: "The board \u{201C}\(name)\u{201D}, its columns, and all of its cards will be permanently deleted."))
         } else if tid.hasPrefix("kb-renboard-"), let id = dec(String(tid.dropFirst("kb-renboard-".count))) {
             await app.setRenamingBoard(app.renamingBoardID == id ? nil : id)
         } else if tid.hasPrefix("kb-pdel-"), let id = dec(String(tid.dropFirst("kb-pdel-".count))) {
-            await self.confirmDeleteKanban(id)
+            await self.armKanbanColumnConfirm(id)
         } else if tid.hasPrefix("kb-bdel-"), let id = dec(String(tid.dropFirst("kb-bdel-".count))) {
-            await self.confirmDeleteKanban(id)
+            await self.armKanbanColumnConfirm(id)
+        } else if tid.hasPrefix("kb-ldel-"), let id = dec(String(tid.dropFirst("kb-ldel-".count))) {
+            let lane = await app.settings.kanbanLanes.first(where: { $0.id == id })
+            let name = lane?.name ?? "lane"
+            await app.requestConfirm(ConfirmRequest(
+                kind: "kb-lane", id: id, title: "Delete lane?",
+                body: "The lane \u{201C}\(name)\u{201D} will be removed. Its cards move to the board's primary lane."))
         } else if tid.hasPrefix("kb-rencol-") || tid.hasPrefix("kb-edit-") {
             return []   // client-side inline rename / title edit; commit via hidden form submit
         } else if tid.hasPrefix("kb-movel-"), let id = dec(String(tid.dropFirst("kb-movel-".count))) {
@@ -3783,13 +3800,10 @@ extension Controller {
         } else if tid.hasPrefix("kb-mover-"), let id = dec(String(tid.dropFirst("kb-mover-".count))) {
             await app.moveKanbanCard(id, by: 1)
         } else if tid.hasPrefix("kb-del-"), let id = dec(String(tid.dropFirst("kb-del-".count))) {
-            // Two-step, like the column header: the first click arms the card.
-            if await app.confirmCard == id {
-                await app.setConfirmCard(nil)
-                await app.deleteKanbanCard(id)
-            } else {
-                await app.setConfirmCard(id)
-            }
+            let title = await app.settings.kanbanCards.first(where: { $0.id == id })?.title ?? "card"
+            await app.requestConfirm(ConfirmRequest(
+                kind: "kb-card", id: id, title: "Delete card?",
+                body: "The card \u{201C}\(title)\u{201D} will be permanently deleted."))
         } else if tid == "kb-addlane" {
             await app.addKanbanLane()
         } else if tid.hasPrefix("kb-renlane-"), let id = dec(String(tid.dropFirst("kb-renlane-".count))) {
@@ -3810,13 +3824,13 @@ extension Controller {
         return await self.changed()
     }
 
-    private func confirmDeleteKanban(_ id: String) async {
-        let armed = await app.confirmColumn == id
-        if armed {
-            await app.deleteKanbanColumn(id)
-        } else {
-            await app.setConfirmColumn(id)
-        }
+    private func armKanbanColumnConfirm(_ id: String) async {
+        let col = await app.settings.kanbanColumns.first(where: { $0.id == id })
+        let name = col?.name ?? "column"
+        let count = await app.settings.kanbanCards.filter { $0.columnID == id }.count
+        await app.requestConfirm(ConfirmRequest(
+            kind: "kb-column", id: id, title: "Delete column?",
+            body: "The column \u{201C}\(name)\u{201D} and its \(count) card\(count == 1 ? "" : "s") will be permanently deleted."))
     }
 
     /// Right-hand workspace panel actions (dock toggle, create, hidden files,
