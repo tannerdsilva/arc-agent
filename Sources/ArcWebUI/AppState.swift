@@ -123,13 +123,33 @@ struct ConfirmRequest: Equatable {
 /// A named kanban board — a grouping of columns and cards.
 ///
 /// Boards are lightweight: an id and a display name. The implicit id
-/// `"default"` is what legacy single-board data (columns and cards stored
+/// `"default"` is what legacy single-board data (columns and cards...[truncated]
 /// without a `board` key) reads as, so an old settings file needs no
 /// migration write — it simply appears as one board named "Default".
 struct KBBoard: Codable, Equatable, Identifiable {
     var id: String
     var name: String
 }
+
+/// A lane (horizontal grouping row) on a kanban board — every lane shares the
+/// board's columns; cards pick a column and a lane. The implicit lane
+/// `"lane-<boardID>"` is what legacy cards (stored without a `lane` key) read
+/// as, so old boards render as a single lane without a migration write.
+struct KBLane: Codable, Equatable, Identifiable {
+    var id: String
+    var name: String
+    var board: String?
+
+    init(id: String, name: String, board: String? = nil) {
+        self.id = id
+        self.name = name
+        self.board = board
+    }
+}
+
+/// The deterministic primary-lane id for a board — derived rather than random
+/// so `ensureKanbanBoards` can create it idempotently without a save.
+func primaryLaneID(forBoard boardID: String) -> String { "lane-\(boardID)" }
 
 /// The board a column belongs to. `nil` is the legacy single-board world
 /// and always reads as the `"default"` board (`AppState.boardID`).
@@ -150,6 +170,18 @@ struct KBCard: Codable, Equatable, Identifiable {
     var title: String
     var note: String = ""
     var board: String?
+    /// The lane the card sits in. `nil` is the legacy world and reads as the
+    /// board's primary lane (`primaryLaneID(forBoard:)`).
+    var lane: String?
+
+    init(id: String, columnID: String, title: String, note: String = "", board: String? = nil, lane: String? = nil) {
+        self.id = id
+        self.columnID = columnID
+        self.title = title
+        self.note = note
+        self.board = board
+        self.lane = lane
+    }
 }
 
 /// A user-managed model configuration preset (shown in the chat config selector).
@@ -374,6 +406,8 @@ struct AppSettings: Codable, Equatable {
     /// single-board data — `ensureKanbanBoards` derives the Default board
     /// from it; columns/cards with a nil `board` read as that board.
     var kanbanBoards: [KBBoard] = []
+    /// Lanes (horizontal groupings) per board. Derived for legacy boards.
+    var kanbanLanes: [KBLane] = []
     /// The board the Kanban page is showing. `nil` resolves to the default.
     var kanbanSelectedBoard: String? = nil
 
@@ -445,7 +479,7 @@ struct AppSettings: Codable, Equatable {
         case recentFiles
         case sessionConfig, sessionProfile, sessionThinking, sessionTitles, archivedSessions
         case chatCategories, sessionCategories
-        case kanbanColumns, kanbanCards, kanbanBoards, kanbanSelectedBoard
+        case kanbanColumns, kanbanCards, kanbanBoards, kanbanLanes, kanbanSelectedBoard
         case todos
         // `scheduledJobs` deliberately absent: the cron store owns jobs since
         // phase 2; the legacy key is lifted once by `ScheduledJobsImport`.
@@ -515,6 +549,7 @@ struct AppSettings: Codable, Equatable {
         kanbanColumns = try c.decodeIfPresent([KBColumn].self, forKey: .kanbanColumns) ?? []
         kanbanCards = try c.decodeIfPresent([KBCard].self, forKey: .kanbanCards) ?? []
         kanbanBoards = try c.decodeIfPresent([KBBoard].self, forKey: .kanbanBoards) ?? []
+        kanbanLanes = try c.decodeIfPresent([KBLane].self, forKey: .kanbanLanes) ?? []
         kanbanSelectedBoard = try c.decodeIfPresent(String.self, forKey: .kanbanSelectedBoard)
         profileSkills = try c.decodeIfPresent([String: [String]].self, forKey: .profileSkills) ?? [:]
         composerDrafts = try c.decodeIfPresent([String: String].self, forKey: .composerDrafts) ?? [:]
@@ -1081,6 +1116,7 @@ actor AppState {
     /// Kanban UI mode (phase: kanban).
     var addingColumn = false
     var addingCardColumnID: String? = nil
+    var addingCardLaneID: String? = nil
     /// Round-3 UX-34: inline reason for an empty card title, rendered next to
     /// the field instead of only in a corner toast.
     var kanbanAddError: String? = nil
@@ -1093,6 +1129,8 @@ actor AppState {
     var addingBoard = false
     var confirmBoard: String? = nil
     var renamingBoardID: String? = nil
+    // Lanes: the lane being renamed inline.
+    var renamingLaneID: String? = nil
 
     /// Shared palette for category / kanban column colors.
     static let palette: [String] = [
@@ -1383,12 +1421,15 @@ actor AppState {
         var kanbanColumns: [KBColumn] = []
         var kanbanCards: [KBCard] = []
         var kanbanBoards: [KBBoard] = []
+        var kanbanLanes: [KBLane] = []
         var kanbanSelectedBoard: String? = nil
         var addingBoard = false
         var confirmBoard: String? = nil
         var renamingBoardID: String? = nil
+        var renamingLaneID: String? = nil
         var addingColumn = false
         var addingCardColumnID: String? = nil
+        var addingCardLaneID: String? = nil
         var kanbanAddError: String? = nil
         var confirmColumn: String? = nil
         var confirmCard: String? = nil
@@ -1543,10 +1584,15 @@ actor AppState {
         self.settings.kanbanColumns = fixture.kanbanColumns
         self.settings.kanbanCards = fixture.kanbanCards
         self.settings.kanbanBoards = fixture.kanbanBoards
+        self.settings.kanbanLanes = fixture.kanbanLanes
         self.settings.kanbanSelectedBoard = fixture.kanbanSelectedBoard
+        // fixtures play the legacy-data role too: derive boards/lanes the same
+        // way a loaded settings file would.
+        self.settings = AppState.ensureKanbanBoards(into: self.settings)
         self.addingBoard = fixture.addingBoard
         self.confirmBoard = fixture.confirmBoard
         self.renamingBoardID = fixture.renamingBoardID
+        self.renamingLaneID = fixture.renamingLaneID
         self.registry = MutableToolRegistry(builtIn: CompileTimeToolRegistry())
         for tool in fixture.registryTools {
             // Render fixtures are neither compiled in nor plugin-discovered:
@@ -2436,6 +2482,12 @@ actor AppState {
         var s = s
         if s.kanbanBoards.isEmpty {
             s.kanbanBoards = [KBBoard(id: kanbanDefaultBoardID, name: "Default")]
+        }
+        // Every board gets at least one lane — the deterministic primary lane,
+        // "General". Idempotent: existing lanes (renamed or not) suppress it.
+        for b in s.kanbanBoards
+        where !s.kanbanLanes.contains(where: { AppState.boardID($0.board) == b.id }) {
+            s.kanbanLanes.append(KBLane(id: primaryLaneID(forBoard: b.id), name: "General", board: b.id))
         }
         // A stale selection (a deleted board's id read from disk) falls back
         // to the first board rather than showing an empty page.

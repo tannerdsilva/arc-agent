@@ -3564,6 +3564,25 @@ extension Controller {
         return await self.changed()
     }
 
+    @Wired("kb-addlane", events: [.click])
+    func handleKbAddLane(_ event: EventData) async -> [FragmentUpdate] {
+        await self.app.addKanbanLane()
+        return await self.changed()
+    }
+
+    @Wired("kb-lane-ren-form", events: [.submit, .click])
+    func handleKbLaneRenForm(_ event: EventData) async -> [FragmentUpdate] {
+        if event.event == "submit" {
+            let id = event.string("kb-lane-ren-id") ?? ""
+            await self.app.renameKanbanLane(id, to: event.string("kb-lane-ren-name") ?? "")
+        } else if event.string("targetId") != "kb-lane-ren-cancel" {
+            return []
+        } else {
+            await self.app.setRenamingLane(nil)
+        }
+        return await self.changed()
+    }
+
     @Wired("kb-addboard", events: [.click])
     func handleKbAddBoard(_ event: EventData) async -> [FragmentUpdate] {
         await self.app.setAddingBoard(!self.app.addingBoard)
@@ -3600,7 +3619,8 @@ extension Controller {
         if event.event == "submit" {
             let title = event.string("kb-addcard-name") ?? ""
             let col = event.string("kb-addcard-col") ?? ""
-            await self.app.addKanbanCard(title, in: col)
+            let lane = event.string("kb-addcard-lane")
+            await self.app.addKanbanCard(title, in: col, lane: lane)
         } else if event.string("targetId") != "kb-addcard-cancel" {
             return []
         } else {
@@ -3770,8 +3790,20 @@ extension Controller {
             } else {
                 await app.setConfirmCard(id)
             }
-        } else if tid.hasPrefix("kb-addcard-"), let id = dec(String(tid.dropFirst("kb-addcard-".count))) {
-            await app.setAddingCard(id)
+        } else if tid == "kb-addlane" {
+            await app.addKanbanLane()
+        } else if tid.hasPrefix("kb-renlane-"), let id = dec(String(tid.dropFirst("kb-renlane-".count))) {
+            await app.setRenamingLane(id)
+        } else if tid.hasPrefix("kb-addcard-"),
+                  let id = dec(String(tid.dropFirst("kb-addcard-".count))) {
+            // "<columnID>|<laneID>" from a lane row; a plain column id from
+            // legacy surfaces — both land on the add-card form.
+            let parts = id.components(separatedBy: "|")
+            if parts.count == 2 {
+                await app.setAddingCard(parts[0], lane: parts[1])
+            } else {
+                await app.setAddingCard(id)
+            }
         } else {
             return []
         }

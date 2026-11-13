@@ -315,13 +315,17 @@ extension ArcWebUITestRoot {
 			Parity.expect(html, matches: "kanban-panel")
 		}
 
-		@Test("kanban panel, add column form open, matches golden")
-		func kanbanPanelAddColGolden() async {
+		@Test("kanban main, add column form open, matches golden")
+		func kanbanMainAddColGolden() async {
 			let html = await app {
+				$0.kanbanColumns = [
+					KBColumn(id: "col-1", name: "Backlog", color: "#5BB98C"),
+					KBColumn(id: "col-2", name: "In progress", color: "#2F9EB7"),
+				]
 				$0.addingColumn = true
-			}.kanbanPanel().markup.html
-			Parity.capture(html, as: "kanban-panel-addcol")
-			Parity.expect(html, matches: "kanban-panel-addcol")
+			}.kanbanMain().markup.html
+			Parity.capture(html, as: "kanban-main-addcol")
+			Parity.expect(html, matches: "kanban-main-addcol")
 		}
 
 		@Test("kanban main, three columns four cards, matches golden")
@@ -346,11 +350,12 @@ extension ArcWebUITestRoot {
 		@Test("kanban card armed, matches golden")
 		func kanbanCardArmedGolden() async {
 			let col = KBColumn(id: "col-1", name: "Backlog", color: "#5BB98C")
+			let lane = KBLane(id: "lane-1", name: "General")
 			let html = await app {
 				$0.kanbanColumns = [col]
 				$0.kanbanCards = [KBCard(id: "card-1", columnID: "col-1", title: "Write the parser")]
 				$0.confirmCard = "card-1"
-			}.kanbanColumnHTML(col).markup.html
+			}.kanbanColumnHTML(col, lane: lane, isPrimary: true).markup.html
 			Parity.capture(html, as: "kanban-card-armed")
 			Parity.expect(html, matches: "kanban-card-armed")
 		}
@@ -361,7 +366,7 @@ extension ArcWebUITestRoot {
 			let html = await app {
 				$0.kanbanColumns = [col]
 				$0.kanbanCards = [KBCard(id: "card-1", columnID: "col-1", title: "Write the parser")]
-			}.kanbanColumnHTML(col).markup.html
+			}.kanbanColumnHTML(col, lane: KBLane(id: "lane-1", name: "General"), isPrimary: true).markup.html
 			Parity.capture(html, as: "kanban-card-unarmed")
 			Parity.expect(html, matches: "kanban-card-unarmed")
 		}

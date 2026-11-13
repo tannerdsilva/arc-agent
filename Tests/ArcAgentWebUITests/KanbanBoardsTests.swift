@@ -17,12 +17,14 @@ struct KanbanBoardsTests {
         boards: [KBBoard] = [],
         columns: [KBColumn] = [],
         cards: [KBCard] = [],
+        lanes: [KBLane] = [],
         selected: String? = nil
     ) -> AppState {
         var f = AppState.RenderFixture()
         f.kanbanBoards = boards
         f.kanbanColumns = columns
         f.kanbanCards = cards
+        f.kanbanLanes = lanes
         f.kanbanSelectedBoard = selected
         return AppState(renderFixture: f)
     }
@@ -185,5 +187,61 @@ struct KanbanBoardsTests {
         let html = await app.kanbanMain().markup.html
         #expect(html.contains("kb-col-name\">B"))
         #expect(!html.contains("kb-col-name\">A"))
+    }
+
+
+    @Test("+ Row appends a lane sharing the columns; cards land in their lane")
+    func laneAddAndCardScoping() async {
+        let app = makeApp(columns: [KBColumn(id: "c1", name: "Backlog", color: "#5BB98C")])
+        await app.addKanbanLane()
+        let lanes = await app.selectedKanbanLanes()
+        #expect(lanes.map(\.name) == ["General", "Lane 2"])
+        await app.addKanbanCard("In General", in: "c1", lane: "lane-default")
+        await app.addKanbanCard("In Lane 2", in: "c1", lane: lanes[1].id)
+        let general = await app.settings.kanbanCards.filter { $0.lane == "lane-default" }
+        let second = await app.settings.kanbanCards.filter { $0.lane == lanes[1].id }
+        #expect(general.count == 1 && second.count == 1)
+    }
+
+    @Test("a legacy nil-lane card renders in the primary lane only")
+    func legacyCardInPrimaryLane() async {
+        let app = makeApp(
+            columns: [KBColumn(id: "c1", name: "Backlog", color: "#5BB98C")],
+            cards: [KBCard(id: "k1", columnID: "c1", title: "Old card")])
+        let html = await app.kanbanMain().markup.html
+        #expect(html.contains("Old card"))
+        #expect(html.components(separatedBy: "Old card").count == 2)  // exactly one lane section shows it
+    }
+
+    @Test("lane rename round-trips")
+    func laneRename() async {
+        let app = makeApp()
+        await app.renameKanbanLane("lane-default", to: "Sprint 1")
+        let name = await app.selectedKanbanLanes().first?.name
+        #expect(name == "Sprint 1")
+        let html = await app.kanbanMain().markup.html
+        #expect(html.contains("Sprint 1"))
+    }
+
+    @Test("deleting a board removes its lanes")
+    func boardDeleteRemovesLanes() async {
+        let app = makeApp(
+            boards: [board("b1", "One"), board("b2", "Two")],
+            lanes: [KBLane(id: "lane-b1", name: "General", board: "b1"),
+                    KBLane(id: "lane-b2", name: "General", board: "b2")])
+        await app.deleteKanbanBoard("b1")
+        let laneBoards = await app.settings.kanbanLanes.map(\.board)
+        #expect(laneBoards == ["b2"])
+    }
+
+    @Test("the main board renders the top bar and lane chrome")
+    func topbarAndLaneChrome() async {
+        let app = makeApp(columns: [KBColumn(id: "c1", name: "Backlog", color: "#5BB98C")])
+        let html = await app.kanbanMain().markup.html
+        #expect(html.contains("kb-topbar-name\">Default"))
+        #expect(html.contains(">+ Column</button>") && html.contains(">+ Row</button>"))
+        #expect(html.contains("kb-lanes-single"))     // one lane fills the height
+        #expect(html.contains("kb-lane-name\">General"))
+        #expect(html.contains("kb-renlane-"))          // inline lane rename
     }
 }

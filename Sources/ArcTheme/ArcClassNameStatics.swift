@@ -574,6 +574,16 @@ extension ClassName {
 	public static var taskHistCard: ClassName { ClassName(ArcClass.taskHistCard.token) }
 	public static var taskHistOut: ClassName { ClassName(ArcClass.taskHistOut.token) }
 	public static var taskHistRow: ClassName { ClassName(ArcClass.taskHistRow.token) }
+	public static var kbTopbar: ClassName { ClassName(ArcClass.kbTopbar.token) }
+	public static var kbTopbarName: ClassName { ClassName(ArcClass.kbTopbarName.token) }
+	public static var kbTopbarActions: ClassName { ClassName(ArcClass.kbTopbarActions.token) }
+	public static var kbLanes: ClassName { ClassName(ArcClass.kbLanes.token) }
+	public static var kbLanesSingle: ClassName { ClassName(ArcClass.kbLanesSingle.token) }
+	public static var kbLane: ClassName { ClassName(ArcClass.kbLane.token) }
+	public static var kbLaneSingle: ClassName { ClassName(ArcClass.kbLaneSingle.token) }
+	public static var kbLaneHead: ClassName { ClassName(ArcClass.kbLaneHead.token) }
+	public static var kbLaneName: ClassName { ClassName(ArcClass.kbLaneName.token) }
+	public static var kbLaneCols: ClassName { ClassName(ArcClass.kbLaneCols.token) }
 	public static var kbBoardsHead: ClassName { ClassName(ArcClass.kbBoardsHead.token) }
 	public static var kbBoardsLabel: ClassName { ClassName(ArcClass.kbBoardsLabel.token) }
 	public static var taskScriptBox: ClassName { ClassName(ArcClass.taskScriptBox.token) }

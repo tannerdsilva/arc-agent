@@ -63,7 +63,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_settings_admin(router)
-            #expect(router.handlerCount(in: .default) == 35, "settings_admin group registration drifted")
+            #expect(router.handlerCount(in: .default) == 37, "settings_admin group registration drifted")
         }
 
         @Test("every skills handler is registered after wireGroup_skills")
@@ -195,7 +195,7 @@ extension ArcWebUITestRoot {
 
             let count = router.handlerCount(in: .default)
             #expect(
-                count == 194,
+                count == 196,
                 "wireAll must register exactly 191 handlers: 167 @Wired-generated (incl. ctxpane) + 12 nav-(id) + sidebar-plugin-toggle + cat-pick + 10 cron schedule/search/deliver wires, got \(count)")
         }
 

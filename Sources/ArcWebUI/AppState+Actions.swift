@@ -852,6 +852,8 @@ extension AppState {
             settings.kanbanColumns.append(
                 KBColumn(id: UUID().uuidString, name: n, color: palette[i % palette.count], board: board.id))
         }
+        settings.kanbanLanes.append(
+            KBLane(id: primaryLaneID(forBoard: board.id), name: "General", board: board.id))
         saveSettings()
     }
 
@@ -866,6 +868,50 @@ extension AppState {
         }
         settings.kanbanBoards[i].name = name
         renamingBoardID = nil
+        saveSettings()
+    }
+
+    // MARK: Lanes
+
+    /// Lanes of the selected board, in stored order.
+    func selectedKanbanLanes() -> [KBLane] {
+        let sel = selectedBoardID()
+        return settings.kanbanLanes.filter { AppState.boardID($0.board) == sel }
+    }
+
+    /// Whether a card sits in the given lane. `nil` card lanes are the legacy
+    /// / primary world and always read as the board's first lane.
+    func cardBelongsToLane(_ card: KBCard, _ lane: KBLane, firstLaneID: String?) -> Bool {
+        card.lane == lane.id || (card.lane == nil && lane.id == firstLaneID)
+    }
+
+    func setRenamingLane(_ id: String?) {
+        renamingLaneID = id
+        if id != nil { addingBoard = false; confirmBoard = nil }
+    }
+
+    /// "+ Row": a new lane named "Lane N" (N = 1-based position), sharing the
+    /// board's columns. Empty names can't happen from the one-click wire, but
+    /// guard anyway.
+    func addKanbanLane() {
+        let board = selectedBoardID()
+        let n = settings.kanbanLanes.filter { AppState.boardID($0.board) == board }.count + 1
+        settings.kanbanLanes.append(
+            KBLane(id: UUID().uuidString, name: "Lane \(n)", board: board))
+        renamingLaneID = nil
+        saveSettings()
+    }
+
+    func renameKanbanLane(_ id: String, to raw: String) {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty,
+              let i = settings.kanbanLanes.firstIndex(where: { $0.id == id })
+        else {
+            if name.isEmpty { _ = hint("Lane needs a name.", kind: "error") }
+            return
+        }
+        settings.kanbanLanes[i].name = name
+        renamingLaneID = nil
         saveSettings()
     }
 
@@ -892,6 +938,7 @@ extension AppState {
             settings.kanbanColumns.removeAll { $0.board == nil }
             settings.kanbanCards.removeAll { $0.board == nil }
         }
+        settings.kanbanLanes.removeAll { AppState.boardID($0.board) == id }
         if settings.kanbanSelectedBoard == id {
             settings.kanbanSelectedBoard = settings.kanbanBoards.first?.id
         }
@@ -933,12 +980,13 @@ extension AppState {
         saveSettings()
     }
 
-    func setAddingCard(_ columnID: String?) {
+    func setAddingCard(_ columnID: String?, lane: String? = nil) {
         addingCardColumnID = columnID
+        addingCardLaneID = lane
         kanbanAddError = nil
     }
 
-    func addKanbanCard(_ title: String, in columnID: String) {
+    func addKanbanCard(_ title: String, in columnID: String, lane rawLane: String? = nil) {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else {
             kanbanAddError = "Give the card a title."
@@ -947,7 +995,8 @@ extension AppState {
         }
         kanbanAddError = nil
         settings.kanbanCards.append(
-            KBCard(id: UUID().uuidString, columnID: columnID, title: t, board: selectedBoardID()))
+            KBCard(id: UUID().uuidString, columnID: columnID, title: t,
+                   board: selectedBoardID(), lane: rawLane))
         addingCardColumnID = nil
         saveSettings()
     }

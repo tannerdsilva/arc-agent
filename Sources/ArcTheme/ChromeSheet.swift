@@ -1122,6 +1122,29 @@ public static let css: String = """
     .task-hist-row[data-st="ok"] .task-hist-status { color: var(--success); }
     .task-hist-row[data-st="error"] .task-hist-status,
     .task-hist-row[data-st="timeout"] .task-hist-status { color: var(--danger, #c0504d); }
+
+    /* Kanban top bar: board name left, "+ Column" / "+ Row" right. */
+    .kb-topbar { display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border);
+      flex: none; }
+    .kb-topbar-name { font-size: 0.95rem; font-weight: 600; color: var(--text);
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .kb-topbar-actions { display: flex; gap: 8px; flex: none; }
+    /* Lanes area: scrollable when there is more than one lane; a single lane
+       stretches to fill the board height. */
+    .kb-lanes { display: flex; flex-direction: column; gap: 16px;
+      flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 16px 16px; }
+    .kb-lanes-single { overflow-y: hidden; }
+    .kb-lane { display: flex; flex-direction: column; min-height: 300px;
+      min-width: 0; }
+    .kb-lane-single { flex: 1 1 auto; min-height: 0; }
+    .kb-lane-head { display: flex; align-items: center; gap: 6px;
+      padding: 0 2px 6px; flex: none; }
+    .kb-lane-name { font-size: 0.8rem; font-weight: 600; color: var(--text-dim);
+      letter-spacing: 0.02em; min-width: 0; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; }
+    .kb-lane-cols { display: flex; gap: 12px; align-items: stretch; flex: 1 1 auto;
+      min-height: 0; min-width: 0; overflow-x: auto; padding-bottom: 2px; }
     .task-hist-out { color: var(--text); min-width: 0; overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; }
     /* Kanban boards section: label row + board rows in the side panel. */
@@ -2907,7 +2930,8 @@ public static let css: String = """
 
     /* ─── Kanban ─────────────────────────────────────────────── */
     .kb-pcol { display: flex; align-items: center; gap: 8px; min-width: 0; }
-    .kanban-main { overflow: hidden; }
+    .kanban-main { overflow: hidden; display: flex; flex-direction: column;
+      height: 100%; }
     .kanban-board {
         margin: 12px;
     }

@@ -5101,34 +5101,6 @@ extension AppState {
                 if settings.kanbanBoards.isEmpty {
                     EmptyHint { Text("No boards — press + to add one.") }
                 }
-                if addingColumn {
-                    Form(action: "", method: nil, id: "kb-addcol-form", class: .catAddForm) {
-                        Input(field: "kb-addcol-name",
-                              placeholder: "Column name", type: .text,
-                              attributes: [
-                                ("data-component-id", "kb-addcol-name"),
-                                ("autofocus", ""),
-                              ])
-                        Input(name: "kb-addcol-color", type: .hidden,
-                              attributes: [
-                                ("id", "kb-addcol-color"),
-                                ("class", "color-value"),
-                                ("value", AppState.palette[0]),
-                              ])
-                        CatSwatches {
-                            for (j, c) in AppState.palette.enumerated() {
-                                ErasedViews([ArcButton(id: nil, component: nil, class: ClassName("cat-swatch\(j == 0 ? " sel" : "")")) {}
-                                    .data("color", c)
-                                    .attribute("style", "background:\(c)")])
-                            }
-                        }
-                        CatAddActions {
-                            ArcButton("Add", class: .primaryBtn, type: .submit)
-                            ArcButton("Cancel", id: "kb-addcol-cancel", component: nil, class: .ghostBtn)
-                        }
-                    }
-                    .data("component-id", "kb-addcol-form")
-                }
                 for col in selectedKanbanColumns() {
                     let cid = enc(col.id)
                     let count = settings.kanbanCards.filter { $0.columnID == col.id }.count
@@ -5166,22 +5138,114 @@ extension AppState {
     }
 
     /// Board: one scrollable row of columns with their cards (arc-style).
+    /// The top bar of the Kanban page: board name on the left, "+ Column" and
+    /// "+ Row" on the right. The row button adds a lane — a horizontal
+    /// grouping that shares the board's columns.
+    func kanbanTopbarHTML() -> some WebUI.View {
+        let sel = selectedBoardID()
+        let boardName = settings.kanbanBoards.first(where: { $0.id == sel })?.name ?? "Default"
+        return Div(class: .kbTopbar) {
+            Span(class: .kbTopbarName) { Text(boardName) }
+            Div(class: .kbTopbarActions) {
+                ArcButton("+ Column", id: "kb-addcol", component: "kb-addcol", class: .ghostBtn)
+                ArcButton("+ Row", id: "kb-addlane", component: "kb-addlane", class: .ghostBtn)
+            }
+        }
+    }
+
+    /// The inline add-column form — lives under the top bar (it creates a
+    /// column on the board in the top bar, not a panel row).
+    func kanbanAddColumnForm() -> some WebUI.View {
+        Form(action: "", method: nil, id: "kb-addcol-form", class: .catAddForm) {
+            Input(field: "kb-addcol-name",
+                  placeholder: "Column name", type: .text,
+                  attributes: [
+                    ("data-component-id", "kb-addcol-name"),
+                    ("autofocus", ""),
+                  ])
+            Input(name: "kb-addcol-color", type: .hidden,
+                  attributes: [
+                    ("id", "kb-addcol-color"),
+                    ("class", "color-value"),
+                    ("value", AppState.palette[0]),
+                  ])
+            CatSwatches {
+                for (j, c) in AppState.palette.enumerated() {
+                    ErasedViews([ArcButton(id: nil, component: nil, class: ClassName("cat-swatch\(j == 0 ? " sel" : "")")) {}
+                        .data("color", c)
+                        .attribute("style", "background:\(c)")])
+                }
+            }
+            CatAddActions {
+                ArcButton("Add", class: .primaryBtn, type: .submit)
+                ArcButton("Cancel", id: "kb-addcol-cancel", component: nil, class: .ghostBtn)
+            }
+        }
+        .data("component-id", "kb-addcol-form")
+    }
+
+    /// One lane: a header (name + rename) and the board's columns filtered to
+    /// the lane's cards. A single lane stretches the full board height; with
+    /// several, the lanes area scrolls.
+    func kanbanLaneHTML(_ lane: KBLane, _ cols: [KBColumn], firstLaneID: String?, single: Bool) -> some WebUI.View {
+        let lid = enc(lane.id)
+        return ErasedViews([Div(class: ClassName(.kbLane, single ? .kbLaneSingle : .kbLane)) {
+            Div(class: .kbLaneHead) {
+                if renamingLaneID == lane.id {
+                    ErasedViews([Form(action: "", method: nil, id: "kb-lane-ren-form", class: .catAddForm) {
+                        Input(field: "kb-lane-ren-name",
+                              placeholder: "Lane name", type: .text,
+                              attributes: [
+                                ("data-component-id", "kb-lane-ren-name"),
+                                ("value", lane.name),
+                                ("autofocus", ""),
+                              ])
+                        Input(name: "kb-lane-ren-id", type: .hidden,
+                              attributes: [("value", lane.id)])
+                        CatAddActions {
+                            ArcButton("Save", class: .primaryBtn, type: .submit)
+                            ArcButton("Cancel", id: "kb-lane-ren-cancel", component: nil, class: .ghostBtn)
+                        }
+                    }
+                    .data("component-id", "kb-lane-ren-form")])
+                } else {
+                    Span(class: .kbLaneName) { Text(lane.name) }
+                    ArcButton(id: "kb-renlane-\(lid)", component: nil, class: .iconMini) {
+                        WebUIIcon(.edit, size: .small)
+                    }
+                    .title("Rename lane")
+                }
+            }
+            Div(class: .kbLaneCols) {
+                for col in cols {
+                    ErasedViews([kanbanColumnHTML(col, lane: lane, isPrimary: lane.id == firstLaneID)])
+                }
+            }
+        }])
+    }
+
     func kanbanMain() -> some WebUI.View {
         let cols = selectedKanbanColumns()
+        let lanes = selectedKanbanLanes()
         return Group {
             if cols.isEmpty {
                 MainView {
                     Blank {
                         Big { WebUIIcon(.columns, size: .extraLarge) }
-                        Div { Text("No columns yet — add one in the panel.") }
+                        Div { Text("No columns yet — press + Column.") }
                     }
                 }
                 .attribute("style", "justify-content:center")
             } else {
                 Div(class: ClassName(.kanbanMain, .mainView)) {
-                    Div(class: .kanbanBoard) {
-                        for col in cols {
-                            ErasedViews([kanbanColumnHTML(col)])
+                    kanbanTopbarHTML()
+                    if addingColumn {
+                        ErasedViews([kanbanAddColumnForm()])
+                    }
+                    Div(class: ClassName(.kbLanes, lanes.count <= 1 ? .kbLanesSingle : .kbLanes)) {
+                        let firstID = lanes.first?.id
+                        for lane in lanes {
+                            ErasedViews([kanbanLaneHTML(lane, cols, firstLaneID: firstID, single: lanes.count <= 1)])
                         }
                     }
                     .data("component-id", "kanban")
@@ -5192,9 +5256,13 @@ extension AppState {
         }
     }
 
-    func kanbanColumnHTML(_ col: KBColumn) -> some WebUI.View {
+    /// One column inside a lane. The lane matters twice: which cards render,
+    /// and the add-card button/form, which carries the lane so a new card
+    /// lands in the lane row it was added from.
+    func kanbanColumnHTML(_ col: KBColumn, lane: KBLane, isPrimary: Bool) -> some WebUI.View {
         let cid = enc(col.id)
-        let cards = settings.kanbanCards.filter { $0.columnID == col.id }
+        let lid = enc(lane.id)
+        let cards = settings.kanbanCards.filter { $0.columnID == col.id && cardBelongsToLane($0, lane, firstLaneID: isPrimary ? lane.id : nil) }
         let armed = confirmColumn == col.id
         let addErr = kanbanAddError
         // the error node exists even while empty: the client fills
@@ -5231,7 +5299,8 @@ extension AppState {
                     }
                 }
             }
-            if addingCardColumnID == col.id {
+            if addingCardColumnID == col.id,
+               addingCardLaneID == lane.id || (addingCardLaneID == nil && isPrimary) {
                 Form(action: "", method: nil, id: "kb-addcard-form", class: .kbAddcardForm) {
                     Input(field: "kb-addcard-name",
                           placeholder: "Card title", type: .text,
@@ -5246,6 +5315,8 @@ extension AppState {
                         .addClass(.inlineErr)
                     Input(name: "kb-addcard-col", type: .hidden,
                           attributes: [("value", col.id)])
+                    Input(name: "kb-addcard-lane", type: .hidden,
+                          attributes: [("value", lane.id)])
                     CatAddActions {
                         ArcButton("Add", class: .primaryBtn, type: .submit)
                         ArcButton("Cancel", id: "kb-addcard-cancel", component: nil, class: .ghostBtn)
@@ -5254,7 +5325,7 @@ extension AppState {
                 }
                 .data("component-id", "kb-addcard-form")
             } else {
-                ArcButton(id: "kb-addcard-\(cid)", component: nil, class: .kbAddcard) {
+                ArcButton(id: "kb-addcard-\(enc("\(col.id)|\(lane.id)"))", component: nil, class: .kbAddcard) {
                     Text("+ Add card")
                 }
             }
