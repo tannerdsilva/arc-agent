@@ -158,14 +158,13 @@ extension AppState {
         }
         // the container registers its own handler in this render pass: the toast
         // id travels as `targetId`, so one stable id covers every row.
-        .control(id: "toast-dismiss") { event in
-            guard let tid = event.string("targetId") else { return [] }
+        .control(id: "toast-dismiss", perform: { event in
+            guard let tid = event.string("targetId") else { return .fragments([]) }
             guard tid.hasPrefix("t-"),
-                  let id = Int(tid.dropFirst("t-".count)) else { return [] }
+                  let id = Int(tid.dropFirst("t-".count)) else { return .fragments([]) }
             await self.dismissToast(id: id)
-            await self.signalStructure()
-            return []
-        }
+            return .refresh
+        })
     }
 
     func iconbarHTML() -> some WebUI.View {
@@ -203,15 +202,14 @@ extension AppState {
     private func railButton(_ tab: any SidebarTab, active: Bool) -> some WebUI.View {
         // the id and the handler travel with the control: registration happens
         // in this render pass, so no central nav loop has to enumerate the rail.
-        // `signalStructure` is the app's stopgap route to the push edge; the
-        // engine is expected to own this as a handler outcome.
+        // the handler answers `HandlerOutcome.refresh`: the server re-renders
+        // this session's page and ships the regions whose bytes moved.
         let tabID = tab.id
-        let navigation = controlAttributes(id: "nav-\(tabID)", event: .click) { _ in
+        let navigation = controlAttributes(id: "nav-\(tabID)", event: .click, outcome: { _ in
             await self.switchTab(tabID)
             await self.notifyTabActivated(tabID)
-            await self.signalStructure()
-            return []
-        }
+            return .refresh
+        })
         let base = ArcButton(
             id: "nav-\(tabID)",
             class: ClassName(active ? "icon-btn active" : "icon-btn"),
@@ -425,14 +423,13 @@ extension AppState {
     /// id-bearing element (never for the wired component itself), so: no
     /// targetId = ring click (pane closed) or backdrop click (pane open); the
     /// card id itself is inert.
-    private func contextPaneBoundary(_ event: EventData) async -> [FragmentUpdate] {
+    private func contextPaneBoundary(_ event: EventData) async -> HandlerOutcome {
         switch event.string("targetId") {
         case "ctx-pane-close":
             closeContextPane()
-            await signalStructure()
-            return []
+            return .refresh
         case "ctx-pane-card":
-            return [] // clicks inside the card content are inert
+            return .fragments([]) // clicks inside the card content are inert
         default:
             // No nested id: the ring (open) or the backdrop (close).
             if contextPane != nil {
@@ -440,8 +437,7 @@ extension AppState {
             } else {
                 await openContextPane()
             }
-            await signalStructure()
-            return []
+            return .refresh
         }
     }
 
@@ -1180,14 +1176,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 ArcSwitch(id: "ts-\(encTS)", on: !disabled,
                                           value: "ts-\(encTS)",
                                           ariaLabel: "Enable \(toolset) tools",
-                                          extraAttributes: controlAttributes(id: "tools-toggle", event: .change) { event in
+                                          extraAttributes: controlAttributes(id: "tools-toggle", event: .change, outcome: { event in
                                               let tid = event.string("targetId") ?? event.string("value") ?? ""
-                                              guard tid.hasPrefix("ts-") else { return [] }
+                                              guard tid.hasPrefix("ts-") else { return .fragments([]) }
                                               let ts = dec(String(tid.dropFirst("ts-".count))) ?? ""
                                               await self.setToolset(ts, enabled: event.checked == true)
-                                              await self.signalStructure()
-                                              return []
-                                          })
+                                              return .refresh
+                                          }))
                                     .title(disabled ? "Toolset disabled" : "Toolset enabled")
                             }
                             if toolset == "mcp" && mcpServers == 0 {
@@ -1213,13 +1208,12 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 // the row boundary registers in this render pass;
                                 // the button inside carries only its id so the
                                 // click reports `tl-open-<enc>` as `targetId`.
-                                .control(id: "tool-list", on: .click) { event in
-                                    guard let tid = event.string("targetId"), tid.hasPrefix("tl-open-") else { return [] }
+                                .control(id: "tool-list", on: .click, perform: { event in
+                                    guard let tid = event.string("targetId"), tid.hasPrefix("tl-open-") else { return .fragments([]) }
                                     let name = dec(String(tid.dropFirst("tl-open-".count))) ?? ""
                                     await self.selectTool(name)
-                                    await self.signalStructure()
-                                    return []
-                                }
+                                    return .refresh
+                                })
                                 .aria([.current(.yes)], when: active)])
                             }
                         }
@@ -2900,11 +2894,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         return Dd {
             WebUIDropdown(isOpen: mainModelPickerOpen) {
                 ddTrigger(id: "mainmc-toggle", icon: .zap, label: label, title: "Main model",
-                          wiring: controlAttributes(id: "mainmc-toggle", event: .click) { _ in
+                          wiring: controlAttributes(id: "mainmc-toggle", event: .click, outcome: { _ in
                               await self.setMainModelPickerOpen(!(await self.mainModelPickerOpen))
-                              await self.signalStructure()
-                              return []
-                          })
+                              return .refresh
+                          }))
             } panel: {
                 // only `isOpen` goes to the component: the trigger above is the
                 // boundary and `id:`/`onSelect:` here are register-only, so
@@ -2923,16 +2916,15 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
                 // the popover boundary registers in this render pass; the rows
                 // keep dispatching on `targetId`.
-                .control(id: "mainmc") { event in
-                    guard let tid = event.string("targetId"), tid.hasPrefix("mainmc-pick-") else { return [] }
+                .control(id: "mainmc", perform: { event in
+                    guard let tid = event.string("targetId"), tid.hasPrefix("mainmc-pick-") else { return .fragments([]) }
                     if let name = dec(String(tid.dropFirst("mainmc-pick-".count))) {
                         await self.useModelConfig(name)
                         _ = await self.hint("Active configuration: \(name)")
                     }
                     await self.setMainModelPickerOpen(false)
-                    await self.signalStructure()
-                    return []
-                }
+                    return .refresh
+                })
             }
         }
     }
@@ -4325,12 +4317,11 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 ddTrigger(id: "storage-pick-toggle", icon: .database,
                                           label: mediumLabel(effectiveMedium),
                                           title: "Storage medium in use",
-                                          wiring: controlAttributes(id: "storage-pick-toggle", event: .click) { _ in
+                                          wiring: controlAttributes(id: "storage-pick-toggle", event: .click, outcome: { _ in
                                               let next = !(await self.storagePickOpen)
                                               await self.setStoragePickOpen(next)
-                                              await self.signalStructure()
-                                              return []
-                                          })
+                                              return .refresh
+                                          }))
                             } panel: {
                                 // only `isOpen` goes to the component: this trigger is
                                 // the boundary, and `id:`/`onSelect:` here are register-
@@ -4390,8 +4381,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 // the medium rows register their boundary in
                                 // this render pass; the rows keep dispatching
                                 // on `targetId`.
-                                .control(id: "storage-pick") { event in
-                                    guard let tid = event.string("targetId") else { return [] }
+                                .control(id: "storage-pick", perform: { event in
+                                    guard let tid = event.string("targetId") else { return .fragments([]) }
                                     if tid == "storage-pick-file" {
                                         await self.setStagedStorage("file")
                                     } else if tid == "storage-pick-config" {
@@ -4400,27 +4391,24 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                               let cid = dec(String(tid.dropFirst("storage-pick-conn-".count))) {
                                         await self.setStagedStorage(cid)
                                     } else {
-                                        return []
+                                        return .fragments([])
                                     }
-                                    await self.signalStructure()
-                                    return []
-                                }
+                                    return .refresh
+                                })
                             }
                         }
                         // the connect button registers in this render pass.
                         ArcButton("Save and Connect", id: "storage-connect",
                                   class: .primaryBtn,
                                   disabled: !canConnect,
-                                  extraAttributes: controlAttributes(id: "storage-connect", event: .click) { _ in
+                                  extraAttributes: controlAttributes(id: "storage-connect", event: .click, outcome: { _ in
                                       let ok = await self.connectStagedStorage()
                                       if !ok {
                                           _ = await self.hint("Pick a different storage medium first — Save and Connect needs a change.")
-                                          await self.signalStructure()
-                                          return []
+                                          return .refresh
                                       }
-                                      await self.signalStructure()
-                                      return []
-                                  })
+                                      return .refresh
+                                  }))
                     }
                     if let st = stagedStorage {
                         SetHint {
@@ -4488,15 +4476,14 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 } control: {
                     ArcSwitch(id: "set-moa", on: arcConfig.moa.enabled,
-                              extraAttributes: controlAttributes(id: "set-moa", event: .change) { event in
+                              extraAttributes: controlAttributes(id: "set-moa", event: .change, outcome: { event in
                                   let on = event.checked == true
                                   await self.setMoaEnabled(on)
                                   _ = await self.hint(on
                                       ? "Mixture of Agents enabled — reference models must be configured in the model routing table."
                                       : "Mixture of Agents disabled.")
-                                  await self.signalStructure()
-                                  return []
-                              })
+                                  return .refresh
+                              }))
                 }
             }
             .margin(.top, .three)
@@ -4562,7 +4549,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
         // the form registers its submit boundary in this render pass; the
         // `sc-*` field names still key the submit payload.
-        .control(id: "storage-conn-form", on: .submit) { event in
+        .control(id: "storage-conn-form", on: .submit, perform: { event in
             let editID = (event.string("storage-edit-id") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let name = (event.string("sc-name") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let ip = (event.string("sc-ip") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4580,9 +4567,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             } else {
                 _ = await self.hint("Check the storage name, IP and port (1–65535).")
             }
-            await self.signalStructure()
-            return []
-        }
+            return .refresh
+        })
     }
 
     /// One line at the top of Settings naming the policy values the environment
@@ -4686,14 +4672,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                     // the theme grid registers its boundary in this render pass;
                     // the cards keep dispatching on `targetId`.
-                    .control(id: "theme-pick") { event in
-                        guard let tid = event.string("targetId"), tid.hasPrefix("thm-") else { return [] }
+                    .control(id: "theme-pick", perform: { event in
+                        guard let tid = event.string("targetId"), tid.hasPrefix("thm-") else { return .fragments([]) }
                         let theme = String(tid.dropFirst("thm-".count))
                         await self.setTheme(theme)
                         _ = await self.hint("Theme set to \(theme).")
-                        await self.signalStructure()
-                        return []
-                    }
+                        return .refresh
+                    })
                 }
                 Div(class: ClassName(.setRow, .setRowStack)) {
                     Div(class: .setLabel) {
@@ -4714,17 +4699,16 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         }
                     }
                     // the size grid registers its boundary in this render pass.
-                    .control(id: "font-size-pick") { event in
-                        guard let tid = event.string("targetId"), tid.hasPrefix("fsz-") else { return [] }
+                    .control(id: "font-size-pick", perform: { event in
+                        guard let tid = event.string("targetId"), tid.hasPrefix("fsz-") else { return .fragments([]) }
                         let size = String(tid.dropFirst("fsz-".count))
                         await self.setTextSize(size)
                         // UX-22: apply text-size to the live page without a reload. The door's
                         // render is the whole `#app` shell, which carries `data-size`
                         // (Views.swift:75) — the live page changes in the same tick as the hint.
                         _ = await self.hint("Text size updated.")
-                        await self.signalStructure()
-                        return []
-                    }
+                        return .refresh
+                    })
                 }
                 Div(class: ClassName(.setRow, .setRowStack)) {
                     Div(class: .setLabel) {
@@ -4757,25 +4741,23 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         }
                     }
                     // the scheme grid registers its boundary in this render pass.
-                    .control(id: "scheme-pick") { event in
-                        guard let tid = event.string("targetId"), tid.hasPrefix("scheme-") else { return [] }
+                    .control(id: "scheme-pick", perform: { event in
+                        guard let tid = event.string("targetId"), tid.hasPrefix("scheme-") else { return .fragments([]) }
                         if let name = dec(String(tid.dropFirst("scheme-".count))) {
                             await self.setColorScheme(name)
                         }
-                        await self.signalStructure()
-                        return []
-                    }
+                        return .refresh
+                    })
                 }
                 SettingRow {
                     Text("Show conversation outline")
                     Small("Adds a floating button to the chat view that lists your sent messages; clicking one jumps to it.")
                 } control: {
                     ArcSwitch(id: "set-showoutline", on: settings.showConversationOutline,
-                              extraAttributes: controlAttributes(id: "set-showoutline", event: .change) { event in
+                              extraAttributes: controlAttributes(id: "set-showoutline", event: .change, outcome: { event in
                                   await self.setShowConversationOutline(event.checked == true)
-                                  await self.signalStructure()
-                                  return []
-                              })
+                                  return .refresh
+                              }))
                 }
                 SettingRow {
                     Text("Activity display")
@@ -4790,14 +4772,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         }
                     }
                     // the mode chips register their boundary in this render pass.
-                    .control(id: "activity-display") { event in
-                        guard let tid = event.string("targetId"), tid.hasPrefix("actdisp-") else { return [] }
+                    .control(id: "activity-display", perform: { event in
+                        guard let tid = event.string("targetId"), tid.hasPrefix("actdisp-") else { return .fragments([]) }
                         let mode = String(tid.dropFirst("actdisp-".count))
                         await self.setActivityDisplay(mode)
                         _ = await self.hint("Activity display set to \(mode.replacingOccurrences(of: "_", with: " "))")
-                        await self.signalStructure()
-                        return []
-                    }
+                        return .refresh
+                    })
                 }
                 Div(class: ClassName(.setRow, .setRowStackLg)) {
                     Div(class: .setLabel) { Text("Sidebar tabs") }
@@ -4852,12 +4833,11 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                            options: levels.map { SelectOption(value: $0, label: $0.capitalized) },
                            selected: settings.thinkingLevel)
                         // the select registers in this render pass.
-                        .control(id: "set-think", on: .change) { event in
+                        .control(id: "set-think", on: .change, perform: { event in
                             await self.setDefaultThinking(event.string("value") ?? "medium")
                             _ = await self.hint("Default thinking level updated.")
-                            await self.signalStructure()
-                            return []
-                        }
+                            return .refresh
+                        })
                 }
             }
             DetailCard(class: .cardStack) {
@@ -4871,22 +4851,20 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 } control: {
                     ArcSwitch(id: "set-showtokens", on: settings.showTokenUsage,
-                              extraAttributes: controlAttributes(id: "set-showtokens", event: .change) { event in
+                              extraAttributes: controlAttributes(id: "set-showtokens", event: .change, outcome: { event in
                                   await self.setShowTokenUsage(event.checked == true)
-                                  await self.signalStructure()
-                                  return []
-                              })
+                                  return .refresh
+                              }))
                 }
                 SettingRow {
                     Text("Show token speed (TPS)")
                     Small("Displays tokens per second in assistant message headers while streaming and after a response completes. Off by default.")
                 } control: {
                     ArcSwitch(id: "set-showtps", on: settings.showTps,
-                              extraAttributes: controlAttributes(id: "set-showtps", event: .change) { event in
+                              extraAttributes: controlAttributes(id: "set-showtps", event: .change, outcome: { event in
                                   await self.setShowTps(event.checked == true)
-                                  await self.signalStructure()
-                                  return []
-                              })
+                                  return .refresh
+                              }))
                 }
                 SettingRow {
                     Text("Pinned conversations limit")
@@ -4900,12 +4878,11 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                        ("class", "num-input")])
                         // the input already carries the routing pair; the render
                         // pass supplies the registration those attributes name.
-                        .control(id: "set-pinlimit", on: .change) { event in
+                        .control(id: "set-pinlimit", on: .change, perform: { event in
                             let n = Int(event.string("value") ?? "") ?? 3
                             await self.setPinnedSessionsLimit(n)
-                            await self.signalStructure()
-                            return []
-                        }
+                            return .refresh
+                        })
                 }
             }
             DetailCard {
@@ -5032,17 +5009,15 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     /// the auxiliary editor's boundary, shared by the editor footer and each
     /// summary row (both carry `aux-edit`). It used to be one boot registration;
     /// registration is id-keyed, so each render site installs this one body.
-    private func auxEditBoundary(_ event: EventData) async -> [FragmentUpdate] {
-        guard let tid = event.string("targetId") else { return [] }
+    private func auxEditBoundary(_ event: EventData) async -> HandlerOutcome {
+        guard let tid = event.string("targetId") else { return .fragments([]) }
         if tid.hasPrefix("aux-edit-") {
             await setAuxEditing(String(tid.dropFirst("aux-edit-".count)))
-            await signalStructure()
-            return []
+            return .refresh
         }
         if tid.hasPrefix("aux-cancel-") {
             await setAuxEditing(nil)
-            await signalStructure()
-            return []
+            return .refresh
         }
         if tid.hasPrefix("aux-reset-") {
             let key = String(tid.dropFirst("aux-reset-".count))
@@ -5050,10 +5025,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 await clearAuxOverride(task: task)
             }
             await setAuxEditing(nil)
-            await signalStructure()
-            return []
+            return .refresh
         }
-        return []
+        return .fragments([])
     }
 
     /// one auxiliary task: either the inline editor (when it is the task being
@@ -5093,11 +5067,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 WebUIDropdown(isOpen: auxConfigPickerOpen) {
                                     ArcButton(id: "auxmc-toggle-\(task.key)",
                                               class: .ddTrigger,
-                                              extraAttributes: controlAttributes(id: "auxmc-toggle", event: .click) { _ in
+                                              extraAttributes: controlAttributes(id: "auxmc-toggle", event: .click, outcome: { _ in
                                                   await self.setAuxConfigPickerOpen(!(await self.auxConfigPickerOpen))
-                                                  await self.signalStructure()
-                                                  return []
-                                              }) {
+                                                  return .refresh
+                                              })) {
                                         DdTriggerLabel { Text(triggerLabel) }
                                         WebUIIcon(.chevronDown, size: .small)
                                     }
@@ -5147,8 +5120,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                     }
                                     // the picker boundary registers in this render
                                     // pass; the rows keep dispatching on `targetId`.
-                                    .control(id: "auxmc") { event in
-                                        guard let tid = event.string("targetId") else { return [] }
+                                    .control(id: "auxmc", perform: { event in
+                                        guard let tid = event.string("targetId") else { return .fragments([]) }
                                         if tid.hasPrefix("auxmc-main-") {
                                             let key = String(tid.dropFirst("auxmc-main-".count))
                                             await self.stageAuxConfig(task: key, name: "")
@@ -5161,9 +5134,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                             }
                                         }
                                         await self.setAuxConfigPickerOpen(false)
-                                        await self.signalStructure()
-                                        return []
-                                    }
+                                        return .refresh
+                                    })
                                 }
                             }
                         }
@@ -5187,8 +5159,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     .control(id: "aux-edit", perform: auxEditBoundary)
                 }
                 // the editor form's submit boundary registers here too.
-                .control(id: "aux-form", on: .submit) { event in
-                    guard let key = event.string("aux-task"), let task = AuxiliaryTask(configKey: key) else { return [] }
+                .control(id: "aux-form", on: .submit, perform: { event in
+                    guard let key = event.string("aux-task"), let task = AuxiliaryTask(configKey: key) else { return .fragments([]) }
                     let staged = await self.auxStagedConfig[key] ?? ""
                     if staged.isEmpty {
                         await self.clearAuxOverride(task: task)
@@ -5197,9 +5169,8 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                     await self.clearAuxStage(task: key)
                     await self.setAuxEditing(nil)
-                    await self.signalStructure()
-                    return []
-                }
+                    return .refresh
+                })
             }
         }
     }
@@ -5259,14 +5230,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 } control: {
                     ArcSwitch(id: "set-smart-approval", on: arcConfig.security.approvalMode == ApprovalMode.smart.rawValue,
-                              extraAttributes: controlAttributes(id: "set-smart-approval", event: .change) { event in
+                              extraAttributes: controlAttributes(id: "set-smart-approval", event: .change, outcome: { event in
                                   // the switch is a view of `security.approvalMode`: on = smart, off =
                                   // manual. `off` (YOLO) renders as off too; flipping it on is an
                                   // explicit request for the smart gate.
                                   await self.setApprovalMode(event.checked == true ? .smart : .manual)
-                                  await self.signalStructure()
-                                  return []
-                              })
+                                  return .refresh
+                              }))
                 }
                 SettingRow {
                     Text("Smart pick-a-path")
@@ -5277,11 +5247,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 } control: {
                     ArcSwitch(id: "set-smart-pickapath", on: settings.smartPickAPath,
-                              extraAttributes: controlAttributes(id: "set-smart-pickapath", event: .change) { event in
+                              extraAttributes: controlAttributes(id: "set-smart-pickapath", event: .change, outcome: { event in
                                   await self.setSmartPickAPath(event.checked == true)
-                                  await self.signalStructure()
-                                  return []
-                              })
+                                  return .refresh
+                              }))
                 }
             }
         }
@@ -5931,11 +5900,10 @@ extension AppState {
                 ArcButton(
                     id: "log-clear",
                     class: .iconMini,
-                    extraAttributes: controlAttributes(id: "log-clear", event: .click) { _ in
+                    extraAttributes: controlAttributes(id: "log-clear", event: .click, outcome: { _ in
                         LogCollector.shared.clear()
-                        await self.signalStructure()
-                        return []
-                    }
+                        return .refresh
+                    })
                 ) {
                     WebUIIcon(.trash, size: .small)
                 }
@@ -5968,13 +5936,12 @@ extension AppState {
                 }
                 // one boundary for every chip: the level travels as `targetId`,
                 // and the registration happens in this render pass.
-                .control(id: "log-filter") { event in
-                    guard let tid = event.string("targetId"), tid.hasPrefix("log-filter-") else { return [] }
+                .control(id: "log-filter", perform: { event in
+                    guard let tid = event.string("targetId"), tid.hasPrefix("log-filter-") else { return .fragments([]) }
                     let lvl = String(tid.dropFirst("log-filter-".count))
                     await self.setLogFilter(lvl)
-                    await self.signalStructure()
-                    return []
-                }
+                    return .refresh
+                })
                 Div(class: .logPanelNote) { Text("In-app log stream. Captured lines from this process appear here instead of the terminal.") }
             }
         }

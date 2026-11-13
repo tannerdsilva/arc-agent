@@ -1,29 +1,6 @@
 import Foundation
 import WebUI
 
-// MARK: - render-time controls
-
-extension View {
-    /// attach a control that registers during the render pass and emits its
-    /// routing pair unconditionally.
-    ///
-    /// `controlAttributes` registers only inside a `RenderContext`, but always
-    /// returns the attributes; `AttributeContribution` applies them even when a
-    /// fragment re-render runs outside a context, so a replaced region keeps its
-    /// anchor without re-registering. this is the migration vehicle for Phase 2;
-    /// the engine is expected to own it as a handler outcome.
-    func control(
-        id: String,
-        on event: HTMLEvent = .click,
-        perform handler: @escaping EventHandler
-    ) -> some View {
-        ModifiedView(
-            content: self,
-            modifier: AttributeContribution(
-                controlAttributes(id: id, event: event, handler: handler)))
-    }
-}
-
 // MARK: - Encoding helpers
 
 /// Base64url encode (no padding) — safe for HTML ids/attributes.

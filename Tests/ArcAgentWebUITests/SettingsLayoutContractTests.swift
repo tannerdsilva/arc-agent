@@ -154,14 +154,14 @@ extension ArcWebUITestRoot {
             // shell — so the pin is on the two halves that made UX-22 work.
             // The handler registers at render time now, so it lives in Views.
             let views = Self.source("Views.swift")
-            guard let start = views.range(of: ".control(id: \"font-size-pick\")"),
+            guard let start = views.range(of: ".control(id: \"font-size-pick\""),
                   let end = views.range(of: "func ", range: start.upperBound..<views.endIndex) else {
                 Issue.record("font-size-pick control not found in Views.swift")
                 return
             }
             let body = String(views[start.lowerBound..<end.lowerBound])
-            #expect(body.contains("await self.signalStructure()"),
-                    "the font-size handler must still ask for a shell re-render so data-size lands live (UX-22)")
+            #expect(body.contains("return .refresh"),
+                    "the font-size handler must answer .refresh so the server re-renders the shell and data-size lands live (UX-22)")
             let shell = await AppState(renderFixture: .init()).appShell().markup.html
             #expect(shell.contains("data-size="),
                     "the render the door derives must carry data-size, or a text-size change never lands (UX-22)")

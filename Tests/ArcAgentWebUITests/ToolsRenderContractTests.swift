@@ -14,14 +14,6 @@ extension ArcWebUITestRoot {
     @Suite("tools render", .serialized)
     struct ToolsRenderContractTests {
 
-        private actor Door {
-            private(set) var count = 0
-            nonisolated var signal: @Sendable () async -> Void {
-                { [weak self] in await self?.nudge() }
-            }
-            private func nudge() { count += 1 }
-        }
-
         private static let app: AppState = {
             var fixture = AppState.RenderFixture()
             fixture.toolsets = [
@@ -64,10 +56,8 @@ extension ArcWebUITestRoot {
             #expect(Self.count(of: "data-event=\"click\"", in: html) == 3)
         }
 
-        @Test("a tool row click selects the tool and signals the door exactly once")
+        @Test("a tool row click selects the tool and answers .refresh exactly once")
         func rowClickSignalsOnce() async {
-            let door = Door()
-            await Self.app.installStructuralSignal(door.signal)
             let router = EventRouter()
             _ = await Self.renderPanel(router: router)
 
@@ -76,17 +66,15 @@ extension ArcWebUITestRoot {
                 data: ["targetId": .string("tl-open-\(enc("write_file"))")]))
 
             #expect(outcome.fragments.isEmpty,
-                    "the handler signals the door; the originating socket has nothing to write")
+                    "the handler answers .refresh; the originating socket has nothing to write itself")
             #expect(await Self.app.selectedTool == "write_file",
                     "the row's encoded tool name must land in the selected tool")
-            #expect(await door.count == 1,
+            #expect(outcome.isRefresh,
                     "one click is one structural signal — not zero and not two")
         }
 
-        @Test("a toolset toggle writes the policy and signals the door exactly once")
+        @Test("a toolset toggle writes the policy and answers .refresh exactly once")
         func toggleSignalsOnce() async {
-            let door = Door()
-            await Self.app.installStructuralSignal(door.signal)
             let router = EventRouter()
             _ = await Self.renderPanel(router: router)
 
@@ -102,7 +90,7 @@ extension ArcWebUITestRoot {
                     "enabling a disabled toolset must remove it from the disabled list")
             #expect(after == before.filter { $0 != "terminal" },
                     "the toggle must leave every other toolset policy untouched")
-            #expect(await door.count == 1,
+            #expect(outcome.isRefresh,
                     "one change is one structural signal — not zero and not two")
         }
 
@@ -110,8 +98,6 @@ extension ArcWebUITestRoot {
         func wireAllDoesNotRegisterTools() async {
             let beforeTool = await Self.app.selectedTool
             let beforeDisabled = await Self.app.arcConfig.tools.disabledToolsets
-            let door = Door()
-            await Self.app.installStructuralSignal(door.signal)
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: { _ in })
             await controller.wireAll(router)
@@ -130,7 +116,8 @@ extension ArcWebUITestRoot {
                     "the boot wiring must not answer the row id any more; the render pass owns it")
             #expect(await Self.app.arcConfig.tools.disabledToolsets == beforeDisabled,
                     "the boot wiring must not answer the toggle id any more; the render pass owns it")
-            #expect(await door.count == 0)
+            #expect(!row.isRefresh, "the boot wiring must not answer the row id any more; the render pass owns it")
+            #expect(!toggle.isRefresh, "the boot wiring must not answer the toggle id any more; the render pass owns it")
         }
     }
 }

@@ -228,17 +228,15 @@ extension ArcWebUITestRoot {
                     "the dismissed toast must not be repeated back to the client")
         }
 
-        @Test("a settings click reaches the wire only through the door")
-        func handlerClickBecomesAFrame() async {
-            // The plumbing the sweep depends on, end to end: a real handler,
-            // dispatched by a real router, pushing through a real PushEdge, with
-            // the frame derived from the real shell. The settings group
-            // registers at render time (Task 2.2), so the page is rendered
-            // inside a RenderContext to install `font-size-pick`, and the app's
-            // structural signal is the door this test's edge supplies. A
-            // handler's returned batch is written to the originating socket by
-            // no-webui and never diffed — if its signal never reaches the door,
-            // the page goes stale and no other test in this suite would see it.
+        @Test("a settings click answers .refresh and never crosses the producer door")
+        func handlerClickAnswersRefresh() async {
+            // 2.9.0: a render-time handler answers `HandlerOutcome.refresh`, and
+            // the SERVER re-renders the dispatch session's page against the
+            // baseline it owns (`config.refreshPolicy` is `PushEdge.livePolicy`,
+            // so both doors name the same regions). The interaction therefore
+            // never crosses `PushEdge` — a second diff regime over one page is
+            // exactly what D2 rejects. The end-to-end frame proof is
+            // `TwoPopulationDispatchTests.refreshShipsTheChangedRegion()`.
             let app = AppState(renderFixture: .init())
             let wire = Wire()
             let edge = PushEdge(
@@ -247,7 +245,6 @@ extension ArcWebUITestRoot {
                 broadcast: { await wire.record($0) }
             )
             edge.seed(await app.appShell().markup.html)
-            await app.installStructuralSignal { await edge.push([]) }
             let router = EventRouter()
             _ = await RenderContext.$current.withValue(
                 RenderContext(router: router, session: .default)
@@ -255,19 +252,21 @@ extension ArcWebUITestRoot {
                 await app.settingsMain().markup.html
             }
 
+            let before = await app.settings.textSize
             let outcome = await router.dispatch(EventData(
                 component: ComponentID("font-size-pick"),
                 event: "click",
                 data: ["targetId": .string("fsz-lg")]))
 
             let frames = await wire.flat
+            #expect(outcome.isRefresh,
+                    "a render-time handler's structural signal is the framework outcome now")
             #expect(outcome.fragments.isEmpty,
-                    "the server has nothing to write: the batch crossed the door, not the socket")
-            #expect(!frames.isEmpty, "the click must reach the wire, or the page is stale")
-            #expect(frames.map(\.id) == ["app"],
-                    "data-size lives on #app, so the root is the only frame that can carry it")
-            #expect(frames.first?.html.contains("data-size=\"lg\"") == true,
-                    "the frame must be the render's bytes, after the click")
+                    "the originating socket has nothing to write: the server owns the re-render")
+            #expect(await app.settings.textSize != before,
+                    "the click must move the setting the server's re-render reads")
+            #expect(frames.isEmpty,
+                    "a render-time handler may not cross the push door: two diff regimes over one page drift two baselines")
         }
 
         @Test("a removal the differ cannot express escalates to the whole page")

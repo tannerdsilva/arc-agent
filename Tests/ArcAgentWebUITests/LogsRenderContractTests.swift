@@ -14,14 +14,6 @@ extension ArcWebUITestRoot {
     @Suite("Logs render", .serialized)
     struct LogsRenderContractTests {
 
-        private actor Door {
-            private(set) var count = 0
-            nonisolated var signal: @Sendable () async -> Void {
-                { [weak self] in await self?.nudge() }
-            }
-            private func nudge() { count += 1 }
-        }
-
         private static let app = AppState(renderFixture: .init())
 
         private static func renderPanel(router: EventRouter) async -> String {
@@ -47,10 +39,8 @@ extension ArcWebUITestRoot {
                     "the emitted controls must name the event the handlers answer")
         }
 
-        @Test("a chip click moves the filter and signals the door exactly once")
+        @Test("a chip click moves the filter and answers .refresh exactly once")
         func filterClickSignalsOnce() async {
-            let door = Door()
-            await Self.app.installStructuralSignal(door.signal)
             let router = EventRouter()
             _ = await Self.renderPanel(router: router)
 
@@ -59,18 +49,16 @@ extension ArcWebUITestRoot {
                 data: ["targetId": .string("log-filter-warn")]))
 
             #expect(outcome.fragments.isEmpty,
-                    "the handler signals the door; the originating socket has nothing to write")
+                    "the handler answers .refresh; the originating socket has nothing to write itself")
             #expect(await Self.app.logFilter == "warn")
-            #expect(await door.count == 1,
+            #expect(outcome.isRefresh,
                     "one click is one structural signal — not zero and not two")
         }
 
-        @Test("a clear click empties the buffer and signals the door exactly once")
+        @Test("a clear click empties the buffer and answers .refresh exactly once")
         func clearClickSignalsOnce() async {
             LogCollector.shared.clear()
             LogCollector.shared.append(level: .info, text: "line before the clear")
-            let door = Door()
-            await Self.app.installStructuralSignal(door.signal)
             let router = EventRouter()
             _ = await Self.renderPanel(router: router)
 
@@ -80,7 +68,7 @@ extension ArcWebUITestRoot {
             #expect(outcome.fragments.isEmpty)
             #expect(LogCollector.shared.count == 0,
                     "the clear button must still clear the process-wide buffer")
-            #expect(await door.count == 1)
+            #expect(outcome.isRefresh)
         }
 
         @Test("wireAll alone no longer answers either log id")
@@ -88,8 +76,6 @@ extension ArcWebUITestRoot {
             LogCollector.shared.clear()
             LogCollector.shared.append(level: .info, text: "line the boot wiring must not clear")
             let before = await Self.app.logFilter
-            let door = Door()
-            await Self.app.installStructuralSignal(door.signal)
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: { _ in })
             await controller.wireAll(router)
@@ -106,7 +92,8 @@ extension ArcWebUITestRoot {
                     "the boot wiring must not answer the filter id any more; the render pass owns it")
             #expect(LogCollector.shared.count == 1,
                     "the boot wiring must not answer the clear id any more; the render pass owns it")
-            #expect(await door.count == 0)
+            #expect(!filter.isRefresh, "the boot wiring must not answer the filter id any more; the render pass owns it")
+            #expect(!clear.isRefresh, "the boot wiring must not answer the clear id any more; the render pass owns it")
         }
     }
 }

@@ -14,14 +14,6 @@ extension ArcWebUITestRoot {
     @Suite("settings render", .serialized)
     struct SettingsRenderContractTests {
 
-        private actor Door {
-            private(set) var count = 0
-            nonisolated var signal: @Sendable () async -> Void {
-                { [weak self] in await self?.nudge() }
-            }
-            private func nudge() { count += 1 }
-        }
-
         private static let app = AppState(renderFixture: .init())
 
         private static func renderSettings(router: EventRouter) async -> String {
@@ -45,10 +37,8 @@ extension ArcWebUITestRoot {
                     "the MoA switch must carry the id and event its handler registered")
         }
 
-        @Test("choosing a theme moves the setting and signals the door exactly once")
+        @Test("choosing a theme moves the setting and answers .refresh exactly once")
         func themePickSignalsOnce() async {
-            let door = Door()
-            await Self.app.installStructuralSignal(door.signal)
             let router = EventRouter()
             _ = await Self.renderSettings(router: router)
 
@@ -58,17 +48,15 @@ extension ArcWebUITestRoot {
 
             let after = await Self.app.settings.theme
             #expect(outcome.fragments.isEmpty,
-                    "the handler signals the door; the originating socket has nothing to write")
+                    "the handler answers .refresh; the originating socket has nothing to write itself")
             #expect(after == "dark", "the chosen theme must land in settings.theme")
-            #expect(await door.count == 1,
+            #expect(outcome.isRefresh,
                     "one click is one structural signal — not zero and not two")
         }
 
         @Test("wireAll alone no longer answers the theme grid id")
         func wireAllDoesNotRegisterSettings() async {
             let before = await Self.app.settings.theme
-            let door = Door()
-            await Self.app.installStructuralSignal(door.signal)
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: { _ in })
             await controller.wireAll(router)
@@ -80,7 +68,7 @@ extension ArcWebUITestRoot {
             #expect(outcome.fragments.isEmpty)
             #expect(await Self.app.settings.theme == before,
                     "the boot wiring must not answer the theme id any more; the render pass owns it")
-            #expect(await door.count == 0)
+            #expect(!outcome.isRefresh)
         }
     }
 }

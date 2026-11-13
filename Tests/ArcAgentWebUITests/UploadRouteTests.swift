@@ -148,7 +148,7 @@ private func withUploadServer(
     let tokens = UploadTokenStore(capacity: capacity)
     let recorder = UploadRecorder()
     let router = Router {
-        WorkspaceUpload.pageRoute("/", tokens: tokens) { _, token in
+        WorkspaceUpload.pageRoute("/", tokens: tokens) { _, token, _ in
             AppShell.makeDocument(
                 sheetURL: "/ui/style.css",
                 overlayURL: "/ui/init.js",

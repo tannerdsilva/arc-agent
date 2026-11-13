@@ -79,7 +79,7 @@ private func withPageBudgetServer(
         // it was built from.
         let serverConfig = config
         let router = Router {
-            WorkspaceUpload.pageRoute("/", tokens: UploadTokenStore()) { _, token in
+            WorkspaceUpload.pageRoute("/", tokens: UploadTokenStore()) { _, token, _ in
                 // the production page seam: the same call `run()` makes.
                 WebUIHost.pageDocument(
                     config: serverConfig,

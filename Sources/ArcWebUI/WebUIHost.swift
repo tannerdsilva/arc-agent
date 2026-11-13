@@ -7,9 +7,19 @@ import WebUI
 import WebUIServer
 import WebUIState
 
-/// The one structural push edge: the door every producer in arc pushes through,
-/// standing on no-webui's `PageDiffer` instead of re-deriving a patch per
-/// handler.
+/// The push edge: the door arc's producers push through, standing on no-webui's
+/// `PageDiffer` instead of re-deriving a patch per handler.
+///
+/// **Two things still cross it, and one no longer does.**
+///
+/// - Render-time handlers do not: they answer `HandlerOutcome.refresh` (no-webui
+///   2.9.0), and the server re-renders the dispatch session's page against the
+///   baseline it owns, then fans the frames out itself.
+/// - The `@Wired` host handlers do, because `@WireGroup`'s generated registrar
+///   spells `register({ … }, for:)` — the `EventHandler` door — so their empty
+///   batch has no outcome spelling at this pin (`Controller.changed()`).
+/// - The turn loop's structural boundaries and token deltas do: a turn runs in a
+///   detached `Task`, and `.refresh` is only reachable from an event dispatch.
 ///
 /// A batch means one of two things, and the door tells them apart rather than
 /// trusting the producer to have:
@@ -29,7 +39,12 @@ import WebUIState
 /// delta that beat its own container.
 final class PushEdge: Sendable {
 
-    /// The diff arc's page is served from.
+    /// The diff policy for the producer batches that still cross this door.
+    ///
+    /// **`config.refreshPolicy` carries this same value** (`serverConfig`
+    /// below), so the server's re-render under `.refresh` and this door's
+    /// render agree byte for byte about which regions ship. One policy, two
+    /// doors: an interaction and a producer push name the same regions.
     ///
     /// `elementID` identity is the only one that is a real address: the engine
     /// resolves a frame with `getElementById`, and the shell is full of elements
@@ -184,6 +199,16 @@ public struct WebUIHost: Service {
             // token-bound budget; the socket body limit stays off so large
             // request payloads elsewhere are not truncated (user request).
             maxBodyBytes: .max,
+            // The server owns the baseline a `HandlerOutcome.refresh` diffs
+            // against, and this is the only dial that tells it which regions a
+            // re-render may ship. `.elementID` identity is the only one that is
+            // a real address (the engine resolves a frame with
+            // `getElementById`); `.finest` keeps a chrome change from dragging
+            // `#app` onto the wire; the two excluded spans are the token-owned
+            // ones, whose bytes must not make their ancestors look changed.
+            // Identical to `PushEdge.livePolicy`, so the two doors that can
+            // re-render this page cannot disagree about which regions ship.
+            refreshPolicy: PushEdge.livePolicy,
         )
     }
 
@@ -336,11 +361,23 @@ public struct WebUIHost: Service {
         // document skeleton on every response — so it registers no session
         // handlers; the app's `appShell()` render is the one that runs inside the
         // server's `RenderContext` and lands in this token's session.
-        let pageProvider: @Sendable (String?, String) async -> WebUI.HTMLDocument = { [app] deepLink, renderToken in
-            if let sid = deepLink, !sid.isEmpty {
-                await app.openDeepLink(sid)
+        let pageProvider: @Sendable (String?, String, RenderIntent) async -> WebUI.HTMLDocument = { [app] deepLink, renderToken, intent in
+            // One render pipeline, three occasions (no-webui `RenderIntent`):
+            // a load opens the deep link and arms scroll-to-bottom; a client
+            // navigation re-arms the scroll; a `refresh` — a handler answered
+            // `HandlerOutcome.refresh` — replays NEITHER, or every settings
+            // toggle would drag the chat to the bottom and re-open a `?s=`.
+            switch intent {
+            case .load:
+                if let sid = deepLink, !sid.isEmpty {
+                    await app.openDeepLink(sid)
+                }
+                await app.armScrollToBottom()
+            case .navigate:
+                await app.armScrollToBottom()
+            case .refresh:
+                break
             }
-            await app.armScrollToBottom()
             let shell = await app.appShell()
             return Self.pageDocument(
                 config: config,
@@ -357,12 +394,12 @@ public struct WebUIHost: Service {
         // Both page routes record the token they serve; the upload route is the
         // one POST arc answers itself (streamed to disk, never buffered).
         let pageRouter = Router {
-            WorkspaceUpload.pageRoute("/", tokens: uploadTokens) { deepLink, token in
+            WorkspaceUpload.pageRoute("/", tokens: uploadTokens) { deepLink, token, intent in
                 // ?s=<id> opens that conversation directly (copy-link flow).
-                await pageProvider(deepLink, token)
+                await pageProvider(deepLink, token, intent)
             }
-            WorkspaceUpload.pageRoute("/index.html", tokens: uploadTokens) { _, token in
-                await pageProvider(nil, token)
+            WorkspaceUpload.pageRoute("/index.html", tokens: uploadTokens) { _, token, intent in
+                await pageProvider(nil, token, intent)
             }
             WorkspaceUpload.uploadRoute(
                 root: { [app] in await app.workspaceRootURL() },
@@ -436,10 +473,6 @@ public struct WebUIHost: Service {
         // sealing here states the ordering as arc's contract rather than as an
         // implementation detail of the server.
         router.sealHostRegistrations()
-        // the render-time controls' door: `controlAttributes` handlers run where
-        // the controller's push closure is not reachable, so the app carries the
-        // signal. installed once, at the same point the controller is wired.
-        await app.installStructuralSignal { await edge.push([]) }
         logger.info("serving http://\(host):\(port) (page \(bootPageBytes) bytes)")
         // no cron engine here: the daemon owns the one scheduler and calls
         // back into this host's `runScheduledJob` for job execution.

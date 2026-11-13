@@ -155,12 +155,11 @@ extension AppState {
                 )
                 // the range registers in this render pass, so the panel carries
                 // its own handler instead of a boot group answering `ins-range`.
-                .control(id: "ins-range", on: .change) { event in
+                .control(id: "ins-range", on: .change, perform: { event in
                     let days = Int(event.string("value") ?? "30") ?? 30
                     await self.setInsightsRange(days)
-                    await self.signalStructure()
-                    return []
-                }
+                    return .refresh
+                })
                 .data("no-restore", "")
             }
         }

@@ -213,7 +213,9 @@ extension ArcWebUITestRoot {
         ///
         /// "Answers" is a push now, not a payload: the handler signals a structural
         /// change through the door and returns nothing for the server to write on
-        /// the originating socket.
+        /// the originating socket. `@WireGroup`'s generated registrar registers an
+        /// `EventHandler`, so a `@Wired` handler has no way to answer an outcome
+        /// at 2.9.0 (see `Controller.changed()`).
         @Test("the ratchet turns one direction: @Wired ids cannot be untyped")
         func ratchetTurnsOneDirection() async throws {
             let door = Door()

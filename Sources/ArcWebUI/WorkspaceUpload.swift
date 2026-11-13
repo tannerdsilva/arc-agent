@@ -133,15 +133,20 @@ enum WorkspaceUpload {
     /// Recording happens for every page response, including the `?s=` deep
     /// link and the `/index.html` alias: whichever page the browser holds is
     /// the one that may upload.
+    ///
+    /// The provider also receives the render's `RenderIntent`. A `refresh` (a
+    /// handler answered `HandlerOutcome.refresh`) must NOT replay the load-only
+    /// side effects — opening a deep link, arming scroll-to-bottom — or every
+    /// settings toggle would scroll the chat.
     static func pageRoute(
         _ pattern: PathPattern,
         tokens: UploadTokenStore,
-        provider: @escaping @Sendable (String?, String) async -> WebUI.HTMLDocument
+        provider: @escaping @Sendable (String?, String, RenderIntent) async -> WebUI.HTMLDocument
     ) -> Route {
-        Route.page(pattern) { request in
-            let token = request.renderToken.value
+        Route.render(pattern) { render in
+            let token = render.renderToken.value
             await tokens.record(token)
-            return await provider(request.query["s"], token)
+            return HTTPResponse(await provider(render.query["s"], token, render.intent).markup)
         }
     }
 

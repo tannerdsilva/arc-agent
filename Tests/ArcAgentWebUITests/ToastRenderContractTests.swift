@@ -12,14 +12,6 @@ extension ArcWebUITestRoot {
     @Suite("Toast render", .serialized)
     struct ToastRenderContractTests {
 
-        private actor Door {
-            private(set) var count = 0
-            nonisolated var signal: @Sendable () async -> Void {
-                { [weak self] in await self?.nudge() }
-            }
-            private func nudge() { count += 1 }
-        }
-
         private static let app = AppState(renderFixture: .init())
 
         private static func renderShell(router: EventRouter) async -> String {
@@ -41,10 +33,8 @@ extension ArcWebUITestRoot {
             #expect(html.contains("data-event=\"click\""))
         }
 
-        @Test("dismissing a toast signals the door exactly once")
+        @Test("dismissing a toast answers .refresh exactly once")
         func dismissSignalsOnce() async {
-            let door = Door()
-            await Self.app.installStructuralSignal(door.signal)
             let router = EventRouter()
             _ = await Self.renderShell(router: router)
 
@@ -53,13 +43,11 @@ extension ArcWebUITestRoot {
                 data: ["targetId": .string("t-1")]))
 
             #expect(outcome.fragments.isEmpty)
-            #expect(await door.count == 1)
+            #expect(outcome.isRefresh)
         }
 
         @Test("wireAll alone no longer answers the toast container")
         func wireAllDoesNotRegisterToast() async {
-            let door = Door()
-            await Self.app.installStructuralSignal(door.signal)
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: { _ in })
             await controller.wireAll(router)
@@ -69,7 +57,7 @@ extension ArcWebUITestRoot {
                 data: ["targetId": .string("t-1")]))
 
             #expect(outcome.fragments.isEmpty)
-            #expect(await door.count == 0,
+            #expect(!outcome.isRefresh,
                     "the boot wiring must not answer a toast id any more; the render pass owns it")
         }
     }

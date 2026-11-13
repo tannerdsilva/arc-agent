@@ -748,25 +748,6 @@ actor AppState {
     }
     var activeTabID: String = "chat"
 
-    /// the door a render-time control uses to ask for a structural re-render.
-    ///
-    /// installed by the host beside the `Controller` (see `WebUIHost`); nil in a
-    /// bare fixture, where `signalStructure()` is a no-op and a render-time
-    /// handler mutates state without a broadcast. this is the stopgap that lets
-    /// `controlAttributes` handlers — registered during a render pass, where the
-    /// controller's push closure is not reachable — reach the one push edge.
-    /// the engine is expected to own this as a handler outcome later.
-    private var structuralSignal: (@Sendable () async -> Void)?
-
-    func installStructuralSignal(_ signal: @escaping @Sendable () async -> Void) {
-        structuralSignal = signal
-    }
-
-    /// ask the host to re-render and broadcast. one call per structural change.
-    func signalStructure() async {
-        await structuralSignal?()
-    }
-
     /// Logs view: active severity filter ("all" | "info" | "warn" | "error").
     var logFilter = "all"
 

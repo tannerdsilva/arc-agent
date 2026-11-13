@@ -17,14 +17,6 @@ extension ArcWebUITestRoot {
     @Suite("Cron render", .serialized)
     struct CronRenderContractTests {
 
-        private actor Door {
-            private(set) var count = 0
-            nonisolated var signal: @Sendable () async -> Void {
-                { [weak self] in await self?.nudge() }
-            }
-            private func nudge() { count += 1 }
-        }
-
         private static let app: AppState = {
             var fixture = AppState.RenderFixture()
             fixture.settings.scheduledJobs = [
@@ -83,10 +75,8 @@ extension ArcWebUITestRoot {
                     "only the control row carries the boundary in the main pane")
         }
 
-        @Test("opening a task moves the selection and signals the door exactly once")
+        @Test("opening a task moves the selection and answers .refresh exactly once")
         func openTaskSignalsOnce() async {
-            let door = Door()
-            await Self.app.installStructuralSignal(door.signal)
             let router = EventRouter()
             _ = await Self.renderPanel(router: router)
 
@@ -95,17 +85,15 @@ extension ArcWebUITestRoot {
                 data: ["targetId": .string("task-open-job-2")]))
 
             #expect(outcome.fragments.isEmpty,
-                    "the handler signals the door; the originating socket has nothing to write")
+                    "the handler answers .refresh; the originating socket has nothing to write itself")
             #expect(await Self.app.tasksSelectedID == "job-2")
-            #expect(await door.count == 1,
+            #expect(outcome.isRefresh,
                     "one click is one structural signal — not zero and not two")
         }
 
         @Test("the new-task control opens the add form and signals once")
         func newTaskSignalsOnce() async {
             await Self.app.selectTaskJob("job-1")
-            let door = Door()
-            await Self.app.installStructuralSignal(door.signal)
             let router = EventRouter()
             _ = await Self.renderPanel(router: router)
 
@@ -117,15 +105,13 @@ extension ArcWebUITestRoot {
             // the add form is a mode, not a selection change: `openTaskAdd`
             // resets the schedule draft and leaves the selection alone.
             #expect(await Self.app.tasksMode == .add)
-            #expect(await door.count == 1)
+            #expect(outcome.isRefresh)
         }
 
         @Test("wireAll alone no longer answers the tasks boundary")
         func wireAllDoesNotRegisterCron() async {
             await Self.app.selectTaskJob("job-1")
             let before = await Self.app.tasksSelectedID
-            let door = Door()
-            await Self.app.installStructuralSignal(door.signal)
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: { _ in })
             await controller.wireAll(router)
@@ -137,7 +123,7 @@ extension ArcWebUITestRoot {
             #expect(outcome.fragments.isEmpty)
             #expect(await Self.app.tasksSelectedID == before,
                     "the boot wiring must not answer the tasks id any more; the render pass owns it")
-            #expect(await door.count == 0)
+            #expect(!outcome.isRefresh)
         }
     }
 }

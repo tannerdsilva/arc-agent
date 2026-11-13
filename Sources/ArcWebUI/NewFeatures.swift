@@ -1613,7 +1613,7 @@ extension AppState {
     /// container installs this one body and the form's
     /// `data-component-id="tasks"` still routes submits here. Only the vehicle
     /// changed — the body is the one the boot handler carried.
-    private func tasksBoundary(_ event: EventData) async -> [FragmentUpdate] {
+    private func tasksBoundary(_ event: EventData) async -> HandlerOutcome {
         if event.event == "submit" {
             // The name/prompt/deliver/profile ride the submit payload; the
             // schedule fields live in the actor draft (kept current by the
@@ -1650,10 +1650,9 @@ extension AppState {
                     await selectTaskJob(id)
                 }
             }
-            await signalStructure()
-            return []
+            return .refresh
         }
-        guard let tid = event.string("targetId") else { return [] }
+        guard let tid = event.string("targetId") else { return .fragments([]) }
         if tid == "task-new" {
             openTaskAdd()
         } else if tid == "task-refresh" {
@@ -1669,8 +1668,7 @@ extension AppState {
         } else if tid.hasPrefix("task-edit-") {
             let id = String(tid.dropFirst("task-edit-".count))
             guard cronVerbAllowed("edit", id) else {
-                await signalStructure()
-                return []
+                return .refresh
             }
             await openTaskEdit(id)
         } else if tid.hasPrefix("task-dup-") {
@@ -1678,8 +1676,7 @@ extension AppState {
         } else if tid.hasPrefix("task-toggle-") {
             let id = String(tid.dropFirst("task-toggle-".count))
             guard cronVerbAllowed("toggle", id) else {
-                await signalStructure()
-                return []
+                return .refresh
             }
             await toggleJob(id)
         } else if tid.hasPrefix("task-now-") {
@@ -1689,8 +1686,7 @@ extension AppState {
             // turn lands. Nothing here awaits the turn.
             let runID = String(tid.dropFirst("task-now-".count))
             guard cronVerbAllowed("run", runID) else {
-                await signalStructure()
-                return []
+                return .refresh
             }
             await runJobNow(runID)
         } else if tid.hasPrefix("task-runfold-") {
@@ -1700,8 +1696,7 @@ extension AppState {
         } else if tid.hasPrefix("task-del-") {
             await deleteJob(String(tid.dropFirst("task-del-".count)))
         }
-        await signalStructure()
-        return []
+        return .refresh
     }
 }
 

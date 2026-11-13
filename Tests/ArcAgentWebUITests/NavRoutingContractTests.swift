@@ -20,14 +20,6 @@ extension ArcWebUITestRoot {
     @Suite("Nav routing", .serialized)
     struct NavRoutingContractTests {
 
-        private actor Door {
-            private(set) var count = 0
-            nonisolated var signal: @Sendable () async -> Void {
-                { [weak self] in await self?.nudge() }
-            }
-            private func nudge() { count += 1 }
-        }
-
         private static let app = AppState(renderFixture: .init())
 
         private static func renderRail(router: EventRouter) async -> String {
@@ -54,8 +46,6 @@ extension ArcWebUITestRoot {
 
         @Test("a rendered nav control moves the tab and asks the door exactly once")
         func navDispatchMovesTabAndSignals() async {
-            let door = Door()
-            await Self.app.installStructuralSignal(door.signal)
             let router = EventRouter()
             _ = await Self.renderRail(router: router)
 
@@ -63,9 +53,9 @@ extension ArcWebUITestRoot {
                 component: ComponentID("nav-settings"), event: "click", data: [:]))
 
             #expect(outcome.fragments.isEmpty,
-                    "the handler signals the door; the originating socket has nothing to write")
+                    "the handler answers .refresh; the originating socket has nothing to write itself")
             #expect(await Self.app.activeTabID == "settings")
-            #expect(await door.count == 1,
+            #expect(outcome.isRefresh,
                     "one click is one structural signal — not zero and not two")
         }
 

@@ -12,14 +12,6 @@ extension ArcWebUITestRoot {
     @Suite("Insights render", .serialized)
     struct InsightsRenderContractTests {
 
-        private actor Door {
-            private(set) var count = 0
-            nonisolated var signal: @Sendable () async -> Void {
-                { [weak self] in await self?.nudge() }
-            }
-            private func nudge() { count += 1 }
-        }
-
         private static let app = AppState(renderFixture: .init())
 
         private static func renderPanel(router: EventRouter) async -> String {
@@ -42,10 +34,8 @@ extension ArcWebUITestRoot {
                     "the emitted control must name the event the handler answers")
         }
 
-        @Test("changing the range moves the window and signals the door exactly once")
+        @Test("changing the range moves the window and answers .refresh exactly once")
         func rangeChangeSignalsOnce() async {
-            let door = Door()
-            await Self.app.installStructuralSignal(door.signal)
             let router = EventRouter()
             _ = await Self.renderPanel(router: router)
 
@@ -54,18 +44,16 @@ extension ArcWebUITestRoot {
                 data: ["value": .string("7")]))
 
             #expect(outcome.fragments.isEmpty,
-                    "the handler signals the door; the originating socket has nothing to write")
+                    "the handler answers .refresh; the originating socket has nothing to write itself")
             #expect(await Self.app.insightsRangeDays == 7,
                     "the selector's value must land in the range the panel renders")
-            #expect(await door.count == 1,
+            #expect(outcome.isRefresh,
                     "one change is one structural signal — not zero and not two")
         }
 
         @Test("wireAll alone no longer answers the range selector")
         func wireAllDoesNotRegisterInsights() async {
             let before = await Self.app.insightsRangeDays
-            let door = Door()
-            await Self.app.installStructuralSignal(door.signal)
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: { _ in })
             await controller.wireAll(router)
@@ -77,7 +65,7 @@ extension ArcWebUITestRoot {
             #expect(outcome.fragments.isEmpty)
             #expect(await Self.app.insightsRangeDays == before,
                     "the boot wiring must not answer the range id any more; the render pass owns it")
-            #expect(await door.count == 0)
+            #expect(!outcome.isRefresh)
         }
     }
 }

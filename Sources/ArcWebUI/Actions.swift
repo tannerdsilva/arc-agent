@@ -1295,6 +1295,18 @@ final class Controller: Sendable {
     ///
     /// Handlers that changed nothing still return `[]` directly and stay
     /// silent — the door is not asked on a keystroke.
+    ///
+    /// **Why this is still a push, not `HandlerOutcome.refresh`.** The 135
+    /// `@Wired` handlers reach this method through `@WireGroup`'s generated
+    /// registrar, and that macro emits
+    /// `router.register({ … }, for: ComponentID(id))` — the `EventHandler`
+    /// door — so there is no arc-side seam at which their empty batch could
+    /// become an outcome. Until the framework's macro can emit
+    /// `register(outcome:)` (or a handler returning `HandlerOutcome`), moving
+    /// this to `.refresh` is a 135-handler outage, not a migration. Render-time
+    /// handlers do answer `.refresh`; they are registered by
+    /// `controlAttributes(outcome:)` / `View.control(perform:)`, which 2.9.0
+    /// spells directly.
     func changed() async -> [FragmentUpdate] {
         await push(app.structuralChange())
         return []

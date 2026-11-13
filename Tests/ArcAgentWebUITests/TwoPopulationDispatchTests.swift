@@ -222,6 +222,7 @@ private struct MixedPageServer: Sendable {
     let router: EventRouter
     let server: WebUIServer
     let run: Task<Void, Error>
+    let probe: RefreshProbe
 
     func page() async throws -> String {
         var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/")!)
@@ -287,6 +288,32 @@ private enum Population {
     static let hostOnly = "legacy"
     static let sessionFragment = "session-answered"
     static let hostFragment = "host-answered"
+    /// the `.refresh` control: its handler moves `RefreshProbe`, and the
+    /// server's own re-render is what the socket must receive.
+    static let refreshControl = "refresh-probe"
+    static let refreshSlot = "refresh-slot"
+}
+
+/// The state a `.refresh` handler moves. The page reads it, so the server's
+/// re-render has a region whose bytes actually changed; `intents` records what
+/// the render door was told, which is how the intent contract is observed
+/// rather than assumed.
+private actor RefreshProbe {
+    private var label = "before"
+    private var intents: [String] = []
+
+    func flip() { label = "after" }
+    func current() -> String { label }
+
+    func note(_ intent: RenderIntent) {
+        switch intent {
+        case .load: intents.append("load")
+        case .navigate: intents.append("navigate")
+        case .refresh: intents.append("refresh")
+        }
+    }
+
+    func seen() -> [String] { intents }
 }
 
 /// boot a real server whose one page carries both populations, run `body`, and
@@ -301,6 +328,7 @@ private func withMixedPageServer(
     _ body: @escaping @Sendable (MixedPageServer) async throws -> Void
 ) async throws {
     let tokens = UploadTokenStore()
+    let probe = RefreshProbe()
 
     var config = WebUIHost.serverConfig(host: "127.0.0.1", port: 0)
     config.requireRenderToken = requireRenderToken
@@ -326,7 +354,7 @@ private func withMixedPageServer(
     #expect(hostOnlyRegistered, "the host-only registration must land before the seal")
 
     let pageRouter = Router {
-        WorkspaceUpload.pageRoute("/", tokens: tokens) { _, token in
+        WorkspaceUpload.pageRoute("/", tokens: tokens) { _, token, intent in
             // the SESSION population: this call is `controlAttributes`, the same
             // entry point arc's Views use through `ArcButton.extraAttributes`.
             // It is executed here, inside the render context the server
@@ -339,9 +367,20 @@ private func withMixedPageServer(
                     transition: false
                 )]
             }
+            // the `.refresh` population: the handler moves state and answers the
+            // framework outcome; the server re-renders this page and ships the
+            // region whose bytes moved.
+            let refreshWiring = controlAttributes(id: Population.refreshControl, event: .click, outcome: { _ in
+                await probe.flip()
+                return .refresh
+            })
+            await probe.note(intent)
+            let label = await probe.current()
             let markup = """
                 <div id="app"><button id="probe"\(wiring)>probe</button>\
-                <button id="legacy" data-component-id="legacy" data-event="click">legacy</button></div>
+                <button id="legacy" data-component-id="legacy" data-event="click">legacy</button>\
+                <button id="\(Population.refreshControl)"\(refreshWiring)>refresh</button>\
+                <div id="\(Population.refreshSlot)">\(label)</div></div>
                 """
             return AppShell.makeDocument(
                 sheetURL: "/ui/style.css",
@@ -378,7 +417,7 @@ private func withMixedPageServer(
             try? await Task.sleep(for: .milliseconds(40))
         }
         if serving {
-            harness = MixedPageServer(port: port, router: eventRouter, server: server, run: run)
+            harness = MixedPageServer(port: port, router: eventRouter, server: server, run: run, probe: probe)
             break
         }
         await server.stop()
@@ -393,6 +432,18 @@ private func withMixedPageServer(
         throw error
     }
     await harness.stop()
+}
+
+/// the fragments an `update` frame carries, read from the wire's own json.
+private func fragments(inFrame frame: String) -> [(id: String, html: String)] {
+    guard let data = frame.data(using: .utf8),
+          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let list = object["fragments"] as? [[String: Any]]
+    else { return [] }
+    return list.compactMap { item in
+        guard let id = item["id"] as? String, let html = item["html"] as? String else { return nil }
+        return (id, html)
+    }
 }
 
 private func event(_ component: String, token: String?) -> String {
@@ -513,6 +564,80 @@ extension ArcWebUITestRoot {
                         )
                         #expect(twoReply.contains("session:\(second)"), "session two answered \(twoReply)")
                         #expect(!twoReply.contains("session:\(first)"), "session two reached session one's handler: \(twoReply)")
+                    }
+                }
+            }
+        }
+
+        /// §22.2 / D2's consumer half: a handler answers `.refresh`, the server
+        /// re-renders the page the dispatch session is on, diffs it against the
+        /// baseline IT owns, and the frame that reaches the socket names only the
+        /// region whose own bytes moved. The origin socket is handed nothing by
+        /// the handler itself — the outcome's `wireMessages` are empty.
+        ///
+        /// The render door is told `refresh`, which is the fact arc's page
+        /// provider branches on: a refresh must not replay `armScrollToBottom`
+        /// or `openDeepLink`.
+        @Test("a .refresh handler ships the region whose bytes moved, and only that one")
+        func refreshShipsTheChangedRegion() async throws {
+            try await withMixedPageServer { harness in
+                let token = try await harness.pageToken()
+                // the harness's readiness probe GETs "/" until the listener
+                // answers, so more than one load can precede this test.
+                let loads = await harness.probe.seen()
+                #expect(!loads.isEmpty && loads.allSatisfy { $0 == "load" },
+                        "an http page request must reach the render door as a load, saw \(loads)")
+
+                try await withSocket(port: harness.port) { socket in
+                    let reply = try await socket.reply(
+                        to: event(Population.refreshControl, token: token),
+                        containing: Population.refreshSlot
+                    )
+                    let parts = fragments(inFrame: reply)
+                    #expect(parts.map(\.id) == [Population.refreshSlot],
+                            "a refresh ships the region whose own bytes moved, got \(parts.map(\.id))")
+                    #expect(parts.first?.html.contains("after") == true,
+                            "the frame must carry the re-rendered region: \(reply)")
+                    #expect(!reply.contains(Population.sessionFragment),
+                            "the origin socket was handed a fragment handler's frame: \(reply)")
+                }
+
+                let intents = await harness.probe.seen()
+                #expect(intents.last == "refresh",
+                        "the refresh re-render must reach the door as .refresh, saw \(intents)")
+                #expect(intents.filter { $0 == "refresh" }.count == 1,
+                        "one dispatched refresh must re-render exactly once, saw \(intents)")
+            }
+        }
+
+        /// §22.2 / D1: the fan-out is session-scoped. Two pages, two tokens, two
+        /// sessions — the second socket is bound (it answered its own event) and
+        /// must still receive nothing when the first page refreshes.
+        @Test("a refresh reaches the dispatch session's sockets and no other page")
+        func refreshIsSessionScoped() async throws {
+            try await withMixedPageServer { harness in
+                let first = try await harness.pageToken()
+                let second = try await harness.pageToken()
+                #expect(first != second, "two renders minted the same token")
+
+                try await withSocket(port: harness.port) { one in
+                    try await withSocket(port: harness.port) { two in
+                        // bind the second socket to ITS session, so the negative
+                        // below cannot pass because it was never bound.
+                        _ = try await two.reply(
+                            to: event(Population.mixed, token: second),
+                            containing: Population.sessionFragment
+                        )
+
+                        let reply = try await one.reply(
+                            to: event(Population.refreshControl, token: first),
+                            containing: Population.refreshSlot
+                        )
+                        #expect(fragments(inFrame: reply).map(\.id) == [Population.refreshSlot])
+
+                        let leaked = await two.inbox.first(containing: "after", within: .milliseconds(400))
+                        #expect(leaked == nil,
+                                "a refresh fanned out to another session's page: \(leaked ?? "")")
                     }
                 }
             }
