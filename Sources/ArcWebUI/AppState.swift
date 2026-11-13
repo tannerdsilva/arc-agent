@@ -1019,6 +1019,22 @@ actor AppState {
     /// Recent runs per job (the new per-attempt cron history), loaded when a
     /// job is opened and refreshed after a run.
     var taskRunHistory: [String: [CronRunRecord]] = [:]
+    /// Script-output disclosure state (script jobs): run rows the user
+    /// expanded (`jobID#startedAtMillis`), and rows showing the full
+    /// (untruncated) output. Server-held so a re-render keeps the state.
+    var scriptRunOpen: Set<String> = []
+    var scriptRunFull: Set<String> = []
+
+    /// Toggle one script-run row's output disclosure.
+    func toggleScriptRun(_ key: String) {
+        if !scriptRunOpen.insert(key).inserted { scriptRunOpen.remove(key) }
+    }
+
+    /// Expand one script-run row to its full (untruncated) output.
+    func expandScriptRun(_ key: String) {
+        scriptRunFull.insert(key)
+        scriptRunOpen.insert(key)
+    }
 
     /// Personal memory panel (phase: memory).
     var memoryDoc: String? = nil    // "memory" | "user" | "soul" | "context"
@@ -1379,6 +1395,11 @@ actor AppState {
         var tasksMode: TasksMode? = nil
         var tasksSearchDraft: String? = nil
         var taskExpanded: Set<String>? = nil
+        /// Script-output disclosure state and per-job run history, seeded so
+        /// render tests can pin the script-run rows without a live store.
+        var taskRunHistory: [String: [CronRunRecord]] = [:]
+        var scriptRunOpen: Set<String> = []
+        var scriptRunFull: Set<String> = []
         /// Jobs with a turn in flight (drives the row loading border).
         var runningCronJobs: Set<String> = []
         var taskDeliverPreset: String? = nil
@@ -1468,6 +1489,9 @@ actor AppState {
         self.tasksSelectedID = fixture.tasksSelectedID
         if let v = fixture.tasksCategory { self.tasksCategory = v }
         if let v = fixture.taskExpanded { self.taskExpanded = v }
+        self.taskRunHistory = fixture.taskRunHistory
+        self.scriptRunOpen = fixture.scriptRunOpen
+        self.scriptRunFull = fixture.scriptRunFull
         self.runningCronJobs = fixture.runningCronJobs
         if let v = fixture.taskDeliverPreset { self.taskDeliverPreset = v }
         if let v = fixture.tasksMode { self.tasksMode = v }

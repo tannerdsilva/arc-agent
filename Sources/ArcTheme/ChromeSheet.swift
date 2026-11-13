@@ -1124,6 +1124,29 @@ public static let css: String = """
     .task-hist-row[data-st="timeout"] .task-hist-status { color: var(--danger, #c0504d); }
     .task-hist-out { color: var(--text); min-width: 0; overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; }
+    /* Script jobs: the script box (mono, inset) + helper, and the
+       Hermes-style per-run output disclosure rows. */
+    .task-script-box { font-family: var(--mono, monospace); font-size: 0.9em;
+      background: var(--bg-inset, rgba(0,0,0,.18)); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 12px; white-space: pre-wrap;
+      word-break: break-word; max-height: 200px; overflow-y: auto; }
+    .task-script-note { color: var(--muted); font-size: 0.82em; margin: 8px 0 0; }
+    .task-run-item { border-top: 1px solid var(--border); padding: 5px 0; }
+    .task-run-item:first-child { border-top: 0; }
+    .task-run-head { display: flex; gap: 10px; align-items: center;
+      font-size: 0.84em; }
+    .task-run-size { color: var(--muted); flex: 0 0 60px; }
+    .task-run-head .task-hist-time { flex: 0 0 108px; }
+    .task-run-head .ghost-btn { margin-left: auto; flex: 0 0 auto; }
+    .task-run-item[data-st="ok"] .task-hist-status { color: var(--success); }
+    .task-run-item[data-st="error"] .task-hist-status,
+    .task-run-item[data-st="timeout"] .task-hist-status { color: var(--danger, #c0504d); }
+    .task-run-body { font-family: var(--mono, monospace); font-size: 0.82em;
+      background: var(--bg-inset, rgba(0,0,0,.18)); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 12px; margin-top: 6px;
+      white-space: pre-wrap; word-break: break-word; max-height: 320px;
+      overflow-y: auto; color: var(--text); }
+    .task-run-body .ghost-btn { margin-top: 6px; }
     .ap-skills-scroll { max-height: 250px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 2px; padding-right: 6px; }
     .set-row .aux-right { display: flex; gap: 8px; flex-shrink: 0; }
     /* Auxiliary models: 15 two-line rows stacked into ~1000px of scroll read as

@@ -574,6 +574,12 @@ extension ClassName {
 	public static var taskHistCard: ClassName { ClassName(ArcClass.taskHistCard.token) }
 	public static var taskHistOut: ClassName { ClassName(ArcClass.taskHistOut.token) }
 	public static var taskHistRow: ClassName { ClassName(ArcClass.taskHistRow.token) }
+	public static var taskScriptBox: ClassName { ClassName(ArcClass.taskScriptBox.token) }
+	public static var taskScriptNote: ClassName { ClassName(ArcClass.taskScriptNote.token) }
+	public static var taskRunItem: ClassName { ClassName(ArcClass.taskRunItem.token) }
+	public static var taskRunHead: ClassName { ClassName(ArcClass.taskRunHead.token) }
+	public static var taskRunSize: ClassName { ClassName(ArcClass.taskRunSize.token) }
+	public static var taskRunBody: ClassName { ClassName(ArcClass.taskRunBody.token) }
 	public static var taskHistStatus: ClassName { ClassName(ArcClass.taskHistStatus.token) }
 	public static var taskHistTime: ClassName { ClassName(ArcClass.taskHistTime.token) }
 	public static var taskList: ClassName { ClassName(ArcClass.taskList.token) }

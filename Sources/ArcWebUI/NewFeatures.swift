@@ -1204,10 +1204,8 @@ extension AppState {
             .margin(0)
             .wire("tasks")
         }
-        let banner = Div(class: .taskBanner) {
-            Element(.h3) { Text("Prompt") }
-            Text(trunc(job.prompt, 240))
-        }
+        let isScript = !(job.script ?? "").isEmpty
+        let banner = taskBanner(job: job)
         let ctrl = Div(class: ClassName(.detailCard, .taskCtrlCard)) {
             TaskCtrlLine {
                 TaskCtrlKey { Text("Status") }
@@ -1265,26 +1263,7 @@ extension AppState {
             }
         }
         let runs = taskRunHistory[job.id] ?? []
-        let histRows: [any WebUI.View] = runs.map { r in
-            let st = r.status ?? "ok"
-            return Div(class: .taskHistRow) {
-                Span(class: .taskHistTime) { Text(fmtRel(r.startedAt)) }
-                Span(class: .taskHistStatus) { Text(st) }.data("st", st)
-                Span(class: .taskHistOut) {
-                    Text(r.error.map { Self.prefixError($0, 140) } ?? trunc(r.output, 160))
-                }
-            }
-        }
-        let hist = Div(class: ClassName(.detailCard, .taskHistCard)) {
-            Element(.h3) { Text("Recent runs") }.margin(.bottom, .three)
-            if histRows.isEmpty {
-                Element(.p, class: .taskPreview) {
-                    Text("No recorded runs yet — runs appear here as they fire.")
-                }
-            } else {
-                Div(class: .taskHist) { histRows }
-            }
-        }
+        let hist = taskHistoryCard(job: job, runs: runs)
         // an empty job chat is noise — show nothing until the job has run
         let thread: [any WebUI.View] = msgs.isEmpty ? [] : [Div(class: .taskThread) {
             ChatScroll {
@@ -1518,10 +1497,112 @@ extension AppState {
         }
     }
 
+    /// The detail-page banner: script jobs get a mono script box plus a
+    /// short description of the execution contract; prompt jobs keep the
+    /// prompt text.
+    func taskBanner(job: CronJob) -> some WebUI.View {
+        var rows: [any WebUI.View]
+        if !(job.script ?? "").isEmpty {
+            rows = [
+                Element(.h3) { Text("Script") },
+                Div(class: .taskScriptBox) { Text(job.script ?? "") },
+                Element(.p, class: .taskScriptNote) {
+                    Text("Runs via /bin/bash with a 60-second timeout. Silence stays silent — a non-zero exit becomes the alert.")
+                },
+            ]
+        } else {
+            rows = [
+                Element(.h3) { Text("Prompt") },
+                Text(trunc(job.prompt, 240)),
+            ]
+        }
+        return Div(class: .taskBanner) { rows }
+    }
+
+    /// The run-history card: script jobs get the Hermes-style per-run
+    /// disclosure list ("Script output (N runs)"); prompt jobs keep the
+    /// compact Recent runs table.
+    func taskHistoryCard(job: CronJob, runs: [CronRunRecord]) -> some WebUI.View {
+        var card: [any WebUI.View]
+        if !(job.script ?? "").isEmpty {
+            let runRows: [any WebUI.View] = runs.map { r in
+                let ms = Int(r.startedAt.timeIntervalSince1970 * 1000)
+                let key = "\(job.id)#\(ms)"
+                let open = scriptRunOpen.contains(key)
+                let full = scriptRunFull.contains(key)
+                let body = r.error ?? r.output
+                let condensed = body.count > 400 && !full
+                let shown = condensed ? String(body.prefix(400)) : body
+                return Div(class: .taskRunItem) {
+                    Div(class: .taskRunHead) {
+                        Span(class: .taskHistTime) { Text(fmtRel(r.startedAt)) }
+                        Span(class: .taskRunSize) { Text(fmtBytes(body.utf8.count)) }
+                        Span(class: .taskHistStatus) { Text(r.status ?? "ok") }
+                            .data("st", r.status ?? "ok")
+                        ArcButton(id: "task-run-\(key)", component: nil, class: .ghostBtn) {
+                            WebUIIcon(open ? .chevronUp : .chevronDown, size: .small)
+                        }.title(open ? "Hide output" : "Show output")
+                    }.wire("tasks")
+                    if open {
+                        Div(class: .taskRunBody) {
+                            Text(shown)
+                            if condensed {
+                                ArcButton(id: "task-runfold-\(key)", component: nil, class: .ghostBtn) {
+                                    Text("View full output")
+                                }.title("Show the complete output")
+                            }
+                        }.wire("tasks")
+                    }
+                }.data("st", r.status ?? "ok")
+            }
+            var body: [any WebUI.View] = [Element(.h3) {
+                Text("Script output (\(runs.count) run\(runs.count == 1 ? "" : "s"))")
+            }.margin(.bottom, .three)]
+            if runRows.isEmpty {
+                body.append(Element(.p, class: .taskPreview) {
+                    Text("No recorded runs yet — runs appear here as they fire.")
+                })
+            } else {
+                body.append(Div(class: .taskHist) { runRows })
+            }
+            card = body
+        } else {
+            let histRows: [any WebUI.View] = runs.map { r in
+                let st = r.status ?? "ok"
+                return Div(class: .taskHistRow) {
+                    Span(class: .taskHistTime) { Text(fmtRel(r.startedAt)) }
+                    Span(class: .taskHistStatus) { Text(st) }.data("st", st)
+                    Span(class: .taskHistOut) {
+                        Text(r.error.map { Self.prefixError($0, 140) } ?? trunc(r.output, 160))
+                    }
+                }
+            }
+            var body: [any WebUI.View] = [Element(.h3) { Text("Recent runs") }.margin(.bottom, .three)]
+            if histRows.isEmpty {
+                body.append(Element(.p, class: .taskPreview) {
+                    Text("No recorded runs yet — runs appear here as they fire.")
+                })
+            } else {
+                body.append(Div(class: .taskHist) { histRows })
+            }
+            card = body
+        }
+        return Div(class: ClassName(.detailCard, .taskHistCard)) { card }
+    }
+
     func fmtRel(_ d: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = "MMM d, HH:mm"
         return f.string(from: d)
+    }
+
+    /// Human byte count for a run's output ("242 B", "1.3 KB", "2.1 MB").
+    func fmtBytes(_ n: Int) -> String {
+        switch n {
+        case ..<1_000: "\(n) B"
+        case ..<1_000_000: String(format: "%.1f KB", Double(n) / 1_000)
+        default: String(format: "%.1f MB", Double(n) / 1_000_000)
+        }
     }
 }
 
@@ -1648,6 +1729,10 @@ extension Controller {
             let runID = String(tid.dropFirst("task-now-".count))
             guard await self.app.cronVerbAllowed("run", runID) else { return await self.changed() }
             await self.app.runJobNow(runID)
+        } else if tid.hasPrefix("task-runfold-") {
+            await self.app.expandScriptRun(String(tid.dropFirst("task-runfold-".count)))
+        } else if tid.hasPrefix("task-run-") {
+            await self.app.toggleScriptRun(String(tid.dropFirst("task-run-".count)))
         } else if tid.hasPrefix("task-del-") {
             await self.app.deleteJob(String(tid.dropFirst("task-del-".count)))
         }

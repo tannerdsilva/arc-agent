@@ -275,6 +275,83 @@ extension ArcWebUITestRoot {
             #expect(!html2.contains("task-edit-j-once"), "failed hides Edit")
         }
 
+        // MARK: script-job detail (Hermes-style script output)
+
+        private func scriptJob() -> CronJob {
+            var j = job("j-script", "Build watchdog", "", isActive: true, runs: 0)
+            j.script = "swift build 2>&1 | tail -n 40"
+            return j
+        }
+
+        @Test("a script job's banner says Script, shows the script + description, and drops Recent runs")
+        func scriptBannerReplacesPrompt() async {
+            var f = AppState.RenderFixture()
+            f.settings.scheduledJobs = [scriptJob()]
+            f.tasksSelectedID = "j-script"
+            let html = await AppState(renderFixture: f).tasksMain().markup.html
+            #expect(html.contains(">Script</h3>"))
+            #expect(html.contains("task-script-box") && html.contains("swift build 2&gt;&amp;1"),
+                    "the script line renders escaped inside the mono box")
+            #expect(html.contains("task-script-box"))
+            #expect(html.contains("Runs via /bin/bash"))
+            #expect(html.contains("Script output (0 runs)"))
+            #expect(!html.contains(">Prompt<"))
+            #expect(!html.contains("Recent runs"))
+        }
+
+        @Test("prompt jobs keep the Prompt banner and the Recent runs table")
+        func promptJobsKeepTheOldLayout() async {
+            var f = AppState.RenderFixture()
+            f.settings.scheduledJobs = [job("j-p", "Plain", "0 9 * * *", isActive: true, runs: 0)]
+            f.tasksSelectedID = "j-p"
+            let html = await AppState(renderFixture: f).tasksMain().markup.html
+            #expect(html.contains(">Prompt<") && html.contains("Recent runs"))
+            #expect(!html.contains("Script output ("))
+        }
+
+        @Test("run rows are collapsed by default; the chevron reveals condensed output and View full output expands it")
+        func runDisclosure() async {
+            let long = String(repeating: "line\n", count: 120) // 600 bytes > the 400-char condense threshold
+            var f = AppState.RenderFixture()
+            f.settings.scheduledJobs = [scriptJob()]
+            f.tasksSelectedID = "j-script"
+            let started = Date(timeIntervalSince1970: 1_760_000_000)
+            f.taskRunHistory = ["j-script": [
+                CronRunRecord(jobID: "j-script", startedAt: started, status: "ok", output: long),
+            ]]
+            let app = AppState(renderFixture: f)
+            let key = "j-script#\(Int(started.timeIntervalSince1970 * 1000))"
+            let html = await app.tasksMain().markup.html
+            #expect(html.contains("task-run-\(key)"), "the chevron toggle is wired to the run key")
+            #expect(html.contains("600 B"), "the row shows the output size")
+            #expect(!html.contains("task-run-body"), "collapsed by default")
+            await app.toggleScriptRun(key)
+            let open = await app.tasksMain().markup.html
+            #expect(open.contains("task-run-body") && open.contains("View full output"),
+                    "opening a condensed run offers the full output")
+            #expect(!open.contains(long), "condensed output is truncated to 400 characters")
+            await app.expandScriptRun(key)
+            let full = await app.tasksMain().markup.html
+            #expect(full.contains(long), "View full output shows the entire run output")
+            #expect(!full.contains("View full output"), "no further expansion is offered")
+        }
+
+        @Test("a failed run surfaces its error text with the status chip")
+        func failedRunShowsError() async {
+            var f = AppState.RenderFixture()
+            f.settings.scheduledJobs = [scriptJob()]
+            f.tasksSelectedID = "j-script"
+            let started = Date(timeIntervalSince1970: 1_760_000_000)
+            f.taskRunHistory = ["j-script": [
+                CronRunRecord(jobID: "j-script", startedAt: started, status: "error",
+                              output: "", error: "Script failed (exit 3): deploy.sh"),
+            ]]
+            f.scriptRunOpen = ["j-script#\(Int(started.timeIntervalSince1970 * 1000))"]
+            let html = await AppState(renderFixture: f).tasksMain().markup.html
+            #expect(html.contains("Script failed (exit 3)"))
+            #expect(html.contains("data-st=\"error\""))
+        }
+
         @Test("the form offers the three job kinds and a one-shot instant field")
         func formOffersJobKinds() async {
             let app = makeApp { $0.tasksMode = .add
