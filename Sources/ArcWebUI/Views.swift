@@ -5256,16 +5256,10 @@ extension AppState {
                         Div { Text("No columns yet — open + Column to add one.") }
                     }
                 } else if lanes.isEmpty {
-                    // Columns survive lane deletion; strip them flat so their
-                    // delete controls stay reachable without a lane row.
-                    Div(class: ClassName(.kbLanes, .kbLanesSingle)) {
-                        for col in cols {
-                            ErasedViews([kanbanColumnHTML(col, lane: KBLane(id: "lane-default", name: "General"), isPrimary: true)])
-                        }
+                    Blank {
+                        Big { WebUIIcon(.columns, size: .extraLarge) }
+                        Div { Text("No lanes yet — open + Row to add one.") }
                     }
-                    .data("component-id", "kanban")
-                    .data("event", "click")
-                    Blank { Div { Text("No lanes yet — open + Row to add one.") } }
                 } else {
                     Div(class: ClassName(.kbLanes, lanes.count <= 1 ? .kbLanesSingle : .kbLanes)) {
                         let firstID = lanes.first?.id
