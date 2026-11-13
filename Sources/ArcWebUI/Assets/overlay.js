@@ -1641,6 +1641,34 @@
   // ---- Chat row "..." menu: open/close is client-side so the open
   // menu survives the click that opened it; edge actions still go to
   // the server through the normal runtime pipeline.
+  // ---- Kanban top-bar add menus (+ Column / + Row): the trigger toggles a
+  // .kb-pop popover client-side (chat-row-menu style), so naming a new
+  // column or lane never shifts the board layout. Any outside click closes;
+  // a submit re-renders the board and the popover comes back closed.
+  function closeKbPops() {
+    var open = document.querySelectorAll('.kb-pop.open');
+    for (var i = 0; i < open.length; i++) open[i].classList.remove('open');
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+    var trig = t.closest('#kb-addcol-menu, #kb-addlane-menu');
+    if (trig) {
+      var pop = trig.parentElement.querySelector('.kb-pop');
+      var was = pop && pop.classList.contains('open');
+      closeKbPops();
+      if (pop && !was) {
+        pop.classList.add('open');
+        var inp = pop.querySelector('input[type="text"]');
+        if (inp) inp.focus();
+      }
+      return;
+    }
+    if (t.closest('#kb-addcol-cancel, #kb-addlane-cancel')) { closeKbPops(); return; }
+    if (t.closest('.kb-pop')) return;
+    closeKbPops();
+  });
+
   function closeCatMenus() {
     var open = document.querySelectorAll('.chat-menu.open');
     for (var i = 0; i < open.length; i++) {

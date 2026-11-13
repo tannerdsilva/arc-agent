@@ -3555,11 +3555,6 @@ extension Controller {
         return await self.kanbanAction(tid)
     }
 
-    @Wired("kb-addcol", events: [.click])
-    func handleKbAddCol(_ event: EventData) async -> [FragmentUpdate] {
-        await self.app.setAddingColumn(!self.app.addingColumn)
-        return await self.changed()
-    }
 
     @Wired("kb-addcol-form", events: [.submit, .click])
     func handleKbAddColForm(_ event: EventData) async -> [FragmentUpdate] {
@@ -3567,18 +3562,19 @@ extension Controller {
             let name = event.string("kb-addcol-name") ?? ""
             let color = event.string("kb-addcol-color") ?? ""
             await self.app.addKanbanColumn(name: name, color: color)
-            await self.app.setAddingColumn(false)
         } else if event.string("targetId") != "kb-addcol-cancel" {
             return []
-        } else {
-            await self.app.setAddingColumn(false)
         }
         return await self.changed()
     }
 
-    @Wired("kb-addlane", events: [.click])
-    func handleKbAddLane(_ event: EventData) async -> [FragmentUpdate] {
-        await self.app.addKanbanLane()
+    @Wired("kb-addlane-form", events: [.submit, .click])
+    func handleKbAddLaneForm(_ event: EventData) async -> [FragmentUpdate] {
+        if event.event == "submit" {
+            await self.app.addKanbanLane(named: event.string("kb-addlane-name") ?? "")
+        }
+        // cancel and stray clicks just close the popover client-side;
+        // the re-render drops the open class either way.
         return await self.changed()
     }
 
@@ -3768,9 +3764,7 @@ extension Controller {
 
     /// Kanban chip/row/board actions.
     private func kanbanAction(_ tid: String) async -> [FragmentUpdate] {
-        if tid == "kb-addcol" {
-            await app.setAddingColumn(!app.addingColumn)
-        } else if tid == "kb-addboard" {
+        if tid == "kb-addboard" {
             await app.setAddingBoard(!app.addingBoard)
         } else if tid.hasPrefix("kb-sel-"), let id = dec(String(tid.dropFirst("kb-sel-".count))) {
             await app.selectKanbanBoard(id)

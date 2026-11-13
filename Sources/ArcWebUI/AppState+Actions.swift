@@ -881,12 +881,12 @@ extension AppState {
     }
 
     /// Deletes a lane; its cards fall back to the board's primary lane
-    /// (a nil lane reads as primary). The last remaining lane cannot be
-    /// deleted — a board without lanes has nothing to render.
+    /// (a nil lane reads as primary). Deleting the last lane empties the
+    /// board; the top bar stays so it can be rebuilt in place.
     func deleteKanbanLane(_ id: String) {
         let bid = AppState.boardID(settings.kanbanSelectedBoard)
         let lanes = settings.kanbanLanes.filter { AppState.boardID($0.board) == bid }
-        guard lanes.count > 1, let lane = lanes.first(where: { $0.id == id }) else { return }
+        guard let lane = lanes.first(where: { $0.id == id }) else { return }
         settings.kanbanLanes.removeAll { $0.id == id }
         for i in settings.kanbanCards.indices
         where settings.kanbanCards[i].lane == lane.id {
@@ -901,14 +901,14 @@ extension AppState {
         if id != nil { addingBoard = false }
     }
 
-    /// "+ Row": a new lane named "Lane N" (N = 1-based position), sharing the
-    /// board's columns. Empty names can't happen from the one-click wire, but
-    /// guard anyway.
-    func addKanbanLane() {
+    /// "+ Row": a new lane sharing the board's columns. A blank name falls
+    /// back to "Lane N" (N = 1-based position); the popover form may name it.
+    func addKanbanLane(named raw: String = "") {
         let board = selectedBoardID()
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let n = settings.kanbanLanes.filter { AppState.boardID($0.board) == board }.count + 1
         settings.kanbanLanes.append(
-            KBLane(id: UUID().uuidString, name: "Lane \(n)", board: board))
+            KBLane(id: UUID().uuidString, name: name.isEmpty ? "Lane \(n)" : name, board: board))
         renamingLaneID = nil
         saveSettings()
     }

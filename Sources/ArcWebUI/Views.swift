@@ -5136,8 +5136,17 @@ extension AppState {
         return Div(class: .kbTopbar) {
             Span(class: .kbTopbarName) { Text(boardName) }
             Div(class: .kbTopbarActions) {
-                ArcButton("+ Column", id: "kb-addcol", component: "kb-addcol", class: .ghostBtn)
-                ArcButton("+ Row", id: "kb-addlane", component: "kb-addlane", class: .ghostBtn)
+                // Add menus are chat-row-style popovers: the trigger toggles a
+                // .kb-pop client-side (overlay.js), so naming a new column or
+                // lane never shifts the board layout.
+                Div(class: .kbPopAnchor) {
+                    ArcButton("+ Column", id: "kb-addcol-menu", component: nil, class: .ghostBtn)
+                    Div(class: .kbPop) { ErasedViews([kanbanAddColumnForm()]) }
+                }
+                Div(class: .kbPopAnchor) {
+                    ArcButton("+ Row", id: "kb-addlane-menu", component: nil, class: .ghostBtn)
+                    Div(class: .kbPop) { ErasedViews([kanbanAddLaneForm()]) }
+                }
             }
         }
     }
@@ -5171,6 +5180,22 @@ extension AppState {
             }
         }
         .data("component-id", "kb-addcol-form")
+    }
+
+    /// The add-lane popover form — names a new lane ("Lane N" when blank).
+    func kanbanAddLaneForm() -> some WebUI.View {
+        Form(action: "", method: nil, id: "kb-addlane-form", class: .catAddForm) {
+            Input(field: "kb-addlane-name",
+                  placeholder: "Lane name", type: .text,
+                  attributes: [
+                    ("data-component-id", "kb-addlane-name"),
+                  ])
+            CatAddActions {
+                ArcButton("Add", class: .primaryBtn, type: .submit)
+                ArcButton("Cancel", id: "kb-addlane-cancel", component: nil, class: .ghostBtn)
+            }
+        }
+        .data("component-id", "kb-addlane-form")
     }
 
     /// One lane: a header (name + rename) and the board's columns filtered to
@@ -5220,21 +5245,28 @@ extension AppState {
     func kanbanMain() -> some WebUI.View {
         let cols = selectedKanbanColumns()
         let lanes = selectedKanbanLanes()
-        return Group {
-            if cols.isEmpty {
-                MainView {
+        // The top bar renders unconditionally: an emptied board keeps its
+        // name and its + Column / + Row menus so it can be rebuilt in place.
+        return MainView {
+            Div(class: ClassName(.kanbanMain, .mainView)) {
+                kanbanTopbarHTML()
+                if cols.isEmpty {
                     Blank {
                         Big { WebUIIcon(.columns, size: .extraLarge) }
-                        Div { Text("No columns yet — press + Column.") }
+                        Div { Text("No columns yet — open + Column to add one.") }
                     }
-                }
-                .attribute("style", "justify-content:center")
-            } else {
-                Div(class: ClassName(.kanbanMain, .mainView)) {
-                    kanbanTopbarHTML()
-                    if addingColumn {
-                        ErasedViews([kanbanAddColumnForm()])
+                } else if lanes.isEmpty {
+                    // Columns survive lane deletion; strip them flat so their
+                    // delete controls stay reachable without a lane row.
+                    Div(class: ClassName(.kbLanes, .kbLanesSingle)) {
+                        for col in cols {
+                            ErasedViews([kanbanColumnHTML(col, lane: KBLane(id: "lane-default", name: "General"), isPrimary: true)])
+                        }
                     }
+                    .data("component-id", "kanban")
+                    .data("event", "click")
+                    Blank { Div { Text("No lanes yet — open + Row to add one.") } }
+                } else {
                     Div(class: ClassName(.kbLanes, lanes.count <= 1 ? .kbLanesSingle : .kbLanes)) {
                         let firstID = lanes.first?.id
                         for lane in lanes {
@@ -5244,8 +5276,8 @@ extension AppState {
                     .data("component-id", "kanban")
                     .data("event", "click")
                 }
-                .attribute("style", "padding:0")
             }
+            .attribute("style", "padding:0")
         }
     }
 

@@ -153,7 +153,7 @@ extension ArcWebUITestRoot {
 
 		// MARK: - the pins
 
-		@Test("seventeen raw margin sites remain, and no more")
+		@Test("the enumerated raw margin sites remain, and no more")
 		func rawMarginCountIsPinned() throws {
 			let found = Self.sites(in: try Self.webUISources())
 			#expect(found.count == Self.expectedCount,
