@@ -282,7 +282,16 @@ extension AppState {
                             .id("modal-title")
                         Paragraph(req.body)
                         Div(class: .modalActions) {
-                            ArcButton("Cancel", id: "modal-cancel", component: nil, class: .ghostBtn)
+                            // `data-dismiss` is the engine's Escape contract: `escape`
+                            // fires the layer's first `[data-dismiss]` control
+                            // (`webui-engine.js:1917-1924`). Cancel is that control —
+                            // Delete must never be the one Escape presses. It rides
+                            // `extraAttributes` (the stored-property seam) rather than
+                            // `.behavior(DismissStack())`: `modalHTML()` sits on a
+                            // render-stack cliff, and ONE more view modifier anywhere
+                            // in this function overflows it (see the row 1.4 defect).
+                            ArcButton("Cancel", id: "modal-cancel", component: nil, class: .ghostBtn,
+                                      extraAttributes: DismissStack().attribute().attributeText)
                             ArcButton("Delete", id: "modal-confirm", component: nil, class: .dangerBtn)
                         }
                         .wire("modal")
@@ -445,7 +454,8 @@ extension AppState {
             if let pane = contextPane {
                 Div(id: "ctx-pane-overlay", class: .modalOverlay) {
                     Div(id: "ctx-pane-card", class: .ctxPaneCard) {
-                        ArcButton(id: "ctx-pane-close", component: nil, class: ClassName(.ghostBtn, .ctxPaneClose)) {
+                        ArcButton(id: "ctx-pane-close", component: nil, class: ClassName(.ghostBtn, .ctxPaneClose),
+                                  extraAttributes: DismissStack().attribute().attributeText) {
                             WebUIIcon(.x, size: .small)
                         }
                         Heading("Context breakdown", level: .h3)

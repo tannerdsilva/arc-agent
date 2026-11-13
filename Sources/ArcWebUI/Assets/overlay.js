@@ -595,13 +595,13 @@
     if (el.value !== want) el.value = want;
   }
 
-  // ---- Confirmation dialog: focus, Escape, and a focus trap.
-  // the dialog is patched in: no focus lands in it and Escape had no
-  // owner, so focus Cancel, route Escape to it, trap Tab. the engine traps
-  // Tab on `.modal-overlay` and returns focus (`restoreModalFocus`), but
-  // holds a raw element ref, so a patch-replaced trigger's `focus()` no-ops.
-  // arc re-queries by `id`/`data-sid`, deliberately; no upstream limitation is
-  // the reason, and never was. `ModalFocusContractTests` pins both halves.
+  // ---- Confirmation dialog: focus, and the one Tab guard the engine lacks.
+  // the dialog is patched in: no focus lands in it. the engine traps Tab on
+  // `.modal-overlay` and closes a layer through its `[data-dismiss]` control,
+  // but it holds a raw element ref for the opener, so a patch-replaced
+  // trigger's `focus()` no-ops. arc re-queries by `id`/`data-sid`,
+  // deliberately; no upstream limitation is the reason, and never was.
+  // `ModalFocusContractTests` pins both halves.
   function modalCard() {
     return document.querySelector('.modal-overlay .modal-card') ||
       document.querySelector('.modal-overlay .ctx-pane-card');
@@ -706,13 +706,14 @@
     nu.focus({ preventScroll: true });
   }
 
+  // The in-dialog Escape and the Tab wrap are the engine's (`:1917-1924`,
+  // `:1477-1486`); focus OUTSIDE the card is the case it cannot serve, kept here.
   document.addEventListener('keydown', function (e) {
     var card = modalCard();
-    if (!card) return;
+    if (!card || card.contains(document.activeElement)) return;
     if (e.key === 'Escape') {
-      e.preventDefault();
-      var cancel = card.querySelector('#modal-cancel') || card.querySelector('#ctx-pane-close');
-      if (cancel) cancel.click();
+      var c = card.querySelector('#modal-cancel') || card.querySelector('#ctx-pane-close');
+      if (c) c.click();
       return;
     }
     if (e.key !== 'Tab') return;
@@ -720,10 +721,8 @@
       'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])'
     );
     if (!f.length) return;
-    var first = f[0], last = f[f.length - 1];
-    if (!card.contains(document.activeElement)) { e.preventDefault(); first.focus(); return; }
-    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    e.preventDefault();
+    f[0].focus();
   });
 
   // ---- Dismiss the composer dropdowns on Escape or an outside click.

@@ -1096,8 +1096,18 @@ extension ArcWebUITestRoot {
             #expect(html.contains("id=\"modal-cancel\""), "the cancel button renders")
             #expect(html.contains("id=\"modal-confirm\""), "the confirm button renders")
             #expect(Self.overlay.contains("function syncModalFocus()"))
+            // Escape with focus INSIDE the dialog is the ENGINE's at 2.7.0: Cancel
+            // carries `data-dismiss`, the control its `escape` fires
+            // (`webui-engine.js:1917-1924`). The overlay itself cannot be a
+            // dismissible LAYER yet — one more modifier inside `modalHTML()`
+            // overflows the render stack (row 1.4 defect) — so arc keeps only the
+            // focus-OUTSIDE-the-card branch.
+            let cancelTag = html.range(of: #"<button [^>]*id="modal-cancel"[^>]*>"#,
+                                       options: .regularExpression).map { String(html[$0]) }
+            #expect(cancelTag?.contains("data-dismiss") == true,
+                    "Cancel must be the [data-dismiss] control the engine's Escape fires — never Delete")
             #expect(Self.overlay.contains("if (e.key === 'Escape') {"),
-                    "Escape used to do nothing at all in the modal")
+                    "the focus-outside-the-card Escape branch must stay while no overlay can be a layer")
             #expect(Self.overlay.contains("card.contains(document.activeElement)"),
                     "Tab escaped the dialog to a control behind the scrim")
         }
