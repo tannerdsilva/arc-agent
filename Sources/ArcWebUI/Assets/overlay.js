@@ -307,6 +307,7 @@
     closeSlashMenu();
   });
 
+<<<<<<< HEAD
   // ---- Composer drag & drop + image paste: dropped or pasted files are
   // STAGED for this conversation — not written into any workspace. They
   // land under the daemon's uploads root in a per-chat subfolder
@@ -370,6 +371,34 @@
       attachBusy = false;
       pumpAttachQueue();
     }, 400);
+=======
+  // ---- Composer drag & drop + image paste: dropped or pasted files
+  // upload into the active chat's workspace under attachments/ and are
+  // attached to the next message via the attach wire (the chips re-render
+  // with no client round-trip). Text pastes are untouched. Composer
+  // drag & drop streams through the same upload route as the workspace
+  // panel — no base64 round-trip.
+  // The upload routes land the file on the workspace disk; this drives the
+  // attach WIRE so the server stages it on the next message: fill
+  // `#file-path-input`, announce the value (its `input` wire stores it), then
+  // press `#file-attach`. Both controls live in the always-rendered file
+  // popover — only its `hidden` class toggles — so this works whether or not
+  // the popover is open, and the server stays the single owner of
+  // `attachments`, which is what the chips re-render from.
+  function attachUploadedPath(absPath) {
+    var field = document.getElementById('file-path-input');
+    var press = document.getElementById('file-attach');
+    if (!field || !press || !absPath) return;
+    field.value = absPath;
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    press.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  }
+
+  function sendComposerUpload(file, relPath) {
+    sendUpload(file, relPath || ('attachments/' + file.name), function (path) {
+      attachUploadedPath(workspaceAbsolutePath(path));
+    });
+>>>>>>> 03de51e7 (fix(webui): the composer attach function the upload paths called but nothing defined)
   }
 
   document.addEventListener('dragover', function (e) {
