@@ -51,6 +51,7 @@ extension ArcWebUITestRoot {
 			"aux-edit|aux-right",
 			"cat-pick|cat-bar",
 			"font-size-pick|fsz-grid",
+			"kanban|-",
 			"kanban|panel-body",
 			"kanban|kb-lanes kb-lanes-single",
 			"log-filter|log-chips",

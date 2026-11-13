@@ -184,8 +184,10 @@ struct KanbanBoardsTests {
                       KBColumn(id: "c2", name: "B", color: "#fff", board: "b2")],
             selected: "b2")
         let html = await app.kanbanMain().markup.html
-        #expect(html.contains("kb-col-name\">B"))
-        #expect(!html.contains("kb-col-name\">A"))
+        // the column name is the inline-edit control now, so the display span
+        // carries the tooltip that names it
+        #expect(html.contains("kb-col-name\" title=\"Rename column\">B"))
+        #expect(!html.contains("kb-col-name\" title=\"Rename column\">A"))
     }
 
 
@@ -209,7 +211,9 @@ struct KanbanBoardsTests {
             cards: [KBCard(id: "k1", columnID: "c1", title: "Old card")])
         let html = await app.kanbanMain().markup.html
         #expect(html.contains("Old card"))
-        #expect(html.components(separatedBy: "Old card").count == 2)  // exactly one lane section shows it
+        // the title now appears twice per card — the clamped display and the
+        // edit field's value — so one lane section reads as three components
+        #expect(html.components(separatedBy: "Old card").count == 3)
     }
 
     @Test("lane rename round-trips")

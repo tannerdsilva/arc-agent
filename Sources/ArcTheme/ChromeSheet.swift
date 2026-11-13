@@ -3092,6 +3092,31 @@ public static let css: String = """
     }
     .kb-addcard-form input:focus { border-color: var(--accent-border); }
 
+    /* ─── Kanban inline edit (2.9.0 `data-inline-edit`) ───────────────
+       the name is the control. the form carries `data-inline-edit`, the
+       engine adds `[data-editing]` in place (local — no round trip), and the
+       save is the form's own submit. the text field and the two buttons ship in
+       the first render and are revealed by `[data-editing]`, so entering and
+       leaving an edit never needs a patch. the hidden id field is a sibling, not
+       a row item: `input[type="text"]` is the only field the layout sizes. */
+    .kb-col-head form[data-inline-edit] {
+      display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;
+    }
+    .kb-card form[data-inline-edit] {
+      display: flex; align-items: center; gap: 4px; min-width: 0;
+    }
+    .kb-col-head form[data-inline-edit] .kb-col-name,
+    .kb-card form[data-inline-edit] .kb-card-title { cursor: text; }
+    .kb-card form[data-inline-edit] .kb-card-title { flex: 1; min-width: 0; }
+    form[data-inline-edit] input[type="text"] { display: none; flex: 1; min-width: 0; }
+    form[data-inline-edit] button[type="submit"],
+    form[data-inline-edit] button[type="button"] { display: none; }
+    form[data-inline-edit][data-editing] input[type="text"] { display: block; }
+    form[data-inline-edit][data-editing] button[type="submit"],
+    form[data-inline-edit][data-editing] button[type="button"] { display: inline-flex; }
+    form[data-inline-edit][data-editing] .kb-col-name,
+    form[data-inline-edit][data-editing] .kb-card-title { display: none; }
+
     /* ─── Personal memory ────────────────────────────────────── */
     .mem-box {
       display: flex; align-items: center; gap: 10px;

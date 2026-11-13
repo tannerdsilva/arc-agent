@@ -3213,8 +3213,9 @@ extension Controller {
     @Wired("kanban", events: [.click, .submit])
     func handleKanban(_ event: EventData) async -> [FragmentUpdate] {
         if event.event == "submit" {
-            // The inline form always carries all four fields; branch on
-            // which one is actually populated (empty strings are ignored).
+            // both inline-edit forms ride this wire: the column form carries
+            // `kb-col-id` + `kb-col-name`, the card form `kb-card-id` +
+            // `kb-card-title`, so the pair that is populated names the edit.
             if let cid = event.string("kb-col-id"), !cid.isEmpty,
                let name = event.string("kb-col-name"), !name.isEmpty {
                 await self.app.renameKanbanColumn(cid, to: name)
@@ -3462,9 +3463,7 @@ extension Controller {
             let name = lane?.name ?? "lane"
             await app.requestConfirm(ConfirmRequest(
                 kind: "kb-lane", id: id, title: "Delete lane?",
-                body: "The lane \u{201C}\(name)\u{201D} will be removed. Its cards move to the board's primary lane."))
-        } else if tid.hasPrefix("kb-rencol-") || tid.hasPrefix("kb-edit-") {
-            return []   // client-side inline rename / title edit; commit via hidden form submit
+                body: "The lane “\(name)” will be removed. Its cards move to the board's primary lane."))
         } else if tid.hasPrefix("kb-movel-"), let id = dec(String(tid.dropFirst("kb-movel-".count))) {
             await app.moveKanbanCard(id, by: -1)
         } else if tid.hasPrefix("kb-mover-"), let id = dec(String(tid.dropFirst("kb-mover-".count))) {

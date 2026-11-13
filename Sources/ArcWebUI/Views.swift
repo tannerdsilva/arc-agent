@@ -5645,6 +5645,46 @@ extension AppState {
         }
     }
 
+    /// the 2.9.0 inline-edit control for a kanban name.
+    ///
+    /// `data-inline-edit` makes the form itself the edit control: a click on the
+    /// displayed name (never on a button or link inside) enters local edit mode
+    /// and focuses the text field, Escape or the `type="button"` cancel leaves it
+    /// with no round trip, and the form's own submit both exits the mode and rides
+    /// the pane's existing `kanban` submit wire. the hidden id field is emitted
+    /// LAST so the engine's `querySelector('input, textarea')` focuses the text
+    /// field rather than the hidden one, and the text field carries the FULL name
+    /// (the display may be truncated).
+    private func kanbanRename<Display: WebUI.View>(
+        field: String,
+        value: String,
+        idField: String,
+        idValue: String,
+        label: String,
+        @ElementBuilder display: () -> Display
+    ) -> some WebUI.View {
+        Form(method: nil) {
+            display()
+            Input(name: field, type: .text, value: value)
+                .addClass(.inlineEdit)
+                .aria(.label(label))
+            ArcButton(class: .iconMini, type: .submit) {
+                WebUIIcon(.check, size: .small)
+            }
+            .title("Save name")
+            ArcButton(class: .iconMini, type: .button) {
+                WebUIIcon(.x, size: .small)
+            }
+            .title("Cancel rename")
+            Input(name: idField, type: .hidden, value: idValue)
+        }
+        .behavior(InlineEdit())
+        // the pane's own wire: `handleKanban`'s submit branch reads exactly these
+        // field names, so the save path is the one the hidden form used.
+        .data("component-id", "kanban")
+        .data("event", "submit")
+    }
+
     /// One column inside a lane. The lane matters twice: which cards render,
     /// and the add-card button/form, which carries the lane so a new card
     /// lands in the lane row it was added from.
@@ -5658,14 +5698,17 @@ extension AppState {
         let describedBy: [(String, String)] = addErr == nil ? [] : [("aria-describedby", "kb-addcard-err")]
         return Div(class: .kbCol) {
             Div(class: .kbColHead) {
-                Span(class: .kbColName) { Text(col.name) }
+                // the column NAME is the rename control: clicking it enters local
+                // edit mode, so the pencil button that used to sit in the actions
+                // row is gone with the overlay editor that served it.
+                kanbanRename(field: "kb-col-name", value: col.name,
+                             idField: "kb-col-id", idValue: col.id,
+                             label: "Rename column") {
+                    Span(class: .kbColName) { Text(col.name) }
+                        .title("Rename column")
+                }
                 Span(class: .kbColCount) { Text("\(cards.count)") }
                 Div(class: .kbColActions) {
-                    ArcButton(id: "kb-rencol-\(cid)", component: nil, class: .iconMini) {
-                        WebUIIcon(.edit, size: .small)
-                    }
-                    .title("Rename column")
-                    .data("colid", col.id)
                     ArcButton(id: "kb-bdel-\(cid)", component: nil, class: .iconMiniDanger) {
                         WebUIIcon(.x, size: .small)
                     }
@@ -5721,14 +5764,17 @@ extension AppState {
         // Deletion is confirmed through the shared modal (`kb-del` arms
         // `pendingConfirm`); the ✕ itself never deletes.
         return Div(class: .kbCard) {
-            Div(class: .kbCardTitle) { Text(trunc(card.title, 70)) }
-                .data("cardid", card.id)
+            // the same inline-edit shape as the column head: the title is the
+            // control, the input holds the FULL title (the display truncates to
+            // 70), and the hidden `kb-card-id` rides the form's submit to the
+            // existing `kanban` wire.
+            kanbanRename(field: "kb-card-title", value: card.title,
+                         idField: "kb-card-id", idValue: card.id,
+                         label: "Edit card title") {
+                Div(class: .kbCardTitle) { Text(trunc(card.title, 70)) }
+                    .title("Edit title")
+            }
             Div(class: .kbCardActions) {
-                ArcButton(id: "kb-edit-\(encc)", component: nil, class: .iconMini) {
-                    WebUIIcon(.edit, size: .small)
-                }
-                .title("Edit title")
-                .data("cardid", card.id)
                 if idx > 0 {
                     ArcButton(id: "kb-movel-\(encc)", component: nil, class: .iconMini) {
                         WebUIIcon(.chevronLeft, size: .small)
