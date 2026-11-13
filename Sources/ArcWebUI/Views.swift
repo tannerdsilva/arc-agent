@@ -4119,18 +4119,24 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
 
         // `disabled` is presence-only and `.attribute` takes a non-optional
         // String, so the two shapes are built rather than passed a nil.
+        // The clamp rides the typed `NumberClamp` behavior. It has no one-sided
+        // initializer at 2.9.0 (both bounds are non-optional `Int`), so a
+        // min-only field states `Int.max` as its ceiling — a value no reader can
+        // type, which makes the clamp one-sided in fact. Recorded as D-14.
         func numField(_ id: String, _ value: Int, disabled: Bool) -> some WebUI.View {
             Group {
                 if disabled {
                     Input(id: id, type: .number, value: "\(value)")
                         .attribute("min", "1")
                         .attribute("step", "1")
+                        .behavior(NumberClamp(min: 1, max: Int.max))
                         .flag(.disabled)
                         .addClass(.numInput)
                 } else {
                     Input(id: id, type: .number, value: "\(value)")
                         .attribute("min", "1")
                         .attribute("step", "1")
+                        .behavior(NumberClamp(min: 1, max: Int.max))
                         .addClass(.numInput)
                 }
             }
@@ -4542,6 +4548,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                           attributes: [("data-component-id", "sc-port"),
                                        ("autocomplete", "off"),
                                        ("min", "1"), ("max", "65535")])
+                        .behavior(NumberClamp(min: 1, max: 65535))
                 }
             }
             WebUIField(label: "Application id", controlID: "sc-app") {
@@ -4549,6 +4556,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                       type: .number, value: se.map { String($0.application) } ?? "",
                       attributes: [("data-component-id", "sc-app"),
                                    ("min", "0"), ("max", "65535")])
+                    .behavior(NumberClamp(min: 0, max: 65535))
             }
             FormGrid2 {
                 WebUIField(label: "Server public key", controlID: "sc-pub") {
@@ -4910,6 +4918,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             await self.setPinnedSessionsLimit(n)
                             return .refresh
                         })
+                        .behavior(NumberClamp(min: 1, max: 99))
                 }
             }
             DetailCard {

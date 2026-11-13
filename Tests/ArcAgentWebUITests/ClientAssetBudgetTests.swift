@@ -18,12 +18,13 @@ extension ArcWebUITestRoot {
 	@Suite("Client asset budget", .serialized)
 	struct ClientAssetBudgetTests {
 
-		/// measured 81,495 bytes / 1,829 lines in the merged tree, after A3 row 1.4.
-		/// the local line measured 77,120: the 4,375-byte delta is the
+		/// measured 80,535 bytes / 1,811 lines in the merged tree.
+		/// this commit: row 1.5 clamp — the engine owns number-input clamping.
+		/// the local line measured 77,120: the 3,415-byte delta is the
 		/// upstream composer-attachment, workspace-delete and popover blocks this
 		/// program has not retired yet.
 		/// one byte of headroom, which is the ratchet working as intended.
-		private static let ceiling = 81_496
+		private static let ceiling = 80_536
 
 		private static let sourcePath = "Sources/ArcWebUI/Assets/overlay.js"
 
