@@ -1463,9 +1463,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
     }
 
-    /// The outline panel itself (server-rendered shell; the JS fills entries
-    /// from the rendered user message anchors and handles jumps). Open state is
-    /// server-owned — see `AppState.outlineOpen`.
+    /// The outline panel: one entry per user message, emitted server-side.
+    ///
+    /// Each entry is keyed to the transcript row's own anchor id
+    /// (`msg-user-<rawIdx>` — the id `messageHTML` renders) and carries the
+    /// engine's `data-scroll-to` consequence, which scrolls, flashes the row
+    /// for 1.4 s and prevents the default. Nothing here is built on the
+    /// client. Open state is server-owned — see `AppState.outlineOpen`.
     var outlinePanelHTML: some WebUI.View {
         Group {
             if settings.showConversationOutline {
@@ -1480,8 +1484,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         .title("Close outline")
                         .aria(.label("Close outline"))
                     }
-                    Div(class: .outlineEntries) {}
-                        .id("outline-entries")
+                    Div(class: .outlineEntries) {
+                        outlineEntriesHTML()
+                    }
+                    .id("outline-entries")
                 }
                 .id("outline-panel")
                 .attribute("role", "navigation")
@@ -1493,6 +1499,35 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 .flag(.hidden, when: !outlineOpen)
             }
         }
+    }
+
+    /// The outline's rows: `#n` plus the first 90 characters of what the reader
+    /// typed. The anchor index is the message's index in the transcript, which
+    /// is exactly what `messagesHTML` passes to `messageHTML` as `rawIdx`.
+    func outlineEntriesHTML() -> some WebUI.View {
+        let messages = activeSession()?.messages ?? []
+        var rows: [any WebUI.View] = []
+        var number = 0
+        for (index, message) in messages.enumerated() where message.role == .user {
+            number += 1
+            let raw = (message.displayText ?? message.content ?? "")
+                .split(whereSeparator: { $0.isWhitespace })
+                .joined(separator: " ")
+            rows.append(outlineEntryHTML(number, raw: raw, anchor: "msg-user-\(index)"))
+        }
+        if rows.isEmpty {
+            rows.append(Div(class: .outlineEmpty) { Text("No user messages yet.") })
+        }
+        return ErasedViews(rows)
+    }
+
+    func outlineEntryHTML(_ number: Int, raw: String, anchor: String) -> some WebUI.View {
+        ArcButton(id: nil, component: nil, class: .outlineEntry) {
+            Span(class: .outlineEntryNum) { Text("#\(number)") }
+            Span(class: .outlineEntryText) { Text(trunc(raw, 90)) }
+        }
+        .title(trunc(raw, 240))
+        .behavior(ScrollTo(id: anchor))
     }
 
     /// The transcript rows.

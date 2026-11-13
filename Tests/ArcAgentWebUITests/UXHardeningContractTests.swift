@@ -1240,8 +1240,18 @@ extension ArcWebUITestRoot {
             #expect(chat.contains("data-component-id=\"outline-close\""))
             #expect(Self.appState.contains("var outlineOpen = false"))
             #expect(Self.actions.contains("@Wired(\"outline-toggle\""), "outline toggle is wired")
-            #expect(Self.overlay.contains("function syncOutline()"),
-                    "the overlay still owns the entry list, keyed off the server-rendered shell")
+            // The entry list is server-rendered. Each entry names the
+            // transcript row's own anchor id (`msg-user-<rawIdx>`) and rides the
+            // engine's `data-scroll-to` consequence — so the pin checks the id
+            // against the row the transcript actually rendered, not against a
+            // second convention.
+            #expect(chat.contains("id=\"msg-user-0\""),
+                    "the transcript row's anchor id is what an entry must point at")
+            #expect(chat.contains("data-scroll-to=\"msg-user-0\""),
+                    "the outline entry must jump through the engine's data-scroll-to consequence")
+            #expect(chat.contains("class=\"outline-entry\""), "entries render server-side")
+            #expect(!Self.overlay.contains("buildOutline") && !Self.overlay.contains("syncOutline"),
+                    "the overlay must not rebuild the entry list it no longer owns")
             #expect(!Self.overlay.contains("panel.hidden = !panel.hidden"),
                     "the client must not flip `hidden` behind the server's back")
         }
@@ -1997,21 +2007,22 @@ extension ArcWebUITestRoot {
             #expect(composer.contains("aria-label=\"Search models\""), "the model search must be named")
         }
 
-        @Test("outline entries are client-side links that keep the panel open")
-        func outlineEntriesKeepPanelOpen() {
-            let overlay = Self.overlay
-            #expect(overlay.contains("var b = document.createElement('a')"),
-                    "outline entries must be <a> links, not <button>s (UX-20)")
-            #expect(overlay.contains("b.href = '#' + m.id"),
-                    "each entry must point at its message anchor (UX-20)")
-            #expect(overlay.contains("e.preventDefault();"),
-                    "entry click must be prevented from server round-trip (UX-20)")
-            #expect(overlay.contains("e.preventDefault();"),
-                    "outline entry click must be prevented from server round-trip (UX-20)")
-            #expect(overlay.contains("m.scrollIntoView({ block: 'start', behavior: 'smooth' })"),
-                    "outline entry click must scroll the target message into view (UX-20)")
-            #expect(overlay.contains("m.scrollIntoView({ block: 'start', behavior: 'smooth' })"),
-                    "entry click must scroll the target message into view (UX-20)")
+        @Test("outline entries jump through the engine and keep the panel open")
+        func outlineEntriesKeepPanelOpen() async {
+            // UX-20 asked for a jump with no server round-trip that leaves the
+            // panel open. That jump is the engine's `data-scroll-to`
+            // consequence now (preventDefault + smooth scroll + 1.4 s flash),
+            // and the entries themselves are rendered by the server — so there
+            // is no client link builder left to pin.
+            let chat = await RenderedMarkup.chatMain()
+            #expect(chat.contains("data-scroll-to=\"msg-user-0\""),
+                    "each entry must carry the engine's scroll consequence (UX-20)")
+            #expect(chat.contains("class=\"outline-entry\""),
+                    "the entries are server-rendered (UX-20)")
+            #expect(!Self.overlay.contains("scrollIntoView"),
+                    "the overlay must not keep a second jump handler beside the engine's (UX-20)")
+            #expect(!Self.overlay.contains("createElement('a')"),
+                    "the entry list is server-rendered; the overlay builds no links (UX-20)")
         }
 
         // MARK: - UX-21 (wave 4) rename seeds from the full stored title

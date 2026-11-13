@@ -1610,7 +1610,11 @@ public static let css: String = """
       0% { background: var(--accent-border); }
       100% { background: transparent; }
     }
-    .outline-jump-flash { animation: outline-flash 1.2s ease-out forwards; }
+    /* The engine's `data-scroll-to` marks the target with `data-scroll-flash`
+       for 1.4 s; the outline's own `.outline-jump-flash` class is retired with
+       its client handler, and the keyframes are shared so the flash looks the
+       same whichever consequence moved the reader. */
+    .outline-jump-flash, [data-scroll-flash] { animation: outline-flash 1.2s ease-out forwards; }
 
     /* Token usage renders in `.msg-meta` (see `.msg-usage-inline`). */
 

@@ -969,7 +969,6 @@
     stickToChat();
     syncComposerDraft();
     syncModalFocus();
-    syncOutline();
     syncThemePickers();
     // UX-06: the server stages a resolved copy URL as a `#pending-copy` marker
     // inside the toasts fragment; this pass is its only consumer. The engine
@@ -983,7 +982,6 @@
     stickToChat();
     syncComposerDraft();
     syncModalFocus();
-    syncOutline();
     syncThemePickers();
     copyFromServerMarker();
     // T26: a fragment patch may have just replaced the control the user
@@ -1117,66 +1115,6 @@
       e.preventDefault();
     }
   });
-
-  // ---- Conversation outline (reference #2124): the toggle opens the panel;
-  // entries are the open chat's user messages, built on demand from the
-  // rendered anchors. Entries are plain client-side links: a click jumps to
-  // the message anchor and keeps the panel open (no server round-trip, no
-  // panel close). Jumping releases the stick — the reader is choosing a
-  // position and must not be yanked back to the live text. Delegated, so it
-  // survives every re-render.
-  function buildOutline() {
-    var entries = document.getElementById('outline-entries');
-    if (!entries) return;
-    entries.textContent = '';
-    var msgs = document.querySelectorAll('.chat-inner .msg.user[id^="msg-user-"]');
-    for (var i = 0; i < msgs.length; i++) {
-      (function (m, idx) {
-        var b = document.createElement('a');
-        b.href = '#' + m.id;
-        b.className = 'outline-entry';
-        var num = document.createElement('span');
-        num.className = 'outline-entry-num';
-        num.textContent = '#' + (idx + 1);
-        var txt = document.createElement('span');
-        txt.className = 'outline-entry-text';
-        var raw = (m.innerText || '').replace(/\s+/g, ' ').trim();
-        txt.textContent = raw.slice(0, 90) + (raw.length > 90 ? '\u2026' : '');
-        b.title = raw.slice(0, 240);
-        b.appendChild(num);
-        b.appendChild(txt);
-        b.addEventListener('click', function (e) {
-          e.preventDefault();
-          stick = false;
-          m.scrollIntoView({ block: 'start', behavior: 'smooth' });
-          m.classList.remove('outline-jump-flash');
-          void m.offsetWidth;
-          m.classList.add('outline-jump-flash');
-          setTimeout(function () { m.classList.remove('outline-jump-flash'); }, 1400);
-          var s = chatScroller();
-          if (s) updateJumpBtn(s);
-          // Panel stays open: entries are client-side only now. The close
-          // button is the only server-owned control in the panel.
-        });
-        entries.appendChild(b);
-      })(msgs[i], i);
-    }
-    if (!msgs.length) {
-      var empty = document.createElement('div');
-      empty.className = 'outline-empty';
-      empty.textContent = 'No user messages yet.';
-      entries.appendChild(empty);
-    }
-  }
-
-  // ---- The panel's shell (and its open/closed state) comes from the server;
-  // the overlay only fills the entries once the shell is visible. Called from
-  // the post-patch seam so a streamed turn keeps the list current.
-  function syncOutline() {
-    var panel = document.getElementById('outline-panel');
-    if (!panel || panel.hidden) return;
-    buildOutline();
-  }
 
   // ---- Context window chip (UX-23): a <button> that responds to activation,
   // not just hover. Click toggles the tooltip (focus-within already opens it
