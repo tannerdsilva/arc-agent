@@ -228,7 +228,7 @@ enum MarkupAllowlist {
 	static let codeFence =
 		"<div class=\"code-wrap\"><button type=\"button\" class=\"copy-code\" data-copy=\"(esc(clean))\" title=\"Copy code\">Copy</button><pre><code(langAttr)>(esc(clean))</code></pre></div>"
 	//: bucket d — the `.md` container around rendered markdown.
-	static let mdBox = "<div class=\"md\">(renderMarkdown(markdown))</div>"
+	static let mdBox = "<div class=\"md\">(renderMarkdown(markdown, tableEnhance: tableEnhance))</div>"
 
 	static let entries: [String: Set<String>] = [
 		"Sources/ArcWebUI/SidecarPlugin.swift": [sidecarFallback],

@@ -1799,16 +1799,29 @@ extension ArcWebUITestRoot {
         /// gone, and no early-clear guard may wipe the memory while an earlier
         /// fragment still has the dialog in the DOM.
         @Test("table sort/filter controls are named and the modal returns focus to its trigger")
-        func tableControlsNamedAndModalRestoresFocus() {
+        func tableControlsNamedAndModalRestoresFocus() async {
             let overlay = Self.overlay
-            #expect(overlay.contains("sort.setAttribute('aria-label', 'Sort by '"),
-                    "the sort button must announce the column it sorts (UX-08)")
-            #expect(overlay.contains("hc.removeAttribute('aria-sort')"),
-                    "aria-sort must be cleared from the other columns on each sort (UX-08)")
-            #expect(overlay.contains("target.setAttribute('aria-sort', dir === 'asc' ? 'ascending' : 'descending')"),
-                    "the sorted column must announce ascending/descending (UX-08)")
-            #expect(overlay.contains("filter.setAttribute('aria-label', 'Filter table rows')"),
+            // The engine owns table sorting and filtering now (`data-table-enhance`
+            // dispatch). What this page owes is the typed attribute, a filter
+            // field the handler can find by its documented selector, and a
+            // header control whose accessible name is the column — the overlay
+            // no longer mints any of it.
+            let app = AppState(renderFixture: AppState.RenderFixture())
+            let enhance = await app.chatTableEnhance
+            let table = await app.mdBox("| Name | Size |\n|---|---|\n| beta | 20 |", tableEnhance: enhance)
+            #expect(table.contains("data-table-enhance=\"sort filter\""),
+                    "the chat table must carry the framework's typed behavior value (UX-08: sort AND filter)")
+            #expect(table.contains("input") && table.contains("data-table-filter"),
+                    "the engine looks for input[data-table-filter] inside the enhanced region")
+            #expect(table.contains("aria-label=\"Filter table rows\""),
                     "the filter field needs an accessible name — a placeholder is not one (UX-08)")
+            #expect(table.contains("aria-label=\"Sort by Name\""),
+                    "the sort control must announce the column it sorts (UX-08)")
+            #expect(!overlay.contains("enhanceMarkdownTables"),
+                    "the overlay must not keep a second table enhancer beside the engine's")
+            let plain = await app.mdBox("| a |\n|---|\n| 1 |")
+            #expect(!plain.contains("data-table-enhance"),
+                    "surfaces that did not opt in keep the inert wrapper")
             // The modal block: state, pointer capture, sync, restore, then the
             // Escape/Tab trap. Scoped so the pins cannot match lookalike code
             // elsewhere in the overlay (six other document click listeners).

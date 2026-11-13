@@ -4,6 +4,7 @@ import ArcTheme
 import Foundation
 import Logging
 import WebUI
+import WebUICore
 import WebUIDesignSystem
 
 // MARK: - Views (actor methods on AppState)
@@ -25,7 +26,11 @@ extension AppState {
     /// escaped and wrapped in `<pre><code>`, the rest goes through
     /// `markdownToHTML`. Splitting on the fence string makes the parts
     /// alternate text / code / text / code…
-    func renderMarkdown(_ markdown: String) -> String {
+    ///
+    /// `tableEnhance` is the serialized pipe-table behavior (see
+    /// `chatTableEnhance`); empty leaves the renderer's bytes untouched for
+    /// every surface that does not want sortable tables.
+    func renderMarkdown(_ markdown: String, tableEnhance: String = "") -> String {
         let parts = markdown.components(separatedBy: "```")
         var out = ""
         for (index, part) in parts.enumerated() {
@@ -53,15 +58,24 @@ extension AppState {
                 // tables, blockquotes, nested lists, task checkboxes, math
                 // elements, sanitized images/autolinks — identical to the
                 // tested parity output, engine-independent.
-                out += MarkdownRenderer.render(part)
+                out += MarkdownRenderer.render(part, tableEnhance: tableEnhance)
             }
         }
         return out
     }
 
+    /// The pipe-table behavior, serialized from the framework's typed value.
+    ///
+    /// The overlay's enhancer this replaces was scoped to `.msg-body table`,
+    /// so only chat bodies opt in: a table in the memory panel or a skill doc
+    /// stays the inert wrapper it was.
+    var chatTableEnhance: String {
+        TableEnhance(mode: .sortAndFilter).attributeText
+    }
+
     /// Wrap markdown fragment HTML in the `.md` container class.
-    func mdBox(_ markdown: String) -> String {
-        "<div class=\"md\">\(renderMarkdown(markdown))</div>"
+    func mdBox(_ markdown: String, tableEnhance: String = "") -> String {
+        "<div class=\"md\">\(renderMarkdown(markdown, tableEnhance: tableEnhance))</div>"
     }
 
     // MARK: - Shell
@@ -1572,7 +1586,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         // trusted raw at this one seam rather than as an untyped string.
         return Group {
             if !content.isEmpty {
-                MsgBody { TrustedMarkup(mdBox(content), from: .markdown) }
+                MsgBody { TrustedMarkup(mdBox(content, tableEnhance: chatTableEnhance), from: .markdown) }
             }
             toolChipsHTML(m.toolCalls)
         }
@@ -1738,7 +1752,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }, content: {
                     WlDetail {
                         if let interim = m.content, !interim.isEmpty {
-                            Div(class: ClassName(.msgBody, .interim)) { TrustedMarkup(mdBox(interim), from: .markdown) }
+                            Div(class: ClassName(.msgBody, .interim)) { TrustedMarkup(mdBox(interim, tableEnhance: chatTableEnhance), from: .markdown) }
                         }
                         toolChipsHTML(calls, results: pair.1)
                     }
@@ -1835,7 +1849,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     thinkingRowHTML(r, key: mk.isEmpty ? "" : "think-r\(mk)")
                 }
                 if let interim = m.content, !interim.isEmpty {
-                    Div(class: ClassName(.msgBody, .interim)) { TrustedMarkup(mdBox(interim), from: .markdown) }
+                    Div(class: ClassName(.msgBody, .interim)) { TrustedMarkup(mdBox(interim, tableEnhance: chatTableEnhance), from: .markdown) }
                 }
                 for c in calls {
                     ErasedViews([toolCardHTML(c, result: results[c.id])])
@@ -1855,7 +1869,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                             Div(class: "tc-detail thinking-detail") { Text(r) }
                         }
                         if let interim = m.content, !interim.isEmpty {
-                            Div(class: ClassName(.msgBody, .interim)) { TrustedMarkup(mdBox(interim), from: .markdown) }
+                            Div(class: ClassName(.msgBody, .interim)) { TrustedMarkup(mdBox(interim, tableEnhance: chatTableEnhance), from: .markdown) }
                         }
                         toolChipsHTML(calls, results: results)
                     }
@@ -1967,7 +1981,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     if !pills.paths.isEmpty {
                         userAttachmentPillsHTML(pills.paths)
                     }
-                    Div(class: ClassName(.msgBody, .userBubble)) { TrustedMarkup(mdBox(visible), from: .markdown) }
+                    Div(class: ClassName(.msgBody, .userBubble)) { TrustedMarkup(mdBox(visible, tableEnhance: chatTableEnhance), from: .markdown) }
                     messageActionsHTML(actions)
                 }
                 if rawIdx >= 0 {

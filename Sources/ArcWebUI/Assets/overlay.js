@@ -517,111 +517,6 @@
   var chatScrollMemory = {};
   var lastComposerSession = null;
   var focusComposerWanted = false;
-  // ---- Pipe-table enhancement (arc-specific).
-  // Lived in the forked runtime until that fork was deleted; it belongs in the
-  // overlay and is driven from the engine's afterPatch seam below — pipe tables
-  // get per-column sort + a filter input.
-
-    function enhanceMarkdownTables(scope) {
-      var tables = scope.querySelectorAll('.msg-body table:not([data-markdown-table-enhanced])');
-      for (var t = 0; t < tables.length; t++) {
-        (function (table) {
-        table.setAttribute('data-markdown-table-enhanced', '1');
-        var tbody = table.querySelector('tbody');
-        var theadRow = table.querySelector('thead tr');
-        if (!tbody || !theadRow) return;
-        var bodyRows = tbody.querySelectorAll('tr');
-        for (var r = 0; r < bodyRows.length; r++) {
-          bodyRows[r].setAttribute('data-orig', String(r));
-        }
-        var headerCells = theadRow.querySelectorAll('th');
-        for (var c = 0; c < headerCells.length; c++) {
-          var th = headerCells[c];
-          var headWrapper = document.createElement('div');
-          headWrapper.className = 'markdown-table-head';
-          var label = document.createElement('span');
-          label.className = 'markdown-table-sort-label';
-          label.textContent = th.textContent;
-          var sort = document.createElement('button');
-          sort.type = 'button';
-          sort.className = 'markdown-table-sort';
-          sort.title = 'Sort column';
-          // UX-08: the glyph alone ('⇅') was the whole accessible name. The
-          // button must name the column it sorts, and the header must expose
-          // the applied sort order via aria-sort.
-          sort.setAttribute('aria-label', 'Sort by ' + (th.textContent || 'this column'));
-          sort.textContent = '\u21C5';
-          sort.addEventListener('click', (function (tbl, colIdx) {
-            return function () {
-              var asc = tbl.getAttribute('data-sort-col') === String(colIdx) &&
-                tbl.getAttribute('data-sort-dir') === 'asc';
-              var dir = asc ? 'desc' : 'asc';
-              tbl.setAttribute('data-sort-col', String(colIdx));
-              tbl.setAttribute('data-sort-dir', dir);
-              var hdr = tbl.querySelector('thead tr');
-              if (hdr) {
-                for (var h = 0; h < hdr.children.length; h++) {
-                  var hc = hdr.children[h];
-                  if (!hc || !hc.removeAttribute) continue;
-                  if (hc.removeAttribute) hc.removeAttribute('aria-sort');
-                }
-                var target = hdr.children[colIdx];
-                if (target && target.setAttribute) {
-                  target.setAttribute('aria-sort', dir === 'asc' ? 'ascending' : 'descending');
-                }
-              }
-              var body = tbl.querySelector('tbody');
-              if (!body) return;
-              var rows = Array.prototype.slice.call(body.querySelectorAll('tr'));
-              rows.sort(function (a, b) {
-                var av = a.cells[colIdx] ? (a.cells[colIdx].textContent || '').toLowerCase() : '';
-                var bv = b.cells[colIdx] ? (b.cells[colIdx].textContent || '').toLowerCase() : '';
-                if (av < bv) return dir === 'asc' ? -1 : 1;
-                if (av > bv) return dir === 'asc' ? 1 : -1;
-                return Number(a.getAttribute('data-orig') || 0) - Number(b.getAttribute('data-orig') || 0);
-              });
-              for (var i = 0; i < rows.length; i++) body.appendChild(rows[i]);
-              var sels = tbl.querySelectorAll('.markdown-table-sort');
-              for (var s = 0; s < sels.length; s++) {
-                sels[s].textContent = s === colIdx ? (dir === 'asc' ? '\u25B2' : '\u25BC') : '\u21C5';
-                sels[s].setAttribute('aria-label', 'Sort by ' + (sels[s].closest ? (sels[s].closest('th').textContent || '') : ''));
-              }
-            };
-          })(table, c));
-          headWrapper.appendChild(label);
-          headWrapper.appendChild(sort);
-          th.textContent = '';
-          th.appendChild(headWrapper);
-        }
-        var filter = document.createElement('input');
-        filter.type = 'text';
-        filter.className = 'markdown-table-filter';
-        filter.placeholder = 'Filter table';
-        // UX-08: the filter field is icon/placeholder-only; a placeholder is
-        // not an accessible name.
-        filter.setAttribute('aria-label', 'Filter table rows');
-        // Delegated on the table so the handler survives any re-render that
-        // replaces the input element.
-        table.addEventListener('input', function (ev) {
-          var inp = ev && ev.target;
-          if (!inp || !inp.classList || !inp.classList.contains('markdown-table-filter')) return;
-          var q = inp.value.toLowerCase();
-          var rows = table.querySelectorAll('tbody tr');
-          for (var r = 0; r < rows.length; r++) {
-            rows[r].hidden = !!q && (rows[r].textContent || '').toLowerCase().indexOf(q) === -1;
-          }
-        });
-        var frow = document.createElement('tr');
-        frow.className = 'markdown-table-filter-row';
-        var fcell = document.createElement('th');
-        fcell.colSpan = headerCells.length;
-        fcell.appendChild(filter);
-        frow.appendChild(fcell);
-        theadRow.parentNode.insertBefore(frow, theadRow.nextSibling);
-        })(tables[t]);
-      }
-    }
-
   // ---- Post-patch seam. The engine hands `afterPatch` the array of elements a
   // fragment batch replaced, so enhancement is scoped to what actually changed
   // instead of rescanning the whole document on every mutation — the old
@@ -1071,7 +966,6 @@
 
   function enhanceAll() {
     resizeComposerIfNew();
-    enhanceMarkdownTables(document);
     stickToChat();
     syncComposerDraft();
     syncModalFocus();
@@ -1086,14 +980,6 @@
   function enhancePatched(changed) {
     clearRestoredComposer();
     resizeComposerIfNew();
-    if (changed && changed.length) {
-      for (var i = 0; i < changed.length; i++) {
-        enhanceMarkdownTables(changed[i]);
-      }
-    } else {
-      // A runtime that hands no subtree: fall back to a document pass.
-      enhanceMarkdownTables(document);
-    }
     stickToChat();
     syncComposerDraft();
     syncModalFocus();
