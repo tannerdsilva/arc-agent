@@ -165,7 +165,6 @@ public enum ArcClass: String, CaseIterable, Sendable {
 	case ctxLabel = "ctx-label"
 	case ctxMenu = "ctx-menu"
 	case ctxMid = "ctx-mid"
-	case ctxOpen = "ctx-open"
 	case ctxPaneBar = "ctx-pane-bar"
 	case ctxPaneCard = "ctx-pane-card"
 	case ctxPaneClose = "ctx-pane-close"
