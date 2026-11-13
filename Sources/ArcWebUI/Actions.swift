@@ -2006,13 +2006,12 @@ extension Controller {
             return []   // client-side inline editor
         }
         if tid.hasPrefix("sm-copy-") {
-            // 2.6.0: the overlay's `#pending-copy` consumer is deleted (the
-            // engine's `data-copy` is the single clipboard owner), so nothing
-            // now reads the marker this stages. The server still resolves and
-            // stages the URL — the marker is kept for the clipboard row's
-            // follow-up — but the write and the "copied" toast do not happen
-            // on a 2.6.0 page. See the A2 report: the engine has no behavior
-            // that consumes a server-staged clipboard value.
+            // the copy MENU rides the server: this stages the resolved URL as a
+            // hidden `#pending-copy[data-copy-url]` marker, and the overlay's
+            // `copyFromServerMarker()` post-patch pass consumes it, writes the
+            // clipboard and owns the "copied" toast. the marker exists because
+            // the engine's `data-copy` behavior can only copy a literal
+            // attribute value — it has no access to a server-staged handoff.
             guard let sid = dec(String(tid.dropFirst("sm-copy-".count))) else { return [] }
             await self.app.markCopyLink(sid)
             return await self.changed()

@@ -1077,6 +1077,10 @@
     syncModalFocus();
     syncOutline();
     syncThemePickers();
+    // UX-06: the server stages a resolved copy URL as a `#pending-copy` marker
+    // inside the toasts fragment; this pass is its only consumer. The engine
+    // owns `[data-copy]` only — it has no server-staged handoff, so this stays.
+    copyFromServerMarker();
   }
 
   function enhancePatched(changed) {
@@ -1095,6 +1099,7 @@
     syncModalFocus();
     syncOutline();
     syncThemePickers();
+    copyFromServerMarker();
     // T26: a fragment patch may have just replaced the control the user
     // activated — return focus to its equivalent so the keyboard trail does
     // not reset to <body>.
@@ -1906,6 +1911,112 @@
     e.preventDefault();
     var ta = document.getElementById('composer-input');
     if (ta) ta.focus();
+  });
+
+  // ---- Small transient toast for client-side notices (server toasts still
+  // own the #toasts stream, so this only fills the gap briefly). Errors and
+  // explicit-feedback notices (UX-06: "Conversation link copied.") appear;
+  // `quiet` requests stay silent.
+  function flashToast(text, kind) {
+    if (kind === 'quiet') return;
+    var host = document.getElementById('toasts');
+    if (!host) return;
+    kind = kind || 'info';
+    var el = document.createElement('div');
+    el.className = 'toast ' + kind;
+    el.innerHTML = '<span class="toast-dot"></span><span></span>';
+    el.lastChild.textContent = text;
+    host.appendChild(el);
+    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 2600);
+  }
+
+  // ---- Copy conversation link (server-driven clipboard, UX-06).
+  // The MENU's copy rides the server: the engine's wired `chat-menu` region
+  // handles clicks server-side. The resolved URL comes back inside the #toasts
+  // fragment as a hidden `#pending-copy[data-copy-url]` marker; this post-patch
+  // pass consumes the marker, writes the URL to the clipboard, and drops it — a
+  // one-shot handoff that cannot race a streamed re-render.
+  // The engine's `data-copy` behavior owns only a literal attribute value; it
+  // cannot see this server-staged handoff, so this seam stays until S-series
+  // gives a consequence access to a server-staged clipboard value.
+  function copyFromServerMarker() {
+    var m = document.getElementById('pending-copy');
+    if (!m) return;
+    var url = m.getAttribute('data-copy-url');
+    m.remove();
+    if (!url) return;
+    var target = new URL(url, location.href).href;
+    function writeFailed() {
+      flashToast('Could not copy the link.', 'error');
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(target).then(function () {
+        // The overlay owns the toast: exactly one, from the clipboard result.
+        flashToast('Conversation link copied.');
+      }).catch(writeFailed);
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = target;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        if (!document.execCommand('copy')) writeFailed();
+        else flashToast('Conversation link copied.');
+      } catch (err) { writeFailed(); }
+      document.body.removeChild(ta);
+    }
+  }
+
+  // ---- Workspace preview copy (UX-12): the preview's copy control copies a
+  // sibling's rendered text at click time, which no attribute value can carry.
+  // `innerText` gives the rendered text for a markdown preview and the raw text
+  // for a <pre>.
+  document.addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest('#ws-preview-copy') : null;
+    if (!btn) return;
+    var body = document.querySelector('.ws-preview-scroll .ws-preview-body');
+    var text = body ? (body.innerText || body.textContent || '') : '';
+    function copied() { flashToast('File content copied.'); }
+    function failed() { flashToast('Could not copy the file.', 'error'); }
+    if (!text.trim()) { failed(); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(copied).catch(failed);
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        if (!document.execCommand('copy')) failed();
+        else copied();
+      } catch (err) { failed(); }
+      document.body.removeChild(ta);
+    }
+  });
+
+  // ---- Turn worklog "copy activity" buttons (delegated): copy the expanded
+  // text of that tool round's detail block, addressed by `data-copy-target`.
+  document.addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('.tw-copy') : null;
+    if (!b) return;
+    e.stopPropagation();
+    // Copy must not toggle the enclosing disclosure.
+    e.preventDefault();
+    var tgt = b.getAttribute('data-copy-target');
+    var host = tgt ? document.getElementById(tgt) : null;
+    var body = host ? host.querySelector('.wl-detail') : null;
+    var text = (body ? body.innerText : '').trim();
+    if (!text || !navigator.clipboard || !navigator.clipboard.writeText) return;
+    navigator.clipboard.writeText(text).then(function () {
+      var orig = b.innerHTML;
+      b.innerHTML = '✓';
+      b.classList.add('copied');
+      setTimeout(function () { b.innerHTML = orig; b.classList.remove('copied'); }, 1500);
+    }, function () { });
   });
 
   // ---- in-page `#` anchors are left to the browser: `WebUIServer.answerNavigate`
