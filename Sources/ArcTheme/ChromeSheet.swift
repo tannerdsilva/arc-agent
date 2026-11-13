@@ -811,6 +811,10 @@ public static let css: String = """
     }
     .list-row:hover { background: var(--surface-2); }
     .list-row.active { background: var(--accent-soft); }
+    /* 2.6.0 scrollspy: the engine marks the section in view with
+       aria-current on the anchor (it cannot toggle an arc class), so the row
+       takes the same accent when its own link is current. */
+    .list-row:has(> .panel-nav-link[aria-current]) { background: var(--accent-soft); }
     .list-row .lr-name { flex: 1; min-width: 0; font-size: 0.93em; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .list-row .lr-sub { font-size: 0.84em; color: var(--muted); }
     .tool-group { font-size: 0.84em; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 12px 10px 4px; }

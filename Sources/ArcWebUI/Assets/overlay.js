@@ -515,8 +515,6 @@
   // old chat's composer text across the swap. These maps live for the page's
   // lifetime so a return can put the reader back where they were.
   var chatScrollMemory = {};
-  var panelScrollMemory = {};
-  var panelSeen = {};
   var lastComposerSession = null;
   var focusComposerWanted = false;
   // ---- Pipe-table enhancement (arc-specific).
@@ -708,33 +706,6 @@
     updateJumpBtn(s);
   }
 
-  // ---- Panel scroll memory (UX-41): a rail switch swaps the panel fragment,
-  // so each keyed scroller forgets where it was. Remember it in the overlay
-  // (per `data-scroll-key`) and restore it when a fresh node for the key
-  // arrives. The chat scroller is exempt — stickToChat owns that one.
-  function syncPanelScroll() {
-    var els = document.querySelectorAll('[data-scroll-key]');
-    for (var i = 0; i < els.length; i++) {
-      var el = els[i];
-      var key = el.getAttribute('data-scroll-key');
-      if (!key || key === 'chat') continue;
-      if (panelSeen[key] !== el) {
-        panelSeen[key] = el;
-        if (!el.__scrollMemBound) {
-          el.__scrollMemBound = true;
-          el.addEventListener('scroll', (function (node, k) {
-            return function () { panelScrollMemory[k] = node.scrollTop; };
-          })(el, key));
-        }
-        var mem = panelScrollMemory[key];
-        if (mem != null) {
-          var max = Math.max(0, el.scrollHeight - el.clientHeight);
-          el.scrollTop = Math.min(mem, max);
-        }
-      }
-    }
-  }
-
   // ---- Composer draft seam (UX-40): the engine preserves the pre-patch
   // textarea value across fragment patches, so a session switch used to keep
   // the OLD chat's text. The server renders the intended draft as
@@ -749,16 +720,6 @@
     lastComposerSession = sid;
     var want = el.getAttribute('data-draft') || '';
     if (el.value !== want) el.value = want;
-  }
-
-  // Round-3 UX-42: the skip link lives in the app shell, which renders once —
-  // a tab switch only patches fragments, so the link would keep pointing at a
-  // composer that is no longer on the page. Show it only where the target
-  // exists; a keyboard user on a rail view never tabs into a dead jump.
-  function syncSkipLink() {
-    var link = document.querySelector('.skip-link');
-    if (!link) return;
-    link.hidden = !document.getElementById('composer-input');
   }
 
   // ---- Confirmation dialog: focus, Escape, and a focus trap.
@@ -1112,14 +1073,10 @@
     resizeComposerIfNew();
     enhanceMarkdownTables(document);
     stickToChat();
-    syncPanelScroll();
     syncComposerDraft();
-    syncSkipLink();
     syncModalFocus();
     syncOutline();
     syncThemePickers();
-    bootSettingsSpy();
-    copyFromServerMarker();
   }
 
   function enhancePatched(changed) {
@@ -1134,14 +1091,10 @@
       enhanceMarkdownTables(document);
     }
     stickToChat();
-    syncPanelScroll();
     syncComposerDraft();
-    syncSkipLink();
     syncModalFocus();
     syncOutline();
     syncThemePickers();
-    bootSettingsSpy();
-    copyFromServerMarker();
     // T26: a fragment patch may have just replaced the control the user
     // activated — return focus to its equivalent so the keyboard trail does
     // not reset to <body>.
@@ -1175,45 +1128,6 @@
         }
       }
     }
-  }
-
-  // ---- Settings sub-nav: mark the section in view.
-  // The Settings page is one long scroll container, so the anchor rows gave no
-  // sense of place. An IntersectionObserver keeps the matching row highlighted;
-  // sections with no nav row of their own (assistance, agent limits, agent
-  // powers) leave the previous mark in place, which is where they belong.
-  var settingsSpy = null;
-
-  function bootSettingsSpy() {
-    if (!window.IntersectionObserver) return;
-    var wrap = document.querySelector('.settings-wrap');
-    var panel = document.querySelector('#panel');
-    if (!wrap || !panel) { settingsSpy = null; return; }
-    if (settingsSpy && settingsSpy.wrap === wrap && wrap.isConnected) return;
-    var rows = {};
-    var anchors = panel.querySelectorAll('a[href^="#"]');
-    for (var i = 0; i < anchors.length; i++) {
-      var id = (anchors[i].getAttribute('href') || '').slice(1);
-      var row = anchors[i].closest ? anchors[i].closest('.list-row') : null;
-      if (id && row) rows[id] = row;
-    }
-    var sections = wrap.querySelectorAll('section[id]');
-    if (!Object.keys(rows).length || !sections.length) return;
-    var apply = function (id) {
-      for (var k in rows) rows[k].classList.toggle('active', k === id);
-    };
-    var obs = new IntersectionObserver(function (entries) {
-      var best = null;
-      for (var n = 0; n < entries.length; n++) {
-        var e = entries[n];
-        if (!e.isIntersecting || !rows[e.target.id]) continue;
-        if (!best || e.boundingClientRect.top < best.boundingClientRect.top) best = e;
-      }
-      if (best) apply(best.target.id);
-    }, { root: wrap, rootMargin: '0px 0px -60% 0px', threshold: 0 });
-    for (var j = 0; j < sections.length; j++) obs.observe(sections[j]);
-    apply('appearance');
-    settingsSpy = { wrap: wrap, observer: obs };
   }
 
   // UX-45: `+` (new chat) leaves focus on the button; remember the intent and
@@ -1394,90 +1308,6 @@
     if (g) g.classList.toggle('collapsed');
   });
 
-  // ---- Session-row roving (UX-07). The row div is the single tab stop in
-  // the conversation list: ArrowUp/Down roves focus between visible rows
-  // (tabindex moves with focus), Enter/Space opens the session, and the Menu
-  // key (or Shift+F10) opens the row's ⋮ menu. The inner open button and the
-  // ⋮ dots are tabindex="-1" quiet utilities — out of the tab order but
-  // still keyboard-reachable through the row. Collapsed groups are skipped
-  // (their rows are display:none, which offsetParent detects).
-  function visibleSessionRows() {
-    return Array.prototype.filter.call(
-      document.querySelectorAll('.sess-group-rows .sess-row[tabindex]'),
-      function (r) { return r.offsetParent !== null; }
-    );
-  }
-
-  function roveRowFocus(from, to) {
-    if (!from || !to || from === to) return;
-    from.setAttribute('tabindex', '-1');
-    to.setAttribute('tabindex', '0');
-    to.focus();
-  }
-
-  document.addEventListener('keydown', function (e) {
-    // Only the row DIV itself drives roving — descendants (rename input,
-    // menu buttons) keep their own keys.
-    if (e.target && e.target.tagName !== 'DIV') return;
-    var row = e.target && e.target.closest ? e.target.closest('.sess-row[tabindex]') : null;
-    if (!row) return;
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      var rows = visibleSessionRows();
-      var idx = rows.indexOf(row);
-      if (idx === -1) return;
-      var next = e.key === 'ArrowDown' ? (idx + 1) % rows.length : (idx - 1 + rows.length) % rows.length;
-      if (rows.length > 1) roveRowFocus(row, rows[next]);
-      e.preventDefault();
-      return;
-    }
-    if (e.key === 'Enter' || e.key === ' ') {
-      var open = row.querySelector('.sess-open');
-      if (open) open.click();
-      e.preventDefault();
-      return;
-    }
-    if (e.key === 'Menu' || (e.shiftKey && e.key === 'F10')) {
-      var dots = row.querySelector('.menu-dots');
-      if (dots) {
-        dots.click();
-        // Move focus INTO the opened menu so the items are immediately
-        // reachable (Tab/Enter), not stranded behind it.
-        var menu = row.querySelector('.chat-menu');
-        if (menu && menu.classList.contains('open')) {
-          var items = menu.querySelectorAll('button');
-          if (items[0]) items[0].focus();
-        }
-      }
-      e.preventDefault();
-    }
-  });
-  // ---- Icon rail roving (UX-07). The ACTIVE nav button is the single tab
-  // stop in the rail; ArrowUp/ArrowDown (and for safety ArrowLeft/ArrowRight)
-  // rove focus across the visible rail buttons, moving tabindex with focus so
-  // the active item stays the one tab stop.
-  function visibleRailButtons() {
-    return Array.prototype.filter.call(
-      document.querySelectorAll('#iconbar button.icon-btn[tabindex]'),
-      function (b) { return b.offsetParent !== null; }
-    );
-  }
-  document.addEventListener('keydown', function (e) {
-    var t = e.target;
-    if (!t || !t.closest || !t.closest('#iconbar button.icon-btn[tabindex]')) return;
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-      var btns = visibleRailButtons();
-      var idx = btns.indexOf(t);
-      if (idx === -1) return;
-      var dir = (e.key === 'ArrowDown' || e.key === 'ArrowRight') ? 1 : -1;
-      var next = btns[(idx + dir + btns.length) % btns.length];
-      if (btns.length > 1 && next && next !== t) {
-        t.setAttribute('tabindex', '-1');
-        next.setAttribute('tabindex', '0');
-        next.focus();
-      }
-      e.preventDefault();
-    }
-  });
   // ---- Skill category groups: click header to collapse/expand.
   document.addEventListener('click', function (e) {
     var h = e.target && e.target.closest ? e.target.closest('.skill-cat-head') : null;
@@ -1485,160 +1315,6 @@
     var g = h.closest('.skill-group');
     if (g) g.classList.toggle('collapsed');
   });
-
-  // ---- Sidebar-tab chips (Settings > Appearance): HTML5 drag to
-  // reorder. The visible order is recomputed from the checked chips
-  // (only visible tabs matter) and pushed through the hidden order
-  // input so the server persists it.
-  document.addEventListener('dragstart', function (e) {
-    var chip = e.target && e.target.closest ? e.target.closest('.side-tab-chip') : null;
-    if (!chip) return;
-    e.dataTransfer.setData('text/plain', 'side-tab');
-    e.dataTransfer.effectAllowed = 'move';
-    chip.classList.add('drag-src');
-  });
-  document.addEventListener('dragover', function (e) {
-    var chip = e.target && e.target.closest ? e.target.closest('.side-tab-chip') : null;
-    if (!chip) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  });
-  document.addEventListener('drop', function (e) {
-    var chip = e.target && e.target.closest ? e.target.closest('.side-tab-chip') : null;
-    if (!chip) return;
-    e.preventDefault();
-    var src = document.querySelector('.side-tab-chip.drag-src');
-    if (!src || src === chip) { if (src) src.classList.remove('drag-src'); return; }
-    var moved = false;
-    try {
-      var after = (chip.compareDocumentPosition(src) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-      if (after) { chip.after(src); moved = true; }
-      else { chip.before(src); moved = true; }
-    } catch (err) { }
-    src.classList.remove('drag-src');
-    if (!moved) return;
-    var container = chip.closest('.side-tab-chips') || chip.parentElement;
-    // The full chip order is the canonical order (hidden chips keep
-    // their slots), so every chip contributes a key.
-    var order = [];
-    container.querySelectorAll('.side-tab-chip').forEach(function (chip) {
-      var id = chip.id || '';
-      if (id.indexOf('st-') === 0) {
-        try { order.push(atob(id.slice(3))); } catch (err) { }
-      }
-    });
-    var hidden = document.getElementById('sidebar-tab-order');
-    if (hidden) {
-      hidden.value = order.join(',');
-      hidden.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-  });
-  document.addEventListener('dragend', function (e) {
-    var src = document.querySelector('.side-tab-chip.drag-src');
-    if (src) src.classList.remove('drag-src');
-  });
-
-  // ---- Run queue (Todos → Run queue): HTML5 drag to reorder. The rows are
-  // draggable; dropping moves the DOM node and pushes the new order through
-  // the hidden #queue-order input (the queue wire reorders + persists it).
-  document.addEventListener('dragstart', function (e) {
-    var row = e.target && e.target.closest ? e.target.closest('.queue-row') : null;
-    if (!row) return;
-    e.dataTransfer.setData('text/plain', 'queue-row');
-    e.dataTransfer.effectAllowed = 'move';
-    row.classList.add('dragging');
-  });
-  document.addEventListener('dragover', function (e) {
-    var list = e.target && e.target.closest ? e.target.closest('.queue-list') : null;
-    if (!list) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    var row = e.target.closest ? e.target.closest('.queue-row') : null;
-    clearQueueDragMarkers(list);
-    if (!row) return;
-    var src = list.querySelector('.queue-row.dragging');
-    if (!src || src === row) return;
-    var after = (row.compareDocumentPosition(src) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-    row.classList.add(after ? 'drop-before' : 'drop-after');
-  });
-  document.addEventListener('drop', function (e) {
-    var list = e.target && e.target.closest ? e.target.closest('.queue-list') : null;
-    if (!list) return;
-    var target = e.target.closest ? e.target.closest('.queue-row') : null;
-    e.preventDefault();
-    var src = list.querySelector('.queue-row.dragging');
-    var before = !!(target && target.classList.contains('drop-before'));
-    if (src && src !== target) {
-      try {
-        if (!target) { list.appendChild(src); }
-        else if (before) { target.before(src); }
-        else { target.after(src); }
-      } catch (err) { }
-    }
-    var markers = list.querySelectorAll('.queue-row.dragging, .queue-row.drop-before, .queue-row.drop-after');
-    for (var i = 0; i < markers.length; i++) markers[i].classList.remove('dragging', 'drop-before', 'drop-after');
-    var order = [];
-    list.querySelectorAll('.queue-row').forEach(function (row) {
-      if (row.getAttribute('data-qid')) order.push(row.getAttribute('data-qid'));
-    });
-    var hidden = document.getElementById('queue-order');
-    if (hidden && order.length) {
-      hidden.value = order.join(',');
-      hidden.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-  });
-  function clearQueueDragMarkers(list) {
-    var m = list.querySelectorAll('.queue-row.drop-before, .queue-row.drop-after');
-    for (var i = 0; i < m.length; i++) m[i].classList.remove('drop-before', 'drop-after');
-  }
-  document.addEventListener('dragend', function (e) {
-    var row = e.target && e.target.closest ? e.target.closest('.queue-row') : null;
-    if (row) {
-      row.classList.remove('dragging', 'drop-before', 'drop-after');
-      var list = row.closest('.queue-list');
-      if (list) clearQueueDragMarkers(list);
-    }
-  });
-
-  // ---- Relative session times: refresh every 60s (arc parity).
-  function relLabel(ms) {
-    if (!ms) return '';
-    var d = new Date(ms), now = new Date();
-    var diff = Math.max(0, now - d);
-    if (diff < 60000) return '1m';
-    if (diff < 3600000) return Math.floor(diff / 60000) + 'm';
-    if (diff < 86400000) return Math.floor(diff / 3600000) + 'h';
-    var s0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    var s1 = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    var days = Math.round((s0 - s1) / 86400000);
-    if (days < 7) return Math.max(days, 1) + 'd';
-    var M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    var base = M[d.getMonth()] + ' ' + d.getDate();
-    if (d.getFullYear() !== now.getFullYear()) base += ', ' + String(d.getFullYear()).slice(-2);
-    return base;
-  }
-  setInterval(function () {
-    var els = document.querySelectorAll('[data-reltime]');
-    for (var i = 0; i < els.length; i++) {
-      var ts = parseInt(els[i].getAttribute('data-reltime'), 10);
-      if (!isNaN(ts)) els[i].textContent = relLabel(ts);
-    }
-  }, 60000);
-
-  // ---- Streaming turn elapsed clock (arc parity): the live node re-renders on
-  // every push, so the server stamps data-started (epoch ms) and this single
-  // interval repaints the label from it — no per-push render, no layout work.
-  function paintElapsed() {
-    var els = document.querySelectorAll('[data-elapsed]');
-    for (var i = 0; i < els.length; i++) {
-      var start = parseInt(els[i].getAttribute('data-started'), 10);
-      if (isNaN(start)) continue;
-      var s = Math.max(0, Math.floor((Date.now() - start) / 1000));
-      var text = Math.floor(s / 60) + ':' + (s % 60 < 10 ? '0' : '') + (s % 60);
-      if (els[i].textContent !== text) els[i].textContent = text;
-    }
-  }
-  setInterval(paintElapsed, 1000);
 
   // ---- Chat row "..." menu: open/close is client-side so the open
   // menu survives the click that opened it; edge actions still go to
@@ -1710,77 +1386,6 @@
     }
     closeCatMenus();
   });
-
-  // ---- Copy conversation link (server-driven clipboard, UX-06).
-  // The MENU's copy rides the server: the engine's wired `chat-menu` region
-  // handles clicks server-side, and the server is the single owner of the
-  // "copied" toast. The resolved URL comes back inside the #toasts fragment as
-  // a hidden `#pending-copy[data-copy-url]` marker; this post-patch pass
-  // consumes the marker, writes the URL to the clipboard, and drops it — a
-  // one-shot handoff that cannot race a streamed re-render.
-  // (T23 audit, Wave 2: capture/bubble/target probes inside every wired region
-  // fired on this engine pair — the engine routes events server-side but does
-  // NOT stop client propagation. Nothing client-side is dead; the seam exists
-  // because the server owns the side effect, not because listeners are lost.)
-  function copyFromServerMarker() {
-    var m = document.getElementById('pending-copy');
-    if (!m) return;
-    var url = m.getAttribute('data-copy-url');
-    m.remove();
-    if (!url) return;
-    var target = new URL(url, location.href).href;
-    function writeFailed() {
-      flashToast('Could not copy the link.', 'error');
-    }
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(target).then(function () {
-        // The overlay owns the toast: exactly one, from the clipboard result.
-        flashToast('Conversation link copied.');
-      }).catch(writeFailed);
-    } else {
-      var ta = document.createElement('textarea');
-      ta.value = target;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      try {
-        if (!document.execCommand('copy')) writeFailed();
-        else flashToast('Conversation link copied.');
-      } catch (err) { writeFailed(); }
-      document.body.removeChild(ta);
-    }
-  }
-
-  // ---- Workspace preview copy (UX-12): the preview's copy control is
-  // client-side, and the toast follows the clipboard promise — the same
-  // owner rule as the conversation-link copy above. `innerText` gives the
-  // rendered text for a markdown preview and the raw text for a <pre>.
-  document.addEventListener('click', function (e) {
-    var btn = e.target && e.target.closest ? e.target.closest('#ws-preview-copy') : null;
-    if (!btn) return;
-    var body = document.querySelector('.ws-preview-scroll .ws-preview-body');
-    var text = body ? (body.innerText || body.textContent || '') : '';
-    function copied() { flashToast('File content copied.'); }
-    function failed() { flashToast('Could not copy the file.', 'error'); }
-    if (!text.trim()) { failed(); return; }
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(copied).catch(failed);
-    } else {
-      var ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      try {
-        if (!document.execCommand('copy')) failed();
-        else copied();
-      } catch (err) { failed(); }
-      document.body.removeChild(ta);
-    }
-  });
-
 
   // ---- Rename conversation: inline edit of the row title, committed
   // through a hidden form that rides the normal runtime pipeline.
@@ -1857,23 +1462,6 @@
     sw.classList.add('sel');
     if (pick) pick.value = sw.getAttribute('data-color') || pick.value;
   });
-
-  // Small transient toast for client-side notices (server toasts still
-  // own the #toasts stream, so this only fills the gap briefly). Errors and
-  // explicit-feedback notices (UX-06: "Conversation link copied.") appear;
-  // `quiet` requests stay silent.
-  function flashToast(text, kind) {
-    if (kind === 'quiet') return;
-    var host = document.getElementById('toasts');
-    if (!host) return;
-    kind = kind || 'info';
-    var el = document.createElement('div');
-    el.className = 'toast ' + kind;
-    el.innerHTML = '<span class="toast-dot"></span><span></span>';
-    el.lastChild.textContent = text;
-    host.appendChild(el);
-    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 2600);
-  }
 
   // ---- Workspace panel: start the exit visual, then let the click through.
   // The runtime performs the real close by replacing the panel with the closed
@@ -2318,73 +1906,6 @@
     e.preventDefault();
     var ta = document.getElementById('composer-input');
     if (ta) ta.focus();
-  });
-
-  // ---- Copy code blocks + message responses (delegated). Copy buttons inside
-  document.addEventListener('click', function (e) {
-    var b = e.target && e.target.closest ? e.target.closest('[data-copy]') : null;
-    if (!b) return;
-    // Copy buttons inside <summary> must not toggle the disclosure.
-    e.preventDefault();
-    var text = b.getAttribute('data-copy') || '';
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(function () {
-        // A labelled action (message footer) keeps its icon and swaps only the
-        // label, so the pair beside it does not shift. An icon-only button
-        // (code block, assistant reply) swaps the whole glyph as before.
-        var label = b.querySelector('[data-copy-label]');
-        if (label) {
-          var origLabel = label.textContent;
-          label.textContent = 'Copied';
-          setTimeout(function () { label.textContent = origLabel; }, 1500);
-        } else {
-          var orig = b.innerHTML;
-          b.innerHTML = '✓';
-          setTimeout(function () { b.innerHTML = orig; }, 1500);
-        }
-      }, function () {
-        // A refused write (clipboard permission denied, an insecure context, a
-        // browser that blocks the async API) used to fail in complete silence:
-        // the label stayed "Copy" and nothing said the text never left the
-        // page. The control owns the outcome, so it says so in place, and the
-        // toast explains why.
-        var label = b.querySelector('[data-copy-label]');
-        if (label) {
-          var origLabel = label.textContent;
-          label.textContent = 'Failed';
-          setTimeout(function () { label.textContent = origLabel; }, 2000);
-        } else {
-          var orig = b.innerHTML;
-          b.innerHTML = '✕';
-          setTimeout(function () { b.innerHTML = orig; }, 2000);
-        }
-        flashToast('Could not copy — the browser blocked clipboard access.', 'error');
-      });
-    } else {
-      flashToast('Could not copy — this browser has no clipboard access.', 'error');
-    }
-  });
-
-
-  // ---- Turn worklog "copy activity" buttons (delegated): copy the
-  // expanded text of that tool round's detail block.
-  document.addEventListener('click', function (e) {
-    var b = e.target && e.target.closest ? e.target.closest('.tw-copy') : null;
-    if (!b) return;
-    e.stopPropagation();
-    // Copy must not toggle the enclosing disclosure.
-    e.preventDefault();
-    var tgt = b.getAttribute('data-copy-target');
-    var host = tgt ? document.getElementById(tgt) : null;
-    var body = host ? host.querySelector('.wl-detail') : null;
-    var text = (body ? body.innerText : '').trim();
-    if (!text || !navigator.clipboard || !navigator.clipboard.writeText) return;
-    navigator.clipboard.writeText(text).then(function () {
-      var orig = b.innerHTML;
-      b.innerHTML = '✓';
-      b.classList.add('copied');
-      setTimeout(function () { b.innerHTML = orig; b.classList.remove('copied'); }, 1500);
-    }, function () { });
   });
 
   // ---- in-page `#` anchors are left to the browser: `WebUIServer.answerNavigate`

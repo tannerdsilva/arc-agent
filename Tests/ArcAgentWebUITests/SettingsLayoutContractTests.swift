@@ -117,10 +117,15 @@ extension ArcWebUITestRoot {
                     "the reorder wire persists via reorderQueue")
             #expect(!queue.contains("id=\"queue-reorder\""),
                     "the dead payload button must stay gone")
-            #expect(overlay.contains(".queue-row"),
-                    "the client drag handlers exist for queue rows")
-            #expect(overlay.contains("queue-order") && overlay.contains("dispatchEvent(new Event('change'"),
-                    "dropping pushes the new order through the hidden input")
+            // 2.6.0: the engine's data-reorder handler owns the drag. It writes
+            // the moved children's ids into #queue-order and dispatches `change`,
+            // so the container names the input and the rows carry entry ids.
+            #expect(panel.contains("data-reorder=\"queue-order\""),
+                    "the run-queue container must hand the reorder to the engine")
+            #expect(panel.contains("data-reorder=\"queue-order\"") && queue.contains(".id(e.id)"),
+                    "each row's id is the queue entry id the order input consumes")
+            #expect(!overlay.contains(".queue-row"),
+                    "the overlay must not keep a second drag owner for queue rows")
             #expect(!queue.contains("'queue' data-event='change'") && !queue.contains("\"queue\" data-event=\"change\""),
                     "queue change controls must not dispatch by row identity on the shared queue boundary")
         }

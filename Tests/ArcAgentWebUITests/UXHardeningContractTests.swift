@@ -540,18 +540,14 @@ extension ArcWebUITestRoot {
             let rendered = await undoApp.toastsHTML().markup.html
             #expect(rendered.contains("id=\"ta-undo-delete-2\""),
                     "the toast action button must be rendered with a wireable id")
-            #expect(Self.overlay.contains("if (kind === 'quiet') return"),
-                    "copy-link feedback toasts must surface (only explicit quiet stays silent)")
             // The copy side effect is server-owned (single owner for toast+URL),
-            // and the clipboard write is a post-patch handoff via #pending-copy.
-            // (T23 audit: wired regions do not swallow client listeners on this
-            // pair — probes showed all phases firing — so this is an ownership
-            // choice, not a workaround for lost events.)
-            // UX-24: the overlay owns the copy toast now; the server only
-            // stages the URL marker. The overlay's post-patch pass reads it,
-            // writes the clipboard, and flashes exactly one toast.
+            // and the clipboard write was a post-patch handoff via #pending-copy.
+            // UX-24: the server stages the URL marker; the client consumed it.
+            // 2.6.0: `[data-copy]` is engine-dispatched, so the overlay's
+            // duplicate delegate AND its flashToast are deleted — one clipboard
+            // owner, not two. The overlay must not grow a clipboard write again.
             #expect(!Self.actions.contains("surfaceToast(\"Conversation link copied.\")"),
-                    "the server must NOT surface the copy toast — the overlay owns it (UX-24)")
+                    "the server must NOT surface the copy toast — the client owns that feedback")
             #expect(Self.appState.contains("func markCopyLink(_ sessionID: String)"),
                     "the server must stage the link for the client clipboard write")
             #expect(Self.appState.contains("var pendingCopyURL: String? = nil"),
@@ -560,10 +556,12 @@ extension ArcWebUITestRoot {
             // inside #toasts. Re-use the rendered fragment from above.
             #expect(rendered.contains("id=\"pending-copy\" data-copy-url"),
                     "the hidden copy marker must be rendered inside #toasts")
-            #expect(Self.overlay.contains("function copyFromServerMarker()"),
-                    "the overlay must consume the marker and write the clipboard")
-            #expect(Self.overlay.contains("copyFromServerMarker();"),
-                    "the clipboard handoff must run out of the post-patch seam")
+            #expect(!Self.overlay.contains("copyFromServerMarker"),
+                    "2.6.0 owns data-copy: the overlay must not keep a second clipboard path")
+            #expect(!Self.overlay.contains("navigator.clipboard.writeText"),
+                    "the overlay must perform no clipboard write — the engine's data-copy is the only owner")
+            #expect(!Self.overlay.contains("flashToast"),
+                    "the overlay's private toast helper died with the copy path it served")
         }
         @Test("deleting a chat surfaces a plain notification with NO undo button")
         func deleteHasNoUndoToast() async {
@@ -763,8 +761,13 @@ extension ArcWebUITestRoot {
             #expect(!body.contains("ws-preview-open"),
                     "the unwired open-in-editor control must not ship")
             let overlay = Self.overlay
-            #expect(overlay.contains("#ws-preview-copy"),
-                    "the preview copy control must have a client owner")
+            // 2.6.0: the overlay's #ws-preview-copy delegate is deleted. The
+            // control reads the preview body's rendered text, which no engine
+            // attribute can express, so it has NO client owner until the
+            // clipboard row's residue is re-expressed (documented in the A2
+            // report). Pin the absence so a second owner cannot sneak back.
+            #expect(!overlay.contains("#ws-preview-copy"),
+                    "the overlay must not keep a second clipboard owner for the preview")
         }
 
 
@@ -920,14 +923,26 @@ extension ArcWebUITestRoot {
             #expect(copyBtn?.contains("title=\"Copy message\"") == true,
                     "the copy action must keep its tooltip")
             let overlay = Self.overlay
-            #expect(overlay.contains("function visibleSessionRows()"),
-                    "the overlay must rove across visible rows only")
-            #expect(overlay.contains("roveRowFocus("),
-                    "roving must move tabindex with focus")
-            #expect(overlay.contains("if (e.key === 'Menu' || (e.shiftKey && e.key === 'F10'))"),
-                    "the Menu key must open a row's ⋮ menu")
+            // 2.6.0 roving: the ENGINE owns arrow-key roving inside a
+            // `data-roving` container. The overlay's own row walker and
+            // tabindex mover are gone; the reading keys still refuse to steal a
+            // session row's arrows (below), so the two handlers cannot fight.
+            #expect(!overlay.contains("function visibleSessionRows()"),
+                    "the overlay must not keep a second roving key handler")
+            #expect(!overlay.contains("roveRowFocus("),
+                    "tabindex movement is the engine's job inside data-roving")
             #expect(overlay.contains(".sess-row[tabindex]')) return;"),
                     "the transcript-scroll keys must never steal a session row's arrows")
+            let sessionsPanel = await RenderedMarkup.panelWithRows()
+            let rowsTag = sessionsPanel.range(of: #"<div [^>]*class="sess-group-rows"[^>]*>"#,
+                                              options: .regularExpression).map { String(sessionsPanel[$0]) }
+            #expect(rowsTag?.contains("data-roving") == true,
+                    "the session-rows container must declare data-roving, or the engine never binds: \(rowsTag ?? "no tag")")
+            let shell = await RenderedMarkup.page()
+            let railTag = shell.range(of: #"<aside [^>]*id="iconbar"[^>]*>"#,
+                                      options: .regularExpression).map { String(shell[$0]) }
+            #expect(railTag?.contains("data-roving") == true,
+                    "the icon rail must declare data-roving, or the engine never binds: \(railTag ?? "no tag")")
             let sheet = Self.sheetSource
             #expect(sheet.contains(".skip-link:focus { left: 0; }"),
                     "the skip link must be invisible until focused, then visible")
@@ -2071,14 +2086,23 @@ extension ArcWebUITestRoot {
                     "the add-card / skill forms must request focus after a patch")
         }
 
-        @Test("the skip link is hidden where its target is absent")
-        func skipLinkScopedToChat() {
-            // The shell renders once, so a tab switch cannot remove the link
-            // server-side; the boot overlay hides it wherever #composer-input
-            // is not on the page (round-3 UX-42).
-            #expect(Self.overlay.contains("function syncSkipLink()"))
-            #expect(Self.overlay.contains("link.hidden = !document.getElementById('composer-input')"),
-                    "the skip link must hide when no composer exists")
+        @Test("the skip link carries the engine's skip target")
+        func skipLinkScopedToChat() async {
+            // 2.6.0: the skip link is a `data-skip-to` declaration, not a
+            // client-side visibility pass. The engine's handler focuses and
+            // scrolls the target on activation; when the composer is absent
+            // (a rail view) the handler returns before preventDefault, so the
+            // anchor's own `href="#composer-input"` is what a browser falls back
+            // to. The overlay no longer hides the link.
+            #expect(!Self.overlay.contains("function syncSkipLink()"))
+            #expect(!Self.overlay.contains("link.hidden"))
+            let shell = await RenderedMarkup.page()
+            let link = shell.range(of: #"<a [^>]*class="skip-link"[^>]*>"#,
+                                   options: .regularExpression).map { String(shell[$0]) }
+            #expect(link?.contains("data-skip-to=\"composer-input\"") == true,
+                    "the skip link must declare the target the engine focuses: \(link ?? "no link")")
+            #expect(link?.contains("href=\"#composer-input\"") == true,
+                    "the anchor keeps its href for a no-JS browser")
         }
 
         // MARK: - Session menu rows: a selection spans the menu

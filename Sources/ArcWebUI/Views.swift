@@ -80,7 +80,11 @@ extension AppState {
         let main = await mainContentHTML()
 
         return Div {
+            // 2.6.0 skip target: the anchor still carries `href="#composer-input"`
+            // for a no-JS browser; `data-skip-to` is what the engine's handler
+            // reads to move real focus (a hash jump only scrolls).
             Link("Skip to composer", href: "#composer-input", class: .skipLink)
+                .behavior(SkipTarget(id: "composer-input"))
             topbarHTML()
             Div {
                 iconbarHTML()
@@ -165,13 +169,16 @@ extension AppState {
             }
         }
         .id("iconbar")
+        // 2.6.0 roving: one tab stop for the whole rail; ArrowUp/Down (and
+        // Left/Right) move focus and tabindex together inside this container.
+        .behavior(Roving())
     }
 
     /// One rail tab as a button.
     ///
     /// UX-07 roving rail: the ACTIVE nav item is the single tab stop; every other
-    /// tab is `tabindex="-1"` and reached with ArrowUp/ArrowDown (overlay.js roves
-    /// tabindex with focus). UX-08: an icon-only button still needs an accessible
+    /// tab is `tabindex="-1"` and reached with ArrowUp/ArrowDown (#iconbar carries
+    /// `data-roving`; the engine moves tabindex with focus). UX-08: an icon-only button still needs an accessible
     /// name — the `data-tip` pill is hover-only, so assistive tech and touch never
     /// see it.
     ///
@@ -809,6 +816,9 @@ extension AppState {
                     ErasedViews([sessionRow(s, todos: todos)])
                 }
             }
+            // 2.6.0 roving: the rows are the container's rove-able children —
+            // one tab stop per group, ArrowUp/Down moves focus + tabindex.
+            .behavior(Roving())
         }
         .data("grp", key)
     }
@@ -1386,11 +1396,14 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         let session = activeSession()
         // the follow flag is consumed once: the render that scrolls to the
         // bottom clears it, so a later re-render must not re-scroll.
-        let follow = forceScrollBottom
         forceScrollBottom = false
-        // `.attribute` decorates the NEXT element opened, so the scroller is
-        // built on its own and decorated before it is nested in the wrapper —
-        // otherwise `data-follow` lands on `.chat-scroll-wrap`.
+        // A3.1 owns this scroller. `data-scroll-key="chat"` and the one-shot
+        // `data-follow="bottom"` emission are REMOVED here until `stickToChat`
+        // is deleted: the engine's data-scroll-key/data-follow handlers do not
+        // exempt chat, so leaving them on this element would double-drive the
+        // same scroll position (engine restore + stickToChat) and jitter.
+        // `stickToChat` still runs and still reads `data-follow`, so its
+        // force-bottom branch is dormant until A3.1 restores both attributes.
         let scroller = ChatScroll {
             ChatInner {
                 messagesHTML(session?.messages ?? [], sessionID: session?.id)
@@ -1398,19 +1411,9 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             .id("chat-inner")
         }
         .id("chat-scroll")
-        .data("scroll-key", "chat")
         .data("session", activeSessionID ?? "")
-        // `data-follow` is presence-only, so the scrolling shape is a branch
-        // rather than an empty attribute.
-        let followedScroller = Group {
-            if follow {
-                scroller.data("follow", "bottom")
-            } else {
-                scroller
-            }
-        }
         let scroll = Div(class: .chatScrollWrap) {
-            followedScroller
+            scroller
             // The jump button anchors to its own wrapping container so it sits
             // just above the composer (never overlapping it), at the bottom-right
             // of the scroll viewport.
@@ -4555,6 +4558,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 settingsAboutSection()
             }
             .data("scroll-key", "main-scroll")
+            // 2.6.0 scrollspy: the sections this container holds are the
+            // watched ones; the engine marks the matching `a[href="#id"]` with
+            // `aria-current` on scroll and after every patch.
+            .behavior(Scrollspy())
         }
     }
 
@@ -4751,6 +4758,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                         }
                     }
                     .wire("side-tab-chips")
+                    // 2.6.0 reorder: the engine moves the chip node and writes
+                    // the new child-id order into #sidebar-tab-order, then
+                    // dispatches `change` on it (the existing wire).
+                    .behavior(Reorder(inputID: "sidebar-tab-order"))
                     Input(id: "sidebar-tab-order", type: .hidden,
                           value: settings.sidebarTabs.joined(separator: ","),
                           attributes: [("data-component-id", "sidebar-tab-order"),

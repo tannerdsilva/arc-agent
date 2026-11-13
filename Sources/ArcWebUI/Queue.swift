@@ -431,6 +431,10 @@ extension AppState {
             }
             .attribute("draggable", "true")
             .data("qid", e.id)
+            // 2.6.0 reorder: the engine writes the new order as the ids of the
+            // container's children, so the row's id IS the queue entry id that
+            // #queue-order (and `handleQueueOrder`) already consumes.
+            .id(e.id)
             if queueLinksOpen == e.id { queueLinkPopupHTML(e, plan: plan) }
         }
     }
@@ -592,6 +596,9 @@ extension AppState {
                 if plan.isEmpty { queueEmptyState() }
                 rows
             }
+            // 2.6.0 reorder: drag moves the row node and writes the child-id
+            // order into #queue-order, which dispatches the existing `change`.
+            .behavior(Reorder(inputID: "queue-order"))
             queuePickerHTML()
             Input(
                 id: "queue-order",

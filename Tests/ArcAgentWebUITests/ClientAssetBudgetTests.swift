@@ -18,14 +18,16 @@ extension ArcWebUITestRoot {
 	@Suite("Client asset budget", .serialized)
 	struct ClientAssetBudgetTests {
 
-		/// measured 106,609 bytes / 2,394 lines after the upstream line's cron,
-		/// kanban and composer-attachment work was replayed underneath this
-		/// migration (102,849 bytes / 2,311 lines before it). the growth is
-		/// upstream's, and it is temporary: the staged-chip, upload-tray,
-		/// workspace-delete and popover blocks these commits add are exactly the
-		/// ones the following commits in this program retire into engine
-		/// behavior, so the ceiling comes back down rather than staying here.
-		private static let ceiling = 106_610
+		/// measured 85,453 bytes / 1,915 lines after A2 (no-webui 2.6.0): the
+		/// engine's dispatch table replaced the panel-scroll, skip-link, reorder,
+		/// ticking-label, roving, scrollspy and copy blocks (2,394 → 1,915
+		/// lines). the merged file runs 3,760 bytes above the local line's
+		/// 81,693 because the upstream composer-attachment, workspace-delete and
+		/// popover blocks are still in it; the commits that follow in this
+		/// program retire those into engine behavior too, so the ceiling keeps
+		/// falling rather than resting here. one byte of headroom, which is the
+		/// ratchet working as intended.
+		private static let ceiling = 85_454
 
 		private static let sourcePath = "Sources/ArcWebUI/Assets/overlay.js"
 

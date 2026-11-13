@@ -1817,7 +1817,16 @@ extension Controller {
 
     @Wired("sidebar-tab-order", events: [.change])
     func handleSidebarTabOrder(_ event: EventData) async -> [FragmentUpdate] {
-        let keys = (event.string("value") ?? "").split(separator: ",").map(String.init)
+        // 2.6.0 reorder: the engine writes the ids of the chips it moved, and a
+        // chip's id is its wire identity (`st-<base64url key>`), so decode it
+        // back to the tab key here. the decoded form is accepted unchanged so a
+        // pre-2.6.0 client and the server agree on one input.
+        let keys = (event.string("value") ?? "")
+            .split(separator: ",")
+            .map(String.init)
+            .map { token in
+                token.hasPrefix("st-") ? (dec(String(token.dropFirst(3))) ?? token) : token
+            }
         await self.app.setSidebarTabOrder(keys)
         return await self.changed()
     }
@@ -1997,14 +2006,13 @@ extension Controller {
             return []   // client-side inline editor
         }
         if tid.hasPrefix("sm-copy-") {
-            // The server hands the resolved URL back inside the #toasts
-            // fragment as a hidden marker that the overlay's post-patch
-            // pass writes to the clipboard. The overlay now owns the
-            // toast: it flashes "Conversation link copied." on success
-            // and "Could not copy the link." on failure — exactly one
-            // toast, owned by the clipboard result (UX-24). The server
-            // must not surface its own success toast, or a failed write
-            // would show the wrong message first.
+            // 2.6.0: the overlay's `#pending-copy` consumer is deleted (the
+            // engine's `data-copy` is the single clipboard owner), so nothing
+            // now reads the marker this stages. The server still resolves and
+            // stages the URL — the marker is kept for the clipboard row's
+            // follow-up — but the write and the "copied" toast do not happen
+            // on a 2.6.0 page. See the A2 report: the engine has no behavior
+            // that consumes a server-staged clipboard value.
             guard let sid = dec(String(tid.dropFirst("sm-copy-".count))) else { return [] }
             await self.app.markCopyLink(sid)
             return await self.changed()
@@ -2123,7 +2131,7 @@ extension Controller {
 extension Controller {
     /// The footer actions under a message.
     ///
-    /// copy never arrives here — the overlay owns `[data-copy]`, so a copy
+    /// copy never arrives here — the engine owns `[data-copy]`, so a copy
     /// click carries no `targetId` this wire can act on. the server actions do:
     /// `fork-<session>.<index>` and `regen-<session>.<index>` name the
     /// conversation and the cut point.
