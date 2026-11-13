@@ -1333,7 +1333,14 @@ actor AppState {
     /// The cron store — single source of truth for scheduled jobs since the
     /// phase-2 convergence. `settings.scheduledJobs` is only a render cache,
     /// reloaded by ``refreshScheduledJobs()``.
-    let cronStore = RuntimeCronStore()
+    ///
+    /// Mutable so test harnesses can bind a hermetic store: the default is
+    /// the process-wide ``RuntimeCronStore`` (tessera when the relay is up),
+    /// and a test saving through it would deposit its fixture jobs into the
+    /// production relay — the exact bug behind the "deleted jobs reappear"
+    /// mystery of 2026-11-13. ``bindJobHarness``-style harnesses must bind
+    /// a temp ``FileCronStore``.
+    var cronStore: any CronStore = RuntimeCronStore()
     /// Per-attempt run history (new cron §2) — the detail card's "Recent runs".
     let cronHistory = RuntimeCronRunHistory()
 

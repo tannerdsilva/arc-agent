@@ -123,12 +123,32 @@ extension ArcWebUITestRoot {
             f.registryTools = [echo, StubTool(name: "skill_view", toolset: "skills")]
             f.activeTabID = "logs"
             let app = AppState(renderFixture: f)
-            await app.bindJobHarness(store: store, client: client)
+            // Hermetic cron store: the default is the process-wide
+            // RuntimeCronStore, which resolves to the production tessera
+            // relay whenever it is running — a test saving through it would
+            // deposit its fixture jobs ("nightly report", "Job done.") into
+            // the live store, where the UI would resurrect them forever.
+            let cron = FileCronStore(directory: root.appendingPathComponent("cron", isDirectory: true))
+            await app.bindJobHarness(store: store, client: client, cron: cron)
             return (app, store, workspace)
         }
 
         static func job() -> CronJob {
             CronJob(name: "nightly report", schedule: "30m", prompt: "write the nightly report")
+        }
+
+        @Test("the job harness never touches the production cron store")
+        func cronStoreIsHermetic() async throws {
+            let client = JobScriptClient(mode: .toolThenFinal)
+            let (app, _, _) = try await Self.harness(client: client)
+            // Regression: the harness used to leave the default
+            // RuntimeCronStore in place — with the relay running, every
+            // `app.cronStore.save` published a fixture job ("nightly
+            // report" / "Job done.") into the production tessera store,
+            // and the Tasks page resurrected it on every restart.
+            let boundStore = await app.cronStore
+            #expect(boundStore is FileCronStore,
+                    "bindJobHarness must bind a hermetic store, not the live RuntimeCronStore")
         }
 
         @Test("a job runs on the per-turn agent, stores its transcript and returns its output")
@@ -357,10 +377,14 @@ extension ArcWebUITestRoot {
 }
 
 private extension AppState {
-    /// bind the job's durable store and its scripted provider — the two vars the
-    /// production init fills from the runtime.
-    func bindJobHarness(store: any SessionStore, client: any LLMClient) {
+    /// bind the job's durable store, its scripted provider and its cron
+    /// store — the vars the production init fills from the runtime. The
+    /// cron store MUST be hermetic: the default ``RuntimeCronStore``
+    /// publishes to the production relay when one is reachable.
+    func bindJobHarness(store: any SessionStore, client: any LLMClient,
+                        cron: any CronStore) {
         self.store = store
         self.turnClientOverride = client
+        self.cronStore = cron
     }
 }
