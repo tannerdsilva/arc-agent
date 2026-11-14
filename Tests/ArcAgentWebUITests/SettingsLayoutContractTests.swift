@@ -104,7 +104,6 @@ extension ArcWebUITestRoot {
         @Test("queue reorder flows through the hidden order input")
         func queueReorderContract() async {
             let queue = Self.source("Queue.swift")
-            let overlay = (try? String(contentsOfFile: "Sources/ArcWebUI/Assets/overlay.js", encoding: .utf8)) ?? ""
             // the panel is a typed view now, so the hidden field is pinned in its
             // RENDERED bytes rather than in a source string.
             let panel = await AppState(renderFixture: .init()).queuePanelHTML().markup.html
@@ -124,8 +123,6 @@ extension ArcWebUITestRoot {
                     "the run-queue container must hand the reorder to the engine")
             #expect(panel.contains("data-reorder=\"queue-order\"") && queue.contains(".id(e.id)"),
                     "each row's id is the queue entry id the order input consumes")
-            #expect(!overlay.contains(".queue-row"),
-                    "the overlay must not keep a second drag owner for queue rows")
             #expect(!queue.contains("'queue' data-event='change'") && !queue.contains("\"queue\" data-event=\"change\""),
                     "queue change controls must not dispatch by row identity on the shared queue boundary")
         }

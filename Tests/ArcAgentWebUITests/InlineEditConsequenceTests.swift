@@ -9,16 +9,17 @@ import ArcAgentCore
 // leave it, and the form's own native submit both exits the mode and rides the
 // pane's existing `kanban` submit wire.
 //
-// three halves have to stay in step, and each one is a separate pin below:
+// two halves have to stay in step, and each one is a separate pin below:
 //   1. the emitted markup — the behavior attribute on the form that CONTAINS the
 //      field (`el.closest('form')` is what the engine hooks for submit-exit), the
 //      full name in the field, and the id field emitted last so
 //      `querySelector('input, textarea')` focuses the text field;
 //   2. the server wire — the field names `handleKanban`'s submit branch reads are
 //      the ones the form emits, and they are the pre-existing names (the hidden
-//      form the overlay used to build carried them);
-//   3. the overlay — the hand-rolled editor and its two delegated listeners are
-//      gone, so a re-added `startInlineEdit` is a regression, not a refactor.
+//      form the overlay used to build carried them).
+// the overlay half of this contract is the engine's consequence; A8 deleted the
+// last source-text pin of the hand-rolled editor (it could only pass against
+// deleted code), so the rendered markup above is the proof that it stays gone.
 extension ArcWebUITestRoot {
 	@Suite("kanban inline edit consequence", .serialized)
 	struct InlineEditConsequenceTests {
@@ -130,15 +131,6 @@ extension ArcWebUITestRoot {
 				#expect(actions.contains("event.string(\"\(field)\")"),
 				        "handleKanban no longer reads \(field)")
 			}
-		}
-
-		@Test("the overlay no longer owns a kanban editor")
-		func overlayEditorIsGone() throws {
-			let overlay = try source("Sources/ArcWebUI/Assets/overlay.js")
-			#expect(!overlay.contains("startInlineEdit"), "the hand-rolled editor is back")
-			#expect(!overlay.contains("kanban-inline-form"), "the hidden submit form is back")
-			#expect(!overlay.contains("kb-rencol-"), "the column pencil's listener is back")
-			#expect(!overlay.contains("kb-edit-"), "the card pencil's listener is back")
 		}
 	}
 }
