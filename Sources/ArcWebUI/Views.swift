@@ -106,8 +106,14 @@ extension AppState {
                 main
                 workspaceDockHTML()          // phase 7.4: typed, bridge retired
                 workspacePanelHTML()         // phase 7.4: typed, bridge retired
+                // the drawer's outside surface (no-webui 2.15.0): the engine's
+                // `data-drawer-toggle` flips `data-open` on #app with no
+                // round-trip, moves focus into `.drawer__panel`, and returns it to
+                // the toggle on close. `onDocClick` ignores a click that lands on
+                // a toggle, so the scrim's own click is the close.
                 Div(id: "drawer-scrim", class: .drawerScrim) {}
                     .aria(.hidden(.yes))
+                    .data("drawer-toggle", "app")
             }.id("app-body")
             modalRootHTML()
             toastsShell()
@@ -120,20 +126,21 @@ extension AppState {
     /// colorless lightning mark centred with the current chat's name beside it.
     func topbarHTML() -> some WebUI.View {
         Header {
-            // UX-19/T12: below 1024px the left panel becomes an overlay drawer
-            // opened from this toggle. The open/closed CLASS stays client-owned
-            // (overlay.js flips `#app.drawer-open` — it survives every fragment
-            // patch and owns both the visual and the aria truth). The control
-            // itself is wired to the engine (`data-component-id` + a click handler
-            // in Actions) so clicks route instead of logging the engine's
-            // "click on unwired control #drawer-toggle" warning.
+            // UX-19/T12: below 860px the left panel becomes an overlay drawer
+            // opened from this toggle. The open state is the ENGINE's (no-webui
+            // 2.15.0): `data-drawer-toggle` flips `data-open` on #app — the stable
+            // root, because `#panel` is a patched fragment whose attributes a
+            // patch replaces — with no round-trip, and the sheet splits at the
+            // same 860px the engine does. No component id: the click has no
+            // server consequence, and `data-drawer-toggle` is a behavior, so the
+            // engine's "unwired control" warning stays quiet.
             ArcButton("\u{2630}",          // ☰ — the &#9776; entity in the golden; Text escapes, so emit the char
                       id: "drawer-toggle",
-                      component: "drawer-toggle",
-                      class: .drawerToggleBtn)
+                      component: nil,
+                      class: .drawerToggleBtn,
+                      extraAttributes: " data-drawer-toggle=\"app\"")
                 .aria(.label("Toggle sidebar"))
                 .aria(.expanded(.no))
-                .data("event", "click")
             Div(class: .topbarCenter) {
                 Span(class: .topbarBolt) { WebUIIcon(.zap, size: .medium) }
                 Span(class: .topbarName) { Text(topbarLabel()) }
@@ -531,7 +538,13 @@ extension AppState {
         } else {
             plugin = nil
         }
-        return Div {
+        // `drawer__panel` is the engine's focus target inside a
+        // `data-drawer-toggle` root (`root.querySelector('.drawer__panel')`), and
+        // `data-dismiss` makes it the drawer's layer: armed only while #app
+        // carries `data-open` (2.15.0's `dismissGate`), so a closed drawer never
+        // takes Escape. The sheet clears the framework's own box decoration for
+        // that class so arc's `#panel` frame is unchanged.
+        return Div(class: ClassName("drawer__panel")) {
             if let plugin {
                 // plugin seam: the third-party ABI is a plain html fragment
                 // (`SidebarTab.panelHTML()`), sanitized by the kit. this Raw
@@ -541,7 +554,9 @@ extension AppState {
             } else {
                 chatPanel()
             }
-        }.id("panel")
+        }
+        .id("panel")
+        .data("dismiss", "")
     }
 
     /// Panel content for a built-in view id (dispatched through the tab
@@ -619,6 +634,14 @@ extension AppState {
         // pinned chats now get their own group above the date buckets.
         let pinned = ordered.filter { bookmarks.contains($0.id) }
         let unpinned = ordered.filter { !bookmarks.contains($0.id) }
+        // the row menu's open latch is CONSUMED here (the same one-render rule
+        // as the composer popovers): this render states the armed row's menu
+        // open, every later render states it closed, and the engine's dismissal
+        // (Escape / an outside click, which removes `data-open` client-side) is
+        // never re-asserted by a patch.
+        let openMenu = rowMenu
+        let openMenuSerial = rowMenuSerial
+        rowMenu = nil
         // arc parity: chats are bucketed into Today / Yesterday / Earlier this
         // week / Older (youngest first within each bucket); each bucket is
         // collapsible. Yesterday splits out of the 1-6 day band so a chat from
@@ -695,10 +718,12 @@ extension AppState {
             }
             PanelBody {
                 if !pinned.isEmpty {
-                    groupHTML(key: "pinned", title: "Pinned", sessions: pinned, todos: todos)
+                    groupHTML(key: "pinned", title: "Pinned", sessions: pinned, todos: todos,
+                              openMenu: openMenu, menuSerial: openMenuSerial)
                 }
                 for bucket in bucketRows {
-                    ErasedViews([groupHTML(key: bucket.key, title: bucket.title, sessions: bucket.sessions, todos: todos)])
+                    ErasedViews([groupHTML(key: bucket.key, title: bucket.title, sessions: bucket.sessions, todos: todos,
+                                           openMenu: openMenu, menuSerial: openMenuSerial)])
                 }
                 if pinned.isEmpty && bucketRows.isEmpty {
                     EmptyHint { Text(emptyMsg) }
@@ -861,7 +886,8 @@ extension AppState {
     /// the overlay owns no click handler for it. The head stays a quiet utility
     /// (`tabindex="-1"`): the bucket is a grouping, not a control, and the rows
     /// inside it are the roving tab stops.
-    func groupHTML(key: String, title: String, sessions: [Session], todos: Bool = false) -> some WebUI.View {
+    func groupHTML(key: String, title: String, sessions: [Session], todos: Bool = false,
+                   openMenu: String? = nil, menuSerial: Int = 0) -> some WebUI.View {
         ArcDisclosure(open: true,
                       summaryClass: .sessGroupHead,
                       summaryTabIndex: -1,
@@ -874,7 +900,7 @@ extension AppState {
             // contract is that a conversion changes NO bytes.
             Div(class: .sessGroupRows) {
                 for s in sessions {
-                    ErasedViews([sessionRow(s, todos: todos)])
+                    ErasedViews([sessionRow(s, todos: todos, openMenu: openMenu, menuSerial: menuSerial)])
                 }
             }
             // 2.6.0 roving: the rows are the container's rove-able children —
@@ -887,7 +913,8 @@ extension AppState {
         .data("grp", key)
     }
 
-func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
+func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
+                    menuSerial: Int = 0) -> some WebUI.View {
         let encID = enc(s.id)
         let isActiveRow = s.id == activeSessionID
         let active = isActiveRow ? " active" : ""
@@ -939,6 +966,12 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             let catID = categoryID(for: s.id)
             let catColor = categoryColor(for: catID)
             let catName = categoryName(for: catID)
+            // the row menu is SERVER state now (one-render latch, like the
+            // composer popovers): the ⋮ dispatches `s-menu-<sid>`, the category
+            // panel is a server swap inside the open menu, and the engine's
+            // dismiss stack owns Escape / the outside click.
+            let menuOpen = openMenu == s.id
+            let showCategories = menuOpen && rowMenuShowsCategories
             let row = Div(class: ClassName(rowClass)) {
                 ArcButton(id: "s-open-\(encID)", component: nil, class: .sessOpen, tabIndex: -1) {
                     SessTitle {
@@ -957,6 +990,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
                 RowActions {
+                    // the boundary is the WRAPPER, not the menu: the ⋮ button and
+                    // the menu's rows must reach the same handler (the button is
+                    // the toggle, the rows are the actions), and a boundary on
+                    // the menu alone left the toggle unwired.
                     Div(class: .menuWrap) {
                         Div(class: .menuLeft) {
                             if !catColor.isEmpty {
@@ -998,12 +1035,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                           extraAttributes: FocusReturn(id: "modal-overlay").attribute().attributeText)
                                     .data("sid", s.id)
                             }
+                            .flag(.hidden, when: showCategories)
                             // "Move to Category" swaps this menu's items for a
-                            // category panel (client-side panel swap; the category
-                            // buttons keep their wire ids).
-                            // The panel must be a SIBLING of .chat-menu-items: when JS
-                            // hides the items container, a nested panel would be
-                            // hidden with it.
+                            // category panel (server state: `rowMenuShowsCategories`);
+                            // the category buttons keep their wire ids.
+                            // The panel must be a SIBLING of .chat-menu-items: the
+                            // server hides the items container while the panel owns
+                            // the menu, and a nested panel would be hidden with it.
                             Div(class: .chatMenuPanel) {
                                 Div(class: .catPanelHead) {
                                     ArcButton(id: "sm-catback-\(encID)", component: nil, class: .catPanelBack) {
@@ -1031,11 +1069,12 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                                 }
                             }
                             .id("catpanel-\(encID)")
-                            .flag(.hidden)
+                            .flag(.hidden, when: !showCategories)
                         }
-                        .wire("chat-menu")
                         .id("menu-\(encID)")
+                        .dismissibleOpen(menuOpen ? menuSerial : nil)
                     }
+                    .wire("chat-menu")
                 }
             }
             .attribute("tabindex", "\(rowTab)")
@@ -2736,7 +2775,15 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         let sid = activeSessionID ?? ""
         let draft = settings.composerDrafts[sid] ?? ""
         let isBooked = activeSessionID.map { isBookmarked($0) } ?? false
-        let selOpen = wsSelectOpen || profileSelectOpen || modelSelectOpen || thinkSelectOpen
+        // the open latch is CONSUMED here (see `AppState.composerPopover`): this
+        // render is the one that states a popover open, and every later render
+        // states it closed — the engine's dismissal removes `data-open`
+        // client-side, so a durable server copy would re-open it on the next
+        // patch of this region.
+        let openPopover = composerPopover
+        composerPopover = nil
+        let openSerial = composerPopoverSerial
+        let selOpen = openPopover != nil && openPopover != .file
         return Div(class: .composerWrap) {
             Div { composerFlyoutHTML() }
                 .id("composer-flyout")
@@ -2779,7 +2826,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     .attribute("style", "min-height:24px")
                 Div(class: .composerToolbar) {
                     ArcButton(id: "cb-file", component: "cb-file",
-                              class: ClassName("tool-btn" + (filePopOpen ? " on" : ""))) {
+                              class: ClassName("tool-btn" + (openPopover == .file ? " on" : ""))) {
                         WebUIIcon(.paperclip, size: .medium)
                     }
                     .data("tip", "Attach a file")
@@ -2792,7 +2839,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                     .data("tip", "Bookmark this chat")
                     .aria(.label("Bookmark this chat"))
-                    composerSelectorsHTML()
+                    composerSelectorsHTML(open: openPopover, serial: openSerial)
                     Span(class: .spacer) {}
                 if let s = activeSession() {
                     // stable id: the pusher re-renders just this node on each
@@ -2827,11 +2874,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             .attribute(UploadDestination.attachments)
             .attribute(UploadNameTemplate(template: "{name}-{ts}-{seq}.{ext}"))
             .data("upload-to", "/api/upload")
-            Span {}
-                .id("dd-dismiss")
-                .wire("dd-dismiss")
-                .flag(.hidden)
-            Div(class: ClassName("file-pop" + (filePopOpen ? "" : " hidden"))) {
+            Div(class: ClassName("file-pop")) {
                 Div(class: .fpRow) {
                     Input(id: "file-path-input", placeholder: "/absolute/path/to/file", type: .text)
                         .data("component-id", "file-path-input")
@@ -2849,6 +2892,10 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
             }
             .id("file-pop")
             .wire("file-recents")
+            // the engine's layer (no-webui 2.15.0): `data-open` makes it the
+            // topmost layer while it is open and `data-dismiss` arms Escape and
+            // the outside click — the pair is one contract, one contribution.
+            .dismissibleOpen(openPopover == .file ? openSerial : nil)
             Div { Text(slashDataJSON()) }
                 .id("slash-data")
                 .flag(.hidden)
@@ -2893,7 +2940,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     /// Renders the four composer dropdown widgets (workspace, profile,
     /// model, thinking) as trigger buttons with server-rendered popovers,
     /// matching the arc agent webui look.
-    func composerSelectorsHTML() -> some WebUI.View {
+    func composerSelectorsHTML(open: ComposerPopover?, serial: Int) -> some WebUI.View {
         let ws = workspaceName(for: activeSessionID)
         let profile = (profileName(for: activeSessionID) ?? "")
         let config = configName(for: activeSessionID)
@@ -2901,13 +2948,17 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         let think = thinkingLevel(for: activeSessionID)
         return Group {
             wsDropdown(ddTrigger(id: "cb-ws-toggle", icon: .folder,
-                                 label: ws.isEmpty ? "Workspace" : ws, title: "Workspace"))
+                                 label: ws.isEmpty ? "Workspace" : ws, title: "Workspace"),
+                       open: open == .workspace ? serial : nil)
             ppDropdown(ddTrigger(id: "cb-profile-toggle", icon: .user,
-                                 label: profile.isEmpty ? "Default" : profile, title: "Profile"))
+                                 label: profile.isEmpty ? "Default" : profile, title: "Profile"),
+                       open: open == .profile ? serial : nil)
             mdDropdown(ddTrigger(id: "cb-model-toggle", icon: .box,
-                                 label: model.isEmpty ? "Model" : model, title: "Model"))
+                                 label: model.isEmpty ? "Model" : model, title: "Model"),
+                       open: open == .model ? serial : nil)
             thDropdown(ddTrigger(id: "cb-think-toggle", icon: .circleGauge,
-                                 label: think.isEmpty ? "Off" : think.capitalized, title: "Thinking"))
+                                 label: think.isEmpty ? "Off" : think.capitalized, title: "Thinking"),
+                       open: open == .thinking ? serial : nil)
         }
     }
 
@@ -3011,7 +3062,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
     }
 
     /// Workspace dropdown: search + list + (Choose path | Manage spaces).
-    func wsDropdown(_ trigger: some WebUI.View) -> some WebUI.View {
+    func wsDropdown(_ trigger: some WebUI.View, open: Int?) -> some WebUI.View {
         let q = wsSelectQuery.lowercased()
         var rows: [any WebUI.View] = []
         for ws in settings.workspaces {
@@ -3023,7 +3074,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
         return Dd {
             trigger
-            Div(class: ClassName("dd-pop dd-pop-ws" + (wsSelectOpen ? "" : " hidden"))) {
+            Div(class: ClassName("dd-pop dd-pop-ws")) {
                 DdSearch {
                     Input(id: "ws-search-input", placeholder: "Search workspaces…", type: .text)
                         .wire("ws-search-input", on: .input)
@@ -3061,14 +3112,14 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                     }
                 }
             }
-            // the layer the engine closes on Escape / an outside click; the
-            // boundary above is the control it fires, and closing is still the
-            // server's `dd-dismiss` handler (one round trip, all four panels).
             .wire("ws-pick")
+            // the engine's layer: `data-open` + `data-dismiss` (one render
+            // latch — see `AppState.composerPopover`)
+            .dismissibleOpen(open)
         }
     }
 
-    func ppDropdown(_ trigger: some WebUI.View) -> some WebUI.View {
+    func ppDropdown(_ trigger: some WebUI.View, open: Int?) -> some WebUI.View {
         let activeProfileName = profileName(for: activeSessionID) ?? ""
         let total = skills.count
         var rows: [any WebUI.View] = []
@@ -3094,7 +3145,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
         return Dd {
             trigger
-            Div(class: ClassName("dd-pop" + (profileSelectOpen ? "" : " hidden"))) {
+            Div(class: ClassName("dd-pop")) {
                 Div(class: "dd-list dd-list-profile") {
                     rows
                 }
@@ -3108,10 +3159,11 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
             }
             .wire("profile-pick")
+            .dismissibleOpen(open)
         }
     }
 
-    func mdDropdown(_ trigger: some WebUI.View) -> some WebUI.View {
+    func mdDropdown(_ trigger: some WebUI.View, open: Int?) -> some WebUI.View {
         let active = configName(for: activeSessionID)
         let q = modelSelectQuery.lowercased()
         var rows: [any WebUI.View] = []
@@ -3138,7 +3190,7 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
         return Dd {
             trigger
-            Div(class: ClassName("dd-pop dd-pop-model" + (modelSelectOpen ? "" : " hidden"))) {
+            Div(class: ClassName("dd-pop dd-pop-model")) {
                 DdNote { Text("Applies to this conversation from your next message.") }
                 DdSearch {
                     Input(id: "model-search-input", placeholder: "Search models…", type: .text)
@@ -3162,11 +3214,12 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
                 }
             }
             .wire("model-pick")
+            .dismissibleOpen(open)
         }
     }
 
     /// Thinking-level dropdown (arc-style pill trigger + level list).
-    func thDropdown(_ trigger: some WebUI.View) -> some WebUI.View {
+    func thDropdown(_ trigger: some WebUI.View, open: Int?) -> some WebUI.View {
         let current = thinkingLevel(for: activeSessionID)
         var rows: [any WebUI.View] = []
         for lv in ["off", "low", "medium", "high", "max"] {
@@ -3180,12 +3233,13 @@ func sessionRow(_ s: Session, todos: Bool = false) -> some WebUI.View {
         }
         return Dd {
             trigger
-            Div(class: ClassName("dd-pop" + (thinkSelectOpen ? "" : " hidden"))) {
+            Div(class: ClassName("dd-pop")) {
                 DdList {
                     rows
                 }
             }
             .wire("think-pick")
+            .dismissibleOpen(open)
         }
     }
 

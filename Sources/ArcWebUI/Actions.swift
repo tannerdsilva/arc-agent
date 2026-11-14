@@ -1569,7 +1569,7 @@ extension Controller {
 
     @Wired("cb-file", events: [.click])
     func handleCbFile(_ event: EventData) async -> HandlerOutcome {
-        await self.app.toggleFilePop()
+        await self.app.openFilePop()
         return await self.changed()
     }
 
@@ -1616,59 +1616,62 @@ extension Controller {
         return await self.changed()
     }
 
-    @Wired("dd-dismiss", events: [.click])
-    func handleDdDismiss(_ event: EventData) async -> HandlerOutcome {
-        // Fired by the runtime when a click lands outside an open
-        // dropdown panel — close all of them.
-        await self.app.closeComposerSelectors()
-        return await self.changed()
-    }
-
+    // the four selector chips OPEN their popover: closing is the engine's
+    // dismiss stack (Escape or a click outside), and a client-side dismissal
+    // leaves the server no state to flip — see `AppState.composerPopover`.
     @Wired("cb-ws-toggle", events: [.click])
     func handleCbWsToggle(_ event: EventData) async -> HandlerOutcome {
-        await self.app.toggleWSSelect()
+        await self.app.openWSSelect()
         return await self.changed()
     }
 
     @Wired("cb-profile-toggle", events: [.click])
     func handleCbProfileToggle(_ event: EventData) async -> HandlerOutcome {
-        await self.app.toggleProfileSelect()
+        await self.app.openProfileSelect()
         return await self.changed()
     }
 
     @Wired("cb-model-toggle", events: [.click])
     func handleCbModelToggle(_ event: EventData) async -> HandlerOutcome {
-        await self.app.toggleModelSelect()
+        await self.app.openModelSelect()
         return await self.changed()
     }
 
     @Wired("cb-think-toggle", events: [.click])
     func handleCbThinkToggle(_ event: EventData) async -> HandlerOutcome {
-        await self.app.toggleThinkSelect()
+        await self.app.openThinkSelect()
         return await self.changed()
     }
 
+    // a keystroke in a popover's own search field re-arms that popover: the
+    // render this handler asks for is the one that must keep it open (the latch
+    // would otherwise state it closed, and the field would dismiss the menu it
+    // is filtering).
     @Wired("ws-search-input", events: [.input])
     func handleWsSearchInput(_ event: EventData) async -> HandlerOutcome {
         await self.app.setWSSelectQuery(event.string("value") ?? "")
+        await self.app.openWSSelect()
         return await self.changed()
     }
 
     @Wired("ws-search-clear", events: [.click])
     func handleWsSearchClear(_ event: EventData) async -> HandlerOutcome {
         await self.app.setWSSelectQuery("")
+        await self.app.openWSSelect()
         return await self.changed()
     }
 
     @Wired("model-search-input", events: [.input])
     func handleModelSearchInput(_ event: EventData) async -> HandlerOutcome {
         await self.app.setModelSelectQuery(event.string("value") ?? "")
+        await self.app.openModelSelect()
         return await self.changed()
     }
 
     @Wired("model-search-clear", events: [.click])
     func handleModelSearchClear(_ event: EventData) async -> HandlerOutcome {
         await self.app.setModelSelectQuery("")
+        await self.app.openModelSelect()
         return await self.changed()
     }
 
@@ -2028,9 +2031,35 @@ extension Controller {
             return await self.changed()
         }
         let tid = event.string("targetId") ?? ""
-        if tid.hasPrefix("sm-rename-") {
-            return .fragments([])   // client-side inline editor
+        // the ⋮ opens this row's menu (server-rendered open state, one-render
+        // latch); closing is the engine's dismiss stack or a row action.
+        if tid.hasPrefix("s-menu-") {
+            guard let id = dec(String(tid.dropFirst("s-menu-".count))) else { return .fragments([]) }
+            await self.app.openRowMenu(id)
+            return await self.changed()
         }
+        // "Move to Category" and its back chevron swap the OPEN menu's panel;
+        // both re-arm the menu so the render that shows the panel keeps it open.
+        if tid.hasPrefix("sm-catmenu-") {
+            guard let id = dec(String(tid.dropFirst("sm-catmenu-".count))) else { return .fragments([]) }
+            await self.app.showRowMenuCategories(id)
+            return await self.changed()
+        }
+        if tid.hasPrefix("sm-catback-") {
+            guard let id = dec(String(tid.dropFirst("sm-catback-".count))) else { return .fragments([]) }
+            await self.app.hideRowMenuCategories(id)
+            return await self.changed()
+        }
+        if tid.hasPrefix("sm-rename-") {
+            // the inline editor is the overlay's (A16a's slice); the menu closes
+            // around it, and the render replaces only `#menu-<sid>` (the editor
+            // lives on the row's title button, not in the menu).
+            await self.app.closeRowMenu()
+            return await self.changed()
+        }
+        // every other row is an ACTION: the menu closes as it runs, exactly as
+        // the deleted client-side pass did.
+        await self.app.closeRowMenu()
         if tid.hasPrefix("sm-copy-") {
             // the copy MENU rides the server: this stages the resolved URL as a
             // hidden `#pending-copy[data-copy-url]` marker, and the overlay's
@@ -2132,11 +2161,6 @@ extension Controller {
                 ? "1 conversation with no messages will be deleted. This cannot be undone."
                 : "\(n) conversations with no messages will be deleted. This cannot be undone."))
         return await self.changed()
-    }
-
-    @Wired("drawer-toggle", events: [.click])
-    func handleDrawerToggle(_ event: EventData) async -> [FragmentUpdate] {
-        return []
     }
 
     @Wired("outline-toggle", events: [.click])

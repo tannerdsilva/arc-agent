@@ -20,10 +20,10 @@ extension ArcWebUITestRoot {
     /// migrated group drive the group's own `wireGroup_<g>(router)` into a
     /// fresh router and assert the exact handler count. Deleting a `@Wired`
     /// annotation drops exactly one group's count, so this pin turns only one
-    /// way. `wireAll` must register exactly 152: 150 generated + the two
-    /// literal escapes `sidebar-plugin-toggle` + `cat-pick`. The extra one over
-    /// the local line's count is `kb-addcol`, the kanban lane-row control that
-    /// only this tree renders as its own component.
+    /// way. `wireAll` must register exactly 150: 148 generated + the two
+    /// literal escapes `sidebar-plugin-toggle` + `cat-pick`. The merged tree
+    /// carries more than the local line's count because upstream's kanban and
+    /// settings surfaces stay wired here.
     ///
     /// The count is read from `hostHandlerCount`, not `handlerCount(in: .default)`:
     /// since no-webui 2.8.0 a registration made without a session lands in the
@@ -67,7 +67,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_chat(router)
-            #expect(router.hostHandlerCount == 45, "chat group registration drifted")
+            #expect(router.hostHandlerCount == 44, "chat group registration drifted")
         }
 
         // settings register at render time across `settingsMain`'s sections,
@@ -111,7 +111,7 @@ extension ArcWebUITestRoot {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             controller.wireGroup_chatmenu(router)
-            #expect(router.hostHandlerCount == 7, "chatmenu group registration drifted")
+            #expect(router.hostHandlerCount == 6, "chatmenu group registration drifted")
         }
 
         @Test("every workspaces handler is registered after wireGroup_workspaces")
@@ -184,16 +184,16 @@ extension ArcWebUITestRoot {
             #expect(router.hostHandlerCount == 1, "message_actions group registration drifted")
         }
 
-        @Test("wireAll registers exactly 152 handlers (150 generated + sidebar-plugin-toggle + cat-pick - toasts, insights, logs, cron, tools, ctxpane, settings)")
-        func wireAllRegistersExactly152() async throws {
+        @Test("wireAll registers exactly 150 handlers (148 generated + sidebar-plugin-toggle + cat-pick - toasts, insights, logs, cron, tools, ctxpane, settings)")
+        func wireAllRegistersExactly150() async throws {
             let router = EventRouter()
             let controller = Controller(app: Self.app, push: Self.push)
             await controller.wireAll(router)
 
             let count = router.hostHandlerCount
             #expect(
-                count == 152,
-                "wireAll must register exactly 152 handlers: 150 generated (toasts, insights, logs, the scheduled-tasks boundary, tools, ctxpane and settings register at render time) + sidebar-plugin-toggle + cat-pick, got \(count)"
+                count == 150,
+                "wireAll must register exactly 150 handlers: 148 generated (toasts, insights, logs, the scheduled-tasks boundary, tools, ctxpane and settings register at render time) + sidebar-plugin-toggle + cat-pick, got \(count)"
             )
         }
 

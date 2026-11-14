@@ -113,6 +113,26 @@ func render(_ view: any WebUI.View) -> String { view.markup.html }
 // MARK: - Vocabulary attributes
 
 extension WebUI.View {
+    /// `data-open` + `data-dismiss` in one contribution: no-webui 2.15.0's
+    /// dismiss arming makes the pair one contract (a layer arms only while its
+    /// `data-open` holder is open, so the state and the membership can never be
+    /// stated apart), and one contribution instead of two modifiers keeps a
+    /// popover's chain from growing a second cliff — D-5(a′) measured that
+    /// modifier chains at this seam can segfault the whole shell render.
+    ///
+    /// - parameter serial: the open serial to render, or nil for the closed
+    ///   state. The engine reads the attribute's PRESENCE; the changing value is
+    ///   what makes an open render byte-different from the previous one, so the
+    ///   diff ships it even when the server rendered that popover open before
+    ///   the client dismissed it (see `AppState.composerPopoverSerial`).
+    func dismissibleOpen(_ serial: Int?) -> ModifiedView<Self, AttributeContribution> {
+        guard let serial else {
+            return ModifiedView(content: self, modifier: AttributeContribution(""))
+        }
+        return ModifiedView(content: self, modifier: AttributeContribution(
+            " data-open=\"\(serial)\" data-dismiss=\"\""))
+    }
+
     /// attach an `AttributeRepresentable` value (a behavior's attribute, e.g.
     /// `UploadDestination`) to this element.
     ///

@@ -48,6 +48,9 @@ extension ArcWebUITestRoot {
 			"pill-other", "queue-card",
 			"queue-loop-count-label", "skill-cat-title",
 			"thinking-detail", "todo-list", "visible", "ws-head", "ws-menu", "yolo-text",
+			// the ENGINE's drawer focus target: the framework sheet declares it,
+			// arc's does not, so `ArcClass` cannot name it (A13)
+			"drawer__panel",
 		]
 
 		/// sites whose class value is interpolated (`\\(` inside the literal).

@@ -939,16 +939,43 @@ actor AppState {
 
     /// UI mode flags
     var pendingDelete = false
-    var filePopOpen = false
 
     /// Composer dropdown state (arc-parity custom selectors: workspace,
-    /// profile, model, thinking). UI-only — never persisted.
-    var wsSelectOpen = false
+    /// profile, model, thinking) — UI-only, never persisted.
+    ///
+    /// **This is a one-render latch, not a durable flag** (no-webui 2.15.0's
+    /// `data-open` contract). The engine's dismiss stack closes a popover by
+    /// REMOVING `data-open` client-side — Escape and an outside click never
+    /// round-trip — so a durable server copy would re-assert the popover on the
+    /// next render of the composer region (measured: any composer patch ships
+    /// the popover element). Instead the handler that opens a popover — or must
+    /// keep it open — arms this latch, and `composerHTML()` clears it after the
+    /// render that emitted `data-open`, so every later render states the closed
+    /// popover and the engine's removal is the only close path.
+    var composerPopover: ComposerPopover?
+    /// The serial the last armed popover renders with, carried as the
+    /// attribute's VALUE (`data-open="7"`). The engine reads presence; the
+    /// changing value is what makes an open render byte-different from the
+    /// previous one, so the diff ships it even when the server had already
+    /// rendered that popover open before the dismissal — without it, re-opening
+    /// after Escape would be an empty diff and the click would do nothing.
+    var composerPopoverSerial = 0
+    /// A composer popover, named by the surface it opens.
+    enum ComposerPopover: String, Equatable, Sendable {
+        case file, workspace, profile, model, thinking
+    }
+
+    /// The session row menu the next render emits as open — the same one-render
+    /// latch, keyed by the session's raw id (nil = no menu).
+    var rowMenu: String?
+    var rowMenuSerial = 0
+    /// Whether the open row menu shows its "Move to Category" panel instead of
+    /// its item list. Server state: the panel is a swap INSIDE the open menu,
+    /// so the menu must be re-armed on the same render that flips this.
+    var rowMenuShowsCategories = false
+
     var wsSelectQuery = ""
-    var profileSelectOpen = false
-    var modelSelectOpen = false
     var modelSelectQuery = ""
-    var thinkSelectOpen = false
     /// Settings → Storage: staged medium, connection form, picker state.
     var stagedStorage: String?
     /// Bumped when a saved connection is added/edited/removed (cache bust).

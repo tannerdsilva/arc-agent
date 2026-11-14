@@ -18,13 +18,14 @@ extension ArcWebUITestRoot {
 	@Suite("Client asset budget", .serialized)
 	struct ClientAssetBudgetTests {
 
-		/// measured 39,808 bytes / 893 lines in the merged tree.
-		/// this commit: the engine returns focus — the modal block retires, and its
-		/// own deletion lands in full. the local line landed at 38,695; the
-		/// 1,113-byte residue above it is upstream's staged-chip and popover
-		/// surface, which this program has not retired.
+		/// measured 31,154 bytes / 703 lines in the merged tree.
+		/// this commit: the engine arms dismissal — the drawer, the chat-row
+		/// menu and both kanban popovers are `data-open`, so the client-side
+		/// open/close code retires. the merged file matches the local line's
+		/// 31,154 exactly: the blocks this commit deletes are the ones upstream's
+		/// surface added, so the residue is gone for these.
 		/// one byte of headroom, which is the ratchet working as intended.
-		private static let ceiling = 39_809
+		private static let ceiling = 31_155
 
 		private static let sourcePath = "Sources/ArcWebUI/Assets/overlay.js"
 

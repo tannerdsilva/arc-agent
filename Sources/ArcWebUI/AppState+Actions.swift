@@ -139,7 +139,9 @@ extension AppState {
         if let old = activeSessionID { pendingAttachmentsBySession[old] = attachments }
         activeSessionID = id
         pendingDelete = false
-        filePopOpen = false
+        // a session switch closes the transient composer surfaces with it
+        closeComposerSelectors()
+        closeRowMenu()
         // UX-10: leaving an untouched draft drops it — the client-side draft
         // created by `+` never reaches the store unless a message is sent.
         if let draft = draftSessionID, draft != id {
@@ -288,60 +290,54 @@ extension AppState {
 
     // MARK: Chat composer
 
-    func toggleFilePop() {
-        filePopOpen.toggle()
-        // Opening the attach popover closes any open composer selector; the
-        // selectors do the symmetric thing via closeComposerSelectors.
-        if filePopOpen { closeSelectorPanels() }
+    /// Open the attach popover for the next render (the paperclip's `on` class
+    /// and the popover's `data-open` both come from that one latch).
+    ///
+    /// The chip is an opener, not a toggle: the engine's dismiss stack closes
+    /// the popover (Escape / outside click) with no round-trip, so the server
+    /// has no copy of the open state to flip. Re-clicking the chip re-arms the
+    /// same popover — a no-op while it is open, because the engine's own
+    /// outside-click already closed it on that same click.
+    func openFilePop() {
+        armComposerPopover(.file)
     }
 
     // MARK: Composer dropdowns (arc parity)
 
-    /// Close only the four selector-chip panels (workspace/profile/model/
-    /// thinking), leaving the attach popover alone. Used by the file-pop
-    /// opener, which must not re-close itself through the full dismissal.
-    private func closeSelectorPanels() {
-        wsSelectOpen = false
-        profileSelectOpen = false
-        modelSelectOpen = false
-        thinkSelectOpen = false
+    /// Arm one composer popover for the next render, closing every other
+    /// transient composer surface. Mutually exclusive by construction: one
+    /// latch, so opening a selector closes the attach popover and its siblings.
+    ///
+    /// The live-search filters reset on a switch, so the next open is fresh —
+    /// an opener that re-arms ITS OWN popover (a keystroke in its search field)
+    /// keeps its query.
+    func armComposerPopover(_ which: ComposerPopover) {
+        if composerPopover != which {
+            if which != .workspace { wsSelectQuery = "" }
+            if which != .model { modelSelectQuery = "" }
+        }
+        composerPopoverSerial += 1
+        composerPopover = which
+    }
+
+    /// Close every composer dropdown and reset the live-search filters.
+    ///
+    /// "Close" here means "stop arming": the popover the engine already
+    /// dismissed is closed in the DOM, and the next render states it closed.
+    func closeComposerSelectors() {
+        composerPopover = nil
         wsSelectQuery = ""
         modelSelectQuery = ""
     }
 
-    /// Close every composer dropdown (openers close their siblings) and
-    /// reset the live-search filters so the next open is fresh. The attach
-    /// popover is part of the same dismissal system: any close here also
-    /// hides it, so file-pop and the selector chips can never overlap.
-    func closeComposerSelectors() {
-        closeSelectorPanels()
-        filePopOpen = false
-    }
+    /// Open a composer selector chip's popover.
+    func openWSSelect() { armComposerPopover(.workspace) }
 
-    /// Toggle a composer dropdown: re-clicking an open trigger closes it.
-    func toggleWSSelect() {
-        let wasOpen = wsSelectOpen
-        closeComposerSelectors()
-        if !wasOpen { wsSelectOpen = true }
-    }
+    func openProfileSelect() { armComposerPopover(.profile) }
 
-    func toggleProfileSelect() {
-        let wasOpen = profileSelectOpen
-        closeComposerSelectors()
-        if !wasOpen { profileSelectOpen = true }
-    }
+    func openModelSelect() { armComposerPopover(.model) }
 
-    func toggleModelSelect() {
-        let wasOpen = modelSelectOpen
-        closeComposerSelectors()
-        if !wasOpen { modelSelectOpen = true }
-    }
-
-    func toggleThinkSelect() {
-        let wasOpen = thinkSelectOpen
-        closeComposerSelectors()
-        if !wasOpen { thinkSelectOpen = true }
-    }
+    func openThinkSelect() { armComposerPopover(.thinking) }
 
     func setWSSelectQuery(_ q: String) {
         wsSelectQuery = q
@@ -349,6 +345,46 @@ extension AppState {
 
     func setModelSelectQuery(_ q: String) {
         modelSelectQuery = q
+    }
+
+    // MARK: Session row menu (the same one-render latch)
+
+    /// Arm the row menu for `sessionID`.
+    ///
+    /// The ⋮ is an OPENER, not a toggle: the engine's dismiss stack owns closing
+    /// a `data-open` layer (it removes the attribute with no round-trip), so the
+    /// server cannot know whether the menu on screen is open — a toggle would
+    /// spend its first click after a dismissal closing something already closed.
+    /// Re-clicking ⋮ therefore re-states the same menu, and the outside click on
+    /// that same gesture has already closed it.
+    func openRowMenu(_ sessionID: String) {
+        if rowMenu != sessionID { rowMenuShowsCategories = false }
+        armRowMenu(sessionID)
+    }
+
+    /// Re-arm the open menu without touching its panel mode: a keep-open
+    /// handler (the category panel swap) that must not close it.
+    func armRowMenu(_ sessionID: String) {
+        rowMenuSerial += 1
+        rowMenu = sessionID
+    }
+
+    /// Swap the open menu to its "Move to Category" panel (server state), and
+    /// re-arm it: the swap renders through the same latch, so the menu would
+    /// otherwise close on the render that shows the panel.
+    func showRowMenuCategories(_ sessionID: String) {
+        rowMenuShowsCategories = true
+        armRowMenu(sessionID)
+    }
+
+    func hideRowMenuCategories(_ sessionID: String) {
+        rowMenuShowsCategories = false
+        armRowMenu(sessionID)
+    }
+
+    func closeRowMenu() {
+        rowMenu = nil
+        rowMenuShowsCategories = false
     }
 
     /// Mark the HTTP/WS server as bound (shown in the profile card).
@@ -364,7 +400,7 @@ extension AppState {
         settings.recentFiles.insert(path, at: 0)
         if settings.recentFiles.count > 10 { settings.recentFiles = Array(settings.recentFiles.prefix(10)) }
         saveSettings()
-        filePopOpen = false
+        if composerPopover == .file { composerPopover = nil }
         formValues["file-path-input"] = ""
     }
 

@@ -209,7 +209,6 @@ extension ClassName {
 	public static var drag: ClassName { ClassName(ArcClass.drag.token) }
 	public static var dragSrc: ClassName { ClassName(ArcClass.dragSrc.token) }
 	public static var dragging: ClassName { ClassName(ArcClass.dragging.token) }
-	public static var drawerOpen: ClassName { ClassName(ArcClass.drawerOpen.token) }
 	public static var drawerScrim: ClassName { ClassName(ArcClass.drawerScrim.token) }
 	public static var drawerToggleBtn: ClassName { ClassName(ArcClass.drawerToggleBtn.token) }
 	public static var dropAfter: ClassName { ClassName(ArcClass.dropAfter.token) }

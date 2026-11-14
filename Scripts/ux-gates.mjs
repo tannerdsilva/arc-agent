@@ -174,6 +174,13 @@ function rowExpr(sid) {
   })()`;
 }
 
+/// Open a session row's ⋮ menu.
+///
+/// The menu is SERVER state now (no-webui 2.15.0): the ⋮ dispatches
+/// `s-menu-<sid>`, the server arms the row's `data-open`, and the patch lands a
+/// websocket round-trip later — so the click is followed by a poll for the
+/// state, not a fixed settle (a fixed settle read the pre-patch document and
+/// reported the menu as never opened).
 async function openMenu(sid) {
   const did = await ev(`(() => {
     const row = ${sid ? `[...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${sid}')` : `document.querySelector('.sess-row.active')`};
@@ -182,14 +189,14 @@ async function openMenu(sid) {
     dots.click();
     return true;
   })()`);
-  await settle(250);
-  return did;
+  if (!did) return false;
+  return waitTrue(`!!document.querySelector('.chat-menu[data-open]')`, 3000);
 }
 
 async function clickMenuDanger(sid) {
   await ev(`(() => {
     const row = ${sid ? `[...document.querySelectorAll('.sess-row')].find(r => r.getAttribute('data-sid') === '${sid}')` : `document.querySelector('.sess-row.active')`};
-    const menu = row && row.querySelector('.chat-menu.open');
+    const menu = row && row.querySelector('.chat-menu[data-open]');
     const d = menu ? menu.querySelector('.danger') : null;
     if (d) d.click();
     return !!d;
@@ -546,7 +553,7 @@ async function runContrast() {
     await openMenu(null);
     await ev(`(() => {
       const row = document.querySelector('.sess-row.active');
-      const c = row && row.querySelector('.chat-menu.open [id^="sm-copy-"]');
+      const c = row && row.querySelector('.chat-menu[data-open] [id^="sm-copy-"]');
       if (c) c.click();
       return !!c;
     })()`);
@@ -628,7 +635,7 @@ async function runInteractions() {
   await driver.setViewport(768, 900);
   await settle(300);
   const dt = await ev(`uxGates.drawer()`);
-  if (dt.present && dt.display !== 'none') {
+  if (dt.present && dt.toggleDisplay !== 'none') {
     await ev(`document.getElementById('drawer-toggle')?.click()`);
     await settle(400);
     const opened = await ev(`uxGates.state().drawerOpen`);
@@ -694,13 +701,13 @@ async function runInteractions() {
   const menuRow = { name: 'session-menu' };
   const mSid = await ensureProbeSession();
   await openMenu(mSid);
-  menuRow.opened = await ev(`uxGates.popovers().sessionMenu.open`);
+  menuRow.opened = await waitStableValue(`uxGates.popovers().sessionMenu.open`, true, 250, 3000);
   await driver.pressEscape();
-  await settle(300);
-  menuRow.escClosed = !(await ev(`uxGates.popovers().sessionMenu.open`));
+  settle(50);
+  menuRow.escClosed = await waitStableValue(`uxGates.popovers().sessionMenu.open`, false, 250, 3000);
   await openMenu(mSid);
   const mpt = await ev(`(() => {
-    const menu = document.querySelector('.chat-menu.open');
+    const menu = document.querySelector('.chat-menu[data-open]');
     const r = menu.getBoundingClientRect();
     let x = r.right + 160, y = r.top + 100;
     const cs = document.getElementById('chat-scroll');
@@ -709,8 +716,7 @@ async function runInteractions() {
     return { x: Math.round(x), y: Math.round(y) };
   })()`);
   await driver.clickAt(mpt.x, mpt.y);
-  await settle(350);
-  menuRow.outsideClosed = !(await ev(`uxGates.popovers().sessionMenu.open`));
+  menuRow.outsideClosed = await waitStableValue(`uxGates.popovers().sessionMenu.open`, false, 250, 3000);
   matrix.push(menuRow);
 
   const popoverOk = matrix.every((m) => m.opened && m.escClosed && m.outsideClosed !== false && (m.name !== 'file' || !m.mutualExclusion || (m.mutualExclusion.afterModel.file === false && m.mutualExclusion.afterModel.model === true)));

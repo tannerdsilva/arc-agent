@@ -338,45 +338,20 @@
   // on Cancel names the opener focus goes back to when the removal patch
   // lands, and the `.modal-overlay` Tab trap is the engine's. arc emits the
   // attributes (`Views.modalHTML`) and keeps no client code.
-  // ---- Dismiss the composer dropdowns on Escape or an outside click.
-  // The panels are SERVER state (`wsSelectOpen`, `profileSelectOpen`, …) and
-  // the server already has the close path: the `dd-dismiss` handler in
-  // `Actions.wireAll` was written for exactly this ("fired by the runtime when a
-  // click lands outside an open dropdown panel") — but nothing ever rendered the
-  // boundary or fired it, so the popover stayed open until its trigger was
-  // clicked again. The overlay renders the intent: nudge the server. The chat
-  // row menu is client-side and closes itself.
-  function dismissDropdowns() {
-    // The slash menu closes with the rest of the transient composer surfaces;
-    // idempotent when it is not open.
-    closeSlashMenu();
-    // The attach popover is server state too (`filePopOpen`), so closing it
-    // is a re-click of its trigger — the same server round-trip the
-    // `dd-dismiss` boundary performs for the selector popovers. Owned here
-    // because `.file-pop` is not a `.dd-pop` and no boundary ever fired for it.
-    var fp = document.getElementById('file-pop');
-    if (fp && !fp.classList.contains('hidden')) {
-      var trigger = document.getElementById('cb-file');
-      if (trigger) trigger.click();
-      return;
-    }
-    if (!document.querySelector('.dd-pop:not(.hidden)')) return;
-    var b = document.getElementById('dd-dismiss');
-    if (b) b.click();
-  }
-
+  // ---- The workspace panel and the outline are the two ESCAPE surfaces the
+  // engine does not own (no-webui 2.15.0's dismiss stack closes only a
+  // `[data-open]` layer, and both of these are server-rendered `hidden`
+  // regions, not layers). This listener runs in the CAPTURE phase so it still
+  // sees the state the engine is about to change: when a modal or any
+  // `data-open` layer is open, the key belongs to the engine and one Escape
+  // closes exactly one surface (LIFO) — the drawer, a composer popover or the
+  // row menu — never this panel as well.
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
-    // The responsive drawer owns Escape while it is open (topmost chrome
-    // surface short of the modal): close it and hand focus back to the
-    // toggle, so the keyboard path can leave the drawer without a mouse.
-    if (isNarrow() && drawerOpen()) { closeDrawer(true); return; }
-    dismissDropdowns();
-    closeCatMenus();
-    closeSlashMenu();
-    // The workspace panel joins the Escape-close family: route through the
-    // same `#w-close` (falling back to the collapse-tab `#w-dock`) click the
-    // ✕ uses, so the exit transition and the server-side close both run.
+    if (document.querySelector('.modal-overlay, [data-open]')) return;
+    // The workspace panel routes through the same `#w-close` (falling back to
+    // the collapse-tab `#w-dock`) click the ✕ uses, so the exit transition and
+    // the server-side close both run.
     var wsPanel = document.getElementById('ws-panel');
     if (wsPanel && !wsPanel.classList.contains('hidden') && !wsPanel.classList.contains('ws-closing')) {
       var wsClose = document.getElementById('w-close') || document.getElementById('w-dock');
@@ -387,105 +362,7 @@
       var close = document.getElementById('outline-close');
       if (close) close.click();
     }
-  });
-
-  document.addEventListener('click', function (e) {
-    if (!e.target || !e.target.closest) return;
-    // Clicks inside the file popover itself (path input, recent buttons) must
-    // not dismiss it — only an outside click or Escape does.
-    if (e.target.closest('.composer-bar') || e.target.closest('.dd-pop') || e.target.closest('.file-pop')) return;
-    dismissDropdowns();
   }, true);
-
-  // ---- Responsive drawer sidebar (UX-19/T12).
-  // Below 1024px the left panel is an overlay drawer. State is client-side
-  // (`drawer-open` on #app, never on #panel — the panel is a server fragment
-  // whose node the engine REPLACES on every patch, so a class on it would be
-  // wiped mid-use). The engine still routes clicks inside the panel's wired
-  // regions to the server; this overlay only flips the class and moves focus,
-  // which needs no round-trip and never fights the patch cycle. Document
-  // capture listeners fire before the engine's boundary handlers, so the
-  // toggle (topbar is unwired), the scrim and the session-row close all work.
-  function drawerApp() { return document.getElementById('app'); }
-  function drawerOpen() {
-    var a = drawerApp();
-    return !!a && a.classList.contains('drawer-open');
-  }
-  function drawerToggle() { return document.getElementById('drawer-toggle'); }
-  function isNarrow() {
-    return window.matchMedia ? window.matchMedia('(max-width: 1023.98px)').matches : false;
-  }
-  function openDrawer() {
-    var a = drawerApp();
-    if (!a) return;
-    a.classList.add('drawer-open');
-    var t = drawerToggle();
-    if (t) t.setAttribute('aria-expanded', 'true');
-    // Focus moves INTO the drawer (first interactive control) so a keyboard
-    // user lands in the panel they just opened, not back on the page body.
-    // The panel's search field is the natural landing spot when it has one;
-    // the settings sub-nav is anchor links, so `a[href]` rides the selector.
-    var p = document.getElementById('panel');
-    var first = p ? (p.querySelector('input') || p.querySelector('a[href], button, select, textarea, [tabindex]')) : null;
-    if (first && first.focus) first.focus({ preventScroll: true });
-    else if (p) {
-      // A panel with nothing focusable (edge case): make the container itself
-      // programmatically focusable so focus still lands inside the drawer.
-      p.setAttribute('tabindex', '-1');
-      p.focus({ preventScroll: true });
-    }
-  }
-  function closeDrawer(returnFocus) {
-    var a = drawerApp();
-    if (!a) return;
-    a.classList.remove('drawer-open');
-    var t = drawerToggle();
-    if (t) t.setAttribute('aria-expanded', 'false');
-    if (returnFocus && t && t.focus) t.focus({ preventScroll: true });
-  }
-  document.addEventListener('click', function (e) {
-    var t = e.target;
-    if (!t || !t.closest) return;
-    if (t.closest('#drawer-toggle')) {
-      if (drawerOpen()) closeDrawer(true);
-      else openDrawer();
-      return;
-    }
-    if (!drawerOpen()) return;
-    // Outside click: the scrim covers everything below the topbar but the
-    // panel itself, so a click landing on it means "dismiss".
-    if (t.closest('#drawer-scrim')) { closeDrawer(true); return; }
-    // The row's ⋮ and the menu it opens are panel chrome, not a navigation
-    // choice. Closing the drawer here meant the tap that opened the menu also
-    // took the menu off-canvas with the panel — an open, still-armed menu at
-    // x=-279 that nobody could see or dismiss. Let the menu own its taps; the
-    // row underneath still closes the drawer.
-    if (t.closest('.menu-dots') || t.closest('.chat-menu')) return;
-    // Picking a conversation (or minting a new one) closes the drawer so the
-    // chat has the full canvas for the turn it just opened.
-    if (t.closest('.sess-row') || t.closest('#chat-new')) { closeDrawer(true); return; }
-    // A rail switch is a view change too: close the drawer so the chosen view
-    // owns the canvas (the rail itself now stays visible beside the drawer —
-    // see the UX-61 offset in the sheet — and these two together are what make
-    // "tap another icon to leave Settings" work on a narrow window).
-    if (t.closest('#iconbar')) { closeDrawer(false); return; }
-  }, true);
-  // Growing past the breakpoint with the drawer open must reset it: the CSS
-  // ignores the class at >= 1024px, but aria-expanded would go stale (and a
-  // shrink back would pop the panel open).
-  (function () {
-    if (!window.matchMedia || !window.matchMedia.addEventListener) return;
-    var mq = window.matchMedia('(max-width: 1023.98px)');
-    mq.addEventListener('change', function (e) {
-      if (e.matches) return;
-      var a = drawerApp();
-      if (a && a.classList.contains('drawer-open')) {
-        a.classList.remove('drawer-open');
-        var t = drawerToggle();
-        if (t) t.setAttribute('aria-expanded', 'false');
-      }
-    });
-  })();
 
   // the theme switch has two sources of truth: the engine keeps the
   // device-local choice in localStorage, the panel is rendered from the
@@ -575,76 +452,10 @@
   // engine keeps `open` across a patch by id (`data-preserve-open`). Nothing
   // here flips a class for them.
 
-  // ---- Chat row "..." menu: open/close is client-side so the open
-  // menu survives the click that opened it; edge actions still go to
-  // the server through the normal runtime pipeline.
-  // ---- Kanban top-bar add menus (+ Column / + Row): the trigger toggles a
-  // .kb-pop popover client-side (chat-row-menu style), so naming a new
-  // column or lane never shifts the board layout. Any outside click closes;
-  // a submit re-renders the board and the popover comes back closed.
-  function closeKbPops() {
-    var open = document.querySelectorAll('.kb-pop.open');
-    for (var i = 0; i < open.length; i++) open[i].classList.remove('open');
-  }
-  document.addEventListener('click', function (e) {
-    var t = e.target;
-    if (!t || !t.closest) return;
-    var trig = t.closest('#kb-addcol-menu, #kb-addlane-menu');
-    if (trig) {
-      var pop = trig.parentElement.querySelector('.kb-pop');
-      var was = pop && pop.classList.contains('open');
-      closeKbPops();
-      if (pop && !was) {
-        pop.classList.add('open');
-        var inp = pop.querySelector('input[type="text"]');
-        if (inp) inp.focus();
-      }
-      return;
-    }
-    if (t.closest('#kb-addcol-cancel, #kb-addlane-cancel')) { closeKbPops(); return; }
-    if (t.closest('.kb-pop')) return;
-    closeKbPops();
-  });
-
-  function closeCatMenus() {
-    var open = document.querySelectorAll('.chat-menu.open');
-    for (var i = 0; i < open.length; i++) {
-      var it = open[i].querySelector('.chat-menu-items');
-      var pn = open[i].querySelector('.chat-menu-panel');
-      if (it) it.hidden = false;
-      if (pn) pn.hidden = true;
-      open[i].classList.remove('open');
-    }
-  }
-  // "Move to Category": swap the open menu's items for the category
-  // panel (all client-side; picking a category still rides the wire).
-  function setCatPanel(menu, show) {
-    if (!menu) return;
-    var it = menu.querySelector('.chat-menu-items');
-    var pn = menu.querySelector('.chat-menu-panel');
-    if (it) it.hidden = show;
-    if (pn) pn.hidden = !show;
-  }
-  document.addEventListener('click', function (e) {
-    var catBtn = e.target && e.target.closest ? e.target.closest('[id^="sm-catmenu-"]') : null;
-    if (catBtn) { setCatPanel(catBtn.closest('.chat-menu'), true); return; }
-    var backBtn = e.target && e.target.closest ? e.target.closest('[id^="sm-catback-"]') : null;
-    if (backBtn) {
-      setCatPanel(backBtn.closest('.chat-menu'), false);
-      return;
-    }
-    var open = document.querySelectorAll('.chat-menu.open');
-    var dot = e.target && e.target.closest ? e.target.closest('.menu-dots') : null;
-    if (dot) {
-      var wrap = dot.closest('.menu-wrap');
-      var menu = wrap && wrap.querySelector('.chat-menu');
-      var wasOpen = menu && menu.classList.contains('open');
-      closeCatMenus();
-      if (menu && !wasOpen) menu.classList.add('open');
-      return;
-    }
-    closeCatMenus();
-  });
+  // ---- Chat row "..." menu: the open state is the SERVER's (no-webui
+  // 2.15.0's `data-open`, one-render latch): the ⋮ dispatches `s-menu-<sid>`,
+  // "Move to Category" is a server panel swap, and the engine's dismiss stack
+  // closes it on Escape or an outside click. Nothing here flips it.
 
   // ---- Rename conversation: inline edit of the row title, committed
   // through a hidden form that rides the normal runtime pipeline.

@@ -421,42 +421,73 @@ extension ArcWebUITestRoot {
             // SKIP with the reason until a surface declares one.
         }
 
-        // MARK: - B2/F45 dropdown dismissal
+        // MARK: - B2/F45 dropdown dismissal (no-webui 2.15.0's armed layers)
 
-        @Test("the dropdown dismiss boundary is rendered AND fired")
-        func dropdownDismissIsWired() async {
+        /// The composer popovers are the ENGINE's layers now: `data-open` is the
+        /// state and `data-dismiss` is the membership, both on the popover, and
+        /// the engine arms one only while the other is present. The old
+        /// boundary span (`#dd-dismiss`) and its wire are gone — the dismissal no
+        /// longer round-trips, so there is no boundary to click.
+        @Test("each composer popover carries the engine's data-open/data-dismiss pair")
+        func dropdownDismissIsArmed() async {
             let composer = await RenderedMarkup.composer()
-            let dismiss = composer.range(of: #"<span [^>]*id="dd-dismiss"[^>]*>"#,
-                                         options: .regularExpression).map { String(composer[$0]) }
-            #expect(dismiss?.contains("data-component-id=\"dd-dismiss\"") == true
-                    && dismiss?.contains("data-event=\"click\"") == true,
-                    "the dismiss target must carry the wire boundary")
-            #expect(dismiss?.contains("hidden") == true,
-                    "the dismiss target is an invisible boundary, not a visible control")
-            #expect(composer.contains("id=\"dd-dismiss\""),
-                    "the `dd-dismiss` handler existed for months with no element carrying the id")
-            #expect(Self.actions.contains("@Wired(\"dd-dismiss\", events: [.click])"),
-                    "the server half stays registered via @Wired")
-            #expect(Self.overlay.contains("function dismissDropdowns()"))
-            #expect(Self.overlay.contains("dismissDropdowns();"), "Escape/outside-click must call it")
+            // closed at rest: absence is the closed state, so neither attribute
+            // may be emitted for a popover nobody opened.
+            #expect(!composer.contains("data-open="),
+                    "a closed composer popover must not carry data-open")
+            #expect(!composer.contains("data-dismiss"),
+                    "a closed composer popover must not join the dismiss stack")
+            #expect(!composer.contains("id=\"dd-dismiss\""),
+                    "the dd-dismiss boundary is deleted: the engine's dismissal does not round-trip")
+            #expect(!Self.actions.contains("@Wired(\"dd-dismiss\""),
+                    "and its server handler with it")
+            #expect(!Self.overlay.contains("dismissDropdowns"),
+                    "the overlay's dismissal pass is deleted")
+            // the four selector popovers + the attach popover are the surfaces
+            #expect(composer.contains("dd-pop dd-pop-ws"), "the workspace popover still renders")
+            #expect(composer.contains("dd-pop dd-pop-model"), "the model popover still renders")
+            #expect(composer.contains("id=\"file-pop\""), "the attach popover still renders")
+        }
+
+        /// The pair is one contract: opening a popover emits BOTH attributes, and
+        /// the value is the open serial (the diff-buster that makes an open render
+        /// byte-different from the previous one).
+        @Test("opening a popover emits data-open with the arm serial plus data-dismiss")
+        func openedPopoverCarriesTheArmedPair() async {
+            let app = await AppState(renderFixture: AppState.RenderFixture())
+            await app.openModelSelect()
+            let open = await app.composerHTML().markup.html
+            #expect(open.contains(#"data-open=""#), "an opened popover must carry data-open")
+            #expect(open.contains(#"data-dismiss="""#), "and the disarmable membership in the same tag")
+            let modelTag = open.range(of: #"<div class="dd-pop dd-pop-model"[^>]*>"#, options: .regularExpression)
+                .map { String(open[$0]) } ?? ""
+            #expect(modelTag.contains("data-open=") && modelTag.contains("data-dismiss="),
+                    "both attributes must be on the popover itself, not on a wrapper")
+            // one render later the latch is spent: the popover states closed, so
+            // an engine-side dismissal is never re-asserted by a patch.
+            let after = await app.composerHTML().markup.html
+            #expect(!after.contains("data-open="),
+                    "the latch is one-render: the next render states the popover closed")
         }
 
         // MARK: - UX-02 attach popover joins the dismissal system
 
-        @Test("the attach popover is dismissed by the same Escape/outside-click path")
-        func filePopDismissalIsOwned() {
-            let overlay = Self.overlay
-            #expect(overlay.contains("var fp = document.getElementById('file-pop');"),
-                    "dismissDropdowns must own #file-pop: it is not a `.dd-pop`, so no boundary ever fired for it")
-            #expect(overlay.contains("if (fp && !fp.classList.contains('hidden')) {"),
-                    "closing must be gated on the popover actually being open")
-            #expect(overlay.contains("e.target.closest('.file-pop')"),
-                    "a click inside the popover (path input / recents) must not dismiss it")
+        @Test("the attach popover is an armed layer of the same stack")
+        func filePopDismissalIsOwned() async {
+            let app = await AppState(renderFixture: AppState.RenderFixture())
+            await app.openFilePop()
+            let open = await app.composerHTML().markup.html
+            let filePop = open.range(of: #"<div class="file-pop"[^>]*id="file-pop"[^>]*>"#,
+                                     options: .regularExpression).map { String(open[$0]) }
+                ?? open.range(of: #"<div class="file-pop"[^>]*>"#, options: .regularExpression)
+                    .map { String(open[$0]) } ?? ""
+            #expect(filePop.contains("data-open="), "the attach popover arms like the selectors")
+            #expect(filePop.contains("data-dismiss="), "and disarms like them too")
             let appStateActions = Self.appStateActions
-            #expect(appStateActions.contains("if filePopOpen { closeSelectorPanels() }"),
-                    "opening the attach popover must close any open composer selector (without re-closing itself)")
-            #expect(appStateActions.contains("filePopOpen = false"),
-                    "closing the composer selectors must close the attach popover too (mutual exclusivity)")
+            #expect(appStateActions.contains("func armComposerPopover(_ which: ComposerPopover)"),
+                    "one latch arms every composer popover, so they are mutually exclusive by construction")
+            #expect(appStateActions.contains("composerPopover = nil"),
+                    "closing the composer selectors closes the attach popover too")
         }
 
         // MARK: - UX-03 workspace dock keeps its routing anchor
@@ -1518,7 +1549,7 @@ extension ArcWebUITestRoot {
 
         // MARK: - UX-19 responsive chrome: overlay drawer + compact rail (T12)
 
-        @Test("below 1024px the panel is an overlay drawer with a topbar toggle and scrim")
+        @Test("at or below 860px the panel is an overlay drawer the engine owns")
         func responsiveDrawerChrome() async {
             // the toggle and the scrim are read from rendered bytes now, not from a
             // source spelling: the property is that the control reaches the page,
@@ -1531,15 +1562,30 @@ extension ArcWebUITestRoot {
                     "the toggle must be labelled")
             #expect(page.contains("aria-expanded=\"false\""),
                     "the toggle must start aria-expanded=false")
+            // no-webui 2.15.0: `data-drawer-toggle` NAMES the root whose
+            // `data-open` the click flips, and the engine reads it with no
+            // round-trip — so the toggle has no component id and no server half.
+            #expect(page.contains("data-drawer-toggle=\"app\""),
+                    "the toggle must name #app through the engine's drawer behavior")
+            #expect(!page.contains("data-component-id=\"drawer-toggle\""),
+                    "the toggle is not wired: the drawer's state never round-trips")
             // The scrim is the outside-click dismissal surface; it must live in
-            // the shell so every tab gets one.
+            // the shell so every tab gets one, and it carries the same toggle.
             #expect(page.contains("id=\"drawer-scrim\""),
                     "the drawer scrim must be part of the app shell, not one tab")
+            let scrim = page.range(of: #"<div[^>]*id="drawer-scrim"[^>]*>"#, options: .regularExpression)
+                .map { String(page[$0]) } ?? ""
+            #expect(scrim.contains("data-drawer-toggle=\"app\""),
+                    "a click on the scrim is a close: it names the same root")
+            // the engine focuses `.drawer__panel`'s first control on open, so the
+            // panel carries that class and the sheet clears the framework's box.
+            #expect(page.contains("class=\"drawer__panel\""),
+                    "the panel is the engine's drawer focus target")
             let css = Self.sheetSource
-            // Below 1024px the panel docks over the chat (fixed, off-canvas at
+            // Below 860px the panel docks over the chat (fixed, off-canvas at
             // rest, `visibility: hidden` so closed controls leave the tab order).
-            #expect(css.contains("@media (max-width: 1023.98px) {"),
-                    "the drawer breakpoint must exist")
+            #expect(css.contains("@media (max-width: 860px) {"),
+                    "the drawer breakpoint must be the engine's own (860px)")
             #expect(css.contains("position: fixed; top: 38px; bottom: 0; left: var(--iconbar-w);"),
                     "the panel must become a fixed overlay below the topbar, clear of the rail")
             // UX-61: the drawer starts AFTER the rail so the rail is never the
@@ -1552,14 +1598,16 @@ extension ArcWebUITestRoot {
                     "the scrim must dim the content column but never the rail")
             #expect(css.contains("visibility: hidden;"),
                     "the closed drawer's controls must leave the tab order (visibility, not just transform)")
-            #expect(css.contains("#app.drawer-open #panel {\n        transform: translateX(0);\n        visibility: visible;"),
-                    "the open state must live on #app (survives panel re-renders) and reveal the drawer")
-            #expect(css.contains("#app.drawer-open .drawer-scrim { opacity: 1; pointer-events: auto; }"),
+            #expect(css.contains("#app[data-open] #panel {\n        transform: translateX(0);\n        visibility: visible;"),
+                    "the open state is the engine's data-open on #app (it survives panel re-renders) and reveals the drawer")
+            #expect(css.contains("#app[data-open] .drawer-scrim { opacity: 1; pointer-events: auto; }"),
                     "the scrim must dim the chat and swallow outside clicks only while open")
-            #expect(css.contains("@media (min-width: 1024px) { .drawer-toggle-btn { display: none; } }"),
-                    "at >= 1024px the toggle must be gone (and with it its tab stop)")
-            #expect(css.contains("@media (min-width: 1024px) { .drawer-scrim { display: none; } }"),
-                    "at >= 1024px the scrim must not exist")
+            #expect(!css.contains("drawer-open"),
+                    "the old `.drawer-open` class spelling is gone: the attribute is the only key")
+            #expect(css.contains("@media (min-width: 861px) { .drawer-toggle-btn { display: none; } }"),
+                    "at >= 861px the toggle must be gone (and with it its tab stop)")
+            #expect(css.contains("@media (min-width: 861px) { .drawer-scrim { display: none; } }"),
+                    "at >= 861px the scrim must not exist")
         }
 
         @Test("below 720px the rail compacts but keeps >= 40px hit targets, and the floats re-anchor")
@@ -1581,31 +1629,28 @@ extension ArcWebUITestRoot {
                     "jump-to-latest is centred above the composer, not parked in a right lane")
         }
 
-        @Test("the overlay owns drawer open/close: Escape, outside click, session pick, breakpoint reset")
-        func overlayDrawerLogic() {
+        @Test("the engine owns the drawer: the overlay keeps no drawer code, only the Escape remainder")
+        func drawerIsTheEngines() {
             let overlay = Self.overlay
-            #expect(overlay.contains("function openDrawer()"), "an open path must exist")
-            #expect(overlay.contains("function closeDrawer(returnFocus)"), "a close path must exist")
-            #expect(overlay.contains("a.classList.add('drawer-open')"),
-                    "open must flip the class on #app, not #panel (the panel node is replaced by patches)")
-            #expect(overlay.contains("a.classList.remove('drawer-open')"), "close must undo the class")
-            #expect(overlay.contains("if (drawerOpen()) closeDrawer(true);\n      else openDrawer();"),
-                    "the toggle must toggle (and return focus on close)")
-            #expect(overlay.contains("t.closest('#drawer-scrim')"), "outside click (the scrim) must close")
-            #expect(overlay.contains("t.closest('.sess-row') || t.closest('#chat-new')"),
-                    "picking a conversation (or minting one) must close the drawer")
-            #expect(overlay.contains("t.closest('#iconbar')"),
-                    "a rail switch must close the drawer so the chosen view owns the canvas (UX-61)")
-            #expect(overlay.contains("if (isNarrow() && drawerOpen()) { closeDrawer(true); return; }"),
-                    "Escape must own the drawer while it is open, before the other Escape targets")
-            #expect(overlay.contains("mq.addEventListener('change'"),
-                    "growing past the breakpoint must reset the drawer state so aria stays honest")
-            // Focus moves into the drawer on open and back to the toggle on close —
-            // the keyboard path in and out of the drawer.
-            #expect(overlay.contains("p.querySelector('input') || p.querySelector('a[href], button, select, textarea, [tabindex]')"),
-                    "open must focus a real control inside the drawer (search input preferred, anchors for settings)")
-            #expect(overlay.contains("if (returnFocus && t && t.focus) t.focus({ preventScroll: true });"),
-                    "close must return focus to the toggle")
+            // every client-side drawer path is GONE: the open state is the
+            // engine's `data-open` on #app, and its `data-drawer-toggle` flips it
+            // (focus in on open, back on the toggle on close) with no round-trip.
+            for gone in ["function openDrawer", "function closeDrawer", "drawer-open",
+                         "drawerApp", "isNarrow", "drawer-scrim", "drawer-toggle"] {
+                #expect(!overlay.contains(gone),
+                        "\(gone) belongs to the engine's drawer contract now (no-webui 2.15.0)")
+            }
+            // what survives is the two Escape surfaces the engine's stack does
+            // not own: both are server-rendered `hidden` regions, not `[data-open]`
+            // layers, so the overlay still routes their close.
+            #expect(overlay.contains("document.querySelector('.modal-overlay, [data-open]')"),
+                    "the remainder must yield the key to the engine's layers (one Escape, one surface)")
+            #expect(overlay.contains("var wsPanel = document.getElementById('ws-panel');"),
+                    "the workspace panel's Escape close survives")
+            #expect(overlay.contains("var outline = document.getElementById('outline-panel');"),
+                    "the outline's Escape close survives")
+            #expect(overlay.contains("}, true);"),
+                    "and it runs in the CAPTURE phase, so the engine's own close has not happened yet")
         }
 
         // MARK: - UX-60/61/62 (round 8): the "stuck in Settings" freeze, the
@@ -1689,8 +1734,15 @@ extension ArcWebUITestRoot {
         func drawerClearsRail() {
             #expect(Self.sheetSource.contains(".drawer-scrim { left: var(--iconbar-w); }"),
                     "the scrim must not cover the rail")
-            #expect(Self.overlay.contains("t.closest('#iconbar')"),
-                    "a rail switch must close the drawer")
+            // the rail tap used to be the overlay's own close rule. the engine's
+            // drawer closes on its toggle/scrim and on any outside click — a rail
+            // icon is outside `#app`'s open layer, so the tap still leaves the
+            // drawer without a class flip, and the scrim's offset is what keeps
+            // the tap reaching the rail at all.
+            #expect(!Self.overlay.contains("t.closest('#iconbar')"),
+                    "the rail-tap close is the engine's outside click now")
+            #expect(Self.sheetSource.contains("@media (max-width: 860px) {"),
+                    "and the drawer split is the engine's 860px")
         }
 
         /// A placeholder is not a label: it vanishes on input and is not an
@@ -2035,16 +2087,14 @@ extension ArcWebUITestRoot {
             let header = await RenderedMarkup.chatHeader()
             #expect(header.contains("id=\"chat-del\""), "the chat header's trash must still render for desktop")
 
+            // the drawer no longer has a row-tap dismissal to exempt the menu
+            // from: the engine closes the drawer only on its OWN toggle/scrim,
+            // and the row menu is a `[data-open]` layer of the dismiss stack.
             let overlay = Self.overlay
-            #expect(overlay.contains("if (t.closest('.menu-dots') || t.closest('.chat-menu')) return;"),
-                    "the drawer must exempt the row menu from its row-tap dismissal")
-            guard let exempt = overlay.range(of: "t.closest('.menu-dots')"),
-                  let rowClose = overlay.range(of: "t.closest('.sess-row') || t.closest('#chat-new')") else {
-                Issue.record("the drawer's row-close rule or the menu exemption is missing")
-                return
-            }
-            #expect(exempt.lowerBound < rowClose.lowerBound,
-                    "the exemption must run BEFORE the row-close rule, or tapping ⋮ still closes the drawer")
+            #expect(!overlay.contains("t.closest('.menu-dots')"),
+                    "the drawer's row-tap rule (and its menu exemption) is engine-side now")
+            #expect(!overlay.contains("t.closest('.sess-row')"),
+                    "picking a session closes the drawer through the engine's outside click, not a class flip")
         }
 
         @Test("the filter fields carry accessible names")

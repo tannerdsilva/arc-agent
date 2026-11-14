@@ -78,7 +78,9 @@
       const el = popEl(name);
       out[name] = { present: !!el, open: shown(el) };
     }
-    const menu = $$('.chat-menu').find((m) => m.classList.contains('open'));
+    // the row menu's open state is the server's `data-open` (no-webui 2.15.0):
+    // the ⋮ dispatches to the server and the engine's dismiss stack closes it.
+    const menu = $$('.chat-menu').find((m) => m.hasAttribute('data-open'));
     out.sessionMenu = { present: !!menu, open: shown(menu) };
     const slash = $('#cmd-dropdown');
     out.slash = { present: !!slash, open: slash ? slash.classList.contains('open') && shown(slash) : false, rowCount: slash ? slash.querySelectorAll('.cmd-item').length : 0 };
@@ -94,7 +96,8 @@
     state: () => ({
       view: document.querySelector('.chat-scroll') ? 'chat' : 'other',
       appClass: (document.getElementById('app').className || ''),
-      drawerOpen: (document.getElementById('app').className || '').includes('drawer-open'),
+      // the drawer's open state is the engine's `data-open` on #app
+      drawerOpen: !!document.getElementById('app') && document.getElementById('app').hasAttribute('data-open'),
       composerPresent: !!$('#composer-input'),
       composerValue: $('#composer-input') ? $('#composer-input').value : null,
       composerPlaceholder: $('#composer-input') ? $('#composer-input').getAttribute('placeholder') : null,
@@ -206,11 +209,44 @@
       const cs = getComputedStyle(t);
       return { present: true, count: $$('.toast').length, animationName: cs.animationName, animationDuration: cs.animationDuration, transitionDuration: cs.transitionDuration, visible: shown(t) };
     },
+    // ---- drawer (no-webui 2.15.0) ------------------------------------------
+    //
+    // the state is `data-open` on #app; `data-drawer-toggle` on the topbar
+    // button and on the scrim flips it with no round-trip, moves focus into
+    // `.drawer__panel` and returns it to the opening toggle on close. below
+    // 860px the panel is off-canvas and `visibility: hidden` (out of the tab
+    // order); at 861px and wider it is the static rail and the toggle is gone.
     drawer: () => {
       const t = $('#drawer-toggle');
-      if (!t) return { present: false, display: 'none' };
-      const r = t.getBoundingClientRect();
-      return { present: true, width: Math.round(r.width), height: Math.round(r.height), display: getComputedStyle(t).display, open: (document.getElementById('app').className || '').includes('drawer-open') };
+      const app = document.getElementById('app');
+      const panel = $('#panel');
+      const scrim = $('#drawer-scrim');
+      const cs = panel ? getComputedStyle(panel) : null;
+      const scs = scrim ? getComputedStyle(scrim) : null;
+      const tr = t ? t.getBoundingClientRect() : null;
+      const active = document.activeElement;
+      const inPanel = !!(panel && active && panel.contains(active));
+      return {
+        present: !!t,
+        open: !!app && app.hasAttribute('data-open'),
+        toggleDisplay: t ? getComputedStyle(t).display : null,
+        toggleWidth: tr ? Math.round(tr.width) : null,
+        toggleHeight: tr ? Math.round(tr.height) : null,
+        toggleNames: t ? t.getAttribute('data-drawer-toggle') : null,
+        panelVisibility: cs ? cs.visibility : null,
+        panelPosition: cs ? cs.position : null,
+        panelShown: shown(panel),
+        panelTabindex: panel ? panel.getAttribute('tabindex') : null,
+        scrimPresent: !!scrim,
+        scrimNames: scrim ? scrim.getAttribute('data-drawer-toggle') : null,
+        scrimOpacity: scs ? Number(scs.opacity) : null,
+        scrimPointer: scs ? scs.pointerEvents : null,
+        scrimRect: scrim ? (() => { const r = scrim.getBoundingClientRect(); return { l: Math.round(r.left), t: Math.round(r.top), r: Math.round(r.right), b: Math.round(r.bottom), w: Math.round(r.width), h: Math.round(r.height) }; })() : null,
+        focusInPanel: inPanel,
+        focusID: active ? (active.id || null) : null,
+        focusTag: active ? active.tagName.toLowerCase() : null,
+        viewport: window.innerWidth,
+      };
     },
     scrim: () => {
       const ov = $('#modal-overlay');

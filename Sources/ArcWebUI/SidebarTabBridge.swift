@@ -184,7 +184,7 @@ extension AppState {
         createProfile = false
         closeWorkspaceCreate()
         pendingDelete = false
-        filePopOpen = false
+        composerPopover = nil
         confirmDeleteID = nil
         if id == "tasks" {
             // the panel renders from the store-backed cache; refresh on open.

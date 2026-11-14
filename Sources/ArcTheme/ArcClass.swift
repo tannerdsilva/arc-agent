@@ -230,7 +230,6 @@ public enum ArcClass: String, CaseIterable, Sendable {
 	case drag = "drag"
 	case dragSrc = "drag-src"
 	case dragging = "dragging"
-	case drawerOpen = "drawer-open"
 	case drawerScrim = "drawer-scrim"
 	case drawerToggleBtn = "drawer-toggle-btn"
 	case dropAfter = "drop-after"

@@ -334,7 +334,18 @@ public static let css: String = """
       display: flex;
       flex-direction: column;
       background: var(--sidebar);
+      /* `#panel` also carries the engine's `.drawer__panel` class (2.15.0's
+         drawer focus target), whose own box decoration belongs to the
+         framework's drawer chrome. Every property below is stated here so the
+         id wins over that class and the panel's frame is unchanged — including
+         in the narrow block, whose later `#panel` rules still override these. */
+      border: 0;
       border-right: 1px solid var(--border);
+      border-radius: 0;
+      box-shadow: none;
+      /* the rail form: `position: relative` would also come from that class,
+         and the narrow block below is the only place the panel is `fixed`. */
+      position: static;
       min-width: 0;
     }
     .panel-head {
@@ -2564,9 +2575,12 @@ public static let css: String = """
       padding: 12px;
       margin-top: 6px;
       box-shadow: var(--shadow);
-      display: flex; flex-direction: column; gap: 8px;
+      /* state is the engine's `data-open` (no-webui 2.15.0): the attribute's
+         presence is open, and its absence is the only closed state — a class
+         would be a second spelling the dismiss stack cannot remove. */
+      display: none;
     }
-    .file-pop.hidden { display: none; }
+    .file-pop[data-open] { display: flex; flex-direction: column; gap: 8px; }
     .file-pop .fp-row { display: flex; gap: 6px; }
     .file-pop input {
       flex: 1;
@@ -2607,10 +2621,14 @@ public static let css: String = """
       min-width: 320px; max-width: 380px;
       background: var(--surface); border: 1px solid var(--border);
       border-radius: 12px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
-      padding: 8px; z-index: 60; display: flex; flex-direction: column; gap: 2px;
+      padding: 8px; z-index: 60;
       max-height: min(60vh, 420px); overflow: hidden;
+      /* `data-open` is the engine's open state (Escape / outside click remove
+         it with no round-trip), so it is the only key: `.hidden` here would be
+         a second spelling nothing can clear. */
+      display: none;
     }
-    .dd-pop.hidden { display: none; }
+    .dd-pop[data-open] { display: flex; flex-direction: column; gap: 2px; }
     /* Settings pickers (Main model / Auxiliary models) open downward — the
        settings list is tall, so an upward popover would clip. */
     .dd-settings .dd-trigger {
@@ -2842,7 +2860,12 @@ public static let css: String = """
       box-shadow: var(--shadow);
       padding: 5px;
     }
-    .chat-menu.open { display: flex; }
+    /* the row menu's open state is server-rendered `data-open` (the ⋮ dispatches
+       to the server; the engine's dismiss stack owns Escape / outside click).
+       `.open` stays for the workspace panel's own ⋮ menu (`#ws-menu`), whose two
+       rows are static and whose state is still the overlay's — it is not the
+       chat row menu and no row-map entry owns it. */
+    .chat-menu[data-open], .chat-menu.open { display: flex; }
     .chat-menu button {
       display: flex; align-items: center; gap: 9px;
       border: none; background: transparent;
@@ -3412,7 +3435,7 @@ public static let css: String = """
     }
     .drawer-toggle-btn:hover { background: var(--surface-2); color: var(--text); }
     .drawer-toggle-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    @media (min-width: 1024px) { .drawer-toggle-btn { display: none; } }
+    @media (min-width: 861px) { .drawer-toggle-btn { display: none; } }
     /* The scrim covers the chat column while the drawer is open (below the
        topbar, so the toggle stays reachable). Clicking it closes the drawer;
        at rest it is transparent and swallows no clicks. */
@@ -3423,16 +3446,20 @@ public static let css: String = """
       transition: opacity 0.22s ease;
       z-index: 69;
     }
-    #app.drawer-open .drawer-scrim { opacity: 1; pointer-events: auto; }
-    @media (min-width: 1024px) { .drawer-scrim { display: none; } }
-    /* Below 1024px the left panel is an overlay drawer: fixed to the left
-       edge above the chat, slid off-canvas at rest. `visibility: hidden`
+    /* the open state is the engine's `data-open` on #app (no-webui 2.15.0):
+       `data-drawer-toggle` flips it with no round-trip, and the engine's own
+       breakpoint is 860px — the sheet splits at the same width. */
+    #app[data-open] .drawer-scrim { opacity: 1; pointer-events: auto; }
+    @media (min-width: 861px) { .drawer-scrim { display: none; } }
+    /* At 860px and narrower the left panel is an overlay drawer: fixed to the
+       left edge above the chat, slid off-canvas at rest. `visibility: hidden`
        puts its controls OUT of the tab order and the a11y tree while closed
-       (a transform alone leaves them focusable off-screen). The open class
-       lives on #app, never on #panel: the panel is a server fragment whose
-       node is REPLACED on every patch, so state on the panel would be wiped;
-       #app survives the patch cycle. */
-    @media (max-width: 1023.98px) {
+       (a transform alone leaves them focusable off-screen). The open state is
+       `data-open` on #app — the engine's, never on #panel: the panel is a
+       server fragment whose node is REPLACED on every patch, so state on the
+       panel would be wiped; #app survives the patch cycle. 860px is the
+       engine's own `data-drawer-toggle` breakpoint. */
+    @media (max-width: 860px) {
       /* UX-61: the drawer starts AFTER the icon rail — the rail stays visible
          and reachable while the panel is open. Before this, the panel (z70)
          and the scrim (z69, left:0) covered the rail, so every tap meant for a
@@ -3448,7 +3475,7 @@ public static let css: String = """
         box-shadow: 0 0 44px rgba(0, 0, 0, 0.35);
         transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 0.28s;
       }
-      #app.drawer-open #panel {
+      #app[data-open] #panel {
         transform: translateX(0);
         visibility: visible;
         transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
