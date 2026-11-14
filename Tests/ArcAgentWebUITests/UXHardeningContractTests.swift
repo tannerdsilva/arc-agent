@@ -61,7 +61,6 @@ extension ArcWebUITestRoot {
         }
         private static var appState: String { source("Sources/ArcWebUI/AppState.swift") }
         private static var appStateActions: String { source("Sources/ArcWebUI/AppState+Actions.swift") }
-        private static var overlay: String { source("Sources/ArcWebUI/Assets/overlay.js") }
         private static var host: String { source("Sources/ArcWebUI/WebUIHost.swift") }
         private static var fileStore: String { source("Sources/ArcAgentCore/Session/SessionStore.swift") }
 
@@ -308,7 +307,6 @@ extension ArcWebUITestRoot {
         /// how the panel could disagree with the page it describes.
         @Test("the theme card's selected state is aria-pressed, with no overlay mirror")
         func themeSelectionIsAriaPressed() async {
-            let js = Self.overlay
             let css = Self.sheetSource
             let surface = await RenderedMarkup.fullSurface()
             #expect(css.contains(".theme-pick-btn[aria-pressed=\"true\"]"),
@@ -321,10 +319,6 @@ extension ArcWebUITestRoot {
                     "the `.active` mirror is retired: aria-pressed is the only selected state")
             #expect(surface.contains("aria-pressed=\"true\""),
                     "the server renders the saved mode's pressed card")
-            #expect(!js.contains("syncThemePickers"),
-                    "the engine reconciles the pickers; the overlay must not keep a second writer")
-            #expect(!js.contains("webui:theme"),
-                    "a theme-change listener is the mirror this slice deletes")
         }
 
         // MARK: - B1/F52 Enter sends
@@ -335,12 +329,11 @@ extension ArcWebUITestRoot {
         /// `ClearOnSubmit` empties the field on the submit event. The overlay
         /// keeps no keydown handler: the engine's listener is bound on the
         /// element, so a document-level copy would be a second submit path with
-        /// a different ordering. The one submit listener that stays is the
-        /// capture-phase memo for the draft store's echo (see
-        /// `ComposerSubmitContractTests`); it never submits and never clears.
+        /// a different ordering. A17 deleted the capture-phase echo memo that
+        /// outlived the seam, so the engine's listener is the ONLY submit path
+        /// (see `ComposerSubmitContractTests` and `ZeroClientScriptTests`).
         @Test("Enter submits and the field clears through the engine's own attributes")
         func enterSendsThroughTheEngine() async {
-            let js = Self.overlay
             let composer = await RenderedMarkup.composer()
             #expect(composer.contains("data-submit-on-enter=\"plain\""),
                     "a textarea opts in to Enter-to-submit by VALUE; the bare attribute leaves it exempt")
@@ -348,14 +341,8 @@ extension ArcWebUITestRoot {
                     "the legacy spelling would leave the textarea exempt")
             #expect(composer.contains("data-clear-on-submit"),
                     "the clear is the engine's, on the submit event")
-            #expect(!js.contains("form.requestSubmit()"),
-                    "the overlay must not drive the composer form's submit path anymore")
-            #expect(!js.contains("e.keyCode === 229"),
-                    "the IME guard is the engine's; a copy here is a second rule to keep in sync")
             #expect(composer.contains("data-autogrow"),
                     "the composer textarea must carry the engine's growth behavior")
-            #expect(!js.contains("resizeComposer"),
-                    "the overlay must not keep its own resizer beside the engine's")
         }
 
         // MARK: - the slash palette is a FilterList region (A16d, no-webui 3.1.0)
@@ -391,11 +378,6 @@ extension ArcWebUITestRoot {
                     "the description must ride `data-desc`")
             #expect(!composer.contains("slash-data"),
                     "the JSON payload is retired: the server renders the rows directly")
-            for retired in ["function slashItems()", "function slashToken(", "function slashFiltered(",
-                            "function renderSlashMenu(", "function chooseSlash(", "function syncSlashMenu("] {
-                #expect(!Self.overlay.contains(retired),
-                        "the client slash block `\(retired)` is back — the region owns it")
-            }
             // CSS: visibility is the engine's `data-open`; the hidden attribute
             // must beat the author display rule; the description is a pseudo.
             #expect(css.contains(".combo__panel[data-open] { display: block; }"),
@@ -469,8 +451,6 @@ extension ArcWebUITestRoot {
                     "the dd-dismiss boundary is deleted: the engine's dismissal does not round-trip")
             #expect(!Self.actions.contains("@Wired(\"dd-dismiss\""),
                     "and its server handler with it")
-            #expect(!Self.overlay.contains("dismissDropdowns"),
-                    "the overlay's dismissal pass is deleted")
             // the four selector popovers + the attach popover are the surfaces
             #expect(composer.contains("dd-pop dd-pop-ws"), "the workspace popover still renders")
             #expect(composer.contains("dd-pop dd-pop-model"), "the model popover still renders")
@@ -536,7 +516,7 @@ extension ArcWebUITestRoot {
             haystack.components(separatedBy: needle).count - 1
         }
 
-        @Test("the workspace dock keeps its routing anchor and a collapse tab in both states")
+        @Test("the workspace dock keeps its routing anchor and one closed-state handle")
         func workspaceDockAnchorIsStable() async {
             let closed = await Self.workspace { $0.workspaceOpen = false }.workspaceDockHTML().markup.html
             let open = await Self.workspace { $0.workspaceOpen = true }.workspaceDockHTML().markup.html
@@ -551,38 +531,37 @@ extension ArcWebUITestRoot {
                 #expect(html.contains("id=\"w-dock\""),
                         "the collapse tab must exist in the \(state) state, not an empty div")
             }
-            #expect(closed.contains("title=\"Open workspace\""), "the closed dock is the open handle")
-            #expect(open.contains("title=\"Collapse workspace\""),
-                    "the open-state dock must be a discoverable collapse tab, not an empty div")
-            #expect(!closed.contains(" hidden"), "the closed dock's tab must be visible")
-            let overlay = Self.overlay
-            #expect(overlay.contains("var wsPanel = document.getElementById('ws-panel');"),
-                    "the overlay must own Escape-to-close for the workspace panel like it does for the outline")
-            #expect(overlay.contains("document.getElementById('w-close') || document.getElementById('w-dock')"),
-                    "Escape must fall back to the collapse tab when the panel's ✕ is absent")
+            // A17: ONE shape both states. The tab is the closed-state handle and
+            // the sheet hides it while the panel is open, because the open state
+            // is the engine's `data-open` — a dismissal never reaches the server,
+            // so a server-rendered `hidden` could outlive the panel and strand it.
+            #expect(closed == open, "the dock renders one shape, not a server-stated variant")
+            #expect(closed.contains("title=\"Open workspace\""), "the tab is the open handle")
             let css = Self.sheetSource
-            #expect(css.contains(".ws-dock-btn.ws-dock-open { opacity: 1; }"),
-                    "the collapse affordance exists only on hover — Escape/click are its only closers")
+            #expect(css.contains("#app:has(#ws-panel[data-open]) .ws-dock-btn { display: none; }"),
+                    "the dock must hide on the engine's layer attribute, not a server `hidden`")
         }
 
-        @Test("an open workspace panel shows exactly one close control — the collapse tab is hidden")
+        @Test("an open workspace panel shows exactly one close control — the tab is hidden")
         func workspaceDockHidesWhenOpen() async {
             // UX-30: the open-state dock tab floated at the panel's mid-right edge
-            // over the file rows — two competing close affordances. While open the
-            // collapse tab must be hidden so the header ✕ is the single close
-            // control (the anchored wrapper stays, so routing never drops).
+            // over the file rows — two competing close affordances. The tab must be
+            // hidden while the panel is open so the header ✕ is the single close
+            // control. A17 moved that from a server `hidden` (which an engine
+            // dismissal could strand) to the sheet, keyed on the panel's layer
+            // attribute.
             let app = Self.workspace { $0.workspaceOpen = true }
             let dock = await app.workspaceDockHTML().markup.html
             let panel = await app.workspacePanelHTML().markup.html
-            let tabTag = dock.components(separatedBy: "<button").dropFirst().first
-                .map { String($0.prefix(while: { $0 != ">" })) } ?? ""
-            #expect(tabTag.contains("id=\"w-dock\""), "the collapsed-tab pin must be reading the tab")
-            #expect(tabTag.contains("hidden"),
-                    "the open state must mark the collapse tab hidden — two close controls is the bug")
+            #expect(dock.contains("id=\"w-dock\""), "the anchored tab stays mounted in both states")
+            #expect(!dock.contains(" hidden"),
+                    "the tab must carry no server `hidden` — the engine's dismissal never reaches the server")
             #expect(Self.count(of: "id=\"w-close\"", in: panel) == 1,
                     "the open panel must render exactly one header ✕")
-            #expect(Self.sheetSource.contains(".ws-dock-btn[hidden] { display: none; }"),
-                    ".ws-dock-btn declares display:flex — without an explicit [hidden] rule the UA rule loses and the dead chevron stays visible")
+            #expect(panel.contains("data-open="),
+                    "the open panel states the engine's layer attribute")
+            #expect(Self.sheetSource.contains("#app:has(#ws-panel[data-open]) .ws-dock-btn { display: none; }"),
+                    "the single-close-control rule is the sheet's, keyed on the layer attribute")
         }
 
         // MARK: - UX-05 the topbar follows the auto-title
@@ -642,11 +621,6 @@ extension ArcWebUITestRoot {
                     "nothing stages a copy url through the toasts fragment any more")
             #expect(!rendered.contains("id=\"pending-copy\""),
                     "the hidden copy marker must not be rendered inside #toasts")
-            let overlay = Self.overlay
-            for name in ["flashToast", "copyFromServerMarker", "#ws-preview-copy", "'.tw-copy'", "closest('[data-copy]')"] {
-                #expect(!overlay.contains(name),
-                        "the overlay still mentions `\(name)` — the engine owns the clipboard, and a second owner is the defect this slice removed")
-            }
             #expect(Self.views.contains("Clipboard(text:") ,
                     "the copy surfaces must carry `Clipboard` values (the link, the work-log digest, the preview)")
         }
@@ -859,10 +833,6 @@ extension ArcWebUITestRoot {
             #expect(readable.contains("data-copy=\"# Notes"),
                     "the copy control carries the file's server-rendered text (A16b/F5)")
 
-            // A16b: the preview is an ATTRIBUTE now, so the overlay keeps no
-            // handler for it — a name reappearing here is a second clipboard owner.
-            #expect(!Self.overlay.contains("#ws-preview-copy"),
-                    "the preview copy is the engine's `[data-copy]`; the overlay must not own it")
             // D-10's `attachUploadedPath` pin is gone with the function: 2.11.0's
             // upload zone dispatches `upload-complete` on `#composer-form`, and
             // `handleComposerForm` routes the answer to the same attach wire. the
@@ -875,21 +845,11 @@ extension ArcWebUITestRoot {
 
         @Test("the slash palette's rows are server markup and no client consumer survives")
         func slashMenuIsServerRendered() async {
-            let overlay = Self.overlay
             // The A16-era regression was the OPPOSITE shape: `#slash-data` and
             // `#cmd-dropdown` were rendered and nothing consumed them. 3.1.0's
             // `FilterList(token:)` is the consumer, declared ON the markup — so
             // the honest pin is that the client block is gone and the region is
             // there, not that a function name exists.
-            for retired in ["function slashItems()", "function slashToken(",
-                            "function renderSlashMenu(", "function chooseSlash(",
-                            "function closeSlashMenu()", "function syncSlashMenu(value)",
-                            "slashMenuOpen()", "slashSel", "slashSuppressed"] {
-                #expect(!overlay.contains(retired),
-                        "the retired client slash block `\(retired)` is back")
-            }
-            #expect(!overlay.contains("JSON.parse(host.textContent"),
-                    "the payload parse is the server's rows now")
             let composer = await RenderedMarkup.composer()
             // ten builtin commands, each a row the engine can list and select
             #expect(Self.count("class=\"combo__option\"", in: composer) >= 10,
@@ -929,7 +889,6 @@ extension ArcWebUITestRoot {
             #expect(actions.contains("if !wasStopped, let next = self.popQueuedSend(sessionID)"),
                     "the turn end must drain one queued message so order matches the chips")
             #expect(actions.contains("@Wired(\"queued-sends\""), "the queue row must be wired")
-            #expect(!Self.overlay.contains("steer"), "no steer wording may survive")
         }
 
         // MARK: - UX-29 queued-chip copy
@@ -1007,8 +966,7 @@ extension ArcWebUITestRoot {
                     "message actions must stay in the tab order; focus-within reveals the footer")
             #expect(copyBtn?.contains("title=\"Copy message\"") == true,
                     "the copy action must keep its tooltip")
-            let overlay = Self.overlay
-            // 2.6.0 roving: the ENGINE owns arrow-key roving inside a
+
             // `data-roving` container. The overlay's own row walker and
             // tabindex mover are gone. a11 (2.13.0): the reading keys are the
             // engine's too — `data-reading-keys` acts only while its own
@@ -1016,12 +974,6 @@ extension ArcWebUITestRoot {
             // list is outside `#chat-scroll`, so the two never fight and the
             // overlay's document-level walker (with its `.sess-row[tabindex]`
             // guard) is gone.
-            #expect(!overlay.contains("function visibleSessionRows()"),
-                    "the overlay must not keep a second roving key handler")
-            #expect(!overlay.contains("roveRowFocus("),
-                    "tabindex movement is the engine's job inside data-roving")
-            #expect(!overlay.contains(".sess-row[tabindex]") && !overlay.contains("function updateJumpBtn"),
-                    "the transcript-scroll keys and the jump-button updater are the engine's now")
             let chatMain = await RenderedMarkup.chatMain()
             let scrollerTag = chatMain.range(of: #"<div [^>]*id=\"chat-scroll\"[^>]*>"#,
                                              options: .regularExpression).map { String(chatMain[$0]) }
@@ -1362,16 +1314,26 @@ extension ArcWebUITestRoot {
             #expect(chat.contains("data-scroll-to=\"msg-user-0\""),
                     "the outline entry must jump through the engine's data-scroll-to consequence")
             #expect(chat.contains("class=\"outline-entry\""), "entries render server-side")
-            #expect(!Self.overlay.contains("buildOutline") && !Self.overlay.contains("syncOutline"),
-                    "the overlay must not rebuild the entry list it no longer owns")
-            #expect(!Self.overlay.contains("panel.hidden = !panel.hidden"),
+            // A17: the panel is an engine LAYER — closed means the attribute is
+            // absent, not a server `hidden`, because the dismiss stack (Escape,
+            // click-away) clears it on the client and never tells the server.
+            let outlineTag = chat.range(of: "<div[^>]* id=\"outline-panel\"[^>]*>",
+                                        options: .regularExpression).map { String(chat[$0]) }
+            #expect(outlineTag != nil, "the outline panel must render")
+            #expect(outlineTag?.contains(" hidden") == false,
+                    "a server `hidden` on the outline fights the engine's `data-open`")
+            #expect(outlineTag?.contains("data-open") == false,
+                    "the default outline render is CLOSED — no attribute")
+            #expect(!Self.views.contains("buildOutline") && !Self.views.contains("syncOutline"),
+                    "no client builder may rebuild the entry list")
+            #expect(!Self.views.contains("panel.hidden = !panel.hidden"),
                     "the client must not flip `hidden` behind the server's back")
         }
 
         @Test("the open outline moves the reading column clear of itself")
         func outlineReservesSpace() {
             let css = Self.sheetSource
-            #expect(css.contains(".chat-scroll-wrap:has(#outline-panel:not([hidden])) .chat-scroll { padding-right: 348px !important; }"),
+            #expect(css.contains(".chat-scroll-wrap:has(#outline-panel[data-open]) .chat-scroll { padding-right: 348px !important; }"),
                     "the panel floated over the transcript; `!important` is needed to outrank '#main .chat-scroll'")
             #expect(css.contains("@media (max-width: 1200px) {"),
                     "below 1200px there is no room to shift, so the panel overlays by design")
@@ -1643,28 +1605,30 @@ extension ArcWebUITestRoot {
                     "jump-to-latest is centred above the composer, not parked in a right lane")
         }
 
-        @Test("the engine owns the drawer: the overlay keeps no drawer code, only the Escape remainder")
+        @Test("the engine owns the drawer: no client drawer code and no client Escape remainder")
         func drawerIsTheEngines() {
-            let overlay = Self.overlay
             // every client-side drawer path is GONE: the open state is the
             // engine's `data-open` on #app, and its `data-drawer-toggle` flips it
             // (focus in on open, back on the toggle on close) with no round-trip.
-            for gone in ["function openDrawer", "function closeDrawer", "drawer-open",
-                         "drawerApp", "isNarrow", "drawer-scrim", "drawer-toggle"] {
-                #expect(!overlay.contains(gone),
-                        "\(gone) belongs to the engine's drawer contract now (no-webui 2.15.0)")
-            }
-            // what survives is the two Escape surfaces the engine's stack does
-            // not own: both are server-rendered `hidden` regions, not `[data-open]`
-            // layers, so the overlay still routes their close.
-            #expect(overlay.contains("document.querySelector('.modal-overlay, [data-open]')"),
-                    "the remainder must yield the key to the engine's layers (one Escape, one surface)")
-            #expect(overlay.contains("var wsPanel = document.getElementById('ws-panel');"),
-                    "the workspace panel's Escape close survives")
-            #expect(overlay.contains("var outline = document.getElementById('outline-panel');"),
-                    "the outline's Escape close survives")
-            #expect(overlay.contains("}, true);"),
-                    "and it runs in the CAPTURE phase, so the engine's own close has not happened yet")
+            // The toggle and the scrim both name `app`, and the sheet keys the
+            // scrim on the attribute — no client code in the chain.
+            let views = Self.views
+            #expect(views.contains("data-drawer-toggle=\"app\""),
+                    "the topbar toggle is the engine's drawer control")
+            #expect(views.contains(".data(\"drawer-toggle\", \"app\")"),
+                    "and the scrim is the second one — its own click is the close")
+            #expect(Self.sheetSource.contains("#app[data-open] .drawer-scrim { opacity: 1; pointer-events: auto; }"),
+                    "the scrim is the sheet's, keyed on the engine's attribute")
+            // A17 closed the remainder too: the two panels are `data-open`
+            // layers, so the dismiss stack owns their Escape. A capture-phase
+            // document listener anywhere would be a second owner of one key —
+            // the exact defect the whole program deleted.
+            #expect(!views.contains("addEventListener"),
+                    "no client event listener may survive: the engine owns every consequence")
+            #expect(Self.sheetSource.contains(".ws-panel[data-open] {"),
+                    "the workspace panel's open state is the engine's layer attribute")
+            #expect(Self.sheetSource.contains("#outline-panel[data-open] {"),
+                    "the outline's open state is the engine's layer attribute")
         }
 
         // MARK: - UX-60/61/62 (round 8): the "stuck in Settings" freeze, the
@@ -1753,8 +1717,6 @@ extension ArcWebUITestRoot {
             // icon is outside `#app`'s open layer, so the tap still leaves the
             // drawer without a class flip, and the scrim's offset is what keeps
             // the tap reaching the rail at all.
-            #expect(!Self.overlay.contains("t.closest('#iconbar')"),
-                    "the rail-tap close is the engine's outside click now")
             #expect(Self.sheetSource.contains("@media (max-width: 860px) {"),
                     "and the drawer split is the engine's 860px")
         }
@@ -1939,7 +1901,6 @@ extension ArcWebUITestRoot {
         /// owns the menu and stays rendered.
         @Test("table sort/filter controls are named and the modal returns focus to its trigger")
         func tableControlsNamedAndModalRestoresFocus() async {
-            let overlay = Self.overlay
             // The engine owns table sorting and filtering now (`data-table-enhance`
             // dispatch). What this page owes is the typed attribute, a filter
             // field the handler can find by its documented selector, and a
@@ -1956,8 +1917,6 @@ extension ArcWebUITestRoot {
                     "the filter field needs an accessible name — a placeholder is not one (UX-08)")
             #expect(table.contains("aria-label=\"Sort by Name\""),
                     "the sort control must announce the column it sorts (UX-08)")
-            #expect(!overlay.contains("enhanceMarkdownTables"),
-                    "the overlay must not keep a second table enhancer beside the engine's")
             let plain = await app.mdBox("| a |\n|---|\n| 1 |")
             #expect(!plain.contains("data-table-enhance"),
                     "surfaces that did not opt in keep the inert wrapper")
@@ -2105,11 +2064,6 @@ extension ArcWebUITestRoot {
             // the drawer no longer has a row-tap dismissal to exempt the menu
             // from: the engine closes the drawer only on its OWN toggle/scrim,
             // and the row menu is a `[data-open]` layer of the dismiss stack.
-            let overlay = Self.overlay
-            #expect(!overlay.contains("t.closest('.menu-dots')"),
-                    "the drawer's row-tap rule (and its menu exemption) is engine-side now")
-            #expect(!overlay.contains("t.closest('.sess-row')"),
-                    "picking a session closes the drawer through the engine's outside click, not a class flip")
         }
 
         @Test("the filter fields carry accessible names")
@@ -2139,10 +2093,6 @@ extension ArcWebUITestRoot {
                     "each entry must carry the engine's scroll consequence (UX-20)")
             #expect(chat.contains("class=\"outline-entry\""),
                     "the entries are server-rendered (UX-20)")
-            #expect(!Self.overlay.contains("scrollIntoView"),
-                    "the overlay must not keep a second jump handler beside the engine's (UX-20)")
-            #expect(!Self.overlay.contains("createElement('a')"),
-                    "the entry list is server-rendered; the overlay builds no links (UX-20)")
         }
 
         // MARK: - UX-21 (wave 4) rename seeds from the full stored title
@@ -2158,8 +2108,6 @@ extension ArcWebUITestRoot {
             let card = await RenderedMarkup.renameDialog(openOn: "sess-a")
             #expect(card.contains("value=\"A conversation title long enough to be truncated by the row clamp\""),
                     "the dialog's field must seed from the FULL stored title — the 40-char row clamp would commit truncation (UX-21)")
-            #expect(!Self.overlay.contains("data-full-title"),
-                    "the overlay must not seed a rename field any more: the dialog is server-rendered (A16a)")
         }
 
     // MARK: - Round 3 (2026-10-19) — state, empty states, pinning
@@ -2244,8 +2192,6 @@ extension ArcWebUITestRoot {
             let composer = await RenderedMarkup.composer()
             #expect(composer.contains("data-focus-on-appear"),
                     "the composer textarea must carry `data-focus-on-appear` (boot + new-chat caret)")
-            #expect(!Self.overlay.contains("data-focus-after-patch"),
-                    "the overlay must not consume the retired marker")
         }
 
         @Test("the skip link carries the engine's skip target")
@@ -2256,8 +2202,6 @@ extension ArcWebUITestRoot {
             // (a rail view) the handler returns before preventDefault, so the
             // anchor's own `href="#composer-input"` is what a browser falls back
             // to. The overlay no longer hides the link.
-            #expect(!Self.overlay.contains("function syncSkipLink()"))
-            #expect(!Self.overlay.contains("link.hidden"))
             let shell = await RenderedMarkup.page()
             let link = shell.range(of: #"<a [^>]*class="skip-link"[^>]*>"#,
                                    options: .regularExpression).map { String(shell[$0]) }

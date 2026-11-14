@@ -538,8 +538,9 @@ extension AppState {
 
     /// The context-breakdown pane: one centered card describing exactly what
     /// the next request would contain and how many tokens each part carries.
-    /// Opened by clicking the context ring; dismissed by the close button,
-    /// the backdrop, or Escape (overlay.js routes it to `#ctx-pane-close`).
+    /// Opened by clicking the context ring; dismissed by the close button, the
+    /// backdrop, or Escape (the engine fires the card's `data-dismiss` control,
+    /// `#ctx-pane-close`).
     func contextPaneHTML() -> some WebUI.View {
         Group {
             if let pane = contextPane {
@@ -853,23 +854,34 @@ extension AppState {
                           placeholder: "Category name", type: .text)
                         .data("component-id", "cat-name-input")
                         .attribute("autofocus", "")
-                    Input(field: "cat-color-input", type: .hidden)
-                        .class("color-value")
-                        .value(AppState.palette[0])
-                    CatSwatches {
-                        for (i, c) in AppState.palette.enumerated() {
-                            ErasedViews([ArcButton(id: nil, component: nil, class: ClassName("cat-swatch\(i == 0 ? " sel" : "")")) {}
-                                .data("color", c)
-                                .attribute("style", "background:\(c)")
-                                .aria(.label(c))])
-                        }
-                    }
+                    paletteRadios("cat-color-input")
                     CatAddActions {
                         ArcButton("Add", class: .primaryBtn, type: .submit)
                         ArcButton("Cancel", id: "cat-add-cancel", component: nil, class: .ghostBtn)
                     }
                 }
                 .data("component-id", "cat-add-form")
+            }
+        }
+    }
+
+    /// The colour palette as ONE native radio group (A17).
+    ///
+    /// The selection is the browser's: a `<input type="radio">` in a named group
+    /// carries `:checked` itself and the form posts the checked colour under
+    /// `field` — the SAME wire key the server already reads (`cat-color-input`,
+    /// `kb-addcol-color`). That retires the client mirror and its hidden
+    /// `.color-value` input: nothing has to copy a button's class into a field
+    /// before submit, and the sheet paints the swatch from `:checked` instead of
+    /// a server-rendered `.sel`.
+    func paletteRadios(_ field: String) -> some WebUI.View {
+        CatSwatches {
+            for (i, c) in AppState.palette.enumerated() {
+                ErasedViews([Input(name: field, type: .radio, value: c)
+                    .class(ClassName(.catSwatch).value)
+                    .flag(.checked, when: i == 0)
+                    .attribute("style", "background:\(c)")
+                    .aria(.label(c))])
             }
         }
     }
@@ -904,7 +916,9 @@ extension AppState {
     }
 
     /// arc-parity relative time: 1m / 12m / 3h / 4d / Aug 28 (+year if older
-    /// than this year). Mirrors the client-side ladder in init.js.
+    /// than this year). The server renders the label once; the engine's
+    /// `data-reltime` binder repaints it on a tick, so the ladder exists twice
+    /// (here and in the engine) and must agree.
     ///
     /// `now` is injectable only so `RelativeTimeParityTests` can pin this ladder
     /// against the golden table at a fixed instant: the production call site
@@ -1624,7 +1638,9 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
     /// (`msg-user-<rawIdx>` — the id `messageHTML` renders) and carries the
     /// engine's `data-scroll-to` consequence, which scrolls, flashes the row
     /// for 1.4 s and prevents the default. Nothing here is built on the
-    /// client. Open state is server-owned — see `AppState.outlineOpen`.
+    /// client. Open state is server-owned — see `AppState.outlineOpen` — and
+    /// stated as the engine's `data-open` (A17): the dismiss stack owns Escape
+    /// and the click-away, and the sheet keys visibility on the attribute.
     var outlinePanelHTML: some WebUI.View {
         Group {
             if settings.showConversationOutline {
@@ -1647,11 +1663,13 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
                 .id("outline-panel")
                 .attribute("role", "navigation")
                 .aria(.label("Conversation outline"))
-                // The doc comment above and `AppState.outlineOpen` promised a
-                // server-owned open state, but nothing ever read it: the panel was
-                // emitted hidden unconditionally, so the (wired) toggle flipped a
-                // flag no renderer consumed and the outline could never appear.
-                .flag(.hidden, when: !outlineOpen)
+                // one layer, one contract: `data-open` (serial-valued, so an
+                // engine dismissal can be re-opened by a byte-different render)
+                // plus `data-dismiss`, which is what puts the panel on the
+                // engine's stack. A server-owned boolean alone could not: the
+                // engine clears the attribute on Escape and never tells the
+                // server, so the closed state must be readable from the DOM.
+                .dismissibleOpen(outlineOpen ? outlineSerial : nil)
             }
         }
     }
@@ -1810,8 +1828,8 @@ func sessionRow(_ s: Session, todos: Bool = false, openMenu: String? = nil,
     }
 
     /// `0:42` style clock for the running turn. The live node re-renders on every
-    /// push, so the client repaints this label from `data-started` on a 1 s tick
-    /// (`overlay.js`) instead of the server recomputing it per push.
+    /// push, so the engine repaints this label from `data-started` on a 1 s tick
+    /// (`TickingLabel`) instead of the server recomputing it per push.
     func fmtElapsed(_ since: Date) -> String {
         let n = Int(max(0, Date().timeIntervalSince(since)))
         return "\(n / 60):" + String(format: "%02d", n % 60)
@@ -5773,19 +5791,7 @@ extension AppState {
                     ("data-component-id", "kb-addcol-name"),
                     ("autofocus", ""),
                   ])
-            Input(name: "kb-addcol-color", type: .hidden,
-                  attributes: [
-                    ("id", "kb-addcol-color"),
-                    ("class", "color-value"),
-                    ("value", AppState.palette[0]),
-                  ])
-            CatSwatches {
-                for (j, c) in AppState.palette.enumerated() {
-                    ErasedViews([ArcButton(id: nil, component: nil, class: ClassName("cat-swatch\(j == 0 ? " sel" : "")")) {}
-                        .data("color", c)
-                        .attribute("style", "background:\(c)")])
-                }
-            }
+            paletteRadios("kb-addcol-color")
             CatAddActions {
                 ArcButton("Add", class: .primaryBtn, type: .submit)
                 ArcButton("Cancel", id: "kb-addcol-cancel", component: nil, class: .ghostBtn)
@@ -6353,40 +6359,34 @@ extension AppState {
         // MARK: Workspace panel (right side)
 
     /// The fixed, vertically-centered rounded toggle on the far right edge.
-    /// Rendered in BOTH states — while closed it is the open handle, while
-    /// open it becomes the collapse tab (chevron flips, symmetric affordance).
+    ///
+    /// ONE shape in both states: the tab is the CLOSED-state handle, and the
+    /// sheet hides it on `#ws-panel[data-open]` (UX-30 keeps the header ✕ as
+    /// the single close control while the panel is open). That is deliberate
+    /// (A17): the open state is the engine's `data-open`, and an engine
+    /// dismissal never reaches the server — a server-rendered `hidden` would
+    /// then outlive the panel and strand the tab off-screen with no way back in.
+    /// A CSS key can only ever describe the DOM it is looking at.
+    ///
     /// The wrapper must keep its `data-component-id="workspace"` anchor across
     /// both states: a re-render that drops it makes the engine drop routing
     /// for the region (`[WebUIEngine] Patch for #ws-dock dropped routing
     /// anchor data-component-id=workspace`), which is exactly how closes
     /// used to dead-end.
     func workspaceDockHTML() -> some WebUI.View {
-        let open = workspaceOpen
-        let title = open ? "Collapse workspace" : "Open workspace"
-        // UX-30: while the panel is open, exactly ONE close control is visible
-        // — the header ✕. The dock's collapse tab used to float at the panel's
-        // mid-right edge over the file rows (two competing close affordances).
-        // When open the tab is hidden, but the anchored wrapper keeps its
-        // `data-component-id` — the engine's routing anchor is stable in both
-        // states (UX-03); when closed the dock returns as the open handle.
         // 2.11.0's upload zone: a drop lands in the active workspace root (an
         // empty destination composes the bare filename) and the engine's tray
         // reports progress. The dock keeps its `workspace` routing anchor — the
         // collapse tab's click is what that component id serves — so its
         // `upload-complete` is handled on `workspace` rather than a second id on
         // one element (a second component attribute would shadow the anchor).
-        return UploadZone(id: "ws-dock", destination: .folder(path: ""),
-                          component: "workspace", event: .click) {
+        UploadZone(id: "ws-dock", destination: .folder(path: ""),
+                   component: "workspace", event: .click) {
             ArcButton(id: "w-dock", component: nil,
-                      class: ClassName(open ? "ws-dock-btn ws-dock-open" : "ws-dock-btn"),
-                      type: .button, hidden: open) {
-                if open {
-                    WebUIIcon(.chevronRight, size: .medium)
-                } else {
-                    WebUIIcon(.chevronLeft, size: .medium)
-                }
+                      class: .wsDockBtn, type: .button) {
+                WebUIIcon(.chevronLeft, size: .medium)
             }
-            .title(title)
+            .title("Open workspace")
         }
     }
 
@@ -6399,21 +6399,20 @@ extension AppState {
         // client toggle and no `.open` class left to keep in sync.
         let wsMenuOpen = wsMenuArmed
         wsMenuArmed = nil
-        // ws-enter plays the slide-in animation only on the open transition
-        // (set right after toggling open); the flag is consumed/reset here so
-        // background re-renders of an already-open panel don't re-animate.
-        let anim = wsEnterAnim ? " ws-enter" : ""
-        wsEnterAnim = false
-        // `hidden` is a CLASS on this element, not the attribute: the sheet
-        // hides the panel with `.ws-panel.hidden`, which an attribute could not
-        // win against (`.ws-panel` sets `display: flex`).
-        let cls = "ws-panel" + (workspaceOpen ? "" : " hidden") + anim
+        // The PANEL is an engine layer too (A17). Its open state is `data-open`,
+        // armed with the panel serial as the value: the value is what makes a
+        // re-open after an engine dismissal a byte-different render, and
+        // `data-dismiss` puts the panel on the dismiss stack so Escape and the
+        // click-away close it without a client handler. The sheet keys
+        // visibility, the dock's hiding and the exit transition on the
+        // attribute — `.hidden`, `.ws-enter` and `.ws-closing` are gone.
+        let panelOpen = workspaceOpen ? wsPanelSerial : nil
         // 2.11.0's upload zone: the panel root had no routing anchor of its own
         // (its rows, tools and tree carry `workspace`), so the zone declares
         // `upload-complete` as its only event — a click on the panel's own
         // background routes nowhere — and an empty destination composes the bare
         // filename, which is the workspace root the old client drop wrote to.
-        return UploadZone(id: "ws-panel", className: ClassName(cls),
+        return UploadZone(id: "ws-panel", className: ClassName(.wsPanel),
                           destination: .folder(path: ""),
                           component: "ws-drop", event: .custom("upload-complete")) {
             Div(class: "panel-head ws-head") {
@@ -6485,6 +6484,7 @@ extension AppState {
             }
             wsTreeShell(workspaceBodyHTML())
         }
+        .dismissibleOpen(panelOpen)
     }
 
     /// the `#ws-tree` element: the routing anchor every live patch keys on, with

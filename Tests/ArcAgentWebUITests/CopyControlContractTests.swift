@@ -22,10 +22,6 @@ extension ArcWebUITestRoot {
 	@Suite("Copy controls", .serialized)
 	struct CopyControlContractTests {
 
-		private static var overlay: String {
-			String(decoding: AppShell.Assets.overlay.bytes, as: UTF8.self)
-		}
-
 		static func openTag(_ html: String, id: String) -> String? {
 			guard let r = html.range(of: "<[a-z]+[^>]* id=\"\(id)\"[^>]*>",
 			                         options: .regularExpression) else { return nil }
@@ -114,12 +110,6 @@ extension ArcWebUITestRoot {
 			let html = await AppState(renderFixture: fixture).toastsHTML().markup.html
 			#expect(!html.contains("pending-copy"),
 			        "the staged marker is gone with its consumer (A16b) — a second consumer would be a second clipboard owner")
-
-			let js = Self.overlay
-			for name in ["flashToast", "copyFromServerMarker", "pending-copy", "#ws-preview-copy", "'.tw-copy'"] {
-				#expect(!js.contains(name),
-				        "the served overlay still mentions `\(name)`: the copy surface is the engine's again")
-			}
 		}
 	}
 }

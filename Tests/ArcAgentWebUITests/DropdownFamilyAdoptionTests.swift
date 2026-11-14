@@ -297,9 +297,14 @@ extension ArcWebUITestRoot {
 			// spellings (38 before A13 deleted the `dd-dismiss` boundary span). `wire(...)` boundaries are not part of the count and are
 			// pinned by `the trigger is the boundary` above. a change here is a
 			// routing change and needs the card that owns it.
+			//
+			// A17 removed ONE occurrence without touching a boundary: the
+			// `#ws-dock` doc comment that named the attribute is gone, because the
+			// anchor it described is now stated once (one dock shape for both
+			// states) instead of twice.
 			let source = try Self.viewsSource()
 			let count = Self.occurrences(of: "data-component-id", in: source)
-			#expect(count == 41, "Views.swift carries \(count) `data-component-id` spellings, not the recorded 41")
+			#expect(count == 40, "Views.swift carries \(count) `data-component-id` spellings, not the recorded 40")
 		}
 
 		@Test("the rows are not boundaries")

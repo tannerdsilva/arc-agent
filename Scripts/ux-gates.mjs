@@ -886,7 +886,7 @@ async function runInteractions() {
   // popover matrix, which routes to #w-close) can leave the panel open, and
   // then cycle 0 measures a close instead of an open — the cycle list
   // alternating is the panel's own state carrying over, not a broken toggle.
-  await ev(`(() => { const p = document.getElementById('ws-panel'); if (p && !p.classList.contains('hidden')) document.getElementById('w-close')?.click(); })()`);
+  await ev(`(() => { const p = document.getElementById('ws-panel'); if (p && p.hasAttribute('data-open')) document.getElementById('w-close')?.click(); })()`);
   await settle(900);
   // The open/close reads POLL for the panel state instead of trusting one
   // fixed-settle read: the panel patch is a server round-trip (~150-200ms
@@ -2221,7 +2221,7 @@ async function runResidue() {
   await chatView();
   const dockOpen = await ev(`(() => { const b = document.getElementById('w-dock'); if (!b) return false; b.click(); return true; })()`);
   if (dockOpen) {
-    await pollOk(`(() => { const p = document.getElementById('ws-panel'); return { ok: !!p && !p.classList.contains('hidden') }; })()`, 6000);
+    await pollOk(`(() => { const p = document.getElementById('ws-panel'); return { ok: !!p && p.hasAttribute('data-open') }; })()`, 6000);
     await ev(`document.getElementById('w-menu')?.click()`);
     wsMenu = await pollOk(`(() => {
       const m = document.getElementById('ws-menu');
@@ -2268,7 +2268,12 @@ async function runMotion() {
   await waitStreamEnd(120000).catch(() => false);
 
   await ev(`document.getElementById('w-dock')?.click()`);
-  await settle(600);
+  // A17: the panel's open state is the engine's `data-open` on a node the patch
+  // REPLACES, and the entrance is a 280ms transition from zero width — a fixed
+  // settle raced it in a full run (the row read `present` but not yet open).
+  // Poll the attribute, then let the transition land.
+  await pollOk(`(() => { const p = document.getElementById('ws-panel'); return { ok: !!p && p.hasAttribute('data-open') }; })()`, 8000);
+  await settle(500);
   const ws = await ev(`uxGates.workspace()`);
   const wsOk = ws.open && parseFloat(ws.animationDuration) <= 0.01 && parseFloat(String(ws.transitionDuration).replace(/[^0-9.]+$/, '')) <= 0.01 && parseFloat(ws.opacity) > 0.9;
   await ev(`document.getElementById('w-close')?.click()`);

@@ -1776,7 +1776,10 @@ extension Controller {
             await self.app.addCategory(name: name, color: color)
             await self.app.setAddingCategory(false)
         } else if event.string("targetId") != "cat-add-cancel" {
-            return .fragments([])   // swatch clicks are client-side
+            // a swatch is a NATIVE RADIO (A17): the browser owns `:checked` and
+            // the submit carries the checked value under `cat-color-input`, so a
+            // click inside the form is presentation only — no round trip.
+            return .fragments([])
         } else {
             await self.app.setAddingCategory(false)
         }
@@ -3287,6 +3290,7 @@ extension Controller {
             let color = event.string("kb-addcol-color") ?? ""
             await self.app.addKanbanColumn(name: name, color: color)
         } else if event.string("targetId") != "kb-addcol-cancel" {
+            // the swatch group is a native radio group (A17) — presentation only.
             return .fragments([])
         }
         return await self.changed()
@@ -3562,7 +3566,11 @@ extension Controller {
     /// retired with A16c — the zone opens the picker from its own surface).
     private func workspaceAction(_ tid: String) async -> HandlerOutcome {
         if tid == "w-dock" {
-            await app.toggleWorkspace()
+            // the dock's tab is only on screen while the panel is closed (the
+            // sheet hides it on `#ws-panel[data-open]`), so the click can only
+            // mean OPEN — and open re-arms the serial, which is what re-ships a
+            // panel the engine dismissed (A17).
+            await app.openWorkspace()
         } else if tid == "w-close" {
             await app.closeWorkspace()
         } else if tid == "w-new" {

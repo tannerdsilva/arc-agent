@@ -28,11 +28,6 @@ extension ArcWebUITestRoot {
 	@Suite("Rename dialog", .serialized)
 	struct RenameDialogContractTests {
 
-		/// the bytes the daemon serves as /ui/init.js, not `Assets/overlay.js`.
-		private static var overlay: String {
-			String(decoding: AppShell.Assets.overlay.bytes, as: UTF8.self)
-		}
-
 		/// the open tag carrying `id`, or nil. the leading space in the pattern
 		/// keeps `data-component-id="x"` from answering for `id="x"`.
 		static func openTag(_ html: String, id: String) -> String? {
@@ -104,13 +99,5 @@ extension ArcWebUITestRoot {
 			        "the confirm control is the form's submit — one round trip, no client commit")
 		}
 
-		@Test("the served overlay keeps no rename editor")
-		func overlayCarriesNoRenameCode() {
-			let js = Self.overlay
-			for name in ["submitRename", "rename-input", "sm-rename-"] {
-				#expect(!js.contains(name),
-				        "the served overlay still mentions `\(name)`: the inline editor is back, and the dialog is no longer the only rename path")
-			}
-		}
 	}
 }

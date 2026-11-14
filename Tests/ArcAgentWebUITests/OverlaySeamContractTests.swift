@@ -25,8 +25,12 @@ extension ArcWebUITestRoot {
 	@Suite("Overlay seam", .serialized)
 	struct OverlaySeamContractTests {
 
+		/// the client asset as the daemon serves it, or `""` once A17 deletes the
+		/// file. Reading through the source path (not `AppShell.Assets`) keeps
+		/// this suite honest across the deletion: every pin below is an ABSENCE,
+		/// and an absent file is the strongest form of it.
 		private static var overlay: String {
-			String(decoding: AppShell.Assets.overlay.bytes, as: UTF8.self)
+			(try? String(contentsOfFile: "Sources/ArcWebUI/Assets/overlay.js", encoding: .utf8)) ?? ""
 		}
 
 		static func openTag(_ html: String, id: String) -> String? {
@@ -46,16 +50,58 @@ extension ArcWebUITestRoot {
 				#expect(!js.contains(retired),
 				        "the dead seam's `\(retired)` is back — 3.1.0 owns every consumer it had")
 			}
-			// the three survivors the engine still has no consequence for, named
-			// so a fourth cannot ride in unnoticed.
-			for survivor in ["ws-panel", "outline-panel", ".cat-swatch", "ws-closing"] {
-				#expect(js.contains(survivor),
-				        "a classified survivor `\(survivor)` is gone — delete it deliberately, not by drift")
+			// A17: the file held three classified survivors and NOTHING else. All
+			// three are the engine's or the sheet's now — the panels are
+			// `data-open` layers, the palette is a native radio group and the exit
+			// visual is a transition — so no client code may remain at all.
+			for retired in ["addEventListener", "querySelector", "classList", "document."] {
+				#expect(!js.contains(retired),
+				        "`\(retired)` in the client asset means a client consequence came back; A17 deleted the last one")
 			}
 			// the blank canvas is the engine's skip target now, so its old
 			// client hook must not survive.
 			#expect(!js.contains("focus-composer"),
 			        "the blank canvas' client focus hook is back; `data-skip-to` owns that consequence")
+		}
+
+		@Test("the last three survivors are markup, an attribute pair and a transition")
+		func survivorsAreTheEngines() {
+			// 1. the two panels: `data-open` (serial-valued) + `data-dismiss`, so
+			//    the dismiss stack owns Escape and the click-away, LIFO with every
+			//    other layer.
+			#expect(Self.views.contains(".dismissibleOpen(panelOpen)"),
+			        "the workspace panel must arm itself as a layer, not carry a `.hidden` class")
+			#expect(Self.views.contains(".dismissibleOpen(outlineOpen ? outlineSerial : nil)"),
+			        "the outline must arm itself as a layer")
+			// 2. the palette: a native radio group named for the field the server
+			//    already reads, so `:checked` is the selection and no hidden mirror
+			//    field exists.
+			#expect(Self.views.contains("paletteRadios(\"cat-color-input\")"),
+			        "the category form's colour field is the radio group's NAME")
+			#expect(Self.views.contains("paletteRadios(\"kb-addcol-color\")"),
+			        "the kanban form's colour field is the radio group's NAME")
+			#expect(Self.views.contains("Input(name: field, type: .radio, value: c)"),
+			        "the swatch itself is an `<input type=radio>`")
+			// 3. the exit visual: a transition keyed on the layer attribute, with
+			//    no `.ws-closing` class and no capture-phase click listener.
+			#expect(Self.sheet.contains(".ws-panel[data-open] {"),
+			        "the panel's open state is the sheet's, keyed on `data-open`")
+			#expect(Self.sheet.contains("transition-property: width, flex-basis, opacity, transform, visibility;"),
+			        "one transition list drives the enter AND the exit while the node stays mounted — `.ws-closing` is gone")
+			#expect(!Self.sheet.contains(".ws-panel.ws-closing {"),
+			        "the client-stamped closing class must be gone")
+			#expect(!Self.sheet.contains(".ws-panel.ws-enter"),
+			        "the one-shot enter class must be gone — `@starting-style` owns the enter")
+			#expect(!Self.sheet.contains(".ws-panel.hidden"),
+			        "the panel's visibility is the layer attribute, never a class")
+		}
+
+		private static var views: String {
+			(try? String(contentsOfFile: "Sources/ArcWebUI/Views.swift", encoding: .utf8)) ?? ""
+		}
+
+		private static var sheet: String {
+			(try? String(contentsOfFile: "Sources/ArcTheme/ChromeSheet.swift", encoding: .utf8)) ?? ""
 		}
 
 		@Test("the new-chat caret is a one-render FocusInto on the composer root")

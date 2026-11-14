@@ -697,9 +697,15 @@ public static let css: String = """
     }
     .ctx-rename input:focus { outline: none; border-color: var(--accent-border); }
     .cat-swatch {
-      width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; cursor: pointer;
+      width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent;
+      cursor: pointer; background-clip: padding-box; padding: 0; margin: 0;
+      /* a NATIVE radio (A17): the browser owns the selection and the form posts
+         the checked value under the field the server already reads, so
+         `:checked` — never a server class — is the selected state. */
+      appearance: none; -webkit-appearance: none;
     }
-    .cat-swatch.sel { border-color: var(--text); box-shadow: 0 0 0 2px var(--surface); }
+    .cat-swatch:checked { border-color: var(--text); box-shadow: 0 0 0 2px var(--surface); }
+    .cat-swatch:focus-visible { outline: 2px solid var(--accent-border); outline-offset: 1px; }
     .cat-add-actions { display: flex; gap: 8px; }
     .cat-add-actions .primary-btn, .cat-add-actions .ghost-btn {
       padding: 5px 12px; font-size: 0.82em; border-radius: var(--radius-sm);
@@ -1580,22 +1586,25 @@ public static let css: String = """
       width: 320px; max-height: 50vh; z-index: 9998;
       background: var(--surface); border: 1px solid var(--border-strong);
       border-radius: 10px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
-      display: flex; flex-direction: column; overflow: hidden;
+      display: none; overflow: hidden;
     }
-    #outline-panel[hidden] { display: none; }
+    /* the open state is the engine's layer attribute (A17): the dismiss stack
+       clears it on Escape and on a click-away, so the sheet — never a server
+       class — is what the closed state means. */
+    #outline-panel[data-open] { display: flex; flex-direction: column; }
     /* The panel floats over the transcript; while it is open, move the reading
        column clear of it instead of letting it sit on top of the text. Below
        1200px there is not enough room to shift, so the panel overlays (it has a
-       close button and Escape routes to it). `!important` + the id in :has()
-       are needed to outrank the `#main .chat-scroll { padding: … !important }`
-       rule that pins the transcript's gutters. */
-    .chat-scroll-wrap:has(#outline-panel:not([hidden])) .chat-scroll { padding-right: 348px !important; }
+       close button and the engine routes Escape to it). `!important` + the id in
+       :has() are needed to outrank the `#main .chat-scroll { padding: …
+       !important }` rule that pins the transcript's gutters. */
+    .chat-scroll-wrap:has(#outline-panel[data-open]) .chat-scroll { padding-right: 348px !important; }
     /* The composer follows the same shift, or the two columns would stop
        sharing their edges the moment the outline opens. */
-    .chat-main:has(#outline-panel:not([hidden])) .composer-wrap { padding-right: 348px; }
+    .chat-main:has(#outline-panel[data-open]) .composer-wrap { padding-right: 348px; }
     @media (max-width: 1200px) {
-      .chat-scroll-wrap:has(#outline-panel:not([hidden])) .chat-scroll { padding-right: 28px !important; }
-      .chat-main:has(#outline-panel:not([hidden])) .composer-wrap { padding-right: 28px; }
+      .chat-scroll-wrap:has(#outline-panel[data-open]) .chat-scroll { padding-right: 28px !important; }
+      .chat-main:has(#outline-panel[data-open]) .composer-wrap { padding-right: 28px; }
     }
     .outline-header {
       display: flex; align-items: center; justify-content: space-between;
@@ -3208,9 +3217,11 @@ public static let css: String = """
     .mem-sep { border: 0; border-top: 1px solid var(--border); margin: 14px 0; padding: 10px 0; text-align: center; color: var(--muted); font-size: 0.95em; user-select: none; }
 
     /* ─── Workspace panel (right side) ───────────────────────── */
-    /* The handle is a persistent affordance (the collapse tab must be
-       discoverable while the panel is open): muted at rest, full strength on
-       hover/keyboard focus and while the panel is open.
+    /* The handle is a persistent affordance: muted at rest, full strength on
+       hover/keyboard focus. It exists only while the panel is CLOSED (the rule
+       below hides it on `#ws-panel[data-open]`), so it is the open handle and
+       the header ✕ is the one close control — the A17 conversion states that in
+       CSS instead of rendering two server variants.
        It is a flush drawer pull, not a floating circle: a circle parked in the
        reading gutter read as an orphaned control with no home. Flush to the
        viewport edge it occupies the outer margin, so the transcript needs no
@@ -3227,32 +3238,48 @@ public static let css: String = """
       transition: opacity .15s ease, background .12s, color .12s, border-color .12s, width .12s ease;
     }
     #ws-dock:hover .ws-dock-btn,
-    .ws-dock-btn:focus-visible,
-    .ws-dock-btn.ws-dock-open { opacity: 1; }
+    .ws-dock-btn:focus-visible { opacity: 1; }
     .ws-dock-btn:hover { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent-border); }
-    /* UX-30: the collapse tab must actually leave when the panel is open —
-       .ws-dock-btn declares display:flex, which would override the UA
-       [hidden] rule and leave a dead chevron floating over the file rows. */
-    .ws-dock-btn[hidden] { display: none; }
+    /* UX-30: while the panel is open, exactly ONE close control is visible —
+       the header ✕. The dock's collapse tab floats at the panel's mid-right
+       edge over the file rows, so it hides while the panel is open. The key is
+       `#ws-panel[data-open]` (A17), the engine's own layer attribute, NOT a
+       server `hidden`: an engine dismissal clears that attribute without
+       telling the server, so a server-rendered `hidden` would outlive the panel
+       and strand the tab off-screen with no way back in. */
+    #app:has(#ws-panel[data-open]) .ws-dock-btn { display: none; }
+    /* The panel is an engine LAYER (A17): `data-open` is its open state and the
+       sheet owns everything the old client hook did.
+       MEASURED, and the reason this is not `display:none` + `@starting-style`:
+       the panel is a PATCHED-IN node, and the at-rule's declarations stuck as
+       its computed style — an open panel sat at `opacity: 0` forever (probed
+       live: `data-open="13"`, display flex, opacity 0). So the closed state is
+       zero width, invisible and out of the tab order, the node stays mounted in
+       both, and ONE transition list covers the enter AND the exit. That is the
+       whole of `.ws-closing` (a capture-phase click listener used to stamp it
+       BEFORE the replacing patch landed — there is no such hook now) and of
+       `.ws-enter` (a one-shot server animation class). `visibility` keeps the
+       closed panel's controls out of the tab order and the a11y tree (a
+       transform alone leaves them focusable off-screen — the drawer's rule). */
     .ws-panel {
+      width: 0; flex: 0 0 0; min-width: 0; overflow: hidden;
+      display: flex; flex-direction: column;
+      background: var(--bg);
+      opacity: 0; transform: translateX(70px);
+      /* a closing panel must not hit-test: an invisible element that still
+         swallows clicks over the right edge would eat the dock tab that reopens
+         it — the defect the old `.ws-closing` rule named. */
+      pointer-events: none; visibility: hidden;
+      transition-property: width, flex-basis, opacity, transform, visibility;
+      transition-duration: 0.28s;
+      transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .ws-panel[data-open] {
       width: var(--panel-w); flex: 0 0 var(--panel-w);
       border-left: 1px solid var(--border);
-      display: flex; flex-direction: column; min-width: 0;
-      background: var(--bg);
-      transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.28s ease;
+      opacity: 1; transform: none;
+      pointer-events: auto; visibility: visible;
     }
-    /* The panel stays mounted (opacity 0, translated off-edge) until the
-       server's close patch lands, which is a frame or two after the 280ms
-       exit. An invisible element that still hit-tests swallows clicks over
-       the right edge — including the dock button that reopens it — so the
-       closing state must not be clickable. */
-    .ws-panel.ws-closing { transform: translateX(70px); opacity: 0; pointer-events: none; }
-    .ws-panel.ws-enter { animation: wsSlideIn 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
-    @keyframes wsSlideIn {
-      from { transform: translateX(70px); opacity: 0; }
-      to { transform: translateX(0); opacity: 1; }
-    }
-    .ws-panel.hidden { display: none; }
     .ws-tools { display: flex; gap: 3px; align-items: center; }
     .ws-menu-wrap { position: relative; }
     .ws-body { flex: 1; overflow: auto; }
@@ -3303,9 +3330,9 @@ public static let css: String = """
     .ws-panel.drag { box-shadow: inset 0 0 0 2px var(--accent-strong); }
     #ws-dock.drag { box-shadow: inset 0 0 0 2px var(--accent-strong); border-radius: var(--radius-sm); }
     .composer-bar.drag { box-shadow: inset 0 0 0 2px var(--accent-strong); }
-    /* Upload progress tray. The rows are client-owned (overlay.js appends the
-       tray to <body>), so they must not depend on a server fragment: a
-       workspace re-render replaces #ws-panel wholesale. */
+    /* Upload progress tray. The rows are the ENGINE's (its upload transport
+       appends the tray to <body>), so they must not depend on a server
+       fragment: a workspace re-render replaces #ws-panel wholesale. */
     .ws-uploads {
       position: fixed; right: 14px; bottom: 14px; z-index: 900;
       display: flex; flex-direction: column; gap: 6px;

@@ -1029,7 +1029,15 @@ actor AppState {
     /// engine like every other control (the client-only version logged
     /// "[WebUIEngine] click on unwired control #outline-toggle" on every click)
     /// and the open state survives a reload.
+    ///
+    /// The panel is an ENGINE LAYER now (A17): the render states
+    /// `data-open="<outlineSerial>" data-dismiss`, so the dismiss stack owns
+    /// Escape and the click-away and the sheet keys visibility on the attribute.
+    /// The serial is the open-latch value: an engine dismissal clears the
+    /// attribute on the client, so a re-open must be a byte-different render or
+    /// the patch that would restore it never ships.
     var outlineOpen = false
+    var outlineSerial = 0
 
     /// Chat list filtering (phase: categories).
     var chatFilter = ""
@@ -1040,8 +1048,18 @@ actor AppState {
     var categoryMenu: CategoryMenu? = nil
     var categoryMenuRename = false
 
-    /// Right-hand workspace panel.
+    /// Right-hand workspace panel. Open state for the panel is the engine's
+    /// `data-open` (A17): the render states the attribute with `wsPanelSerial`
+    /// as its value, the dismiss stack owns Escape and the click-away, and the
+    /// sheet keys visibility, the dock's hiding and the exit transition on it —
+    /// so no `.hidden` class and no client exit-visual hook survive.
     var workspaceOpen = false
+    /// The open-latch value rendered as `data-open`'s VALUE. An engine
+    /// dismissal clears the attribute client-side without telling the server,
+    /// so every open must bump this: a re-open that reused the last value would
+    /// be byte-identical to the render the client already dismissed and would
+    /// never ship.
+    var wsPanelSerial = 0
     /// Last rendered workspace-tree rows; the live scanner only pushes a
     /// fragment when the listing actually changes.
     var cachedWSTreeHTML = ""
@@ -1049,9 +1067,6 @@ actor AppState {
     var wsNewDraft: String? = nil
     var showHiddenFiles = false
     var expandedPaths: Set<String> = []
-    /// One-shot flag: set when toggling the panel OPEN so the next render
-    /// attaches the slide-in animation class; consumed by workspacePanelHTML.
-    var wsEnterAnim = false
 
     /// Render-path cache for the workspace file tree, keyed by
     /// (path, showHidden, expanded set). Repeated shell re-renders of an

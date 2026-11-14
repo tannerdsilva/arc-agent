@@ -48,11 +48,6 @@ extension ArcWebUITestRoot {
         /// `.build/checkouts`.
         private static var engine: String { WebUIAssets.engine }
 
-        /// the bytes the daemon serves as /ui/init.js, not `Assets/overlay.js`.
-        private static var overlay: String {
-            String(decoding: AppShell.Assets.overlay.bytes, as: UTF8.self)
-        }
-
         /// the open tag carrying `id`, or nil. the leading space in the
         /// pattern keeps `data-component-id="x"` from answering for `id="x"`.
         static func openTag(_ html: String, id: String) -> String? {
@@ -242,22 +237,5 @@ extension ArcWebUITestRoot {
                     "the pane's region root must declare `data-focus-into=\"ctx-pane-close\"` (A16d entry)")
         }
 
-        @Test("the served overlay keeps no second modal focus implementation")
-        func overlayKeepsNoSecondImplementation() {
-            let js = Self.overlay
-            let retired = [
-                "syncModalFocus", "restoreFocusToTrigger", "restoreFocusAfterPatch",
-                "rowSidOf", "modalReturnFocus",
-            ]
-            for name in retired {
-                #expect(!js.contains(name),
-                        "`\(name)` is back in the served overlay: that is the block 2.14.0's by-id focus return replaced, and a second restore path double-fires against the engine's. a capability the engine lacks arrives under its own name with its own pin")
-            }
-            // the overlay is down to its three classified survivors: no modal
-            // focus code and no focus vocabulary. The declarations live on the
-            // rendered bytes above; a name reappearing here is a second owner.
-            #expect(!js.contains("autofocus") && !js.contains("data-focus-into") && !js.contains("data-focus-return"),
-                    "the overlay carries focus vocabulary again — the engine owns it")
-        }
     }
 }

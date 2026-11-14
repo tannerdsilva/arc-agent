@@ -56,8 +56,8 @@ extension ArcWebUITestRoot {
 		/// sites whose class value is interpolated (`\\(` inside the literal).
 		/// the theme card's `theme-pick-btn\(active ? " active" : "")` became
 		/// `ClassName(.themePickBtn)` when the `.active` mirror retired.
-		/// measured 24 in the merged tree.
-		static let residualInterpolatedSites = 24
+		/// measured 22 in the merged tree.
+		static let residualInterpolatedSites = 22
 
 		static func sources() -> [(String, String)] {
 			let root = URL(fileURLWithPath: #filePath)

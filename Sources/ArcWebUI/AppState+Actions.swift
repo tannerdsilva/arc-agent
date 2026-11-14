@@ -662,6 +662,10 @@ extension AppState {
     /// this collision only became reachable with that fix.
     func toggleOutline() {
         outlineOpen.toggle()
+        // the panel is an engine layer: its `data-open` value must move on every
+        // open, or a re-open after an engine dismissal is a byte-identical
+        // render that never ships (see `outlineSerial`).
+        if outlineOpen { outlineSerial += 1 }
         if outlineOpen { workspaceOpen = false }
     }
 
@@ -1262,17 +1266,20 @@ extension AppState {
 
     // MARK: Workspace panel
 
-    func toggleWorkspace() {
-        workspaceOpen.toggle()
+    /// Open the panel. Not a toggle: the dock's tab is only visible while the
+    /// panel is closed (the sheet hides it on `#ws-panel[data-open]`), and after
+    /// an engine dismissal the server may still hold `workspaceOpen == true` —
+    /// an "open" that re-armed the serial is the one action that always ships.
+    func openWorkspace() {
+        workspaceOpen = true
+        wsPanelSerial += 1
         // Mutual exclusion with the outline (see `toggleOutline`): both float
         // over the same right-hand strip.
-        if workspaceOpen { outlineOpen = false }
+        outlineOpen = false
         wsNewMode = ""
-        // One-shot slide-in for the open transition (consumed by the render).
-        if workspaceOpen { wsEnterAnim = true }
         // A fresh open always reflects the current disk: drop the render cache
         // so the panel rescans (it was never scanned while hidden).
-        if workspaceOpen { clearWorkspaceTreeCache() }
+        clearWorkspaceTreeCache()
     }
 
     func closeWorkspace() {

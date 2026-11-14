@@ -14,11 +14,6 @@ extension ArcWebUITestRoot {
     @Suite("Composer submit contract", .serialized)
     struct ComposerSubmitContractTests {
 
-        private static func overlaySource() throws -> String {
-            let path = "Sources/ArcWebUI/Assets/overlay.js"
-            return try String(contentsOfFile: path, encoding: .utf8)
-        }
-
         /// A15 (no-webui 2.17.0) + A16d (3.1.0): the ENGINE owns the gesture, the
         /// clear and the draft store. `data-submit-on-enter="plain"` submits,
         /// `data-clear-on-submit` empties the field, and 3.1.0's `onDocSubmit`
@@ -29,8 +24,12 @@ extension ArcWebUITestRoot {
         /// no submit listener at all (the A15 capture-phase echo guard is
         /// deleted with the seam it fed).
         @Test("the composer states submit-on-enter and clear-on-submit; the engine owns the submit path")
-        func submitAndClearAreTheEngines() async throws {
-            let source = try Self.overlaySource()
+        func submitAndClearAreTheEngines() async {
+            // A17 deleted the client file, so the negative half of this pin is
+            // structural now (`ZeroClientScriptTests`: no `.js` under Sources at
+            // all, which covers the submit listener, the echo guard, the
+            // requestSubmit path and the IME copy at once). What arc still owns
+            // is the two attributes on the composer's open tag.
             let composer = await RenderedMarkup.composer()
             #expect(
                 composer.contains("data-submit-on-enter=\"plain\""),
@@ -39,22 +38,6 @@ extension ArcWebUITestRoot {
             #expect(
                 composer.contains("data-clear-on-submit"),
                 "the engine clears the field on the submit event"
-            )
-            #expect(
-                !source.contains("addEventListener('submit'"),
-                "the submit path (and the draft store it now clears) is the engine's; a client listener here is a second rule"
-            )
-            #expect(
-                !source.contains("submittedComposerText"),
-                "3.1.0 clears the draft store with the control, so the A15 echo guard has no job left"
-            )
-            #expect(
-                !source.contains("form.requestSubmit()"),
-                "the Enter gesture is the engine's (`data-submit-on-enter=\"plain\"`)"
-            )
-            #expect(
-                !source.contains("e.keyCode === 229"),
-                "the IME guard is the engine's; a copy here is a second rule to keep in sync"
             )
         }
 

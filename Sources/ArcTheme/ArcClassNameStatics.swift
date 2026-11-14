@@ -15,7 +15,7 @@ import WebUICore
 /// parameter type, and leading-dot spelling resolves against these members
 /// instead of against a concrete `ArcClass` parameter added per element.
 ///
-/// one case name is a keyword (`switch`) and is declared backticked,
+/// two case names are keywords (`open`, `switch`) and are declared backticked,
 /// exactly as `ArcClass` declares them.
 
 extension ClassName {
@@ -226,7 +226,6 @@ extension ClassName {
 	public static var fszLabel: ClassName { ClassName(ArcClass.fszLabel.token) }
 	public static var fszPreview: ClassName { ClassName(ArcClass.fszPreview.token) }
 	public static var ghostBtn: ClassName { ClassName(ArcClass.ghostBtn.token) }
-	public static var hidden: ClassName { ClassName(ArcClass.hidden.token) }
 	public static var iconBtn: ClassName { ClassName(ArcClass.iconBtn.token) }
 	public static var iconMini: ClassName { ClassName(ArcClass.iconMini.token) }
 	public static var iconbarBottom: ClassName { ClassName(ArcClass.iconbarBottom.token) }
@@ -671,10 +670,7 @@ extension ClassName {
 	public static var wsBody: ClassName { ClassName(ArcClass.wsBody.token) }
 	public static var wsCaret: ClassName { ClassName(ArcClass.wsCaret.token) }
 	public static var wsDel: ClassName { ClassName(ArcClass.wsDel.token) }
-	public static var wsClosing: ClassName { ClassName(ArcClass.wsClosing.token) }
 	public static var wsDockBtn: ClassName { ClassName(ArcClass.wsDockBtn.token) }
-	public static var wsDockOpen: ClassName { ClassName(ArcClass.wsDockOpen.token) }
-	public static var wsEnter: ClassName { ClassName(ArcClass.wsEnter.token) }
 	public static var wsForm: ClassName { ClassName(ArcClass.wsForm.token) }
 	public static var wsIc: ClassName { ClassName(ArcClass.wsIc.token) }
 	public static var wsMenuWrap: ClassName { ClassName(ArcClass.wsMenuWrap.token) }
