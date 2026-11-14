@@ -1,6 +1,6 @@
 // ux-gates.mjs — one-command UX gate suite for the arc web UI.
 //
-//   node Scripts/ux-gates.mjs [--only=contrast|interactions|upload|scroll|focus|motion|regression|round4|schemes]
+//   node Scripts/ux-gates.mjs [--only=contrast|interactions|upload|scroll|focus|drawer|motion|regression|round4|schemes]
 //
 // Zero-dependency: native fetch + WebSocket via Scripts/ux-drive.mjs.
 // Assertions LIVE IN THE PAGE (Scripts/ux-contrast.js, ux-gates.js,
@@ -71,6 +71,7 @@ const RUN = {
   upload: !opts.only || opts.only.includes('upload'),
   scroll: !opts.only || opts.only.includes('scroll'),
   focus: !opts.only || opts.only.includes('focus'),
+  drawer: !opts.only || opts.only.includes('drawer'),
   motion: !opts.only || opts.only.includes('motion'),
   regression: !opts.only || opts.only.includes('regression'),
   round4: !opts.only || opts.only.includes('round4'),
@@ -683,19 +684,22 @@ async function runInteractions() {
     } else {
       row.outsideClosed = null;
     }
-    matrix.push({ name, ...row });
-    // mutual exclusion: file-pop then model
+    // mutual exclusion: file-pop then model. This runs BEFORE the row is
+    // recorded — the row's verdict reads `mutualExclusion`, and recording it
+    // first made that clause vacuous (an undefined key satisfied `!m.mutualExclusion`).
     if (name === 'file') {
       await ev(`document.querySelector('${trig}')?.click()`);
-      await settle(350);
-      const fp1 = await ev(`uxGates.popovers().file.open`);
+      const fp1 = await waitStableValue(`uxGates.popovers().file.open`, true);
       await ev(`document.getElementById('cb-model-toggle')?.click()`);
-      await settle(350);
+      const mutualOk = await waitStableValue(
+        `(() => { const p = uxGates.popovers(); return p.model.open === true && p.file.open === false; })()`,
+        true, 250, 4000);
       const mutual = await ev(`({ file: uxGates.popovers().file.open, model: uxGates.popovers().model.open })`);
-      row.mutualExclusion = { fileOpen: fp1, afterModel: mutual };
+      row.mutualExclusion = { fileOpen: fp1, afterModel: mutual, ok: mutualOk };
       await driver.pressEscape();
       await settle(300);
     }
+    matrix.push({ name, ...row });
   }
   // session context menu
   const menuRow = { name: 'session-menu' };
@@ -719,7 +723,9 @@ async function runInteractions() {
   menuRow.outsideClosed = await waitStableValue(`uxGates.popovers().sessionMenu.open`, false, 250, 3000);
   matrix.push(menuRow);
 
-  const popoverOk = matrix.every((m) => m.opened && m.escClosed && m.outsideClosed !== false && (m.name !== 'file' || !m.mutualExclusion || (m.mutualExclusion.afterModel.file === false && m.mutualExclusion.afterModel.model === true)));
+  const popoverOk = matrix.every((m) => m.opened && m.escClosed && m.outsideClosed !== false
+    && (m.name !== 'file' || (m.mutualExclusion && m.mutualExclusion.ok === true
+        && m.mutualExclusion.afterModel.file === false && m.mutualExclusion.afterModel.model === true)));
   add('popover matrix (escape, outside-click, mutual exclusion)', popoverOk, matrix);
 
   // ---- 3. tab budget ------------------------------------------------------
@@ -1080,6 +1086,110 @@ async function runUpload() {
   const chipsLeft = await ev('uxGates.uploadChips().count');
   add('the probe cleaned its files and detached its chips', remaining.length === 0 && chipsLeft === 0,
     { root, removed, remaining, chipsLeft });
+}
+
+// ---------------------------------------------------------------------------
+// a13 — drawer: the engine's `data-open` on #app at both sides of 860px.
+//
+// the drawer is no-webui 2.15.0's: `data-drawer-toggle` on the topbar button
+// and on the scrim flips `data-open` on #app with no round-trip, opening moves
+// focus into `.drawer__panel`'s first control and closing returns it to the
+// toggle that opened it. below 860px the closed root is off-canvas AND
+// `visibility: hidden` (out of the tab order); at 861px and wider the panel is
+// the static rail and the toggle is gone. The rows are named `drawer · …`.
+
+async function runDrawer() {
+  console.log('\n— gate: drawer (off-canvas · scrim · Escape · focus · static rail) —');
+  const add = (name, ok, detail) => record('drawer', name, ok, detail);
+
+  // ---- 1. 600px: closed at rest ------------------------------------------
+  await driver.setViewport(600, 900);
+  await driver.navigate(APP);
+  await waitReady();
+  await chatView();
+  await settle(350);
+  const closed = await ev('uxGates.drawer()');
+  add('600px: closed at rest — no data-open, the panel is off-canvas and out of the tab order',
+    closed.present === true
+      && closed.open === false
+      && closed.toggleNames === 'app'
+      && closed.scrimNames === 'app'
+      && closed.panelVisibility === 'hidden'
+      && closed.panelShown === false,
+    closed);
+
+  // ---- 2. 600px: the toggle opens it, and focus lands in the panel --------
+  await ev(`document.getElementById('drawer-toggle')?.click()`);
+  const openedOk = await waitStableValue(`document.getElementById('app').hasAttribute('data-open')`, true, 250, 3000);
+  await settle(350);
+  const opened = await ev('uxGates.drawer()');
+  add('600px: the toggle opens — data-open on #app, the scrim is shown, focus enters the panel',
+    openedOk && opened.open === true && opened.panelVisibility === 'visible'
+      && opened.panelShown === true && opened.scrimOpacity === 1
+      && opened.scrimPointer === 'auto' && opened.focusInPanel === true,
+    opened);
+
+  // ---- 3. 600px: the scrim closes it -------------------------------------
+  const scrimPt = await ev(`(() => { const r = uxGates.drawer().scrimRect; return r ? { x: Math.round(r.l + r.w - 24), y: Math.round(r.t + Math.round(r.h / 2)) } : null; })()`);
+  check(scrimPt && scrimPt.x > 0, 'the scrim has no rect while the drawer is open');
+  await driver.clickAt(scrimPt.x, scrimPt.y);
+  const scrimClosedOk = await waitStableValue(`document.getElementById('app').hasAttribute('data-open')`, false, 250, 3000);
+  await settle(250);
+  const scrimClosed = await ev('uxGates.drawer()');
+  add('600px: a scrim click closes it and returns focus to the toggle',
+    scrimClosedOk && scrimClosed.open === false && scrimClosed.panelVisibility === 'hidden'
+      && scrimClosed.focusID === 'drawer-toggle',
+    { clicked: scrimPt, state: scrimClosed });
+
+  // ---- 4. 600px: Escape closes it (and returns focus to the toggle) ------
+  await ev(`document.getElementById('drawer-toggle')?.click()`);
+  const reopened = await waitStableValue(`document.getElementById('app').hasAttribute('data-open')`, true, 250, 3000);
+  await settle(300);
+  await driver.pressEscape();
+  const escClosedOk = await waitStableValue(`document.getElementById('app').hasAttribute('data-open')`, false, 250, 3000);
+  await settle(250);
+  const escClosed = await ev('uxGates.drawer()');
+  add('600px: Escape closes the drawer and focus is back on the toggle',
+    reopened && escClosedOk && escClosed.open === false
+      && escClosed.panelVisibility === 'hidden' && escClosed.focusID === 'drawer-toggle',
+    escClosed);
+
+  // ---- 5. 600px: a CLOSED drawer never takes the key ---------------------
+  // the layer that owns Escape is the composer popover; the drawer stays shut
+  // and the popover is the surface that closes.
+  await ev(`document.getElementById('cb-model-toggle')?.click()`);
+  const popOpened = await waitStableValue(`uxGates.popovers().model.open`, true, 250, 4000);
+  await driver.pressEscape();
+  const popClosedOk = await waitStableValue(`uxGates.popovers().model.open`, false, 250, 4000);
+  const afterKey = await ev('uxGates.drawer()');
+  add('600px: a closed drawer never takes the key — Escape closes the popover instead',
+    popOpened && popClosedOk && afterKey.open === false,
+    { popOpened, popClosedOk, drawerOpen: afterKey.open });
+
+  // ---- 6. 1200px: the static rail --------------------------------------
+  // start from a closed drawer: the previous rows must leave it shut, and a
+  // stale `data-open` here would judge the static rail on the overlay's state.
+  if ((await ev('uxGates.drawer()')).open) {
+    await ev(`document.getElementById('drawer-toggle')?.click()`);
+    await waitStableValue(`document.getElementById('app').hasAttribute('data-open')`, false, 250, 3000);
+  }
+  await driver.setViewport(1200, 900);
+  await settle(400);
+  const rail = await ev('uxGates.drawer()');
+  // the hidden toggle is still clickable from script: the engine's handler must
+  // be INERT above the breakpoint (preventDefault, then nothing), so neither
+  // the rail nor `data-open` may move.
+  await ev(`document.getElementById('drawer-toggle')?.click()`);
+  await settle(450);
+  const railAfter = await ev('uxGates.drawer()');
+  add('1200px: the toggle is hidden and inert, and the panel is the static rail',
+    rail.toggleDisplay === 'none' && rail.panelShown === true
+      && rail.panelPosition === 'static' && railAfter.open === false
+      && railAfter.panelShown === true,
+    { before: rail, afterClick: railAfter });
+
+  await driver.setViewport(...opts.viewport);
+  await settle(250);
 }
 
 // ---------------------------------------------------------------------------
@@ -1984,6 +2094,7 @@ async function main() {
     if (RUN.upload) await runUpload();
     if (RUN.scroll) await runScroll();
     if (RUN.focus) await runFocus();
+    if (RUN.drawer) await runDrawer();
     if (RUN.motion) await runMotion();
     if (RUN.regression) await runRegression();
     if (RUN.round4) await runRound4();
