@@ -610,6 +610,54 @@
       if (declared && !had) copy.removeAttribute('data-focus-return');
       return out;
     },
+
+    // ---- composer submit contract (a15) ------------------------------------
+    // no-webui 2.17.0 owns the submit gesture and the clear, and the theme
+    // picker's `aria-pressed` is the selected-state contract. these helpers
+    // only read the consequence off the live page; the driver performs input.
+
+    /// the composer's declared consequence plus the transcript's witness: did a
+    /// user message land with this text, and does the field now hold what?
+    composerState: () => {
+      const t = document.getElementById('composer-input');
+      const users = Array.prototype.slice.call(document.querySelectorAll('.msg.user'));
+      const dd = document.getElementById('cmd-dropdown');
+      return {
+        present: !!t,
+        value: t ? t.value : null,
+        submit: t ? t.getAttribute('data-submit-on-enter') : null,
+        clear: t ? t.hasAttribute('data-clear-on-submit') : false,
+        draftId: t ? t.getAttribute('data-draft-id') : null,
+        userRows: users.length,
+        lastUser: users.length ? (users[users.length - 1].textContent || '').trim().slice(0, 160) : null,
+        live: !!document.getElementById('live-turn'),
+        menuOpen: !!dd && dd.classList.contains('open'),
+        menuRows: dd ? dd.querySelectorAll('.cmd-item').length : 0,
+      };
+    },
+
+    /// the theme toggle as the ENGINE states it: `aria-pressed` per card, the
+    /// root `data-theme`, and the computed border the sheet paints for a pressed
+    /// card. `.active` is gone (A15), so this is the only selected contract.
+    themeState: () => {
+      const cards = Array.prototype.slice.call(document.querySelectorAll('[data-theme-choice]')).map((b) => {
+        const cs = getComputedStyle(b);
+        return {
+          id: b.id,
+          choice: b.getAttribute('data-theme-choice'),
+          pressed: b.getAttribute('aria-pressed'),
+          cls: b.className,
+          borderColor: cs.borderTopColor,
+          boxShadow: cs.boxShadow,
+        };
+      });
+      return {
+        theme: document.documentElement.getAttribute('data-theme'),
+        cards,
+        pressed: cards.filter((c) => c.pressed === 'true').map((c) => c.choice),
+        classActive: cards.filter((c) => (' ' + c.cls + ' ').indexOf(' active ') >= 0).length,
+      };
+    },
   };
   window.uxGates = api;
   return 'uxGates installed — helpers on window.uxGates';

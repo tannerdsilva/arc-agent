@@ -314,6 +314,8 @@ export class UxDriver {
 
   async pressKey(key, opts = {}) {
     // key: 'Tab' | 'Escape' | 'Enter' | 'ArrowUp' | 'ArrowDown' | 'Backspace'
+    // opts.modifiers: CDP bitmask (8 = Shift), for Shift+Enter's newline.
+    const modifiers = opts.modifiers || 0;
     const keyMap = {
       Enter: { code: 'Enter', key: 'Enter', text: '\r', vk: 13 },
       Tab: { code: 'Tab', key: 'Tab', vk: 9 },
@@ -331,11 +333,11 @@ export class UxDriver {
     const k = keyMap[key];
     if (!k) throw new Error(`pressKey: unknown key ${key}`);
     if (k.text !== undefined) {
-      await this.send('Input.dispatchKeyEvent', { type: 'keyDown', key: k.key, code: k.code, windowsVirtualKeyCode: k.vk, text: k.text, unmodifiedText: k.text });
-      await this.send('Input.dispatchKeyEvent', { type: 'keyUp', key: k.key, code: k.code, windowsVirtualKeyCode: k.vk });
+      await this.send('Input.dispatchKeyEvent', { type: 'keyDown', modifiers, key: k.key, code: k.code, windowsVirtualKeyCode: k.vk, text: k.text, unmodifiedText: k.text });
+      await this.send('Input.dispatchKeyEvent', { type: 'keyUp', modifiers, key: k.key, code: k.code, windowsVirtualKeyCode: k.vk });
     } else {
-      await this.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: k.key, code: k.code, windowsVirtualKeyCode: k.vk });
-      await this.send('Input.dispatchKeyEvent', { type: 'keyUp', key: k.key, code: k.code, windowsVirtualKeyCode: k.vk });
+      await this.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', modifiers, key: k.key, code: k.code, windowsVirtualKeyCode: k.vk });
+      await this.send('Input.dispatchKeyEvent', { type: 'keyUp', modifiers, key: k.key, code: k.code, windowsVirtualKeyCode: k.vk });
     }
   }
 

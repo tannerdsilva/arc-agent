@@ -1,6 +1,6 @@
 // ux-gates.mjs — one-command UX gate suite for the arc web UI.
 //
-//   node Scripts/ux-gates.mjs [--only=contrast|interactions|upload|scroll|focus|drawer|draft|motion|regression|round4|schemes]
+//   node Scripts/ux-gates.mjs [--only=contrast|interactions|upload|scroll|focus|drawer|draft|composer|theme|motion|regression|round4|schemes]
 //
 // Zero-dependency: native fetch + WebSocket via Scripts/ux-drive.mjs.
 // Assertions LIVE IN THE PAGE (Scripts/ux-contrast.js, ux-gates.js,
@@ -73,6 +73,8 @@ const RUN = {
   focus: !opts.only || opts.only.includes('focus'),
   drawer: !opts.only || opts.only.includes('drawer'),
   draft: !opts.only || opts.only.includes('draft'),
+  composer: !opts.only || opts.only.includes('composer'),
+  theme: !opts.only || opts.only.includes('theme'),
   motion: !opts.only || opts.only.includes('motion'),
   regression: !opts.only || opts.only.includes('regression'),
   round4: !opts.only || opts.only.includes('round4'),
@@ -1757,6 +1759,221 @@ async function runDraft() {
   if (startSid) await openSessionRow(startSid);
 }
 
+// ---------------------------------------------------------------------------
+// A15 — the composer submits and clears through the ENGINE (no-webui 2.17.0)
+//
+// `data-submit-on-enter="plain"` submits on Enter and leaves Shift+Enter a
+// newline; the binder returns early on an IME composition (`isComposing`, or
+// `keyCode === 229`) before any gesture is read. `data-clear-on-submit` empties
+// the field on the submit event. The one consequence the engine cannot express
+// (measured: its draft store re-fills an empty `[data-draft-id]` field on the
+// next replacing patch) is arc's narrowed echo guard; (a) holds the field empty
+// through the patches a send produces, which is that guard's only job.
+
+async function setComposer(text) {
+  // focus BEFORE the input frame: the overlay's focusin listener closes the
+  // slash menu when focus leaves it, so focusing after the input would open the
+  // menu and then immediately close it (measured in the first run of (d)).
+  return ev(`(() => {
+    const t = document.getElementById('composer-input');
+    if (!t) return false;
+    t.focus();
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(t, ${JSON.stringify(text)});
+    t.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+}
+
+async function runComposer() {
+  console.log('\n— gate: composer (submit modes + clear, no-webui 2.17.0) —');
+  await chatView();
+  await waitStreamEnd(120000).catch(() => false);
+  // a fresh chat so the transcript witness starts empty; the `+` patch can land
+  // a beat after the click, so poll for the empty transcript rather than trust
+  // one settle (measured: a click on a cold page left the previous chat open
+  // and the first keystrokes went to a button).
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await ev(`document.getElementById('chat-new')?.click()`);
+    await driver.waitFor(`!!document.getElementById('composer-input')`, { timeoutMs: 8000 });
+    await settle(600);
+    const rows = await ev(`document.querySelectorAll('.msg.user').length`);
+    if (rows === 0) break;
+  }
+
+  // (e) the control states both consequences on its own open tag.
+  const boot = await ev(`uxGates.composerState()`);
+  const contractOk = boot.present && boot.submit === 'plain' && boot.clear === true;
+  record('composer', '(e) the textarea states data-submit-on-enter="plain" and data-clear-on-submit', contractOk, boot);
+
+  // (d) the slash menu owns Enter: it inserts and must not submit. This is the
+  // 2.17.0 conflict — the engine's listener is on the textarea ELEMENT, the
+  // menu's is a CAPTURE-phase document listener, so the insert wins the key.
+  // The token is written through the value setter + input frame (the menu opens
+  // on `input`, not on a keystroke) so the row does not race focus theft; the
+  // Enter itself is a real CDP keypress, sent on the very next round-trip after
+  // the menu is confirmed open. No settle in between: a patch that replaces the
+  // composer mid-window re-renders the field and closes the menu (measured at
+  // ~500 ms after an input), and then the Enter would submit the `/he` text.
+  let beforeSlash = null;
+  let afterSlash = null;
+  let slashOk = false;
+  for (let attempt = 0; attempt < 3 && !slashOk; attempt++) {
+    const userRowsBefore = await ev(`document.querySelectorAll('.msg.user').length`);
+    await setComposer('/');
+    const opened = await waitTrue(`uxGates.composerState().menuOpen`, 5000);
+    if (!opened) continue;
+    await setComposer('/he');
+    beforeSlash = await ev(`uxGates.composerState()`);
+    if (!beforeSlash.menuOpen || beforeSlash.menuRows === 0) continue;
+    await driver.pressEnter();
+    await settle(450);
+    afterSlash = await ev(`uxGates.composerState()`);
+    slashOk = /^\/\S+ /.test(afterSlash.value || '') && !afterSlash.menuOpen
+      && afterSlash.userRows === userRowsBefore && !afterSlash.live;
+    if (!slashOk) await waitStreamEnd(60000).catch(() => false);
+  }
+  record('composer', '(d) with the slash menu open, Enter inserts and does not submit', slashOk,
+    { before: beforeSlash, after: afterSlash });
+
+  // (b) Shift+Enter inserts a newline and does not submit.
+  const shiftBefore = await ev(`uxGates.composerState()`);
+  await setComposer('line one');
+  await driver.pressKey('Enter', { modifiers: 8 });
+  await settle(250);
+  await driver.typeText('line two');
+  await settle(300);
+  const shift = await ev(`uxGates.composerState()`);
+  const shiftOk = (shift.value || '').indexOf('\n') !== -1
+    && (shift.value || '').indexOf('line two') !== -1
+    && shift.userRows === shiftBefore.userRows && !shift.live;
+  record('composer', '(b) Shift+Enter inserts a newline and does not submit', shiftOk, shift);
+
+  // (c) an IME composition never submits, in either spelling the binder guards.
+  await setComposer('UXGATE ime');
+  const imeBefore = await ev(`uxGates.composerState()`);
+  await ev(`(() => {
+    const t = document.getElementById('composer-input');
+    t.focus();
+    t.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true }));
+    const legacy = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    Object.defineProperty(legacy, 'keyCode', { value: 229 });
+    t.dispatchEvent(legacy);
+    return true;
+  })()`);
+  await settle(900);
+  const imeAfter = await ev(`uxGates.composerState()`);
+  const imeOk = imeAfter.userRows === imeBefore.userRows && imeAfter.value === imeBefore.value && !imeAfter.live;
+  record('composer', '(c) an Enter during IME composition (isComposing / keyCode 229) does not submit', imeOk,
+    { before: imeBefore, after: imeAfter });
+
+  // (f) the server refuses a blank submit. The observed contract: the ENGINE's
+  // "successful" is the submit event, so a whitespace-only Enter clears the
+  // field and sends nothing — the clear is not a server-acceptance receipt.
+  const blankBefore = await ev(`uxGates.composerState()`);
+  await setComposer('   ');
+  await settle(150);
+  await driver.pressEnter();
+  await settle(1000);
+  const blankAfter = await ev(`uxGates.composerState()`);
+  const blankRefused = blankAfter.userRows === blankBefore.userRows && !blankAfter.live;
+  record('composer', '(f) a whitespace-only Enter sends nothing (the clear follows the submit event)', blankRefused,
+    { before: blankBefore, after: blankAfter,
+      contract: blankAfter.value === ''
+        ? 'cleared on the submit event; the server refused the blank text, so nothing was sent'
+        : 'not cleared — no submit event fired' });
+
+  // (a) Enter submits: the transcript gains the message and the field stays
+  // clear through the replacing patches the send produces. The draft store
+  // would otherwise hand the submitted text back (measured defect, see the
+  // overlay's guard); this row is what proves the field reads empty to the
+  // reader after the send.
+  const marker = 'UXGATE composer ' + (Date.now() % 100000) + ' — reply with the single word: ok. Do not call any tools.';
+  const sendBefore = await ev(`uxGates.composerState()`);
+  await setComposer(marker);
+  await settle(150);
+  await driver.pressEnter();
+  const landed = await waitTrue(`(uxGates.composerState().lastUser || '').indexOf('UXGATE composer') !== -1`, 15000);
+  const justSent = await ev(`uxGates.composerState()`);
+  await settle(1800);
+  const held = await ev(`uxGates.composerState()`);
+  const enterOk = landed && justSent.userRows === sendBefore.userRows + 1
+    && justSent.value === '' && held.value === '';
+  record('composer', '(a) Enter submits, the transcript gains the message, and the field stays clear', enterOk,
+    { landed, justSent, after1800ms: held });
+  await waitStreamEnd(180000).catch(() => false);
+}
+
+// ---------------------------------------------------------------------------
+// A15 — the theme picker's selected state is `aria-pressed` (no-webui 2.17.0)
+//
+// the server renders it from the saved mode; the engine's boot `press()` and
+// every press reconcile it, and its `data-theme-choice` binder re-presses on
+// each insert. `.active` is gone, so `ChromeSheet` keys
+// `[aria-pressed="true"]` — this gate proves the one-pressed invariant, the
+// root it tracks, and that the sheet's rule lands on the pressed card.
+
+async function themeSettled(expectChoice, timeoutMs = 9000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await ev(`uxGates.themeState()`);
+    const one = !!last && Array.isArray(last.pressed) && last.pressed.length === 1;
+    const matches = one && last.pressed[0] === last.theme;
+    const wanted = !expectChoice || (one && last.pressed[0] === expectChoice);
+    if (one && matches && wanted) return { ok: true, state: last };
+    await sleep(150);
+  }
+  return { ok: false, state: last };
+}
+
+async function runTheme() {
+  console.log('\n— gate: theme (aria-pressed selected contract, no-webui 2.17.0) —');
+  await chatView();
+  await ev(`document.getElementById('nav-settings')?.click()`);
+  await driver.waitFor(`document.querySelectorAll('[data-theme-choice]').length >= 2`, { timeoutMs: 8000 });
+  await settle(300);
+
+  // (a) at load: exactly one pressed card, and it is the root's mode.
+  const load = await themeSettled();
+  const loadState = load.state || {};
+  const loadOk = load.ok && loadState.classActive === 0;
+  record('theme', '(a) exactly one aria-pressed="true" card at load, matching <html data-theme>', loadOk,
+    { state: loadState });
+
+  // (b) a press moves the pressed card, the root, and the sheet's selected rule.
+  const target = loadState.theme === 'light' ? 'dark' : 'light';
+  await ev(`document.getElementById('thm-${target}')?.click()`);
+  const after = await themeSettled(target);
+  const afterState = after.state || {};
+  const pressedCard = (afterState.cards || []).find((c) => c.pressed === 'true') || null;
+  const otherCard = (afterState.cards || []).find((c) => c.pressed === 'false') || null;
+  const painted = !!(pressedCard && otherCard
+    && (pressedCard.borderColor !== otherCard.borderColor || pressedCard.boxShadow !== otherCard.boxShadow));
+  const pressOk = after.ok && afterState.theme === target && afterState.classActive === 0 && painted;
+  record('theme', "(b) a press moves the pressed card, the root, and the sheet's selected rule", pressOk,
+    { target, state: afterState,
+      pressedBorder: pressedCard && pressedCard.borderColor,
+      otherBorder: otherCard && otherCard.borderColor, painted });
+
+  // (c) the overlay the daemon actually serves carries no theme mirror. Read
+  // UTF-8 bytes (not `text().length`, which counts UTF-16 code units and would
+  // undercount the em dashes), so the byte count can be compared with `wc -c`.
+  const served = await driver.js(`fetch('/ui/init.js', { cache: 'no-store' }).then(function (r) {
+    return r.arrayBuffer().then(function (b) {
+      var text = new TextDecoder().decode(b);
+      return { bytes: b.byteLength, syncThemePickers: text.indexOf('syncThemePickers'), webuiTheme: text.indexOf('webui:theme') };
+    });
+  })`, { awaitPromise: true });
+  const gone = !!served && served.bytes > 0
+    && served.syncThemePickers === -1 && served.webuiTheme === -1;
+  record('theme', '(c) the served overlay carries no syncThemePickers / webui:theme mirror', gone,
+    served || { error: 'fetch did not resolve' });
+
+  await ev(`document.getElementById('chat-new')?.click()`).catch(() => {});
+  await ev(`document.getElementById('nav-chat')?.click()`);
+  await settle(300);
+}
+
 async function runMotion() {
   console.log('\n— gate: motion (prefers-reduced-motion: reduce) —');
   const out = { reducedMotion: 'emulated (Emulation.setEmulatedMedia)', checks: [] };
@@ -2234,6 +2451,8 @@ async function main() {
     if (RUN.focus) await runFocus();
     if (RUN.drawer) await runDrawer();
     if (RUN.draft) await runDraft();
+    if (RUN.composer) await runComposer();
+    if (RUN.theme) await runTheme();
     if (RUN.motion) await runMotion();
     if (RUN.regression) await runRegression();
     if (RUN.round4) await runRound4();
@@ -2252,6 +2471,8 @@ async function main() {
       focus: results.filter((r) => r.gate === 'focus'),
       drawer: results.filter((r) => r.gate === 'drawer'),
       draft: results.filter((r) => r.gate === 'draft'),
+      composer: results.filter((r) => r.gate === 'composer'),
+      theme: results.filter((r) => r.gate === 'theme'),
       motion: results.filter((r) => r.gate === 'motion'),
       regression: results.filter((r) => r.gate === 'regression'),
       round4: results.filter((r) => r.gate === 'round4'),

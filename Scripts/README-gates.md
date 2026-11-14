@@ -12,6 +12,9 @@ node Scripts/ux-gates.mjs --only=contrast         # just WCAG AA contrast
 node Scripts/ux-gates.mjs --only=interactions
 node Scripts/ux-gates.mjs --only=scroll
 node Scripts/ux-gates.mjs --only=focus          # focus matrix (A12)
+node Scripts/ux-gates.mjs --only=draft          # draft identity + seed (A14)
+node Scripts/ux-gates.mjs --only=composer        # Enter / Shift+Enter / IME / slash / clear (A15)
+node Scripts/ux-gates.mjs --only=theme          # aria-pressed selected contract (A15)
 node Scripts/ux-gates.mjs --only=motion
 node Scripts/ux-gates.mjs --only=regression
 node Scripts/ux-gates.mjs --only=schemes
@@ -85,6 +88,30 @@ Artifacts (all gitignored — regenerate, don't commit):
    a `data-focus-return` region (the kanban rename field has no id to re-query);
    (e) no console error or warning through the tour. Every wait is
    deadline-bounded, and a missing frame fails the row.
+8. **composer (A15)** — no-webui 2.17.0 owns the submit gesture and the clear,
+   so this gate reads the consequence in a real browser: (e) the composer
+   carries `data-submit-on-enter="plain"` and `data-clear-on-submit`;
+   (d) with the slash menu open, Enter inserts the highlighted command and
+   does **not** submit (the engine's listener is on the textarea element, so
+   the menu's is a capture-phase document listener that stops propagation for
+   Enter/Tab); (b) Shift+Enter inserts a newline and does not submit;
+   (c) an Enter during an IME composition (`isComposing`, and the legacy
+   `keyCode === 229` spelling) submits nothing; (f) a whitespace-only Enter
+   sends nothing — the observed contract is that the engine's "successful" is
+   the submit event, so the field clears while the server refuses the blank
+   text; (a) Enter submits, the transcript gains the message, and the field
+   still reads empty after the replacing patches that follow (the draft store
+   would otherwise re-fill it; that echo is the one consequence arc still
+   guards, see the overlay's comment and `ClientAssetBudgetTests`).
+9. **theme (A15)** — `aria-pressed` is the theme-selected contract:
+   (a) exactly one `[data-theme-choice][aria-pressed="true"]` at load and it
+   matches `<html data-theme>` (the engine's boot press runs after the server's
+   render, so the row polls to a deadline); (b) a press of a different card
+   leaves exactly one pressed, moves `<html data-theme>` with it, paints the
+   sheet's `[aria-pressed="true"]` rule on that card (computed border/shadow
+   differ from an unpressed card), and produces no `.active` class anywhere;
+   (c) the overlay the daemon serves (`/ui/init.js`) carries no
+   `syncThemePickers` and no `webui:theme` listener.
 
 ## Probes
 
@@ -93,7 +120,8 @@ read-only functions and **also works pasted into a browser console**:
 
 - `ux-contrast.js` → `window.uxContrast` (`sampleView`, `effBg`, `ratio`…)
 - `ux-gates.js` → `window.uxGates` (state, popovers, slash, sessions, modal,
-  toast, stream, drawer, workspace, focusables, activeElement…)
+  toast, stream, drawer, workspace, focusables, activeElement, composerState,
+  themeState…)
 - `ux-schemes.js` → `window.uxSchemes` (`list`, `active`, `tokens`)
 
 Manual paste example:
